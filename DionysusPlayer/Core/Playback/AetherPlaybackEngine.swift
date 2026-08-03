@@ -1,27 +1,17 @@
 import Combine
-import CoreMedia
 import Foundation
 import SwiftUI
 import AetherEngine
 
 /// `PlaybackEngine` implemented on top of AetherEngine.
 ///
-/// Written against AetherEngine's published guides/docs rather than against
-/// the compiler (no macOS/Xcode toolchain was available while scaffolding
-/// this project), so some of the bridging below is intentionally defensive:
-///
-/// - The core calls (`load`, `play`, `pause`, `togglePlayPause`, `stop`,
-///   `seek`, `selectAudioTrack`, `selectSubtitleTrack`,
-///   `AetherPlayerSurface(engine:)`) are taken verbatim from AetherEngine's
-///   documented API and should just work.
-/// - `state`/`clock.currentTime`/track metadata are bridged loosely (string
-///   matching, `Mirror` reflection) because their exact case names / stored
-///   property names weren't confirmed. If AetherEngine's real shape differs,
-///   this is the one file that needs adjusting — everything else in the app
-///   only talks to the `PlaybackEngine` protocol.
+/// Adapts AetherEngine's Combine publishers and its `TrackInfo` / `VideoFormat`
+/// / `PlaybackState` shapes onto the app's own smaller `PlaybackEngine`
+/// protocol so feature code (the player view model and controls overlay)
+/// never touches AetherEngine's types directly.
 @MainActor
 final class AetherPlaybackEngine: PlaybackEngine {
-    private let player = AetherPlayer()
+    private let engine: AetherEngine
     private var cancellables: Set<AnyCancellable> = []
 
     var onStateChange: ((PlaybackState) -> Void)?
@@ -34,113 +24,135 @@ final class AetherPlaybackEngine: PlaybackEngine {
     private var selectedAudioTrackID: Int?
     private var selectedSubtitleTrackID: Int?
 
-    init() {
-        observePlayer()
+    init() throws {
+        self.engine = try AetherEngine()
+        observeEngine()
     }
 
-    private func observePlayer() {
-        player.$state
+    private func observeEngine() {
+        engine.$state
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
-                self?.onStateChange?(Self.bridgeState(state))
+                let bridged: PlaybackState
+                switch state {
+                case .idle:              bridged = .idle
+                case .loading:           bridged = .loading
+                case .playing:           bridged = .playing
+                case .paused:            bridged = .paused
+                case .seeking:           bridged = .seeking
+                case .ended:             bridged = .ended
+                case .error(let message): bridged = .failed(message)
+                }
+                MainActor.assumeIsolated {
+                    self?.onStateChange?(bridged)
+                }
             }
             .store(in: &cancellables)
 
-        player.clock.$currentTime
+        engine.clock.$currentTime
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] time in
-                guard let self else { return }
-                self.onTimeUpdate?(Self.seconds(from: time), Self.seconds(from: self.player.duration))
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.onTimeUpdate?(time, self.engine.duration)
+                }
             }
             .store(in: &cancellables)
 
-        player.$videoFormat
+        engine.$videoFormat
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] format in
-                self?.videoFormatDescription = Self.describeFormat(format)
+                let description = Self.describe(format)
+                MainActor.assumeIsolated {
+                    self?.videoFormatDescription = description
+                }
+            }
+            .store(in: &cancellables)
+
+        engine.$audioTracks
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] tracks in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.audioTracks = Self.normalize(tracks, kind: .audio, selectedID: self.selectedAudioTrackID)
+                }
+            }
+            .store(in: &cancellables)
+
+        engine.$subtitleTracks
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] tracks in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.subtitleTracks = Self.normalize(tracks, kind: .subtitle, selectedID: self.selectedSubtitleTrackID)
+                }
             }
             .store(in: &cancellables)
     }
 
     func load(url: URL) async throws {
-        try await player.load(url: url)
-        audioTracks = Self.normalizeTracks(player.audioTracks, kind: .audio, selectedID: selectedAudioTrackID)
-        subtitleTracks = Self.normalizeTracks(player.subtitleTracks, kind: .subtitle, selectedID: selectedSubtitleTrackID)
+        _ = try await engine.load(url: url)
     }
 
-    func play() { player.play() }
-    func pause() { player.pause() }
-    func togglePlayPause() { player.togglePlayPause() }
-    func stop() { player.stop() }
+    func play() { engine.play() }
+    func pause() { engine.pause() }
+    func togglePlayPause() { engine.togglePlayPause() }
+    func stop() { engine.stop() }
 
     func seek(to time: TimeInterval) async {
-        await player.seek(to: time)
+        await engine.seek(to: time)
     }
 
     func selectAudioTrack(id: Int) {
-        player.selectAudioTrack(index: id)
+        engine.selectAudioTrack(index: id)
         selectedAudioTrackID = id
-        audioTracks = audioTracks.map { PlaybackTrack(id: $0.id, kind: $0.kind, displayTitle: $0.displayTitle, isSelected: $0.id == id) }
+        audioTracks = audioTracks.map {
+            PlaybackTrack(id: $0.id, kind: $0.kind, displayTitle: $0.displayTitle, isSelected: $0.id == id)
+        }
     }
 
     func selectSubtitleTrack(id: Int?) {
         selectedSubtitleTrackID = id
         if let id {
-            player.selectSubtitleTrack(index: id)
+            engine.selectSubtitleTrack(index: id)
+        } else {
+            engine.clearSubtitle()
         }
-        subtitleTracks = subtitleTracks.map { PlaybackTrack(id: $0.id, kind: $0.kind, displayTitle: $0.displayTitle, isSelected: $0.id == id) }
+        subtitleTracks = subtitleTracks.map {
+            PlaybackTrack(id: $0.id, kind: $0.kind, displayTitle: $0.displayTitle, isSelected: $0.id == id)
+        }
     }
 
     func makeSurface() -> AnyView {
-        AnyView(AetherPlayerSurface(engine: player))
+        AnyView(AetherPlayerSurface(engine: engine))
     }
 
-    // MARK: - Defensive bridging
+    // MARK: - Bridging
 
-    private static func bridgeState(_ aetherState: Any) -> PlaybackState {
-        let description = String(describing: aetherState).lowercased()
-        if description.contains("error") { return .failed(description) }
-        if description.contains("play") { return .playing }
-        if description.contains("pause") { return .paused }
-        if description.contains("seek") { return .seeking }
-        if description.contains("end") { return .ended }
-        if description.contains("load") { return .loading }
-        return .idle
+    private static func describe(_ format: VideoFormat) -> String? {
+        switch format {
+        case .sdr: return nil
+        case .hdr10: return "HDR10"
+        case .hdr10Plus: return "HDR10+"
+        case .dolbyVision: return "Dolby Vision"
+        case .hlg: return "HLG"
+        }
     }
 
-    private static func seconds(from value: Any) -> TimeInterval {
-        if let interval = value as? TimeInterval { return interval }
-        if let cmTime = value as? CMTime { return CMTimeGetSeconds(cmTime) }
-        return 0
-    }
-
-    private static func describeFormat(_ value: Any?) -> String? {
-        guard let value else { return nil }
-        let description = String(describing: value)
-        return description.isEmpty || description == "nil" ? nil : description
-    }
-
-    /// Reads a track's display title via reflection, since the concrete
-    /// audio/subtitle track struct's field names weren't confirmed.
-    private static func normalizeTracks(_ tracks: [Any], kind: PlaybackTrack.Kind, selectedID: Int?) -> [PlaybackTrack] {
-        tracks.enumerated().map { index, track in
+    private static func normalize(_ tracks: [TrackInfo], kind: PlaybackTrack.Kind, selectedID: Int?) -> [PlaybackTrack] {
+        tracks.map { track in
             PlaybackTrack(
-                id: index,
+                id: track.id,
                 kind: kind,
-                displayTitle: displayTitle(for: track, fallbackIndex: index),
-                isSelected: selectedID == index
+                displayTitle: displayTitle(for: track),
+                isSelected: track.id == selectedID
             )
         }
     }
 
-    private static func displayTitle(for track: Any, fallbackIndex: Int) -> String {
-        let mirror = Mirror(reflecting: track)
-        for label in ["displayTitle", "title", "name"] {
-            if let value = mirror.children.first(where: { $0.label == label })?.value as? String, !value.isEmpty {
-                return value
-            }
-        }
-        if let language = mirror.children.first(where: { $0.label == "language" || $0.label == "languageCode" })?.value as? String,
-           !language.isEmpty {
-            return language
-        }
-        return "Track \(fallbackIndex + 1)"
+    private static func displayTitle(for track: TrackInfo) -> String {
+        if !track.name.isEmpty { return track.name }
+        if let language = track.language, !language.isEmpty { return language }
+        return "Track \(track.id)"
     }
 }

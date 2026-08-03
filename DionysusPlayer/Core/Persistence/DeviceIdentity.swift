@@ -27,7 +27,7 @@ enum DeviceIdentity {
         #endif
     }
 
-    static var clientName: String { "Dionysus Player" }
+    static var clientName: String { "Dionysus" }
 
     static var clientVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1"

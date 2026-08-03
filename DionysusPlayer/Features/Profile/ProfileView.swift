@@ -4,6 +4,7 @@ import SwiftUI
 /// sign out / change server.
 struct ProfileView: View {
     @Environment(AppState.self) private var appState
+    @AppStorage(themePreferenceStorageKey) private var themePreference: ThemePreference = .system
     @State private var showSignOutConfirmation = false
     @State private var showChangeServerConfirmation = false
 
@@ -13,6 +14,14 @@ struct ProfileView: View {
                 LabeledContent("Username", value: appState.currentUser?.name ?? appState.sessionStore.credentials?.username ?? "\u{2014}")
                 LabeledContent("Server", value: appState.sessionStore.serverConfiguration?.name ?? "\u{2014}")
                 LabeledContent("Address", value: appState.sessionStore.serverConfiguration?.baseURL.absoluteString ?? "\u{2014}")
+            }
+
+            Section("Appearance") {
+                Picker("Theme", selection: $themePreference) {
+                    ForEach(ThemePreference.allCases) { preference in
+                        Text(preference.displayName).tag(preference)
+                    }
+                }
             }
 
             Section {

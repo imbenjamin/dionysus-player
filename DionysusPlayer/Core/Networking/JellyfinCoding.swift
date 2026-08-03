@@ -56,13 +56,18 @@ private enum CodingKeyCasing {
     }
 
     /// Standard ISO-8601 with up to millisecond precision.
-    static let fractionalFormatter: ISO8601DateFormatter = {
+    ///
+    /// `nonisolated(unsafe)` is sound: `ISO8601DateFormatter` is thread-safe
+    /// for concurrent `date(from:)` calls as long as its properties aren't
+    /// mutated after configuration, which is exactly this shape (set once,
+    /// read-only afterwards).
+    nonisolated(unsafe) static let fractionalFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
 
-    static let plainFormatter: ISO8601DateFormatter = {
+    nonisolated(unsafe) static let plainFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         return formatter
@@ -78,6 +83,6 @@ private extension String {
         guard let suffixStart = self[fractionStart...].firstIndex(where: { !$0.isNumber }) else { return nil }
         let fraction = self[fractionStart..<suffixStart]
         guard fraction.count > 3 else { return nil }
-        return self[..<fractionStart] + fraction.prefix(3) + self[suffixStart...]
+        return String(self[..<fractionStart]) + String(fraction.prefix(3)) + String(self[suffixStart...])
     }
 }

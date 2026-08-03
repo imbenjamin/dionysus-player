@@ -34,7 +34,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.dionysusplayer.ios
-        PRODUCT_NAME: Dionysus Player
+        PRODUCT_NAME: Dionysus
         TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MACCATALYST: false
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -42,7 +42,7 @@ targets:
     info:
       path: Generated/Info.plist
       properties:
-        CFBundleDisplayName: Dionysus Player
+        CFBundleDisplayName: Dionysus
         UILaunchScreen: {}
         UIRequiresFullScreen: false
         UIStatusBarStyle: UIStatusBarStyleLightContent
@@ -60,7 +60,7 @@ targets:
           - audio
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
-        NSLocalNetworkUsageDescription: "Dionysus Player looks for and connects to your Jellyfin media server on your local network."
+        NSLocalNetworkUsageDescription: "Dionysus looks for and connects to your Jellyfin media server on your local network."
         NSBonjourServices:
           - _jellyfin._tcp
 

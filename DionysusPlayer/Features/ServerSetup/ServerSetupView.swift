@@ -66,7 +66,7 @@ struct ServerSetupView: View {
                 .foregroundStyle(.tint)
             Text("Find Your Server")
                 .font(.largeTitle.bold())
-            Text("Dionysus Player needs the address of your Jellyfin server to get started.")
+            Text("Dionysus needs the address of your Jellyfin server to get started.")
                 .foregroundStyle(.secondary)
         }
     }

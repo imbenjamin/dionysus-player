@@ -55,7 +55,7 @@ struct PlayerView: View {
 
     private func setUpIfNeeded() async {
         guard viewModel == nil, let client = appState.apiClient, let userID = appState.currentUser?.id else { return }
-        let engine = AetherPlaybackEngine()
+        guard let engine = try? AetherPlaybackEngine() else { return }
         let newViewModel = PlayerViewModel(client: client, userID: userID, itemID: itemID, engine: engine)
         viewModel = newViewModel
         await newViewModel.start()
