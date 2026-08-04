@@ -8,12 +8,12 @@ struct CollectionGridView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel: CollectionGridViewModel?
 
-    private let columns = [GridItem(.adaptive(minimum: 110, maximum: 160), spacing: 16)]
-
     var body: some View {
-        ScrollView {
-            content
-                .padding()
+        GeometryReader { proxy in
+            ScrollView {
+                content(containerWidth: proxy.size.width)
+                    .padding()
+            }
         }
         .navigationTitle(query.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -21,7 +21,7 @@ struct CollectionGridView: View {
     }
 
     @ViewBuilder
-    private var content: some View {
+    private func content(containerWidth: CGFloat) -> some View {
         switch viewModel?.loadState ?? .loading {
         case .idle, .loading:
             LoadingView().frame(minHeight: 300)
@@ -34,9 +34,10 @@ struct CollectionGridView: View {
                 ErrorStateView(message: "Nothing here yet.", retry: nil)
                     .frame(minHeight: 300)
             } else {
-                LazyVGrid(columns: columns, spacing: 20) {
+                let metrics = PosterGridMetrics(containerWidth: containerWidth)
+                LazyVGrid(columns: metrics.columns, spacing: 20) {
                     ForEach(items) { item in
-                        PosterCard(item: item, width: 130)
+                        PosterCard(item: item, width: metrics.itemWidth)
                     }
                 }
             }
