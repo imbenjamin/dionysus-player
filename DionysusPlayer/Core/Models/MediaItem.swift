@@ -165,6 +165,104 @@ struct MediaItem: Identifiable {
         return details.isEmpty ? nil : details
     }
 
+    /// Small call-out badges for the detail page's metadata row — resolution
+    /// class, dynamic range, audio format, and accessibility tracks — shown
+    /// where genres used to sit (see `InfoMetadataRow`). Independent of
+    /// `technicalDetails` (which is display-formatted for the "Details"
+    /// tab): a "4K"/"HD" badge needs a coarser bucket than that view's exact
+    /// dimensions.
+    ///
+    /// Media with several audio tracks in different formats collapses each
+    /// *family* to a single best badge rather than listing every track:
+    /// Dolby Digital family is Atmos > DD+ > DD, DTS family is DTS-HD > DTS.
+    /// Dolby TrueHD is the one exception — always shown alongside whichever
+    /// Dolby Digital badge wins, since a TrueHD track often also carries an
+    /// Atmos layer (e.g. Atmos + TrueHD + DTS-HD is a valid combination;
+    /// Atmos + DD+ is not, since DD+ lost that family's priority contest).
+    var metadataBadges: [String] {
+        guard let source = dto.mediaSources?.first else { return [] }
+        let streams = source.mediaStreams ?? []
+        let videoStream = streams.first { $0.type == "Video" }
+        let audioStreams = streams.filter { $0.type == "Audio" }
+        let subtitleStreams = streams.filter { $0.type == "Subtitle" }
+
+        var badges: [String] = []
+
+        if let width = videoStream?.width, let commonName = Self.resolutionCommonName(width: width) {
+            if commonName == "4K" {
+                badges.append("4K")
+            } else if ["1440p", "1080p", "720p"].contains(commonName) {
+                badges.append("HD")
+            }
+        }
+
+        if let dynamicRangeType = videoStream?.videoRangeType ?? videoStream?.videoRange {
+            if dynamicRangeType.hasPrefix("DOVI") {
+                badges.append("Dolby Vision")
+            } else if dynamicRangeType == "HDR10" {
+                badges.append("HDR10")
+            } else if dynamicRangeType == "HDR10Plus" {
+                badges.append("HDR10+")
+            } else if dynamicRangeType == "HLG" {
+                badges.append("HDR")
+            }
+        }
+
+        if audioStreams.contains(where: { $0.audioSpatialFormat == "DolbyAtmos" }) {
+            badges.append("Dolby Atmos")
+        } else if Self.hasAudioCodec(audioStreams, "eac3") {
+            badges.append("DD+")
+        } else if Self.hasAudioCodec(audioStreams, "ac3") {
+            badges.append("DD")
+        }
+        if Self.hasAudioCodec(audioStreams, "truehd") {
+            badges.append("Dolby TrueHD")
+        }
+
+        if audioStreams.contains(where: Self.isDTSHD) {
+            badges.append("DTS-HD")
+        } else if Self.hasAudioCodec(audioStreams, "dts") {
+            badges.append("DTS")
+        }
+
+        // "Not a forced track" — forced subtitles (foreign-dialogue-only)
+        // don't count as closed captions; `nil` (unspecified) does.
+        if subtitleStreams.contains(where: { $0.isForced != true }) {
+            badges.append("CC")
+        }
+
+        if audioStreams.contains(where: Self.isAccessibilityAudioTrack) {
+            badges.append("AD")
+        }
+
+        return badges
+    }
+
+    private static func hasAudioCodec(_ streams: [MediaStream], _ codec: String) -> Bool {
+        streams.contains { ($0.codec ?? "").caseInsensitiveCompare(codec) == .orderedSame }
+    }
+
+    /// Jellyfin/ffprobe report every DTS variant with `codec == "dts"`; the
+    /// HD/MA distinction only shows up in `profile` (e.g. "DTS-HD MA",
+    /// "DTS-HD HRA" vs. plain "DTS" or no profile at all for core-only).
+    private static func isDTSHD(_ stream: MediaStream) -> Bool {
+        guard (stream.codec ?? "").caseInsensitiveCompare("dts") == .orderedSame else { return false }
+        return (stream.profile ?? "").localizedCaseInsensitiveContains("dts-hd")
+    }
+
+    /// SDH is conventionally a *subtitle* accessibility convention, but an
+    /// audio track can be tagged the same way for a described-audio/hearing
+    /// -impaired mix — `isHearingImpaired` is the closest official signal
+    /// Jellyfin exposes for that; text-matching the title/displayTitle
+    /// catches tracks the server hasn't flagged that way.
+    private static func isAccessibilityAudioTrack(_ stream: MediaStream) -> Bool {
+        if stream.isHearingImpaired == true { return true }
+        let haystack = [stream.title, stream.displayTitle].compactMap { $0 }.joined(separator: " ")
+        return haystack.localizedCaseInsensitiveContains("sdh")
+            || haystack.localizedCaseInsensitiveContains("audio description")
+            || haystack.localizedCaseInsensitiveContains("hard of hearing")
+    }
+
     /// Cast and crew, in whatever order the server returns (Jellyfin
     /// typically lists billed actors first, then crew). Only populated when
     /// `people` was requested via `Fields=People`.
@@ -185,22 +283,26 @@ struct MediaItem: Identifiable {
 
     // MARK: - Technical details formatting
 
+    private static func resolutionLabel(width: Int, height: Int) -> String {
+        let dimensions = "\(width)\u{00D7}\(height)"
+        return resolutionCommonName(width: width).map { "\(dimensions) (\($0))" } ?? dimensions
+    }
+
     /// Classifies by width, not height — a letterboxed, very-wide-aspect
     /// source (e.g. 2.39:1) has a correct width but a reduced height, which
     /// would misclassify a true 4K release as something lower-resolution if
-    /// bucketed by height instead.
-    private static func resolutionLabel(width: Int, height: Int) -> String {
-        let dimensions = "\(width)\u{00D7}\(height)"
-        let commonName: String?
+    /// bucketed by height instead. Shared by `resolutionLabel` (the Details
+    /// tab's exact dimensions) and `metadataBadges` (the coarser "4K"/"HD"
+    /// badge).
+    private static func resolutionCommonName(width: Int) -> String? {
         switch width {
-        case 3840...:     commonName = "4K"
-        case 2560..<3840: commonName = "1440p"
-        case 1920..<2560: commonName = "1080p"
-        case 1280..<1920: commonName = "720p"
-        case 640..<1280:  commonName = "480p"
-        default:          commonName = nil
+        case 3840...:     "4K"
+        case 2560..<3840: "1440p"
+        case 1920..<2560: "1080p"
+        case 1280..<1920: "720p"
+        case 640..<1280:  "480p"
+        default:          nil
         }
-        return commonName.map { "\(dimensions) (\($0))" } ?? dimensions
     }
 
     private static func friendlyVideoCodecName(_ raw: String) -> String {

@@ -164,11 +164,18 @@ struct MediaStream: Codable, Identifiable, Hashable {
     var type: String
     var codec: String?
     var language: String?
+    /// The raw embedded stream title (e.g. "Commentary", "Audio
+    /// Description"), distinct from the server-computed `displayTitle`.
+    var title: String?
     var displayTitle: String?
     var isDefault: Bool?
     var isForced: Bool?
     var isExternal: Bool?
     var deliveryUrl: String?
+    /// Server-detected, primarily for subtitle streams (SDH/closed-caption
+    /// naming conventions); occasionally set for an accessible audio track
+    /// too. One of a few signals `MediaItem.metadataBadges` checks for "AD".
+    var isHearingImpaired: Bool?
 
     // Video-specific — used to build the Details tab's resolution/dynamic
     // range rows. `nil` for audio/subtitle streams.
@@ -183,6 +190,9 @@ struct MediaStream: Codable, Identifiable, Hashable {
 
     // Audio-specific.
     var channelLayout: String?
+    /// Server-detected spatial audio format ("None"/"DolbyAtmos"/"DTSX") —
+    /// more reliable than text-matching the codec/title for Atmos.
+    var audioSpatialFormat: String?
 
     var id: Int { index }
 }

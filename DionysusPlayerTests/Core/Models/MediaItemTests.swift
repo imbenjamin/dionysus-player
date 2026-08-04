@@ -251,6 +251,186 @@ final class MediaItemTests: XCTestCase {
         XCTAssertNil(makeMovie().technicalDetails)
     }
 
+    // MARK: metadataBadges
+
+    private func makeMovie(mediaSources: [MediaSourceInfo]) -> MediaItem {
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: mediaSources)
+        return MediaItem(dto: dto, images: images)
+    }
+
+    func test_metadataBadges_4KForUltraHDWidth() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", width: 3840, height: 2160)])
+        XCTAssertTrue(makeMovie(mediaSources: [source]).metadataBadges.contains("4K"))
+    }
+
+    func test_metadataBadges_HDForHDWidths() {
+        for width in [1280, 1920, 2560] {
+            let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", width: width, height: 720)])
+            XCTAssertTrue(makeMovie(mediaSources: [source]).metadataBadges.contains("HD"), "width \(width) should be HD")
+        }
+    }
+
+    func test_metadataBadges_noResolutionBadgeBelowHD() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", width: 640, height: 480)])
+        let badges = makeMovie(mediaSources: [source]).metadataBadges
+        XCTAssertFalse(badges.contains("4K"))
+        XCTAssertFalse(badges.contains("HD"))
+    }
+
+    func test_metadataBadges_dolbyVisionForAnyDOVIVariant() {
+        for variant in ["DOVI", "DOVIWithHDR10", "DOVIWithHDR10Plus", "DOVIWithHLG", "DOVIWithSDR"] {
+            let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", videoRangeType: variant)])
+            XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["Dolby Vision"], "variant \(variant)")
+        }
+    }
+
+    func test_metadataBadges_pureHDR10() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", videoRangeType: "HDR10")])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["HDR10"])
+    }
+
+    func test_metadataBadges_pureHDR10Plus() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", videoRangeType: "HDR10Plus")])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["HDR10+"])
+    }
+
+    func test_metadataBadges_hlgIsGenericHDRBadge() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", videoRangeType: "HLG")])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["HDR"])
+    }
+
+    func test_metadataBadges_noBadgeForSDR() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", videoRangeType: "SDR")])
+        XCTAssertTrue(makeMovie(mediaSources: [source]).metadataBadges.isEmpty)
+    }
+
+    // Dolby Digital family collapses to one badge: Atmos > DD+ > DD.
+
+    func test_metadataBadges_ddWhenOnlyPlainDolbyDigitalPresent() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Audio", codec: "AC3")])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["DD"])
+    }
+
+    func test_metadataBadges_ddPlusWinsOverPlainDDWhenBothPresent() {
+        let source = MediaSourceInfo(mediaStreams: [
+            MediaStream(index: 0, type: "Audio", codec: "ac3"),
+            MediaStream(index: 1, type: "Audio", codec: "eac3")
+        ])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["DD+"])
+    }
+
+    func test_metadataBadges_atmosWinsOverDDAndDDPlusWhenAllPresent() {
+        let source = MediaSourceInfo(mediaStreams: [
+            MediaStream(index: 0, type: "Audio", codec: "ac3"),
+            MediaStream(index: 1, type: "Audio", codec: "eac3"),
+            MediaStream(index: 2, type: "Audio", audioSpatialFormat: "DolbyAtmos")
+        ])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["Dolby Atmos"])
+    }
+
+    func test_metadataBadges_noAtmosBadgeForOtherSpatialFormats() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Audio", audioSpatialFormat: "DTSX")])
+        XCTAssertFalse(makeMovie(mediaSources: [source]).metadataBadges.contains("Dolby Atmos"))
+    }
+
+    // Dolby TrueHD is the exception to that collapsing: always shown
+    // alongside whichever Dolby Digital family badge wins.
+
+    func test_metadataBadges_trueHDShownAlongsideAtmosWhenBothOnSameTrack() {
+        // A TrueHD track commonly also carries an Atmos layer.
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Audio", codec: "truehd", audioSpatialFormat: "DolbyAtmos")])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["Dolby Atmos", "Dolby TrueHD"])
+    }
+
+    func test_metadataBadges_trueHDShownAlongsideDDPlusWhenNoAtmos() {
+        let source = MediaSourceInfo(mediaStreams: [
+            MediaStream(index: 0, type: "Audio", codec: "truehd"),
+            MediaStream(index: 1, type: "Audio", codec: "eac3")
+        ])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["DD+", "Dolby TrueHD"])
+    }
+
+    // DTS family collapses to one badge the same way: DTS-HD > plain DTS.
+    // Jellyfin/ffprobe report every DTS variant as codec "dts"; only the
+    // `profile` field ("DTS-HD MA"/"DTS-HD HRA") distinguishes HD from core.
+
+    func test_metadataBadges_plainDTSWhenNoHDProfile() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Audio", codec: "dts")])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["DTS"])
+    }
+
+    func test_metadataBadges_dtsHDDetectedViaProfile() {
+        for profile in ["DTS-HD MA", "DTS-HD HRA"] {
+            let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Audio", codec: "dts", profile: profile)])
+            XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["DTS-HD"], "profile \(profile)")
+        }
+    }
+
+    func test_metadataBadges_dtsHDWinsOverPlainDTSWhenBothPresent() {
+        let source = MediaSourceInfo(mediaStreams: [
+            MediaStream(index: 0, type: "Audio", codec: "dts"),
+            MediaStream(index: 1, type: "Audio", codec: "dts", profile: "DTS-HD MA")
+        ])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["DTS-HD"])
+    }
+
+    /// The example from the request this was built against: Atmos, TrueHD,
+    /// and DTS-HD can all appear together, with no other Dolby/DTS badges,
+    /// even though there are three separate audio tracks contributing.
+    func test_metadataBadges_atmosTrueHDAndDTSHDCanAllAppearWithNoOtherAudioBadges() {
+        let source = MediaSourceInfo(mediaStreams: [
+            MediaStream(index: 0, type: "Audio", codec: "truehd", audioSpatialFormat: "DolbyAtmos"),
+            MediaStream(index: 1, type: "Audio", codec: "dts", profile: "DTS-HD MA")
+        ])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["Dolby Atmos", "Dolby TrueHD", "DTS-HD"])
+    }
+
+    func test_metadataBadges_ccWhenANonForcedSubtitleTrackExists() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Subtitle", isForced: false)])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["CC"])
+    }
+
+    func test_metadataBadges_noCCWhenAllSubtitlesAreForced() {
+        let source = MediaSourceInfo(mediaStreams: [
+            MediaStream(index: 0, type: "Subtitle", isForced: true),
+            MediaStream(index: 1, type: "Subtitle", isForced: true)
+        ])
+        XCTAssertFalse(makeMovie(mediaSources: [source]).metadataBadges.contains("CC"))
+    }
+
+    func test_metadataBadges_noCCWhenNoSubtitleTracks() {
+        XCTAssertFalse(makeMovie(mediaSources: [MediaSourceInfo()]).metadataBadges.contains("CC"))
+    }
+
+    func test_metadataBadges_adFromIsHearingImpairedFlag() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Audio", isHearingImpaired: true)])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["AD"])
+    }
+
+    func test_metadataBadges_adFromAudioTrackTitleText() {
+        for title in ["Audio Description", "English SDH", "For the Hard of Hearing"] {
+            let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Audio", title: title)])
+            XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["AD"], "title \(title)")
+        }
+    }
+
+    func test_metadataBadges_emptyWhenNoMediaSources() {
+        XCTAssertEqual(makeMovie().metadataBadges, [])
+    }
+
+    func test_metadataBadges_combinedOrderMatchesResolutionRangeAudioSubtitleAD() {
+        let source = MediaSourceInfo(mediaStreams: [
+            MediaStream(index: 0, type: "Video", width: 3840, height: 2160, videoRangeType: "DOVI"),
+            MediaStream(index: 1, type: "Audio", codec: "eac3", audioSpatialFormat: "DolbyAtmos"),
+            MediaStream(index: 2, type: "Audio", isHearingImpaired: true),
+            MediaStream(index: 3, type: "Subtitle", isForced: false)
+        ])
+        XCTAssertEqual(
+            makeMovie(mediaSources: [source]).metadataBadges,
+            ["4K", "Dolby Vision", "Dolby Atmos", "CC", "AD"]
+        )
+    }
+
     // MARK: cast
 
     func test_cast_actorUsesRoleAsCharacterName() {
