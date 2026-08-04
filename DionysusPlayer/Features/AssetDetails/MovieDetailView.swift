@@ -21,20 +21,7 @@ struct MovieDetailView: View {
                             onRestart: { playbackRequest = PlaybackRequest(itemID: item.id, startFromBeginning: true) }
                         )
 
-                        if let overview = item.overview, !overview.isEmpty {
-                            Text(overview)
-                                .font(.body)
-                        }
-
-                        if !item.technicalSummary.isEmpty {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Details")
-                                    .font(.headline)
-                                Text(item.technicalSummary.joined(separator: " \u{00B7} "))
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
+                        DetailTabsView(item: item)
                     }
                     .padding(.horizontal)
 

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".github/dionysus-iOS-Default-512x512@1x.png" alt="Dionysus Player" width="180">
+</p>
+
 # Dionysus Player
 
 A better and open Apple client for Jellyfin.

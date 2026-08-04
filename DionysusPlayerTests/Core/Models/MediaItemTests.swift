@@ -181,26 +181,103 @@ final class MediaItemTests: XCTestCase {
         XCTAssertFalse(makeMovie(userData: untouched).isPartWatched)
     }
 
-    // MARK: technicalSummary
+    // MARK: technicalDetails
 
-    func test_technicalSummary_collectsContainerCodecAudioAndSubtitleCounts() {
+    func test_technicalDetails_buildsContainerCodecResolutionAndDynamicRange() {
         let source = MediaSourceInfo(
             id: "src-1", container: "mkv",
             mediaStreams: [
-                MediaStream(index: 0, type: "Video", codec: "hevc"),
-                MediaStream(index: 1, type: "Audio", language: "eng"),
-                MediaStream(index: 2, type: "Audio", language: "jpn"),
-                MediaStream(index: 3, type: "Subtitle"),
-                MediaStream(index: 4, type: "Subtitle")
+                MediaStream(index: 0, type: "Video", codec: "hevc", width: 3840, height: 2160, videoRangeType: "DOVI")
             ]
         )
         let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
         let item = MediaItem(dto: dto, images: images)
-        XCTAssertEqual(item.technicalSummary, ["MKV", "HEVC", "Audio: eng, jpn", "2 subtitle tracks"])
+        let details = item.technicalDetails
+        XCTAssertEqual(details?.container, "MKV")
+        XCTAssertEqual(details?.videoCodec, "H.265 (HEVC)")
+        XCTAssertEqual(details?.resolution, "3840\u{00D7}2160 (4K)")
+        XCTAssertEqual(details?.dynamicRange, "Dolby Vision")
     }
 
-    func test_technicalSummary_emptyWhenNoMediaSources() {
-        XCTAssertEqual(makeMovie().technicalSummary, [])
+    /// A letterboxed, very-wide-aspect release (e.g. 2.39:1) has a reduced
+    /// height for a genuinely 4K-width source — classifying by height would
+    /// misidentify this as 1440p or lower.
+    func test_technicalDetails_resolutionClassifiesByWidthNotHeightForLetterboxedVideo() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", width: 3840, height: 1606)])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        XCTAssertEqual(MediaItem(dto: dto, images: images).technicalDetails?.resolution, "3840\u{00D7}1606 (4K)")
+    }
+
+    func test_technicalDetails_dolbyVisionWithHDR10PlusLayer() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", videoRangeType: "DOVIWithHDR10Plus")])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        XCTAssertEqual(MediaItem(dto: dto, images: images).technicalDetails?.dynamicRange, "Dolby Vision \u{00B7} HDR10+")
+    }
+
+    func test_technicalDetails_fallsBackFromVideoRangeTypeToVideoRange() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", videoRange: "HDR")])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        XCTAssertEqual(MediaItem(dto: dto, images: images).technicalDetails?.dynamicRange, "HDR")
+    }
+
+    func test_technicalDetails_omitsUnknownDynamicRange() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", videoRangeType: "Unknown")])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        XCTAssertNil(MediaItem(dto: dto, images: images).technicalDetails?.dynamicRange)
+    }
+
+    func test_technicalDetails_audioAndSubtitleTracksPreferDisplayTitle() {
+        let source = MediaSourceInfo(mediaStreams: [
+            MediaStream(index: 0, type: "Video"),
+            MediaStream(index: 1, type: "Audio", language: "eng", displayTitle: "English (AAC 5.1)"),
+            MediaStream(index: 2, type: "Audio", codec: "aac"), // no displayTitle -> falls back
+            MediaStream(index: 3, type: "Subtitle", displayTitle: "English (SRT - Forced)")
+        ])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        let details = MediaItem(dto: dto, images: images).technicalDetails
+        XCTAssertEqual(details?.audioTracks, ["English (AAC 5.1)", "AAC"])
+        XCTAssertEqual(details?.subtitleTracks, ["English (SRT - Forced)"])
+    }
+
+    func test_technicalDetails_includesBitrateAndFileSize() {
+        let source = MediaSourceInfo(bitrate: 8_500_000, size: 4_200_000_000, mediaStreams: [])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        let details = MediaItem(dto: dto, images: images).technicalDetails
+        XCTAssertEqual(details?.bitrate, "8.5 Mbps")
+        XCTAssertEqual(details?.fileSize, ByteCountFormatter.string(fromByteCount: 4_200_000_000, countStyle: .file))
+    }
+
+    func test_technicalDetails_nilWhenNoMediaSources() {
+        XCTAssertNil(makeMovie().technicalDetails)
+    }
+
+    // MARK: cast
+
+    func test_cast_actorUsesRoleAsCharacterName() {
+        let person = BaseItemPerson(id: "p1", name: "Timothée Chalamet", role: "Paul Atreides", type: "Actor")
+        let dto = BaseItemDto(id: "movie-1", name: "Dune", type: .movie, people: [person])
+        XCTAssertEqual(MediaItem(dto: dto, images: images).cast, [
+            CastMember(id: "p1", name: "Timothée Chalamet", role: "Paul Atreides", imageURL: nil)
+        ])
+    }
+
+    func test_cast_crewFallsBackToJobTitleWhenNoRole() {
+        let person = BaseItemPerson(id: "p2", name: "Denis Villeneuve", role: nil, type: "Director")
+        let dto = BaseItemDto(id: "movie-1", name: "Dune", type: .movie, people: [person])
+        XCTAssertEqual(MediaItem(dto: dto, images: images).cast.first?.role, "Director")
+    }
+
+    func test_cast_buildsImageURLWhenTagPresent() {
+        let person = BaseItemPerson(id: "p1", name: "Timothée Chalamet", primaryImageTag: "tag123")
+        let dto = BaseItemDto(id: "movie-1", name: "Dune", type: .movie, people: [person])
+        let url = MediaItem(dto: dto, images: images).cast.first?.imageURL
+        XCTAssertNotNil(url)
+        XCTAssertTrue(url!.absoluteString.contains("Items/p1/Images/Primary"))
+        XCTAssertTrue(url!.absoluteString.contains("tag=tag123"))
+    }
+
+    func test_cast_emptyWhenNoPeople() {
+        XCTAssertEqual(makeMovie().cast, [])
     }
 
     // MARK: image URLs
@@ -229,5 +306,45 @@ final class MediaItemTests: XCTestCase {
 
     func test_backdropImageURL_nilWhenNoBackdropAvailable() {
         XCTAssertNil(makeMovie().backdropImageURL)
+    }
+
+    /// Mirrors `backdropImageURL`'s fallback — an episode without its own
+    /// logo should show its Season's (or, if that's also missing, its
+    /// Series') logo rather than nothing. Jellyfin resolves which ancestor
+    /// actually has one server-side via `parentLogoItemId`/
+    /// `parentLogoImageTag`, so this only needs to prefer "own" over that.
+    func test_logoImageURL_usesOwnLogoWhenPresent() {
+        let dto = BaseItemDto(id: "series-1", name: "The Wire", type: .series, imageTags: ["Logo": "own-logo-tag"])
+        let item = MediaItem(dto: dto, images: images)
+        let url = item.logoImageURL
+        XCTAssertNotNil(url)
+        XCTAssertTrue(url!.absoluteString.contains("Items/series-1/Images/Logo"))
+        XCTAssertTrue(url!.absoluteString.contains("tag=own-logo-tag"))
+    }
+
+    func test_logoImageURL_fallsBackToParentLogoWhenOwnMissing() {
+        let dto = BaseItemDto(
+            id: "ep-1", name: "Old Cases", type: .episode,
+            parentLogoItemId: "season-1", parentLogoImageTag: "season-logo-tag"
+        )
+        let item = MediaItem(dto: dto, images: images)
+        let url = item.logoImageURL
+        XCTAssertNotNil(url)
+        XCTAssertTrue(url!.absoluteString.contains("Items/season-1/Images/Logo"), "Should use whichever ancestor the server resolved (Season or Series), not hardcode one")
+        XCTAssertTrue(url!.absoluteString.contains("tag=season-logo-tag"))
+    }
+
+    func test_logoImageURL_prefersOwnLogoOverParent() {
+        let dto = BaseItemDto(
+            id: "ep-1", name: "Old Cases", type: .episode,
+            imageTags: ["Logo": "own-logo-tag"],
+            parentLogoItemId: "season-1", parentLogoImageTag: "season-logo-tag"
+        )
+        let item = MediaItem(dto: dto, images: images)
+        XCTAssertTrue(item.logoImageURL!.absoluteString.contains("tag=own-logo-tag"))
+    }
+
+    func test_logoImageURL_nilWhenNoLogoAnywhereInHierarchy() {
+        XCTAssertNil(makeMovie().logoImageURL)
     }
 }

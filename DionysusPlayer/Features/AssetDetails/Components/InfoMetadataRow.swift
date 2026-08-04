@@ -20,7 +20,14 @@ struct InfoMetadataRow: View {
                 if let duration = item.durationText { Text(duration) }
 
                 if let communityRating = item.communityRating {
-                    Label(String(format: "%.1f", communityRating), systemImage: "star.fill")
+                    // `Label`'s default icon/title spacing reads as too wide
+                    // here — closer to the two being separate items than one
+                    // "★ 4.8" rating — so a plain HStack with an explicit,
+                    // tight spacing instead.
+                    HStack(spacing: 3) {
+                        Image(systemName: "star.fill")
+                        Text(String(format: "%.1f", communityRating))
+                    }
                 }
             }
             .font(.subheadline)

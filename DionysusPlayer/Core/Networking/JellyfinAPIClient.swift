@@ -37,7 +37,7 @@ actor JellyfinAPIClient {
     // MARK: - Browsing
 
     private static let defaultFields = "Overview,Genres,PrimaryImageAspectRatio,BasicSyncInfo"
-    private static let detailFields = "Overview,Genres,PrimaryImageAspectRatio,MediaSources,BasicSyncInfo"
+    private static let detailFields = "Overview,Genres,PrimaryImageAspectRatio,MediaSources,People,BasicSyncInfo"
 
     func userViews(userID: String) async throws -> BaseItemDtoQueryResult {
         try await get("/Users/\(userID)/Views")
