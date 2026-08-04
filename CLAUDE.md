@@ -63,7 +63,10 @@ user is in the app, driven by a `Phase` enum: `.serverSetup` → `.login` →
 `.main`. It also owns the `JellyfinAPIClient` instance, since the client's
 base URL depends on which server was configured — there is one client per
 configured server, created in `completeServerSetup` and recreated on
-`start()`. `RootView` just switches on `appState.phase`. Session persistence
+`start()`. `RootView` switches on `appState.phase`, but shows `SplashView`
+(`App/SplashView.swift`) instead whenever `appState.isRestoringSession` is
+true — a branded gradient/glass splash covering the brief window before the
+phase is known at all, rather than a phase of its own. Session persistence
 (`ServerSessionStore`, `Core/Persistence/`) splits storage by sensitivity:
 server config in `UserDefaults`, credentials/access token in the Keychain
 (`KeychainStore`). On launch, `AppState.start()` restores the server, then
