@@ -51,16 +51,62 @@ struct MediaItem: Identifiable {
         return "S\(season):E\(episode)"
     }
 
+    /// First line shown under a poster card. Episodes surface their series
+    /// name (so a row of Continue Watching reads as show titles, not a wall
+    /// of episode titles); everything else uses the item's own name.
+    var railTitle: String {
+        switch dto.type {
+        case .episode: return dto.seriesName ?? name
+        default:       return name
+        }
+    }
+
+    /// Second line shown under a poster card, or nil to hide it entirely.
+    /// - Movies: release year and runtime (either alone if the other is
+    ///   missing).
+    /// - Episodes: `S1:E4 · Episode Name` (falls back to the episode name
+    ///   alone when the numbering isn't present).
+    /// - Series: release year range from `yearText`.
+    var railSubtitle: String? {
+        switch dto.type {
+        case .movie:
+            let parts = [yearText, durationText].compactMap { $0 }
+            return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
+        case .episode:
+            return episodeLabel.map { "\($0) \u{00B7} \(name)" } ?? name
+        case .series:
+            return yearText
+        default:
+            return nil
+        }
+    }
+
     var resumePositionSeconds: Double? {
         guard let ticks = dto.userData?.playbackPositionTicks, ticks > 0 else { return nil }
         return Double(ticks) / 10_000_000
     }
 
     var playedFraction: Double? {
-        dto.userData?.playedPercentage.map { $0 / 100 }
+        if let percentage = dto.userData?.playedPercentage { return percentage / 100 }
+        // Fallback: Jellyfin's `playedPercentage` sometimes lags behind a
+        // freshly-written `playbackPositionTicks`, so compute the ratio
+        // ourselves when we have both endpoints of the calculation.
+        if let positionTicks = dto.userData?.playbackPositionTicks, positionTicks > 0,
+           let runTimeTicks = dto.runTimeTicks, runTimeTicks > 0 {
+            return Double(positionTicks) / Double(runTimeTicks)
+        }
+        return nil
     }
 
     var isPlayed: Bool { dto.userData?.played ?? false }
+
+    /// True when the user has started but not finished this item. For movies,
+    /// that's a mid-playback position; for shows, some-but-not-all episodes
+    /// watched (Jellyfin surfaces both as `playedPercentage`).
+    var isPartWatched: Bool {
+        guard !isPlayed, let fraction = playedFraction else { return false }
+        return fraction > 0 && fraction < 1
+    }
 
     var technicalSummary: [String] {
         guard let source = dto.mediaSources?.first else { return [] }

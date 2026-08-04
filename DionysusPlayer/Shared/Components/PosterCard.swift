@@ -9,32 +9,47 @@ struct PosterCard: View {
     var body: some View {
         NavigationLink(value: AppRoute.assetDetail(itemID: item.id)) {
             VStack(alignment: .leading, spacing: 6) {
-                ZStack(alignment: .bottom) {
-                    AsyncRemoteImage(url: item.primaryImageURL)
-                        .frame(width: width, height: width * 1.5)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                    if let fraction = item.playedFraction, fraction > 0, !item.isPlayed {
-                        ProgressView(value: fraction)
-                            .tint(.red)
-                            .padding(.horizontal, 4)
-                            .padding(.bottom, 4)
+                AsyncRemoteImage(url: item.primaryImageURL)
+                    .frame(width: width, height: width * 1.5)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(alignment: .bottom) {
+                        if let fraction = item.playedFraction, fraction > 0, !item.isPlayed {
+                            ProgressView(value: fraction)
+                                .tint(.dionysusHighlight)
+                                .padding(.horizontal, 4)
+                                .padding(.bottom, 4)
+                        }
                     }
+                    .overlay(alignment: .topTrailing) {
+                        if item.isPlayed {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(Color.white, Color.dionysusPrimary)
+                                .padding(4)
+                        }
+                    }
+                    // Decorations must not intercept taps: with the progress bar
+                    // as a ZStack sibling of the (rounded-clip) image, its
+                    // rectangular hit region extended past the image's rounded
+                    // corners and could get routed to a neighbouring card in the
+                    // horizontal ScrollView.
+                    .allowsHitTesting(false)
 
-                    if item.isPlayed {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.white, .tint)
-                            .padding(4)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.railTitle)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .foregroundStyle(.primary)
+
+                    if let subtitle = item.railSubtitle {
+                        Text(subtitle)
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .foregroundStyle(.secondary)
                     }
                 }
-
-                Text(item.episodeLabel.map { "\($0) · \(item.name)" } ?? item.name)
-                    .font(.caption)
-                    .lineLimit(1)
-                    .foregroundStyle(.primary)
             }
             .frame(width: width)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

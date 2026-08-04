@@ -12,7 +12,7 @@ struct AsyncRemoteImage: View {
             case .success(let image):
                 image.resizable().aspectRatio(contentMode: contentMode)
             case .empty:
-                placeholder.overlay { if url != nil { ProgressView() } }
+                placeholder.overlay { if url != nil { ProgressView().tint(.dionysusPrimary) } }
             case .failure:
                 placeholder
             @unknown default:

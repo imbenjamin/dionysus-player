@@ -12,6 +12,7 @@ final class PlayerViewModel {
 
     let engine: PlaybackEngine
     let itemID: String
+    let startFromBeginning: Bool
 
     private let client: JellyfinAPIClient
     private let userID: String
@@ -21,11 +22,12 @@ final class PlayerViewModel {
     var subtitleTracks: [PlaybackTrack] { engine.subtitleTracks }
     var videoFormatDescription: String? { engine.videoFormatDescription }
 
-    init(client: JellyfinAPIClient, userID: String, itemID: String, engine: PlaybackEngine) {
+    init(client: JellyfinAPIClient, userID: String, itemID: String, engine: PlaybackEngine, startFromBeginning: Bool = false) {
         self.client = client
         self.userID = userID
         self.itemID = itemID
         self.engine = engine
+        self.startFromBeginning = startFromBeginning
 
         engine.onStateChange = { [weak self] state in self?.state = state }
         engine.onTimeUpdate = { [weak self] time, duration in
@@ -50,7 +52,7 @@ final class PlayerViewModel {
             }
 
             try await engine.load(url: url)
-            if let resumeSeconds = mediaItem.resumePositionSeconds, resumeSeconds > 0 {
+            if !startFromBeginning, let resumeSeconds = mediaItem.resumePositionSeconds, resumeSeconds > 0 {
                 await engine.seek(to: resumeSeconds)
             }
             engine.play()

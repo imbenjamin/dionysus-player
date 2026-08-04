@@ -16,18 +16,23 @@ struct ShowDetailView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         InfoMetadataRow(item: item)
 
-                        Button {
-                            Task {
-                                if let episodeID = await viewModel.resolveSeriesPlaybackItemID() {
-                                    playbackRequest = PlaybackRequest(itemID: episodeID)
+                        PlayResumeButtonRow(
+                            item: item,
+                            onPlay: {
+                                Task {
+                                    if let episodeID = await viewModel.resolveSeriesPlaybackItemID() {
+                                        playbackRequest = PlaybackRequest(itemID: episodeID)
+                                    }
+                                }
+                            },
+                            onRestart: {
+                                Task {
+                                    if let episodeID = await viewModel.resolveSeriesPlaybackItemID() {
+                                        playbackRequest = PlaybackRequest(itemID: episodeID, startFromBeginning: true)
+                                    }
                                 }
                             }
-                        } label: {
-                            Label("Play", systemImage: "play.fill")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
+                        )
 
                         if let overview = item.overview, !overview.isEmpty {
                             Text(overview)
@@ -60,8 +65,11 @@ struct ShowDetailView: View {
             }
         }
         .ignoresSafeArea(edges: .top)
-        .fullScreenCover(item: $playbackRequest) { request in
-            PlayerView(itemID: request.itemID)
+        .fullScreenCover(
+            item: $playbackRequest,
+            onDismiss: { Task { await viewModel.refreshItem() } }
+        ) { request in
+            PlayerView(itemID: request.itemID, startFromBeginning: request.startFromBeginning)
         }
     }
 }
