@@ -18,10 +18,18 @@ struct DetailTabsView: View {
     let item: MediaItem
     @State private var selectedTab: Tab = .about
 
+    /// A Show or Season has no media file of its own — only its episodes
+    /// do — so `item.technicalDetails` is always `nil` for them; only real
+    /// playable assets (movies, episodes) have a "Details" tab worth
+    /// showing at all.
+    private var availableTabs: [Tab] {
+        item.technicalDetails == nil ? Tab.allCases.filter { $0 != .details } : Tab.allCases
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Picker("Section", selection: $selectedTab) {
-                ForEach(Tab.allCases) { tab in
+                ForEach(availableTabs) { tab in
                     Text(tab.rawValue).tag(tab)
                 }
             }

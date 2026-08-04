@@ -39,7 +39,7 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 
 (swap `iPhone 17` for whatever's in `xcrun simctl list devices available` on your machine.)
 
-**Verified:** the full suite (179 tests) has been run for real via
+**Verified:** the full suite (180 tests) has been run for real via
 `xcodebuild test` against the iOS 26.5 Simulator — all passing, 0 failures.
 A few real issues were caught and fixed along the way, worth knowing about
 if you extend this setup:
@@ -70,7 +70,7 @@ and the networking client, mirroring the app's own MVVM structure
 
 | Area | File | What it checks |
 |---|---|---|
-| `MediaItem` | `MediaItemTests.swift` | All the display logic — year ranges, durations, episode labels, rail titles/subtitles, resume/played fractions, image URLs (including the logo Episode→Season→Series fallback), `technicalDetails` (container/codec/resolution/dynamic-range formatting, including the letterboxed-video-classifies-by-width case), `metadataBadges` (resolution/dynamic-range/audio-format/accessibility call-outs, including the Dolby Digital family's Atmos > DD+ > DD priority collapsing, TrueHD's exception to that, and the DTS-HD > DTS priority), and `cast`'s role-vs-job-title fallback. This is the single highest-value target: pure computation, no I/O, and it's exactly the kind of thing that silently breaks when a DTO field changes. |
+| `MediaItem` | `MediaItemTests.swift` | All the display logic — year ranges, durations, episode labels, rail titles/subtitles, resume/played fractions, image URLs (including the logo Episode→Season→Series fallback), `technicalDetails` (container/codec/resolution/dynamic-range formatting, including the letterboxed-video-classifies-by-width case), `metadataBadges` (resolution/dynamic-range/audio-format/accessibility call-outs, including the Dolby Digital family's Atmos > DD+ > DD priority collapsing, TrueHD's exception to that, and the DTS-HD > DTS priority), and `cast`'s role-vs-job-title fallback and unique-id-per-credit guarantee (the same person can be credited more than once on one item, sharing an underlying id — using that id alone gave `CastCrewGridView`'s `ForEach` duplicate identifiers, seen as intermittent gaps/repeated cells while scrolling). This is the single highest-value target: pure computation, no I/O, and it's exactly the kind of thing that silently breaks when a DTO field changes. |
 | `ImageURLBuilder` | `ImageURLBuilderTests.swift` | URL construction — query params, token inclusion, item vs. user image endpoints. |
 | `ServerConfiguration.parse` | `ServerConfigurationTests.swift` | Parsing whatever a user types into server setup (bare host, host:port, full URL, garbage input). |
 | `JellyfinAuthorization` | `JellyfinAuthorizationTests.swift` | The auth header format Jellyfin expects. |

@@ -266,10 +266,19 @@ struct MediaItem: Identifiable {
     /// Cast and crew, in whatever order the server returns (Jellyfin
     /// typically lists billed actors first, then crew). Only populated when
     /// `people` was requested via `Fields=People`.
+    ///
+    /// `id` is synthesized from the person's own id *and* their position in
+    /// the list, not `person.id` alone — the same real person can appear as
+    /// more than one credit (e.g. an actor who also directed, or with two
+    /// character roles), sharing the same underlying Guid across entries.
+    /// `CastCrewGridView`'s `ForEach` needs a unique identifier per credit,
+    /// not per person; duplicate ids there is exactly what caused the
+    /// intermittent gaps/repeated cells this replaces (SwiftUI's diffing
+    /// has no reliable way to tell two same-id cells apart while scrolling).
     var cast: [CastMember] {
-        (dto.people ?? []).map { person in
+        (dto.people ?? []).enumerated().map { index, person in
             CastMember(
-                id: person.id,
+                id: "\(person.id)-\(index)",
                 name: person.name,
                 // Actors/guest stars get a character name in `role`; crew
                 // usually don't, so fall back to their job title (`type`).

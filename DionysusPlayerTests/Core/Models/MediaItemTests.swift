@@ -437,8 +437,23 @@ final class MediaItemTests: XCTestCase {
         let person = BaseItemPerson(id: "p1", name: "Timothée Chalamet", role: "Paul Atreides", type: "Actor")
         let dto = BaseItemDto(id: "movie-1", name: "Dune", type: .movie, people: [person])
         XCTAssertEqual(MediaItem(dto: dto, images: images).cast, [
-            CastMember(id: "p1", name: "Timothée Chalamet", role: "Paul Atreides", imageURL: nil)
+            CastMember(id: "p1-0", name: "Timothée Chalamet", role: "Paul Atreides", imageURL: nil)
         ])
+    }
+
+    /// The bug this guards against: the same real person can be credited
+    /// more than once on the same item (e.g. an actor who also directed),
+    /// sharing the same underlying `person.id` across those entries. Using
+    /// that id alone for `CastMember.id` gave `CastCrewGridView`'s `ForEach`
+    /// duplicate identifiers — SwiftUI's diffing has no reliable way to
+    /// tell two same-id cells apart while scrolling, which showed up as
+    /// intermittent gaps and repeated cells in the grid.
+    func test_cast_idsAreUniquePerCreditEvenWhenTheSamePersonAppearsTwice() {
+        let actingCredit = BaseItemPerson(id: "p1", name: "Ben Affleck", role: "Batman", type: "Actor")
+        let directingCredit = BaseItemPerson(id: "p1", name: "Ben Affleck", role: nil, type: "Director")
+        let dto = BaseItemDto(id: "movie-1", name: "Justice League", type: .movie, people: [actingCredit, directingCredit])
+        let ids = MediaItem(dto: dto, images: images).cast.map(\.id)
+        XCTAssertEqual(ids.count, Set(ids).count, "duplicate ids: \(ids)")
     }
 
     func test_cast_crewFallsBackToJobTitleWhenNoRole() {
