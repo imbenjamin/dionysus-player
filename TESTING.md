@@ -39,7 +39,7 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 
 (swap `iPhone 17` for whatever's in `xcrun simctl list devices available` on your machine.)
 
-**Verified:** the full suite (136 tests) has been run for real via
+**Verified:** the full suite (154 tests) has been run for real via
 `xcodebuild test` against the iOS 26.5 Simulator — all passing, 0 failures.
 A few real issues were caught and fixed along the way, worth knowing about
 if you extend this setup:
@@ -70,7 +70,7 @@ and the networking client, mirroring the app's own MVVM structure
 
 | Area | File | What it checks |
 |---|---|---|
-| `MediaItem` | `MediaItemTests.swift` | All the display logic — year ranges, durations, episode labels, rail titles/subtitles, resume/played fractions, technical summary, image URLs. This is the single highest-value target: pure computation, no I/O, and it's exactly the kind of thing that silently breaks when a DTO field changes. |
+| `MediaItem` | `MediaItemTests.swift` | All the display logic — year ranges, durations, episode labels, rail titles/subtitles, resume/played fractions, image URLs (including the logo Episode→Season→Series fallback), `technicalDetails` (container/codec/resolution/dynamic-range formatting, including the letterboxed-video-classifies-by-width case), and `cast`'s role-vs-job-title fallback. This is the single highest-value target: pure computation, no I/O, and it's exactly the kind of thing that silently breaks when a DTO field changes. |
 | `ImageURLBuilder` | `ImageURLBuilderTests.swift` | URL construction — query params, token inclusion, item vs. user image endpoints. |
 | `ServerConfiguration.parse` | `ServerConfigurationTests.swift` | Parsing whatever a user types into server setup (bare host, host:port, full URL, garbage input). |
 | `JellyfinAuthorization` | `JellyfinAuthorizationTests.swift` | The auth header format Jellyfin expects. |
@@ -89,6 +89,7 @@ and the networking client, mirroring the app's own MVVM structure
 | `PlaybackRequest` | `PlaybackRequestTests.swift` | `id`'s inclusion of `startFromBeginning`, so a Restart-after-Resume presents a fresh sheet. |
 | `DeviceIdentity` | `DeviceIdentityTests.swift` | The generate-once-then-cache behavior of `deviceID`. |
 | `JellyfinAPIError` | `JellyfinAPIErrorTests.swift` | Exact `errorDescription` text for each case, including the optional-message branch on `.http`. |
+| `AppVersionInfo` | `AppVersionInfoTests.swift` | The build-version footer's text format and its fallback to "unknown" when the git branch/commit Info.plist keys are missing. |
 
 ### How network calls are faked
 
