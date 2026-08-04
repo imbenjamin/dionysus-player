@@ -11,10 +11,15 @@ Vision support.
 
 ## Status
 
-This is an early skeleton: navigation, screens, and the networking/playback
-plumbing are in place with placeholder content where noted, but it has not
-yet been built or run — see [Building](#building) for why, and what to check
-first.
+Navigation, screens, and the networking/playback plumbing are in place with
+placeholder content where noted. As of Xcode 26.5, the app builds clean end
+to end — package resolution (AetherEngine and its dependencies), compilation,
+and linking all succeed with no errors — and a 136-test unit test suite
+passes (see [Testing](#testing)). That confirms the code compiles against
+AetherEngine's real API and that the ViewModel/networking layer behaves as
+intended; it does **not** confirm playback actually works — no test here
+plays real media or exercises a real device's decoder, so treat runtime
+playback behavior as unverified until tried against a real Jellyfin server.
 
 ## Requirements
 
@@ -36,15 +41,30 @@ open DionysusPlayer.xcodeproj
 Then let Xcode resolve Swift Package dependencies (AetherEngine) and build
 the `DionysusPlayer` scheme.
 
-> **Note:** This scaffold was written in an environment without a macOS/Xcode
-> toolchain available, so it has **not** been compiled or run. When you first
-> open it in Xcode, expect to fix minor issues — most likely the exact
-> AetherEngine API surface in
-> `DionysusPlayer/Core/Playback/AetherPlaybackEngine.swift` (method names/
-> signatures were written against its published docs, not against the
-> compiler). Everything else (SwiftUI views, the Jellyfin networking client)
-> is written directly against Apple SDKs and the documented Jellyfin REST API,
-> so it should need little to no adjustment.
+> **Note:** This scaffold was originally written in an environment without a
+> macOS/Xcode toolchain, with the expectation that `AetherPlaybackEngine.swift`
+> would need fixes once built against AetherEngine's real API. That's no
+> longer the case — the app has since been built successfully (Xcode 26.5)
+> with no compiler errors anywhere, `AetherPlaybackEngine.swift` included.
+> What *hasn't* been verified is playback at runtime (no test plays real
+> media), so treat that specifically as unconfirmed until tried against a
+> real server.
+
+## Testing
+
+A `DionysusPlayerTests` unit test target covers the MVVM layer — ViewModels,
+the Jellyfin networking client, models, and persistence — via a fake-server
+pattern (`URLProtocol` stubbing) rather than hitting a real Jellyfin
+instance. Run it from Xcode with the `DionysusPlayer` scheme (**Cmd+U**), or:
+
+```sh
+xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
+  -destination 'platform=iOS Simulator,name=iPhone 17'
+```
+
+136/136 tests passing as of this writing. See [`TESTING.md`](TESTING.md) for
+the full strategy, a coverage table, and known gaps (SwiftUI views, true
+UI/end-to-end tests, and `AetherPlaybackEngine`'s own adapter code).
 
 ## Architecture
 

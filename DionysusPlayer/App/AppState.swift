@@ -7,7 +7,7 @@ import Observation
 @MainActor
 @Observable
 final class AppState {
-    enum Phase {
+    enum Phase: Equatable {
         case serverSetup
         case login
         case main

@@ -10,14 +10,18 @@ planned later). It talks to a Jellyfin server over the plain REST/JSON API
 FFmpeg + VideoToolbox playback engine (HDR10/HDR10+/Dolby Vision support), pulled
 in as a Swift Package.
 
-**Status: early skeleton, unbuilt.** This was scaffolded without access to a
-macOS/Xcode toolchain, so nothing here has been compiled. Expect the first build
-to surface real compiler errors, most likely in
-`DionysusPlayer/Core/Playback/AetherPlaybackEngine.swift` — its calls into
-AetherEngine were written against published docs, not the actual compiled API.
-SwiftUI views and the Jellyfin networking client are written directly against
-Apple SDKs and the documented REST API, so they should need little to no
-adjustment. When fixing build errors, check `AetherPlaybackEngine.swift` first.
+**Status: builds clean, playback untested.** This was originally scaffolded
+without a macOS/Xcode toolchain and expected to need fixes in
+`AetherPlaybackEngine.swift`, but as of 2026-08-04 (Xcode 26.5, iOS 26.5
+Simulator) `xcodebuild build` for the `DionysusPlayer` scheme succeeds
+end-to-end — package resolution (AetherEngine + its FFmpegBuild/SMBClient/
+LibDovi dependencies), compilation, and linking all complete with no errors,
+and the `DionysusPlayerTests` suite (84 tests, see `TESTING.md`) passes.
+That confirms the code compiles against AetherEngine's real API; it does
+*not* confirm playback actually works — no test here plays real media or
+exercises a real device's decoder, so treat `PlayerViewModel`/
+`AetherPlaybackEngine` runtime behavior as unverified until manually tried
+against a real Jellyfin server.
 
 ## Commands
 
@@ -37,8 +41,15 @@ scheme (target iOS 17+):
 open DionysusPlayer.xcodeproj
 ```
 
-There is no CLI build/test invocation set up yet (no test target exists in
-`project.yml`). If you add one, wire its `xcodebuild test` invocation here.
+A `DionysusPlayerTests` unit test target exists (XCTest, host-app style —
+see `TESTING.md` for the strategy and what's covered). Run it from Xcode with
+the `DionysusPlayer` scheme (Cmd+U), or from the CLI once a Simulator runtime
+is available:
+
+```sh
+xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
+  -destination 'platform=iOS Simulator,name=iPhone 17'
+```
 
 ## Architecture
 
