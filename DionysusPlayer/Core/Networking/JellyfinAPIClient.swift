@@ -236,6 +236,11 @@ actor JellyfinAPIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = method
+        // Never serve a cached response. Jellyfin's item endpoints reflect
+        // fast-moving user state (resume position, played %, etc.) that has
+        // to be fresh — the default `useProtocolCachePolicy` was letting the
+        // detail-page refresh after playback show stale progress.
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(
             JellyfinAuthorization.headerValue(token: requiresAuth ? accessToken : nil),

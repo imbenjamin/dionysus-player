@@ -15,14 +15,11 @@ struct MovieDetailView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         InfoMetadataRow(item: item)
 
-                        Button {
-                            playbackRequest = PlaybackRequest(itemID: item.id)
-                        } label: {
-                            Label("Play", systemImage: "play.fill")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
+                        PlayResumeButtonRow(
+                            item: item,
+                            onPlay: { playbackRequest = PlaybackRequest(itemID: item.id) },
+                            onRestart: { playbackRequest = PlaybackRequest(itemID: item.id, startFromBeginning: true) }
+                        )
 
                         if let overview = item.overview, !overview.isEmpty {
                             Text(overview)
@@ -53,8 +50,11 @@ struct MovieDetailView: View {
             }
         }
         .ignoresSafeArea(edges: .top)
-        .fullScreenCover(item: $playbackRequest) { request in
-            PlayerView(itemID: request.itemID)
+        .fullScreenCover(
+            item: $playbackRequest,
+            onDismiss: { Task { await viewModel.refreshItem() } }
+        ) { request in
+            PlayerView(itemID: request.itemID, startFromBeginning: request.startFromBeginning)
         }
     }
 }

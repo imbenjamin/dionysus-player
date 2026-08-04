@@ -17,7 +17,7 @@ struct MediaRailView: View {
                     NavigationLink(value: AppRoute.collection(query)) {
                         Text("See All")
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.dionysusPrimary)
                     }
                 }
             }

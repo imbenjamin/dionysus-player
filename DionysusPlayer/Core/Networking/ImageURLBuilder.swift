@@ -21,4 +21,20 @@ struct ImageURLBuilder: Equatable {
         components.queryItems = query.isEmpty ? nil : query
         return components.url
     }
+
+    /// URL for a user's profile picture. Uses Jellyfin's `Users/{id}/Images/{type}`
+    /// endpoint (distinct from item images); `tag` should be `UserDto.primaryImageTag`.
+    func userImageURL(userID: String, imageType: String = "Primary", tag: String? = nil, maxWidth: Int? = nil) -> URL? {
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent("Users/\(userID)/Images/\(imageType)"),
+            resolvingAgainstBaseURL: false
+        ) else { return nil }
+
+        var query: [URLQueryItem] = []
+        if let tag { query.append(.init(name: "tag", value: tag)) }
+        if let maxWidth { query.append(.init(name: "maxWidth", value: String(maxWidth))) }
+        if let accessToken { query.append(.init(name: "ApiKey", value: accessToken)) }
+        components.queryItems = query.isEmpty ? nil : query
+        return components.url
+    }
 }

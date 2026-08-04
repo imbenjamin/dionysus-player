@@ -56,6 +56,35 @@ final class AssetDetailViewModel {
         }
     }
 
+    /// Re-fetches just the main item's DTO so the Play/Resume button and its
+    /// progress bar reflect the latest server-side watch state (e.g. after
+    /// returning from the player). Skips the sibling rails/seasons — they
+    /// haven't meaningfully changed during one playback session.
+    ///
+    /// `PlayerViewModel.stop()` awaits the `/Sessions/Playing/Stopped` POST,
+    /// but Jellyfin commits the userData write asynchronously after that
+    /// response returns — and the commit latency varies. Rather than gamble
+    /// on a fixed delay, this polls the item endpoint on a short schedule
+    /// until the returned userData actually differs from what we had (which
+    /// means the server has caught up), or we hit the last attempt.
+    func refreshItem() async {
+        let previousTicks = item?.dto.userData?.playbackPositionTicks
+        let previousPercentage = item?.dto.userData?.playedPercentage
+        let previouslyPlayed = item?.dto.userData?.played
+        let images = await client.makeImageURLBuilder()
+
+        for delay in [0.25, 0.5, 1.0, 1.5] as [Double] {
+            try? await Task.sleep(for: .seconds(delay))
+            guard let dto = try? await client.item(userID: userID, itemID: itemID) else { continue }
+            item = MediaItem(dto: dto, images: images)
+            if dto.userData?.playbackPositionTicks != previousTicks
+                || dto.userData?.playedPercentage != previousPercentage
+                || dto.userData?.played != previouslyPlayed {
+                return
+            }
+        }
+    }
+
     /// For a Series' "Play" button: resumes an in-progress episode, else
     /// the next unwatched one, else the first episode of the first season.
     func resolveSeriesPlaybackItemID() async -> String? {

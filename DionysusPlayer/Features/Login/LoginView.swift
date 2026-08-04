@@ -26,7 +26,7 @@ struct LoginView: View {
                 if let errorMessage = viewModel.errorMessage {
                     Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                         .font(.footnote)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color.dionysusMagenta)
                 }
 
                 Spacer()
