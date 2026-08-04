@@ -6,12 +6,12 @@ struct SearchView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel: SearchViewModel?
 
-    private let columns = [GridItem(.adaptive(minimum: 110, maximum: 160), spacing: 16)]
-
     var body: some View {
-        ScrollView {
-            content
-                .padding()
+        GeometryReader { proxy in
+            ScrollView {
+                content(containerWidth: proxy.size.width)
+                    .padding()
+            }
         }
         .navigationTitle("Search")
         .searchable(text: searchTextBinding, prompt: "Movies, shows, episodes\u{2026}")
@@ -29,7 +29,7 @@ struct SearchView: View {
     }
 
     @ViewBuilder
-    private var content: some View {
+    private func content(containerWidth: CGFloat) -> some View {
         switch viewModel?.loadState ?? .idle {
         case .idle:
             ContentUnavailableView(
@@ -47,9 +47,10 @@ struct SearchView: View {
             if results.isEmpty {
                 ContentUnavailableView.search
             } else {
-                LazyVGrid(columns: columns, spacing: 20) {
+                let metrics = PosterGridMetrics(containerWidth: containerWidth)
+                LazyVGrid(columns: metrics.columns, spacing: 20) {
                     ForEach(results) { item in
-                        PosterCard(item: item, width: 130)
+                        PosterCard(item: item, width: metrics.itemWidth)
                     }
                 }
             }
