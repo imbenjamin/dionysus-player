@@ -37,6 +37,14 @@ struct ProfileView: View {
             } footer: {
                 Text("This signs you out and forgets this server, returning to first-time setup.")
             }
+
+            // Page-wide footer (not tied to the section above it): which
+            // branch/commit this build actually came from.
+            Section {
+            } footer: {
+                Text(AppVersionInfo.footerText())
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
         }
         .navigationTitle("Profile")
         .confirmationDialog(

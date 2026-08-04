@@ -99,7 +99,7 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(capturedQuery["Limit"], "5")
     }
 
-    func test_item_requestsDetailFieldsIncludingMediaSources() async throws {
+    func test_item_requestsDetailFieldsIncludingMediaSourcesAndPeople() async throws {
         let client = makeClient()
         var capturedQuery: [String: String] = [:]
         let dto = BaseItemDto(id: "item-1", name: "Arrival", type: .movie)
@@ -112,6 +112,7 @@ final class JellyfinAPIClientTests: XCTestCase {
         let result = try await client.item(userID: "user-1", itemID: "item-1")
         XCTAssertEqual(result.id, "item-1")
         XCTAssertTrue((capturedQuery["Fields"] ?? "").contains("MediaSources"))
+        XCTAssertTrue((capturedQuery["Fields"] ?? "").contains("People"), "Cast & Crew tab needs this")
     }
 
     func test_decodingFailure_surfacesAsDecodingError() async {

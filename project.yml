@@ -40,6 +40,32 @@ targets:
         SUPPORTS_MACCATALYST: false
         ASSETCATALOG_COMPILER_APPICON_NAME: dionysus
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    # Stamps the current git branch/commit into the *built* Info.plist (not
+    # the checked-in template at Generated/Info.plist) so AppVersionInfo can
+    # show what was actually built, e.g. on the Profile screen's footer.
+    # Position matters and was verified empirically, not assumed: a
+    # prebuildScript (before Compile Sources) gets silently clobbered —
+    # Xcode's own Info.plist processing runs after it and overwrites the
+    # file. postCompileScripts (right after Compile Sources) runs after that
+    # processing but still well before code signing, confirmed both by the
+    # injected keys surviving into the built .app *and* `codesign --verify`
+    # still passing on it.
+    postCompileScripts:
+      - name: "Inject Git Branch/Commit into Info.plist"
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          BRANCH=$(git -C "${SRCROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+          COMMIT=$(git -C "${SRCROOT}" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+          PLIST="${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+          if [ -f "$PLIST" ]; then
+            /usr/libexec/PlistBuddy -c "Delete :GitBranch" "$PLIST" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Add :GitBranch string ${BRANCH}" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Delete :GitCommitHash" "$PLIST" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Add :GitCommitHash string ${COMMIT}" "$PLIST"
+          else
+            echo "warning: Info.plist not found at $PLIST yet; git info not injected"
+          fi
     info:
       path: Generated/Info.plist
       properties:

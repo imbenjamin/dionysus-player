@@ -82,6 +82,11 @@ struct BaseItemDto: Codable, Identifiable {
     var backdropImageTags: [String]?
     var parentBackdropItemId: String?
     var parentBackdropImageTags: [String]?
+    /// Server-resolved: the nearest ancestor that actually has a logo (e.g.
+    /// an episode's own Season, or failing that its Series), same mechanism
+    /// as `parentBackdropItemId`/`parentBackdropImageTags` above.
+    var parentLogoItemId: String?
+    var parentLogoImageTag: String?
 
     var userData: UserItemDataDto?
 
@@ -89,9 +94,27 @@ struct BaseItemDto: Codable, Identifiable {
     /// detail page's technical-info section and to build a playback URL.
     var mediaSources: [MediaSourceInfo]?
 
+    /// Only populated when requested via `Fields=People`; cast and crew for
+    /// the detail page's "Cast & Crew" tab.
+    var people: [BaseItemPerson]?
+
     /// Present on library "views" (e.g. `"movies"`, `"tvshows"`, `"boxsets"`)
     /// returned by `/Users/{id}/Views`; used to scope Home's rails.
     var collectionType: String?
+}
+
+/// A single cast/crew credit. Jellyfin's `Type` is as open-ended as
+/// `BaseItemKind` (e.g. "Actor", "Director", "Writer", "GuestStar",
+/// "Composer", ...) — kept as a plain string here since it's only ever
+/// shown as a label, never branched on.
+struct BaseItemPerson: Codable, Identifiable, Hashable {
+    var id: String
+    var name: String
+    /// The character name for an "Actor"/"GuestStar" credit; usually absent
+    /// for crew, where `type` (e.g. "Director") is the meaningful label.
+    var role: String?
+    var type: String?
+    var primaryImageTag: String?
 }
 
 extension BaseItemDto: Equatable, Hashable {
@@ -129,6 +152,10 @@ struct MediaSourceInfo: Codable, Identifiable {
     var isRemote: Bool?
     var supportsDirectPlay: Bool?
     var runTimeTicks: Int64?
+    /// Overall bitrate in bits/sec, for the Details tab's summary row.
+    var bitrate: Int?
+    /// File size in bytes, for the Details tab's summary row.
+    var size: Int64?
     var mediaStreams: [MediaStream]?
 }
 
@@ -137,10 +164,35 @@ struct MediaStream: Codable, Identifiable, Hashable {
     var type: String
     var codec: String?
     var language: String?
+    /// The raw embedded stream title (e.g. "Commentary", "Audio
+    /// Description"), distinct from the server-computed `displayTitle`.
+    var title: String?
     var displayTitle: String?
     var isDefault: Bool?
+    var isForced: Bool?
     var isExternal: Bool?
     var deliveryUrl: String?
+    /// Server-detected, primarily for subtitle streams (SDH/closed-caption
+    /// naming conventions); occasionally set for an accessible audio track
+    /// too. One of a few signals `MediaItem.metadataBadges` checks for "AD".
+    var isHearingImpaired: Bool?
+
+    // Video-specific — used to build the Details tab's resolution/dynamic
+    // range rows. `nil` for audio/subtitle streams.
+    var width: Int?
+    var height: Int?
+    var profile: String?
+    /// Simple SDR/HDR classification.
+    var videoRange: String?
+    /// More specific than `videoRange` when present (e.g. "DOVI",
+    /// "DOVIWithHDR10", "HDR10", "HLG") — preferred when available.
+    var videoRangeType: String?
+
+    // Audio-specific.
+    var channelLayout: String?
+    /// Server-detected spatial audio format ("None"/"DolbyAtmos"/"DTSX") —
+    /// more reliable than text-matching the codec/title for Atmos.
+    var audioSpatialFormat: String?
 
     var id: Int { index }
 }

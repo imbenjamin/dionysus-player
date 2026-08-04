@@ -34,10 +34,7 @@ struct ShowDetailView: View {
                             }
                         )
 
-                        if let overview = item.overview, !overview.isEmpty {
-                            Text(overview)
-                                .font(.body)
-                        }
+                        DetailTabsView(item: item)
                     }
                     .padding(.horizontal)
 

@@ -1,7 +1,10 @@
 import SwiftUI
 
-/// Year (range), age rating, duration, rating, and genres — the common
-/// metadata line shown on every detail page.
+/// Year (range), age rating, duration, and rating on the first line; a
+/// dot-separated line of resolution/dynamic-range/audio-format/
+/// accessibility badges on the second — the common metadata shown on every
+/// detail page. Genres moved to the "About" tab (`DetailTabsView`), above
+/// the synopsis; badges took their old spot on the second line.
 struct InfoMetadataRow: View {
     let item: MediaItem
 
@@ -20,14 +23,21 @@ struct InfoMetadataRow: View {
                 if let duration = item.durationText { Text(duration) }
 
                 if let communityRating = item.communityRating {
-                    Label(String(format: "%.1f", communityRating), systemImage: "star.fill")
+                    // `Label`'s default icon/title spacing reads as too wide
+                    // here — closer to the two being separate items than one
+                    // "★ 4.8" rating — so a plain HStack with an explicit,
+                    // tight spacing instead.
+                    HStack(spacing: 3) {
+                        Image(systemName: "star.fill")
+                        Text(String(format: "%.1f", communityRating))
+                    }
                 }
             }
             .font(.subheadline)
             .foregroundStyle(.secondary)
 
-            if !item.genres.isEmpty {
-                Text(item.genres.joined(separator: " \u{00B7} "))
+            if !item.metadataBadges.isEmpty {
+                Text(item.metadataBadges.joined(separator: " \u{00B7} "))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }

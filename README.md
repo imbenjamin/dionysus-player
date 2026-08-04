@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".github/dionysus-iOS-Default-512x512@1x.png" alt="Dionysus Player" width="180">
+</p>
+
 # Dionysus Player
 
 A better and open Apple client for Jellyfin.
@@ -14,7 +18,7 @@ Vision support.
 Navigation, screens, and the networking/playback plumbing are in place with
 placeholder content where noted. As of Xcode 26.5, the app builds clean end
 to end — package resolution (AetherEngine and its dependencies), compilation,
-and linking all succeed with no errors — and a 136-test unit test suite
+and linking all succeed with no errors — and a 180-test unit test suite
 passes (see [Testing](#testing)). That confirms the code compiles against
 AetherEngine's real API and that the ViewModel/networking layer behaves as
 intended; it does **not** confirm playback actually works — no test here
@@ -62,7 +66,7 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
   -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
-136/136 tests passing as of this writing. See [`TESTING.md`](TESTING.md) for
+180/180 tests passing as of this writing. See [`TESTING.md`](TESTING.md) for
 the full strategy, a coverage table, and known gaps (SwiftUI views, true
 UI/end-to-end tests, and `AetherPlaybackEngine`'s own adapter code).
 
@@ -81,10 +85,11 @@ DionysusPlayer/
 │   ├── Login/           Jellyfin sign-in, remembers & auto-logs in
 │   ├── Home/            Top bar (Movies/Series/Collections) + content rails
 │   ├── Collection/      Grid of a library/collection's items
-│   ├── AssetDetails/    Movie detail & Show (seasons/episodes) detail
+│   ├── AssetDetails/    Movie/Show detail — hero header, Play/Resume/Restart,
+│   │                    tabbed About/Cast & Crew/Details area
 │   ├── Player/          AetherEngine-backed playback UI
 │   ├── Search/          Jellyfin search, grid results
-│   └── Profile/         Server/account settings
+│   └── Profile/         Server/account settings, build version footer
 └── Shared/         Reusable components (poster cards, async images, nav)
 ```
 
