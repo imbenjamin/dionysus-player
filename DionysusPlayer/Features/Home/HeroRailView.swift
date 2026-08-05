@@ -32,6 +32,11 @@ struct HeroRailView: View {
     /// dependency.
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
+    /// Same check `HeroHeaderView` uses, for the same reason (see that
+    /// view's `verticalSizeClass` doc comment) — `.compact` is iPhone's
+    /// landscape signal.
+    private var isLandscape: Bool { verticalSizeClass == .compact }
+
     /// Deliberately the key window's own bounds, not `UIScreen.main` (soft
     /// deprecated, and doesn't reflect a resized scene under iPadOS Stage
     /// Manager) — same reasoning as `HeroHeaderView.statusBarInset`.
@@ -56,13 +61,20 @@ struct HeroRailView: View {
             .safeAreaInsets.top ?? 0
     }
 
-    /// A third of the screen, stretched 25% taller, *plus* `statusBarInset`
-    /// so bleeding up under the notch is pure upward growth rather than
-    /// eating into that 1.25x budget — without the addition, reaching the
-    /// notch and "25% taller" would fight over the same height instead of
-    /// both actually happening.
+    /// Portrait: a third of the screen, stretched 25% taller, *plus*
+    /// `statusBarInset` so bleeding up under the notch is pure upward
+    /// growth rather than eating into that 1.25x budget — without the
+    /// addition, reaching the notch and "25% taller" would fight over the
+    /// same height instead of both actually happening. Landscape instead
+    /// goes straight to 75% of the screen — a third-of-portrait-height
+    /// formula would read as far too short once the screen itself is much
+    /// shorter, so landscape gets its own, larger fraction rather than
+    /// reusing the portrait math. `screenHeight` already reflects whichever
+    /// orientation is current (the key window's `bounds` rotate with the
+    /// device), so no separate landscape screen-height read is needed.
     private var heroHeight: CGFloat {
-        statusBarInset + screenHeight / 3 * 1.25
+        guard !isLandscape else { return screenHeight * 0.75 }
+        return statusBarInset + screenHeight / 3 * 1.25
     }
 
     /// Indexes into `loopedItems`, not `items` — see that property's doc
