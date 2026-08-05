@@ -99,19 +99,28 @@ struct HeroRailView: View {
     @State private var isInteracting = false
 
     /// Seconds elapsed since the last auto-advance, or since the user last
-    /// had a finger down — reset in both cases, ticked up by `tickTimer`.
-    /// Deliberately a counted `@State` int over a longer-period `Timer`
-    /// directly on `autoAdvanceInterval`, so a touch always buys a full
-    /// fresh `autoAdvanceInterval` of undisturbed viewing after release,
-    /// rather than resuming a countdown that was already partway elapsed
-    /// when the touch began.
+    /// touched the carousel — reset directly from the drag gesture's
+    /// `onChanged`/`onEnded` (not just sampled by `tick()`, see below),
+    /// ticked up by `tickTimer`. Deliberately a counted `@State` int over a
+    /// longer-period `Timer` directly on `autoAdvanceInterval`, so a touch
+    /// always buys a full fresh `autoAdvanceInterval` of undisturbed
+    /// viewing after release, rather than resuming a countdown that was
+    /// already partway elapsed when the touch began.
     @State private var idleSeconds = 0
 
     private static let autoAdvanceInterval = 5
 
+    /// Duration of the auto-advance's own page-slide animation — kept as a
+    /// named constant because `snapIfNeeded` needs to wait at least this
+    /// long before performing the loop's silent snap-back, or it cuts the
+    /// slide off before it finishes (see that function's doc comment).
+    private static let autoAdvanceAnimationDuration: TimeInterval = 0.35
+
     /// Ticks once a second rather than firing directly at
-    /// `autoAdvanceInterval` — the 1s granularity is what lets touch resets
-    /// `idleSeconds` mid-countdown instead of only at the moment it fires.
+    /// `autoAdvanceInterval` — the 1s granularity is enough to keep
+    /// `idleSeconds` pinned at 0 for the duration of a held touch (a quick
+    /// tap/swipe resets it directly from the gesture instead, since it
+    /// might not overlap a tick at all — see `idleSeconds`'s doc comment).
     private let tickTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -132,8 +141,14 @@ struct HeroRailView: View {
             // alongside it without ever blocking or being blocked by it.
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { _ in isInteracting = true }
-                    .onEnded { _ in isInteracting = false }
+                    .onChanged { _ in
+                        isInteracting = true
+                        idleSeconds = 0
+                    }
+                    .onEnded { _ in
+                        isInteracting = false
+                        idleSeconds = 0
+                    }
             )
             .onReceive(tickTimer) { _ in tick() }
 
@@ -158,24 +173,33 @@ struct HeroRailView: View {
         idleSeconds += 1
         guard idleSeconds >= Self.autoAdvanceInterval else { return }
         idleSeconds = 0
-        withAnimation(.easeInOut) {
+        withAnimation(.easeInOut(duration: Self.autoAdvanceAnimationDuration)) {
             selection += 1
         }
     }
 
     /// Performs the "snap back into the real range" half of the loop trick.
-    /// Deferred a beat via `DispatchQueue.main.async` and wrapped in a
-    /// transaction with animations disabled — doing it synchronously inside
-    /// `onChange` fights the swipe's own in-flight animation and produces a
-    /// visible stutter; deferring lets that animation finish first, so the
-    /// jump lands after the user can see it.
+    ///
+    /// Deferred by `autoAdvanceAnimationDuration`, not just one run-loop
+    /// turn — `onChange(of:)` fires the instant `selection`'s *state*
+    /// changes, which for a gesture-driven swipe is only once the page has
+    /// already visually settled (so snapping back right away is fine, the
+    /// slide is already done), but for a *programmatic* change like
+    /// `tick()`'s `withAnimation` call, the state changes immediately while
+    /// the slide animation is still playing out over the next
+    /// `autoAdvanceAnimationDuration` seconds in the background. Snapping
+    /// back too early — the original `DispatchQueue.main.async` with no
+    /// delay — cut that slide off after only a frame or two, which looked
+    /// like a fade/pop instead of a swipe. Waiting out the animation's own
+    /// duration lets it finish before the (still instant, still invisible —
+    /// the two pages are pixel-identical) snap happens.
     private func snapIfNeeded(from newValue: Int) {
         guard items.count > 1 else { return }
         let leadingPad = 0
         let trailingPad = loopedItems.count - 1
         guard newValue == leadingPad || newValue == trailingPad else { return }
         let target = newValue == leadingPad ? items.count : 1
-        DispatchQueue.main.async {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.autoAdvanceAnimationDuration) {
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
