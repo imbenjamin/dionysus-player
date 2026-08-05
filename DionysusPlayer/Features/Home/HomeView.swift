@@ -1,21 +1,25 @@
 import SwiftUI
 
+/// Home is a single scrolling page of rails: a full-bleed hero banner, the
+/// user's libraries (replacing the old top-menu category picker), then
+/// Continue Watching / Recently Added Movies / Recently Added Shows.
 struct HomeView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel: HomeViewModel?
-    @State private var selectedCategory: HomeCategory = .movies
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                TopMenuBar(selection: $selectedCategory)
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-
-                content
-            }
-            .padding(.bottom, 24)
+            content
         }
+        // Lets `HeroRailView` bleed up under the status bar/notch at rest —
+        // a `ScrollView` clips its content to its own bounds, so a child
+        // declaring `.ignoresSafeArea` on itself has nothing to bleed into
+        // unless the `ScrollView` containing it extends there too (same
+        // mechanism `MovieDetailView`/`ShowDetailView` use for their own
+        // hero header, just without their compensating top padding, since
+        // here the bleed is the whole point rather than something to avoid
+        // at rest).
+        .ignoresSafeArea(edges: .top)
         .navigationBarTitleDisplayMode(.inline)
         .task { await setUpIfNeeded() }
     }
@@ -31,16 +35,25 @@ struct HomeView: View {
             }
             .frame(height: 300)
         case .loaded:
-            let visibleRails = (viewModel?.rails ?? []).filter { $0.category == nil || $0.category == selectedCategory }
-            if visibleRails.isEmpty {
+            let heroItems = viewModel?.heroItems ?? []
+            let libraries = viewModel?.libraries ?? []
+            let rails = viewModel?.rails ?? []
+            if heroItems.isEmpty && libraries.isEmpty && rails.isEmpty {
                 ErrorStateView(message: "Nothing here yet.", retry: nil)
                     .frame(height: 200)
             } else {
                 VStack(alignment: .leading, spacing: 24) {
-                    ForEach(visibleRails) { homeRail in
-                        MediaRailView(rail: homeRail.rail)
+                    if !heroItems.isEmpty {
+                        HeroRailView(items: heroItems)
+                    }
+                    if !libraries.isEmpty {
+                        LibraryRailView(libraries: libraries)
+                    }
+                    ForEach(rails) { rail in
+                        MediaRailView(rail: rail)
                     }
                 }
+                .padding(.bottom, 24)
             }
         }
     }

@@ -11,7 +11,16 @@ final class HomeViewModel {
         case failed(String)
     }
 
-    private(set) var rails: [HomeRail] = []
+    /// A random mix of unwatched movies/series for the hero rail at the top
+    /// of Home. Reshuffles (server-side, via `SortBy=Random`) on every
+    /// `load()`.
+    private(set) var heroItems: [MediaItem] = []
+    /// The user's own libraries (Movies, Shows, Collections, ...), for the
+    /// rail that replaced the old top-menu category picker.
+    private(set) var libraries: [MediaItem] = []
+    /// Everything else: Continue Watching, Recently Added Movies, Recently
+    /// Added Shows, in that order — omitted when empty.
+    private(set) var rails: [MediaCollectionRail] = []
     private(set) var loadState: LoadState = .idle
 
     private let client: JellyfinAPIClient
@@ -23,13 +32,12 @@ final class HomeViewModel {
     }
 
     func loadIfNeeded() async {
-        guard rails.isEmpty else { return }
+        guard loadState == .idle else { return }
         await load()
     }
 
-    /// Populates a first pass of Home rails. Deliberately simple — real
-    /// rail selection (what shows, in what order) is expected to be
-    /// redesigned later.
+    /// Populates Home's rails. Deliberately simple — real rail selection
+    /// (what shows, in what order) is expected to be redesigned later.
     func load() async {
         loadState = .loading
         do {
@@ -39,36 +47,35 @@ final class HomeViewModel {
             let moviesLibraryID = views.items.first { $0.collectionType == "movies" }?.id
             let showsLibraryID = views.items.first { $0.collectionType == "tvshows" }?.id
 
+            async let heroCandidates = client.items(
+                userID: userID,
+                includeItemTypes: ["Movie", "Series"],
+                sortBy: "Random",
+                filters: ["IsUnplayed"],
+                limit: 10
+            )
             async let resume = client.resumeItems(userID: userID)
             async let latestMovies = client.latestItems(userID: userID, parentID: moviesLibraryID, limit: 16)
             async let latestShows = client.latestItems(userID: userID, parentID: showsLibraryID, limit: 16)
-            async let boxSets = client.items(userID: userID, includeItemTypes: ["BoxSet"], limit: 16)
 
-            var newRails: [HomeRail] = []
-            func appendRail(
-                _ title: String,
-                _ category: HomeCategory?,
-                _ dtos: [BaseItemDto],
-                seeAllQuery: CollectionQuery? = nil
-            ) {
+            heroItems = try await heroCandidates.items.map { MediaItem(dto: $0, images: images) }
+            libraries = views.items.map { MediaItem(dto: $0, images: images) }
+
+            var newRails: [MediaCollectionRail] = []
+            func appendRail(_ title: String, _ dtos: [BaseItemDto], seeAllQuery: CollectionQuery? = nil) {
                 guard !dtos.isEmpty else { return }
                 let items = dtos.map { MediaItem(dto: $0, images: images) }
-                let rail = MediaCollectionRail(title: title, items: items, seeAllQuery: seeAllQuery)
-                newRails.append(HomeRail(category: category, rail: rail))
+                newRails.append(MediaCollectionRail(title: title, items: items, seeAllQuery: seeAllQuery))
             }
 
-            appendRail("Continue Watching", nil, try await resume.items)
+            appendRail("Continue Watching", try await resume.items)
             appendRail(
-                "Recently Added Movies", .movies, try await latestMovies,
+                "Recently Added Movies", try await latestMovies,
                 seeAllQuery: CollectionQuery(title: "Movies", parentID: moviesLibraryID, includeItemTypes: ["Movie"])
             )
             appendRail(
-                "Recently Added Series", .series, try await latestShows,
-                seeAllQuery: CollectionQuery(title: "Series", parentID: showsLibraryID, includeItemTypes: ["Series"])
-            )
-            appendRail(
-                "Collections", .collections, try await boxSets.items,
-                seeAllQuery: CollectionQuery(title: "Collections", includeItemTypes: ["BoxSet"])
+                "Recently Added Shows", try await latestShows,
+                seeAllQuery: CollectionQuery(title: "Shows", parentID: showsLibraryID, includeItemTypes: ["Series"])
             )
 
             rails = newRails

@@ -50,6 +50,9 @@ actor JellyfinAPIClient {
         recursive: Bool = true,
         sortBy: String = "SortName",
         sortOrder: String = "Ascending",
+        /// Jellyfin's `ItemFilter` values, e.g. `"IsUnplayed"`, `"IsFavorite"`
+        /// — joined into a single comma-separated `Filters` query param.
+        filters: [String] = [],
         searchTerm: String? = nil,
         limit: Int? = nil
     ) async throws -> BaseItemDtoQueryResult {
@@ -63,6 +66,7 @@ actor JellyfinAPIClient {
         if !includeItemTypes.isEmpty {
             query.append(.init(name: "IncludeItemTypes", value: includeItemTypes.joined(separator: ",")))
         }
+        if !filters.isEmpty { query.append(.init(name: "Filters", value: filters.joined(separator: ","))) }
         if let searchTerm, !searchTerm.isEmpty { query.append(.init(name: "SearchTerm", value: searchTerm)) }
         if let limit { query.append(.init(name: "Limit", value: String(limit))) }
         return try await get("/Users/\(userID)/Items", query: query)

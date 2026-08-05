@@ -14,9 +14,9 @@ final class AssetDetailViewModelTests: XCTestCase {
         super.tearDown()
     }
 
-    private func makeViewModel(itemID: String) -> AssetDetailViewModel {
+    private func makeViewModel(itemID: String, preloadedItem: MediaItem? = nil) -> AssetDetailViewModel {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
-        return AssetDetailViewModel(client: client, userID: "user-1", itemID: itemID)
+        return AssetDetailViewModel(client: client, userID: "user-1", itemID: itemID, preloadedItem: preloadedItem)
     }
 
     // MARK: load()
@@ -97,6 +97,50 @@ final class AssetDetailViewModelTests: XCTestCase {
 
         await viewModel.loadIfNeeded()
         XCTAssertEqual(requestCount, countAfterFirstLoad, "Should not re-fetch once `item` is already populated")
+    }
+
+    // MARK: preloadedItem
+
+    /// `preloadedItem` — the `MediaItem` the pushing hero/poster card
+    /// already had in hand — should be visible immediately, before `load()`
+    /// or `loadIfNeeded()` ever runs. This is what lets `AssetDetailView`
+    /// render a real page (and a zoom navigation transition land on
+    /// something real) instead of a spinner the instant the push happens.
+    func test_init_withPreloadedItem_seedsItemBeforeAnyLoad() {
+        let images = ImageURLBuilder(baseURL: baseURL, accessToken: "tok")
+        let preloaded = MediaItem(dto: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie), images: images)
+
+        let viewModel = makeViewModel(itemID: "movie-1", preloadedItem: preloaded)
+
+        XCTAssertEqual(viewModel.item?.id, "movie-1")
+        XCTAssertEqual(viewModel.loadState, .idle, "Seeding item shouldn't itself count as having loaded")
+    }
+
+    /// Regression test for switching the `loadIfNeeded` guard from "item is
+    /// nil" to "loadState == .idle": a preloaded item makes `item` non-nil
+    /// immediately, which the old guard would have mistaken for "already
+    /// loaded" and skipped fetching the full item (cast, technical details,
+    /// similar/collections rails) entirely.
+    func test_loadIfNeeded_withPreloadedItem_stillFetchesFullItem() async {
+        let images = ImageURLBuilder(baseURL: baseURL, accessToken: "tok")
+        let preloaded = MediaItem(dto: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie), images: images)
+        let similarDto = BaseItemDto(id: "movie-2", name: "Contact", type: .movie)
+        let viewModel = makeViewModel(itemID: "movie-1", preloadedItem: preloaded)
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/movie-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie))
+            case "/Items/movie-1/Similar":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [similarDto], totalRecordCount: 1))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.loadIfNeeded()
+
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(viewModel.similar.map(\.id), ["movie-2"], "The full fetch should still have run despite the preloaded item")
     }
 
     // MARK: resolveSeriesPlaybackItemID()

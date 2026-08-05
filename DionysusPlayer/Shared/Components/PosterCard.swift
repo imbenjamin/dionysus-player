@@ -7,7 +7,7 @@ struct PosterCard: View {
     var width: CGFloat = 130
 
     var body: some View {
-        NavigationLink(value: AppRoute.assetDetail(itemID: item.id)) {
+        NavigationLink(value: AppRoute.assetDetail(itemID: item.id, preloadedItem: item)) {
             VStack(alignment: .leading, spacing: 6) {
                 AsyncRemoteImage(url: item.primaryImageURL)
                     .frame(width: width, height: width * 1.5)

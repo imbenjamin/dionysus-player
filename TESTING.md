@@ -39,7 +39,7 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 
 (swap `iPhone 17` for whatever's in `xcrun simctl list devices available` on your machine.)
 
-**Verified:** the full suite (180 tests) has been run for real via
+**Verified:** the full suite (183 tests) has been run for real via
 `xcodebuild test` against the iOS 26.5 Simulator — all passing, 0 failures.
 A few real issues were caught and fixed along the way, worth knowing about
 if you extend this setup:
@@ -79,9 +79,9 @@ and the networking client, mirroring the app's own MVVM structure
 | `KeychainStore` | `KeychainStoreTests.swift` | Save/load/delete round-trips against the real Keychain (Simulator keychain access needs no special entitlement for this). |
 | `ServerSessionStore` | `ServerSessionStoreTests.swift` | Persistence round-trips across fresh instances, and that `clearCredentials` vs. `clearAll` affect the right subset of state. |
 | `SearchViewModel` | `SearchViewModelTests.swift` | Empty-query short-circuit, debounced search, error state. |
-| `HomeViewModel` | `HomeViewModelTests.swift` | The multi-endpoint fan-out in `load()` — rails omitted when empty, `seeAllQuery` wiring, and that `loadIfNeeded()` doesn't re-fetch once populated. |
+| `HomeViewModel` | `HomeViewModelTests.swift` | The multi-endpoint fan-out in `load()` — the hero rail's random-unwatched-movies-and-series query (`IncludeItemTypes`/`SortBy=Random`/`Filters=IsUnplayed`), the libraries rail straight from `/Users/{id}/Views`, remaining rails omitted when empty, `seeAllQuery` wiring, and that `loadIfNeeded()` doesn't re-fetch once `loadState` is no longer `.idle` — including the case where every array legitimately loaded empty (a regression net for a guard that used to check `rails.isEmpty` instead, which would've kept re-fetching forever in that case). |
 | `CollectionGridViewModel` | `CollectionGridViewModelTests.swift` | Query parameters (`parentID`/`includeItemTypes`/sort) reach the client correctly, error state, `loadIfNeeded()` short-circuit. |
-| `AssetDetailViewModel` | `AssetDetailViewModelTests.swift` | The movie-vs-series branch in `load()` (only series fetch `Seasons`), and `resolveSeriesPlaybackItemID()`'s fallback chain (next-up episode → first episode of first season → `nil` for non-series). |
+| `AssetDetailViewModel` | `AssetDetailViewModelTests.swift` | The movie-vs-series branch in `load()` (only series fetch `Seasons`), `resolveSeriesPlaybackItemID()`'s fallback chain (next-up episode → first episode of first season → `nil` for non-series), and `preloadedItem` seeding `item` before any load plus still triggering the full fetch (`loadIfNeeded()`'s guard is on `loadState`, not `item`, precisely so a preloaded item doesn't look like "already loaded" and get skipped). |
 | `AppState` | `AppStateTests.swift` | The `.serverSetup` → `.login` → `.main` phase machine: silent sign-in on launch (success and failure-falls-back-to-login), `completeServerSetup`/`signIn`/`signOut`/`changeServer` all affecting the right subset of state. |
 | `LoginViewModel` | `LoginViewModelTests.swift` | `canSubmit` gating, delegation to `AppState.signIn`, the user-facing error message on failure. |
 | `ServerSetupViewModel` | `ServerSetupViewModelTests.swift` | `testConnection()`'s address validation, server-name detection/fallback, and unreachable-server handling. |

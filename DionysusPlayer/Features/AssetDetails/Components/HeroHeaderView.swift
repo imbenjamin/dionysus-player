@@ -2,7 +2,8 @@ import SwiftUI
 import UIKit
 
 /// Backdrop image with a logo (or title text fallback) overlaid at the
-/// bottom, Disney+-style.
+/// bottom, Disney+-style — see `BackdropLogoOverlay` for the shared visual
+/// composition (also used by Home's hero rail).
 ///
 /// Lives inside a `ScrollView` whose containing detail page applies
 /// `.ignoresSafeArea(edges: .top)`, so this can render flush with the
@@ -52,86 +53,8 @@ struct HeroHeaderView: View {
     private static let height: CGFloat = 320
 
     var body: some View {
-        // The backdrop drives its own width via `.aspectRatio(.fill)` and
-        // would otherwise blow out the layout (a 16:9 image at 320pt height is
-        // ~569pt wide) — a `VStack` sizes itself to its widest child, so an
-        // unconstrained image here would make the *entire* detail page that
-        // wide. `GeometryReader` reads the width its parent actually offers
-        // (with no oversized ideal-width opinion of its own, unlike the
-        // image) and hands that to `.frame(width:)` explicitly, which is
-        // what actually constrains the image — a `.frame(maxWidth: .infinity)`
-        // alone doesn't override the ideal width the aspect-filled image
-        // reports for the VStack's own sizing purposes.
-        //
-        // This used to be `.containerRelativeFrame(.horizontal)` instead of
-        // `GeometryReader`, which resolves the same problem in principle but
-        // in practice would get stuck reporting a stale (too-wide) size
-        // after rotating portrait → landscape → portrait, overflowing the
-        // screen on the way back. `GeometryReader.size` has no equivalent
-        // container-lookup cache to go stale — it's read fresh every layout
-        // pass — so it doesn't carry that failure mode.
-        GeometryReader { proxy in
-            AsyncRemoteImage(url: item.backdropImageURL ?? item.primaryImageURL)
-                .frame(width: proxy.size.width, height: proxy.size.height)
-                .clipped()
-                .overlay {
-                    LinearGradient(
-                        colors: [.clear, .black.opacity(0.85)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                }
-                .overlay(alignment: .bottomLeading) {
-                    Group {
-                        if let logoURL = item.logoImageURL {
-                            AsyncImage(url: logoURL) { phase in
-                                if case .success(let image) = phase {
-                                    FadeInLogoImage(image: image)
-                                }
-                            }
-                            .frame(maxWidth: 240, maxHeight: 80, alignment: .leading)
-                        } else {
-                            Text(item.name)
-                                .font(.largeTitle.bold())
-                                .foregroundStyle(.white)
-                        }
-                    }
-                    .padding()
-                }
-        }
-        .frame(height: Self.height)
-        .padding(.top, isLandscape ? 0 : statusBarInset)
-    }
-}
-
-/// Fades a loaded logo `Image` in over `duration`, rather than having it pop
-/// in the instant `AsyncImage` resolves.
-///
-/// Deliberately *not* done via `AsyncImage(url:transaction:)` +
-/// `.transition(.opacity)` on the success case — that combination is
-/// unreliable in practice: whether it animates depends on `AsyncImage`
-/// internally treating the `.empty` → `.success` switch as a tracked state
-/// change under the given transaction, which isn't guaranteed, especially
-/// when the image resolves from cache fast enough that the `.empty` phase
-/// never visibly renders. Owning the opacity as local `@State` and animating
-/// it from `onAppear` sidesteps `AsyncImage`'s phase-transition behavior
-/// entirely — this view's `body` only runs once the image has already
-/// loaded, so `onAppear` firing *is* the "just loaded" signal, independent
-/// of whatever transaction `AsyncImage` used internally.
-private struct FadeInLogoImage: View {
-    let image: Image
-
-    @State private var opacity: Double = 0
-
-    var body: some View {
-        image
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .opacity(opacity)
-            .onAppear {
-                withAnimation(.easeIn(duration: 0.35)) {
-                    opacity = 1
-                }
-            }
+        BackdropLogoOverlay(item: item)
+            .frame(height: Self.height)
+            .padding(.top, isLandscape ? 0 : statusBarInset)
     }
 }
