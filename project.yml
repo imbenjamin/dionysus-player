@@ -70,7 +70,21 @@ targets:
       path: Generated/Info.plist
       properties:
         CFBundleDisplayName: Dionysus
-        UILaunchScreen: {}
+        # Static approximation of SplashView (App/SplashView.swift) for the
+        # brief window before any app code runs — a system snapshot, not a
+        # live view, so it can only offer a flat background colour + one
+        # centered image; no gradient, glass, or motion. Once SplashView
+        # mounts it takes over seamlessly with the full effect.
+        #
+        # A storyboard (Resources/LaunchScreen.storyboard), not the
+        # plist-only UILaunchScreen dict — the dict's UIImageName rendered
+        # the glyph inside a small fixed-size container regardless of the
+        # source asset's own declared point size (confirmed empirically: a
+        # 6x larger asset had zero visible effect, even after a full
+        # Simulator reboot ruled out caching). An explicit Auto Layout
+        # width/height constraint in the storyboard is the one lever that
+        # actually controls the displayed size.
+        UILaunchStoryboardName: LaunchScreen
         UIRequiresFullScreen: false
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

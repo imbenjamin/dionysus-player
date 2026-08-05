@@ -8,7 +8,7 @@ struct RootView: View {
     var body: some View {
         Group {
             if appState.isRestoringSession {
-                LaunchLoadingView()
+                SplashView()
             } else {
                 switch appState.phase {
                 case .serverSetup:
@@ -21,16 +21,6 @@ struct RootView: View {
             }
         }
         .animation(.default, value: appState.isRestoringSession)
-    }
-}
-
-private struct LaunchLoadingView: View {
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            ProgressView()
-                .tint(.white)
-        }
     }
 }
 
