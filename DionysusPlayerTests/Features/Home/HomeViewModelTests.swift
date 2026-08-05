@@ -1,12 +1,13 @@
 import XCTest
 @testable import Dionysus
 
-/// `HomeViewModel.load()` fans out to four endpoints concurrently and
+/// `HomeViewModel.load()` fans out to five endpoints concurrently and
 /// stitches the results into a hero rail, a libraries rail, and the
 /// remaining content rails. The ViewModel doc comments call rail selection a
 /// placeholder, so this pins down current behavior (rails are omitted when
-/// empty, "Continue Watching" has no `seeAllQuery`) as a regression net
-/// rather than a spec to defend if that logic gets redesigned.
+/// empty, "Continue Watching"/"Next Up" have no `seeAllQuery`) as a
+/// regression net rather than a spec to defend if that logic gets
+/// redesigned.
 @MainActor
 final class HomeViewModelTests: XCTestCase {
     override func tearDown() {
@@ -28,6 +29,7 @@ final class HomeViewModelTests: XCTestCase {
         let showsLibrary = BaseItemDto(id: "lib-shows", name: "Shows", type: .collectionFolder, collectionType: "tvshows")
         let heroItem = BaseItemDto(id: "hero-1", name: "Featured", type: .movie)
         let resumeItem = BaseItemDto(id: "resume-1", name: "In Progress", type: .movie)
+        let nextUpItem = BaseItemDto(id: "episode-1", name: "Next Episode", type: .episode)
         let latestMovie = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie)
 
         let viewModel = makeViewModel()
@@ -51,6 +53,10 @@ final class HomeViewModelTests: XCTestCase {
                 return try MockURLProtocol.encodedJSONResponse(
                     for: request, value: BaseItemDtoQueryResult(items: [resumeItem], totalRecordCount: 1)
                 )
+            case "/Shows/NextUp":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [nextUpItem], totalRecordCount: 1)
+                )
             case "/Users/user-1/Items/Latest":
                 let query = request.queryDictionary
                 let items = query["ParentId"] == "lib-movies" ? [latestMovie] : [] // no latest shows
@@ -70,13 +76,20 @@ final class HomeViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.libraries.map(\.id), ["lib-movies", "lib-shows"])
 
         let titles = viewModel.rails.map(\.title)
-        XCTAssertEqual(titles, ["Continue Watching", "Recently Added Movies"], "Recently Added Shows should be omitted when empty")
+        XCTAssertEqual(
+            titles, ["Continue Watching", "Next Up", "Recently Added Movies"],
+            "Recently Added Shows should be omitted when empty"
+        )
 
         let continueWatching = viewModel.rails[0]
         XCTAssertEqual(continueWatching.items.map(\.id), ["resume-1"])
         XCTAssertNil(continueWatching.seeAllQuery)
 
-        let recentMovies = viewModel.rails[1]
+        let nextUp = viewModel.rails[1]
+        XCTAssertEqual(nextUp.items.map(\.id), ["episode-1"])
+        XCTAssertNil(nextUp.seeAllQuery)
+
+        let recentMovies = viewModel.rails[2]
         XCTAssertEqual(recentMovies.items.map(\.id), ["movie-1"])
         XCTAssertEqual(recentMovies.seeAllQuery?.parentID, "lib-movies")
     }

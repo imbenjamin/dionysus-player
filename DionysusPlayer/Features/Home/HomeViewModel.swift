@@ -18,8 +18,8 @@ final class HomeViewModel {
     /// The user's own libraries (Movies, Shows, Collections, ...), for the
     /// rail that replaced the old top-menu category picker.
     private(set) var libraries: [MediaItem] = []
-    /// Everything else: Continue Watching, Recently Added Movies, Recently
-    /// Added Shows, in that order — omitted when empty.
+    /// Everything else: Continue Watching, Next Up, Recently Added Movies,
+    /// Recently Added Shows, in that order — omitted when empty.
     private(set) var rails: [MediaCollectionRail] = []
     private(set) var loadState: LoadState = .idle
 
@@ -55,6 +55,7 @@ final class HomeViewModel {
                 limit: 10
             )
             async let resume = client.resumeItems(userID: userID)
+            async let upNext = client.nextUp(userID: userID, limit: 16)
             async let latestMovies = client.latestItems(userID: userID, parentID: moviesLibraryID, limit: 16)
             async let latestShows = client.latestItems(userID: userID, parentID: showsLibraryID, limit: 16)
 
@@ -69,6 +70,7 @@ final class HomeViewModel {
             }
 
             appendRail("Continue Watching", try await resume.items)
+            appendRail("Next Up", try await upNext.items)
             appendRail(
                 "Recently Added Movies", try await latestMovies,
                 seeAllQuery: CollectionQuery(title: "Movies", parentID: moviesLibraryID, includeItemTypes: ["Movie"])
