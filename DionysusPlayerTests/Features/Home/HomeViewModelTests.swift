@@ -3,11 +3,13 @@ import XCTest
 
 /// `HomeViewModel.load()` fans out to five endpoints concurrently and
 /// stitches the results into a hero rail, a libraries rail, and the
-/// remaining content rails. The ViewModel doc comments call rail selection a
-/// placeholder, so this pins down current behavior (rails are omitted when
-/// empty, "Continue Watching"/"Next Up" have no `seeAllQuery`) as a
-/// regression net rather than a spec to defend if that logic gets
-/// redesigned.
+/// remaining content rails, then discovers and loads dynamic genre/studio
+/// rails (`loadDynamicRailCandidates`/`loadMoreDynamicRails`) — see the
+/// "Dynamic rails" section below for that half. The ViewModel doc comments
+/// call curated rail selection a placeholder, so this pins down current
+/// behavior (rails are omitted when empty, "Continue Watching"/"Next Up"
+/// have no `seeAllQuery`) as a regression net rather than a spec to defend
+/// if that logic gets redesigned.
 @MainActor
 final class HomeViewModelTests: XCTestCase {
     override func tearDown() {
@@ -15,13 +17,38 @@ final class HomeViewModelTests: XCTestCase {
         super.tearDown()
     }
 
-    private func makeViewModel() -> HomeViewModel {
+    /// `shuffle` defaults to identity (not `HomeViewModel`'s own default
+    /// real shuffle) — most tests here care about deterministic rail order,
+    /// and the handful that don't are unaffected by an identity "shuffle".
+    private func makeViewModel(
+        shuffle: @escaping ([DynamicRailCandidate]) -> [DynamicRailCandidate] = { $0 }
+    ) -> HomeViewModel {
         let client = JellyfinAPIClient(
             baseURL: URL(string: "https://jellyfin.example.com")!,
             accessToken: "tok",
             session: MockURLProtocol.makeSession()
         )
-        return HomeViewModel(client: client, userID: "user-1")
+        return HomeViewModel(client: client, userID: "user-1", shuffle: shuffle)
+    }
+
+    /// Stubs `/Genres` and `/Studios` (all four `IncludeItemTypes` scopes)
+    /// with no results — for tests focused on the curated rails, where
+    /// dynamic rail discovery running (as it always does, as part of
+    /// `load()`) shouldn't add any noise to assert against.
+    // `nonisolated` — this test class is `@MainActor`, and without it these
+    // helpers would be too, which traps at runtime (`_swift_task_
+    // checkIsolatedSwift`) the moment `MockURLProtocol.requestHandler`
+    // calls one: that closure runs on CFNetwork's own background queue,
+    // not the MainActor. They're all pure functions over their own
+    // parameters — no MainActor-isolated state involved — so relaxing
+    // isolation here is free, not a workaround.
+    nonisolated private static func stubNoDynamicRailCandidates(_ request: URLRequest) throws -> (HTTPURLResponse, Data)? {
+        switch request.url?.path {
+        case "/Genres", "/Studios":
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        default:
+            return nil
+        }
     }
 
     func test_load_buildsExpectedRailsAndSkipsEmptyOnes() async {
@@ -34,6 +61,7 @@ final class HomeViewModelTests: XCTestCase {
 
         let viewModel = makeViewModel()
         MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
             switch request.url?.path {
             case "/Users/user-1/Views":
                 return try MockURLProtocol.encodedJSONResponse(
@@ -159,5 +187,255 @@ final class HomeViewModelTests: XCTestCase {
 
         await viewModel.loadIfNeeded()
         XCTAssertEqual(requestCount, countAfterFirstLoad, "Should not re-fetch just because everything loaded empty")
+    }
+
+    // MARK: Dynamic rails
+
+    /// Stubs the curated-rail endpoints empty so a test's `/Genres`/
+    /// `/Studios`/dynamic-`/Items` stubbing is all that shapes `rails`.
+    // `nonisolated` — see `stubNoDynamicRailCandidates`'s doc comment above.
+    nonisolated private static func stubEmptyCuratedRails(_ request: URLRequest) throws -> (HTTPURLResponse, Data)? {
+        switch request.url?.path {
+        case "/Users/user-1/Views", "/Users/user-1/Items/Resume", "/Shows/NextUp":
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        case "/Users/user-1/Items/Latest":
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]())
+        default:
+            return nil
+        }
+    }
+
+    /// `count` distinct `BaseItemDto`s, IDs prefixed for readability in
+    /// assertion failures — used throughout to build fetch responses that
+    /// clear (or deliberately fall short of) `minimumDynamicRailItemCount`.
+    // `nonisolated` — see `stubNoDynamicRailCandidates`'s doc comment above;
+    // this is the helper whose live in-handler use actually crashed.
+    nonisolated private static func makeItems(_ prefix: String, count: Int) -> [BaseItemDto] {
+        (1...count).map { BaseItemDto(id: "\(prefix)-\($0)", name: "\(prefix) \($0)", type: .movie) }
+    }
+
+    func test_load_appendsDynamicGenreAndStudioRailsAfterCuratedOnesWithCorrectTitles() async {
+        let viewModel = makeViewModel()
+        let actionMovies = Self.makeItems("action", count: 5)
+        let documentaryShows = Self.makeItems("doc", count: 5)
+        let marvelMovies = Self.makeItems("marvel", count: 5)
+        let hboShows = Self.makeItems("hbo", count: 5)
+
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            let query = request.queryDictionary
+            switch request.url?.path {
+            case "/Genres":
+                let genre = query["IncludeItemTypes"] == "Movie"
+                    ? BaseItemDto(id: "genre-action", name: "Action", type: .unknown)
+                    : BaseItemDto(id: "genre-doc", name: "Documentary", type: .unknown)
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [genre], totalRecordCount: 1))
+            case "/Studios":
+                let studio = query["IncludeItemTypes"] == "Movie"
+                    ? BaseItemDto(id: "studio-marvel", name: "Marvel Studios", type: .unknown)
+                    : BaseItemDto(id: "studio-hbo", name: "HBO", type: .unknown)
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [studio], totalRecordCount: 1))
+            case "/Users/user-1/Items":
+                guard query["SortBy"] != "Random" else {
+                    // The hero rail's own lookup — no candidates needed here.
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                let items: [BaseItemDto]
+                switch (query["Genres"], query["Studios"]) {
+                case ("Action", nil): items = actionMovies
+                case ("Documentary", nil): items = documentaryShows
+                case (nil, "Marvel Studios"): items = marvelMovies
+                case (nil, "HBO"): items = hboShows
+                default: items = []
+                }
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        // Identity shuffle (the `makeViewModel()` default) preserves
+        // discovery order: movie genres, show genres, movie studios, show
+        // studios — this also doubles as the injected-shuffle test, since a
+        // real shuffle would make this ordering assertion flaky.
+        XCTAssertEqual(
+            viewModel.rails.map(\.title),
+            ["Action Movies", "Documentary Shows", "Movies from Marvel Studios", "Shows from HBO"]
+        )
+        XCTAssertEqual(viewModel.rails.map { $0.items.count }, [5, 5, 5, 5])
+        XCTAssertFalse(viewModel.hasMoreDynamicRails, "Only 4 candidates existed, well under one batch")
+    }
+
+    /// The threshold this whole section is about: a candidate needs at
+    /// least `minimumDynamicRailItemCount` (5) items to become a rail — 4 is
+    /// still "some" results, not zero, but should be dropped the same as a
+    /// genuinely empty one, so a genre/studio with barely any content
+    /// doesn't show up as a sparse, mostly-empty rail.
+    func test_loadMoreDynamicRails_dropsCandidatesBelowTheMinimumItemCountEvenWhenNonEmpty() async {
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            let query = request.queryDictionary
+            switch request.url?.path {
+            case "/Genres":
+                guard query["IncludeItemTypes"] == "Movie" else {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                let genres = [
+                    BaseItemDto(id: "g-sparse", name: "SparseGenre", type: .unknown),
+                    BaseItemDto(id: "g-atmin", name: "AtMinimumGenre", type: .unknown),
+                    BaseItemDto(id: "g-empty", name: "EmptyGenre", type: .unknown)
+                ]
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: genres, totalRecordCount: genres.count))
+            case "/Studios":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items":
+                guard query["SortBy"] != "Random" else {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                let items: [BaseItemDto]
+                switch query["Genres"] {
+                case "SparseGenre": items = Self.makeItems("sparse", count: 4) // one short of the minimum
+                case "AtMinimumGenre": items = Self.makeItems("atmin", count: 5) // exactly the minimum
+                default: items = [] // EmptyGenre, or anything else
+                }
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+        XCTAssertEqual(
+            viewModel.rails.map(\.title), ["AtMinimumGenre Movies"],
+            "SparseGenre (4 items) and EmptyGenre (0) should both be dropped; AtMinimumGenre (exactly 5) should still load"
+        )
+    }
+
+    func test_loadMoreDynamicRails_loadsInBatchesOfTen() async {
+        let viewModel = makeViewModel()
+        let genreDtos = (1...15).map { BaseItemDto(id: "genre-\($0)", name: "Genre\($0)", type: .unknown) }
+
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            let query = request.queryDictionary
+            switch request.url?.path {
+            case "/Genres":
+                let items = query["IncludeItemTypes"] == "Movie" ? genreDtos : []
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
+            case "/Studios":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items":
+                guard query["SortBy"] != "Random" else {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                let name = query["Genres"] ?? "?"
+                let items = Self.makeItems("item-\(name)", count: 5)
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+        XCTAssertEqual(viewModel.rails.count, 10, "First batch should load with load() itself")
+        XCTAssertTrue(viewModel.hasMoreDynamicRails)
+
+        await viewModel.loadMoreDynamicRails()
+        XCTAssertEqual(viewModel.rails.count, 15, "Second batch should pick up the remaining 5")
+        XCTAssertFalse(viewModel.hasMoreDynamicRails)
+
+        await viewModel.loadMoreDynamicRails()
+        XCTAssertEqual(viewModel.rails.count, 15, "No candidates left — should be a no-op")
+    }
+
+    func test_loadMoreDynamicRails_skipsCandidatesThatReturnNoItemsWithoutBreakingTheRestOfTheBatch() async {
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            let query = request.queryDictionary
+            switch request.url?.path {
+            case "/Genres":
+                guard query["IncludeItemTypes"] == "Movie" else {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                let genres = [
+                    BaseItemDto(id: "g-empty", name: "EmptyGenre", type: .unknown),
+                    BaseItemDto(id: "g-real", name: "RealGenre", type: .unknown)
+                ]
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: genres, totalRecordCount: 2))
+            case "/Studios":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items":
+                guard query["SortBy"] != "Random" else {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                guard query["Genres"] != "EmptyGenre" else {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                let items = Self.makeItems("real", count: 5)
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+        XCTAssertEqual(
+            viewModel.rails.map(\.title), ["RealGenre Movies"],
+            "EmptyGenre's rail should be dropped; RealGenre's should still load"
+        )
+    }
+
+    func test_loadMoreDynamicRails_noOpsWhileAlreadyLoading() async {
+        // 15 candidates: load() consumes the first batch of 10, leaving 5
+        // pending — enough room to fire loadMoreDynamicRails a second time.
+        let viewModel = makeViewModel()
+        let genreDtos = (1...15).map { BaseItemDto(id: "genre-\($0)", name: "Genre\($0)", type: .unknown) }
+        var dynamicItemsRequestCount = 0
+
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            let query = request.queryDictionary
+            switch request.url?.path {
+            case "/Genres":
+                let items = query["IncludeItemTypes"] == "Movie" ? genreDtos : []
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
+            case "/Studios":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items":
+                guard query["SortBy"] != "Random" else {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                dynamicItemsRequestCount += 1
+                let items = Self.makeItems("item", count: 5)
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+        XCTAssertEqual(viewModel.rails.count, 10)
+        dynamicItemsRequestCount = 0 // isolate the concurrent-call round below
+
+        // The MainActor's cooperative scheduling guarantees whichever of
+        // these runs first sets `isLoadingMoreDynamicRails = true`
+        // synchronously (no `await` before that line) before the other
+        // gets a chance to check it — so this reliably exercises the
+        // re-entrancy guard rather than racing.
+        async let first: Void = viewModel.loadMoreDynamicRails()
+        async let second: Void = viewModel.loadMoreDynamicRails()
+        _ = await (first, second)
+
+        XCTAssertEqual(viewModel.rails.count, 15, "Only the winning call should have fetched the remaining 5")
+        XCTAssertEqual(dynamicItemsRequestCount, 5, "The losing concurrent call should no-op, not fire a duplicate batch")
     }
 }

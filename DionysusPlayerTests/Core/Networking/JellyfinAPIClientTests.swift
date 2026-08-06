@@ -99,6 +99,22 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(capturedQuery["Limit"], "5")
     }
 
+    /// `Genres`/`Studios` are pipe-delimited, unlike every other joined
+    /// param on `items(...)` (`IncludeItemTypes`/`Filters` are
+    /// comma-delimited) — confirmed against Jellyfin's real `ItemsController`.
+    func test_items_appliesGenresAndStudiosWithPipeDelimiter() async throws {
+        let client = makeClient()
+        var capturedQuery: [String: String] = [:]
+        MockURLProtocol.requestHandler = { request in
+            capturedQuery = request.queryDictionary
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        _ = try await client.items(userID: "user-1", genres: ["Action", "Sci-Fi"], studios: ["Marvel Studios"])
+        XCTAssertEqual(capturedQuery["Genres"], "Action|Sci-Fi")
+        XCTAssertEqual(capturedQuery["Studios"], "Marvel Studios")
+    }
+
     func test_item_requestsDetailFieldsIncludingMediaSourcesAndPeople() async throws {
         let client = makeClient()
         var capturedQuery: [String: String] = [:]
@@ -197,6 +213,40 @@ final class JellyfinAPIClientTests: XCTestCase {
         } catch {
             XCTFail("Expected JellyfinAPIError.http, got \(error)")
         }
+    }
+
+    // MARK: Genres & Studios (Home's dynamic rail discovery)
+
+    func test_genres_requestsExpectedPathAndScopesByIncludeItemTypes() async throws {
+        let client = makeClient(accessToken: "tok")
+        var capturedQuery: [String: String] = [:]
+        let action = BaseItemDto(id: "genre-1", name: "Action", type: .unknown)
+        MockURLProtocol.requestHandler = { request in
+            capturedQuery = request.queryDictionary
+            XCTAssertEqual(request.url?.path, "/Genres")
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [action], totalRecordCount: 1))
+        }
+
+        let result = try await client.genres(userID: "user-1", includeItemTypes: ["Movie"])
+        XCTAssertEqual(result.items.map(\.name), ["Action"])
+        XCTAssertEqual(capturedQuery["userId"], "user-1")
+        XCTAssertEqual(capturedQuery["IncludeItemTypes"], "Movie")
+    }
+
+    func test_studios_requestsExpectedPathAndScopesByIncludeItemTypes() async throws {
+        let client = makeClient(accessToken: "tok")
+        var capturedQuery: [String: String] = [:]
+        let hbo = BaseItemDto(id: "studio-1", name: "HBO", type: .unknown)
+        MockURLProtocol.requestHandler = { request in
+            capturedQuery = request.queryDictionary
+            XCTAssertEqual(request.url?.path, "/Studios")
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [hbo], totalRecordCount: 1))
+        }
+
+        let result = try await client.studios(userID: "user-1", includeItemTypes: ["Series"])
+        XCTAssertEqual(result.items.map(\.name), ["HBO"])
+        XCTAssertEqual(capturedQuery["userId"], "user-1")
+        XCTAssertEqual(capturedQuery["IncludeItemTypes"], "Series")
     }
 
     // MARK: collectionsContaining — exercises the fan-out/task-group logic

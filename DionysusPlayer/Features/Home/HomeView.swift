@@ -42,7 +42,12 @@ struct HomeView: View {
                 ErrorStateView(message: "Nothing here yet.", retry: nil)
                     .frame(height: 200)
             } else {
-                VStack(alignment: .leading, spacing: 24) {
+                // `LazyVStack`, not `VStack` — with dynamic genre/studio
+                // rails potentially pushing the rail count well past the
+                // curated set, this avoids constructing every rail's view
+                // hierarchy up front, and gives the trailing sentinel below
+                // a natural "about to scroll into view" trigger point.
+                LazyVStack(alignment: .leading, spacing: 24) {
                     if !heroItems.isEmpty {
                         HeroRailView(items: heroItems)
                     }
@@ -51,6 +56,26 @@ struct HomeView: View {
                     }
                     ForEach(rails) { rail in
                         MediaRailView(rail: rail)
+                    }
+
+                    if viewModel?.isLoadingMoreDynamicRails == true {
+                        LoadingView().frame(height: 150)
+                    }
+
+                    // Near-invisible trigger for the next batch of dynamic
+                    // rails — `.onAppear` fires once this scrolls near the
+                    // bottom of the visible area, before the user actually
+                    // reaches the true end of the content, which is what
+                    // makes it read as "more rails just keep appearing"
+                    // rather than a hard stop-and-wait. Only present while
+                    // `hasMoreDynamicRails` is true, so it can't keep
+                    // re-triggering once genres/studios are exhausted.
+                    if viewModel?.hasMoreDynamicRails == true {
+                        Color.clear
+                            .frame(height: 1)
+                            .onAppear {
+                                Task { await viewModel?.loadMoreDynamicRails() }
+                            }
                     }
                 }
                 .padding(.bottom, 24)

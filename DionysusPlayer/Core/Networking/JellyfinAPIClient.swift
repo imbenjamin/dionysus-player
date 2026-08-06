@@ -53,6 +53,15 @@ actor JellyfinAPIClient {
         /// Jellyfin's `ItemFilter` values, e.g. `"IsUnplayed"`, `"IsFavorite"`
         /// — joined into a single comma-separated `Filters` query param.
         filters: [String] = [],
+        /// Genre/studio *names* (as returned by `genres(...)`/`studios(...)`
+        /// below), joined with `"|"` — Jellyfin's `Genres`/`Studios` params
+        /// are pipe-delimited, unlike every other joined param on this
+        /// method (`IncludeItemTypes`/`Filters` are comma-delimited). Don't
+        /// "fix" this to match those by pattern-matching the rest of the
+        /// method — it's pipe on purpose, confirmed against the real
+        /// `ItemsController` signature.
+        genres: [String] = [],
+        studios: [String] = [],
         searchTerm: String? = nil,
         limit: Int? = nil
     ) async throws -> BaseItemDtoQueryResult {
@@ -67,9 +76,38 @@ actor JellyfinAPIClient {
             query.append(.init(name: "IncludeItemTypes", value: includeItemTypes.joined(separator: ",")))
         }
         if !filters.isEmpty { query.append(.init(name: "Filters", value: filters.joined(separator: ","))) }
+        if !genres.isEmpty { query.append(.init(name: "Genres", value: genres.joined(separator: "|"))) }
+        if !studios.isEmpty { query.append(.init(name: "Studios", value: studios.joined(separator: "|"))) }
         if let searchTerm, !searchTerm.isEmpty { query.append(.init(name: "SearchTerm", value: searchTerm)) }
         if let limit { query.append(.init(name: "Limit", value: String(limit))) }
         return try await get("/Users/\(userID)/Items", query: query)
+    }
+
+    /// Genres actually present in the user's library, scoped by content
+    /// type (`includeItemTypes: ["Movie"]` vs `["Series"]`) — Jellyfin only
+    /// returns a genre here if something of that type actually has it, so
+    /// this doubles as existence-checking for Home's dynamic genre rails
+    /// (`HomeViewModel.loadDynamicRailCandidates`) without a separate
+    /// per-genre count query.
+    func genres(userID: String, includeItemTypes: [String]) async throws -> BaseItemDtoQueryResult {
+        var query = [URLQueryItem(name: "userId", value: userID)]
+        if !includeItemTypes.isEmpty {
+            query.append(.init(name: "IncludeItemTypes", value: includeItemTypes.joined(separator: ",")))
+        }
+        return try await get("/Genres", query: query)
+    }
+
+    /// Same as `genres(...)` but for studios — Jellyfin has no separate
+    /// "Network" concept, a show's originating network and a movie's
+    /// production studio are both stored as `Studios`, so the movie/show
+    /// split for Home's "Movies from X"/"Shows from X" rails comes purely
+    /// from `includeItemTypes` here, not a different endpoint.
+    func studios(userID: String, includeItemTypes: [String]) async throws -> BaseItemDtoQueryResult {
+        var query = [URLQueryItem(name: "userId", value: userID)]
+        if !includeItemTypes.isEmpty {
+            query.append(.init(name: "IncludeItemTypes", value: includeItemTypes.joined(separator: ",")))
+        }
+        return try await get("/Studios", query: query)
     }
 
     func item(userID: String, itemID: String) async throws -> BaseItemDto {
