@@ -128,6 +128,8 @@ struct MediaItem: Identifiable {
 
     var isPlayed: Bool { dto.userData?.played ?? false }
 
+    var isFavorite: Bool { dto.userData?.isFavorite ?? false }
+
     /// True when the user has started but not finished this item. For movies,
     /// that's a mid-playback position; for shows, some-but-not-all episodes
     /// watched (Jellyfin surfaces both as `playedPercentage`).
@@ -368,6 +370,39 @@ struct MediaItem: Identifiable {
     }
 
     var primaryImageURL: URL? { imageURL(type: "Primary", maxWidth: 500) }
+
+    /// 16:9 "Thumb" image — episodes almost always have one (a still from
+    /// the episode itself); series/seasons sometimes do too. `nil` when
+    /// absent, rather than a URL that 404s — unlike `imageURL(type:)`
+    /// (what `primaryImageURL` uses), which builds a URL regardless of
+    /// whether `dto.imageTags` actually has an entry for the requested
+    /// type, just omitting the `tag` query param when it doesn't. That's
+    /// fine for `primaryImageURL` (every item is expected to have one), but
+    /// would break `LandscapeMediaCard`'s `item.thumbImageURL ??
+    /// item.primaryImageURL` fallback — a `Thumb`-less item would still get
+    /// a (404ing) "URL" from the generic helper, so the `??` would never
+    /// reach the poster fallback. Checking the tag directly, same as
+    /// `logoImageURL` below, is what makes that fallback real.
+    var thumbImageURL: URL? {
+        guard let tag = dto.imageTags?["Thumb"] else { return nil }
+        return images.url(itemID: id, imageType: "Thumb", tag: tag, maxWidth: 500)
+    }
+
+    /// Whether this item's rail tile should use the landscape 16:9 "Thumb"
+    /// treatment (`LandscapeMediaCard`) rather than the portrait poster one
+    /// (`PosterCard`, still used for movies, box sets, and everything else)
+    /// — series/episodes read better as a still-frame thumbnail than a
+    /// poster, and episodes in particular often don't have compelling
+    /// poster art at all. See `MediaRailView`, the only place this is
+    /// consulted — kept as a `MediaItem` property rather than inline in
+    /// that view since it's a display-shaping decision about the item
+    /// itself, same as `railTitle`/`railSubtitle` below.
+    var usesLandscapeRailTile: Bool {
+        switch dto.type {
+        case .series, .episode: return true
+        default: return false
+        }
+    }
 
     /// Own logo if this item has one; otherwise the nearest ancestor's
     /// (e.g. an episode falls back to its Season's logo, then its Series').

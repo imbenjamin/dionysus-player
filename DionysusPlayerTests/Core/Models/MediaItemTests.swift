@@ -170,6 +170,12 @@ final class MediaItemTests: XCTestCase {
         XCTAssertFalse(makeMovie(userData: nil).isPlayed)
     }
 
+    func test_isFavorite_reflectsUserData() {
+        XCTAssertTrue(makeMovie(userData: UserItemDataDto(isFavorite: true)).isFavorite)
+        XCTAssertFalse(makeMovie(userData: UserItemDataDto(isFavorite: false)).isFavorite)
+        XCTAssertFalse(makeMovie(userData: nil).isFavorite)
+    }
+
     func test_isPartWatched_trueOnlyBetweenZeroAndOneAndNotPlayed() {
         let midway = UserItemDataDto(playedPercentage: 50, played: false)
         XCTAssertTrue(makeMovie(userData: midway).isPartWatched)
@@ -487,6 +493,19 @@ final class MediaItemTests: XCTestCase {
         XCTAssertTrue(url!.absoluteString.contains("ApiKey=tok"))
     }
 
+    func test_thumbImageURL_includesTagAndToken() {
+        let dto = BaseItemDto(id: "ep-1", name: "Old Cases", type: .episode, imageTags: ["Thumb": "thumb123"])
+        let item = MediaItem(dto: dto, images: images)
+        let url = item.thumbImageURL
+        XCTAssertNotNil(url)
+        XCTAssertTrue(url!.absoluteString.contains("Items/ep-1/Images/Thumb"))
+        XCTAssertTrue(url!.absoluteString.contains("tag=thumb123"))
+    }
+
+    func test_thumbImageURL_nilWhenNoThumbTag() {
+        XCTAssertNil(makeMovie().thumbImageURL)
+    }
+
     func test_backdropImageURL_fallsBackToParentBackdropWhenOwnMissing() {
         let dto = BaseItemDto(
             id: "ep-1", name: "Old Cases", type: .episode,
@@ -541,5 +560,21 @@ final class MediaItemTests: XCTestCase {
 
     func test_logoImageURL_nilWhenNoLogoAnywhereInHierarchy() {
         XCTAssertNil(makeMovie().logoImageURL)
+    }
+
+    // MARK: usesLandscapeRailTile
+
+    func test_usesLandscapeRailTile_trueForSeriesAndEpisode() {
+        XCTAssertTrue(makeSeries().usesLandscapeRailTile)
+        XCTAssertTrue(makeEpisode().usesLandscapeRailTile)
+    }
+
+    func test_usesLandscapeRailTile_falseForMovie() {
+        XCTAssertFalse(makeMovie().usesLandscapeRailTile)
+    }
+
+    func test_usesLandscapeRailTile_falseForBoxSet() {
+        let dto = BaseItemDto(id: "box-1", name: "Trilogy", type: .boxSet)
+        XCTAssertFalse(MediaItem(dto: dto, images: images).usesLandscapeRailTile)
     }
 }

@@ -56,8 +56,24 @@ struct ShowDetailView: View {
                     }
                 }
                 .padding(.bottom, 32)
-                .onAppear {
-                    if selectedSeasonID == nil { selectedSeasonID = viewModel.seasons.first?.id }
+                // `initial: true`, not `.onAppear` — this view renders (and
+                // `.onAppear` would fire) as soon as `viewModel.item` is
+                // non-nil, which happens immediately on a preloaded item
+                // (see `AssetDetailViewModel.init`'s doc comment), well
+                // before `load()`'s network round trip actually populates
+                // `viewModel.seasons`. `.onAppear` only runs once, so it was
+                // racing that fetch: it read `seasons` while still `[]`,
+                // set `selectedSeasonID` to `nil`, and never got a second
+                // chance once the real seasons arrived — leaving the picker
+                // unselected and `SeasonEpisodeList`'s own `.task(id:
+                // selectedSeasonID)` permanently un-fired until the user
+                // manually chose a season. `onChange(of:initial:)` instead
+                // re-runs this check every time `seasons` actually changes
+                // (plus once up front for the case it's already populated
+                // by the time this view appears), so it can't miss the
+                // update however the timing falls.
+                .onChange(of: viewModel.seasons, initial: true) { _, seasons in
+                    if selectedSeasonID == nil { selectedSeasonID = seasons.first?.id }
                 }
             }
         }

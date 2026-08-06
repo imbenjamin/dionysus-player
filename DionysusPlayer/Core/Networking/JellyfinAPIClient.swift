@@ -50,6 +50,9 @@ actor JellyfinAPIClient {
         recursive: Bool = true,
         sortBy: String = "SortName",
         sortOrder: String = "Ascending",
+        /// Jellyfin's `ItemFilter` values, e.g. `"IsUnplayed"`, `"IsFavorite"`
+        /// — joined into a single comma-separated `Filters` query param.
+        filters: [String] = [],
         searchTerm: String? = nil,
         limit: Int? = nil
     ) async throws -> BaseItemDtoQueryResult {
@@ -63,6 +66,7 @@ actor JellyfinAPIClient {
         if !includeItemTypes.isEmpty {
             query.append(.init(name: "IncludeItemTypes", value: includeItemTypes.joined(separator: ",")))
         }
+        if !filters.isEmpty { query.append(.init(name: "Filters", value: filters.joined(separator: ","))) }
         if let searchTerm, !searchTerm.isEmpty { query.append(.init(name: "SearchTerm", value: searchTerm)) }
         if let limit { query.append(.init(name: "Limit", value: String(limit))) }
         return try await get("/Users/\(userID)/Items", query: query)
@@ -102,9 +106,19 @@ actor JellyfinAPIClient {
         ])
     }
 
-    func nextUp(userID: String, seriesID: String? = nil) async throws -> BaseItemDtoQueryResult {
-        var query = [URLQueryItem(name: "UserId", value: userID)]
+    /// With `seriesID` omitted, returns next-up episodes across every show
+    /// the user's watching — Home's "Next Up" rail. With it set, narrows to
+    /// just that series — `AssetDetailViewModel.resolveSeriesPlaybackItemID`
+    /// uses this to find where to resume a specific show, and doesn't need
+    /// `limit`/`Fields` (it only reads the first result's ID), so both stay
+    /// optional/omitted for that call site rather than forcing them on it.
+    func nextUp(userID: String, seriesID: String? = nil, limit: Int? = nil) async throws -> BaseItemDtoQueryResult {
+        var query = [
+            URLQueryItem(name: "UserId", value: userID),
+            URLQueryItem(name: "Fields", value: Self.defaultFields)
+        ]
         if let seriesID { query.append(.init(name: "SeriesId", value: seriesID)) }
+        if let limit { query.append(.init(name: "Limit", value: String(limit))) }
         return try await get("/Shows/NextUp", query: query)
     }
 

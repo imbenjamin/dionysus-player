@@ -21,14 +21,25 @@ final class AssetDetailViewModel {
     private let client: JellyfinAPIClient
     private let userID: String
 
-    init(client: JellyfinAPIClient, userID: String, itemID: String) {
+    /// `preloadedItem` — see `AppRoute.assetDetail`'s doc comment — seeds
+    /// `item` immediately so the page has something to render (and a zoom
+    /// transition something to land on) before `load()`'s network round
+    /// trip resolves. It's necessarily partial (fetched via the rail's
+    /// lighter `Fields` list, missing `MediaSources`/`People`), so `load()`
+    /// still runs regardless and replaces it with the full item once ready.
+    init(client: JellyfinAPIClient, userID: String, itemID: String, preloadedItem: MediaItem? = nil) {
         self.client = client
         self.userID = userID
         self.itemID = itemID
+        self.item = preloadedItem
     }
 
+    /// Guards on `loadState`, not `item` — a preloaded item already makes
+    /// `item` non-nil before `load()` has ever run, which would otherwise
+    /// make this look like a no-op-needed reload and skip fetching the full
+    /// item (cast, technical details, similar/collections rails) entirely.
     func loadIfNeeded() async {
-        guard item == nil else { return }
+        guard loadState == .idle else { return }
         await load()
     }
 

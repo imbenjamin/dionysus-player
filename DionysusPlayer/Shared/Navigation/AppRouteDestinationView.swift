@@ -5,12 +5,26 @@ import SwiftUI
 struct AppRouteDestinationView: View {
     let route: AppRoute
 
+    /// Read here, synchronously, so `AssetDetailView` can build its
+    /// `viewModel` in `init` rather than lazily via `.task` — avoids a
+    /// render pass showing a blank `LoadingView()` before that `.task` gets
+    /// a chance to run, which is otherwise unavoidable even with a
+    /// `preloadedItem` on hand (see `AssetDetailView`'s doc comment).
+    @Environment(AppState.self) private var appState
+
     var body: some View {
         switch route {
         case .collection(let query):
             CollectionGridView(query: query)
-        case .assetDetail(let itemID):
-            AssetDetailView(itemID: itemID)
+        case .assetDetail(let itemID, let preloadedItem):
+            if let client = appState.apiClient, let userID = appState.currentUser?.id {
+                AssetDetailView(itemID: itemID, preloadedItem: preloadedItem, client: client, userID: userID)
+            } else {
+                // This router only ever renders once signed in (`.main`
+                // phase), so this shouldn't happen in practice — but avoid
+                // a hard crash if it somehow does.
+                ErrorStateView(message: "You're not signed in.", retry: nil)
+            }
         }
     }
 }
