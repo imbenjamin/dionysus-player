@@ -18,7 +18,7 @@ Vision support.
 Navigation, screens, and the networking/playback plumbing are in place with
 placeholder content where noted. As of Xcode 26.5, the app builds clean end
 to end — package resolution (AetherEngine and its dependencies), compilation,
-and linking all succeed with no errors — and a 193-test unit test suite
+and linking all succeed with no errors — and a 209-test unit test suite
 passes (see [Testing](#testing)). That confirms the code compiles against
 AetherEngine's real API and that the ViewModel/networking layer behaves as
 intended; it does **not** confirm playback actually works — no test here
@@ -66,7 +66,7 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
   -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
-193/193 tests passing as of this writing. See [`TESTING.md`](TESTING.md) for
+209/209 tests passing as of this writing. See [`TESTING.md`](TESTING.md) for
 the full strategy, a coverage table, and known gaps (SwiftUI views, true
 UI/end-to-end tests, and `AetherPlaybackEngine`'s own adapter code).
 
