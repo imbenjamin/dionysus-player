@@ -15,14 +15,14 @@ import UIKit
 struct HeroRailView: View {
     let items: [MediaItem]
 
-    /// Custom init so `selection`'s starting value can account for whether
-    /// `loopedItems` actually pads `items` — with 0 or 1 items it doesn't
-    /// (looping a single page is meaningless), so `selection` must start at
-    /// `0` rather than the usual `1`, or it would reference a `.tag` that
-    /// doesn't exist and `TabView` would render blank.
+    /// Custom init so `scrollPosition`'s starting value can account for
+    /// whether `loopedItems` actually pads `items` — with 0 or 1 items it
+    /// doesn't (looping a single page is meaningless), so `scrollPosition`
+    /// must start at `0` rather than the usual `1`, or it would reference an
+    /// `.id` that doesn't exist and the carousel would render blank.
     init(items: [MediaItem]) {
         self.items = items
-        _selection = State(initialValue: items.count > 1 ? 1 : 0)
+        _scrollPosition = State(initialValue: items.count > 1 ? 1 : 0)
     }
 
     /// Tracked purely to force `body` to re-run on rotation, the same
@@ -79,35 +79,38 @@ struct HeroRailView: View {
 
     /// Indexes into `loopedItems`, not `items` — see that property's doc
     /// comment. Starts at `1`, the first *real* page once the leading
-    /// duplicate is accounted for.
-    @State private var selection: Int = 1
+    /// duplicate is accounted for. Optional (not a plain `Int`, unlike the
+    /// old `TabView`-based `selection`) because that's what `.scrollPosition
+    /// (id:)` requires — it can transiently be `nil` (e.g. before the first
+    /// layout pass resolves), which every reader of this below already
+    /// accounts for.
+    @State private var scrollPosition: Int?
 
     /// `items` padded with a duplicate of the last item in front and the
     /// first item behind, so a swipe off either end of the real range still
     /// lands on a page showing the correct "next" item instead of stopping.
-    /// `onChange(of:)` below then snaps `selection` back into the real
+    /// `onChange(of:)` below then snaps `scrollPosition` back into the real
     /// range with animation disabled once that swipe's own animation has
     /// landed — the duplicate page makes the swipe itself look continuous,
     /// and the snap-back is invisible because the duplicate and the real
     /// page it stands in for are pixel-identical. Standard workaround for
-    /// "infinite" paging with `TabView`, which has no native loop mode.
+    /// "infinite" paging, which has no native loop mode.
     private var loopedItems: [MediaItem] {
         guard let first = items.first, let last = items.last, items.count > 1 else { return items }
         return [last] + items + [first]
     }
 
-    /// `selection` translated back into `items`' index space, for the dot
-    /// indicator — the indicator should never show the padding pages.
+    /// `scrollPosition` translated back into `items`' index space, for the
+    /// dot indicator — the indicator should never show the padding pages.
     private var currentIndex: Int {
-        guard items.count > 1 else { return 0 }
-        return (selection - 1 + items.count) % items.count
+        guard items.count > 1, let scrollPosition else { return 0 }
+        return (scrollPosition - 1 + items.count) % items.count
     }
 
-    /// Whether a finger is currently down on the carousel — tracked via a
-    /// zero-distance `DragGesture` rather than anything TabView exposes
-    /// natively (it doesn't). `minimumDistance: 0` makes `onChanged` fire
-    /// the instant a touch lands, before any movement, so this reflects
-    /// "finger is on the carousel" rather than "user is actively swiping."
+    /// Whether a finger is currently down on the carousel — tracked via
+    /// `RegionTouchObserver` below (a raw `UIGestureRecognizer`, not
+    /// anything the scroll view exposes natively, which it doesn't) rather
+    /// than a SwiftUI `DragGesture`; see that type's doc comment for why.
     @State private var isInteracting = false
 
     /// Seconds elapsed since the last auto-advance, or since the user last
@@ -137,31 +140,49 @@ struct HeroRailView: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            TabView(selection: $selection) {
-                ForEach(Array(loopedItems.enumerated()), id: \.offset) { offset, item in
-                    HeroRailCard(item: item)
-                        .tag(offset)
+            // `ScrollView(.horizontal) + .scrollTargetBehavior(.paging)`,
+            // not `TabView(.page)` (what this used to be) — `TabView(.page)`
+            // is backed by `UIPageViewController`, which is known to
+            // aggressively claim touches within its own bounds, including
+            // vertical ones, rather than letting them fall through to an
+            // ancestor scroll view the way nested `UIScrollView`s normally
+            // negotiate (this is exactly how e.g. the App Store's own
+            // horizontal "Featured" carousels let you start a vertical drag
+            // directly on top of them to scroll the whole page). A plain
+            // `ScrollView` is a real `UIScrollView` under the hood and gets
+            // that same built-in cooperative behavior for free, which is
+            // the whole reason for this rewrite: reported bug was "can't
+            // drag/scroll starting from the hero carousel, only from areas
+            // below it."
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 0) {
+                    ForEach(Array(loopedItems.enumerated()), id: \.offset) { offset, item in
+                        HeroRailCard(item: item)
+                            .containerRelativeFrame(.horizontal)
+                            .id(offset)
+                    }
                 }
+                .scrollTargetLayout()
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .onChange(of: selection) { _, newValue in
+            .scrollTargetBehavior(.paging)
+            .scrollPosition(id: $scrollPosition)
+            .scrollIndicators(.hidden)
+            .scrollDisabled(items.count <= 1)
+            .onChange(of: scrollPosition) { _, newValue in
+                guard let newValue else { return }
                 snapIfNeeded(from: newValue)
             }
-            // `simultaneousGesture` rather than `gesture` — the latter
-            // would compete with (and could win against) TabView's own
-            // paging drag gesture; this one only observes touch state
-            // alongside it without ever blocking or being blocked by it.
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        isInteracting = true
-                        idleSeconds = 0
-                    }
-                    .onEnded { _ in
-                        isInteracting = false
-                        idleSeconds = 0
-                    }
-            )
+            // Pause-on-touch detection — see `RegionTouchObserver`'s doc
+            // comment for why this isn't a SwiftUI `DragGesture` (that
+            // approach was tried first; confirmed via a temporary test
+            // build to be exactly what was blocking dragging down from the
+            // hero to scroll Home, even with `.simultaneousGesture`).
+            .background {
+                RegionTouchObserver { isDown in
+                    isInteracting = isDown
+                    idleSeconds = 0
+                }
+            }
             .onReceive(tickTimer) { _ in tick() }
 
             if items.count > 1 {
@@ -186,14 +207,14 @@ struct HeroRailView: View {
         guard idleSeconds >= Self.autoAdvanceInterval else { return }
         idleSeconds = 0
         withAnimation(.easeInOut(duration: Self.autoAdvanceAnimationDuration)) {
-            selection += 1
+            scrollPosition = (scrollPosition ?? 1) + 1
         }
     }
 
     /// Performs the "snap back into the real range" half of the loop trick.
     ///
     /// Deferred by `autoAdvanceAnimationDuration`, not just one run-loop
-    /// turn — `onChange(of:)` fires the instant `selection`'s *state*
+    /// turn — `onChange(of:)` fires the instant `scrollPosition`'s *state*
     /// changes, which for a gesture-driven swipe is only once the page has
     /// already visually settled (so snapping back right away is fine, the
     /// slide is already done), but for a *programmatic* change like
@@ -215,7 +236,7 @@ struct HeroRailView: View {
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
-                selection = target
+                scrollPosition = target
             }
         }
     }
@@ -232,10 +253,11 @@ private struct HeroRailCard: View {
     }
 }
 
-/// Custom dot page indicator, standing in for `TabView`'s native one (kept
-/// hidden via `indexDisplayMode: .never`) — the native indicator has no way
-/// to hide `loopedItems`' two padding pages from its dot count, and would
-/// briefly show the wrong dot lit while a loop snap-back is in flight.
+/// Custom dot page indicator — the `TabView`-based version of this carousel
+/// used to hide `TabView`'s native one via `indexDisplayMode: .never` since
+/// it had no way to hide `loopedItems`' two padding pages from its dot
+/// count; a plain `ScrollView` has no built-in page indicator at all, so
+/// this is now the only one either way.
 private struct HeroPageIndicator: View {
     let count: Int
     let currentIndex: Int
@@ -248,6 +270,138 @@ private struct HeroPageIndicator: View {
                     .frame(width: 6, height: 6)
             }
         }
+    }
+}
+
+/// Observes touch-down/touch-up specifically within this view's own
+/// bounds, without ever blocking (or being blocked by) any other gesture
+/// recognizer anywhere in the view hierarchy — including several levels
+/// up, which turned out to matter here.
+///
+/// A SwiftUI `.simultaneousGesture(DragGesture(minimumDistance: 0))` was
+/// tried first for this. It reliably avoided blocking the carousel's *own*
+/// paging swipe (that part always worked), but empirically still blocked
+/// the *outer* vertical `ScrollView` several levels up from ever seeing a
+/// drag that started on the hero — confirmed by temporarily removing it
+/// entirely, which fixed dragging down from the hero to scroll Home.
+/// `.simultaneousGesture`'s cooperation, in other words, doesn't reliably
+/// extend past the view it's directly attached to.
+///
+/// This sidesteps that by attaching a raw `UIGestureRecognizer` to the key
+/// window itself — the one view guaranteed to be an ancestor of literally
+/// everything on screen — with `cancelsTouchesInView`/`delaysTouchesBegan`/
+/// `delaysTouchesEnded` all disabled and a delegate that unconditionally
+/// permits simultaneous recognition with anything it's asked about. It
+/// never transitions its own `state` away from `.possible` either, so it
+/// never "recognizes" anything in UIKit's own terms — purely a passive
+/// observer of the raw touch stream, which is what makes it structurally
+/// unable to block or delay any other gesture recognizer, unlike relying
+/// on `.simultaneousGesture`'s own (apparently limited) internal
+/// cooperation logic. Touches are filtered to this view's own bounds
+/// (`hostView.bounds.contains(location)`) since a window-attached
+/// recognizer otherwise sees every touch anywhere on screen.
+private struct RegionTouchObserver: UIViewRepresentable {
+    var onTouchesChanged: (Bool) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onTouchesChanged: onTouchesChanged)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        // Never itself part of hit-testing — the recognizer that actually
+        // observes touches is attached to the window, not this view; this
+        // view exists only to give the coordinator a `window` to find and
+        // a `bounds` to filter touch locations against.
+        view.isUserInteractionEnabled = false
+        context.coordinator.hostView = view
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onTouchesChanged = onTouchesChanged
+        context.coordinator.attachToWindowIfNeeded()
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onTouchesChanged: (Bool) -> Void
+        weak var hostView: UIView?
+        private weak var attachedWindow: UIWindow?
+        private var recognizer: PassthroughTouchRecognizer?
+
+        init(onTouchesChanged: @escaping (Bool) -> Void) {
+            self.onTouchesChanged = onTouchesChanged
+        }
+
+        /// A view's `window` is `nil` until it's actually been inserted
+        /// into a real window, so this is called from `updateUIView`
+        /// (invoked repeatedly as SwiftUI updates) rather than just once
+        /// from `makeUIView`, giving it multiple chances to succeed once
+        /// the window becomes available. `window !== attachedWindow`
+        /// short-circuits everything after the first successful attach.
+        func attachToWindowIfNeeded() {
+            guard let window = hostView?.window, window !== attachedWindow else { return }
+            detach()
+            attachedWindow = window
+            let recognizer = PassthroughTouchRecognizer(target: nil, action: nil)
+            recognizer.delegate = self
+            recognizer.onTouches = { [weak self] touches, isDown in
+                guard let self, let hostView = self.hostView, let touch = touches.first else { return }
+                guard hostView.bounds.contains(touch.location(in: hostView)) else { return }
+                self.onTouchesChanged(isDown)
+            }
+            window.addGestureRecognizer(recognizer)
+            self.recognizer = recognizer
+        }
+
+        func detach() {
+            if let recognizer, let attachedWindow {
+                attachedWindow.removeGestureRecognizer(recognizer)
+            }
+            recognizer = nil
+            attachedWindow = nil
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+    }
+}
+
+/// The actual `UIGestureRecognizer` `RegionTouchObserver` attaches to the
+/// window — see that type's doc comment for the full reasoning. Reports
+/// raw touch-down/up via `onTouches` without ever transitioning its own
+/// `state`, which is what keeps it purely observational (a gesture
+/// recognizer that never leaves `.possible` never "wins," never fires an
+/// action, and never requires any other recognizer to fail).
+private final class PassthroughTouchRecognizer: UIGestureRecognizer {
+    var onTouches: ((Set<UITouch>, Bool) -> Void)?
+
+    override init(target: Any?, action: Selector?) {
+        super.init(target: target, action: action)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        onTouches?(touches, true)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        onTouches?(touches, false)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        onTouches?(touches, false)
     }
 }
 
