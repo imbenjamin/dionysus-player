@@ -47,19 +47,33 @@ struct BackdropLogoOverlay: View {
                 Group {
                     if let logoURL = item.logoImageURL {
                         AsyncImage(url: logoURL) { phase in
-                            if case .success(let image) = phase {
+                            switch phase {
+                            case .success(let image):
                                 FadeInLogoImage(image: image)
+                            case .failure:
+                                // Logo failed to load (404, timeout, etc.) —
+                                // fall back to the text title rather than
+                                // leaving the overlay blank.
+                                titleText
+                            case .empty:
+                                Color.clear
+                            @unknown default:
+                                Color.clear
                             }
                         }
                         .frame(maxWidth: 240, maxHeight: 80, alignment: .leading)
                     } else {
-                        Text(item.name)
-                            .font(.title.bold())
-                            .foregroundStyle(.white)
+                        titleText
                     }
                 }
                 .padding()
             }
+    }
+
+    private var titleText: some View {
+        Text(item.name)
+            .font(.title.bold())
+            .foregroundStyle(.white)
     }
 }
 
