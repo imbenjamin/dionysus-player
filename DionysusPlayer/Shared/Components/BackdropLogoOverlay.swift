@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// A backdrop image with a logo (or title text fallback) overlaid at the
 /// bottom, Disney+-style. Fills whatever frame its caller gives it —
@@ -61,83 +60,5 @@ struct BackdropLogoOverlay: View {
         Text(item.name)
             .font(.title.bold())
             .foregroundStyle(.white)
-    }
-}
-
-/// Loads a hero logo via `RemoteImageLoader` (retry-with-backoff, caching —
-/// same rationale as `AsyncRemoteImage`, not reused directly here since this
-/// needs its own fade-in-on-success and text-fallback-on-failure behavior
-/// rather than a placeholder rectangle).
-private struct LogoImageView<Fallback: View>: View {
-    let url: URL
-    let fallback: Fallback
-
-    @State private var phase: Phase = .loading
-
-    private enum Phase {
-        case loading
-        case success(UIImage)
-        case failure
-    }
-
-    var body: some View {
-        Group {
-            switch phase {
-            case .success(let image):
-                FadeInLogoImage(image: Image(uiImage: image))
-            case .failure:
-                // Logo failed to load (404, timeout, etc. — retried a few
-                // times by RemoteImageLoader first) — fall back to the text
-                // title rather than leaving the overlay blank.
-                fallback
-            case .loading:
-                Color.clear
-            }
-        }
-        .task(id: url) { await load() }
-    }
-
-    private func load() async {
-        phase = .loading
-        do {
-            let image = try await RemoteImageLoader.shared.image(for: url)
-            guard !Task.isCancelled else { return }
-            phase = .success(image)
-        } catch {
-            guard !Task.isCancelled else { return }
-            phase = .failure
-        }
-    }
-}
-
-/// Fades a loaded logo `Image` in over `duration`, rather than having it pop
-/// in the instant `AsyncImage` resolves.
-///
-/// Deliberately *not* done via `AsyncImage(url:transaction:)` +
-/// `.transition(.opacity)` on the success case — that combination is
-/// unreliable in practice: whether it animates depends on `AsyncImage`
-/// internally treating the `.empty` → `.success` switch as a tracked state
-/// change under the given transaction, which isn't guaranteed, especially
-/// when the image resolves from cache fast enough that the `.empty` phase
-/// never visibly renders. Owning the opacity as local `@State` and animating
-/// it from `onAppear` sidesteps `AsyncImage`'s phase-transition behavior
-/// entirely — this view's `body` only runs once the image has already
-/// loaded, so `onAppear` firing *is* the "just loaded" signal, independent
-/// of whatever transaction `AsyncImage` used internally.
-private struct FadeInLogoImage: View {
-    let image: Image
-
-    @State private var opacity: Double = 0
-
-    var body: some View {
-        image
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .opacity(opacity)
-            .onAppear {
-                withAnimation(.easeIn(duration: 0.35)) {
-                    opacity = 1
-                }
-            }
     }
 }

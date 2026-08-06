@@ -62,6 +62,7 @@ struct LandscapeMediaCard: View {
                     AsyncRemoteImage(url: item.thumbImageURL ?? item.primaryImageURL)
                         .frame(width: width, height: imageHeight)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .episodeLogoOverlay(for: item)
                         .watchStatusOverlay(for: item)
 
                     MediaCardLabel(item: item)
@@ -135,6 +136,44 @@ private struct MediaCardLabel: View {
 }
 
 private extension View {
+    /// Episode-only: a Disney+-style logo (falling back through
+    /// season/series per `MediaItem.logoImageURL`) over a bottom gradient
+    /// for contrast, mirroring the hero rail/detail header treatment
+    /// (`BackdropLogoOverlay`) but scaled down for a rail tile. Scoped to
+    /// episodes specifically — an episode's artwork is usually just a plain
+    /// frame from the episode itself, unlike a movie/series poster, which
+    /// is why this is the one item kind that benefits from a logo overlay
+    /// here. No text-title fallback when there's no logo (unlike
+    /// `BackdropLogoOverlay`): the tile's title is already shown as text
+    /// right below the artwork via `MediaCardLabel`, so nothing needs to
+    /// render over the image itself in that case.
+    func episodeLogoOverlay(for item: MediaItem) -> some View {
+        Group {
+            if item.kind == .episode, let logoURL = item.logoImageURL {
+                self
+                    .overlay {
+                        // Fills the whole tile regardless of alignment —
+                        // `LinearGradient` has no intrinsic size, so it
+                        // expands to the full proposed frame, same as
+                        // `BackdropLogoOverlay`'s identical gradient.
+                        LinearGradient(
+                            colors: [.clear, .black.opacity(0.75)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    }
+                    .overlay(alignment: .bottomLeading) {
+                        LogoImageView(url: logoURL, fallback: EmptyView())
+                            .frame(maxWidth: 110, maxHeight: 36, alignment: .leading)
+                            .padding(8)
+                    }
+                    .allowsHitTesting(false)
+            } else {
+                self
+            }
+        }
+    }
+
     /// Composites the in-progress bar / fully-watched checkmark / favorite
     /// star treatment shared by `PosterCard` and `LandscapeMediaCard`, onto
     /// `self` (expected to already be the clipped artwork image).
