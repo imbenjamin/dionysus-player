@@ -3,13 +3,14 @@ import XCTest
 
 /// `HomeViewModel.load()` fans out to five endpoints concurrently and
 /// stitches the results into a hero rail, a libraries rail, and the
-/// remaining content rails, then discovers and loads dynamic genre/studio
-/// rails (`loadDynamicRailCandidates`/`loadMoreDynamicRails`) — see the
-/// "Dynamic rails" section below for that half. The ViewModel doc comments
-/// call curated rail selection a placeholder, so this pins down current
-/// behavior (rails are omitted when empty, "Continue Watching"/"Next Up"
-/// have no `seeAllQuery`) as a regression net rather than a spec to defend
-/// if that logic gets redesigned.
+/// remaining content rails, then discovers and loads dynamic rails (genres,
+/// studios/networks, actors, directors — `loadDynamicRailCandidates`/
+/// `loadMoreDynamicRails`) — see the "Dynamic rails" section below for that
+/// half. The ViewModel doc comments call curated rail selection a
+/// placeholder, so this pins down current behavior (rails are omitted when
+/// empty, "Continue Watching"/"Next Up" have no `seeAllQuery`) as a
+/// regression net rather than a spec to defend if that logic gets
+/// redesigned.
 @MainActor
 final class HomeViewModelTests: XCTestCase {
     override func tearDown() {
@@ -31,10 +32,11 @@ final class HomeViewModelTests: XCTestCase {
         return HomeViewModel(client: client, userID: "user-1", shuffle: shuffle)
     }
 
-    /// Stubs `/Genres` and `/Studios` (all four `IncludeItemTypes` scopes)
-    /// with no results — for tests focused on the curated rails, where
-    /// dynamic rail discovery running (as it always does, as part of
-    /// `load()`) shouldn't add any noise to assert against.
+    /// Stubs `/Genres`, `/Studios`, and `/Persons` (every discovery call
+    /// `loadDynamicRailCandidates` makes) with no results — for tests
+    /// focused on the curated rails, where dynamic rail discovery running
+    /// (as it always does, as part of `load()`) shouldn't add any noise to
+    /// assert against.
     // `nonisolated` — this test class is `@MainActor`, and without it these
     // helpers would be too, which traps at runtime (`_swift_task_
     // checkIsolatedSwift`) the moment `MockURLProtocol.requestHandler`
@@ -44,7 +46,7 @@ final class HomeViewModelTests: XCTestCase {
     // isolation here is free, not a workaround.
     nonisolated private static func stubNoDynamicRailCandidates(_ request: URLRequest) throws -> (HTTPURLResponse, Data)? {
         switch request.url?.path {
-        case "/Genres", "/Studios":
+        case "/Genres", "/Studios", "/Persons":
             return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
         default:
             return nil
@@ -214,12 +216,23 @@ final class HomeViewModelTests: XCTestCase {
         (1...count).map { BaseItemDto(id: "\(prefix)-\($0)", name: "\(prefix) \($0)", type: .movie) }
     }
 
-    func test_load_appendsDynamicGenreAndStudioRailsAfterCuratedOnesWithCorrectTitles() async {
+    /// Covers all four dynamic rail categories together — genres, studios,
+    /// actors, and directors — specifically because they're meant to share
+    /// *one* shuffle pool rather than being ordered/randomized separately
+    /// (see `loadDynamicRailCandidates`'s doc comment). The identity
+    /// shuffle here preserves discovery order (movie genres, show genres,
+    /// movie studios, show studios, actors, directors), which both checks
+    /// the titles/counts are right and doubles as the injected-shuffle
+    /// test — a real shuffle would make this ordering assertion flaky.
+    func test_load_appendsAllDynamicRailTypesAfterCuratedOnesWithCorrectTitles() async {
         let viewModel = makeViewModel()
         let actionMovies = Self.makeItems("action", count: 5)
         let documentaryShows = Self.makeItems("doc", count: 5)
         let marvelMovies = Self.makeItems("marvel", count: 5)
         let hboShows = Self.makeItems("hbo", count: 5)
+        let hanksItems = Self.makeItems("hanks", count: 5)
+        let nolanItems = Self.makeItems("nolan", count: 5)
+        var personItemQueries: [String: [String: String]] = [:]
 
         MockURLProtocol.requestHandler = { request in
             if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
@@ -235,17 +248,25 @@ final class HomeViewModelTests: XCTestCase {
                     ? BaseItemDto(id: "studio-marvel", name: "Marvel Studios", type: .unknown)
                     : BaseItemDto(id: "studio-hbo", name: "HBO", type: .unknown)
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [studio], totalRecordCount: 1))
+            case "/Persons":
+                let person = query["personTypes"] == "Actor"
+                    ? BaseItemDto(id: "person-hanks", name: "Tom Hanks", type: .unknown)
+                    : BaseItemDto(id: "person-nolan", name: "Christopher Nolan", type: .unknown)
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [person], totalRecordCount: 1))
             case "/Users/user-1/Items":
                 guard query["SortBy"] != "Random" else {
                     // The hero rail's own lookup — no candidates needed here.
                     return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
                 }
+                if let person = query["Person"] { personItemQueries[person] = query }
                 let items: [BaseItemDto]
-                switch (query["Genres"], query["Studios"]) {
-                case ("Action", nil): items = actionMovies
-                case ("Documentary", nil): items = documentaryShows
-                case (nil, "Marvel Studios"): items = marvelMovies
-                case (nil, "HBO"): items = hboShows
+                switch (query["Genres"], query["Studios"], query["Person"]) {
+                case ("Action", nil, nil): items = actionMovies
+                case ("Documentary", nil, nil): items = documentaryShows
+                case (nil, "Marvel Studios", nil): items = marvelMovies
+                case (nil, "HBO", nil): items = hboShows
+                case (nil, nil, "Tom Hanks"): items = hanksItems
+                case (nil, nil, "Christopher Nolan"): items = nolanItems
                 default: items = []
                 }
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
@@ -257,16 +278,23 @@ final class HomeViewModelTests: XCTestCase {
 
         await viewModel.load()
 
-        // Identity shuffle (the `makeViewModel()` default) preserves
-        // discovery order: movie genres, show genres, movie studios, show
-        // studios — this also doubles as the injected-shuffle test, since a
-        // real shuffle would make this ordering assertion flaky.
         XCTAssertEqual(
             viewModel.rails.map(\.title),
-            ["Action Movies", "Documentary Shows", "Movies from Marvel Studios", "Shows from HBO"]
+            [
+                "Action Movies", "Documentary Shows", "Movies from Marvel Studios", "Shows from HBO",
+                "Starring Tom Hanks", "Directed by Christopher Nolan"
+            ]
         )
-        XCTAssertEqual(viewModel.rails.map { $0.items.count }, [5, 5, 5, 5])
-        XCTAssertFalse(viewModel.hasMoreDynamicRails, "Only 4 candidates existed, well under one batch")
+        XCTAssertEqual(viewModel.rails.map { $0.items.count }, [5, 5, 5, 5, 5, 5])
+        XCTAssertFalse(viewModel.hasMoreDynamicRails, "Only 6 candidates existed, well under one batch")
+
+        // Actor/director item-fetches hit a genuinely different code path
+        // (`.actor`/`.director` in loadMoreDynamicRails' switch) than
+        // genre/studio — worth its own check that Person/PersonTypes/
+        // IncludeItemTypes all reach the request correctly.
+        XCTAssertEqual(personItemQueries["Tom Hanks"]?["PersonTypes"], "Actor")
+        XCTAssertEqual(personItemQueries["Tom Hanks"]?["IncludeItemTypes"], "Movie,Series")
+        XCTAssertEqual(personItemQueries["Christopher Nolan"]?["PersonTypes"], "Director")
     }
 
     /// The threshold this whole section is about: a candidate needs at
@@ -290,7 +318,7 @@ final class HomeViewModelTests: XCTestCase {
                     BaseItemDto(id: "g-empty", name: "EmptyGenre", type: .unknown)
                 ]
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: genres, totalRecordCount: genres.count))
-            case "/Studios":
+            case "/Studios", "/Persons":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             case "/Users/user-1/Items":
                 guard query["SortBy"] != "Random" else {
@@ -327,7 +355,7 @@ final class HomeViewModelTests: XCTestCase {
             case "/Genres":
                 let items = query["IncludeItemTypes"] == "Movie" ? genreDtos : []
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
-            case "/Studios":
+            case "/Studios", "/Persons":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             case "/Users/user-1/Items":
                 guard query["SortBy"] != "Random" else {
@@ -369,7 +397,7 @@ final class HomeViewModelTests: XCTestCase {
                     BaseItemDto(id: "g-real", name: "RealGenre", type: .unknown)
                 ]
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: genres, totalRecordCount: 2))
-            case "/Studios":
+            case "/Studios", "/Persons":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             case "/Users/user-1/Items":
                 guard query["SortBy"] != "Random" else {
@@ -407,7 +435,7 @@ final class HomeViewModelTests: XCTestCase {
             case "/Genres":
                 let items = query["IncludeItemTypes"] == "Movie" ? genreDtos : []
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
-            case "/Studios":
+            case "/Studios", "/Persons":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             case "/Users/user-1/Items":
                 guard query["SortBy"] != "Random" else {

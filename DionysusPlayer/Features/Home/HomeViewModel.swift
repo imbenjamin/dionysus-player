@@ -20,7 +20,8 @@ final class HomeViewModel {
     private(set) var libraries: [MediaItem] = []
     /// Curated rails (Continue Watching, Next Up, Recently Added Movies,
     /// Recently Added Shows, in that order — omitted when empty) followed
-    /// by however many dynamic genre/studio rails have loaded so far via
+    /// by however many dynamic rails (genres, studios/networks, actors,
+    /// directors — see `DynamicRailCandidate`) have loaded so far via
     /// `loadDynamicRailCandidates`/`loadMoreDynamicRails`. Both kinds live
     /// in the same array/order since `HomeView` just renders it straight
     /// through — the dynamic ones are simply appended after `load()`
@@ -28,16 +29,16 @@ final class HomeViewModel {
     private(set) var rails: [MediaCollectionRail] = []
     private(set) var loadState: LoadState = .idle
 
-    /// Genre/studio rail candidates discovered but not yet fetched into a
-    /// rail — see `loadDynamicRailCandidates`. Drawn down from the front in
+    /// Dynamic rail candidates discovered but not yet fetched into a rail —
+    /// see `loadDynamicRailCandidates`. Drawn down from the front in
     /// batches of `dynamicRailBatchSize` by `loadMoreDynamicRails`, so Home
     /// never pays the cost of fetching every possible dynamic rail up
     /// front, only however many the user actually scrolls to.
     private var pendingDynamicRailCandidates: [DynamicRailCandidate] = []
     /// Whether `pendingDynamicRailCandidates` still has more to draw from —
     /// `HomeView` shows its scroll-triggered "load more" sentinel exactly
-    /// while this is true, so it disappears once genres/studios are
-    /// exhausted rather than continuing to trigger empty loads.
+    /// while this is true, so it disappears once every candidate has been
+    /// drawn rather than continuing to trigger empty loads.
     private(set) var hasMoreDynamicRails = false
     /// Drives `HomeView`'s loading indicator at the bottom of the rail
     /// list, and guards `loadMoreDynamicRails` against firing a second
@@ -46,7 +47,7 @@ final class HomeViewModel {
     private(set) var isLoadingMoreDynamicRails = false
 
     private static let dynamicRailBatchSize = 10
-    /// A genre/studio candidate needs at least this many items to become a
+    /// A dynamic rail candidate needs at least this many items to become a
     /// rail — Jellyfin's `/Items` endpoint has no "minimum result count"
     /// query param to push this into the request itself, so it's a
     /// post-fetch check instead. That's not a compromise: `loadMoreDynamicRails`
@@ -137,30 +138,40 @@ final class HomeViewModel {
         }
     }
 
-    /// Discovers every eligible genre/studio rail for both movies and shows
-    /// (four concurrent discovery calls — genres × {movie, show}, studios ×
-    /// {movie, show}), shuffles the combined candidate list, and loads the
-    /// first batch immediately. Each discovery call is independently
-    /// best-effort (`try?`) — e.g. a failed studio lookup shouldn't also
-    /// wipe out genre rails that succeeded.
+    /// Discovers every eligible dynamic rail — genres and studios for both
+    /// movies and shows, plus actors and directors (unscoped by content
+    /// type, see `DynamicRailCandidate`'s doc comment) — six concurrent
+    /// discovery calls in total, shuffles the combined candidate list
+    /// together (actors/directors mixed in with genres/studios, not a
+    /// separate pool), and loads the first batch immediately. Each
+    /// discovery call is independently best-effort (`try?`) — e.g. a failed
+    /// director lookup shouldn't also wipe out genre rails that succeeded.
     private func loadDynamicRailCandidates() async {
         async let movieGenres = client.genres(userID: userID, includeItemTypes: ["Movie"])
         async let showGenres = client.genres(userID: userID, includeItemTypes: ["Series"])
         async let movieStudios = client.studios(userID: userID, includeItemTypes: ["Movie"])
         async let showStudios = client.studios(userID: userID, includeItemTypes: ["Series"])
+        async let actors = client.persons(userID: userID, personTypes: ["Actor"])
+        async let directors = client.persons(userID: userID, personTypes: ["Director"])
 
         var candidates: [DynamicRailCandidate] = []
         if let items = try? await movieGenres.items {
-            candidates += items.map { DynamicRailCandidate(kind: .movie, category: .genre, name: $0.name) }
+            candidates += items.map { DynamicRailCandidate.genre(kind: .movie, name: $0.name) }
         }
         if let items = try? await showGenres.items {
-            candidates += items.map { DynamicRailCandidate(kind: .series, category: .genre, name: $0.name) }
+            candidates += items.map { DynamicRailCandidate.genre(kind: .series, name: $0.name) }
         }
         if let items = try? await movieStudios.items {
-            candidates += items.map { DynamicRailCandidate(kind: .movie, category: .studio, name: $0.name) }
+            candidates += items.map { DynamicRailCandidate.studio(kind: .movie, name: $0.name) }
         }
         if let items = try? await showStudios.items {
-            candidates += items.map { DynamicRailCandidate(kind: .series, category: .studio, name: $0.name) }
+            candidates += items.map { DynamicRailCandidate.studio(kind: .series, name: $0.name) }
+        }
+        if let items = try? await actors.items {
+            candidates += items.map { DynamicRailCandidate.actor(name: $0.name) }
+        }
+        if let items = try? await directors.items {
+            candidates += items.map { DynamicRailCandidate.director(name: $0.name) }
         }
 
         pendingDynamicRailCandidates = shuffle(candidates)
@@ -196,13 +207,27 @@ final class HomeViewModel {
         let fetched = await withTaskGroup(of: (Int, MediaCollectionRail?).self) { group in
             for (index, candidate) in batch.enumerated() {
                 group.addTask { [client, userID] in
-                    let dtos = try? await client.items(
-                        userID: userID,
-                        includeItemTypes: [candidate.kind.rawValue],
-                        genres: candidate.category == .genre ? [candidate.name] : [],
-                        studios: candidate.category == .studio ? [candidate.name] : [],
-                        limit: 16
-                    ).items
+                    let dtos: [BaseItemDto]?
+                    switch candidate {
+                    case .genre(let kind, let name):
+                        dtos = try? await client.items(
+                            userID: userID, includeItemTypes: [kind.rawValue], genres: [name], limit: 16
+                        ).items
+                    case .studio(let kind, let name):
+                        dtos = try? await client.items(
+                            userID: userID, includeItemTypes: [kind.rawValue], studios: [name], limit: 16
+                        ).items
+                    case .actor(let name):
+                        dtos = try? await client.items(
+                            userID: userID, includeItemTypes: ["Movie", "Series"],
+                            person: name, personTypes: ["Actor"], limit: 16
+                        ).items
+                    case .director(let name):
+                        dtos = try? await client.items(
+                            userID: userID, includeItemTypes: ["Movie", "Series"],
+                            person: name, personTypes: ["Director"], limit: 16
+                        ).items
+                    }
                     guard let dtos, dtos.count >= minimumItemCount else { return (index, nil) }
                     let items = dtos.map { MediaItem(dto: $0, images: images) }
                     return (index, MediaCollectionRail(title: candidate.railTitle, items: items))

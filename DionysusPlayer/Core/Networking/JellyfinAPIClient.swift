@@ -62,6 +62,15 @@ actor JellyfinAPIClient {
         /// `ItemsController` signature.
         genres: [String] = [],
         studios: [String] = [],
+        /// A single person's *name* (Jellyfin's `Person` param takes one
+        /// name, not a delimited list) — pair with `personTypes` to narrow
+        /// to a specific role, e.g. `person: "Tom Hanks", personTypes:
+        /// ["Actor"]`. `personTypes` alone (no `person`) isn't meaningful
+        /// and is ignored by Jellyfin, so callers always set both together.
+        person: String? = nil,
+        /// Comma-delimited, unlike `genres`/`studios` above — confirmed
+        /// against the real `ItemsController` signature.
+        personTypes: [String] = [],
         searchTerm: String? = nil,
         limit: Int? = nil
     ) async throws -> BaseItemDtoQueryResult {
@@ -78,6 +87,8 @@ actor JellyfinAPIClient {
         if !filters.isEmpty { query.append(.init(name: "Filters", value: filters.joined(separator: ","))) }
         if !genres.isEmpty { query.append(.init(name: "Genres", value: genres.joined(separator: "|"))) }
         if !studios.isEmpty { query.append(.init(name: "Studios", value: studios.joined(separator: "|"))) }
+        if let person, !person.isEmpty { query.append(.init(name: "Person", value: person)) }
+        if !personTypes.isEmpty { query.append(.init(name: "PersonTypes", value: personTypes.joined(separator: ","))) }
         if let searchTerm, !searchTerm.isEmpty { query.append(.init(name: "SearchTerm", value: searchTerm)) }
         if let limit { query.append(.init(name: "Limit", value: String(limit))) }
         return try await get("/Users/\(userID)/Items", query: query)
@@ -108,6 +119,20 @@ actor JellyfinAPIClient {
             query.append(.init(name: "IncludeItemTypes", value: includeItemTypes.joined(separator: ",")))
         }
         return try await get("/Studios", query: query)
+    }
+
+    /// People credited with the given role(s) (`personTypes`, e.g.
+    /// `["Actor"]`/`["Director"]`) anywhere in the user's library — unlike
+    /// `genres(...)`/`studios(...)`, Jellyfin's `/Persons` has no
+    /// `IncludeItemTypes` param, so this can't be (and isn't, by design —
+    /// see `DynamicRailCandidate.actor`/`.director`) scoped to movies vs.
+    /// shows separately the way genre/studio rails are.
+    func persons(userID: String, personTypes: [String]) async throws -> BaseItemDtoQueryResult {
+        var query = [URLQueryItem(name: "userId", value: userID)]
+        if !personTypes.isEmpty {
+            query.append(.init(name: "personTypes", value: personTypes.joined(separator: ",")))
+        }
+        return try await get("/Persons", query: query)
     }
 
     func item(userID: String, itemID: String) async throws -> BaseItemDto {

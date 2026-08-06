@@ -115,6 +115,21 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(capturedQuery["Studios"], "Marvel Studios")
     }
 
+    /// `PersonTypes` is comma-delimited — unlike `Genres`/`Studios` above,
+    /// confirmed against the real `ItemsController` signature.
+    func test_items_appliesPersonAndPersonTypes() async throws {
+        let client = makeClient()
+        var capturedQuery: [String: String] = [:]
+        MockURLProtocol.requestHandler = { request in
+            capturedQuery = request.queryDictionary
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        _ = try await client.items(userID: "user-1", person: "Tom Hanks", personTypes: ["Actor"])
+        XCTAssertEqual(capturedQuery["Person"], "Tom Hanks")
+        XCTAssertEqual(capturedQuery["PersonTypes"], "Actor")
+    }
+
     func test_item_requestsDetailFieldsIncludingMediaSourcesAndPeople() async throws {
         let client = makeClient()
         var capturedQuery: [String: String] = [:]
@@ -247,6 +262,22 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(result.items.map(\.name), ["HBO"])
         XCTAssertEqual(capturedQuery["userId"], "user-1")
         XCTAssertEqual(capturedQuery["IncludeItemTypes"], "Series")
+    }
+
+    func test_persons_requestsExpectedPathAndScopesByPersonTypes() async throws {
+        let client = makeClient(accessToken: "tok")
+        var capturedQuery: [String: String] = [:]
+        let tomHanks = BaseItemDto(id: "person-1", name: "Tom Hanks", type: .unknown)
+        MockURLProtocol.requestHandler = { request in
+            capturedQuery = request.queryDictionary
+            XCTAssertEqual(request.url?.path, "/Persons")
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [tomHanks], totalRecordCount: 1))
+        }
+
+        let result = try await client.persons(userID: "user-1", personTypes: ["Actor"])
+        XCTAssertEqual(result.items.map(\.name), ["Tom Hanks"])
+        XCTAssertEqual(capturedQuery["userId"], "user-1")
+        XCTAssertEqual(capturedQuery["personTypes"], "Actor")
     }
 
     // MARK: collectionsContaining — exercises the fan-out/task-group logic

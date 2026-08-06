@@ -6,22 +6,26 @@ import XCTest
 /// side of Home's dynamic rails.
 final class DynamicRailCandidateTests: XCTestCase {
     func test_railTitle_movieGenre() {
-        let candidate = DynamicRailCandidate(kind: .movie, category: .genre, name: "Action")
-        XCTAssertEqual(candidate.railTitle, "Action Movies")
+        XCTAssertEqual(DynamicRailCandidate.genre(kind: .movie, name: "Action").railTitle, "Action Movies")
     }
 
     func test_railTitle_showGenre() {
-        let candidate = DynamicRailCandidate(kind: .series, category: .genre, name: "Documentary")
-        XCTAssertEqual(candidate.railTitle, "Documentary Shows")
+        XCTAssertEqual(DynamicRailCandidate.genre(kind: .series, name: "Documentary").railTitle, "Documentary Shows")
     }
 
     func test_railTitle_movieStudio() {
-        let candidate = DynamicRailCandidate(kind: .movie, category: .studio, name: "Marvel Studios")
-        XCTAssertEqual(candidate.railTitle, "Movies from Marvel Studios")
+        XCTAssertEqual(DynamicRailCandidate.studio(kind: .movie, name: "Marvel Studios").railTitle, "Movies from Marvel Studios")
     }
 
     func test_railTitle_showStudio() {
-        let candidate = DynamicRailCandidate(kind: .series, category: .studio, name: "HBO")
-        XCTAssertEqual(candidate.railTitle, "Shows from HBO")
+        XCTAssertEqual(DynamicRailCandidate.studio(kind: .series, name: "HBO").railTitle, "Shows from HBO")
+    }
+
+    func test_railTitle_actor() {
+        XCTAssertEqual(DynamicRailCandidate.actor(name: "Tom Hanks").railTitle, "Starring Tom Hanks")
+    }
+
+    func test_railTitle_director() {
+        XCTAssertEqual(DynamicRailCandidate.director(name: "Christopher Nolan").railTitle, "Directed by Christopher Nolan")
     }
 }
