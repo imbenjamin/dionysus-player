@@ -39,7 +39,7 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 
 (swap `iPhone 17` for whatever's in `xcrun simctl list devices available` on your machine.)
 
-**Verified:** the full suite (209 tests) has been run for real via
+**Verified:** the full suite (215 tests) has been run for real via
 `xcodebuild test` against the iOS 26.5 Simulator — all passing, 0 failures.
 A few real issues were caught and fixed along the way, worth knowing about
 if you extend this setup:
@@ -74,6 +74,7 @@ and the networking client, mirroring the app's own MVVM structure
 | `MediaCollectionRail` | `MediaCollectionRailTests.swift` | `usesLandscapeTiles`'s whole-rail-not-per-item decision — portrait only when every item is movie-like, landscape if any item is series/episode-like (so a rail mixing both, e.g. "Continue Watching", reads as one consistent tile shape instead of a jumble of two). |
 | `DynamicRailCandidate` | `DynamicRailCandidateTests.swift` | `railTitle`'s formatting for all 4 cases — "{Genre} Movies"/"{Genre} Shows", "Movies from {Studio}"/"Shows from {Studio}", "Starring {Actor}", "Directed by {Director}". |
 | `ImageURLBuilder` | `ImageURLBuilderTests.swift` | URL construction — query params, token inclusion, item vs. user image endpoints. |
+| `RemoteImageLoader` | `RemoteImageLoaderTests.swift` | Retry-with-backoff on transient failures (transport errors and 5xx) up to a configurable attempt limit, giving up and throwing once exhausted, in-memory caching (a second request for the same URL never hits the network), and in-flight de-duplication (two concurrent requests for the same URL share one network call) — all against a fake server via `MockURLProtocol`, same as `JellyfinAPIClient`. |
 | `ServerConfiguration.parse` | `ServerConfigurationTests.swift` | Parsing whatever a user types into server setup (bare host, host:port, full URL, garbage input). |
 | `JellyfinAuthorization` | `JellyfinAuthorizationTests.swift` | The auth header format Jellyfin expects. |
 | `JellyfinJSON` (coding) | `JellyfinCodingTests.swift` | PascalCase↔camelCase key conversion, and the date decoder's handling of Jellyfin/.NET's inconsistent fractional-second precision (including the 7-digit tick-precision case). |

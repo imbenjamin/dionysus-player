@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// A backdrop image with a logo (or title text fallback) overlaid at the
 /// bottom, Disney+-style. Fills whatever frame its caller gives it —
@@ -46,22 +47,8 @@ struct BackdropLogoOverlay: View {
             .overlay(alignment: .bottomLeading) {
                 Group {
                     if let logoURL = item.logoImageURL {
-                        AsyncImage(url: logoURL) { phase in
-                            switch phase {
-                            case .success(let image):
-                                FadeInLogoImage(image: image)
-                            case .failure:
-                                // Logo failed to load (404, timeout, etc.) —
-                                // fall back to the text title rather than
-                                // leaving the overlay blank.
-                                titleText
-                            case .empty:
-                                Color.clear
-                            @unknown default:
-                                Color.clear
-                            }
-                        }
-                        .frame(maxWidth: 240, maxHeight: 80, alignment: .leading)
+                        LogoImageView(url: logoURL, fallback: titleText)
+                            .frame(maxWidth: 240, maxHeight: 80, alignment: .leading)
                     } else {
                         titleText
                     }
@@ -74,6 +61,52 @@ struct BackdropLogoOverlay: View {
         Text(item.name)
             .font(.title.bold())
             .foregroundStyle(.white)
+    }
+}
+
+/// Loads a hero logo via `RemoteImageLoader` (retry-with-backoff, caching —
+/// same rationale as `AsyncRemoteImage`, not reused directly here since this
+/// needs its own fade-in-on-success and text-fallback-on-failure behavior
+/// rather than a placeholder rectangle).
+private struct LogoImageView<Fallback: View>: View {
+    let url: URL
+    let fallback: Fallback
+
+    @State private var phase: Phase = .loading
+
+    private enum Phase {
+        case loading
+        case success(UIImage)
+        case failure
+    }
+
+    var body: some View {
+        Group {
+            switch phase {
+            case .success(let image):
+                FadeInLogoImage(image: Image(uiImage: image))
+            case .failure:
+                // Logo failed to load (404, timeout, etc. — retried a few
+                // times by RemoteImageLoader first) — fall back to the text
+                // title rather than leaving the overlay blank.
+                fallback
+            case .loading:
+                Color.clear
+            }
+        }
+        .task(id: url) { await load() }
+    }
+
+    private func load() async {
+        phase = .loading
+        do {
+            let image = try await RemoteImageLoader.shared.image(for: url)
+            guard !Task.isCancelled else { return }
+            phase = .success(image)
+        } catch {
+            guard !Task.isCancelled else { return }
+            phase = .failure
+        }
     }
 }
 
