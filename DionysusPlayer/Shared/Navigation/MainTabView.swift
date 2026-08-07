@@ -1,6 +1,16 @@
 import SwiftUI
 import UIKit
 
+/// Which tab is showing. Tracked explicitly (rather than leaving `TabView`
+/// to manage selection internally, unobserved) purely so `selectedTabBinding`
+/// below can tell a re-tap of the already-selected Search tab apart from
+/// switching into Search from elsewhere — see its doc comment.
+private enum MainTab: Hashable {
+    case home
+    case search
+    case profile
+}
+
 /// The signed-in app's root: bottom tab bar for Home, Search, and Profile,
 /// each with its own navigation stack.
 struct MainTabView: View {
@@ -15,20 +25,51 @@ struct MainTabView: View {
     /// simultaneous gesture), which is exactly what caused history to never
     /// actually record.
     @State private var searchPath: [AppRoute] = []
+    @State private var selectedTab: MainTab = .home
+    /// Bumped whenever the user re-taps the Search tab while already on
+    /// it — `SearchView` observes this (as a plain `let`, not a binding;
+    /// it only ever needs to react, never write it) to clear its query and
+    /// pop back to its landing page. Re-tapping while on a *different* tab
+    /// doesn't touch this, so switching back into Search from elsewhere
+    /// leaves it exactly as it was.
+    @State private var searchResetToken = 0
+
+    /// A hand-rolled `Binding` rather than `$selectedTab` directly: a plain
+    /// `@State`-derived binding short-circuits when `TabView` "sets" it to
+    /// the value it already holds (which is exactly what happens on a
+    /// reselect tap — the tab doesn't change), so `.onChange(of:
+    /// selectedTab)` alone could never distinguish a reselect from nothing
+    /// happening at all. A hand-rolled `Binding`'s `set` closure has no
+    /// such short-circuit — `TabView` calls it on *every* tap regardless of
+    /// whether the value differs, which is what makes catching a same-tab
+    /// reselect possible here.
+    private var selectedTabBinding: Binding<MainTab> {
+        Binding(
+            get: { selectedTab },
+            set: { newValue in
+                if newValue == .search, selectedTab == .search {
+                    searchResetToken += 1
+                }
+                selectedTab = newValue
+            }
+        )
+    }
 
     var body: some View {
-        TabView {
+        TabView(selection: selectedTabBinding) {
             NavigationStack {
                 HomeView()
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
             }
             .tabItem { Label("Home", image: "DionysusGlyph") }
+            .tag(MainTab.home)
 
             NavigationStack(path: $searchPath) {
-                SearchView(path: $searchPath)
+                SearchView(path: $searchPath, resetToken: searchResetToken)
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
             }
             .tabItem { Label("Search", systemImage: "magnifyingglass") }
+            .tag(MainTab.search)
 
             NavigationStack {
                 ProfileView()
@@ -45,6 +86,7 @@ struct MainTabView: View {
                     }
                 }
             }
+            .tag(MainTab.profile)
         }
         // Selected-item tint tracks the brand primary (burgundy in light,
         // amber in dark). Without this, the tab bar inherits the app-wide

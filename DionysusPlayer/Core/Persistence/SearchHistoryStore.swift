@@ -33,8 +33,11 @@ final class SearchHistoryStore {
 
     /// Records `result` as the most recent entry. If it's already present
     /// (the user re-selected something already in their history), it moves
-    /// to the front instead of duplicating.
-    func record(_ result: SearchResult, userID: String) {
+    /// to the front instead of duplicating. Returns the resulting list so
+    /// callers (`SearchViewModel`) don't need a separate `history(userID:)`
+    /// call just to read back what was already computed here.
+    @discardableResult
+    func record(_ result: SearchResult, userID: String) -> [SearchResult] {
         var entries = history(userID: userID)
         entries.removeAll { $0.id == result.id }
         entries.insert(result, at: 0)
@@ -42,14 +45,18 @@ final class SearchHistoryStore {
             entries.removeLast(entries.count - Self.maxEntries)
         }
         save(entries, userID: userID)
+        return entries
     }
 
     /// Removes a single entry (e.g. via `SearchView`'s per-row swipe
-    /// action), as opposed to `clear`'s wipe-everything.
-    func remove(id: String, userID: String) {
+    /// action), as opposed to `clear`'s wipe-everything. Returns the
+    /// resulting list, same reasoning as `record`.
+    @discardableResult
+    func remove(id: String, userID: String) -> [SearchResult] {
         var entries = history(userID: userID)
         entries.removeAll { $0.id == id }
         save(entries, userID: userID)
+        return entries
     }
 
     func clear(userID: String) {

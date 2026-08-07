@@ -17,6 +17,12 @@ struct SearchView: View {
     /// same `Button` action that calls `recordSelection` guarantees both
     /// happen together, every time.
     @Binding var path: [AppRoute]
+    /// Bumped by `MainTabView` whenever the user re-taps the Search tab
+    /// while already on it (not when switching into Search from another
+    /// tab) — observed below via `.onChange` to reset back to the landing
+    /// page. A plain `let`, not a `@Binding`: this view only ever needs to
+    /// react to it changing, never write it.
+    let resetToken: Int
     /// True once the search field is focused/active, even before any text
     /// is typed — set by SwiftUI as a descendant of `.searchable` below.
     /// Distinguishes the true landing page (this is `false`: show history,
@@ -25,12 +31,27 @@ struct SearchView: View {
     /// affordance, not something that should linger once you've engaged
     /// the field to start typing).
     @Environment(\.isSearching) private var isSearching
+    /// Deactivates the search field (unfocuses it, dismisses the keyboard/
+    /// Cancel button) — part of `reset()`, so re-tapping the Search tab
+    /// while mid-search doesn't just clear the query but leave the field
+    /// awkwardly still focused and empty.
+    @Environment(\.dismissSearch) private var dismissSearch
 
     var body: some View {
         content
             .navigationTitle("Search")
             .searchable(text: searchTextBinding, prompt: "Movies, shows, episodes\u{2026}")
-            .task { setUpIfNeeded() }
+            .task { await setUpIfNeeded() }
+            .onChange(of: resetToken) { _, _ in reset() }
+    }
+
+    /// Clears the query/results and pops back to the landing page — see
+    /// `resetToken`'s doc comment for when this fires.
+    private func reset() {
+        viewModel?.query = ""
+        viewModel?.queryChanged()
+        path = []
+        dismissSearch()
     }
 
     private var searchTextBinding: Binding<String> {
@@ -73,7 +94,7 @@ struct SearchView: View {
 
     private func resultsList(_ results: [SearchResult]) -> some View {
         List(results) { result in
-            SearchResultRow(result: result) { select(result) }
+            row(for: result) { select(result) }
         }
         .listStyle(.plain)
     }
@@ -82,7 +103,7 @@ struct SearchView: View {
         List {
             Section {
                 ForEach(history) { entry in
-                    SearchResultRow(result: entry) { select(entry) }
+                    row(for: entry) { select(entry) }
                         // Leading (swipe-right-to-reveal), not the more
                         // common trailing swipe-left — per an explicit
                         // design call, not the default.
@@ -107,6 +128,17 @@ struct SearchView: View {
         .listStyle(.plain)
     }
 
+    /// Resolves `result`'s image URL against the ViewModel's current
+    /// `ImageURLBuilder` here (at the `SearchView` level, where the
+    /// `@Observable` access is tracked) rather than inside `SearchResultRow`
+    /// itself — see `SearchViewModel.imageURL(for:)`'s doc comment for why
+    /// it's resolved on demand instead of stored on `SearchResult`.
+    private func row(for result: SearchResult, onSelect: @escaping () -> Void) -> some View {
+        SearchResultRow(
+            name: result.name, subtitle: result.subtitle, imageURL: viewModel?.imageURL(for: result), onSelect: onSelect
+        )
+    }
+
     /// Records `result` to search history and pushes its detail page, in
     /// that order, from the same synchronous action — see `path`'s doc
     /// comment for why this replaced a declarative `NavigationLink`.
@@ -115,9 +147,11 @@ struct SearchView: View {
         path.append(.assetDetail(itemID: result.id))
     }
 
-    private func setUpIfNeeded() {
+    private func setUpIfNeeded() async {
         guard viewModel == nil, let client = appState.apiClient, let userID = appState.currentUser?.id else { return }
-        viewModel = SearchViewModel(client: client, userID: userID)
+        let newViewModel = SearchViewModel(client: client, userID: userID)
+        viewModel = newViewModel
+        await newViewModel.loadImagesIfNeeded()
     }
 }
 
@@ -125,21 +159,25 @@ struct SearchView: View {
 /// name/subtitle layout plus a trailing disclosure chevron (added manually
 /// since a plain `Button` row, unlike `NavigationLink`, doesn't get one for
 /// free), distinct from `PosterCard`'s full poster treatment since these
-/// are meant to be scanned quickly.
+/// are meant to be scanned quickly. Takes already-resolved display fields
+/// rather than a `SearchResult` directly, so it stays agnostic of how
+/// `imageURL` got resolved.
 private struct SearchResultRow: View {
-    let result: SearchResult
+    let name: String
+    let subtitle: String?
+    let imageURL: URL?
     let onSelect: () -> Void
 
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 12) {
-                AsyncRemoteImage(url: result.imageURL)
+                AsyncRemoteImage(url: imageURL)
                     .frame(width: 44, height: 44)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(result.name)
-                    if let subtitle = result.subtitle {
+                    Text(name)
+                    if let subtitle {
                         Text(subtitle)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
@@ -168,6 +206,6 @@ private struct SearchResultRow: View {
 }
 
 #Preview {
-    NavigationStack { SearchView(path: .constant([])) }
+    NavigationStack { SearchView(path: .constant([]), resetToken: 0) }
         .environment(AppState())
 }

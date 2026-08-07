@@ -17,8 +17,7 @@ final class SearchHistoryStoreTests: XCTestCase {
     }
 
     private func makeResult(id: String, name: String = "Arrival") -> SearchResult {
-        let images = ImageURLBuilder(baseURL: URL(string: "https://jellyfin.example.com")!, accessToken: nil)
-        return SearchResult(hint: SearchHint(id: id, name: name, type: .movie), images: images)
+        SearchResult(hint: SearchHint(id: id, name: name, type: .movie))
     }
 
     func test_freshStore_hasNoHistory() {
@@ -62,6 +61,24 @@ final class SearchHistoryStoreTests: XCTestCase {
         // Most recent (highest index) first, oldest trimmed off the end.
         XCTAssertEqual(history.first?.id, "movie-24")
         XCTAssertEqual(history.last?.id, "movie-5")
+    }
+
+    func test_record_returnsTheResultingListDirectly() {
+        let store = SearchHistoryStore(defaults: defaults)
+        _ = store.record(makeResult(id: "movie-1"), userID: "user-1")
+        let returned = store.record(makeResult(id: "movie-2"), userID: "user-1")
+
+        XCTAssertEqual(returned.map(\.id), ["movie-2", "movie-1"])
+    }
+
+    func test_remove_returnsTheResultingListDirectly() {
+        let store = SearchHistoryStore(defaults: defaults)
+        store.record(makeResult(id: "movie-1"), userID: "user-1")
+        store.record(makeResult(id: "movie-2"), userID: "user-1")
+
+        let returned = store.remove(id: "movie-1", userID: "user-1")
+
+        XCTAssertEqual(returned.map(\.id), ["movie-2"])
     }
 
     func test_history_isScopedPerUser() {

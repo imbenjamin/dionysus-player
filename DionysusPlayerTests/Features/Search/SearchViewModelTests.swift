@@ -25,10 +25,10 @@ final class SearchViewModelTests: XCTestCase {
         super.tearDown()
     }
 
-    private func makeViewModel(userID: String = "user-1") -> SearchViewModel {
+    private func makeViewModel(userID: String = "user-1", accessToken: String = "tok") -> SearchViewModel {
         let client = JellyfinAPIClient(
             baseURL: URL(string: "https://jellyfin.example.com")!,
-            accessToken: "tok",
+            accessToken: accessToken,
             session: MockURLProtocol.makeSession()
         )
         return SearchViewModel(client: client, userID: userID, historyStore: SearchHistoryStore(defaults: defaults))
@@ -79,12 +79,31 @@ final class SearchViewModelTests: XCTestCase {
         }
     }
 
+    // MARK: images
+
+    func test_imageURL_nilBeforeLoadImagesIfNeeded() {
+        let viewModel = makeViewModel()
+        let result = SearchResult(hint: SearchHint(id: "movie-1", name: "Arrival", type: .movie, primaryImageTag: "tag"))
+
+        XCTAssertNil(viewModel.imageURL(for: result), "Shouldn't resolve anything until loadImagesIfNeeded() has run once")
+    }
+
+    func test_loadImagesIfNeeded_resolvesImageURLsAgainstTheCurrentSession() async {
+        let viewModel = makeViewModel(accessToken: "current-token")
+        let result = SearchResult(hint: SearchHint(id: "movie-1", name: "Arrival", type: .movie, primaryImageTag: "tag"))
+
+        await viewModel.loadImagesIfNeeded()
+
+        let url = viewModel.imageURL(for: result)
+        let apiKey = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems }?.first { $0.name == "ApiKey" }
+        XCTAssertEqual(apiKey?.value, "current-token", "Should resolve with whichever token this session currently has, not one baked in earlier")
+    }
+
     // MARK: history
 
     func test_init_loadsExistingHistoryForThisUser() {
         let hint = SearchHint(id: "movie-1", name: "Arrival", type: .movie)
-        let images = ImageURLBuilder(baseURL: URL(string: "https://jellyfin.example.com")!, accessToken: nil)
-        SearchHistoryStore(defaults: defaults).record(SearchResult(hint: hint, images: images), userID: "user-1")
+        SearchHistoryStore(defaults: defaults).record(SearchResult(hint: hint), userID: "user-1")
 
         let viewModel = makeViewModel(userID: "user-1")
         XCTAssertEqual(viewModel.history.map(\.id), ["movie-1"])
@@ -92,9 +111,7 @@ final class SearchViewModelTests: XCTestCase {
 
     func test_recordSelection_addsToHistoryAndPersists() {
         let viewModel = makeViewModel()
-        let hint = SearchHint(id: "movie-1", name: "Arrival", type: .movie)
-        let images = ImageURLBuilder(baseURL: URL(string: "https://jellyfin.example.com")!, accessToken: nil)
-        let result = SearchResult(hint: hint, images: images)
+        let result = SearchResult(hint: SearchHint(id: "movie-1", name: "Arrival", type: .movie))
 
         viewModel.recordSelection(result)
 
@@ -104,9 +121,7 @@ final class SearchViewModelTests: XCTestCase {
 
     func test_clearHistory_removesAllEntries() {
         let viewModel = makeViewModel()
-        let hint = SearchHint(id: "movie-1", name: "Arrival", type: .movie)
-        let images = ImageURLBuilder(baseURL: URL(string: "https://jellyfin.example.com")!, accessToken: nil)
-        viewModel.recordSelection(SearchResult(hint: hint, images: images))
+        viewModel.recordSelection(SearchResult(hint: SearchHint(id: "movie-1", name: "Arrival", type: .movie)))
 
         viewModel.clearHistory()
 
@@ -116,9 +131,8 @@ final class SearchViewModelTests: XCTestCase {
 
     func test_removeFromHistory_removesOnlyThatEntryAndPersists() {
         let viewModel = makeViewModel()
-        let images = ImageURLBuilder(baseURL: URL(string: "https://jellyfin.example.com")!, accessToken: nil)
-        let keep = SearchResult(hint: SearchHint(id: "movie-1", name: "Arrival", type: .movie), images: images)
-        let remove = SearchResult(hint: SearchHint(id: "movie-2", name: "Interstellar", type: .movie), images: images)
+        let keep = SearchResult(hint: SearchHint(id: "movie-1", name: "Arrival", type: .movie))
+        let remove = SearchResult(hint: SearchHint(id: "movie-2", name: "Interstellar", type: .movie))
         viewModel.recordSelection(keep)
         viewModel.recordSelection(remove)
 
