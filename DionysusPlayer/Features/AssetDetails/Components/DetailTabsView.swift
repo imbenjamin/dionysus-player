@@ -22,6 +22,26 @@ struct DetailTabsView: View {
     /// do — so `item.technicalDetails` is always `nil` for them; only real
     /// playable assets (movies, episodes) have a "Details" tab worth
     /// showing at all.
+    ///
+    /// `AssetDetailViewModel`'s preloaded item (see its doc comment) renders
+    /// this view before `technicalDetails` exists, so this starts as a
+    /// 2-element array and grows to 3 once `load()`'s full item lands —
+    /// `MovieDetailView`/`ShowDetailView` key `DetailTabsView`'s identity to
+    /// this same condition (see their call sites), which is required for
+    /// that transition to actually show up. Confirmed via a temporary
+    /// runtime probe (prints in this view's `body` and in `MovieDetailView`
+    /// 's) that without that `.id()`, `MovieDetailView.body` re-ran a
+    /// second time once `load()` landed the full item (it reads the
+    /// `@Observable` `viewModel.item` directly, so it's a tracked
+    /// dependency) but *this* view's `body` — holding `item` as a plain,
+    /// non-`Equatable`, non-tracked `let` under an otherwise-unchanged view
+    /// identity (same type/position, `selectedTab`'s `@State` box intact)
+    /// — never fired again, so `availableTabs` stayed frozen at whatever it
+    /// was the first time this view ever rendered. Forcing a fresh identity
+    /// via `.id()` on the change that matters is what actually gets this
+    /// view's `body` invoked again; relying on the parent alone re-running
+    /// did not, for whatever reason, propagate down to this specific view
+    /// in practice.
     private var availableTabs: [Tab] {
         item.technicalDetails == nil ? Tab.allCases.filter { $0 != .details } : Tab.allCases
     }

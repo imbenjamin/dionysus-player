@@ -21,7 +21,14 @@ struct MovieDetailView: View {
                             onRestart: { playbackRequest = PlaybackRequest(itemID: item.id, startFromBeginning: true) }
                         )
 
+                        // Keyed on whether a "Details" tab exists at all —
+                        // see `DetailTabsView.availableTabs`'s doc comment
+                        // for why this `.id()` (not just passing the
+                        // updated `item`) is what's actually required for
+                        // the tab to appear once `technicalDetails` arrives
+                        // after `AssetDetailViewModel.load()` resolves.
                         DetailTabsView(item: item)
+                            .id(item.technicalDetails == nil)
                     }
                     .padding(.horizontal)
 
