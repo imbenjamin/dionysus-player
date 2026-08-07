@@ -36,9 +36,28 @@ struct MediaRailView: View {
                 // `.center` alignment makes no visible difference; `.top`
                 // is just the more conventional choice for a shelf of
                 // equal-height cards.
-                HStack(alignment: .top, spacing: 12) {
+                //
+                // `LazyHStack`, not `HStack` — a plain `HStack` constructs
+                // and lays out every item up front regardless of whether
+                // it's actually on screen, which for a 16-item rail meant
+                // every one of its `AsyncRemoteImage`s fired its network
+                // load immediately too. With several rails doing this at
+                // once on Home's first load, that's dozens of simultaneous
+                // image requests competing for the shared session's
+                // connection pool — exactly the kind of burst
+                // `RemoteImageLoader`'s retry logic exists to paper over,
+                // rather than addressing the cause. `LazyHStack` defers
+                // both construction and image loading until an item
+                // actually scrolls into view.
+                //
+                // `usesLandscapeTiles` hoisted out of the loop — it's an
+                // O(n) scan over `rail.items`, so reading it once per item
+                // inside `ForEach` (an earlier version did) made rendering
+                // a rail an accidental O(n²) instead of O(n).
+                let usesLandscapeTiles = rail.usesLandscapeTiles
+                LazyHStack(alignment: .top, spacing: 12) {
                     ForEach(rail.items) { item in
-                        if rail.usesLandscapeTiles {
+                        if usesLandscapeTiles {
                             LandscapeMediaCard(item: item)
                         } else {
                             PosterCard(item: item)

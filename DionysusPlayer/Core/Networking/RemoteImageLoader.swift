@@ -23,7 +23,17 @@ import UIKit
 ///   trying again.
 /// - An in-memory `NSCache`, so images already seen this session redisplay
 ///   instantly without a network round-trip at all (e.g. scrolling a rail
-///   out of view and back, or the same poster appearing in two rails).
+///   out of view and back, or the same poster appearing in two rails) — with
+///   a *byte-size* budget (`totalCostLimit`), not just a flat item count.
+///   Measured live after scrolling through several dozen Home rails: a
+///   count-only limit (an earlier version had only `countLimit = 500`, no
+///   `cost:` passed to `setObject`) let the cache grow to ~365MB of decoded
+///   bitmaps — a 1600px backdrop and a 130pt poster thumbnail count
+///   identically toward a flat item cap despite being wildly different in
+///   memory weight, and Home's dynamic genre/studio/actor/director rails
+///   are heavy on the larger, backdrop-style images. `estimatedByteCost(of:)`
+///   gives each entry its actual approximate decoded size so eviction
+///   responds to real memory pressure instead.
 /// - A dedicated `URLCache`-backed `URLSession` (bigger capacity than
 ///   `URLSession.shared`'s default) so cross-launch redisplay still benefits
 ///   from HTTP caching without every image needing to be in the in-memory
@@ -44,6 +54,13 @@ actor RemoteImageLoader {
     /// `retryBaseDelay * 2^n` — 0.4s, 0.8s.
     static let defaultRetryBaseDelay: Duration = .milliseconds(400)
 
+    /// Roughly the working set for smooth scrolling through several dozen
+    /// rails' worth of posters/backdrops/logos without needing to re-fetch
+    /// anything already seen this session, while staying well under the
+    /// ~365MB an unbounded-by-size cache was observed reaching in practice
+    /// (see this type's doc comment).
+    static let defaultTotalCostLimit = 150 * 1024 * 1024
+
     private let session: URLSession
     private let maxAttempts: Int
     private let retryBaseDelay: Duration
@@ -62,12 +79,14 @@ actor RemoteImageLoader {
     ///   - session: defaults to a dedicated session (not `.shared`) tuned
     ///     for a burst of concurrent image requests, with a larger `URLCache`
     ///     than `URLSession.shared`'s default.
-    ///   - maxAttempts/retryBaseDelay: overridable so tests can exercise the
-    ///     retry path without real delays.
+    ///   - maxAttempts/retryBaseDelay/totalCostLimit: overridable so tests
+    ///     can exercise the retry path without real delays, or the eviction
+    ///     path without needing 150MB of real images.
     init(
         session: URLSession? = nil,
         maxAttempts: Int = RemoteImageLoader.defaultMaxAttempts,
-        retryBaseDelay: Duration = RemoteImageLoader.defaultRetryBaseDelay
+        retryBaseDelay: Duration = RemoteImageLoader.defaultRetryBaseDelay,
+        totalCostLimit: Int = RemoteImageLoader.defaultTotalCostLimit
     ) {
         if let session {
             self.session = session
@@ -87,7 +106,15 @@ actor RemoteImageLoader {
         }
         self.maxAttempts = maxAttempts
         self.retryBaseDelay = retryBaseDelay
+        // `totalCostLimit` is the limit that actually matters in practice
+        // (see this type's doc comment) — `countLimit` stays only as a
+        // coarse secondary guard against an unrealistic pathological case
+        // (a very large number of unusually tiny images); given the
+        // ~700KB/image average observed live, 500 items' worth would
+        // already exceed `totalCostLimit` well before `countLimit` did
+        // anything on its own.
         memoryCache.countLimit = 500
+        memoryCache.totalCostLimit = totalCostLimit
     }
 
     /// Synchronous, non-isolated in-memory cache peek — doesn't join an
@@ -121,8 +148,22 @@ actor RemoteImageLoader {
         defer { inFlightTasks[url] = nil }
 
         let image = try await task.value
-        memoryCache.setObject(image, forKey: url as NSURL)
+        memoryCache.setObject(image, forKey: url as NSURL, cost: Self.estimatedByteCost(of: image))
         return image
+    }
+
+    /// Approximate decoded, in-memory size of `image` — `bytesPerRow *
+    /// height` is the standard proxy for this (matches the size of the
+    /// actual pixel buffer backing a `CGImage`, which is what `Image IO`'s
+    /// memory usage was dominated by when this was profiled live), cheap to
+    /// compute (no re-encoding, unlike e.g. `pngData()`), and accurate
+    /// enough for cache-eviction purposes — this doesn't need to be exact,
+    /// just proportionate, so a 1600px backdrop is correctly weighted as
+    /// much heavier than a 130pt poster thumbnail rather than counting the
+    /// same as one entry each.
+    private nonisolated static func estimatedByteCost(of image: UIImage) -> Int {
+        guard let cgImage = image.cgImage else { return 0 }
+        return cgImage.bytesPerRow * cgImage.height
     }
 
     /// `nonisolated` + `static`: runs the actual retry loop off the actor so
