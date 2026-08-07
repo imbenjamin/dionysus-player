@@ -279,13 +279,19 @@ actor JellyfinAPIClient {
 
     // MARK: - Search
 
-    func search(userID: String, term: String, limit: Int = 50) async throws -> BaseItemDtoQueryResult {
-        try await items(
-            userID: userID,
-            includeItemTypes: ["Movie", "Series", "Episode", "BoxSet"],
-            searchTerm: term,
-            limit: limit
-        )
+    /// Jellyfin's dedicated `/Search/Hints` endpoint — SearchView's sole
+    /// source of search results (a lighter-weight, purpose-built lookup,
+    /// not the general-purpose `items(...)`/`/Items` used everywhere else).
+    /// `includeItemTypes` is comma-delimited here, same as `items(...)`'s
+    /// (confirmed against the real `SearchController.GetSearchHints`
+    /// signature).
+    func searchHints(userID: String, term: String, limit: Int = 50) async throws -> SearchHintResult {
+        try await get("/Search/Hints", query: [
+            .init(name: "searchTerm", value: term),
+            .init(name: "userId", value: userID),
+            .init(name: "limit", value: String(limit)),
+            .init(name: "includeItemTypes", value: "Movie,Series,Episode,BoxSet")
+        ])
     }
 
     // MARK: - Request plumbing

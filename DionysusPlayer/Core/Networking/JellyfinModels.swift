@@ -202,3 +202,42 @@ struct PlaybackProgressRequest: Encodable {
     var positionTicks: Int64
     var isPaused: Bool = false
 }
+
+// MARK: - Search
+
+struct SearchHintResult: Codable {
+    var searchHints: [SearchHint]
+    var totalRecordCount: Int
+}
+
+/// A fast "search as you type" match from Jellyfin's dedicated
+/// `/Search/Hints` endpoint — distinct from the full `BaseItemDto` results
+/// the general-purpose `/Items` search returns, and much lighter (a handful
+/// of display fields, not the full item). Fast enough that `SearchView`
+/// uses it as its sole results source, not just a typeahead dropdown; kept
+/// to just the fields that results list needs.
+///
+/// `Encodable` only for `MockURLProtocol.encodedJSONResponse`'s benefit in
+/// tests — production code only ever decodes this.
+struct SearchHint: Codable, Identifiable, Equatable {
+    var id: String
+    var name: String
+    var type: BaseItemKind
+    var productionYear: Int?
+    /// The parent series' name — present only for `.episode` hints.
+    var series: String?
+    /// Episode number within its season — present only for `.episode`
+    /// hints, paired with `parentIndexNumber` to build an "S1:E4"-style
+    /// label (`SearchResult`'s doc comment on `subtitle`).
+    var indexNumber: Int?
+    /// Season number — present only for `.episode` hints. Despite the
+    /// generic-sounding name, this is Jellyfin's actual field for it here
+    /// (same as `BaseItemDto.parentIndexNumber`).
+    var parentIndexNumber: Int?
+    var primaryImageTag: String?
+    /// A `Thumb`-type image, and the item it belongs to — usually the same
+    /// item, but an episode without its own thumb inherits its series' one,
+    /// same idea as `BaseItemDto.parentBackdropItemId`.
+    var thumbImageTag: String?
+    var thumbImageItemId: String?
+}
