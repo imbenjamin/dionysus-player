@@ -34,7 +34,13 @@ struct ShowDetailView: View {
                             }
                         )
 
+                        // See `MovieDetailView`'s matching call site and
+                        // `DetailTabsView.availableTabs`'s doc comment —
+                        // a Show never actually has `technicalDetails`, so
+                        // this `.id()` is a no-op in practice here, but
+                        // kept for consistency with the Movie/Episode path.
                         DetailTabsView(item: item)
+                            .id(item.technicalDetails == nil)
                     }
                     .padding(.horizontal)
 
