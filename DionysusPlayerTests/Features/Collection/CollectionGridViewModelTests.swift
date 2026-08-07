@@ -170,4 +170,135 @@ final class CollectionGridViewModelTests: XCTestCase {
         await viewModel.loadIfNeeded()
         XCTAssertEqual(requestCount, 1, "Should not re-fetch once items are already populated")
     }
+
+    // MARK: filtering
+
+    /// Three movies with deliberately overlapping/non-overlapping genres,
+    /// studios, and decades, so filter combinations actually distinguish
+    /// them from one another.
+    private func makeFilterableMovies() -> [BaseItemDto] {
+        [
+            BaseItemDto(
+                id: "movie-1", name: "Arrival", type: .movie, productionYear: 2016,
+                genres: ["Sci-Fi", "Drama"], studios: [NameGuidPair(name: "Paramount", id: "s1")]
+            ),
+            BaseItemDto(
+                id: "movie-2", name: "The Matrix", type: .movie, productionYear: 1999,
+                genres: ["Sci-Fi", "Action"], studios: [NameGuidPair(name: "Warner Bros.", id: "s2")]
+            ),
+            BaseItemDto(
+                id: "movie-3", name: "Inception", type: .movie, productionYear: 2010,
+                genres: ["Sci-Fi", "Action"], studios: [NameGuidPair(name: "Warner Bros.", id: "s2")]
+            ),
+        ]
+    }
+
+    private func makeLoadedViewModel() async -> CollectionGridViewModel {
+        let viewModel = makeViewModel(query: CollectionQuery(title: "Movies"))
+        let dtos = makeFilterableMovies()
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: dtos, totalRecordCount: dtos.count))
+        }
+        await viewModel.load()
+        return viewModel
+    }
+
+    func test_availableGenres_distinctAndAlphabetical() async {
+        let viewModel = await makeLoadedViewModel()
+        XCTAssertEqual(viewModel.availableGenres, ["Action", "Drama", "Sci-Fi"])
+    }
+
+    func test_availableStudios_distinctAndAlphabetical() async {
+        let viewModel = await makeLoadedViewModel()
+        XCTAssertEqual(viewModel.availableStudios, ["Paramount", "Warner Bros."])
+    }
+
+    func test_availableDecades_distinctAndNewestFirst() async {
+        let viewModel = await makeLoadedViewModel()
+        XCTAssertEqual(viewModel.availableDecades, [2010, 1990])
+    }
+
+    func test_filteredItems_noFiltersSelected_returnsEverything() async {
+        let viewModel = await makeLoadedViewModel()
+        XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-1", "movie-2", "movie-3"])
+    }
+
+    func test_filteredItems_byGenre() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setGenreFilter("Drama")
+        XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-1"])
+    }
+
+    func test_filteredItems_byStudio() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setStudioFilter("Warner Bros.")
+        XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-2", "movie-3"])
+    }
+
+    func test_filteredItems_byDecade() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setDecadeFilter(2010)
+        XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-1", "movie-3"])
+    }
+
+    /// Multiple active facets combine with AND, not OR.
+    func test_filteredItems_combinesFiltersAcrossFacets() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setStudioFilter("Warner Bros.")
+        viewModel.setDecadeFilter(2010)
+        XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-3"], "Only Inception is both Warner Bros. and 2010s")
+    }
+
+    func test_filteredItems_clearingAFilter_restoresThoseItems() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setGenreFilter("Drama")
+        XCTAssertEqual(viewModel.filteredItems.count, 1)
+
+        viewModel.setGenreFilter(nil)
+        XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-1", "movie-2", "movie-3"])
+    }
+
+    func test_filteredItems_noMatches_returnsEmpty() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setGenreFilter("Drama")
+        viewModel.setStudioFilter("Warner Bros.")
+        XCTAssertTrue(viewModel.filteredItems.isEmpty, "No movie is both Drama and Warner Bros.")
+    }
+
+    // MARK: hasActiveFilters / resetFilters
+
+    func test_hasActiveFilters_falseWhenNoneSelected() async {
+        let viewModel = await makeLoadedViewModel()
+        XCTAssertFalse(viewModel.hasActiveFilters)
+    }
+
+    func test_hasActiveFilters_trueWhenAnySingleFilterSelected() async {
+        let genreOnly = await makeLoadedViewModel()
+        genreOnly.setGenreFilter("Drama")
+        XCTAssertTrue(genreOnly.hasActiveFilters)
+
+        let studioOnly = await makeLoadedViewModel()
+        studioOnly.setStudioFilter("Paramount")
+        XCTAssertTrue(studioOnly.hasActiveFilters)
+
+        let decadeOnly = await makeLoadedViewModel()
+        decadeOnly.setDecadeFilter(2010)
+        XCTAssertTrue(decadeOnly.hasActiveFilters)
+    }
+
+    func test_resetFilters_clearsAllThreeAndRestoresEverything() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setGenreFilter("Sci-Fi")
+        viewModel.setStudioFilter("Warner Bros.")
+        viewModel.setDecadeFilter(2010)
+        XCTAssertTrue(viewModel.hasActiveFilters)
+
+        viewModel.resetFilters()
+
+        XCTAssertFalse(viewModel.hasActiveFilters)
+        XCTAssertNil(viewModel.selectedGenre)
+        XCTAssertNil(viewModel.selectedStudio)
+        XCTAssertNil(viewModel.selectedDecade)
+        XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-1", "movie-2", "movie-3"])
+    }
 }

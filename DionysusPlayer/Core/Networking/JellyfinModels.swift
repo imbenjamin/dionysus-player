@@ -66,6 +66,9 @@ struct BaseItemDto: Codable, Identifiable {
     var communityRating: Double?
     var officialRating: String?
     var genres: [String]?
+    /// Unlike `genres` (plain strings), Jellyfin represents studios as
+    /// name+id pairs — used by `CollectionGridView`'s Studios filter.
+    var studios: [NameGuidPair]?
     var runTimeTicks: Int64?
 
     // Episode/season parentage
@@ -115,6 +118,13 @@ struct BaseItemPerson: Codable, Identifiable, Hashable {
     var role: String?
     var type: String?
     var primaryImageTag: String?
+}
+
+/// Jellyfin's generic named-entity-with-id shape — used for
+/// `BaseItemDto.studios`.
+struct NameGuidPair: Codable, Hashable {
+    var name: String
+    var id: String?
 }
 
 extension BaseItemDto: Equatable, Hashable {

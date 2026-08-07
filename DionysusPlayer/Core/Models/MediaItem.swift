@@ -45,9 +45,20 @@ struct MediaItem: Identifiable {
     var overview: String? { dto.overview }
     var kind: BaseItemKind { dto.type }
     var genres: [String] { dto.genres ?? [] }
+    var studios: [String] { dto.studios?.map(\.name) ?? [] }
     var ageRating: String? { dto.officialRating }
     var communityRating: Double? { dto.communityRating }
     var seriesID: String? { dto.seriesId }
+    /// The decade this item's `productionYear` falls in, as its start year
+    /// (e.g. `2010` for a 2016 release) — `CollectionGridView`'s Decade
+    /// filter groups on this. `nil` when there's no production year to
+    /// bucket. A start year rather than an already-formatted "2010s"
+    /// string: that's just number/date formatting, same category as
+    /// `yearText` below, done at the view layer instead.
+    var decade: Int? {
+        guard let year = dto.productionYear else { return nil }
+        return (year / 10) * 10
+    }
     /// Present on library "views" (e.g. `"movies"`, `"tvshows"`,
     /// `"boxsets"`) returned by `/Users/{id}/Views` — see
     /// `libraryContentItemTypes` for what this is actually used for.

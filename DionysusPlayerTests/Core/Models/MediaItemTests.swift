@@ -606,4 +606,29 @@ final class MediaItemTests: XCTestCase {
         XCTAssertEqual(makeLibrary(collectionType: nil).libraryContentItemTypes, [])
         XCTAssertEqual(makeMovie().libraryContentItemTypes, [], "Not a library at all — collectionType is nil")
     }
+
+    // MARK: studios / decade — CollectionGridView's Studios/Decade filters
+
+    func test_studios_mapsNameGuidPairsToJustTheNames() {
+        let dto = BaseItemDto(
+            id: "movie-1", name: "Arrival", type: .movie,
+            studios: [NameGuidPair(name: "Paramount", id: "studio-1"), NameGuidPair(name: "20th Century", id: "studio-2")]
+        )
+        XCTAssertEqual(MediaItem(dto: dto, images: images).studios, ["Paramount", "20th Century"])
+    }
+
+    func test_studios_emptyWhenNoneOnTheDto() {
+        XCTAssertEqual(makeMovie().studios, [])
+    }
+
+    func test_decade_bucketsProductionYearToItsStartYear() {
+        XCTAssertEqual(makeMovie(productionYear: 2016).decade, 2010)
+        XCTAssertEqual(makeMovie(productionYear: 2010).decade, 2010)
+        XCTAssertEqual(makeMovie(productionYear: 1999).decade, 1990)
+        XCTAssertEqual(makeMovie(productionYear: 2000).decade, 2000)
+    }
+
+    func test_decade_nilWhenNoProductionYear() {
+        XCTAssertNil(makeMovie(productionYear: nil).decade)
+    }
 }

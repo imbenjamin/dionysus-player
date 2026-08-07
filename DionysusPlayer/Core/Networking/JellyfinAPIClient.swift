@@ -36,8 +36,11 @@ actor JellyfinAPIClient {
 
     // MARK: - Browsing
 
-    private static let defaultFields = "Overview,Genres,PrimaryImageAspectRatio,BasicSyncInfo"
-    private static let detailFields = "Overview,Genres,PrimaryImageAspectRatio,MediaSources,People,BasicSyncInfo"
+    // `Studios` added for CollectionGridView's Studios filter — without it
+    // in `Fields`, the server omits `BaseItemDto.studios` entirely (same
+    // reason `Genres` is already listed here rather than assumed default).
+    private static let defaultFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,BasicSyncInfo"
+    private static let detailFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,MediaSources,People,BasicSyncInfo"
 
     func userViews(userID: String) async throws -> BaseItemDtoQueryResult {
         try await get("/Users/\(userID)/Views")
