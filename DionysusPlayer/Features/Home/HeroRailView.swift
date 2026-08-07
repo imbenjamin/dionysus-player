@@ -108,9 +108,11 @@ struct HeroRailView: View {
     }
 
     /// Whether a finger is currently down on the carousel — tracked via
-    /// `RegionTouchObserver` below (a raw `UIGestureRecognizer`, not
-    /// anything the scroll view exposes natively, which it doesn't) rather
-    /// than a SwiftUI `DragGesture`; see that type's doc comment for why.
+    /// `RegionTouchObserver` below (a raw `UIGestureRecognizer` attached to
+    /// the hero's own `UIScrollView`, not anything the scroll view exposes
+    /// natively, which it doesn't, and not a SwiftUI `DragGesture`; see
+    /// that type's doc comment for why, including two earlier, broader
+    /// attachment points that each caused their own real bug).
     @State private var isInteracting = false
 
     /// Seconds elapsed since the current item became current, ticked up by
@@ -163,6 +165,28 @@ struct HeroRailView: View {
                     }
                 }
                 .scrollTargetLayout()
+                // Pause-on-touch detection — attached to the `LazyHStack`
+                // (the scroll view's own *content*), not the `ScrollView`
+                // itself below — see `RegionTouchObserver`'s doc comment
+                // for the two earlier, broader-than-necessary attachment
+                // points (window, then the app's root view) that each
+                // caused a real bug, and why attaching to the hero's own
+                // `UIScrollView` specifically avoids both. Placement
+                // matters here too, confirmed via a live view-hierarchy
+                // dump: a `.background` on the `ScrollView` container
+                // itself doesn't end up nested *inside* that scroll view's
+                // own backing `UIScrollView` — walking up from it lands on
+                // the next ancestor scroll view instead (the outer,
+                // vertical Home one, exactly what this must *not* attach
+                // to). A `.background` on the content passed *into* the
+                // scroll view is a genuine descendant of its own
+                // `UIScrollView`, so walking up from there correctly finds
+                // the hero's own one first.
+                .background {
+                    RegionTouchObserver { isDown in
+                        isInteracting = isDown
+                    }
+                }
             }
             .scrollTargetBehavior(.paging)
             .scrollPosition(id: $scrollPosition)
@@ -184,16 +208,6 @@ struct HeroRailView: View {
             // starting fresh — harmless to also fire redundantly right
             // after an auto-advance (idleSeconds is already 0 by then).
             .onChange(of: currentIndex) { _, _ in idleSeconds = 0 }
-            // Pause-on-touch detection — see `RegionTouchObserver`'s doc
-            // comment for why this isn't a SwiftUI `DragGesture` (that
-            // approach was tried first; confirmed via a temporary test
-            // build to be exactly what was blocking dragging down from the
-            // hero to scroll Home, even with `.simultaneousGesture`).
-            .background {
-                RegionTouchObserver { isDown in
-                    isInteracting = isDown
-                }
-            }
             .onReceive(tickTimer) { _ in tick() }
 
             if items.count > 1 {
@@ -282,20 +296,40 @@ private struct HeroRailCard: View {
 /// hold-to-pause region existed in that prototype but are deliberately not
 /// carried over — see `isInteracting`'s doc comment below).
 ///
-/// The fill's width is computed fresh every frame from wall-clock time
-/// (`TimelineView`) rather than driven through `withAnimation` — two
-/// earlier versions tried the latter and both produced visible glitches
-/// that trace back to the same root cause: SwiftUI's `@State` storage for
-/// an animated value updates to its *target* immediately, with only the
-/// *rendered* value interpolating over time, so touch handling that reads
-/// or reassigns that `@State` is working with the wrong number (target,
-/// not current-on-screen), and reassigning it mid-flight to "freeze" the
-/// animation isn't reliably honored — the prior in-flight animation could
-/// keep interpolating toward its old target regardless, which looked like
-/// the fill lurching further right even while held. Computing the fill as
-/// a pure function of elapsed time — with pausing implemented as "stop
-/// advancing the clock," not "cancel an animation" — has no in-flight
-/// animation to fight with, so there's nothing left to glitch.
+/// The fill is driven by `withAnimation`, event-driven rather than ticking
+/// continuously — two earlier versions of this tried other approaches and
+/// both had real problems:
+/// - Plain `withAnimation`, reassigning the same `@State` on touch to
+///   "freeze" it: unreliable in practice. SwiftUI's `@State` storage for an
+///   animated value updates to its *target* immediately, with only the
+///   *rendered* value interpolating over time, so a reassignment mid-flight
+///   doesn't reliably retarget the already-in-flight interpolation — it
+///   could keep animating toward its old target regardless, which looked
+///   like the fill lurching further right even while held.
+/// - `TimelineView(.animation)`, computing the fill as a pure function of
+///   elapsed wall-clock time every frame: glitch-free (nothing to
+///   interrupt, since there's no animation object at all), but ticking the
+///   view's whole body at ~60/sec turned out to be genuinely expensive —
+///   a live CPU sample during a reported freeze showed the main thread
+///   permanently stuck inside this subtree's layout, pegging the CPU and
+///   making the page unresponsive to touch for as long as the indicator
+///   was running (which, on an actively auto-advancing carousel, is
+///   essentially all the time — each item's countdown ends right as the
+///   next one's begins).
+///
+/// This version keeps the accurate elapsed-time bookkeeping the
+/// `TimelineView` version already got right (`accumulatedActiveTime`/
+/// `resumedAt`, only touched at discrete pause/resume/reset events, not
+/// every frame) but renders it via `withAnimation` — genuinely free
+/// between those events, since Core Animation interpolates it without any
+/// further SwiftUI body re-evaluation — and sidesteps the "reassignment
+/// doesn't reliably retarget" problem by never reassigning a live
+/// animation's target at all: `fillGeneration` is bumped at every
+/// pause/resume/reset, and the fill capsule is keyed to it via `.id(_:)`,
+/// forcing SwiftUI to tear down and rebuild it as a *completely new* view
+/// each time rather than asking the existing one to retarget. A brand-new
+/// view can't have a stale in-flight animation to conflict with — it was
+/// never around to have one.
 ///
 /// Purely decorative: `.allowsHitTesting(false)` guarantees it never
 /// intercepts a touch, even though it has no gesture recognizers of its own
@@ -308,49 +342,64 @@ private struct HeroPageIndicator: View {
     let currentIndex: Int
     let isInteracting: Bool
 
+    /// The fill's current position, `0...1`. Only ever set via
+    /// `snapInstantly(to:)` or as the target of a `withAnimation` block —
+    /// never both for the same `fillGeneration`, so there's exactly one
+    /// clear "owner" of any in-flight interpolation at a time.
+    @State private var fillProgress: CGFloat = 0
+    /// Bumped at every pause/resume/reset, and used as the fill capsule's
+    /// `.id(_:)` — see this type's doc comment for why forcing a fresh view
+    /// identity, rather than reassigning `fillProgress` on an existing one,
+    /// is what actually makes freezing/resuming reliable.
+    @State private var fillGeneration = 0
     /// Total unpaused time elapsed toward the current item's countdown,
-    /// banked here whenever a pause begins (see `pause()`) — the fill's
-    /// width is this plus whatever's elapsed since `resumedAt`, so pausing
-    /// is just "stop adding to it," never a cancelled animation.
+    /// banked here whenever a pause begins (see `pause()`) — used to
+    /// compute exactly where to snap `fillProgress` to at that instant, and
+    /// how much time remains for `resume()`'s animation.
     @State private var accumulatedActiveTime: TimeInterval = 0
-    /// When the current unpaused stretch began; `nil` while paused, so
-    /// `progress(at:)` adds nothing further until `resume()` sets a new
-    /// one.
-    @State private var resumedAt: Date? = .now
+    /// When the current unpaused stretch began; `nil` while paused.
+    @State private var resumedAt: Date?
 
     private static let dotDiameter: CGFloat = 6
     private static let currentWidth: CGFloat = 24
 
     var body: some View {
-        TimelineView(.animation(paused: isInteracting)) { context in
-            let progress = progress(at: context.date)
-            HStack(spacing: 6) {
-                ForEach(0..<count, id: \.self) { index in
-                    Capsule()
-                        .fill(Color.white.opacity(0.4))
-                        .frame(
-                            width: index == currentIndex ? Self.currentWidth : Self.dotDiameter,
-                            height: Self.dotDiameter
-                        )
-                        .overlay(alignment: .leading) {
-                            if index == currentIndex {
-                                // Same colour used for media (e.g.
-                                // poster/rail tile) progress bars, in both
-                                // Light and Dark — `dionysusHighlight` is
-                                // already a dynamic colour that adapts per
-                                // appearance on its own.
-                                Capsule()
-                                    .fill(Color.dionysusHighlight)
-                                    .frame(width: Self.currentWidth * progress)
-                            }
+        HStack(spacing: 6) {
+            ForEach(0..<count, id: \.self) { index in
+                Capsule()
+                    .fill(Color.white.opacity(0.4))
+                    .frame(
+                        width: index == currentIndex ? Self.currentWidth : Self.dotDiameter,
+                        height: Self.dotDiameter
+                    )
+                    .overlay(alignment: .leading) {
+                        if index == currentIndex {
+                            // Same colour used for media (e.g. poster/rail
+                            // tile) progress bars, in both Light and Dark —
+                            // `dionysusHighlight` is already a dynamic
+                            // colour that adapts per appearance on its own.
+                            //
+                            // A fixed-size capsule scaled by `fillProgress`
+                            // (a render-time transform) rather than one
+                            // whose `.frame(width:)` itself changes —
+                            // `.frame(width:)` is a *layout* property, and
+                            // animating it turned out to cascade into
+                            // re-laying-out the ancestor `ScrollView` on
+                            // every frame (see this type's doc comment).
+                            // `.scaleEffect` only affects rendering.
+                            Capsule()
+                                .fill(Color.dionysusHighlight)
+                                .frame(width: Self.currentWidth, height: Self.dotDiameter)
+                                .scaleEffect(x: fillProgress, y: 1, anchor: .leading)
+                                .id(fillGeneration)
                         }
-                }
+                    }
             }
-            .animation(.easeInOut(duration: HeroRailView.autoAdvanceAnimationDuration), value: currentIndex)
         }
+        .animation(.easeInOut(duration: HeroRailView.autoAdvanceAnimationDuration), value: currentIndex)
         .allowsHitTesting(false)
-        .onAppear { resetSegment() }
-        .onChange(of: currentIndex) { _, _ in resetSegment() }
+        .onAppear { startFresh() }
+        .onChange(of: currentIndex) { _, _ in startFresh() }
         .onChange(of: isInteracting) { _, interacting in
             if interacting {
                 pause()
@@ -360,71 +409,129 @@ private struct HeroPageIndicator: View {
         }
     }
 
-    /// Elapsed-fraction of `autoAdvanceInterval`, as of `now`. Purely a
-    /// function of `accumulatedActiveTime`/`resumedAt` — no animation
-    /// object involved, so there's nothing to retarget or interrupt.
-    private func progress(at now: Date) -> CGFloat {
-        let liveElapsed = accumulatedActiveTime + (resumedAt.map { now.timeIntervalSince($0) } ?? 0)
-        return min(CGFloat(liveElapsed / TimeInterval(HeroRailView.autoAdvanceInterval)), 1)
-    }
-
     /// A new item just became current (or this is the very first render) —
-    /// start from zero elapsed time. If a touch is still down (a live swipe
-    /// can flip through several items while `isInteracting` stays
-    /// continuously true), stays paused at zero rather than starting to
-    /// count — `resume()` will pick it up once the finger actually lifts.
-    private func resetSegment() {
+    /// start counting from zero. If a touch is still down (a live swipe can
+    /// flip through several items while `isInteracting` stays continuously
+    /// true), stays paused at zero rather than starting to count —
+    /// `resume()` will pick it up once the finger actually lifts.
+    private func startFresh() {
         accumulatedActiveTime = 0
-        resumedAt = isInteracting ? nil : .now
+        if isInteracting {
+            resumedAt = nil
+            snapInstantly(to: 0)
+        } else {
+            resumedAt = .now
+            animate(from: 0, duration: TimeInterval(HeroRailView.autoAdvanceInterval))
+        }
     }
 
-    /// Touch-down: bank whatever's elapsed so far and stop the clock.
+    /// Touch-down: bank whatever's elapsed so far and snap the fill to
+    /// exactly that point, as a fresh, non-animating view (see this type's
+    /// doc comment for why a fresh `.id(_:)` matters here).
     private func pause() {
         if let resumedAt {
             accumulatedActiveTime += Date.now.timeIntervalSince(resumedAt)
         }
         resumedAt = nil
+        let frozen = min(CGFloat(accumulatedActiveTime / TimeInterval(HeroRailView.autoAdvanceInterval)), 1)
+        snapInstantly(to: frozen)
     }
 
-    /// Touch-up: resume from exactly the banked elapsed time, at the same
-    /// rate as before — no separate "remaining duration" bookkeeping
-    /// needed, since `progress(at:)` just keeps adding to
-    /// `accumulatedActiveTime` from here.
+    /// Touch-up: continue from exactly the frozen point, animating only
+    /// the remaining time — at the same overall rate as an uninterrupted
+    /// `autoAdvanceInterval` — so it still lands at 100% around when the
+    /// real auto-advance fires.
     private func resume() {
         resumedAt = .now
+        let remaining = TimeInterval(HeroRailView.autoAdvanceInterval) - accumulatedActiveTime
+        guard remaining > 0 else { return }
+        animate(from: fillProgress, duration: remaining)
+    }
+
+    /// Forces a fresh fill-capsule instance (bumping `fillGeneration`,
+    /// which the view's `.id(_:)` is keyed to) showing `value` immediately,
+    /// with no animation — a clean base for `animate(from:duration:)` to
+    /// build on next, or simply the correct static resting state while
+    /// paused.
+    private func snapInstantly(to value: CGFloat) {
+        fillGeneration += 1
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            fillProgress = value
+        }
+    }
+
+    /// Forces a fresh fill-capsule instance starting at `base`, then
+    /// animates it to full over `duration` — two separate, sequential
+    /// transactions (snap, then animate), not one combined change, so the
+    /// fresh instance genuinely starts existing at `base` before anything
+    /// asks it to move.
+    private func animate(from base: CGFloat, duration: TimeInterval) {
+        snapInstantly(to: base)
+        withAnimation(.linear(duration: duration)) {
+            fillProgress = 1
+        }
     }
 }
 
-/// Observes touch-down/touch-up specifically within this view's own
-/// bounds, without ever blocking (or being blocked by) any other gesture
-/// recognizer anywhere in the view hierarchy — including several levels
-/// up, which turned out to matter here.
+/// Observes touch-down/touch-up specifically within the hero's own
+/// horizontal `ScrollView`'s bounds, without ever blocking (or being
+/// blocked by) any other gesture recognizer — including several levels up
+/// (the outer, vertical Home `ScrollView`), which turned out to matter, and
+/// without being entangled with anything *outside* the hero either, which
+/// separately turned out to matter just as much. Both constraints came from
+/// real, empirically-confirmed bugs — see below.
 ///
 /// A SwiftUI `.simultaneousGesture(DragGesture(minimumDistance: 0))` was
-/// tried first for this. It reliably avoided blocking the carousel's *own*
-/// paging swipe (that part always worked), but empirically still blocked
-/// the *outer* vertical `ScrollView` several levels up from ever seeing a
-/// drag that started on the hero — confirmed by temporarily removing it
+/// tried first. It reliably avoided blocking the carousel's *own* paging
+/// swipe (that part always worked), but empirically still blocked the
+/// *outer* vertical `ScrollView` several levels up from ever seeing a drag
+/// that started on the hero — confirmed by temporarily removing it
 /// entirely, which fixed dragging down from the hero to scroll Home.
 /// `.simultaneousGesture`'s cooperation, in other words, doesn't reliably
 /// extend past the view it's directly attached to.
 ///
-/// This sidesteps that by attaching a raw `UIGestureRecognizer` to the key
-/// window itself — the one view guaranteed to be an ancestor of literally
-/// everything on screen — with `cancelsTouchesInView`/`delaysTouchesBegan`/
-/// `delaysTouchesEnded` all disabled and a delegate that unconditionally
-/// permits simultaneous recognition with anything it's asked about. It
-/// never transitions its own `state` away from `.possible` either, so it
-/// never "recognizes" anything in UIKit's own terms — purely a passive
-/// observer of the raw touch stream, which is what makes it structurally
-/// unable to block or delay any other gesture recognizer, unlike relying
-/// on `.simultaneousGesture`'s own (apparently limited) internal
-/// cooperation logic. Touches are filtered to this view's own bounds
-/// (`hostView.bounds.contains(location)`) since a window-attached
-/// recognizer otherwise sees every touch anywhere on screen — but see
-/// `Coordinator.isTrackingActiveTouch`'s doc comment for why that bounds
-/// check only gates *starting* to track a touch, not whether its "ended"
-/// signal gets delivered.
+/// That was sidestepped by attaching a raw `UIGestureRecognizer` instead —
+/// first to the key window, then (after that caused a *second* bug, below)
+/// to the app's root view — with `cancelsTouchesInView`/
+/// `delaysTouchesBegan`/`delaysTouchesEnded` all disabled and a delegate
+/// that unconditionally permits simultaneous recognition with anything it's
+/// asked about. It never transitions its own `state` away from `.possible`
+/// either, so it never "recognizes" anything in UIKit's own terms — purely
+/// a passive observer, which is what makes it structurally unable to block
+/// or delay any other gesture recognizer, unlike `.simultaneousGesture`'s
+/// own (apparently limited) internal cooperation logic. Both of those
+/// attachment points are ancestors of literally everything on screen, which
+/// is *more* than this actually needs — and turned out to be actively
+/// harmful: reported symptom was that swiping the page while an episode
+/// tile's "⋯" menu was open (which dismisses the menu, same as swiping
+/// anywhere else would) worked exactly once, after which touch/scroll on
+/// the whole page stopped responding, until opening and properly closing
+/// that menu again. Since a recognizer this broadly attached is asked by
+/// *every other* recognizer in the app — including whatever backs the
+/// menu's own presentation — for permission to recognize simultaneously,
+/// something about that (unconfirmed exactly what, even with a live
+/// debugger attached mid-freeze) was leaving SwiftUI's own gesture
+/// coordination for ordinary content stuck, while raw UIKit-native controls
+/// like the menu's own button weren't affected.
+///
+/// The actual requirement was never "see every touch in the app" — just
+/// "be an ancestor of the hero's own content, so touches there aren't
+/// blocked or delayed on their way to it." The hero's own horizontal
+/// `UIScrollView` satisfies that exactly, and is *only* an ancestor of the
+/// hero's own content — a sibling of, not an ancestor of, everything else
+/// on the page (other rails, menus, etc.) — so attaching there instead
+/// structurally cannot repeat either bug: it can't block the outer
+/// `ScrollView` (unchanged non-blocking configuration), and it can't
+/// interfere with anything outside the hero (it's simply never asked,
+/// since it isn't in those touches' hit-test chain at all). See
+/// `attachToScrollViewIfNeeded()` for how that scroll view is located.
+/// Touches are additionally filtered to this view's own bounds
+/// (`hostView.bounds.contains(location)`, effectively the whole hero here)
+/// — see `Coordinator.isTrackingActiveTouch`'s doc comment for why that
+/// bounds check only gates *starting* to track a touch, not whether its
+/// "ended" signal gets delivered.
 private struct RegionTouchObserver: UIViewRepresentable {
     var onTouchesChanged: (Bool) -> Void
 
@@ -436,9 +543,10 @@ private struct RegionTouchObserver: UIViewRepresentable {
         let view = UIView()
         view.backgroundColor = .clear
         // Never itself part of hit-testing — the recognizer that actually
-        // observes touches is attached to the window, not this view; this
-        // view exists only to give the coordinator a `window` to find and
-        // a `bounds` to filter touch locations against.
+        // observes touches is attached to the hero's own `UIScrollView`,
+        // not this view; this view exists only to give the coordinator a
+        // starting point to walk up from (see `attachToScrollViewIfNeeded()`)
+        // and a `bounds` to filter touch locations against.
         view.isUserInteractionEnabled = false
         context.coordinator.hostView = view
         return view
@@ -446,7 +554,7 @@ private struct RegionTouchObserver: UIViewRepresentable {
 
     func updateUIView(_ uiView: UIView, context: Context) {
         context.coordinator.onTouchesChanged = onTouchesChanged
-        context.coordinator.attachToWindowIfNeeded()
+        context.coordinator.attachToScrollViewIfNeeded()
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
@@ -456,7 +564,15 @@ private struct RegionTouchObserver: UIViewRepresentable {
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var onTouchesChanged: (Bool) -> Void
         weak var hostView: UIView?
+        /// Tracked purely to detect when `hostView` moves to a *different*
+        /// window (rare, but possible), which is the signal to re-walk the
+        /// hierarchy and re-attach — the recognizer itself attaches to
+        /// `attachedHost` below, not this.
         private weak var attachedWindow: UIWindow?
+        /// The view the recognizer is actually attached to — the hero's
+        /// own horizontal `UIScrollView` (see
+        /// `attachToScrollViewIfNeeded()`'s doc comment).
+        private weak var attachedHost: UIView?
         private var recognizer: PassthroughTouchRecognizer?
 
         /// Whether a touch that began inside `hostView.bounds` is currently
@@ -487,10 +603,33 @@ private struct RegionTouchObserver: UIViewRepresentable {
         /// from `makeUIView`, giving it multiple chances to succeed once
         /// the window becomes available. `window !== attachedWindow`
         /// short-circuits everything after the first successful attach.
-        func attachToWindowIfNeeded() {
+        ///
+        /// Attaches to the hero's own backing `UIScrollView` — found by
+        /// walking up `hostView`'s `superview` chain until the first
+        /// `UIScrollView` is found — not the window or the app's root view
+        /// (two earlier versions used each of those in turn; see this
+        /// type's doc comment for the two separate bugs that traces back
+        /// to). `hostView` is placed as a `.background` on the
+        /// `LazyHStack` passed *into* `ScrollView(.horizontal)` in
+        /// `HeroRailView`'s `body` — a genuine descendant of that scroll
+        /// view's own backing `UIScrollView` (`SwiftUI.HostingScrollView`),
+        /// so walking up finds it first. Confirmed via a live
+        /// view-hierarchy dump that this placement matters: a `.background`
+        /// on the `ScrollView` container itself (what an earlier version of
+        /// this used) is *not* actually nested inside that scroll view's
+        /// own `UIScrollView` — walking up from there skipped right past
+        /// it and landed on the next ancestor scroll view instead (Home's
+        /// own outer, vertical one), which is exactly the over-broad
+        /// attachment point this whole rewrite exists to avoid. Walking up
+        /// to find it by type, rather than assuming a fixed number of
+        /// `superview` hops, is robust to SwiftUI changing exactly how many
+        /// wrapper views it inserts between them across versions.
+        func attachToScrollViewIfNeeded() {
             guard let window = hostView?.window, window !== attachedWindow else { return }
+            guard let scrollView = nearestScrollViewAncestor() else { return }
             detach()
             attachedWindow = window
+            attachedHost = scrollView
             let recognizer = PassthroughTouchRecognizer(target: nil, action: nil)
             recognizer.delegate = self
             recognizer.onTouches = { [weak self] touches, isDown in
@@ -506,16 +645,26 @@ private struct RegionTouchObserver: UIViewRepresentable {
                 }
                 self.onTouchesChanged(isDown)
             }
-            window.addGestureRecognizer(recognizer)
+            scrollView.addGestureRecognizer(recognizer)
             self.recognizer = recognizer
         }
 
+        private func nearestScrollViewAncestor() -> UIScrollView? {
+            var candidate = hostView?.superview
+            while let view = candidate {
+                if let scrollView = view as? UIScrollView { return scrollView }
+                candidate = view.superview
+            }
+            return nil
+        }
+
         func detach() {
-            if let recognizer, let attachedWindow {
-                attachedWindow.removeGestureRecognizer(recognizer)
+            if let recognizer, let attachedHost {
+                attachedHost.removeGestureRecognizer(recognizer)
             }
             recognizer = nil
             attachedWindow = nil
+            attachedHost = nil
         }
 
         func gestureRecognizer(
@@ -528,7 +677,7 @@ private struct RegionTouchObserver: UIViewRepresentable {
 }
 
 /// The actual `UIGestureRecognizer` `RegionTouchObserver` attaches to the
-/// window — see that type's doc comment for the full reasoning. Reports
+/// app's root view — see that type's doc comment for the full reasoning. Reports
 /// raw touch-down/up via `onTouches` without ever transitioning its own
 /// `state`, which is what keeps it purely observational (a gesture
 /// recognizer that never leaves `.possible` never "wins," never fires an
