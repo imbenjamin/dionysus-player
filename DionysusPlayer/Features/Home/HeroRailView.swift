@@ -33,7 +33,9 @@ struct HeroRailView: View {
     /// reason `HeroHeaderView` reads `verticalSizeClass` — `screenHeight`/
     /// `statusBarInset` below are plain UIKit reads, and SwiftUI has no way
     /// to know `body` depends on them unless *something* here is a tracked
-    /// dependency.
+    /// dependency. Page *width* doesn't need this — `heroContent(pageWidth:)`
+    /// gets that from a `GeometryReader` instead, which needs no such
+    /// prompting since it's itself part of the layout system.
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     /// Same check `HeroHeaderView` uses, for the same reason (see that
@@ -150,7 +152,43 @@ struct HeroRailView: View {
     /// `idleSeconds` steady while `isInteracting` is true.
     private let tickTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
+    /// Wraps the whole rail so each page's width (below) can come from
+    /// `proxy.size.width` — genuinely layout-driven, unlike an earlier
+    /// version that read `keyWindow.bounds.width` instead (see that
+    /// property's own doc comment, removed alongside it, for why that
+    /// still wasn't reliable enough despite fixing the *previous*
+    /// `containerRelativeFrame` bug this whole rewrite was chasing).
+    /// `.frame(height: heroHeight)` stays *outside* this `GeometryReader`,
+    /// not inside it — `GeometryReader` otherwise greedily expands to fill
+    /// all available height, which here would mean the entire remaining
+    /// height of Home's outer vertical `ScrollView` (effectively
+    /// unbounded), not the fixed hero height this view actually wants;
+    /// applying the height constraint outside instead proposes that fixed
+    /// height *into* the `GeometryReader`, leaving only width free to
+    /// reflect whatever's actually available from `HomeView`'s `LazyVStack`.
     var body: some View {
+        GeometryReader { proxy in
+            heroContent(pageWidth: proxy.size.width)
+        }
+        .frame(height: heroHeight)
+        // `GeometryReader.proxy.size`, by default, reports the size *within*
+        // the safe area, not the full available width — confirmed via the
+        // same runtime probe as the `contentInsetAdjustmentBehavior` fix
+        // above: `proxy.size.width` was coming back 124pt (62pt × 2 sides)
+        // narrower than the scroll view's own true `bounds.width`, since
+        // nothing above `HeroRailView` in `HomeView`'s ancestry ignores the
+        // *horizontal* safe area (only `.top`, for the notch bleed). That
+        // 124pt shortfall is what every page was actually being sized to,
+        // while the scroll view paged by its own true (wider) bounds — the
+        // real source of the "current page ends short, next page peeks in"
+        // symptom, compounding further with each page since the mismatch
+        // itself doesn't grow, but a fixed shortfall applied fresh at every
+        // paging step *reads* as progressive drift over several swipes.
+        .ignoresSafeArea(.container, edges: .horizontal)
+    }
+
+    @ViewBuilder
+    private func heroContent(pageWidth: CGFloat) -> some View {
         ZStack(alignment: .bottomTrailing) {
             // `ScrollView(.horizontal) + .scrollTargetBehavior(.paging)`,
             // not `TabView(.page)` (what this used to be) — `TabView(.page)`
@@ -181,7 +219,7 @@ struct HeroRailView: View {
                     // per-render allocation to produce it.
                     ForEach(loopedItems.indices, id: \.self) { offset in
                         HeroRailCard(item: loopedItems[offset])
-                            .containerRelativeFrame(.horizontal)
+                            .frame(width: pageWidth)
                             .id(offset)
                     }
                 }
@@ -240,7 +278,6 @@ struct HeroRailView: View {
                 .padding(16)
             }
         }
-        .frame(height: heroHeight)
     }
 
     /// Advances the carousel once `autoAdvanceInterval` seconds have passed
@@ -651,6 +688,32 @@ private struct RegionTouchObserver: UIViewRepresentable {
             detach()
             attachedWindow = window
             attachedHost = scrollView
+            // The actual fix for the hero carousel's landscape misalignment
+            // bug (pages sitting short of the screen edge, or drifting
+            // further off with each swipe) — root-caused via a temporary
+            // runtime probe that dumped this scroll view's real geometry:
+            // `UIScrollView`'s default `contentInsetAdjustmentBehavior`
+            // (`.automatic`) was adding a 62pt `adjustedContentInset` on
+            // *both* the leading and trailing edges in landscape (where the
+            // Dynamic Island's safe area falls on a side edge rather than
+            // the top), which rested the scroll view at content offset -62
+            // from the moment it first appears — no rotation needed to
+            // reproduce, matching a fresh-launch-into-landscape report.
+            // That's one half of the bug; the other half was `body`'s
+            // `GeometryReader` separately reporting a safe-area-*reduced*
+            // `pageWidth` for the exact same reason (see its own doc
+            // comment) — together, pages were sized 124pt narrower than the
+            // scroll view's true bounds, a mismatch that read as the
+            // carousel drifting further off-screen with every swipe. No
+            // purely-SwiftUI `ScrollView` modifier reaches *this* half —
+            // `.contentMargins(...)` was tried first and left the adjusted
+            // inset completely unchanged (confirmed via the same probe)
+            // before landing here. Setting this early, right as the scroll
+            // view is first found (well before any layout/paging math
+            // runs), avoids the whole class of problem rather than
+            // compensating for it after the fact, which is what every
+            // earlier attempt at this bug did.
+            scrollView.contentInsetAdjustmentBehavior = .never
             let recognizer = PassthroughTouchRecognizer(target: nil, action: nil)
             recognizer.delegate = self
             recognizer.onTouches = { [weak self] touches, isDown in
