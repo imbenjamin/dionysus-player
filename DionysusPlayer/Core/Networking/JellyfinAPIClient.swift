@@ -127,11 +127,21 @@ actor JellyfinAPIClient {
     /// `IncludeItemTypes` param, so this can't be (and isn't, by design —
     /// see `DynamicRailCandidate.actor`/`.director`) scoped to movies vs.
     /// shows separately the way genre/studio rails are.
-    func persons(userID: String, personTypes: [String]) async throws -> BaseItemDtoQueryResult {
+    ///
+    /// `limit`, unlike `genres(...)`/`studios(...)`, is worth actually
+    /// passing here rather than always fetching everything — genre/studio
+    /// counts are naturally small (a few dozen at most), but a library's
+    /// full cast/crew corpus can run into the thousands of distinct
+    /// people, each a full `BaseItemDto`, on every single Home load just to
+    /// seed rail *candidates* (most of which won't even clear the
+    /// minimum-item-count bar to become a rail — see
+    /// `HomeViewModel.minimumDynamicRailItemCount`).
+    func persons(userID: String, personTypes: [String], limit: Int? = nil) async throws -> BaseItemDtoQueryResult {
         var query = [URLQueryItem(name: "userId", value: userID)]
         if !personTypes.isEmpty {
             query.append(.init(name: "personTypes", value: personTypes.joined(separator: ",")))
         }
+        if let limit { query.append(.init(name: "Limit", value: String(limit))) }
         return try await get("/Persons", query: query)
     }
 

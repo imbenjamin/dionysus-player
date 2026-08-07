@@ -6,6 +6,20 @@ import SwiftUI
 struct HomeView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel: HomeViewModel?
+    /// Seeded once from `currentScreenHeight()` below — a `@State`
+    /// property's initial-value expression only ever runs the *first* time
+    /// SwiftUI allocates this view's persistent storage, not on every
+    /// reconstruction/re-render, which is what makes this cheaper than the
+    /// computed-property version this replaced. That one recomputed the
+    /// same `UIApplication` scene/window walk on essentially every scroll
+    /// frame — `onPreferenceChange` below fires continuously while
+    /// scrolling anywhere on the page, not just near the bottom, since the
+    /// marker's Y position keeps changing throughout. Only ever used as a
+    /// loose "how close to the bottom counts as near" threshold, so a value
+    /// that's technically stale after a rotation (screen dimensions swap)
+    /// is a perfectly fine trade for not redoing this work dozens of times
+    /// a second while the user is just scrolling.
+    @State private var screenHeight = HomeView.currentScreenHeight()
 
     var body: some View {
         ScrollView {
@@ -71,10 +85,8 @@ struct HomeView: View {
     /// Deliberately the key window's own bounds, not `UIScreen.main` (soft
     /// deprecated, and doesn't reflect a resized scene under iPadOS Stage
     /// Manager) — same reasoning as `HeroRailView.screenHeight`/
-    /// `HeroHeaderView.statusBarInset`. Only used here as a rough "how close
-    /// to the bottom counts as near" threshold, so the same approximation
-    /// those views already rely on is more than precise enough.
-    private var screenHeight: CGFloat {
+    /// `HeroHeaderView.statusBarInset`.
+    private static func currentScreenHeight() -> CGFloat {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .first?

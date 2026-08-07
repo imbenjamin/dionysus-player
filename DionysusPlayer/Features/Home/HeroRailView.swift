@@ -19,9 +19,13 @@ struct HeroRailView: View {
     /// whether `loopedItems` actually pads `items` — with 0 or 1 items it
     /// doesn't (looping a single page is meaningless), so `scrollPosition`
     /// must start at `0` rather than the usual `1`, or it would reference an
-    /// `.id` that doesn't exist and the carousel would render blank.
+    /// `.id` that doesn't exist and the carousel would render blank. Also
+    /// where `loopedItems` itself gets computed — see that property's doc
+    /// comment for why doing it here, once, rather than as a `body`-time
+    /// computed property, actually matters.
     init(items: [MediaItem]) {
         self.items = items
+        self.loopedItems = Self.loop(items)
         _scrollPosition = State(initialValue: items.count > 1 ? 1 : 0)
     }
 
@@ -95,7 +99,15 @@ struct HeroRailView: View {
     /// and the snap-back is invisible because the duplicate and the real
     /// page it stands in for are pixel-identical. Standard workaround for
     /// "infinite" paging, which has no native loop mode.
-    private var loopedItems: [MediaItem] {
+    ///
+    /// A stored `let`, computed once in `init` — not a `body`-time computed
+    /// property (an earlier version was), which rebuilt this padded array
+    /// from scratch on *every* `body` evaluation, including every one of
+    /// `tick()`'s once-a-second ticks, even though it depends only on
+    /// `items`, which never changes for a given `HeroRailView` instance.
+    let loopedItems: [MediaItem]
+
+    private static func loop(_ items: [MediaItem]) -> [MediaItem] {
         guard let first = items.first, let last = items.last, items.count > 1 else { return items }
         return [last] + items + [first]
     }

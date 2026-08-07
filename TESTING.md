@@ -39,7 +39,7 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 
 (swap `iPhone 17` for whatever's in `xcrun simctl list devices available` on your machine.)
 
-**Verified:** the full suite (215 tests) has been run for real via
+**Verified:** the full suite (216 tests) has been run for real via
 `xcodebuild test` against the iOS 26.5 Simulator — all passing, 0 failures.
 A few real issues were caught and fixed along the way, worth knowing about
 if you extend this setup:
