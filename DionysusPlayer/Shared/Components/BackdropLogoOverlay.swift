@@ -46,22 +46,8 @@ struct BackdropLogoOverlay: View {
             .overlay(alignment: .bottomLeading) {
                 Group {
                     if let logoURL = item.logoImageURL {
-                        AsyncImage(url: logoURL) { phase in
-                            switch phase {
-                            case .success(let image):
-                                FadeInLogoImage(image: image)
-                            case .failure:
-                                // Logo failed to load (404, timeout, etc.) —
-                                // fall back to the text title rather than
-                                // leaving the overlay blank.
-                                titleText
-                            case .empty:
-                                Color.clear
-                            @unknown default:
-                                Color.clear
-                            }
-                        }
-                        .frame(maxWidth: 240, maxHeight: 80, alignment: .leading)
+                        LogoImageView(url: logoURL, fallback: titleText)
+                            .frame(maxWidth: 240, maxHeight: 80, alignment: .leading)
                     } else {
                         titleText
                     }
@@ -74,37 +60,5 @@ struct BackdropLogoOverlay: View {
         Text(item.name)
             .font(.title.bold())
             .foregroundStyle(.white)
-    }
-}
-
-/// Fades a loaded logo `Image` in over `duration`, rather than having it pop
-/// in the instant `AsyncImage` resolves.
-///
-/// Deliberately *not* done via `AsyncImage(url:transaction:)` +
-/// `.transition(.opacity)` on the success case — that combination is
-/// unreliable in practice: whether it animates depends on `AsyncImage`
-/// internally treating the `.empty` → `.success` switch as a tracked state
-/// change under the given transaction, which isn't guaranteed, especially
-/// when the image resolves from cache fast enough that the `.empty` phase
-/// never visibly renders. Owning the opacity as local `@State` and animating
-/// it from `onAppear` sidesteps `AsyncImage`'s phase-transition behavior
-/// entirely — this view's `body` only runs once the image has already
-/// loaded, so `onAppear` firing *is* the "just loaded" signal, independent
-/// of whatever transaction `AsyncImage` used internally.
-private struct FadeInLogoImage: View {
-    let image: Image
-
-    @State private var opacity: Double = 0
-
-    var body: some View {
-        image
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .opacity(opacity)
-            .onAppear {
-                withAnimation(.easeIn(duration: 0.35)) {
-                    opacity = 1
-                }
-            }
     }
 }

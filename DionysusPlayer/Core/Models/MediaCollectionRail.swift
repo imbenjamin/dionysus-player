@@ -7,7 +7,15 @@ import Foundation
 /// screen — is deliberately minimal for now; the set of rails is expected
 /// to be redefined later.
 struct MediaCollectionRail: Identifiable {
-    var id: String { title }
+    // A proper `UUID`, not `title` (an earlier version used that) — titles
+    // are generated strings (e.g. "Starring {actor}"), and two dynamic
+    // rails could in principle land on an identical one (e.g. two
+    // differently-credited people who happen to share a display name),
+    // which would give `ForEach(rails)` a duplicate identity. SwiftUI
+    // doesn't crash on that, it just silently misattributes state/identity
+    // between the colliding rows — worth avoiding outright rather than
+    // relying on titles staying accidentally unique.
+    let id = UUID()
     var title: String
     var items: [MediaItem]
     /// When set, the rail shows a "See All" link pushing a `CollectionGridView`

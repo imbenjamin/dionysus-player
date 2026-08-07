@@ -280,6 +280,23 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(capturedQuery["personTypes"], "Actor")
     }
 
+    /// `limit` is what keeps Home's actor/director discovery from fetching
+    /// a library's entire cast/crew corpus (unlike genres/studios, which
+    /// have no equivalent param since their counts are naturally small) —
+    /// worth its own check that it's actually wired through, since it
+    /// defaults to `nil`/omitted for other callers of this same method.
+    func test_persons_appliesLimitWhenProvided() async throws {
+        let client = makeClient(accessToken: "tok")
+        var capturedQuery: [String: String] = [:]
+        MockURLProtocol.requestHandler = { request in
+            capturedQuery = request.queryDictionary
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        _ = try await client.persons(userID: "user-1", personTypes: ["Actor"], limit: 200)
+        XCTAssertEqual(capturedQuery["Limit"], "200")
+    }
+
     // MARK: collectionsContaining — exercises the fan-out/task-group logic
 
     func test_collectionsContaining_returnsOnlyBoxSetsThatContainTheItem() async throws {

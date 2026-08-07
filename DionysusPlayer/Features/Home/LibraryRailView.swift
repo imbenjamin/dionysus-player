@@ -16,7 +16,12 @@ struct LibraryRailView: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
+            // `LazyHStack`, not `HStack` — see `MediaRailView`'s identical
+            // change for why (defers construction/image loading to
+            // on-screen items only). Libraries are typically few enough
+            // that this matters less here, but there's no reason for this
+            // rail to be the odd one out.
+            LazyHStack(spacing: 12) {
                 ForEach(libraries) { library in
                     LibraryCard(library: library)
                 }

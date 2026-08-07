@@ -56,6 +56,14 @@ final class HomeViewModel {
     /// availability (bounded by that cap) — no second request needed to
     /// know whether a candidate clears the bar.
     private static let minimumDynamicRailItemCount = 5
+    /// Caps the `/Persons` discovery calls below — unlike genres/studios
+    /// (naturally a few dozen at most), a library's full cast/crew corpus
+    /// can run into the thousands, each a full `BaseItemDto`, fetched fresh
+    /// on every Home load just to seed rail *candidates*. 200 leaves plenty
+    /// of candidates for a typical library (the whole list is shuffled
+    /// anyway, so which 200 doesn't need to be exhaustive) while keeping
+    /// the discovery payload bounded for a very large one.
+    private static let personDiscoveryLimit = 200
 
     private let client: JellyfinAPIClient
     private let userID: String
@@ -151,8 +159,10 @@ final class HomeViewModel {
         async let showGenres = client.genres(userID: userID, includeItemTypes: ["Series"])
         async let movieStudios = client.studios(userID: userID, includeItemTypes: ["Movie"])
         async let showStudios = client.studios(userID: userID, includeItemTypes: ["Series"])
-        async let actors = client.persons(userID: userID, personTypes: ["Actor"])
-        async let directors = client.persons(userID: userID, personTypes: ["Director"])
+        async let actors = client.persons(userID: userID, personTypes: ["Actor"], limit: Self.personDiscoveryLimit)
+        async let directors = client.persons(
+            userID: userID, personTypes: ["Director"], limit: Self.personDiscoveryLimit
+        )
 
         var candidates: [DynamicRailCandidate] = []
         if let items = try? await movieGenres.items {
