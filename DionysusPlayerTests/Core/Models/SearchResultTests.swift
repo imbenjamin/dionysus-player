@@ -23,16 +23,47 @@ final class SearchResultTests: XCTestCase {
         XCTAssertEqual(result.subtitle, "2002")
     }
 
-    func test_episodeHint_subtitleIsParentSeriesName() {
+    func test_episodeHint_subtitleCombinesEpisodeLabelAndSeriesName() {
+        let hint = SearchHint(
+            id: "ep-1", name: "Old Cases", type: .episode, series: "The Wire", indexNumber: 4, parentIndexNumber: 1
+        )
+        let result = SearchResult(hint: hint)
+        XCTAssertEqual(result.subtitle, "S1:E4 \u{00B7} The Wire")
+    }
+
+    func test_episodeHint_subtitleFallsBackToSeriesNameAloneWhenNumberingMissing() {
         let hint = SearchHint(id: "ep-1", name: "Old Cases", type: .episode, series: "The Wire")
         let result = SearchResult(hint: hint)
         XCTAssertEqual(result.subtitle, "The Wire")
     }
 
-    func test_boxSetHint_hasNoSubtitle() {
-        let hint = SearchHint(id: "box-1", name: "Arrival Collection", type: .boxSet, productionYear: 2016)
+    func test_episodeHint_subtitleFallsBackToEpisodeLabelAloneWhenSeriesMissing() {
+        let hint = SearchHint(id: "ep-1", name: "Old Cases", type: .episode, indexNumber: 4, parentIndexNumber: 1)
+        let result = SearchResult(hint: hint)
+        XCTAssertEqual(result.subtitle, "S1:E4")
+    }
+
+    /// Jellyfin doesn't always provide both season and episode number (e.g.
+    /// specials) — a half-filled label like "S1:E-" would be worse than
+    /// omitting it and falling back to whatever else is available.
+    func test_episodeHint_subtitleOmitsEpisodeLabelWhenOnlyOneNumberPresent() {
+        let seasonOnly = SearchHint(id: "ep-1", name: "Old Cases", type: .episode, series: "The Wire", parentIndexNumber: 1)
+        XCTAssertEqual(SearchResult(hint: seasonOnly).subtitle, "The Wire")
+
+        let episodeOnly = SearchHint(id: "ep-2", name: "Old Cases", type: .episode, series: "The Wire", indexNumber: 4)
+        XCTAssertEqual(SearchResult(hint: episodeOnly).subtitle, "The Wire")
+    }
+
+    func test_episodeHint_noSubtitleWhenNeitherNumberingNorSeriesPresent() {
+        let hint = SearchHint(id: "ep-1", name: "Old Cases", type: .episode)
         let result = SearchResult(hint: hint)
         XCTAssertNil(result.subtitle)
+    }
+
+    func test_boxSetHint_subtitleIsCollection() {
+        let hint = SearchHint(id: "box-1", name: "Arrival Collection", type: .boxSet, productionYear: 2016)
+        let result = SearchResult(hint: hint)
+        XCTAssertEqual(result.subtitle, "Collection")
     }
 
     func test_imageReference_prefersThumbOverPrimaryWhenBothPresent() {

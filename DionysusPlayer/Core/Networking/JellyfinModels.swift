@@ -212,10 +212,10 @@ struct SearchHintResult: Codable {
 
 /// A fast "search as you type" match from Jellyfin's dedicated
 /// `/Search/Hints` endpoint — distinct from the full `BaseItemDto` results
-/// `JellyfinAPIClient.search(...)` returns from `/Items`, and much lighter
-/// (a handful of display fields, not the full item). Powers `SearchView`'s
-/// `.searchSuggestions` dropdown; kept to just the fields that dropdown
-/// needs.
+/// the general-purpose `/Items` search returns, and much lighter (a handful
+/// of display fields, not the full item). Fast enough that `SearchView`
+/// uses it as its sole results source, not just a typeahead dropdown; kept
+/// to just the fields that results list needs.
 ///
 /// `Encodable` only for `MockURLProtocol.encodedJSONResponse`'s benefit in
 /// tests — production code only ever decodes this.
@@ -226,6 +226,14 @@ struct SearchHint: Codable, Identifiable, Equatable {
     var productionYear: Int?
     /// The parent series' name — present only for `.episode` hints.
     var series: String?
+    /// Episode number within its season — present only for `.episode`
+    /// hints, paired with `parentIndexNumber` to build an "S1:E4"-style
+    /// label (`SearchResult`'s doc comment on `subtitle`).
+    var indexNumber: Int?
+    /// Season number — present only for `.episode` hints. Despite the
+    /// generic-sounding name, this is Jellyfin's actual field for it here
+    /// (same as `BaseItemDto.parentIndexNumber`).
+    var parentIndexNumber: Int?
     var primaryImageTag: String?
     /// A `Thumb`-type image, and the item it belongs to — usually the same
     /// item, but an episode without its own thumb inherits its series' one,

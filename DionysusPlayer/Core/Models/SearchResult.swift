@@ -27,8 +27,11 @@ import Foundation
 struct SearchResult: Identifiable, Hashable, Codable {
     var id: String
     var name: String
-    /// e.g. "2019" for a Movie/Series, the parent series' name for an
-    /// Episode, or `nil` when there's nothing worth showing.
+    /// e.g. "2019" for a Movie/Series, "S1:E4 · The Wire" for an Episode
+    /// (either half omitted if that data isn't present), "Collection" for
+    /// a BoxSet (its own name usually doesn't make the type obvious the
+    /// way a year or episode number does for the others), or `nil` when
+    /// there's nothing worth showing.
     var subtitle: String?
     var imageReference: ImageReference?
 
@@ -47,9 +50,20 @@ struct SearchResult: Identifiable, Hashable, Codable {
 
         switch hint.type {
         case .episode:
-            subtitle = hint.series
+            // "S1:E4", same format as MediaItem.episodeLabel, omitted
+            // entirely (not just half-filled) if either number is missing
+            // — Jellyfin doesn't always have both for every episode (e.g.
+            // specials).
+            let episodeLabel: String? = {
+                guard let season = hint.parentIndexNumber, let episode = hint.indexNumber else { return nil }
+                return "S\(season):E\(episode)"
+            }()
+            let parts = [episodeLabel, hint.series].compactMap { $0 }
+            subtitle = parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
         case .movie, .series:
             subtitle = hint.productionYear.map(String.init)
+        case .boxSet:
+            subtitle = String(localized: "Collection")
         default:
             subtitle = nil
         }
