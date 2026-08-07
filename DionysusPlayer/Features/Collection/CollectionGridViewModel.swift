@@ -20,10 +20,7 @@ final class CollectionGridViewModel {
     /// A decade's start year (e.g. `2010`), matching `MediaItem.decade`.
     private(set) var selectedDecade: Int?
     private(set) var selectedWatchStatus: CollectionWatchStatus?
-    /// Unlike the other filters, this is a plain toggle rather than an
-    /// `Optional` selection — there's no third "unfavorited only" state
-    /// worth exposing.
-    private(set) var isFavoritesOnly = false
+    private(set) var selectedFavoriteStatus: CollectionFavoriteStatus?
 
     private let client: JellyfinAPIClient
     private let userID: String
@@ -67,13 +64,16 @@ final class CollectionGridViewModel {
         return result
     }
 
-    /// Whether at least one favorite exists among items matching the other
-    /// active filters — `CollectionGridView` only shows the Favorites toggle
-    /// while this (or `isFavoritesOnly` itself, so an already-active toggle
-    /// doesn't vanish out from under the user) is true.
-    var hasAvailableFavorites: Bool {
-        matchingItems(applyGenre: true, applyStudio: true, applyDecade: true, applyFavorites: false)
-            .contains(where: \.isFavorite)
+    /// Which of `.favorite`/`.nonFavorite` actually occur among items
+    /// matching the *other* active filters — same cascading logic as
+    /// `availableWatchStatuses`. `CollectionGridView` only shows this pill at
+    /// all when this comes back non-empty.
+    var availableFavoriteStatuses: [CollectionFavoriteStatus] {
+        let candidates = matchingItems(applyGenre: true, applyStudio: true, applyDecade: true, applyFavorites: false)
+        var result: [CollectionFavoriteStatus] = []
+        if candidates.contains(where: \.isFavorite) { result.append(.favorite) }
+        if candidates.contains(where: { !$0.isFavorite }) { result.append(.nonFavorite) }
+        return result
     }
 
     /// `items` narrowed by every active filter (AND across all of them) —
@@ -101,9 +101,9 @@ final class CollectionGridViewModel {
     /// needs to reactively invalidate/clear a stale selection when another
     /// filter changes: unreachable options simply never appear as choices
     /// in the first place. Since these are all plain computed properties
-    /// over `items` and the `selected*`/`isFavoritesOnly` state, clearing
-    /// any filter automatically widens the others back out too — no
-    /// separate "unfilter" handling needed.
+    /// over `items` and the `selected*` state, clearing any filter
+    /// automatically widens the others back out too — no separate
+    /// "unfilter" handling needed.
     private func matchingItems(
         applyGenre: Bool, applyStudio: Bool, applyDecade: Bool,
         applyWatchStatus: Bool = true, applyFavorites: Bool = true
@@ -114,14 +114,15 @@ final class CollectionGridViewModel {
                 && (!applyDecade || selectedDecade == nil || item.decade == selectedDecade)
                 && (!applyWatchStatus || selectedWatchStatus == nil
                     || item.isPlayed == (selectedWatchStatus == .watched))
-                && (!applyFavorites || !isFavoritesOnly || item.isFavorite)
+                && (!applyFavorites || selectedFavoriteStatus == nil
+                    || item.isFavorite == (selectedFavoriteStatus == .favorite))
         }
     }
 
     /// Whether `CollectionGridView` should show its "Reset" control.
     var hasActiveFilters: Bool {
         selectedGenre != nil || selectedStudio != nil || selectedDecade != nil
-            || selectedWatchStatus != nil || isFavoritesOnly
+            || selectedWatchStatus != nil || selectedFavoriteStatus != nil
     }
 
     init(client: JellyfinAPIClient, userID: String, query: CollectionQuery) {
@@ -172,8 +173,8 @@ final class CollectionGridViewModel {
         selectedWatchStatus = status
     }
 
-    func setFavoritesOnly(_ isFavoritesOnly: Bool) {
-        self.isFavoritesOnly = isFavoritesOnly
+    func setFavoriteStatusFilter(_ status: CollectionFavoriteStatus?) {
+        selectedFavoriteStatus = status
     }
 
     /// Clears every active filter at once — `CollectionGridView`'s Reset
@@ -183,7 +184,7 @@ final class CollectionGridViewModel {
         selectedStudio = nil
         selectedDecade = nil
         selectedWatchStatus = nil
-        isFavoritesOnly = false
+        selectedFavoriteStatus = nil
     }
 
     func load() async {

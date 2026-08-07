@@ -16,7 +16,7 @@ without a macOS/Xcode toolchain and expected to need fixes in
 Simulator) `xcodebuild build` for the `DionysusPlayer` scheme succeeds
 end-to-end — package resolution (AetherEngine + its FFmpegBuild/SMBClient/
 LibDovi dependencies), compilation, and linking all complete with no errors,
-and the `DionysusPlayerTests` suite (296 tests, see `TESTING.md`) passes.
+and the `DionysusPlayerTests` suite (297 tests, see `TESTING.md`) passes.
 That confirms the code compiles against AetherEngine's real API; it does
 *not* confirm playback actually works — no test here plays real media or
 exercises a real device's decoder, so treat `PlayerViewModel`/
@@ -117,9 +117,11 @@ grids) combine a server-side sort (field + ascending/descending, refetched on
 change) with client-side filtering across up to five facets — Genre, Studio
 (labeled "Network" instead when the query is Series-typed — Jellyfin has no
 separate Network field; a show's network lives in the same `Studios` field a
-movie's studio does), Decade, Watched, and Favorites. Genre/Studio/Decade/
-Watched are `Menu`-based pills; Favorites is a direct tap toggle since it
-only has one meaningful "on" state. All five are *cascading*: each facet's
+movie's studio does), Decade, Watched, and Favorites. All five are
+`Menu`-based pills; Favorites offers All Items/Favorites/Non-Favorites (an
+`Optional<CollectionFavoriteStatus>` selection, mirroring Watched's
+`Optional<CollectionWatchStatus>` shape) rather than a plain on/off toggle,
+so it can filter *out* favorites too. All five are *cascading*: each facet's
 own available-options list is computed by applying every *other* active
 facet to `items` (never itself — see `CollectionGridViewModel
 .matchingItems`'s doc comment), so no combination the UI offers can ever

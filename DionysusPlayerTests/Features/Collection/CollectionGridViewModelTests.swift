@@ -367,23 +367,29 @@ final class CollectionGridViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-2", "movie-3"])
     }
 
-    func test_hasAvailableFavorites_trueWhenAnyFavoriteExists() async {
+    func test_availableFavoriteStatuses_bothPresentWhenNoOtherFilterActive() async {
         let viewModel = await makeLoadedViewModel()
-        XCTAssertTrue(viewModel.hasAvailableFavorites)
+        XCTAssertEqual(viewModel.availableFavoriteStatuses, [.favorite, .nonFavorite])
     }
 
-    func test_filteredItems_byFavoritesOnly() async {
+    func test_filteredItems_byFavoriteStatus_favorite() async {
         let viewModel = await makeLoadedViewModel()
-        viewModel.setFavoritesOnly(true)
+        viewModel.setFavoriteStatusFilter(.favorite)
         XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-2"])
     }
 
-    func test_filteredItems_favoritesOnly_clearedRestoresEverything() async {
+    func test_filteredItems_byFavoriteStatus_nonFavorite() async {
         let viewModel = await makeLoadedViewModel()
-        viewModel.setFavoritesOnly(true)
+        viewModel.setFavoriteStatusFilter(.nonFavorite)
+        XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-1", "movie-3"])
+    }
+
+    func test_filteredItems_favoriteStatus_clearedRestoresEverything() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setFavoriteStatusFilter(.favorite)
         XCTAssertEqual(viewModel.filteredItems.count, 1)
 
-        viewModel.setFavoritesOnly(false)
+        viewModel.setFavoriteStatusFilter(nil)
         XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-1", "movie-2", "movie-3"])
     }
 
@@ -397,10 +403,10 @@ final class CollectionGridViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.availableWatchStatuses, [.watched], "Only movie-1 (watched) is Drama")
     }
 
-    func test_hasAvailableFavorites_falseWhenNoFavoriteMatchesOtherActiveFacets() async {
+    func test_availableFavoriteStatuses_narrowedByOtherActiveFacets() async {
         let viewModel = await makeLoadedViewModel()
         viewModel.setGenreFilter("Drama")
-        XCTAssertFalse(viewModel.hasAvailableFavorites, "movie-1, the only Drama film, isn't a favorite")
+        XCTAssertEqual(viewModel.availableFavoriteStatuses, [.nonFavorite], "movie-1, the only Drama film, isn't a favorite")
     }
 
     func test_availableGenres_narrowedBySelectedWatchStatus() async {
@@ -409,9 +415,9 @@ final class CollectionGridViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.availableGenres, ["Drama", "Sci-Fi"], "Only movie-1 is watched")
     }
 
-    func test_availableGenres_narrowedByFavoritesOnly() async {
+    func test_availableGenres_narrowedByFavoriteStatus() async {
         let viewModel = await makeLoadedViewModel()
-        viewModel.setFavoritesOnly(true)
+        viewModel.setFavoriteStatusFilter(.favorite)
         XCTAssertEqual(viewModel.availableGenres, ["Action", "Sci-Fi"], "Only movie-2 is a favorite")
     }
 
@@ -455,7 +461,7 @@ final class CollectionGridViewModelTests: XCTestCase {
         XCTAssertTrue(watchStatusOnly.hasActiveFilters)
 
         let favoritesOnly = await makeLoadedViewModel()
-        favoritesOnly.setFavoritesOnly(true)
+        favoritesOnly.setFavoriteStatusFilter(.favorite)
         XCTAssertTrue(favoritesOnly.hasActiveFilters)
     }
 
@@ -465,7 +471,7 @@ final class CollectionGridViewModelTests: XCTestCase {
         viewModel.setStudioFilter("Warner Bros.")
         viewModel.setDecadeFilter(2010)
         viewModel.setWatchStatusFilter(.unwatched)
-        viewModel.setFavoritesOnly(true)
+        viewModel.setFavoriteStatusFilter(.favorite)
         XCTAssertTrue(viewModel.hasActiveFilters)
 
         viewModel.resetFilters()
@@ -475,7 +481,7 @@ final class CollectionGridViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.selectedStudio)
         XCTAssertNil(viewModel.selectedDecade)
         XCTAssertNil(viewModel.selectedWatchStatus)
-        XCTAssertFalse(viewModel.isFavoritesOnly)
+        XCTAssertNil(viewModel.selectedFavoriteStatus)
         XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-1", "movie-2", "movie-3"])
     }
 }

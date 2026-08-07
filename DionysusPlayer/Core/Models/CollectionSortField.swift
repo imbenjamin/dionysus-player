@@ -54,3 +54,16 @@ enum CollectionWatchStatus: CaseIterable, Identifiable, Hashable {
 
     var id: Self { self }
 }
+
+/// The "Favorites" filter facet in `CollectionGridView` — whether an item is
+/// marked a favorite, or specifically isn't, mirroring `CollectionWatchStatus`
+/// in shape (an `Optional` selection on the view model, `nil` meaning "no
+/// filter", i.e. "All Items"). A three-way All/Favorites/Non-Favorites choice
+/// rather than a plain on/off toggle so someone can filter *out* favorites
+/// too, not just down to them.
+enum CollectionFavoriteStatus: CaseIterable, Identifiable, Hashable {
+    case favorite
+    case nonFavorite
+
+    var id: Self { self }
+}

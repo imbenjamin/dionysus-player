@@ -112,13 +112,10 @@ struct CollectionGridView: View {
 
     /// A row of pill buttons, one per facet that actually has values to
     /// offer (a facet with nothing available — e.g. no Studios data at
-    /// all — doesn't show a dead control). Genre/Studio/Decade/Watched each
-    /// open a `Menu` listing that facet's values; Favorites is a direct tap
-    /// toggle instead (see `FavoritesToggle` for why a dropdown would be
-    /// redundant there — unlike the other four, it only has one meaningful
-    /// "on" value). Either way, each facet narrows the grid down by one
-    /// value at a time (not multi-select within a facet), combined with AND
-    /// across facets in `CollectionGridViewModel.filteredItems`. Reset sits
+    /// all — doesn't show a dead control). Each of the five opens a `Menu`
+    /// listing that facet's values, narrowing the grid down by one value at
+    /// a time (not multi-select within a facet), combined with AND across
+    /// facets in `CollectionGridViewModel.filteredItems`. Reset sits
     /// *outside* the scrolling pills, anchored
     /// at the trailing edge — as a same-shape "Reset" pill inside the
     /// scroll row it read as just a fourth filter option; a visually
@@ -143,13 +140,9 @@ struct CollectionGridView: View {
         let studios = viewModel?.availableStudios ?? []
         let decades = viewModel?.availableDecades ?? []
         let watchStatuses = viewModel?.availableWatchStatuses ?? []
-        // Kept visible while active even if `hasAvailableFavorites` has since
-        // gone false (some other filter narrowed favorites out entirely) —
-        // otherwise the toggle would vanish while still switched on, with no
-        // way to tap it back off.
-        let showFavoritesToggle = (viewModel?.hasAvailableFavorites ?? false) || (viewModel?.isFavoritesOnly ?? false)
+        let favoriteStatuses = viewModel?.availableFavoriteStatuses ?? []
 
-        if !genres.isEmpty || !studios.isEmpty || !decades.isEmpty || !watchStatuses.isEmpty || showFavoritesToggle {
+        if !genres.isEmpty || !studios.isEmpty || !decades.isEmpty || !watchStatuses.isEmpty || !favoriteStatuses.isEmpty {
             HStack(spacing: 8) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     if #available(iOS 26.0, *) {
@@ -157,7 +150,7 @@ struct CollectionGridView: View {
                             HStack(spacing: 8) {
                                 filterPills(
                                     genres: genres, studios: studios, decades: decades,
-                                    watchStatuses: watchStatuses, showFavoritesToggle: showFavoritesToggle
+                                    watchStatuses: watchStatuses, favoriteStatuses: favoriteStatuses
                                 )
                             }
                         }
@@ -165,7 +158,7 @@ struct CollectionGridView: View {
                         HStack(spacing: 8) {
                             filterPills(
                                 genres: genres, studios: studios, decades: decades,
-                                watchStatuses: watchStatuses, showFavoritesToggle: showFavoritesToggle
+                                watchStatuses: watchStatuses, favoriteStatuses: favoriteStatuses
                             )
                         }
                     }
@@ -182,43 +175,95 @@ struct CollectionGridView: View {
     @ViewBuilder
     private func filterPills(
         genres: [String], studios: [String], decades: [Int],
-        watchStatuses: [CollectionWatchStatus], showFavoritesToggle: Bool
+        watchStatuses: [CollectionWatchStatus], favoriteStatuses: [CollectionFavoriteStatus]
     ) -> some View {
         if !genres.isEmpty {
             FilterMenu(
                 title: String(localized: "Genre"), allLabel: String(localized: "All Genres"),
-                options: genres, display: { $0 }, selection: genreBinding
+                options: genres, display: { $0 }, systemImage: genreSystemImage, selection: genreBinding
             )
         }
         if !studios.isEmpty {
             FilterMenu(
                 title: studioFilterTitle, allLabel: studioFilterAllLabel,
-                options: studios, display: { $0 }, selection: studioBinding
+                options: studios, display: { $0 }, systemImage: studioSystemImage, selection: studioBinding
             )
         }
         if !decades.isEmpty {
             FilterMenu(
                 title: String(localized: "Decade"), allLabel: String(localized: "All Decades"),
-                options: decades, display: { "\($0)s" }, selection: decadeBinding
+                options: decades, display: { "\($0)s" }, systemImage: decadeSystemImage, selection: decadeBinding
             )
         }
         if !watchStatuses.isEmpty {
             FilterMenu(
                 title: String(localized: "Watched"), allLabel: String(localized: "All"),
-                options: watchStatuses, display: watchStatusLabel, systemImage: "eye", selection: watchStatusBinding
+                options: watchStatuses, display: watchStatusLabel,
+                systemImage: watchStatusSystemImage, selection: watchStatusBinding
             )
         }
-        if showFavoritesToggle {
-            FavoritesToggle(isActive: viewModel?.isFavoritesOnly ?? false) {
-                viewModel?.setFavoritesOnly(!(viewModel?.isFavoritesOnly ?? false))
-            }
+        if !favoriteStatuses.isEmpty {
+            FilterMenu(
+                title: String(localized: "Favorites"), allLabel: String(localized: "All Items"),
+                options: favoriteStatuses, display: favoriteStatusLabel,
+                systemImage: favoriteStatusSystemImage, selection: favoriteStatusBinding
+            )
         }
+    }
+
+    /// Outline while "All Genres" is in effect, filled once an actual genre
+    /// is picked — same active/inactive-by-fill convention `FilterPill`
+    /// already used for its glass tint, just carried into the glyph too.
+    /// `studioSystemImage`/`decadeSystemImage` mirror this.
+    private var genreSystemImage: String {
+        viewModel?.selectedGenre == nil ? "theatermasks" : "theatermasks.fill"
+    }
+
+    private var studioSystemImage: String {
+        viewModel?.selectedStudio == nil ? "building.2" : "building.2.fill"
+    }
+
+    /// `clock`/`clock.fill` rather than `calendar` — SF Symbols has no
+    /// `calendar.fill` counterpart to switch to once a decade is selected.
+    private var decadeSystemImage: String {
+        viewModel?.selectedDecade == nil ? "clock" : "clock.fill"
     }
 
     private func watchStatusLabel(_ status: CollectionWatchStatus) -> String {
         switch status {
         case .watched: String(localized: "Watched")
         case .unwatched: String(localized: "Unwatched")
+        }
+    }
+
+    /// A plain eye while nothing's selected, filled once Watched is picked,
+    /// slashed ("line-through") once Unwatched is picked — same idea as
+    /// `favoriteStatusSystemImage`.
+    private var watchStatusSystemImage: String {
+        switch viewModel?.selectedWatchStatus {
+        case nil: "eye"
+        case .watched: "eye.fill"
+        case .unwatched: "eye.slash"
+        }
+    }
+
+    private func favoriteStatusLabel(_ status: CollectionFavoriteStatus) -> String {
+        switch status {
+        case .favorite: String(localized: "Favorites")
+        case .nonFavorite: String(localized: "Non-Favorites")
+        }
+    }
+
+    /// A filled heart once Favorites is picked, a slashed heart once
+    /// Non-Favorites is picked (SF Symbols' stand-in for "line-through" on a
+    /// glyph shape, since there's no literal strikethrough heart), and a
+    /// plain outline heart while nothing's selected — same "the icon itself
+    /// carries which state is active" idea as `watchStatusSystemImage`.
+    private var favoriteStatusSystemImage: String {
+        switch viewModel?.selectedFavoriteStatus {
+        case .favorite: "heart.fill"
+        case .nonFavorite: "heart.slash"
+        case nil: "heart"
         }
     }
 
@@ -248,6 +293,10 @@ struct CollectionGridView: View {
 
     private var watchStatusBinding: Binding<CollectionWatchStatus?> {
         Binding(get: { viewModel?.selectedWatchStatus }, set: { viewModel?.setWatchStatusFilter($0) })
+    }
+
+    private var favoriteStatusBinding: Binding<CollectionFavoriteStatus?> {
+        Binding(get: { viewModel?.selectedFavoriteStatus }, set: { viewModel?.setFavoriteStatusFilter($0) })
     }
 
     @ViewBuilder
@@ -304,8 +353,13 @@ private struct FilterMenu<Value: Hashable>: View {
     let options: [Value]
     let display: (Value) -> String
     /// Optional leading SF Symbol, shown alongside the pill's label whether
-    /// or not a value is selected — e.g. an eye for the Watched facet, so
-    /// it reads at a glance even collapsed to its default "Watched" title.
+    /// or not a value is selected — every facet has one, so each pill reads
+    /// at a glance even collapsed to its default title. All five vary the
+    /// glyph by selection state (an outline while "All ___" is in effect,
+    /// filled once something's actually picked — see `genreSystemImage`/
+    /// `studioSystemImage`/`decadeSystemImage`), and Watched/Favorites go
+    /// further still with a third, "excluded" glyph (`eye.slash`/
+    /// `heart.slash`) for their negative selection.
     var systemImage: String?
     @Binding var selection: Value?
 
@@ -326,9 +380,9 @@ private struct FilterMenu<Value: Hashable>: View {
 private struct FilterPill: View {
     let label: String
     let isActive: Bool
-    /// Optional leading SF Symbol — an eye for the Watched `FilterMenu`, a
-    /// heart (filled while active) for the standalone Favorites toggle;
-    /// every other pill leaves this `nil`.
+    /// Optional leading SF Symbol — see `FilterMenu.systemImage`'s doc
+    /// comment for what each facet passes. Only `ResetFiltersButton` (which
+    /// doesn't use `FilterPill` at all) leaves this `nil`.
     var systemImage: String?
 
     var body: some View {
@@ -370,27 +424,6 @@ private struct FilterPill: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .foregroundStyle(isActive ? Color.white : Color.primary)
-    }
-}
-
-/// A direct on/off toggle rather than a `FilterMenu` dropdown — unlike
-/// Genre/Studio/Decade, Favorites has only one meaningful "on" value, so a
-/// menu with a single real option plus "All" would be one tap slower for no
-/// benefit. Reuses `FilterPill`'s look (including its Liquid Glass styling)
-/// so it reads as the same family of control, just switched by a tap
-/// instead of a `Menu`.
-private struct FavoritesToggle: View {
-    let isActive: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            FilterPill(
-                label: String(localized: "Favorites"), isActive: isActive,
-                systemImage: isActive ? "heart.fill" : "heart"
-            )
-        }
-        .buttonStyle(.plain)
     }
 }
 
