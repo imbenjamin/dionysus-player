@@ -190,11 +190,11 @@ private extension View {
         }
     }
 
-    /// Composites the in-progress bar / fully-watched checkmark / favorite
-    /// star treatment shared by `PosterCard` and `LandscapeMediaCard`, onto
-    /// `self` (expected to already be the clipped artwork image).
-    /// Checkmark and star sit on opposite top corners so both can show at
-    /// once (a favorited, fully-watched item is a completely ordinary
+    /// Composites the in-progress bar / fully-watched eye / favorite star
+    /// treatment shared by `PosterCard` and `LandscapeMediaCard`, onto
+    /// `self` (expected to already be the clipped artwork image). The eye
+    /// and star sit on opposite top corners so both can show at once (a
+    /// favorited, fully-watched item is a completely ordinary
     /// combination) — the bottom-trailing corner is reserved for
     /// `EpisodeMoreMenuButton`, which is why nothing here uses that
     /// alignment. Decorations must not intercept taps: with the progress
@@ -215,7 +215,7 @@ private extension View {
             .overlay(alignment: .topLeading) {
                 if item.isFavorite {
                     // `.circle.fill`, not plain `.fill` — matches
-                    // `checkmark.circle.fill` below: both are two-layer SF
+                    // `eye.circle.fill` below: both are two-layer SF
                     // Symbols (a filled circle behind the glyph), which is
                     // what makes the two-color `.foregroundStyle` below
                     // actually paint two different colors instead of the
@@ -227,7 +227,12 @@ private extension View {
             }
             .overlay(alignment: .topTrailing) {
                 if item.isPlayed {
-                    Image(systemName: "checkmark.circle.fill")
+                    // Matches the Collection grid's Watched filter, which
+                    // also uses an eye (see `CollectionGridView
+                    // .watchStatusSystemImage`) rather than a checkmark, so
+                    // "watched" reads as the same concept/glyph everywhere
+                    // in the app.
+                    Image(systemName: "eye.circle.fill")
                         .foregroundStyle(Color.white, Color.dionysusPrimary)
                         .padding(4)
                 }

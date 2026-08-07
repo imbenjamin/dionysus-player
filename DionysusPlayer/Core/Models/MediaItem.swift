@@ -45,9 +45,43 @@ struct MediaItem: Identifiable {
     var overview: String? { dto.overview }
     var kind: BaseItemKind { dto.type }
     var genres: [String] { dto.genres ?? [] }
+    var studios: [String] { dto.studios?.map(\.name) ?? [] }
     var ageRating: String? { dto.officialRating }
     var communityRating: Double? { dto.communityRating }
     var seriesID: String? { dto.seriesId }
+    /// The decade this item's `productionYear` falls in, as its start year
+    /// (e.g. `2010` for a 2016 release) — `CollectionGridView`'s Decade
+    /// filter groups on this. `nil` when there's no production year to
+    /// bucket. A start year rather than an already-formatted "2010s"
+    /// string: that's just number/date formatting, same category as
+    /// `yearText` below, done at the view layer instead.
+    var decade: Int? {
+        guard let year = dto.productionYear else { return nil }
+        return (year / 10) * 10
+    }
+    /// Present on library "views" (e.g. `"movies"`, `"tvshows"`,
+    /// `"boxsets"`) returned by `/Users/{id}/Views` — see
+    /// `libraryContentItemTypes` for what this is actually used for.
+    var collectionType: String? { dto.collectionType }
+
+    /// For a library item (one of `HomeViewModel.libraries`), the item
+    /// type(s) a query scoped to it (`LibraryRailView`'s card tap) should
+    /// restrict itself to — e.g. `["Series"]` for a Shows library. Without
+    /// this, a recursive `/Items?ParentId=` walk returns *everything*
+    /// nested under the library, not just its top-level items: a Shows
+    /// library would mix every Season and Episode in alongside each
+    /// Series, and a Collections library would pull in every Movie/Series
+    /// inside each BoxSet too. Empty (no restriction) for library types
+    /// this doesn't apply to (Music, Playlists, ...) or for anything
+    /// that isn't a library at all (`collectionType == nil`).
+    var libraryContentItemTypes: [String] {
+        switch collectionType {
+        case "movies": ["Movie"]
+        case "tvshows": ["Series"]
+        case "boxsets": ["BoxSet"]
+        default: []
+        }
+    }
 
     // `yearText`/`durationText`/`episodeLabel`/`railSubtitle` below, plus
     // `resolutionCommonName`/`friendlyVideoCodecName`/

@@ -577,4 +577,58 @@ final class MediaItemTests: XCTestCase {
         let dto = BaseItemDto(id: "box-1", name: "Trilogy", type: .boxSet)
         XCTAssertFalse(MediaItem(dto: dto, images: images).usesLandscapeRailTile)
     }
+
+    // MARK: libraryContentItemTypes
+
+    private func makeLibrary(collectionType: String?) -> MediaItem {
+        let dto = BaseItemDto(id: "lib-1", name: "Library", type: .collectionFolder, collectionType: collectionType)
+        return MediaItem(dto: dto, images: images)
+    }
+
+    func test_libraryContentItemTypes_moviesLibrary_restrictsToMovie() {
+        XCTAssertEqual(makeLibrary(collectionType: "movies").libraryContentItemTypes, ["Movie"])
+    }
+
+    func test_libraryContentItemTypes_showsLibrary_restrictsToSeries() {
+        // The whole point: a recursive `/Items?ParentId=` walk under a
+        // Shows library returns every Season/Episode too, not just each
+        // Series — this is what keeps a tvshows library's grid to just
+        // the shows themselves.
+        XCTAssertEqual(makeLibrary(collectionType: "tvshows").libraryContentItemTypes, ["Series"])
+    }
+
+    func test_libraryContentItemTypes_collectionsLibrary_restrictsToBoxSet() {
+        XCTAssertEqual(makeLibrary(collectionType: "boxsets").libraryContentItemTypes, ["BoxSet"])
+    }
+
+    func test_libraryContentItemTypes_unrecognizedOrMissingCollectionType_isUnrestricted() {
+        XCTAssertEqual(makeLibrary(collectionType: "music").libraryContentItemTypes, [])
+        XCTAssertEqual(makeLibrary(collectionType: nil).libraryContentItemTypes, [])
+        XCTAssertEqual(makeMovie().libraryContentItemTypes, [], "Not a library at all — collectionType is nil")
+    }
+
+    // MARK: studios / decade — CollectionGridView's Studios/Decade filters
+
+    func test_studios_mapsNameGuidPairsToJustTheNames() {
+        let dto = BaseItemDto(
+            id: "movie-1", name: "Arrival", type: .movie,
+            studios: [NameGuidPair(name: "Paramount", id: "studio-1"), NameGuidPair(name: "20th Century", id: "studio-2")]
+        )
+        XCTAssertEqual(MediaItem(dto: dto, images: images).studios, ["Paramount", "20th Century"])
+    }
+
+    func test_studios_emptyWhenNoneOnTheDto() {
+        XCTAssertEqual(makeMovie().studios, [])
+    }
+
+    func test_decade_bucketsProductionYearToItsStartYear() {
+        XCTAssertEqual(makeMovie(productionYear: 2016).decade, 2010)
+        XCTAssertEqual(makeMovie(productionYear: 2010).decade, 2010)
+        XCTAssertEqual(makeMovie(productionYear: 1999).decade, 1990)
+        XCTAssertEqual(makeMovie(productionYear: 2000).decade, 2000)
+    }
+
+    func test_decade_nilWhenNoProductionYear() {
+        XCTAssertNil(makeMovie(productionYear: nil).decade)
+    }
 }

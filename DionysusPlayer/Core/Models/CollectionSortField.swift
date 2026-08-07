@@ -1,0 +1,69 @@
+import Foundation
+
+/// Which field `CollectionGridView`'s grid is ordered by, exposed via a
+/// toolbar menu — independent of whatever `CollectionQuery` describes
+/// (that's just parent/type filtering). Paired with a separate
+/// `CollectionSortOrder` (ascending/descending), which applies uniformly
+/// across all three fields — none of them has a "locked" direction.
+/// Defaults to `.title`.
+enum CollectionSortField: CaseIterable, Identifiable, Hashable {
+    case title
+    case dateAdded
+    case releaseDate
+
+    var id: Self { self }
+
+    /// Jellyfin's `SortBy` query value.
+    var sortBy: String {
+        switch self {
+        case .title: "SortName"
+        case .dateAdded: "DateCreated"
+        case .releaseDate: "PremiereDate"
+        }
+    }
+}
+
+/// Ascending/descending, independently selectable for any
+/// `CollectionSortField` — e.g. "A→Z" (ascending) or "Z→A" (descending)
+/// when sorting by title, oldest-first or newest-first for the date-based
+/// fields. Defaults to `.ascending`.
+enum CollectionSortOrder: CaseIterable, Identifiable, Hashable {
+    case ascending
+    case descending
+
+    var id: Self { self }
+
+    /// Jellyfin's `SortOrder` query value.
+    var value: String {
+        switch self {
+        case .ascending: "Ascending"
+        case .descending: "Descending"
+        }
+    }
+}
+
+/// The "Watched" filter facet in `CollectionGridView` — whether an item has
+/// been fully watched (`MediaItem.isPlayed`) or not, mirroring the
+/// genre/studio/decade facets in shape (an `Optional` selection on the
+/// view model, `nil` meaning "no filter"). Kept as a two-case enum rather
+/// than a plain `Bool?` so the filter pill has real, self-describing display
+/// values instead of `true`/`false`.
+enum CollectionWatchStatus: CaseIterable, Identifiable, Hashable {
+    case watched
+    case unwatched
+
+    var id: Self { self }
+}
+
+/// The "Favorites" filter facet in `CollectionGridView` — whether an item is
+/// marked a favorite, or specifically isn't, mirroring `CollectionWatchStatus`
+/// in shape (an `Optional` selection on the view model, `nil` meaning "no
+/// filter", i.e. "All Items"). A three-way All/Favorites/Non-Favorites choice
+/// rather than a plain on/off toggle so someone can filter *out* favorites
+/// too, not just down to them.
+enum CollectionFavoriteStatus: CaseIterable, Identifiable, Hashable {
+    case favorite
+    case nonFavorite
+
+    var id: Self { self }
+}

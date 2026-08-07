@@ -12,11 +12,11 @@ in as a Swift Package.
 
 **Status: builds clean, playback untested.** This was originally scaffolded
 without a macOS/Xcode toolchain and expected to need fixes in
-`AetherPlaybackEngine.swift`, but as of 2026-08-04 (Xcode 26.5, iOS 26.5
+`AetherPlaybackEngine.swift`, but as of 2026-08-07 (Xcode 26.5, iOS 26.5
 Simulator) `xcodebuild build` for the `DionysusPlayer` scheme succeeds
 end-to-end — package resolution (AetherEngine + its FFmpegBuild/SMBClient/
 LibDovi dependencies), compilation, and linking all complete with no errors,
-and the `DionysusPlayerTests` suite (84 tests, see `TESTING.md`) passes.
+and the `DionysusPlayerTests` suite (297 tests, see `TESTING.md`) passes.
 That confirms the code compiles against AetherEngine's real API; it does
 *not* confirm playback actually works — no test here plays real media or
 exercises a real device's decoder, so treat `PlayerViewModel`/
@@ -111,6 +111,23 @@ than injecting `AppState` directly into ViewModels.
 Rail/grid selection logic (what shows up on Home, in what order) is
 explicitly a placeholder per the ViewModel doc comments — don't over-invest
 in "correct" curation logic there without checking if it's being redesigned.
+
+`CollectionGridView`/`CollectionGridViewModel` (Movies/Shows/Collections
+grids) combine a server-side sort (field + ascending/descending, refetched on
+change) with client-side filtering across up to five facets — Genre, Studio
+(labeled "Network" instead when the query is Series-typed — Jellyfin has no
+separate Network field; a show's network lives in the same `Studios` field a
+movie's studio does), Decade, Watched, and Favorites. All five are
+`Menu`-based pills; Favorites offers All Items/Favorites/Non-Favorites (an
+`Optional<CollectionFavoriteStatus>` selection, mirroring Watched's
+`Optional<CollectionWatchStatus>` shape) rather than a plain on/off toggle,
+so it can filter *out* favorites too. All five are *cascading*: each facet's
+own available-options list is computed by applying every *other* active
+facet to `items` (never itself — see `CollectionGridViewModel
+.matchingItems`'s doc comment), so no combination the UI offers can ever
+funnel down to zero results. When adding another facet here, follow that
+same "exclude yourself, apply the rest" shape rather than a flat AND filter,
+or the funnel guarantee breaks.
 
 ### Navigation (`Shared/Navigation/`)
 
