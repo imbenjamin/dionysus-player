@@ -63,7 +63,9 @@ final class AssetDetailViewModel {
 
             loadState = .loaded
         } catch {
-            loadState = .failed((error as? LocalizedError)?.errorDescription ?? "Couldn't load this title.")
+            loadState = .failed(
+                (error as? LocalizedError)?.errorDescription ?? String(localized: "Couldn't load this title.")
+            )
         }
     }
 

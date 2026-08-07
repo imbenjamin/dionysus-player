@@ -26,11 +26,15 @@ struct MovieDetailView: View {
                     .padding(.horizontal)
 
                     if !viewModel.collections.isEmpty {
-                        MediaRailView(rail: MediaCollectionRail(title: "Part of These Collections", items: viewModel.collections))
+                        MediaRailView(rail: MediaCollectionRail(
+                            title: String(localized: "Part of These Collections"), items: viewModel.collections
+                        ))
                     }
 
                     if !viewModel.similar.isEmpty {
-                        MediaRailView(rail: MediaCollectionRail(title: "More Like This", items: viewModel.similar))
+                        MediaRailView(rail: MediaCollectionRail(
+                            title: String(localized: "More Like This"), items: viewModel.similar
+                        ))
                     }
                 }
                 .padding(.bottom, 32)

@@ -52,7 +52,7 @@ final class SearchViewModel {
             loadState = .loaded
         } catch {
             guard !Task.isCancelled else { return }
-            loadState = .failed((error as? LocalizedError)?.errorDescription ?? "Search failed.")
+            loadState = .failed((error as? LocalizedError)?.errorDescription ?? String(localized: "Search failed."))
         }
     }
 }

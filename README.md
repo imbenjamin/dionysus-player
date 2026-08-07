@@ -97,3 +97,34 @@ The networking and playback layers are each behind a small protocol
 (`JellyfinAPIClient` speaks plain REST/JSON; `PlaybackEngine` wraps
 AetherEngine) so the concrete implementations can evolve — or be swapped for
 previews/tests — without touching feature code.
+
+## Localization
+
+The app's user-facing strings go through Apple's [String Catalog](https://developer.apple.com/documentation/xcode/localizing-and-varying-text-with-a-string-catalog)
+mechanism (`DionysusPlayer/Resources/Localizable.xcstrings`), the current
+standard replacement for `.strings`/`.stringsdict` files. Only English is
+populated so far — no other language is enabled yet — but the mechanism is
+wired up:
+
+- SwiftUI call sites (`Text("...")`, `Button("...")`, `.navigationTitle("...")`,
+  etc.) use plain string literals, which Xcode auto-extracts into the
+  catalog because of their `LocalizedStringKey` parameter type.
+- ViewModel/model-layer strings (errors, curated rail titles, and similar
+  non-SwiftUI text) use `String(localized: "...")` instead, since
+  `LocalizedStringKey` is a SwiftUI-only convenience type.
+- Server/user-supplied content (item titles, library names, cast names, ...)
+  and industry-standard technical terms/formatted data (codec names, HDR
+  formats, timecodes, "S1:E4"-style labels) are deliberately left as plain
+  strings — see the doc comments at each such call site for the reasoning.
+
+**The catalog only fills in from Xcode.app's own IDE build**, not from a
+`xcodebuild` CLI build — extracting newly-added strings into
+`Localizable.xcstrings` is an Xcode source-editor integration, not a step
+the command-line build system runs. Open the project in Xcode and build once
+(**Cmd+B**) to populate it. From there, a translation vendor consumes the
+catalog via `Product ▸ Export Localizations…` (or
+`xcodebuild -exportLocalizations -localizationPath <dir> -exportLanguage <lang>`)
+to get an XLIFF file, and returns a translated one to import back in.
+Adding a language later is a matter of adding it to the catalog's
+`localizations` in Xcode and importing the vendor's translations — no code
+changes.

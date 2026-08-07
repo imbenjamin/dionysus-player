@@ -23,7 +23,7 @@ struct AppRouteDestinationView: View {
                 // This router only ever renders once signed in (`.main`
                 // phase), so this shouldn't happen in practice — but avoid
                 // a hard crash if it somehow does.
-                ErrorStateView(message: "You're not signed in.", retry: nil)
+                ErrorStateView(message: String(localized: "You're not signed in."), retry: nil)
             }
         }
     }

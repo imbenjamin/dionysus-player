@@ -43,7 +43,9 @@ final class CollectionGridViewModel {
             items = result.items.map { MediaItem(dto: $0, images: images) }
             loadState = .loaded
         } catch {
-            loadState = .failed((error as? LocalizedError)?.errorDescription ?? "Couldn't load this collection.")
+            loadState = .failed(
+                (error as? LocalizedError)?.errorDescription ?? String(localized: "Couldn't load this collection.")
+            )
         }
     }
 }

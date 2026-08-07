@@ -20,7 +20,7 @@ final class LoginViewModel {
         do {
             try await appState.signIn(username: username, password: password)
         } catch {
-            errorMessage = "Couldn't sign in. Check your username and password."
+            errorMessage = String(localized: "Couldn't sign in. Check your username and password.")
         }
     }
 }

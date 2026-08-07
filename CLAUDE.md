@@ -126,3 +126,34 @@ Jellyfin API DTOs (`JellyfinModels.swift`) are kept separate from the app's
 own lighter view-facing models (e.g. `MediaItem`, `MediaCollectionRail`) —
 DTOs get mapped into app models (usually via an `init(dto:images:)`
 initializer) rather than passed directly to views.
+
+### Localization
+
+User-facing strings go through a String Catalog
+(`DionysusPlayer/Resources/Localizable.xcstrings`) — only English is
+populated for now, but a translation vendor can be plugged in later without
+code changes (add a language to the catalog, import their XLIFF). Two
+conventions, depending on layer:
+
+- In SwiftUI views, write plain string literals to `Text`/`Button`/`Label`/
+  `Section`/`.navigationTitle`/etc. — their `LocalizedStringKey`-typed
+  overload is what Xcode auto-extracts into the catalog. This does *not*
+  apply to a computed `String` value (e.g. `Text(foo ?? "Bar")`) or a
+  parameter on a custom view typed `String` rather than
+  `LocalizedStringKey` — neither gets auto-extracted even with a literal
+  argument.
+- Everywhere else (ViewModels, error messages, model-layer display strings,
+  and any of the `String`-typed cases above), wrap the literal in
+  `String(localized: "...")` instead.
+
+Server/user-supplied content (item titles, library names, cast/crew names,
+...) and industry-standard technical terms or formatted data (codec names,
+HDR format names, timecodes, "S1:E4"-style labels, the app's own name)
+should stay as plain strings, not wrapped — see `MediaItem.swift` and
+`PlayerControlsOverlay.swift` for the reasoning at each such case.
+
+The catalog only gets populated by an Xcode.app IDE build (**Cmd+B**), not
+by `xcodebuild` from the CLI — extraction-into-catalog is an IDE/source-editor
+feature, not part of the command-line build system. Don't take a build-time
+absence of new strings in `Localizable.xcstrings` as a sign something's
+wrong; open the project in Xcode and build once to sync it.
