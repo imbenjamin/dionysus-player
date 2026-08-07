@@ -47,7 +47,15 @@ actor RemoteImageLoader {
     private let session: URLSession
     private let maxAttempts: Int
     private let retryBaseDelay: Duration
-    private let memoryCache = NSCache<NSURL, UIImage>()
+    /// `nonisolated(unsafe)`: `NSCache` is documented thread-safe for
+    /// concurrent access from any thread, so bypassing actor isolation for
+    /// this specific property is safe — done so `cachedImage(for:)` below
+    /// can answer synchronously, with no actor hop/suspension at all. That
+    /// matters for callers seeding a view's *initial* `@State` from it (see
+    /// `LogoImageView`'s `init`) — even an `await` that resolves near
+    /// instantly still can't complete before that first render, since a
+    /// `Task` schedules its body rather than running it inline.
+    nonisolated(unsafe) private let memoryCache = NSCache<NSURL, UIImage>()
     private var inFlightTasks: [URL: Task<UIImage, Error>] = [:]
 
     /// - Parameters:
@@ -80,6 +88,14 @@ actor RemoteImageLoader {
         self.maxAttempts = maxAttempts
         self.retryBaseDelay = retryBaseDelay
         memoryCache.countLimit = 500
+    }
+
+    /// Synchronous, non-isolated in-memory cache peek — doesn't join an
+    /// in-flight fetch or trigger one; just answers "do we already have
+    /// this decoded and in memory, right now." See `memoryCache`'s doc
+    /// comment for why this is safe without actor isolation.
+    nonisolated func cachedImage(for url: URL) -> UIImage? {
+        memoryCache.object(forKey: url as NSURL)
     }
 
     /// Returns the decoded image at `url`, using the in-memory cache,
