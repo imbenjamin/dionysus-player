@@ -6,6 +6,15 @@ import UIKit
 struct MainTabView: View {
     @Environment(AppState.self) private var appState
     @State private var profileTabIcon: UIImage?
+    /// Bound (rather than the plain declarative `NavigationLink(value:)` the
+    /// other two tabs use) so `SearchView` can push a result from inside a
+    /// `Button` action — the same closure that records it to search
+    /// history, guaranteeing both happen together. A `NavigationLink` +
+    /// `.simultaneousGesture` combo was tried first and is a known-flaky
+    /// pattern for a `List` row (the row's own tap handling can swallow the
+    /// simultaneous gesture), which is exactly what caused history to never
+    /// actually record.
+    @State private var searchPath: [AppRoute] = []
 
     var body: some View {
         TabView {
@@ -15,8 +24,8 @@ struct MainTabView: View {
             }
             .tabItem { Label("Home", image: "DionysusGlyph") }
 
-            NavigationStack {
-                SearchView()
+            NavigationStack(path: $searchPath) {
+                SearchView(path: $searchPath)
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
             }
             .tabItem { Label("Search", systemImage: "magnifyingglass") }

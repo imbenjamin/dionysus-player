@@ -202,3 +202,34 @@ struct PlaybackProgressRequest: Encodable {
     var positionTicks: Int64
     var isPaused: Bool = false
 }
+
+// MARK: - Search
+
+struct SearchHintResult: Codable {
+    var searchHints: [SearchHint]
+    var totalRecordCount: Int
+}
+
+/// A fast "search as you type" match from Jellyfin's dedicated
+/// `/Search/Hints` endpoint — distinct from the full `BaseItemDto` results
+/// `JellyfinAPIClient.search(...)` returns from `/Items`, and much lighter
+/// (a handful of display fields, not the full item). Powers `SearchView`'s
+/// `.searchSuggestions` dropdown; kept to just the fields that dropdown
+/// needs.
+///
+/// `Encodable` only for `MockURLProtocol.encodedJSONResponse`'s benefit in
+/// tests — production code only ever decodes this.
+struct SearchHint: Codable, Identifiable, Equatable {
+    var id: String
+    var name: String
+    var type: BaseItemKind
+    var productionYear: Int?
+    /// The parent series' name — present only for `.episode` hints.
+    var series: String?
+    var primaryImageTag: String?
+    /// A `Thumb`-type image, and the item it belongs to — usually the same
+    /// item, but an episode without its own thumb inherits its series' one,
+    /// same idea as `BaseItemDto.parentBackdropItemId`.
+    var thumbImageTag: String?
+    var thumbImageItemId: String?
+}

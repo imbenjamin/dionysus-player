@@ -130,6 +130,38 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(capturedQuery["PersonTypes"], "Actor")
     }
 
+    // MARK: searchHints
+
+    func test_searchHints_hitsTheDedicatedEndpointWithExpectedQuery() async throws {
+        let client = makeClient(accessToken: "tok")
+        var capturedQuery: [String: String] = [:]
+        MockURLProtocol.requestHandler = { request in
+            capturedQuery = request.queryDictionary
+            XCTAssertEqual(request.url?.path, "/Search/Hints")
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: SearchHintResult(searchHints: [], totalRecordCount: 0))
+        }
+
+        _ = try await client.searchHints(userID: "user-1", term: "arrival", limit: 8)
+        XCTAssertEqual(capturedQuery["searchTerm"], "arrival")
+        XCTAssertEqual(capturedQuery["userId"], "user-1")
+        XCTAssertEqual(capturedQuery["limit"], "8")
+        XCTAssertEqual(capturedQuery["includeItemTypes"], "Movie,Series,Episode,BoxSet")
+    }
+
+    func test_searchHints_decodesResultFields() async throws {
+        let client = makeClient()
+        let hint = SearchHint(
+            id: "episode-1", name: "Pilot", type: .episode, productionYear: 2019, series: "Arrival Series",
+            primaryImageTag: "tag-1", thumbImageTag: "thumb-1", thumbImageItemId: "series-1"
+        )
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: SearchHintResult(searchHints: [hint], totalRecordCount: 1))
+        }
+
+        let result = try await client.searchHints(userID: "user-1", term: "pilot")
+        XCTAssertEqual(result.searchHints, [hint])
+    }
+
     func test_item_requestsDetailFieldsIncludingMediaSourcesAndPeople() async throws {
         let client = makeClient()
         var capturedQuery: [String: String] = [:]
