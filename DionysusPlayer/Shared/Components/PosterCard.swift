@@ -24,8 +24,14 @@ struct PosterCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     AsyncRemoteImage(url: item.primaryImageURL)
                         .frame(width: width, height: imageHeight)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
                         .watchStatusOverlay(for: item)
+                        // Clipped *after* the overlay, not before — `.overlay`
+                        // draws its content at the full rectangular frame
+                        // regardless of an earlier `.clipShape` on the base
+                        // view (see `LandscapeMediaCard`'s identical ordering
+                        // for where this actually became visible: an opaque
+                        // overlay painted right through the rounded corners).
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
 
                     MediaCardLabel(item: item)
                 }
@@ -61,9 +67,19 @@ struct LandscapeMediaCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     AsyncRemoteImage(url: item.thumbImageURL ?? item.primaryImageURL)
                         .frame(width: width, height: imageHeight)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
                         .episodeLogoOverlay(for: item)
                         .watchStatusOverlay(for: item)
+                        // Clipped *after* both overlays — `.overlay` draws at
+                        // the full rectangular frame regardless of an earlier
+                        // `.clipShape` on the base image, so with the clip
+                        // this early, `episodeLogoOverlay`'s gradient (opaque
+                        // near the bottom) painted a plain rectangle straight
+                        // through where the rounded corners should have cut
+                        // it away — squaring off the bottom two corners while
+                        // the top ones (where the gradient is `.clear`) still
+                        // looked fine. Clipping the whole composited stack at
+                        // the end fixes both corners at once.
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
 
                     MediaCardLabel(item: item)
                 }
