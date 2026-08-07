@@ -126,15 +126,19 @@ final class HomeViewModel {
                 newRails.append(MediaCollectionRail(title: title, items: items, seeAllQuery: seeAllQuery))
             }
 
-            appendRail("Continue Watching", try await resume.items)
-            appendRail("Next Up", try await upNext.items)
+            appendRail(String(localized: "Continue Watching"), try await resume.items)
+            appendRail(String(localized: "Next Up"), try await upNext.items)
             appendRail(
-                "Recently Added Movies", try await latestMovies,
-                seeAllQuery: CollectionQuery(title: "Movies", parentID: moviesLibraryID, includeItemTypes: ["Movie"])
+                String(localized: "Recently Added Movies"), try await latestMovies,
+                seeAllQuery: CollectionQuery(
+                    title: String(localized: "Movies"), parentID: moviesLibraryID, includeItemTypes: ["Movie"]
+                )
             )
             appendRail(
-                "Recently Added Shows", try await latestShows,
-                seeAllQuery: CollectionQuery(title: "Shows", parentID: showsLibraryID, includeItemTypes: ["Series"])
+                String(localized: "Recently Added Shows"), try await latestShows,
+                seeAllQuery: CollectionQuery(
+                    title: String(localized: "Shows"), parentID: showsLibraryID, includeItemTypes: ["Series"]
+                )
             )
 
             rails = newRails
@@ -142,7 +146,10 @@ final class HomeViewModel {
 
             await loadDynamicRailCandidates()
         } catch {
-            loadState = .failed((error as? LocalizedError)?.errorDescription ?? "Something went wrong loading your library.")
+            loadState = .failed(
+                (error as? LocalizedError)?.errorDescription
+                    ?? String(localized: "Something went wrong loading your library.")
+            )
         }
     }
 

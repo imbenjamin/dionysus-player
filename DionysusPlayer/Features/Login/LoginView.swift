@@ -63,7 +63,7 @@ struct LoginView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(appState.sessionStore.serverConfiguration?.name ?? "Your Server")
+            Text(appState.sessionStore.serverConfiguration?.name ?? String(localized: "Your Server"))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             Text("Welcome Back")

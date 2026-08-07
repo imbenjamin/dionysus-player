@@ -16,7 +16,9 @@ struct TrackSelectionSheet: View {
                 }
 
                 Section("Subtitles") {
-                    trackRow(title: "Off", isSelected: !viewModel.subtitleTracks.contains { $0.isSelected }) {
+                    trackRow(
+                        title: String(localized: "Off"), isSelected: !viewModel.subtitleTracks.contains { $0.isSelected }
+                    ) {
                         viewModel.selectSubtitleTrack(id: nil)
                     }
                     ForEach(viewModel.subtitleTracks) { track in

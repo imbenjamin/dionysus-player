@@ -51,7 +51,7 @@ struct HomeView: View {
             let libraries = viewModel?.libraries ?? []
             let rails = viewModel?.rails ?? []
             if heroItems.isEmpty && libraries.isEmpty && rails.isEmpty {
-                ErrorStateView(message: "Nothing here yet.", retry: nil)
+                ErrorStateView(message: String(localized: "Nothing here yet."), retry: nil)
                     .frame(height: 200)
             } else {
                 // `LazyVStack`, not `VStack` — with dynamic rails

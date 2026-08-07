@@ -27,7 +27,7 @@ struct MainTabView: View {
             }
             .tabItem {
                 Label {
-                    Text(appState.currentUser?.name ?? "Profile")
+                    Text(appState.currentUser?.name ?? String(localized: "Profile"))
                 } icon: {
                     if let profileTabIcon {
                         Image(uiImage: profileTabIcon)

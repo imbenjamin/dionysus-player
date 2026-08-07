@@ -47,7 +47,7 @@ final class PlayerViewModel {
             let source = playbackInfo.mediaSources?.first
 
             guard let url = await client.streamURL(itemID: itemID, mediaSourceID: source?.id, container: source?.container) else {
-                errorMessage = "Couldn't build a playback URL for this item."
+                errorMessage = String(localized: "Couldn't build a playback URL for this item.")
                 return
             }
 
@@ -60,7 +60,7 @@ final class PlayerViewModel {
             try? await client.reportPlaybackStart(itemID: itemID)
             startProgressReporting()
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Playback failed to start."
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "Playback failed to start.")
         }
     }
 

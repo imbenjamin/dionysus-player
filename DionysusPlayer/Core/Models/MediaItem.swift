@@ -49,6 +49,18 @@ struct MediaItem: Identifiable {
     var communityRating: Double? { dto.communityRating }
     var seriesID: String? { dto.seriesId }
 
+    // `yearText`/`durationText`/`episodeLabel`/`railSubtitle` below, plus
+    // `resolutionCommonName`/`friendlyVideoCodecName`/
+    // `friendlyDynamicRangeName`/`bitrateLabel` further down, are
+    // deliberately left as plain (non-localized) string assembly: they're
+    // either numeric/date formatting (years, durations, "S1:E4") or
+    // industry-standard technical terms conventionally shown untranslated
+    // (codec names, HDR formats) — same category as `metadataBadges`
+    // (`InfoMetadataRow.swift`) and the player's timecodes
+    // (`PlayerControlsOverlay.swift`). `trackLabel`'s "Track N" fallback
+    // below is the one genuine natural-language string in this file, and is
+    // localized.
+
     /// e.g. "2019" for a movie, "2019–2021" or "2019–" (still airing, best
     /// guess since we don't yet read Jellyfin's `Status` field) for a series.
     var yearText: String? {
@@ -354,7 +366,7 @@ struct MediaItem: Identifiable {
     private static func trackLabel(for stream: MediaStream) -> String {
         if let displayTitle = stream.displayTitle, !displayTitle.isEmpty { return displayTitle }
         let parts = [stream.language, stream.codec?.uppercased()].compactMap { $0 }
-        return parts.isEmpty ? "Track \(stream.index + 1)" : parts.joined(separator: " \u{00B7} ")
+        return parts.isEmpty ? String(localized: "Track \(stream.index + 1)") : parts.joined(separator: " \u{00B7} ")
     }
 
     private static func bitrateLabel(_ bitsPerSecond: Int) -> String {

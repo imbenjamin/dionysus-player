@@ -18,7 +18,7 @@ final class ServerSetupViewModel {
     func testConnection() async -> ServerConfiguration? {
         errorMessage = nil
         guard var configuration = ServerConfiguration.parse(rawAddress: address, preferHTTPS: useHTTPS) else {
-            errorMessage = "Enter a valid server address, like 192.168.1.50:8096."
+            errorMessage = String(localized: "Enter a valid server address, like 192.168.1.50:8096.")
             return nil
         }
 
@@ -33,7 +33,7 @@ final class ServerSetupViewModel {
             }
             return configuration
         } catch {
-            errorMessage = "Couldn't reach a Jellyfin server at that address. Check it and try again."
+            errorMessage = String(localized: "Couldn't reach a Jellyfin server at that address. Check it and try again.")
             return nil
         }
     }

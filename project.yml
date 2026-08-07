@@ -5,6 +5,12 @@ options:
     iOS: "17.0"
   createIntermediateGroups: true
   generateEmptyDirectories: false
+  # Source language for `DionysusPlayer/Resources/Localizable.xcstrings`
+  # (the app's one String Catalog — see that file's own top-of-file note).
+  # Only English is populated for now; this is the project-level setting a
+  # translation vendor's added languages would show up alongside once the
+  # catalog itself grows more `localizations` entries.
+  developmentLanguage: en
 
 configs:
   Debug: debug
@@ -36,6 +42,13 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.ios
         PRODUCT_NAME: Dionysus
+        # Xcode's default for a Swift target already, but set explicitly
+        # since it's what actually makes `Text("...")`/`Button("...")`/
+        # `String(localized: "...")` literals get extracted into
+        # `Localizable.xcstrings` on every build, not just when opened in
+        # the Xcode IDE — worth pinning down rather than relying on an
+        # implicit default for something this load-bearing.
+        SWIFT_EMIT_LOC_STRINGS: YES
         TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MACCATALYST: false
         ASSETCATALOG_COMPILER_APPICON_NAME: dionysus

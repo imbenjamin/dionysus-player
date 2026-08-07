@@ -31,7 +31,7 @@ struct CollectionGridView: View {
         case .loaded:
             let items = viewModel?.items ?? []
             if items.isEmpty {
-                ErrorStateView(message: "Nothing here yet.", retry: nil)
+                ErrorStateView(message: String(localized: "Nothing here yet."), retry: nil)
                     .frame(minHeight: 300)
             } else {
                 let metrics = PosterGridMetrics(containerWidth: containerWidth)
