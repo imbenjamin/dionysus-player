@@ -24,25 +24,56 @@ final class CollectionGridViewModel {
     private let userID: String
     let query: CollectionQuery
 
-    /// Distinct genres across the *currently loaded* `items`, sorted
-    /// alphabetically — the options `CollectionGridView`'s Genres filter
-    /// pill offers. Client-side (not a fresh server query) since `items`
-    /// is already the complete result set for this collection, not a
-    /// paginated slice.
-    var availableGenres: [String] { Array(Set(items.flatMap(\.genres))).sorted() }
-    var availableStudios: [String] { Array(Set(items.flatMap(\.studios))).sorted() }
+    /// Distinct genres among items matching the *other two* active filters
+    /// (not genre's own — see `matchingItems`), sorted alphabetically — the
+    /// options `CollectionGridView`'s Genres filter pill offers. Narrows as
+    /// Studio/Decade get picked and widens back out as they're cleared, so
+    /// the pill only ever offers genres that actually lead somewhere given
+    /// whatever else is currently selected, rather than options that would
+    /// combine into an empty result. Client-side (not a fresh server query)
+    /// since `items` is already the complete result set for this
+    /// collection, not a paginated slice.
+    var availableGenres: [String] {
+        Array(Set(matchingItems(applyGenre: false, applyStudio: true, applyDecade: true).flatMap(\.genres))).sorted()
+    }
+
+    var availableStudios: [String] {
+        Array(Set(matchingItems(applyGenre: true, applyStudio: false, applyDecade: true).flatMap(\.studios))).sorted()
+    }
+
     /// Newest first (matches how someone scanning a library by decade
     /// typically wants to start).
-    var availableDecades: [Int] { Array(Set(items.compactMap(\.decade))).sorted(by: >) }
+    var availableDecades: [Int] {
+        Array(Set(matchingItems(applyGenre: true, applyStudio: true, applyDecade: false).compactMap(\.decade)))
+            .sorted(by: >)
+    }
 
     /// `items` narrowed by whichever of `selectedGenre`/`selectedStudio`/
     /// `selectedDecade` are set (AND across all three that are set) — what
     /// `CollectionGridView`'s grid actually renders.
     var filteredItems: [MediaItem] {
+        matchingItems(applyGenre: true, applyStudio: true, applyDecade: true)
+    }
+
+    /// Shared machinery behind `filteredItems` (all three filters applied)
+    /// and each `available*` property (the *other* two applied, excluding
+    /// itself — computing a facet's own option list against its own
+    /// current selection would trivially collapse it to just that one
+    /// value). Because every facet's list is always computed from
+    /// whichever of the *other two* are currently selected, anything it
+    /// offers is guaranteed compatible with the current selections — the
+    /// user can never pick a combination that leads to zero results, and
+    /// nothing needs to reactively invalidate/clear a stale selection when
+    /// another filter changes: unreachable options simply never appear as
+    /// choices in the first place. Since these are all plain computed
+    /// properties over `items`/`selectedGenre`/`selectedStudio`/
+    /// `selectedDecade`, clearing any filter (`nil`) automatically widens
+    /// the others back out too — no separate "unfilter" handling needed.
+    private func matchingItems(applyGenre: Bool, applyStudio: Bool, applyDecade: Bool) -> [MediaItem] {
         items.filter { item in
-            (selectedGenre == nil || item.genres.contains(selectedGenre!))
-                && (selectedStudio == nil || item.studios.contains(selectedStudio!))
-                && (selectedDecade == nil || item.decade == selectedDecade)
+            (!applyGenre || selectedGenre == nil || item.genres.contains(selectedGenre!))
+                && (!applyStudio || selectedStudio == nil || item.studios.contains(selectedStudio!))
+                && (!applyDecade || selectedDecade == nil || item.decade == selectedDecade)
         }
     }
 

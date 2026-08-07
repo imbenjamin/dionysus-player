@@ -125,7 +125,7 @@ struct CollectionGridView: View {
         }
         if !studios.isEmpty {
             FilterMenu(
-                title: String(localized: "Studio"), allLabel: String(localized: "All Studios"),
+                title: studioFilterTitle, allLabel: studioFilterAllLabel,
                 options: studios, display: { $0 }, selection: studioBinding
             )
         }
@@ -135,6 +135,18 @@ struct CollectionGridView: View {
                 options: decades, display: { "\($0)s" }, selection: decadeBinding
             )
         }
+    }
+
+    /// Jellyfin has no separate "Network" field — a show's originating
+    /// network is stored in the very same `Studios` field a movie's
+    /// production studio is, so what this pill labels itself as depends on
+    /// what kind of collection `query` actually is.
+    private var studioFilterTitle: String {
+        query.includeItemTypes.contains("Series") ? String(localized: "Network") : String(localized: "Studio")
+    }
+
+    private var studioFilterAllLabel: String {
+        query.includeItemTypes.contains("Series") ? String(localized: "All Networks") : String(localized: "All Studios")
     }
 
     private var genreBinding: Binding<String?> {

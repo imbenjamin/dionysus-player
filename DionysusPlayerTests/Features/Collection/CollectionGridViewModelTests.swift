@@ -241,6 +241,83 @@ final class CollectionGridViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-1", "movie-3"])
     }
 
+    // MARK: cascading facets — the actual point of this round of work
+
+    /// Selecting Drama (only `movie-1`, a Paramount film) should narrow the
+    /// *other* facets' option lists down to only what's still reachable —
+    /// this is the "funnel" behavior: Warner Bros. and the 1990s decade
+    /// disappear as options entirely, rather than remaining pickable and
+    /// leading to a dead-end empty result.
+    func test_availableStudios_narrowsToWhatCoOccursWithSelectedGenre() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setGenreFilter("Drama")
+        XCTAssertEqual(viewModel.availableStudios, ["Paramount"])
+    }
+
+    func test_availableDecades_narrowsToWhatCoOccursWithSelectedGenre() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setGenreFilter("Drama")
+        XCTAssertEqual(viewModel.availableDecades, [2010])
+    }
+
+    func test_availableGenres_narrowsToWhatCoOccursWithSelectedStudio() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setStudioFilter("Warner Bros.")
+        // Drama drops out — no Warner Bros. film in this set is Drama.
+        XCTAssertEqual(viewModel.availableGenres, ["Action", "Sci-Fi"])
+    }
+
+    func test_availableGenres_narrowsToWhatCoOccursWithSelectedDecade() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setDecadeFilter(1990)
+        XCTAssertEqual(viewModel.availableGenres, ["Action", "Sci-Fi"], "Only The Matrix is 1990s, and it isn't Drama")
+    }
+
+    /// A facet's own selection shouldn't narrow its *own* option list —
+    /// only the *other* two feed into it — otherwise selecting Drama would
+    /// collapse the Genre list down to just ["Drama"] itself, which isn't
+    /// a funnel, just a dead end.
+    func test_availableGenres_notNarrowedByItsOwnSelection() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setGenreFilter("Drama")
+        XCTAssertEqual(viewModel.availableGenres, ["Action", "Drama", "Sci-Fi"])
+    }
+
+    func test_availableOptions_narrowFurtherWithMultipleActiveFacets() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setGenreFilter("Sci-Fi")
+        viewModel.setStudioFilter("Paramount")
+        // Only movie-1 (Arrival) is both Sci-Fi and Paramount.
+        XCTAssertEqual(viewModel.availableDecades, [2010])
+    }
+
+    /// The other half of the ask: clearing a filter should widen the other
+    /// facets' options back out, not leave them stuck narrowed. Falls out
+    /// for free from these being plain computed properties, but worth
+    /// pinning down explicitly.
+    func test_availableOptions_widenBackOutWhenAFilterIsCleared() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setGenreFilter("Drama")
+        XCTAssertEqual(viewModel.availableStudios, ["Paramount"])
+
+        viewModel.setGenreFilter(nil)
+
+        XCTAssertEqual(viewModel.availableStudios, ["Paramount", "Warner Bros."])
+    }
+
+    func test_availableOptions_resetFilters_widensEverythingBackOut() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setGenreFilter("Drama")
+        viewModel.setStudioFilter("Paramount")
+        viewModel.setDecadeFilter(2010)
+
+        viewModel.resetFilters()
+
+        XCTAssertEqual(viewModel.availableGenres, ["Action", "Drama", "Sci-Fi"])
+        XCTAssertEqual(viewModel.availableStudios, ["Paramount", "Warner Bros."])
+        XCTAssertEqual(viewModel.availableDecades, [2010, 1990])
+    }
+
     /// Multiple active facets combine with AND, not OR.
     func test_filteredItems_combinesFiltersAcrossFacets() async {
         let viewModel = await makeLoadedViewModel()
