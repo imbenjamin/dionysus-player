@@ -17,7 +17,47 @@ struct CollectionGridView: View {
         }
         .navigationTitle(query.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                sortMenu
+            }
+        }
         .task { await setUpIfNeeded() }
+    }
+
+    /// Two independent `Picker` groups in one `Menu` — field and direction
+    /// are separate axes, so any field (not just Title) can go either
+    /// ascending or descending. Always shown, regardless of load state —
+    /// lets the user pick a different ordering even before/during a failed
+    /// load, same as any other standing toolbar control.
+    private var sortMenu: some View {
+        Menu {
+            Picker("Sort By", selection: sortFieldBinding) {
+                Text("Title").tag(CollectionSortField.title)
+                Text("Date Added").tag(CollectionSortField.dateAdded)
+                Text("Release Date").tag(CollectionSortField.releaseDate)
+            }
+            Picker("Order", selection: sortOrderBinding) {
+                Text("Ascending").tag(CollectionSortOrder.ascending)
+                Text("Descending").tag(CollectionSortOrder.descending)
+            }
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+        }
+    }
+
+    private var sortFieldBinding: Binding<CollectionSortField> {
+        Binding(
+            get: { viewModel?.sortField ?? .title },
+            set: { newValue in Task { await viewModel?.setSortField(newValue) } }
+        )
+    }
+
+    private var sortOrderBinding: Binding<CollectionSortOrder> {
+        Binding(
+            get: { viewModel?.sortOrder ?? .ascending },
+            set: { newValue in Task { await viewModel?.setSortOrder(newValue) } }
+        )
     }
 
     @ViewBuilder

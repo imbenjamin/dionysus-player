@@ -13,6 +13,8 @@ final class CollectionGridViewModel {
 
     private(set) var items: [MediaItem] = []
     private(set) var loadState: LoadState = .idle
+    private(set) var sortField: CollectionSortField = .title
+    private(set) var sortOrder: CollectionSortOrder = .ascending
 
     private let client: JellyfinAPIClient
     private let userID: String
@@ -29,6 +31,24 @@ final class CollectionGridViewModel {
         await load()
     }
 
+    /// Changes which field the grid is ordered by and reloads — a no-op if
+    /// `field` is already selected, so re-picking the current one from the
+    /// toolbar menu doesn't refetch.
+    func setSortField(_ field: CollectionSortField) async {
+        guard field != sortField else { return }
+        sortField = field
+        await load()
+    }
+
+    /// Flips ascending/descending for whichever `sortField` is currently
+    /// selected, and reloads — same no-op-if-unchanged behavior as
+    /// `setSortField`.
+    func setSortOrder(_ order: CollectionSortOrder) async {
+        guard order != sortOrder else { return }
+        sortOrder = order
+        await load()
+    }
+
     func load() async {
         loadState = .loading
         do {
@@ -37,8 +57,8 @@ final class CollectionGridViewModel {
                 userID: userID,
                 parentID: query.parentID,
                 includeItemTypes: query.includeItemTypes,
-                sortBy: query.sortBy,
-                sortOrder: query.sortOrder
+                sortBy: sortField.sortBy,
+                sortOrder: sortOrder.value
             )
             items = result.items.map { MediaItem(dto: $0, images: images) }
             loadState = .loaded

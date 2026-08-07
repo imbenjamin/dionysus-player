@@ -48,6 +48,29 @@ struct MediaItem: Identifiable {
     var ageRating: String? { dto.officialRating }
     var communityRating: Double? { dto.communityRating }
     var seriesID: String? { dto.seriesId }
+    /// Present on library "views" (e.g. `"movies"`, `"tvshows"`,
+    /// `"boxsets"`) returned by `/Users/{id}/Views` — see
+    /// `libraryContentItemTypes` for what this is actually used for.
+    var collectionType: String? { dto.collectionType }
+
+    /// For a library item (one of `HomeViewModel.libraries`), the item
+    /// type(s) a query scoped to it (`LibraryRailView`'s card tap) should
+    /// restrict itself to — e.g. `["Series"]` for a Shows library. Without
+    /// this, a recursive `/Items?ParentId=` walk returns *everything*
+    /// nested under the library, not just its top-level items: a Shows
+    /// library would mix every Season and Episode in alongside each
+    /// Series, and a Collections library would pull in every Movie/Series
+    /// inside each BoxSet too. Empty (no restriction) for library types
+    /// this doesn't apply to (Music, Playlists, ...) or for anything
+    /// that isn't a library at all (`collectionType == nil`).
+    var libraryContentItemTypes: [String] {
+        switch collectionType {
+        case "movies": ["Movie"]
+        case "tvshows": ["Series"]
+        case "boxsets": ["BoxSet"]
+        default: []
+        }
+    }
 
     // `yearText`/`durationText`/`episodeLabel`/`railSubtitle` below, plus
     // `resolutionCommonName`/`friendlyVideoCodecName`/

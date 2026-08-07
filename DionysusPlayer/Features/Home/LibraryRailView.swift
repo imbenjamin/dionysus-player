@@ -45,7 +45,7 @@ private struct LibraryCard: View {
     }
 
     private var query: CollectionQuery {
-        CollectionQuery(title: library.name, parentID: library.id)
+        CollectionQuery(title: library.name, parentID: library.id, includeItemTypes: library.libraryContentItemTypes)
     }
 }
 
