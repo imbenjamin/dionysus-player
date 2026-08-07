@@ -41,29 +41,27 @@ struct HeroRailView: View {
     /// landscape signal.
     private var isLandscape: Bool { verticalSizeClass == .compact }
 
-    /// Deliberately the key window's own bounds, not `UIScreen.main` (soft
-    /// deprecated, and doesn't reflect a resized scene under iPadOS Stage
-    /// Manager) — same reasoning as `HeroHeaderView.statusBarInset`.
-    private var screenHeight: CGFloat {
+    /// Shared by `screenHeight`/`statusBarInset` below — `heroHeight`'s
+    /// portrait branch reads both, so without this they'd independently
+    /// re-walk `UIApplication.shared.connectedScenes` to find the same key
+    /// window twice over on every `body` evaluation that needs it.
+    private var keyWindow: UIWindow? {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .first?
             .windows
-            .first(where: \.isKeyWindow)?
-            .bounds.height ?? 800
+            .first(where: \.isKeyWindow)
     }
+
+    /// Deliberately the key window's own bounds, not `UIScreen.main` (soft
+    /// deprecated, and doesn't reflect a resized scene under iPadOS Stage
+    /// Manager) — same reasoning as `HeroHeaderView.statusBarInset`.
+    private var screenHeight: CGFloat { keyWindow?.bounds.height ?? 800 }
 
     /// Same raw hardware inset `HeroHeaderView` uses (status bar/notch only,
     /// not the nav bar) — see that view's doc comment for why it has to be
     /// this rather than the ambient `safeAreaInsets`.
-    private var statusBarInset: CGFloat {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first?
-            .windows
-            .first(where: \.isKeyWindow)?
-            .safeAreaInsets.top ?? 0
-    }
+    private var statusBarInset: CGFloat { keyWindow?.safeAreaInsets.top ?? 0 }
 
     /// Portrait: a third of the screen, stretched 25% taller, *plus*
     /// `statusBarInset` so bleeding up under the notch is pure upward
@@ -170,8 +168,19 @@ struct HeroRailView: View {
             // below it."
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 0) {
-                    ForEach(Array(loopedItems.enumerated()), id: \.offset) { offset, item in
-                        HeroRailCard(item: item)
+                    // `loopedItems.indices`, not `Array(loopedItems
+                    // .enumerated())` (an earlier version used that) — the
+                    // latter allocates a fresh `[(offset: Int, element:
+                    // MediaItem)]` on every single `body` evaluation
+                    // (`tick()`'s once-a-second timer among them) despite
+                    // `loopedItems` itself now being fixed for this view's
+                    // lifetime (see that property's own doc comment for the
+                    // matching fix). `Range<Int>.indices` is a cheap value
+                    // type, not an allocation, and `loopedItems[offset]`
+                    // below is an O(1) array subscript — same result, no
+                    // per-render allocation to produce it.
+                    ForEach(loopedItems.indices, id: \.self) { offset in
+                        HeroRailCard(item: loopedItems[offset])
                             .containerRelativeFrame(.horizontal)
                             .id(offset)
                     }

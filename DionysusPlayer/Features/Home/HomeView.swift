@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Home is a single scrolling page of rails: a full-bleed hero banner, the
 /// user's libraries (replacing the old top-menu category picker), then
@@ -6,68 +7,21 @@ import SwiftUI
 struct HomeView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel: HomeViewModel?
-    /// Seeded once from `currentScreenHeight()` below — a `@State`
-    /// property's initial-value expression only ever runs the *first* time
-    /// SwiftUI allocates this view's persistent storage, not on every
-    /// reconstruction/re-render, which is what makes this cheaper than the
-    /// computed-property version this replaced. That one recomputed the
-    /// same `UIApplication` scene/window walk on essentially every scroll
-    /// frame — `onPreferenceChange` below fires continuously while
-    /// scrolling anywhere on the page, not just near the bottom, since the
-    /// marker's Y position keeps changing throughout. Only ever used as a
-    /// loose "how close to the bottom counts as near" threshold, so a value
-    /// that's technically stale after a rotation (screen dimensions swap)
-    /// is a perfectly fine trade for not redoing this work dozens of times
-    /// a second while the user is just scrolling.
-    @State private var screenHeight = HomeView.currentScreenHeight()
 
     var body: some View {
         ScrollView {
-            // `VStack`, not just `content` directly — the bottom marker
-            // (see below) has to sit *outside* `content`'s `LazyVStack`,
-            // as a sibling rather than one of its children, or its
-            // `GeometryReader`'s preference value never propagates out to
-            // `onPreferenceChange` below at all. This is a known SwiftUI
-            // limitation: `LazyVStack`/`List` use specialized internal
-            // rendering for their lazy children that doesn't reliably
-            // participate in the normal bottom-up preference-aggregation
-            // tree the way a plain `VStack`'s children do — confirmed here
-            // by temporary debug logging showing the preference value never
-            // leaving its default even once `content` had fully loaded and
-            // the marker's `if` condition was true, regardless of whether
-            // the marker was a background on the whole `LazyVStack` or one
-            // of its own children.
-            VStack(spacing: 0) {
-                content
-
-                if viewModel?.hasMoreDynamicRails == true {
-                    Color.clear
-                        .frame(height: 1)
-                        .background {
-                            GeometryReader { proxy in
-                                Color.clear.preference(
-                                    key: BottomMarkerOffsetKey.self,
-                                    value: proxy.frame(in: .named("homeScroll")).minY
-                                )
-                            }
-                        }
+            content
+                // Loads more dynamic rails once the scroll view's own
+                // content offset comes within one screen height of the
+                // bottom — see `ScrollBottomObserver`'s doc comment for why
+                // this is the third design tried here, and what was wrong
+                // with each of the first two.
+                .background {
+                    ScrollBottomObserver {
+                        guard viewModel?.hasMoreDynamicRails == true else { return }
+                        Task { await viewModel?.loadMoreDynamicRails() }
+                    }
                 }
-            }
-        }
-        .coordinateSpace(name: "homeScroll")
-        // Loads more dynamic rails once the bottom marker above comes
-        // within one screen height of the visible viewport — i.e. tracks
-        // real scroll position, not any rail's own appear/disappear
-        // lifecycle. Two earlier versions of this used per-row `.onAppear`
-        // (a thin `Color.clear` sentinel, then the last real rail card
-        // itself) and both proved unreliable in practice: inside a
-        // `LazyVStack`, `.onAppear` only fires once per genuine
-        // appear/disappear cycle, and whether a given row actually got
-        // that cycle at the right moment turned out to depend on
-        // `LazyVStack`'s own buffering in ways that weren't consistent.
-        .onPreferenceChange(BottomMarkerOffsetKey.self) { markerY in
-            guard markerY < screenHeight * 2, viewModel?.hasMoreDynamicRails == true else { return }
-            Task { await viewModel?.loadMoreDynamicRails() }
         }
         // Lets `HeroRailView` bleed up under the status bar/notch at rest —
         // a `ScrollView` clips its content to its own bounds, so a child
@@ -80,19 +34,6 @@ struct HomeView: View {
         .ignoresSafeArea(edges: .top)
         .navigationBarTitleDisplayMode(.inline)
         .task { await setUpIfNeeded() }
-    }
-
-    /// Deliberately the key window's own bounds, not `UIScreen.main` (soft
-    /// deprecated, and doesn't reflect a resized scene under iPadOS Stage
-    /// Manager) — same reasoning as `HeroRailView.screenHeight`/
-    /// `HeroHeaderView.statusBarInset`.
-    private static func currentScreenHeight() -> CGFloat {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first?
-            .windows
-            .first(where: \.isKeyWindow)?
-            .bounds.height ?? 800
     }
 
     @ViewBuilder
@@ -124,8 +65,12 @@ struct HomeView: View {
                     if !libraries.isEmpty {
                         LibraryRailView(libraries: libraries)
                     }
-                    ForEach(rails) { rail in
-                        MediaRailView(rail: rail)
+                    // `rails.indices`, not `Array(rails.enumerated())` —
+                    // same reasoning as `HeroRailView.loopedItems`'s
+                    // `ForEach`: avoids allocating a fresh array of tuples
+                    // every time this recomputes.
+                    ForEach(rails.indices, id: \.self) { index in
+                        MediaRailView(rail: rails[index])
                     }
 
                     if viewModel?.isLoadingMoreDynamicRails == true {
@@ -145,16 +90,125 @@ struct HomeView: View {
     }
 }
 
-/// The bottom marker's own top-edge Y position within `HomeView`'s
-/// "homeScroll" coordinate space — see `HomeView.body`'s
-/// `onPreferenceChange` for why this drives dynamic-rail lazy loading.
-/// Standard "last write wins" reduction: there's only ever one publisher
-/// (the marker's own `GeometryReader`), so `nextValue()` always simply
-/// replaces `value`.
-private struct BottomMarkerOffsetKey: PreferenceKey {
-    static let defaultValue: CGFloat = .infinity
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
+/// Calls `onNearBottom` whenever the enclosing `ScrollView`'s own content
+/// offset comes within one screen height of its bottom — the mechanism
+/// behind Home's "load more dynamic rails as the user scrolls" behavior.
+/// Third design tried here, after two others each had a real, confirmed
+/// problem:
+/// - `GeometryReader`/`PreferenceKey` measuring a synthetic marker view's
+///   position in a named coordinate space: correctly tracked real scroll
+///   position, but that coordinate-space conversion turned out to scale
+///   badly with how much view tree it had to walk through — a live CPU
+///   sample during a reported freeze (after scrolling through several dozen
+///   loaded-in rails) showed the main thread pegged inside `GeometryReader
+///   .Child.updateValue()`, refiring on every scroll frame against an
+///   increasingly large tree.
+/// - `.onAppear` on the last few rail rows: cheap (no geometry conversion
+///   at all), but unreliable — confirmed by reproducing it: scrolling
+///   straight to the bottom in one motion sometimes never fired it, though
+///   scrolling up a little and back down did. `LazyVStack` doesn't
+///   guarantee it materializes (and thus fires `.onAppear` for) every row
+///   a fast scroll passes through; a row that's never actually built never
+///   gets the callback that would have triggered the load.
+///
+/// This sidesteps both: reading `UIScrollView.contentOffset` directly (via
+/// KVO, not the `.delegate` slot — see `Coordinator.attachIfNeeded()`'s doc
+/// comment for why that distinction matters) needs no coordinate-space
+/// conversion at all, just a few property reads, so it can't reproduce the
+/// first problem; and it observes the *scroll view itself*, not any lazily-
+/// rendered child row's lifecycle, so it can't reproduce the second either
+/// — the scroll view's own `contentOffset` is authoritative and always
+/// up to date regardless of what `LazyVStack` has or hasn't materialized.
+private struct ScrollBottomObserver: UIViewRepresentable {
+    var onNearBottom: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onNearBottom: onNearBottom)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        // Never itself part of hit-testing — exists only to give the
+        // coordinator a starting point to walk up from.
+        view.isUserInteractionEnabled = false
+        context.coordinator.hostView = view
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onNearBottom = onNearBottom
+        context.coordinator.attachIfNeeded()
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    /// `@MainActor`, not left inferred — needed to form a KVO key path to
+    /// `UIScrollView.contentOffset`, which this SDK marks
+    /// `@MainActor`-isolated; correct anyway, since a `UIScrollView` and
+    /// everything else this touches only ever exists/mutates on the main
+    /// thread regardless.
+    @MainActor
+    final class Coordinator: NSObject {
+        var onNearBottom: () -> Void
+        weak var hostView: UIView?
+        private weak var scrollView: UIScrollView?
+        private var observation: NSKeyValueObservation?
+
+        init(onNearBottom: @escaping () -> Void) {
+            self.onNearBottom = onNearBottom
+        }
+
+        /// Finds the enclosing `ScrollView`'s own backing `UIScrollView` —
+        /// same "walk up from a `.background` marker until the first
+        /// `UIScrollView` ancestor" technique `HeroRailView`'s
+        /// `RegionTouchObserver` uses, for the same reason: robust to
+        /// SwiftUI changing exactly how many wrapper views it inserts
+        /// between them, across versions.
+        ///
+        /// Observes `contentOffset` via KVO, deliberately *not* by becoming
+        /// this scroll view's `UIScrollViewDelegate` — that's a single slot,
+        /// and SwiftUI's own `ScrollView` already occupies it internally to
+        /// implement its own scrolling/bounce/paging behavior; claiming it
+        /// here would silently replace that and break the real `ScrollView`.
+        /// KVO observers don't compete for a single slot the way delegates
+        /// do, so this coexists with whatever SwiftUI itself is already
+        /// observing.
+        func attachIfNeeded() {
+            guard observation == nil, let scrollView = nearestScrollViewAncestor() else { return }
+            self.scrollView = scrollView
+            observation = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] scrollView, _ in
+                self?.checkNearBottom(scrollView)
+            }
+            // Also check once immediately — content shorter than one
+            // screen (nothing to scroll at all) would otherwise never
+            // trigger a `contentOffset` change to check from.
+            checkNearBottom(scrollView)
+        }
+
+        private func nearestScrollViewAncestor() -> UIScrollView? {
+            var candidate = hostView?.superview
+            while let view = candidate {
+                if let scrollView = view as? UIScrollView { return scrollView }
+                candidate = view.superview
+            }
+            return nil
+        }
+
+        private func checkNearBottom(_ scrollView: UIScrollView) {
+            let distanceFromBottom = scrollView.contentSize.height
+                - (scrollView.contentOffset.y + scrollView.bounds.height)
+            guard distanceFromBottom < scrollView.bounds.height else { return }
+            onNearBottom()
+        }
+
+        func detach() {
+            observation?.invalidate()
+            observation = nil
+            scrollView = nil
+        }
     }
 }
 
