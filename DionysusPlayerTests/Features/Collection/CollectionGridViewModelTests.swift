@@ -176,19 +176,25 @@ final class CollectionGridViewModelTests: XCTestCase {
     /// Three movies with deliberately overlapping/non-overlapping genres,
     /// studios, and decades, so filter combinations actually distinguish
     /// them from one another.
+    /// `movie-1` is watched, `movie-2` is favorited — chosen so watch-status
+    /// and favorites each split the set differently than genre/studio/decade
+    /// do, exercising them independently.
     private func makeFilterableMovies() -> [BaseItemDto] {
         [
             BaseItemDto(
                 id: "movie-1", name: "Arrival", type: .movie, productionYear: 2016,
-                genres: ["Sci-Fi", "Drama"], studios: [NameGuidPair(name: "Paramount", id: "s1")]
+                genres: ["Sci-Fi", "Drama"], studios: [NameGuidPair(name: "Paramount", id: "s1")],
+                userData: UserItemDataDto(played: true, isFavorite: false)
             ),
             BaseItemDto(
                 id: "movie-2", name: "The Matrix", type: .movie, productionYear: 1999,
-                genres: ["Sci-Fi", "Action"], studios: [NameGuidPair(name: "Warner Bros.", id: "s2")]
+                genres: ["Sci-Fi", "Action"], studios: [NameGuidPair(name: "Warner Bros.", id: "s2")],
+                userData: UserItemDataDto(played: false, isFavorite: true)
             ),
             BaseItemDto(
                 id: "movie-3", name: "Inception", type: .movie, productionYear: 2010,
-                genres: ["Sci-Fi", "Action"], studios: [NameGuidPair(name: "Warner Bros.", id: "s2")]
+                genres: ["Sci-Fi", "Action"], studios: [NameGuidPair(name: "Warner Bros.", id: "s2")],
+                userData: UserItemDataDto(played: false, isFavorite: false)
             ),
         ]
     }
@@ -342,6 +348,88 @@ final class CollectionGridViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.filteredItems.isEmpty, "No movie is both Drama and Warner Bros.")
     }
 
+    // MARK: watched/favorites filters
+
+    func test_availableWatchStatuses_bothPresentWhenNoOtherFilterActive() async {
+        let viewModel = await makeLoadedViewModel()
+        XCTAssertEqual(viewModel.availableWatchStatuses, [.watched, .unwatched])
+    }
+
+    func test_filteredItems_byWatchStatus_watched() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setWatchStatusFilter(.watched)
+        XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-1"])
+    }
+
+    func test_filteredItems_byWatchStatus_unwatched() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setWatchStatusFilter(.unwatched)
+        XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-2", "movie-3"])
+    }
+
+    func test_hasAvailableFavorites_trueWhenAnyFavoriteExists() async {
+        let viewModel = await makeLoadedViewModel()
+        XCTAssertTrue(viewModel.hasAvailableFavorites)
+    }
+
+    func test_filteredItems_byFavoritesOnly() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setFavoritesOnly(true)
+        XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-2"])
+    }
+
+    func test_filteredItems_favoritesOnly_clearedRestoresEverything() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setFavoritesOnly(true)
+        XCTAssertEqual(viewModel.filteredItems.count, 1)
+
+        viewModel.setFavoritesOnly(false)
+        XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-1", "movie-2", "movie-3"])
+    }
+
+    /// Same cascading behavior as genre/studio/decade: watch-status and
+    /// favorites narrow the *other* facets, and are themselves narrowed by
+    /// the others — not exempt from the funnel just because they're
+    /// user-data-derived rather than metadata-derived.
+    func test_availableWatchStatuses_narrowedByOtherActiveFacets() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setGenreFilter("Drama")
+        XCTAssertEqual(viewModel.availableWatchStatuses, [.watched], "Only movie-1 (watched) is Drama")
+    }
+
+    func test_hasAvailableFavorites_falseWhenNoFavoriteMatchesOtherActiveFacets() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setGenreFilter("Drama")
+        XCTAssertFalse(viewModel.hasAvailableFavorites, "movie-1, the only Drama film, isn't a favorite")
+    }
+
+    func test_availableGenres_narrowedBySelectedWatchStatus() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setWatchStatusFilter(.watched)
+        XCTAssertEqual(viewModel.availableGenres, ["Drama", "Sci-Fi"], "Only movie-1 is watched")
+    }
+
+    func test_availableGenres_narrowedByFavoritesOnly() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setFavoritesOnly(true)
+        XCTAssertEqual(viewModel.availableGenres, ["Action", "Sci-Fi"], "Only movie-2 is a favorite")
+    }
+
+    // MARK: randomItem
+
+    func test_randomItem_picksFromFilteredItems() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setGenreFilter("Drama")
+        XCTAssertEqual(viewModel.randomItem()?.id, "movie-1", "Only one match — the \"random\" pick is deterministic")
+    }
+
+    func test_randomItem_nilWhenNothingMatchesActiveFilters() async {
+        let viewModel = await makeLoadedViewModel()
+        viewModel.setGenreFilter("Drama")
+        viewModel.setStudioFilter("Warner Bros.")
+        XCTAssertNil(viewModel.randomItem())
+    }
+
     // MARK: hasActiveFilters / resetFilters
 
     func test_hasActiveFilters_falseWhenNoneSelected() async {
@@ -361,13 +449,23 @@ final class CollectionGridViewModelTests: XCTestCase {
         let decadeOnly = await makeLoadedViewModel()
         decadeOnly.setDecadeFilter(2010)
         XCTAssertTrue(decadeOnly.hasActiveFilters)
+
+        let watchStatusOnly = await makeLoadedViewModel()
+        watchStatusOnly.setWatchStatusFilter(.watched)
+        XCTAssertTrue(watchStatusOnly.hasActiveFilters)
+
+        let favoritesOnly = await makeLoadedViewModel()
+        favoritesOnly.setFavoritesOnly(true)
+        XCTAssertTrue(favoritesOnly.hasActiveFilters)
     }
 
-    func test_resetFilters_clearsAllThreeAndRestoresEverything() async {
+    func test_resetFilters_clearsEveryFilterAndRestoresEverything() async {
         let viewModel = await makeLoadedViewModel()
         viewModel.setGenreFilter("Sci-Fi")
         viewModel.setStudioFilter("Warner Bros.")
         viewModel.setDecadeFilter(2010)
+        viewModel.setWatchStatusFilter(.unwatched)
+        viewModel.setFavoritesOnly(true)
         XCTAssertTrue(viewModel.hasActiveFilters)
 
         viewModel.resetFilters()
@@ -376,6 +474,8 @@ final class CollectionGridViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.selectedGenre)
         XCTAssertNil(viewModel.selectedStudio)
         XCTAssertNil(viewModel.selectedDecade)
+        XCTAssertNil(viewModel.selectedWatchStatus)
+        XCTAssertFalse(viewModel.isFavoritesOnly)
         XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-1", "movie-2", "movie-3"])
     }
 }

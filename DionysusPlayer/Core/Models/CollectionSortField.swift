@@ -41,3 +41,16 @@ enum CollectionSortOrder: CaseIterable, Identifiable, Hashable {
         }
     }
 }
+
+/// The "Watched" filter facet in `CollectionGridView` — whether an item has
+/// been fully watched (`MediaItem.isPlayed`) or not, mirroring the
+/// genre/studio/decade facets in shape (an `Optional` selection on the
+/// view model, `nil` meaning "no filter"). Kept as a two-case enum rather
+/// than a plain `Bool?` so the filter pill has real, self-describing display
+/// values instead of `true`/`false`.
+enum CollectionWatchStatus: CaseIterable, Identifiable, Hashable {
+    case watched
+    case unwatched
+
+    var id: Self { self }
+}

@@ -19,6 +19,11 @@ final class CollectionGridViewModel {
     private(set) var selectedStudio: String?
     /// A decade's start year (e.g. `2010`), matching `MediaItem.decade`.
     private(set) var selectedDecade: Int?
+    private(set) var selectedWatchStatus: CollectionWatchStatus?
+    /// Unlike the other filters, this is a plain toggle rather than an
+    /// `Optional` selection — there's no third "unfavorited only" state
+    /// worth exposing.
+    private(set) var isFavoritesOnly = false
 
     private let client: JellyfinAPIClient
     private let userID: String
@@ -48,38 +53,75 @@ final class CollectionGridViewModel {
             .sorted(by: >)
     }
 
-    /// `items` narrowed by whichever of `selectedGenre`/`selectedStudio`/
-    /// `selectedDecade` are set (AND across all three that are set) — what
-    /// `CollectionGridView`'s grid actually renders.
+    /// Which of `.watched`/`.unwatched` actually occur among items matching
+    /// the *other* active filters — same cascading logic as the other
+    /// facets, just over a fixed two-value domain instead of data-derived
+    /// strings/ints. `CollectionGridView` only shows this pill at all when
+    /// this comes back non-empty (both possible values collapse to empty
+    /// only when there are no items left at all, same as any other facet).
+    var availableWatchStatuses: [CollectionWatchStatus] {
+        let candidates = matchingItems(applyGenre: true, applyStudio: true, applyDecade: true, applyWatchStatus: false)
+        var result: [CollectionWatchStatus] = []
+        if candidates.contains(where: \.isPlayed) { result.append(.watched) }
+        if candidates.contains(where: { !$0.isPlayed }) { result.append(.unwatched) }
+        return result
+    }
+
+    /// Whether at least one favorite exists among items matching the other
+    /// active filters — `CollectionGridView` only shows the Favorites toggle
+    /// while this (or `isFavoritesOnly` itself, so an already-active toggle
+    /// doesn't vanish out from under the user) is true.
+    var hasAvailableFavorites: Bool {
+        matchingItems(applyGenre: true, applyStudio: true, applyDecade: true, applyFavorites: false)
+            .contains(where: \.isFavorite)
+    }
+
+    /// `items` narrowed by every active filter (AND across all of them) —
+    /// what `CollectionGridView`'s grid actually renders, and the pool
+    /// `randomItem()` picks from.
     var filteredItems: [MediaItem] {
         matchingItems(applyGenre: true, applyStudio: true, applyDecade: true)
     }
 
-    /// Shared machinery behind `filteredItems` (all three filters applied)
-    /// and each `available*` property (the *other* two applied, excluding
-    /// itself — computing a facet's own option list against its own
+    /// A uniformly-random pick from `filteredItems`, for the toolbar's dice
+    /// button — `nil` only when nothing currently matches (button is
+    /// disabled in that case).
+    func randomItem() -> MediaItem? {
+        filteredItems.randomElement()
+    }
+
+    /// Shared machinery behind `filteredItems` (every filter applied) and
+    /// each `available*` property (every filter *except its own facet*
+    /// applied — computing a facet's own option list against its own
     /// current selection would trivially collapse it to just that one
-    /// value). Because every facet's list is always computed from
-    /// whichever of the *other two* are currently selected, anything it
-    /// offers is guaranteed compatible with the current selections — the
-    /// user can never pick a combination that leads to zero results, and
-    /// nothing needs to reactively invalidate/clear a stale selection when
-    /// another filter changes: unreachable options simply never appear as
-    /// choices in the first place. Since these are all plain computed
-    /// properties over `items`/`selectedGenre`/`selectedStudio`/
-    /// `selectedDecade`, clearing any filter (`nil`) automatically widens
-    /// the others back out too — no separate "unfilter" handling needed.
-    private func matchingItems(applyGenre: Bool, applyStudio: Bool, applyDecade: Bool) -> [MediaItem] {
+    /// value). Because every facet's list is always computed from whichever
+    /// of the *other* facets are currently selected, anything it offers is
+    /// guaranteed compatible with the current selections — the user can
+    /// never pick a combination that leads to zero results, and nothing
+    /// needs to reactively invalidate/clear a stale selection when another
+    /// filter changes: unreachable options simply never appear as choices
+    /// in the first place. Since these are all plain computed properties
+    /// over `items` and the `selected*`/`isFavoritesOnly` state, clearing
+    /// any filter automatically widens the others back out too — no
+    /// separate "unfilter" handling needed.
+    private func matchingItems(
+        applyGenre: Bool, applyStudio: Bool, applyDecade: Bool,
+        applyWatchStatus: Bool = true, applyFavorites: Bool = true
+    ) -> [MediaItem] {
         items.filter { item in
             (!applyGenre || selectedGenre == nil || item.genres.contains(selectedGenre!))
                 && (!applyStudio || selectedStudio == nil || item.studios.contains(selectedStudio!))
                 && (!applyDecade || selectedDecade == nil || item.decade == selectedDecade)
+                && (!applyWatchStatus || selectedWatchStatus == nil
+                    || item.isPlayed == (selectedWatchStatus == .watched))
+                && (!applyFavorites || !isFavoritesOnly || item.isFavorite)
         }
     }
 
     /// Whether `CollectionGridView` should show its "Reset" control.
     var hasActiveFilters: Bool {
         selectedGenre != nil || selectedStudio != nil || selectedDecade != nil
+            || selectedWatchStatus != nil || isFavoritesOnly
     }
 
     init(client: JellyfinAPIClient, userID: String, query: CollectionQuery) {
@@ -126,12 +168,22 @@ final class CollectionGridViewModel {
         selectedDecade = decade
     }
 
-    /// Clears all three filters at once — `CollectionGridView`'s Reset
+    func setWatchStatusFilter(_ status: CollectionWatchStatus?) {
+        selectedWatchStatus = status
+    }
+
+    func setFavoritesOnly(_ isFavoritesOnly: Bool) {
+        self.isFavoritesOnly = isFavoritesOnly
+    }
+
+    /// Clears every active filter at once — `CollectionGridView`'s Reset
     /// control, shown only while `hasActiveFilters` is true.
     func resetFilters() {
         selectedGenre = nil
         selectedStudio = nil
         selectedDecade = nil
+        selectedWatchStatus = nil
+        isFavoritesOnly = false
     }
 
     func load() async {
