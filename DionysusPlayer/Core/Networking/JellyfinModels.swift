@@ -157,11 +157,15 @@ struct PlaybackInfoResponse: Codable {
 
 struct MediaSourceInfo: Codable, Identifiable {
     var id: String?
-    /// Server-computed, usually filename-derived (e.g. "Movie.Name.2160p.
-    /// HDR-GROUP mkv") — a raw fallback label for `MediaItem.mediaVersions`
-    /// when a version's resolution/dynamic-range can't be read from its
-    /// streams; everywhere else, prefer a friendlier derived string over
-    /// this.
+    /// Server-computed, filename-derived (e.g. "[imdbid-tt8579674] -
+    /// [Bluray-2160p][HDR10][x265]-GROUP", or that same string plus
+    /// " - Extended Version"/" - 1080p" appended for an alternate cut,
+    /// per Jellyfin's multi-version naming convention). `MediaItem
+    /// .mediaVersions` diffs this against the item's other sources to
+    /// recover a filename-derived edition name (see its
+    /// `canonicalSourceName`/`editionLabel`), and falls back to using it
+    /// as a raw label only when no such relationship is found; everywhere
+    /// else, prefer a friendlier derived string over this.
     var name: String?
     var path: String?
     var container: String?

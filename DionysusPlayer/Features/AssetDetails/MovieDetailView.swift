@@ -45,7 +45,7 @@ struct MovieDetailView: View {
 
                     if !viewModel.collections.isEmpty {
                         MediaRailView(rail: MediaCollectionRail(
-                            title: String(localized: "Part of These Collections"), items: viewModel.collections
+                            title: String(localized: "Included In"), items: viewModel.collections
                         ))
                     }
 

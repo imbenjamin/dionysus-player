@@ -232,13 +232,16 @@ struct MediaItem: Identifiable {
     }
 
     /// Every distinct media file backing this item, when there's more than
-    /// one — Jellyfin calls these an item's "versions": a 4K UHD remux
-    /// uploaded alongside a separate 1080p encode, say, each its own file
-    /// with its own container/streams/subtitles, all listed in
-    /// `mediaSources`. Empty whenever there's nothing to choose between: no
-    /// media file at all (Series/Season), or the overwhelmingly common
-    /// single-version case — `TechnicalDetailsView`'s version picker only
-    /// shows up when this has more than one entry, per its call site.
+    /// one — Jellyfin calls these an item's "versions". These aren't always
+    /// a technical variant (a 4K UHD remux alongside a separate 1080p
+    /// encode) — they're just as often an edition the uploader chose to
+    /// keep alongside the original (a "Director's Cut", "Extended
+    /// Version", "Black and White" cut, etc.) with identical or
+    /// near-identical technical specs, all listed in `mediaSources`. Empty
+    /// whenever there's nothing to choose between: no media file at all
+    /// (Series/Season), or the overwhelmingly common single-version case —
+    /// `TechnicalDetailsView`'s version picker only shows up when this has
+    /// more than one entry, per its call site.
     ///
     /// Ordered exactly as the server returns `mediaSources` — Jellyfin
     /// itself puts the version it'd pick for direct play first, so the
@@ -246,9 +249,34 @@ struct MediaItem: Identifiable {
     /// `metadataBadges` both implicitly use it).
     var mediaVersions: [MediaVersion] {
         guard let sources = dto.mediaSources, sources.count > 1 else { return [] }
+        // The filename-derived edition name (see `editionLabel`) takes
+        // priority over the resolution/dynamic-range bucket whenever
+        // Jellyfin's naming convention lets us recover one — it's what the
+        // uploader actually called this version, which a technical bucket
+        // can't express (and, for a same-spec alternate cut, can't even
+        // distinguish from the original at all). The base/canonical version
+        // itself is always labeled "Original" in that case, rather than
+        // guessing at a resolution/HDR label for it — see the comment below.
+        let canonicalName = Self.canonicalSourceName(sources)
         var seenLabels: Set<String> = []
         return sources.enumerated().map { index, source in
-            var label = Self.versionLabel(for: source, fallbackIndex: index)
+            var label: String
+            if let canonicalName {
+                // We've confirmed this item follows Jellyfin's naming
+                // convention (every source's name either matches
+                // `canonicalName` or extends it), so we know which source
+                // is the base one — but not what dimension the *other*
+                // versions differ by, since that's whatever the uploader
+                // chose to call them. Labeling the base version by a
+                // resolution/HDR guess would imply that's the convention in
+                // play even when it isn't (e.g. an "Extended Version"
+                // alongside an identically-encoded original); "Original" is
+                // the one label that's never a wrong assumption.
+                label = Self.editionLabel(for: source, canonicalName: canonicalName)
+                    ?? String(localized: "Original")
+            } else {
+                label = Self.versionLabel(for: source, fallbackIndex: index)
+            }
             // Disambiguate the rare case two versions land on the same
             // coarse label (e.g. two 1080p SDR encodes) — better than
             // silently offering two menu entries a user can't tell apart.
@@ -325,12 +353,16 @@ struct MediaItem: Identifiable {
         return badges
     }
 
-    /// Coarse resolution+dynamic-range label for one `mediaVersions` entry,
-    /// e.g. "4K HDR10" or "1080p" — deliberately the same coarse buckets
-    /// `metadataBadges` uses (via `dynamicRangeBadge`/`resolutionCommonName`
-    /// below), not `technicalDetails`' exact dimensions/format string,
-    /// since this needs to read at a glance in a picker, not document the
-    /// file precisely. Falls back to the server's own (raw, filename-ish)
+    /// `mediaVersions`' fallback labeling, used whenever `editionLabel`
+    /// can't recover a filename-derived edition name (Jellyfin's naming
+    /// convention wasn't followed, or this genuinely is just a plain
+    /// technical alternate with no edition of its own). Coarse
+    /// resolution+dynamic-range label for one entry, e.g. "4K HDR10" or
+    /// "1080p" — deliberately the same coarse buckets `metadataBadges`
+    /// uses (via `dynamicRangeBadge`/`resolutionCommonName` below), not
+    /// `technicalDetails`' exact dimensions/format string, since this needs
+    /// to read at a glance in a picker, not document the file precisely.
+    /// Falls back to the server's own (raw, filename-ish)
     /// `MediaSourceInfo.name` when neither a recognized resolution nor
     /// dynamic range is available to build a label from, and finally to a
     /// generic "Version N" if even that's missing.
@@ -347,6 +379,49 @@ struct MediaItem: Identifiable {
         if !parts.isEmpty { return parts.joined(separator: " ") }
         if let name = source.name, !name.isEmpty { return name }
         return String(localized: "Version \(fallbackIndex + 1)")
+    }
+
+    /// The base filename every alternate version's `MediaSourceInfo.name`
+    /// is expected to extend, per Jellyfin's own multi-version naming
+    /// convention: alternate cuts live alongside the primary file as
+    /// `<primary file name> - <edition name>.ext` (e.g. a theatrical cut
+    /// named `Movie - [Bluray-2160p]-GROUP.mkv` and an extended cut named
+    /// `Movie - [Bluray-2160p]-GROUP - Extended Version.mkv`).
+    /// `MediaSourceInfo.name` is the filename-derived stem the server
+    /// already computes — confirmed against a real multi-version item on a
+    /// test server, where two sources' raw `name`s were identical except
+    /// the alternate had `" - 1080p"` appended — so the canonical source is
+    /// whichever one is a literal prefix of every other source's name.
+    /// `nil` when that relationship doesn't hold (a name missing, or this
+    /// set of versions simply doesn't follow the convention); callers
+    /// should fall back to `versionLabel`'s resolution/dynamic-range
+    /// bucketing in that case.
+    ///
+    /// Deliberately not "split every name on ` - ` and take the last
+    /// piece": real filenames routinely contain unrelated dashes of their
+    /// own (release-group tags like `[Bluray-2160p]` or `x265]-GROUP`), so
+    /// only a prefix comparison against a known canonical name can isolate
+    /// the actual edition suffix reliably.
+    private static func canonicalSourceName(_ sources: [MediaSourceInfo]) -> String? {
+        let names = sources.map { $0.name ?? "" }
+        guard sources.count > 1, names.allSatisfy({ !$0.isEmpty }) else { return nil }
+        return names.first { candidate in
+            names.allSatisfy { $0 == candidate || $0.hasPrefix(candidate + " - ") }
+        }
+    }
+
+    /// The edition name Jellyfin's filename convention encodes for one
+    /// version relative to `canonicalName` (see `canonicalSourceName`
+    /// above) — e.g. `"Extended Version"`, `"1080p"`, `"Black and White"` —
+    /// verbatim, exactly as the uploader named it. `nil` for the canonical
+    /// version itself (nothing to show) or when this source's name doesn't
+    /// extend `canonicalName` at all.
+    private static func editionLabel(for source: MediaSourceInfo, canonicalName: String?) -> String? {
+        guard let canonicalName, let name = source.name, name != canonicalName else { return nil }
+        let prefix = canonicalName + " - "
+        guard name.hasPrefix(prefix) else { return nil }
+        let suffix = String(name.dropFirst(prefix.count))
+        return suffix.isEmpty ? nil : suffix
     }
 
     /// Shared by `metadataBadges` (resolution/dynamic-range badges on the

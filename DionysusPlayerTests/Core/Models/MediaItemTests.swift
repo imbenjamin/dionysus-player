@@ -308,6 +308,61 @@ final class MediaItemTests: XCTestCase {
         XCTAssertEqual(item.mediaVersions.map(\.label), ["Director's Cut", "Version 2"])
     }
 
+    /// Jellyfin's own multi-version naming convention: an alternate cut's
+    /// raw `name` is the canonical source's `name` with " - <edition>"
+    /// appended (confirmed against a real multi-version item on a test
+    /// server). `mediaVersions` prefers that filename-derived edition name
+    /// over the resolution/dynamic-range bucket — the two sources here have
+    /// *identical* technical specs, so the bucket alone couldn't even tell
+    /// them apart.
+    func test_mediaVersions_prefersFilenameDerivedEditionNameOverTechnicalBucket() {
+        let canonicalName = "[imdbid-tt8579674] - [Bluray-2160p][HDR10][x265]-GROUP"
+        let original = MediaSourceInfo(id: "src-original", name: canonicalName, mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "hevc", width: 3840, height: 1606, videoRangeType: "HDR10")
+        ])
+        let extended = MediaSourceInfo(id: "src-extended", name: canonicalName + " - Extended Version", mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "hevc", width: 3840, height: 1606, videoRangeType: "HDR10")
+        ])
+        let item = makeMovie(mediaSources: [original, extended])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["Original", "Extended Version"])
+    }
+
+    /// A purely technical alternate (no edition name of its own) still gets
+    /// its label read straight off the filename — Jellyfin uses the exact
+    /// same " - <suffix>" convention for a plain resolution alternate as it
+    /// does for a named cut. The canonical version is still labeled
+    /// "Original", not a resolution/HDR guess, even though in this
+    /// particular case a technical bucket would've been just as accurate —
+    /// `mediaVersions` doesn't special-case that, since it has no way to
+    /// tell a technical suffix from a descriptive one in general.
+    func test_mediaVersions_editionSuffixCanItselfBeATechnicalLabel() {
+        let canonicalName = "[imdbid-tt8579674] - [Bluray-2160p][HDR10][x265]-GROUP"
+        let original = MediaSourceInfo(id: "src-4k", name: canonicalName, mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "hevc", width: 3840, height: 1606, videoRangeType: "HDR10")
+        ])
+        let downscaled = MediaSourceInfo(id: "src-1080p", name: canonicalName + " - 1080p", mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "h264", width: 1920, height: 804)
+        ])
+        let item = makeMovie(mediaSources: [original, downscaled])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["Original", "1080p"])
+    }
+
+    /// Names that don't share the "canonical + ' - ' + suffix" relationship
+    /// (independently-named files that don't follow Jellyfin's convention)
+    /// fall back to the resolution/dynamic-range bucket exactly as before —
+    /// a real dash inside one of the names (a release-group tag) must not
+    /// be mistaken for an edition separator.
+    func test_mediaVersions_fallsBackToTechnicalBucketWhenNamesDontShareACommonPrefix() {
+        let unrelatedA = MediaSourceInfo(id: "src-a", name: "[Bluray-2160p]-GROUPONE", mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "hevc", width: 3840, height: 1606, videoRangeType: "HDR10")
+        ])
+        let unrelatedB = MediaSourceInfo(id: "src-b", name: "[WEBDL-1080p]-GROUPTWO", mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "h264", width: 1920, height: 804)
+        ])
+        let item = makeMovie(mediaSources: [unrelatedA, unrelatedB])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["4K HDR10", "1080p"])
+    }
+
     func test_technicalDetailsForVersion_selectsTheMatchingSource() {
         let item = makeMovie(mediaSources: [make4KSource(), make1080pSource()])
         XCTAssertEqual(item.technicalDetails(forVersion: "src-4k")?.resolution, "3840\u{00D7}1606 (4K)")
