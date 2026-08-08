@@ -176,6 +176,7 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(result.id, "item-1")
         XCTAssertTrue((capturedQuery["Fields"] ?? "").contains("MediaSources"))
         XCTAssertTrue((capturedQuery["Fields"] ?? "").contains("People"), "Cast & Crew tab needs this")
+        XCTAssertTrue((capturedQuery["Fields"] ?? "").contains("Taglines"), "About tab's tagline needs this")
     }
 
     func test_decodingFailure_surfacesAsDecodingError() async {

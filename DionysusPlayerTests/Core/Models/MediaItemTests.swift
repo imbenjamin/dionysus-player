@@ -257,6 +257,30 @@ final class MediaItemTests: XCTestCase {
         XCTAssertNil(makeMovie().technicalDetails)
     }
 
+    // MARK: tagline
+
+    private func makeMovie(taglines: [String]?) -> MediaItem {
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", taglines: taglines, type: .movie)
+        return MediaItem(dto: dto, images: images)
+    }
+
+    func test_tagline_firstEntry() {
+        XCTAssertEqual(makeMovie(taglines: ["Not alone.", "A second, unused tagline"]).tagline, "Not alone.")
+    }
+
+    func test_tagline_nilWhenMissing() {
+        XCTAssertNil(makeMovie(taglines: nil).tagline)
+    }
+
+    func test_tagline_nilWhenOnlyEmptyStringsPresent() {
+        XCTAssertNil(makeMovie(taglines: [""]).tagline)
+    }
+
+    /// A leading empty entry shouldn't shadow a real tagline after it.
+    func test_tagline_skipsLeadingEmptyEntries() {
+        XCTAssertEqual(makeMovie(taglines: ["", "Some assembly required."]).tagline, "Some assembly required.")
+    }
+
     // MARK: mediaVersions / technicalDetails(forVersion:)
     // `makeMovie(mediaSources:)` below is shared with the "metadataBadges"
     // section further down.

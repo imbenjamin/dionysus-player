@@ -50,6 +50,14 @@ struct MediaItem: Identifiable {
     var id: String { dto.id }
     var name: String { dto.name }
     var overview: String? { dto.overview }
+    /// The marketing tagline (e.g. "Some assembly required."), shown above
+    /// the synopsis on the About tab. Jellyfin models this as an array
+    /// (`Taglines`) but populates at most one for movies/shows in practice
+    /// — first non-empty entry, `nil` if there isn't one. Only present when
+    /// fetched via `Fields=Taglines` (see `JellyfinAPIClient.detailFields`
+    /// — the detail page's own item fetch, not rail/list fetches, where a
+    /// tagline is never shown and not worth the extra payload).
+    var tagline: String? { dto.taglines?.first { !$0.isEmpty } }
     var kind: BaseItemKind { dto.type }
     var genres: [String] { dto.genres ?? [] }
     var studios: [String] { dto.studios?.map(\.name) ?? [] }

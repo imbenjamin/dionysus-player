@@ -57,6 +57,10 @@ struct BaseItemDto: Codable, Identifiable {
     var id: String
     var name: String
     var overview: String?
+    /// Marketing taglines. Jellyfin models this as an array but populates
+    /// at most one entry in practice; only requested via `Fields=Taglines`
+    /// on the detail page's own item fetch — see `MediaItem.tagline`.
+    var taglines: [String]?
     var type: BaseItemKind
 
     var productionYear: Int?

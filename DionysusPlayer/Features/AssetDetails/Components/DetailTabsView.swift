@@ -68,8 +68,13 @@ struct DetailTabsView: View {
     }
 }
 
-/// Genres above the synopsis — moved here from `InfoMetadataRow`, which
-/// used to show genres inline with year/rating/duration on every page.
+/// Genres, then the marketing tagline (if any), then the synopsis — genres
+/// moved here from `InfoMetadataRow`, which used to show them inline with
+/// year/rating/duration on every page. The tagline is styled as a larger
+/// italicized subheader in full-contrast text — bigger than both the
+/// plain-subheadline genre line above it and the synopsis below, since
+/// it's the one marketing-voice line on the page and is meant to stand out
+/// at a glance, not read as ordinary metadata or prose.
 private struct AboutTabContent: View {
     let item: MediaItem
 
@@ -79,6 +84,12 @@ private struct AboutTabContent: View {
                 Text(item.genres.joined(separator: " \u{00B7} "))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+            }
+
+            if let tagline = item.tagline, !tagline.isEmpty {
+                Text(tagline)
+                    .font(.title3.italic())
+                    .foregroundStyle(.primary)
             }
 
             if let overview = item.overview, !overview.isEmpty {
