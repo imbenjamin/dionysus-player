@@ -13,7 +13,18 @@ struct MovieDetailView: View {
                     HeroHeaderView(item: item)
 
                     VStack(alignment: .leading, spacing: 16) {
+                        // Keyed for the same reason as `DetailTabsView`
+                        // below: `item.metadataBadges` is empty on
+                        // `AssetDetailViewModel`'s preloaded, MediaSources-
+                        // less item and only populates once `load()`
+                        // resolves the full item, but this view holds
+                        // `item` as a plain, non-`Equatable` `let` — without
+                        // forcing a fresh identity here, the badge line
+                        // never appears until something else remounts this
+                        // view. See `DetailTabsView.availableTabs`'s doc
+                        // comment for the full story.
                         InfoMetadataRow(item: item)
+                            .id(item.technicalDetails == nil)
 
                         PlayResumeButtonRow(
                             item: item,

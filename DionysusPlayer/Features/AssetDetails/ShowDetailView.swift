@@ -14,7 +14,11 @@ struct ShowDetailView: View {
                     HeroHeaderView(item: item)
 
                     VStack(alignment: .leading, spacing: 16) {
+                        // See `MovieDetailView`'s matching call site — a
+                        // no-op for a Show in practice (Series never have
+                        // `technicalDetails`), kept for consistency.
                         InfoMetadataRow(item: item)
+                            .id(item.technicalDetails == nil)
 
                         PlayResumeButtonRow(
                             item: item,
