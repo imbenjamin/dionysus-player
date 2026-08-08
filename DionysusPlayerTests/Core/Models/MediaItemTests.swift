@@ -257,6 +257,69 @@ final class MediaItemTests: XCTestCase {
         XCTAssertNil(makeMovie().technicalDetails)
     }
 
+    // MARK: mediaVersions / technicalDetails(forVersion:)
+    // `makeMovie(mediaSources:)` below is shared with the "metadataBadges"
+    // section further down.
+
+    private func make4KSource(id: String = "src-4k") -> MediaSourceInfo {
+        MediaSourceInfo(
+            id: id, container: "mkv",
+            mediaStreams: [MediaStream(index: 0, type: "Video", codec: "hevc", width: 3840, height: 1606, videoRangeType: "HDR10")]
+        )
+    }
+
+    private func make1080pSource(id: String = "src-1080p") -> MediaSourceInfo {
+        MediaSourceInfo(
+            id: id, container: "mkv",
+            mediaStreams: [MediaStream(index: 0, type: "Video", codec: "h264", width: 1920, height: 804)]
+        )
+    }
+
+    func test_mediaVersions_emptyForASingleVersion() {
+        XCTAssertEqual(makeMovie(mediaSources: [make4KSource()]).mediaVersions, [])
+    }
+
+    func test_mediaVersions_emptyWhenNoMediaSourcesAtAll() {
+        XCTAssertEqual(makeMovie().mediaVersions, [])
+    }
+
+    func test_mediaVersions_labelsCombineResolutionAndDynamicRange() {
+        let item = makeMovie(mediaSources: [make4KSource(), make1080pSource()])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["4K HDR10", "1080p"])
+        XCTAssertEqual(item.mediaVersions.map(\.id), ["src-4k", "src-1080p"])
+    }
+
+    /// Two sources that land on the same coarse label (e.g. two plain 1080p
+    /// SDR encodes) still need to read as distinguishable menu entries.
+    func test_mediaVersions_disambiguatesIdenticalLabels() {
+        let item = makeMovie(mediaSources: [
+            make1080pSource(id: "src-a"), make1080pSource(id: "src-b")
+        ])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["1080p", "1080p (2)"])
+    }
+
+    /// No recognizable resolution/dynamic range to build a label from (e.g.
+    /// an audio-only or metadata-less source) falls back to the server's
+    /// own raw `Name`, then finally a generic placeholder.
+    func test_mediaVersions_fallsBackToSourceNameThenGenericPlaceholder() {
+        let named = MediaSourceInfo(id: "src-1", name: "Director's Cut", mediaStreams: [])
+        let unnamed = MediaSourceInfo(id: "src-2", mediaStreams: [])
+        let item = makeMovie(mediaSources: [named, unnamed])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["Director's Cut", "Version 2"])
+    }
+
+    func test_technicalDetailsForVersion_selectsTheMatchingSource() {
+        let item = makeMovie(mediaSources: [make4KSource(), make1080pSource()])
+        XCTAssertEqual(item.technicalDetails(forVersion: "src-4k")?.resolution, "3840\u{00D7}1606 (4K)")
+        XCTAssertEqual(item.technicalDetails(forVersion: "src-1080p")?.resolution, "1920\u{00D7}804 (1080p)")
+    }
+
+    func test_technicalDetailsForVersion_fallsBackToFirstSourceForNilOrUnknownID() {
+        let item = makeMovie(mediaSources: [make4KSource(), make1080pSource()])
+        XCTAssertEqual(item.technicalDetails(forVersion: nil)?.resolution, item.technicalDetails?.resolution)
+        XCTAssertEqual(item.technicalDetails(forVersion: "no-such-id")?.resolution, item.technicalDetails?.resolution)
+    }
+
     // MARK: metadataBadges
 
     private func makeMovie(mediaSources: [MediaSourceInfo]) -> MediaItem {

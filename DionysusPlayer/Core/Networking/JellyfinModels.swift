@@ -157,6 +157,12 @@ struct PlaybackInfoResponse: Codable {
 
 struct MediaSourceInfo: Codable, Identifiable {
     var id: String?
+    /// Server-computed, usually filename-derived (e.g. "Movie.Name.2160p.
+    /// HDR-GROUP mkv") — a raw fallback label for `MediaItem.mediaVersions`
+    /// when a version's resolution/dynamic-range can't be read from its
+    /// streams; everywhere else, prefer a friendlier derived string over
+    /// this.
+    var name: String?
     var path: String?
     var container: String?
     var isRemote: Bool?

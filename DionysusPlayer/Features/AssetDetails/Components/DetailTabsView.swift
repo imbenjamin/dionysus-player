@@ -62,7 +62,7 @@ struct DetailTabsView: View {
             case .cast:
                 CastCrewGridView(cast: item.cast)
             case .details:
-                TechnicalDetailsView(details: item.technicalDetails)
+                TechnicalDetailsView(item: item)
             }
         }
     }

@@ -28,6 +28,13 @@ struct TechnicalDetails: Equatable {
     }
 }
 
+/// One entry in the Details tab's version picker — see
+/// `MediaItem.mediaVersions`.
+struct MediaVersion: Identifiable, Hashable {
+    let id: String
+    let label: String
+}
+
 /// View-friendly wrapper around a `BaseItemDto`: precomputed display
 /// strings and image URLs, so feature/view code never touches Jellyfin's
 /// raw field names or tick-based units directly.
@@ -185,11 +192,22 @@ struct MediaItem: Identifiable {
     }
 
     /// Container/codec/resolution/dynamic-range summary plus per-track audio
-    /// and subtitle lists, for the detail page's "Details" tab. `nil` when
-    /// there's no media source at all (e.g. viewing a Series, which has no
-    /// file of its own — only its episodes do).
-    var technicalDetails: TechnicalDetails? {
-        guard let source = dto.mediaSources?.first else { return nil }
+    /// and subtitle lists, for the detail page's "Details" tab's default
+    /// (first/highest-quality) version. `nil` when there's no media source
+    /// at all (e.g. viewing a Series, which has no file of its own — only
+    /// its episodes do). See `technicalDetails(forVersion:)` for a specific
+    /// `mediaVersions` entry instead — this is exactly that with `nil`.
+    var technicalDetails: TechnicalDetails? { technicalDetails(forVersion: nil) }
+
+    /// Same as `technicalDetails`, but for one specific version out of
+    /// `mediaVersions` (`versionID` is a `MediaVersion.id`, i.e. a
+    /// `MediaSourceInfo.id`) — what `TechnicalDetailsView`'s version picker
+    /// switches between. `nil` falls back to the first/default source, same
+    /// as the no-argument `technicalDetails`; an unrecognized `versionID`
+    /// (shouldn't happen — the picker only ever offers ids from
+    /// `mediaVersions`) does too, rather than showing nothing.
+    func technicalDetails(forVersion versionID: String?) -> TechnicalDetails? {
+        guard let source = Self.mediaSource(in: dto, matching: versionID) else { return nil }
         let streams = source.mediaStreams ?? []
         let videoStream = streams.first { $0.type == "Video" }
 
@@ -211,6 +229,34 @@ struct MediaItem: Identifiable {
             subtitleTracks: streams.filter { $0.type == "Subtitle" }.map(Self.trackLabel)
         )
         return details.isEmpty ? nil : details
+    }
+
+    /// Every distinct media file backing this item, when there's more than
+    /// one — Jellyfin calls these an item's "versions": a 4K UHD remux
+    /// uploaded alongside a separate 1080p encode, say, each its own file
+    /// with its own container/streams/subtitles, all listed in
+    /// `mediaSources`. Empty whenever there's nothing to choose between: no
+    /// media file at all (Series/Season), or the overwhelmingly common
+    /// single-version case — `TechnicalDetailsView`'s version picker only
+    /// shows up when this has more than one entry, per its call site.
+    ///
+    /// Ordered exactly as the server returns `mediaSources` — Jellyfin
+    /// itself puts the version it'd pick for direct play first, so the
+    /// first entry here doubles as "the default" (`technicalDetails`/
+    /// `metadataBadges` both implicitly use it).
+    var mediaVersions: [MediaVersion] {
+        guard let sources = dto.mediaSources, sources.count > 1 else { return [] }
+        var seenLabels: Set<String> = []
+        return sources.enumerated().map { index, source in
+            var label = Self.versionLabel(for: source, fallbackIndex: index)
+            // Disambiguate the rare case two versions land on the same
+            // coarse label (e.g. two 1080p SDR encodes) — better than
+            // silently offering two menu entries a user can't tell apart.
+            if !seenLabels.insert(label).inserted {
+                label += " (\(index + 1))"
+            }
+            return MediaVersion(id: source.id ?? String(index), label: label)
+        }
     }
 
     /// Small call-out badges for the detail page's metadata row — resolution
@@ -244,16 +290,9 @@ struct MediaItem: Identifiable {
             }
         }
 
-        if let dynamicRangeType = videoStream?.videoRangeType ?? videoStream?.videoRange {
-            if dynamicRangeType.hasPrefix("DOVI") {
-                badges.append("Dolby Vision")
-            } else if dynamicRangeType == "HDR10" {
-                badges.append("HDR10")
-            } else if dynamicRangeType == "HDR10Plus" {
-                badges.append("HDR10+")
-            } else if dynamicRangeType == "HLG" {
-                badges.append("HDR")
-            }
+        if let dynamicRangeType = videoStream?.videoRangeType ?? videoStream?.videoRange,
+           let badge = Self.dynamicRangeBadge(dynamicRangeType) {
+            badges.append(badge)
         }
 
         if audioStreams.contains(where: { $0.audioSpatialFormat == "DolbyAtmos" }) {
@@ -284,6 +323,60 @@ struct MediaItem: Identifiable {
         }
 
         return badges
+    }
+
+    /// Coarse resolution+dynamic-range label for one `mediaVersions` entry,
+    /// e.g. "4K HDR10" or "1080p" — deliberately the same coarse buckets
+    /// `metadataBadges` uses (via `dynamicRangeBadge`/`resolutionCommonName`
+    /// below), not `technicalDetails`' exact dimensions/format string,
+    /// since this needs to read at a glance in a picker, not document the
+    /// file precisely. Falls back to the server's own (raw, filename-ish)
+    /// `MediaSourceInfo.name` when neither a recognized resolution nor
+    /// dynamic range is available to build a label from, and finally to a
+    /// generic "Version N" if even that's missing.
+    private static func versionLabel(for source: MediaSourceInfo, fallbackIndex: Int) -> String {
+        let videoStream = (source.mediaStreams ?? []).first { $0.type == "Video" }
+        var parts: [String] = []
+        if let width = videoStream?.width, let commonName = resolutionCommonName(width: width) {
+            parts.append(commonName)
+        }
+        if let dynamicRangeType = videoStream?.videoRangeType ?? videoStream?.videoRange,
+           let badge = dynamicRangeBadge(dynamicRangeType) {
+            parts.append(badge)
+        }
+        if !parts.isEmpty { return parts.joined(separator: " ") }
+        if let name = source.name, !name.isEmpty { return name }
+        return String(localized: "Version \(fallbackIndex + 1)")
+    }
+
+    /// Shared by `metadataBadges` (resolution/dynamic-range badges on the
+    /// detail page's second metadata line) and `versionLabel` (the version
+    /// picker's per-entry label) — both want the same coarse "Dolby
+    /// Vision"/"HDR10"/"HDR10+"/"HDR" buckets from Jellyfin's raw
+    /// `VideoRangeType`/`VideoRange`, `nil` for plain SDR (no badge/word
+    /// worth showing).
+    private static func dynamicRangeBadge(_ dynamicRangeType: String) -> String? {
+        if dynamicRangeType.hasPrefix("DOVI") { return "Dolby Vision" }
+        switch dynamicRangeType {
+        case "HDR10": return "HDR10"
+        case "HDR10Plus": return "HDR10+"
+        case "HLG": return "HDR"
+        default: return nil
+        }
+    }
+
+    /// Looks up a specific `mediaSources` entry by id, falling back to the
+    /// first/default one when `versionID` is `nil` or doesn't match
+    /// anything — split out of `technicalDetails(forVersion:)` as its own
+    /// function (rather than an inline `flatMap`/`??` one-liner) because
+    /// that inline form made the type-checker choke ("unable to type-check
+    /// this expression in reasonable time").
+    private static func mediaSource(in dto: BaseItemDto, matching versionID: String?) -> MediaSourceInfo? {
+        guard let sources = dto.mediaSources else { return nil }
+        if let versionID, let match = sources.first(where: { $0.id == versionID }) {
+            return match
+        }
+        return sources.first
     }
 
     private static func hasAudioCodec(_ streams: [MediaStream], _ codec: String) -> Bool {
