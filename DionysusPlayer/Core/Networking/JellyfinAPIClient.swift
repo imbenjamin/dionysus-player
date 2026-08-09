@@ -232,8 +232,8 @@ actor JellyfinAPIClient {
 
     // MARK: - Playback
 
-    func playbackInfo(itemID: String, userID: String) async throws -> PlaybackInfoResponse {
-        try await post("/Items/\(itemID)/PlaybackInfo", body: PlaybackInfoRequest(userId: userID))
+    func playbackInfo(itemID: String, userID: String, mediaSourceID: String? = nil) async throws -> PlaybackInfoResponse {
+        try await post("/Items/\(itemID)/PlaybackInfo", body: PlaybackInfoRequest(userId: userID, mediaSourceId: mediaSourceID))
     }
 
     /// Builds a direct-play stream URL. Sufficient for content the device
@@ -262,21 +262,24 @@ actor JellyfinAPIClient {
 
     // MARK: - Playback progress reporting
 
-    func reportPlaybackStart(itemID: String) async throws {
-        try await postNoContent("/Sessions/Playing", body: PlaybackProgressRequest(itemId: itemID, positionTicks: 0))
-    }
-
-    func reportPlaybackProgress(itemID: String, positionTicks: Int64, isPaused: Bool) async throws {
+    func reportPlaybackStart(itemID: String, mediaSourceID: String? = nil) async throws {
         try await postNoContent(
-            "/Sessions/Playing/Progress",
-            body: PlaybackProgressRequest(itemId: itemID, positionTicks: positionTicks, isPaused: isPaused)
+            "/Sessions/Playing",
+            body: PlaybackProgressRequest(itemId: itemID, positionTicks: 0, mediaSourceId: mediaSourceID)
         )
     }
 
-    func reportPlaybackStopped(itemID: String, positionTicks: Int64) async throws {
+    func reportPlaybackProgress(itemID: String, positionTicks: Int64, isPaused: Bool, mediaSourceID: String? = nil) async throws {
+        try await postNoContent(
+            "/Sessions/Playing/Progress",
+            body: PlaybackProgressRequest(itemId: itemID, positionTicks: positionTicks, isPaused: isPaused, mediaSourceId: mediaSourceID)
+        )
+    }
+
+    func reportPlaybackStopped(itemID: String, positionTicks: Int64, mediaSourceID: String? = nil) async throws {
         try await postNoContent(
             "/Sessions/Playing/Stopped",
-            body: PlaybackProgressRequest(itemId: itemID, positionTicks: positionTicks)
+            body: PlaybackProgressRequest(itemId: itemID, positionTicks: positionTicks, mediaSourceId: mediaSourceID)
         )
     }
 

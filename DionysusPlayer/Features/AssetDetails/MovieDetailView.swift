@@ -28,8 +28,19 @@ struct MovieDetailView: View {
 
                         PlayResumeButtonRow(
                             item: item,
-                            onPlay: { playbackRequest = PlaybackRequest(itemID: item.id) },
-                            onRestart: { playbackRequest = PlaybackRequest(itemID: item.id, startFromBeginning: true) }
+                            onPlay: { versionID in
+                                if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: item.id) }
+                                playbackRequest = PlaybackRequest(itemID: item.id, mediaSourceID: versionID)
+                            },
+                            onResume: {
+                                playbackRequest = PlaybackRequest(
+                                    itemID: item.id, mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: item.id)
+                                )
+                            },
+                            onRestart: { versionID in
+                                if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: item.id) }
+                                playbackRequest = PlaybackRequest(itemID: item.id, startFromBeginning: true, mediaSourceID: versionID)
+                            }
                         )
 
                         // Keyed on whether a "Details" tab exists at all —
@@ -63,7 +74,7 @@ struct MovieDetailView: View {
             item: $playbackRequest,
             onDismiss: { Task { await viewModel.refreshItem() } }
         ) { request in
-            PlayerView(itemID: request.itemID, startFromBeginning: request.startFromBeginning)
+            PlayerView(itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID)
         }
     }
 }

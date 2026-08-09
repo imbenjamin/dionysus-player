@@ -152,6 +152,12 @@ struct BaseItemDtoQueryResult: Codable {
 
 struct PlaybackInfoRequest: Encodable {
     var userId: String
+    /// Scopes the response to one specific version out of the item's
+    /// `mediaSources` — the version-picker's choice on the detail page
+    /// (`PlayResumeButtonRow`), or `nil` to let the server pick its own
+    /// default (the pre-existing behavior, still used for the common
+    /// single-version case).
+    var mediaSourceId: String?
 }
 
 struct PlaybackInfoResponse: Codable {
@@ -225,6 +231,13 @@ struct PlaybackProgressRequest: Encodable {
     var itemId: String
     var positionTicks: Int64
     var isPaused: Bool = false
+    /// Which version is actually playing — the one `PlaybackInfoRequest`
+    /// resolved to in `PlayerViewModel.start()`, not necessarily what the
+    /// caller originally requested (a requested id that doesn't match any
+    /// of the item's sources falls back to the server's default). Lets the
+    /// server's active-session bookkeeping reflect the real file being
+    /// streamed.
+    var mediaSourceId: String?
 }
 
 // MARK: - Search

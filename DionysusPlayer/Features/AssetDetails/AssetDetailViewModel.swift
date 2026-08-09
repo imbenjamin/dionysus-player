@@ -20,6 +20,7 @@ final class AssetDetailViewModel {
     let itemID: String
     private let client: JellyfinAPIClient
     private let userID: String
+    private let versionPreferenceStore: MediaVersionPreferenceStore
 
     /// `preloadedItem` — see `AppRoute.assetDetail`'s doc comment — seeds
     /// `item` immediately so the page has something to render (and a zoom
@@ -27,11 +28,31 @@ final class AssetDetailViewModel {
     /// trip resolves. It's necessarily partial (fetched via the rail's
     /// lighter `Fields` list, missing `MediaSources`/`People`), so `load()`
     /// still runs regardless and replaces it with the full item once ready.
-    init(client: JellyfinAPIClient, userID: String, itemID: String, preloadedItem: MediaItem? = nil) {
+    init(
+        client: JellyfinAPIClient, userID: String, itemID: String, preloadedItem: MediaItem? = nil,
+        versionPreferenceStore: MediaVersionPreferenceStore = MediaVersionPreferenceStore()
+    ) {
         self.client = client
         self.userID = userID
         self.itemID = itemID
         self.item = preloadedItem
+        self.versionPreferenceStore = versionPreferenceStore
+    }
+
+    /// The version `PlayResumeButtonRow` should silently continue with for a
+    /// "Resume" tap on `playableItemID` — whatever was deliberately chosen
+    /// the last time that item was started fresh (via the version-choice
+    /// prompt), or `nil` to let `PlayerViewModel` fall back to the server's
+    /// own default. See `MediaVersionPreferenceStore`'s doc comment for why
+    /// this can't just come from the server.
+    func preferredMediaSourceID(forPlayableItem playableItemID: String) -> String? {
+        versionPreferenceStore.preferredMediaSourceID(forItem: playableItemID, userID: userID)
+    }
+
+    /// Records the version-choice prompt's answer so a later "Resume" (see
+    /// `preferredMediaSourceID(forPlayableItem:)`) continues the same one.
+    func setPreferredMediaSourceID(_ mediaSourceID: String, forPlayableItem playableItemID: String) {
+        versionPreferenceStore.setPreferredMediaSourceID(mediaSourceID, forItem: playableItemID, userID: userID)
     }
 
     /// Guards on `loadState`, not `item` — a preloaded item already makes

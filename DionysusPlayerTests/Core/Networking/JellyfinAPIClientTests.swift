@@ -247,6 +247,55 @@ final class JellyfinAPIClientTests: XCTestCase {
         try await client.reportPlaybackStopped(itemID: "item-1", positionTicks: 12_345)
     }
 
+    /// The active session should reflect which version is actually
+    /// streaming (see `PlayerViewModel.activeMediaSourceID`'s doc comment),
+    /// not just the item — checked once here for `reportPlaybackStopped`;
+    /// `reportPlaybackStart`/`reportPlaybackProgress` share the exact same
+    /// `PlaybackProgressRequest` encoding.
+    func test_reportPlaybackStopped_includesMediaSourceIdWhenProvided() async throws {
+        let client = makeClient(accessToken: "tok")
+        struct DecodedBodyWithSource: Decodable { let MediaSourceId: String? }
+        var decoded: DecodedBodyWithSource?
+        MockURLProtocol.requestHandler = { request in
+            decoded = try JSONDecoder().decode(DecodedBodyWithSource.self, from: request.capturedHTTPBody ?? Data())
+            return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+
+        try await client.reportPlaybackStopped(itemID: "item-1", positionTicks: 12_345, mediaSourceID: "src-1080p")
+
+        XCTAssertEqual(decoded?.MediaSourceId, "src-1080p")
+    }
+
+    func test_playbackInfo_includesMediaSourceIdInRequestBodyWhenProvided() async throws {
+        let client = makeClient(accessToken: "tok")
+        struct DecodedPlaybackInfoBody: Decodable { let UserId: String; let MediaSourceId: String? }
+        var decoded: DecodedPlaybackInfoBody?
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/Items/item-1/PlaybackInfo")
+            decoded = try JSONDecoder().decode(DecodedPlaybackInfoBody.self, from: request.capturedHTTPBody ?? Data())
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaybackInfoResponse())
+        }
+
+        _ = try await client.playbackInfo(itemID: "item-1", userID: "user-1", mediaSourceID: "src-1080p")
+
+        XCTAssertEqual(decoded?.UserId, "user-1")
+        XCTAssertEqual(decoded?.MediaSourceId, "src-1080p")
+    }
+
+    func test_playbackInfo_omitsMediaSourceIdWhenNotProvided() async throws {
+        let client = makeClient(accessToken: "tok")
+        struct DecodedPlaybackInfoBody: Decodable { let MediaSourceId: String? }
+        var decoded: DecodedPlaybackInfoBody?
+        MockURLProtocol.requestHandler = { request in
+            decoded = try JSONDecoder().decode(DecodedPlaybackInfoBody.self, from: request.capturedHTTPBody ?? Data())
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaybackInfoResponse())
+        }
+
+        _ = try await client.playbackInfo(itemID: "item-1", userID: "user-1")
+
+        XCTAssertNil(decoded?.MediaSourceId)
+    }
+
     func test_reportPlaybackProgress_serverError_throwsHTTPError() async {
         let client = makeClient(accessToken: "tok")
         MockURLProtocol.requestHandler = { request in

@@ -20,16 +20,34 @@ struct ShowDetailView: View {
                         InfoMetadataRow(item: item)
                             .id(item.technicalDetails == nil)
 
+                        // A Series item itself never has `mediaVersions` (no
+                        // media file of its own — only its episodes do), so
+                        // `PlayResumeButtonRow`'s version-choice prompt never
+                        // triggers here regardless of which handler runs;
+                        // `onPlay`/`onRestart`'s version-id argument is
+                        // always `nil` for a Series. Extending the prompt to
+                        // the *resolved episode*'s own versions would need
+                        // fetching that episode's full item before deciding
+                        // whether to prompt at all — deliberately left as a
+                        // known gap rather than adding that extra round trip
+                        // to every tap.
                         PlayResumeButtonRow(
                             item: item,
-                            onPlay: {
+                            onPlay: { _ in
                                 Task {
                                     if let episodeID = await viewModel.resolveSeriesPlaybackItemID() {
                                         playbackRequest = PlaybackRequest(itemID: episodeID)
                                     }
                                 }
                             },
-                            onRestart: {
+                            onResume: {
+                                Task {
+                                    if let episodeID = await viewModel.resolveSeriesPlaybackItemID() {
+                                        playbackRequest = PlaybackRequest(itemID: episodeID)
+                                    }
+                                }
+                            },
+                            onRestart: { _ in
                                 Task {
                                     if let episodeID = await viewModel.resolveSeriesPlaybackItemID() {
                                         playbackRequest = PlaybackRequest(itemID: episodeID, startFromBeginning: true)
@@ -96,7 +114,7 @@ struct ShowDetailView: View {
             item: $playbackRequest,
             onDismiss: { Task { await viewModel.refreshItem() } }
         ) { request in
-            PlayerView(itemID: request.itemID, startFromBeginning: request.startFromBeginning)
+            PlayerView(itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID)
         }
     }
 }

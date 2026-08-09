@@ -8,15 +8,27 @@ import XCTest
 @MainActor
 final class AssetDetailViewModelTests: XCTestCase {
     private let baseURL = URL(string: "https://jellyfin.example.com")!
+    private var defaults: UserDefaults!
+    private let suiteName = "com.dionysusplayer.tests.AssetDetailViewModelTests"
+
+    override func setUp() {
+        super.setUp()
+        defaults = UserDefaults(suiteName: suiteName)
+        defaults.removePersistentDomain(forName: suiteName)
+    }
 
     override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
         MockURLProtocol.reset()
         super.tearDown()
     }
 
     private func makeViewModel(itemID: String, preloadedItem: MediaItem? = nil) -> AssetDetailViewModel {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
-        return AssetDetailViewModel(client: client, userID: "user-1", itemID: itemID, preloadedItem: preloadedItem)
+        return AssetDetailViewModel(
+            client: client, userID: "user-1", itemID: itemID, preloadedItem: preloadedItem,
+            versionPreferenceStore: MediaVersionPreferenceStore(defaults: defaults)
+        )
     }
 
     // MARK: load()
@@ -201,5 +213,33 @@ final class AssetDetailViewModelTests: XCTestCase {
         let result = await viewModel.resolveSeriesPlaybackItemID()
 
         XCTAssertEqual(result, "ep-1")
+    }
+
+    // MARK: preferredMediaSourceID(forPlayableItem:) / setPreferredMediaSourceID(_:forPlayableItem:)
+    // Thin wrappers around `MediaVersionPreferenceStore` (see its own tests
+    // for the persistence/scoping behavior itself) — these just confirm the
+    // wrapper actually plumbs this instance's `userID` through correctly.
+
+    func test_preferredMediaSourceID_nilBeforeAnyChoiceIsRecorded() {
+        let viewModel = makeViewModel(itemID: "movie-1")
+        XCTAssertNil(viewModel.preferredMediaSourceID(forPlayableItem: "movie-1"))
+    }
+
+    func test_setPreferredMediaSourceID_isReadBackByPreferredMediaSourceID() {
+        let viewModel = makeViewModel(itemID: "movie-1")
+        viewModel.setPreferredMediaSourceID("src-1080p", forPlayableItem: "movie-1")
+        XCTAssertEqual(viewModel.preferredMediaSourceID(forPlayableItem: "movie-1"), "src-1080p")
+    }
+
+    /// A Show's own Play button resolves to a specific *episode* (see
+    /// `resolveSeriesPlaybackItemID()`), distinct from the Series' own
+    /// `itemID` this view model was constructed with — the preference has
+    /// to key off that resolved episode id, not the Series.
+    func test_preferredMediaSourceID_keyedByThePlayableItemNotTheViewModelsOwnItemID() {
+        let viewModel = makeViewModel(itemID: "series-1")
+        viewModel.setPreferredMediaSourceID("src-1080p", forPlayableItem: "ep-5")
+
+        XCTAssertEqual(viewModel.preferredMediaSourceID(forPlayableItem: "ep-5"), "src-1080p")
+        XCTAssertNil(viewModel.preferredMediaSourceID(forPlayableItem: "series-1"))
     }
 }
