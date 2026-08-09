@@ -3,7 +3,13 @@ import UIKit
 
 /// Backdrop image with a logo (or title text fallback) overlaid at the
 /// bottom, Disney+-style — see `BackdropLogoOverlay` for the shared visual
-/// composition (also used by Home's hero rail).
+/// composition (also used by Home's hero rail) and its `enable3DDepth`/
+/// `tiltX`/`tiltY` parameters for the gyro-driven 3D depth effect this view
+/// opts into (backed by `DeviceTiltObserver`, below) — the one place in the
+/// app that does, since a per-page detail hero (static once you're looking
+/// at it) is where a subtle tilt-driven depth effect reads as a nice touch
+/// rather than fighting something else already animating on screen (Home's
+/// hero rail auto-advances on its own timer).
 ///
 /// Lives inside a `ScrollView` whose containing detail page applies
 /// `.ignoresSafeArea(edges: .top)`, so this can render flush with the
@@ -16,6 +22,23 @@ import UIKit
 /// such cutout to clear at the top, so the padding is skipped there.
 struct HeroHeaderView: View {
     let item: MediaItem
+
+    /// `.shared`, not a per-view instance — see `DeviceTiltObserver`'s own
+    /// doc comment for why (one physical sensor, and `ProfileView`'s toggle
+    /// needs visibility into the same `isApplyingChange` this view's
+    /// `.onAppear`/`.onDisappear`/`.onChange` below drive). Still only
+    /// *this* view calls `start()`/`stop()` at all — the shared instance
+    /// doesn't run itself, it's just not re-created per detail page.
+    private var tiltObserver: DeviceTiltObserver { .shared }
+    /// Two independent opt-outs, both meaning "don't run the effect": the
+    /// system-level Reduce Motion setting, and `ProfileView`'s own "3D Depth
+    /// Effects" toggle (`hero3DDepthEnabledStorageKey`, default on) for
+    /// someone who doesn't mind motion in general but just doesn't want
+    /// this one effect. Either being true is enough to disable it — see
+    /// `is3DDepthEnabled` below.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(hero3DDepthEnabledStorageKey) private var depthEffectPreference = true
+    private var is3DDepthEnabled: Bool { depthEffectPreference && !reduceMotion }
 
     /// `@Environment` — not a plain computed property reading UIKit state
     /// directly — is what actually matters here. `statusBarInset` below
@@ -53,8 +76,36 @@ struct HeroHeaderView: View {
     private static let height: CGFloat = 320
 
     var body: some View {
-        BackdropLogoOverlay(item: item)
-            .frame(height: Self.height)
-            .padding(.top, isLandscape ? 0 : statusBarInset)
+        BackdropLogoOverlay(
+            item: item,
+            enable3DDepth: is3DDepthEnabled,
+            tiltX: is3DDepthEnabled ? CGFloat(tiltObserver.x) : 0,
+            tiltY: is3DDepthEnabled ? CGFloat(tiltObserver.y) : 0
+        )
+        .frame(height: Self.height)
+        .padding(.top, isLandscape ? 0 : statusBarInset)
+        .onAppear { if is3DDepthEnabled { Task { await tiltObserver.start() } } }
+        .onDisappear { Task { await tiltObserver.stop() } }
+        // `depthEffectPreference` can change while this view is already on
+        // screen (flipped in Settings, then navigating straight to a detail
+        // page without relaunching) — `.onAppear` alone would miss that,
+        // since it only fires once per appearance, not on every dependency
+        // change. `reduceMotion` is a tracked `@Environment` dependency
+        // already covered by `body` re-running on its own; this just adds
+        // the same coverage for the `@AppStorage` one.
+        .onChange(of: depthEffectPreference) { _, isEnabled in
+            Task {
+                if isEnabled, !reduceMotion {
+                    await tiltObserver.start()
+                } else {
+                    await tiltObserver.stop()
+                }
+            }
+        }
     }
 }
+
+/// `UserDefaults` key for `ProfileView`'s "3D Depth Effects" toggle —
+/// shared so `HeroHeaderView`'s own `@AppStorage` reads the exact same
+/// value `ProfileView` writes.
+let hero3DDepthEnabledStorageKey = "hero3DDepthEnabled"
