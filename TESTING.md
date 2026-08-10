@@ -39,7 +39,7 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 
 (swap `iPhone 17` for whatever's in `xcrun simctl list devices available` on your machine.)
 
-**Verified:** the full suite (347 tests) has been run for real via
+**Verified:** the full suite (348 tests) has been run for real via
 `xcodebuild test` against the iOS 26.5 Simulator — all passing, 0 failures.
 A few real issues were caught and fixed along the way, worth knowing about
 if you extend this setup:
@@ -96,7 +96,7 @@ and the networking client, mirroring the app's own MVVM structure
 | `DeviceIdentity` | `DeviceIdentityTests.swift` | The generate-once-then-cache behavior of `deviceID`. |
 | `JellyfinAPIError` | `JellyfinAPIErrorTests.swift` | Exact `errorDescription` text for each case, including the optional-message branch on `.http`. |
 | `AppVersionInfo` | `AppVersionInfoTests.swift` | The build-version footer's text format and its fallback to "unknown" when the git branch/commit Info.plist keys are missing. |
-| `DeviceTiltObserver` | `DeviceTiltObserverTests.swift` | `smoothed(current:sample:factor:)`, the hero-effect's exponential low-pass filter; `uprightRelativeY(_:)`, which remaps raw `gravity.y` so a phone held upright (not lying flat) reads as the effect's centered/neutral position, clamped so reclining well past flat can't overshoot the effect's range; and `start()`/`stop()`'s guard-clause early-return behavior in the Simulator (no physical sensor there) leaving `isApplyingChange` `false` rather than hanging — the rest is a thin `CMMotionManager` wrapper (real sensor I/O, same "not unit-testable" reasoning as `DeviceIdentity`'s `UIDevice`/`UserDefaults` calls). |
+| `DeviceTiltObserver` | `DeviceTiltObserverTests.swift` | `smoothed(current:sample:factor:)`, the hero-effect's exponential low-pass filter; `uprightRelativeY(_:)`, which remaps raw `gravity.y` so a phone held upright (not lying flat) reads as the effect's centered/neutral position, clamped so reclining well past flat can't overshoot the effect's range; and `start()`/`stop()`/`warmUp()`'s guard-clause early-return behavior in the Simulator (no physical sensor there) leaving `isApplyingChange` `false` rather than hanging — the rest is a thin `CMMotionManager` wrapper (real sensor I/O, same "not unit-testable" reasoning as `DeviceIdentity`'s `UIDevice`/`UserDefaults` calls). |
 | `BackdropLogoOverlay` | `BackdropLogoOverlayTests.swift` | `rotation(tiltX:tiltY:maxDegrees:)`, the device-tilt depth effect's angle/axis computation — zero tilt is zero angle, a single-axis tilt reaches `maxDegrees` at full magnitude and scales linearly below that, a combined diagonal tilt clamps to `maxDegrees` rather than the two components summing past it, and tilting right vs. tilting forward rotate around different (perpendicular) axes. Everything else about this view is rendering, not computation, and isn't covered (known gap, same as other SwiftUI views). |
 
 ### How network calls are faked

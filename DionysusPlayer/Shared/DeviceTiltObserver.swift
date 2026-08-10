@@ -143,6 +143,25 @@ final class DeviceTiltObserver {
         }
     }
 
+    /// Pays CoreMotion's one-time daemon-connection bootstrap cost up
+    /// front, at app launch, instead of whenever the user happens to first
+    /// reach the "3D Depth Effects" toggle or a detail page. Confirmed on a
+    /// real device: even with `start()`/`stop()`'s own work already off the
+    /// main actor (see `updateDeliveryQueue`'s doc comment), the *very
+    /// first* start/stop pair in a process's lifetime still visibly
+    /// hitches for up to ~1s — every pair after that is immediate. That
+    /// first hitch is CoreMotion itself standing up its connection to the
+    /// motion daemon, not something under this type's control to make
+    /// asynchronous; the fix is just to not let the user's first toggle
+    /// tap be the moment that happens. Call once, early — `AppState.start()`
+    /// fires this off (unawaited) during the splash/session-restore
+    /// window, a loading moment where a brief hitch is already expected
+    /// and invisible, rather than mid-interaction.
+    func warmUp() async {
+        await start()
+        await stop()
+    }
+
     /// See `start()` — same reasoning for being `async`/off-main.
     func stop() async {
         guard motionManager.isDeviceMotionActive else { return }

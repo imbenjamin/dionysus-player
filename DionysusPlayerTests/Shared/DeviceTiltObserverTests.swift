@@ -95,4 +95,10 @@ final class DeviceTiltObserverTests: XCTestCase {
         await observer.stop()
         XCTAssertFalse(observer.isApplyingChange)
     }
+
+    func test_warmUp_noOpWhenMotionUnavailable_leavesIsApplyingChangeFalse() async {
+        let observer = DeviceTiltObserver()
+        await observer.warmUp()
+        XCTAssertFalse(observer.isApplyingChange)
+    }
 }
