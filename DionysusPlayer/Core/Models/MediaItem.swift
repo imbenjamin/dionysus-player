@@ -63,7 +63,6 @@ struct MediaItem: Identifiable {
     var studios: [String] { dto.studios?.map(\.name) ?? [] }
     var ageRating: String? { dto.officialRating }
     var communityRating: Double? { dto.communityRating }
-    var seriesID: String? { dto.seriesId }
     /// The decade this item's `productionYear` falls in, as its start year
     /// (e.g. `2010` for a 2016 release) — `CollectionGridView`'s Decade
     /// filter groups on this. `nil` when there's no production year to
