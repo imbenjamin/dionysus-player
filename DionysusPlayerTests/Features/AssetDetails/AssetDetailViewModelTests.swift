@@ -142,12 +142,18 @@ final class AssetDetailViewModelTests: XCTestCase {
         let episodeDto = BaseItemDto(
             id: "ep-5", name: "Ep 5", type: .episode, seriesId: "series-1", seasonId: "season-1"
         )
+        let seriesDto = BaseItemDto(id: "series-1", name: "The Wire", type: .series)
         let seasonDto = BaseItemDto(id: "season-1", name: "Season 1", type: .season)
         let viewModel = makeViewModel(itemID: "ep-5")
         MockURLProtocol.requestHandler = { request in
             switch request.url?.path {
             case "/Users/user-1/Items/ep-5":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: episodeDto)
+            case "/Users/user-1/Items/series-1":
+                // `seriesItem` — see its own doc comment — needs its own
+                // fetch for the Episode case, unlike Season/Series where
+                // `item` is already the Show's own item.
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: seriesDto)
             case "/Shows/series-1/Seasons":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [seasonDto], totalRecordCount: 1))
             case "/Items/series-1/Similar", "/Users/user-1/Items":
@@ -162,6 +168,7 @@ final class AssetDetailViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.loadState, .loaded)
         XCTAssertEqual(viewModel.item?.id, "ep-5", "content should stay the episode itself")
+        XCTAssertEqual(viewModel.seriesItem?.id, "series-1", "the Show's own item, separate from `item`")
         XCTAssertEqual(viewModel.seriesID, "series-1")
         XCTAssertEqual(viewModel.preselectedSeasonID, "season-1")
         XCTAssertEqual(viewModel.seasons.map(\.id), ["season-1"])
@@ -237,6 +244,129 @@ final class AssetDetailViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.loadState, .loaded)
         XCTAssertEqual(viewModel.similar.map(\.id), ["movie-2"], "The full fetch should still have run despite the preloaded item")
+    }
+
+    // MARK: toggleFavorite(itemID:currentlyFavorite:) / toggleWatched(itemID:currentlyWatched:)
+
+    func test_toggleFavorite_currentlyFalse_favoritesThenPatchesItemFromARefetch() async {
+        let viewModel = makeViewModel(itemID: "movie-1")
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path == "/Users/user-1/Items/movie-1" {
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie))
+            }
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+        await viewModel.load()
+        XCTAssertEqual(viewModel.item?.isFavorite, false, "sanity check")
+
+        var favoriteRequestMethod: String?
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/FavoriteItems/movie-1":
+                favoriteRequestMethod = request.httpMethod
+                return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+            case "/Users/user-1/Items/movie-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                    id: "movie-1", name: "Arrival", type: .movie,
+                    userData: UserItemDataDto(playbackPositionTicks: nil, playedPercentage: nil, played: false, isFavorite: true)
+                ))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.toggleFavorite(itemID: "movie-1", currentlyFavorite: false)
+
+        XCTAssertEqual(favoriteRequestMethod, "POST", "favoriting (currently false) should POST")
+        XCTAssertEqual(viewModel.item?.isFavorite, true, "should reflect the refetch, not just assume the toggle succeeded")
+    }
+
+    func test_toggleFavorite_currentlyTrue_sendsDELETE() async {
+        let viewModel = makeViewModel(itemID: "movie-1")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie))
+        }
+        await viewModel.load()
+
+        var favoriteRequestMethod: String?
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path == "/Users/user-1/FavoriteItems/movie-1" {
+                favoriteRequestMethod = request.httpMethod
+            }
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie))
+        }
+
+        await viewModel.toggleFavorite(itemID: "movie-1", currentlyFavorite: true)
+
+        XCTAssertEqual(favoriteRequestMethod, "DELETE", "unfavoriting (currently true) should DELETE")
+    }
+
+    func test_toggleWatched_currentlyFalse_marksWatchedThenPatchesItem() async {
+        let viewModel = makeViewModel(itemID: "movie-1")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie))
+        }
+        await viewModel.load()
+
+        var watchedRequestMethod: String?
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/PlayedItems/movie-1":
+                watchedRequestMethod = request.httpMethod
+                return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+            case "/Users/user-1/Items/movie-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                    id: "movie-1", name: "Arrival", type: .movie,
+                    userData: UserItemDataDto(playbackPositionTicks: nil, playedPercentage: 100, played: true)
+                ))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.toggleWatched(itemID: "movie-1", currentlyWatched: false)
+
+        XCTAssertEqual(watchedRequestMethod, "POST")
+        XCTAssertEqual(viewModel.item?.isPlayed, true)
+    }
+
+    /// The favorite/watched refetch patches *every* property currently
+    /// holding that same id, not just `item` — a Season tapped from
+    /// `PlayResumeButtonRow`'s extended menu lives in `seasons`, not `item`.
+    func test_toggleFavorite_patchesSeasonsEntryWhenTargetIsASeason() async {
+        let seasonDto = BaseItemDto(id: "season-1", name: "Season 1", type: .season)
+        let viewModel = makeViewModel(itemID: "series-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/series-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "series-1", name: "The Wire", type: .series))
+            case "/Shows/series-1/Seasons":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [seasonDto], totalRecordCount: 1))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        await viewModel.load()
+        XCTAssertEqual(viewModel.seasons.first?.isFavorite, false, "sanity check")
+
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/FavoriteItems/season-1":
+                return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+            case "/Users/user-1/Items/season-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                    id: "season-1", name: "Season 1", type: .season,
+                    userData: UserItemDataDto(playbackPositionTicks: nil, playedPercentage: nil, played: false, isFavorite: true)
+                ))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.toggleFavorite(itemID: "season-1", currentlyFavorite: false)
+
+        XCTAssertEqual(viewModel.seasons.first?.isFavorite, true)
+        XCTAssertEqual(viewModel.item?.id, "series-1", "the Series itself (a different id) should be untouched")
     }
 
     // MARK: selectEpisode(_:)

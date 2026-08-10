@@ -312,6 +312,52 @@ final class JellyfinAPIClientTests: XCTestCase {
         }
     }
 
+    // MARK: Favorite / watched status
+
+    func test_setFavorite_true_postsToFavoriteItemsPath() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/Users/user-1/FavoriteItems/item-1")
+            return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+        }
+
+        try await client.setFavorite(true, itemID: "item-1", userID: "user-1")
+    }
+
+    func test_setFavorite_false_deletesFromFavoriteItemsPath() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.httpMethod, "DELETE")
+            XCTAssertEqual(request.url?.path, "/Users/user-1/FavoriteItems/item-1")
+            return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+        }
+
+        try await client.setFavorite(false, itemID: "item-1", userID: "user-1")
+    }
+
+    func test_setWatched_true_postsToPlayedItemsPath() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/Users/user-1/PlayedItems/item-1")
+            return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+        }
+
+        try await client.setWatched(true, itemID: "item-1", userID: "user-1")
+    }
+
+    func test_setWatched_false_deletesFromPlayedItemsPath() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.httpMethod, "DELETE")
+            XCTAssertEqual(request.url?.path, "/Users/user-1/PlayedItems/item-1")
+            return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+        }
+
+        try await client.setWatched(false, itemID: "item-1", userID: "user-1")
+    }
+
     // MARK: Genres & Studios (Home's dynamic rail discovery)
 
     func test_genres_requestsExpectedPathAndScopesByIncludeItemTypes() async throws {

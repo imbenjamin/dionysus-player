@@ -36,12 +36,13 @@ struct ShowDetailView: View {
     /// (mostly) in view rather than skipping past it.
     private let heroAnchorID = "ShowDetailView.heroAnchor"
 
+    /// See this type's doc comment.
+    private var isEpisodeContent: Bool { viewModel.item?.kind == .episode }
+
     var body: some View {
         ScrollViewReader { scrollProxy in
             ScrollView {
                 if let item = viewModel.item {
-                    let isEpisodeContent = item.kind == .episode
-
                     VStack(alignment: .leading, spacing: 20) {
                         HeroHeaderView(item: item)
                             // The scroll anchor itself — see `heroAnchorID`'s
@@ -181,6 +182,17 @@ struct ShowDetailView: View {
                 }
             }
             .ignoresSafeArea(edges: .top)
+            // Trailing toolbar items float in the nav bar opposite the
+            // system back button — same floating-over-the-hero behavior at
+            // rest, same pinned-in-place behavior once the page scrolls —
+            // rather than a hand-placed `.overlay` on the hero, which
+            // scrolled away with it instead of staying put. See
+            // `HeroActionButtons`' doc comment for the rest of the reasoning.
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    HeroActionButtons(viewModel: viewModel, selectedSeasonID: selectedSeasonID)
+                }
+            }
         }
         .fullScreenCover(
             item: $playbackRequest,

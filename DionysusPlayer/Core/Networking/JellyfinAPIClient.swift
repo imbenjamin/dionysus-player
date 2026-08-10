@@ -284,6 +284,27 @@ actor JellyfinAPIClient {
         )
     }
 
+    // MARK: - Favorite / watched status
+
+    /// `POST`s to favorite, `DELETE`s to unfavorite —
+    /// `/Users/{userId}/FavoriteItems/{itemId}`, Jellyfin's standard toggle
+    /// shape (no request body either way). Used by `PlayResumeButtonRow`'s
+    /// favorite button — a plain toggle on a Movie/Episode-content page, or
+    /// one of up to three independent targets (Show/Season/Episode) on a
+    /// Show-content page's extended menu.
+    func setFavorite(_ isFavorite: Bool, itemID: String, userID: String) async throws {
+        try await sendNoContent(path: "/Users/\(userID)/FavoriteItems/\(itemID)", method: isFavorite ? "POST" : "DELETE")
+    }
+
+    /// Same `POST`-to-mark/`DELETE`-to-unmark shape as `setFavorite`, for
+    /// `/Users/{userId}/PlayedItems/{itemId}` (Jellyfin's "watched" status).
+    /// Marking a Series or Season played cascades server-side to every
+    /// episode beneath it — this just issues the one request Jellyfin
+    /// already expects for that; nothing client-side needs to fan it out.
+    func setWatched(_ isWatched: Bool, itemID: String, userID: String) async throws {
+        try await sendNoContent(path: "/Users/\(userID)/PlayedItems/\(itemID)", method: isWatched ? "POST" : "DELETE")
+    }
+
     // MARK: - Search
 
     /// Jellyfin's dedicated `/Search/Hints` endpoint — SearchView's sole
@@ -315,6 +336,14 @@ actor JellyfinAPIClient {
 
     private func postNoContent(_ path: String, body: Encodable) async throws {
         let request = try makeRequest(path: path, method: "POST", body: body)
+        _ = try await sendRaw(request)
+    }
+
+    /// Like `postNoContent`, but for an endpoint that also needs no request
+    /// body at all (`setFavorite`/`setWatched`'s `POST`/`DELETE` toggle
+    /// shape) — `method` rather than always `"POST"` is the only difference.
+    private func sendNoContent(path: String, method: String) async throws {
+        let request = try makeRequest(path: path, method: method)
         _ = try await sendRaw(request)
     }
 

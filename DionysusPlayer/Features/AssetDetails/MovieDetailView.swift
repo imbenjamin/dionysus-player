@@ -70,6 +70,17 @@ struct MovieDetailView: View {
             }
         }
         .ignoresSafeArea(edges: .top)
+        // Trailing toolbar items float in the nav bar opposite the system
+        // back button — same floating-over-the-hero behavior at rest, same
+        // pinned-in-place behavior once the page scrolls — rather than a
+        // hand-placed `.overlay` on the hero, which scrolled away with it
+        // instead of staying put. See `HeroActionButtons`' doc comment for
+        // the rest of the reasoning.
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                HeroActionButtons(viewModel: viewModel)
+            }
+        }
         .fullScreenCover(
             item: $playbackRequest,
             onDismiss: { Task { await viewModel.refreshItem() } }

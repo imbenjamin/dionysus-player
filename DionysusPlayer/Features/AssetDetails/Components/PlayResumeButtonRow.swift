@@ -7,6 +7,10 @@ import SwiftUI
 ///   icon-only "Restart" button next to it, and a thin `dionysusProgress`
 ///   bar along the bottom of the primary button showing playback progress.
 ///
+/// Favorite/watched status live separately, as `HeroActionButtons` overlaid
+/// on the hero image itself rather than in this row — see that type's doc
+/// comment for why.
+///
 /// Version handling (see `MediaItem.mediaVersions`): "Resume" always
 /// continues in place with whatever version resume tracking already applies
 /// to — Jellyfin's own resume position is per item, not per version, so

@@ -40,6 +40,16 @@ final class AssetDetailViewModel {
     private(set) var collections: [MediaItem] = []
     private(set) var loadState: LoadState = .idle
 
+    /// The Show's own item — always set alongside `seriesID` for a
+    /// Series/Season/Episode load, regardless of whether `item` itself is
+    /// that same Show (Series/Season case) or a specific Episode (Episode
+    /// case, where `item` and `seriesItem` are two genuinely different
+    /// items). Exists specifically for `PlayResumeButtonRow`'s favorite/
+    /// watched extended menu — the one place that needs the Show's own
+    /// status even while `item` is showing an Episode's — see
+    /// `ShowDetailView`'s call site. `nil` for a Movie.
+    private(set) var seriesItem: MediaItem?
+
     /// For Show content only (`item.kind == .series`, i.e. a Series tapped
     /// directly or a Season swapped to its parent Series — see `item`'s doc
     /// comment): the specific episode `PlayResumeButtonRow` should target,
@@ -138,6 +148,14 @@ final class AssetDetailViewModel {
                 displayedItemID = itemID
                 seriesID = dto.seriesId
                 preselectedSeasonID = dto.seasonId
+                // Unlike the Season case below, `item` here stays the
+                // Episode — so the Show's own item (needed for
+                // `PlayResumeButtonRow`'s favorite/watched menu — see
+                // `seriesItem`'s doc comment) needs its own fetch rather
+                // than just reusing `item`.
+                if let seriesID, let seriesDTO = try? await client.item(userID: userID, itemID: seriesID) {
+                    seriesItem = MediaItem(dto: seriesDTO, images: images)
+                }
             case .season:
                 if let seriesID = dto.seriesId {
                     // The page's content is the *Show's* own item, not the
@@ -149,6 +167,7 @@ final class AssetDetailViewModel {
                     preselectedSeasonID = dto.id
                     let seriesDTO = try await client.item(userID: userID, itemID: seriesID)
                     item = MediaItem(dto: seriesDTO, images: images)
+                    seriesItem = item
                     displayedItemID = seriesID
                     // `preselectedSeasonID` (just set, above) is what tells
                     // this it's resolving a Season tap's target, not a
@@ -166,7 +185,10 @@ final class AssetDetailViewModel {
                 // except Series itself, set just below.
                 item = MediaItem(dto: dto, images: images)
                 displayedItemID = itemID
-                if dto.type == .series { seriesID = dto.id }
+                if dto.type == .series {
+                    seriesID = dto.id
+                    seriesItem = item
+                }
                 preselectedSeasonID = nil
             }
 
@@ -224,6 +246,87 @@ final class AssetDetailViewModel {
         let images = await client.makeImageURLBuilder()
         item = MediaItem(dto: dto, images: images)
         displayedItemID = episodeID
+    }
+
+    /// Which items currently have a favorite toggle in flight — checked by
+    /// `HeroActionButtons` to show a spinner in place of the star icon
+    /// rather than leaving the button looking inert while the request (and
+    /// the confirmation re-fetch below) are in progress, which can
+    /// genuinely take a couple of seconds. Keyed by item id rather than a
+    /// single flag since a Show-content page's menu can have the Show,
+    /// Season, and Episode each toggling independently. See
+    /// `pendingWatchedIDs` for the same thing on the watched side.
+    private(set) var pendingFavoriteIDs: Set<String> = []
+    /// See `pendingFavoriteIDs` — identical shape, watched status instead.
+    private(set) var pendingWatchedIDs: Set<String> = []
+
+    /// Toggles `itemID`'s favorite status (`HeroActionButtons`' button/
+    /// menu — `itemID` is always `item.id` on a Movie/Episode-content page,
+    /// but can be the Show's, the currently-selected Season's, or the
+    /// current Episode's id on a Show-content page, per that view's own
+    /// three-way menu). `currentlyFavorite` is whatever the caller already
+    /// has on hand for that same item — this doesn't re-derive it, just
+    /// flips it.
+    func toggleFavorite(itemID: String, currentlyFavorite: Bool) async {
+        pendingFavoriteIDs.insert(itemID)
+        defer { pendingFavoriteIDs.remove(itemID) }
+        try? await client.setFavorite(!currentlyFavorite, itemID: itemID, userID: userID)
+        await refetchFavoriteWatchedTarget(itemID: itemID, expectedFavorite: !currentlyFavorite)
+    }
+
+    /// See `toggleFavorite(itemID:currentlyFavorite:)` — identical shape,
+    /// for Jellyfin's separate "watched" status instead.
+    func toggleWatched(itemID: String, currentlyWatched: Bool) async {
+        pendingWatchedIDs.insert(itemID)
+        defer { pendingWatchedIDs.remove(itemID) }
+        try? await client.setWatched(!currentlyWatched, itemID: itemID, userID: userID)
+        await refetchFavoriteWatchedTarget(itemID: itemID, expectedWatched: !currentlyWatched)
+    }
+
+    /// Shared by `toggleFavorite`/`toggleWatched`: re-fetches whichever item
+    /// was just toggled and patches it into every property that might be
+    /// holding a now-stale copy of it — `item` and `seriesItem` are each
+    /// exactly one item so a simple id match suffices; `seasons` and
+    /// `showPlaybackEpisode` are checked the same way. A toggle can target
+    /// any of these independently (see `toggleFavorite`'s doc comment), and
+    /// more than one can legitimately match at once (e.g. toggling the
+    /// Series' own favorite status when `item` *is* that Series updates
+    /// both `item` and `seriesItem` together, since they're the same id).
+    ///
+    /// Polls on a short/growing schedule, for the same reason
+    /// `refreshItem()` below does: Jellyfin's write endpoints (here,
+    /// `setFavorite`/`setWatched`) return 200 immediately but commit the
+    /// actual userData change asynchronously afterward, with *genuinely
+    /// variable* latency — confirmed live, direct-to-server `curl` checks
+    /// against this same server: toggling a Movie or Episode's favorite
+    /// status is reliably confirmable well under a second, but toggling a
+    /// Series' (a Show's own, not a Season/Episode's) sometimes confirms
+    /// just as fast and other times took several seconds longer than that,
+    /// on the exact same item with no code change in between. Longer/more
+    /// attempts than `refreshItem()`'s schedule (~13s total vs. ~3.25s) to
+    /// comfortably cover that slow case rather than give up and leave the
+    /// icon showing a stale status — confirmed live that this schedule's
+    /// old, shorter version reliably reproduced exactly that: the write
+    /// landing correctly (`curl` showed it), but the app's last poll
+    /// attempt still catching the old value first. `expectedFavorite`/
+    /// `expectedWatched` (whichever this call is toggling — the other
+    /// stays `nil` and is ignored) is what this polls *for*: keep
+    /// re-fetching until the server actually reports the value this just
+    /// wrote, not just any response.
+    private func refetchFavoriteWatchedTarget(itemID: String, expectedFavorite: Bool? = nil, expectedWatched: Bool? = nil) async {
+        let images = await client.makeImageURLBuilder()
+        for delay in [0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0] as [Double] {
+            try? await Task.sleep(for: .seconds(delay))
+            guard let dto = try? await client.item(userID: userID, itemID: itemID) else { continue }
+            let updated = MediaItem(dto: dto, images: images)
+            if item?.id == itemID { item = updated }
+            if seriesItem?.id == itemID { seriesItem = updated }
+            if showPlaybackEpisode?.id == itemID { showPlaybackEpisode = updated }
+            if let index = seasons.firstIndex(where: { $0.id == itemID }) { seasons[index] = updated }
+            let favoriteConfirmed = expectedFavorite.map { $0 == updated.isFavorite } ?? true
+            let watchedConfirmed = expectedWatched.map { $0 == updated.isPlayed } ?? true
+            if favoriteConfirmed && watchedConfirmed { break }
+        }
     }
 
     /// Re-fetches just the main item's DTO so the Play/Resume button and its
