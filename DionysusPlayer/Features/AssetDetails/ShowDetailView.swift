@@ -22,12 +22,19 @@ struct ShowDetailView: View {
     @State private var playbackRequest: PlaybackRequest?
     @State private var selectedSeasonID: String?
 
-    /// `.id()`'d by `scrollToTopID` below, so selecting a different episode
-    /// from the list further down the page can scroll back up to the
-    /// content it just changed — otherwise the user would have no visual
-    /// confirmation their tap actually did anything until they scrolled up
-    /// themselves.
-    private let scrollToTopID = "ShowDetailView.top"
+    /// `.id()`'d by a small marker overlaid near the bottom of the hero
+    /// (roughly where its logo sits — see the `HeroHeaderView` call site
+    /// below), so selecting a different episode from the list further down
+    /// the page can scroll back up near it — otherwise the user would have
+    /// no visual confirmation their tap actually did anything until they
+    /// scrolled up themselves. Deliberately not the very top of the page
+    /// (the hero's own top, behind the status bar/notch, is mostly wasted
+    /// space) and not as low as the metadata block right below the hero
+    /// either (tried first — read as scrolling too far, hiding the hero
+    /// entirely) — anchoring near the logo splits the difference: still a
+    /// smaller jump than all the way to the top, but leaves the hero
+    /// (mostly) in view rather than skipping past it.
+    private let heroAnchorID = "ShowDetailView.heroAnchor"
 
     var body: some View {
         ScrollViewReader { scrollProxy in
@@ -37,6 +44,23 @@ struct ShowDetailView: View {
 
                     VStack(alignment: .leading, spacing: 20) {
                         HeroHeaderView(item: item)
+                            // The scroll anchor itself — see `heroAnchorID`'s
+                            // doc comment. `BackdropLogoOverlay` bottom-aligns
+                            // the logo with its own default `.padding()`
+                            // (~16pt) inside a max-80pt-tall box, so ~100pt
+                            // up from the hero's bottom edge lands roughly at
+                            // the logo's own top edge regardless of the
+                            // hero's total height (which varies by screen
+                            // size — see `HeroHeaderView.heroHeight`), close
+                            // enough for a scroll target without needing to
+                            // reach into that shared component for its exact
+                            // internal layout.
+                            .overlay(alignment: .bottom) {
+                                Color.clear
+                                    .frame(height: 1)
+                                    .id(heroAnchorID)
+                                    .padding(.bottom, 100)
+                            }
 
                         VStack(alignment: .leading, spacing: 16) {
                             // See `MovieDetailView`'s matching call site — a
@@ -109,7 +133,7 @@ struct ShowDetailView: View {
                                 onSelectEpisode: { episodeID in
                                     Task {
                                         await viewModel.selectEpisode(episodeID)
-                                        withAnimation { scrollProxy.scrollTo(scrollToTopID, anchor: .top) }
+                                        withAnimation { scrollProxy.scrollTo(heroAnchorID, anchor: .top) }
                                     }
                                 }
                             )
@@ -128,7 +152,6 @@ struct ShowDetailView: View {
                         }
                     }
                     .padding(.bottom, 32)
-                    .id(scrollToTopID)
                     // `initial: true`, not `.onAppear` — this view renders (and
                     // `.onAppear` would fire) as soon as `viewModel.item` is
                     // non-nil, which happens immediately on a preloaded item
