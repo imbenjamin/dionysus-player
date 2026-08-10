@@ -12,14 +12,16 @@ import UIKit
 /// hero rail auto-advances on its own timer).
 ///
 /// Lives inside a `ScrollView` whose containing detail page applies
-/// `.ignoresSafeArea(edges: .top)`, so this can render flush with the
-/// screen's physical top edge once scrolled. At rest, though, that would put
-/// the top of this image right behind the status bar/notch/Dynamic Island
-/// cutout — the `.padding(.top, ...)` below reserves just enough space to
-/// clear that at rest, while still letting the image scroll up through the
-/// cutout once the user scrolls (the padding scrolls away with everything
-/// else in the `ScrollView`, same as any other content). Landscape has no
-/// such cutout to clear at the top, so the padding is skipped there.
+/// `.ignoresSafeArea(edges: .top)`, so this renders flush with the screen's
+/// physical top edge even at rest — deliberately bleeding up behind the
+/// status bar/notch/Dynamic Island cutout, the same way Home's `HeroRailView`
+/// does, rather than reserving top padding to clear it (an earlier version of
+/// this view did reserve that padding; removed so the two heroes actually
+/// match rather than one sitting a notch-height lower than the other).
+/// `heroHeight` below is the same formula as `HeroRailView.heroHeight` for
+/// the same reason — see that property's doc comment for why each term is
+/// there; kept as a second copy here rather than a shared helper, matching
+/// how `isLandscape`/`statusBarInset` below already duplicate that view's.
 struct HeroHeaderView: View {
     let item: MediaItem
 
@@ -49,9 +51,9 @@ struct HeroHeaderView: View {
     /// `UIWindowScene.interfaceOrientation`, then comparing the key window's
     /// own `bounds`) wasn't that either signal was wrong — it's that SwiftUI
     /// has no idea `body` depends on either one, so it had no reason to
-    /// *re-run* `body` on rotation at all. The padding value got computed
-    /// once at first render and then sat frozen, whichever expression was
-    /// there. `@Environment(\.verticalSizeClass)` is a tracked dependency:
+    /// *re-run* `body` on rotation at all. `heroHeight` got computed once
+    /// at first render and then sat frozen, whichever expression was there.
+    /// `@Environment(\.verticalSizeClass)` is a tracked dependency:
     /// SwiftUI reruns `body` when it changes, which is what makes
     /// `statusBarInset` below get a fresh read too — the same expression
     /// that didn't work standalone works once *something* in this view is
@@ -59,22 +61,34 @@ struct HeroHeaderView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
 
-    /// Deliberately the raw window/hardware inset, not SwiftUI's ambient
-    /// `safeAreaInsets` (via `GeometryReader`) — inside a `NavigationStack`,
-    /// that value also folds in the visible navigation bar's height, which
-    /// would push this down by more than just the status bar/cutout. The
-    /// key window's own inset is unaffected by any app-level chrome drawn
-    /// inside it.
-    private var statusBarInset: CGFloat {
+    /// Shared by `screenHeight`/`statusBarInset` below, same reasoning as
+    /// `HeroRailView.keyWindow`.
+    private var keyWindow: UIWindow? {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .first?
             .windows
-            .first(where: \.isKeyWindow)?
-            .safeAreaInsets.top ?? 0
+            .first(where: \.isKeyWindow)
     }
 
-    private static let height: CGFloat = 320
+    /// Deliberately the key window's own bounds, not `UIScreen.main` (soft
+    /// deprecated, doesn't reflect a resized scene under iPadOS Stage
+    /// Manager) — same as `HeroRailView.screenHeight`.
+    private var screenHeight: CGFloat { keyWindow?.bounds.height ?? 800 }
+
+    /// Deliberately the raw window/hardware inset, not SwiftUI's ambient
+    /// `safeAreaInsets` (via `GeometryReader`) — inside a `NavigationStack`,
+    /// that value also folds in the visible navigation bar's height, which
+    /// would overstate the status bar/cutout alone. The key window's own
+    /// inset is unaffected by any app-level chrome drawn inside it.
+    private var statusBarInset: CGFloat { keyWindow?.safeAreaInsets.top ?? 0 }
+
+    /// Same formula as `HeroRailView.heroHeight` — see this type's own doc
+    /// comment for why it's duplicated here rather than shared.
+    private var heroHeight: CGFloat {
+        guard !isLandscape else { return screenHeight * 0.75 }
+        return statusBarInset + screenHeight / 3 * 1.25
+    }
 
     var body: some View {
         BackdropLogoOverlay(
@@ -83,8 +97,7 @@ struct HeroHeaderView: View {
             tiltX: is3DDepthEnabled ? CGFloat(tiltObserver.x) : 0,
             tiltY: is3DDepthEnabled ? CGFloat(tiltObserver.y) : 0
         )
-        .frame(height: Self.height)
-        .padding(.top, isLandscape ? 0 : statusBarInset)
+        .frame(height: heroHeight)
         .onAppear { if is3DDepthEnabled { Task { await tiltObserver.start() } } }
         // Deliberately no `.onDisappear` calling `stop()` here — found the
         // hard way (real-device repro, 2026-08-10): pushing a new detail
