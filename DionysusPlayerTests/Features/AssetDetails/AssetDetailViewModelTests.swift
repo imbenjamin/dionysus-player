@@ -239,6 +239,62 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.similar.map(\.id), ["movie-2"], "The full fetch should still have run despite the preloaded item")
     }
 
+    // MARK: selectEpisode(_:)
+
+    /// `SeasonEpisodeList`'s row-text tap (as opposed to its play button) —
+    /// switches `item` to the tapped episode in place, on a Series-direct
+    /// page, without touching `seriesID`/`preselectedSeasonID`/`seasons`
+    /// (the tapped episode is already within whichever season is currently
+    /// browsed, so none of those need to change).
+    func test_selectEpisode_swapsItemToTheEpisodeWithoutTouchingSeriesOrSeasons() async {
+        let viewModel = await loadedSeriesViewModel(nextUpItems: [], episodesItems: [])
+        let selectedEpisodeDto = BaseItemDto(id: "ep-7", name: "Ep 7", type: .episode)
+        MockURLProtocol.requestHandler = { request in
+            guard request.url?.path == "/Users/user-1/Items/ep-7" else {
+                XCTFail("selectEpisode should fetch the tapped episode's own full item — got \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: selectedEpisodeDto)
+        }
+
+        await viewModel.selectEpisode("ep-7")
+
+        XCTAssertEqual(viewModel.item?.id, "ep-7")
+        XCTAssertEqual(viewModel.item?.kind, .episode)
+        XCTAssertEqual(viewModel.seriesID, "series-1", "shouldn't change — still browsing the same show")
+    }
+
+    /// Regression test for `refreshItem()`'s `displayedItemID` guard (see
+    /// that property's doc comment): after `selectEpisode(_:)`, the page is
+    /// displaying an episode the view model wasn't even constructed with —
+    /// `refreshItem()` (called after a playback session) has to re-fetch
+    /// *that* episode, not fall back to the original `itemID`.
+    func test_refreshItem_afterSelectEpisode_refetchesTheSelectedEpisodeNotTheOriginalItemID() async {
+        let viewModel = await loadedSeriesViewModel(nextUpItems: [], episodesItems: [])
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "ep-7", name: "Ep 7", type: .episode))
+        }
+        await viewModel.selectEpisode("ep-7")
+
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/ep-7":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                    id: "ep-7", name: "Ep 7", type: .episode,
+                    userData: UserItemDataDto(playbackPositionTicks: nil, playedPercentage: 100, played: true)
+                ))
+            default:
+                XCTFail("refreshItem() should re-fetch ep-7 (the selected episode), not series-1 — got \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.refreshItem()
+
+        XCTAssertEqual(viewModel.item?.id, "ep-7")
+        XCTAssertEqual(viewModel.item?.isPlayed, true)
+    }
+
     // MARK: refreshItem()
 
     /// Regression test for the Season case: `load()` swaps `item` to the

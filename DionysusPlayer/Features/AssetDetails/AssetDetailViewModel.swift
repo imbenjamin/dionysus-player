@@ -205,6 +205,27 @@ final class AssetDetailViewModel {
         }
     }
 
+    /// Switches this Show-content page's displayed content to `episodeID`
+    /// in place — tapping the text area of an episode row in
+    /// `SeasonEpisodeList` (as opposed to its play button, which plays that
+    /// episode directly without changing what this page shows). Fetches the
+    /// episode's *full* item (technical details/versions/cast — unlike the
+    /// lighter list-fetch `SeasonEpisodeList` itself already has), then
+    /// swaps `item`/`displayedItemID` to it — the exact same shape a direct
+    /// Episode tap already produces (see `item`'s doc comment), so
+    /// everything downstream (`PlayResumeButtonRow`'s `isEpisodeContent`
+    /// branch, `DetailTabsView`, the episode list's own highlighted row)
+    /// just follows `item` reactively with no special-casing needed here.
+    /// Deliberately doesn't touch `seriesID`/`preselectedSeasonID`/
+    /// `seasons` — the tapped episode is already within whichever season is
+    /// currently being browsed, so none of those need to change.
+    func selectEpisode(_ episodeID: String) async {
+        guard let dto = try? await client.item(userID: userID, itemID: episodeID) else { return }
+        let images = await client.makeImageURLBuilder()
+        item = MediaItem(dto: dto, images: images)
+        displayedItemID = episodeID
+    }
+
     /// Re-fetches just the main item's DTO so the Play/Resume button and its
     /// progress bar reflect the latest server-side watch state (e.g. after
     /// returning from the player). Skips the sibling rails/seasons — they
