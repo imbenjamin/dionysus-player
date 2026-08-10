@@ -1,7 +1,20 @@
 import SwiftUI
 
-/// Detail page for a TV Show: synopsis, seasons/episodes, and a Play button
-/// that resumes where the user left off (or starts from the first episode).
+/// Detail page for a TV Show — and, via `AssetDetailViewModel`'s
+/// Series/Season/Episode consolidation, also what renders for a Season or
+/// Episode tapped directly (a deep link, search result, or an episode from
+/// Home's Continue Watching rail): synopsis, seasons/episodes, and a Play
+/// button that resumes where the user left off.
+///
+/// `viewModel.item` is the Show's own item for a Series or Season tap, but
+/// an *Episode's* own item for an Episode tap — see
+/// `AssetDetailViewModel.item`'s doc comment for why. `isEpisodeContent`
+/// below is what the body branches on to tell those two shapes apart: with
+/// Episode content, this page still shows the Show's season picker/episode
+/// list for browsing, but the hero/synopsis/metadata/Play button/tabs all
+/// reflect that specific episode instead of the Show — its own overview,
+/// artwork, technical details, and versions are what's actually playable,
+/// the same way `MovieDetailView` treats a Movie.
 struct ShowDetailView: View {
     let viewModel: AssetDetailViewModel
     @State private var playbackRequest: PlaybackRequest?
@@ -10,67 +23,78 @@ struct ShowDetailView: View {
     var body: some View {
         ScrollView {
             if let item = viewModel.item {
+                let isEpisodeContent = item.kind == .episode
+
                 VStack(alignment: .leading, spacing: 20) {
                     HeroHeaderView(item: item)
 
                     VStack(alignment: .leading, spacing: 16) {
                         // See `MovieDetailView`'s matching call site — a
-                        // no-op for a Show in practice (Series never have
-                        // `technicalDetails`), kept for consistency.
+                        // no-op for Show content (a Series/Season never has
+                        // `technicalDetails`) but meaningful, and needed for
+                        // the same reason, for Episode content.
                         InfoMetadataRow(item: item)
                             .id(item.technicalDetails == nil)
 
-                        // A Series item itself never has `mediaVersions` (no
-                        // media file of its own — only its episodes do), so
-                        // `PlayResumeButtonRow`'s version-choice prompt never
-                        // triggers here regardless of which handler runs;
-                        // `onPlay`/`onRestart`'s version-id argument is
-                        // always `nil` for a Series. Extending the prompt to
-                        // the *resolved episode*'s own versions would need
-                        // fetching that episode's full item before deciding
-                        // whether to prompt at all — deliberately left as a
-                        // known gap rather than adding that extra round trip
-                        // to every tap.
+                        // Show content (Series/Season): the button targets
+                        // `viewModel.showPlaybackEpisode` (resolved during
+                        // `load()` — see that property's doc comment for
+                        // exactly which episode and why), which is also what
+                        // gives the button its "Play SXX:EYY"/"Resume
+                        // SXX:EYY" label via `PlayResumeButtonRow`'s
+                        // `targetEpisode`. It's built from a lightweight
+                        // list-fetch DTO (not the detail page's own
+                        // `Fields=MediaSources` fetch), so its
+                        // `mediaVersions` is always empty in practice —
+                        // `onPlay`/`onRestart`'s version-id argument stays
+                        // `nil` there, a known, pre-existing gap (see
+                        // `PlayResumeButtonRow`'s doc comment) rather than
+                        // new behavior. Episode content plays directly
+                        // instead, identical to `MovieDetailView`'s
+                        // handlers — that episode *does* have real
+                        // `mediaVersions` to prompt over and a preferred
+                        // version worth remembering; `targetEpisode` stays
+                        // `nil` there since `item` already *is* the episode.
                         PlayResumeButtonRow(
                             item: item,
-                            onPlay: { _ in
-                                Task {
-                                    if let episodeID = await viewModel.resolveSeriesPlaybackItemID() {
-                                        playbackRequest = PlaybackRequest(itemID: episodeID)
-                                    }
-                                }
+                            targetEpisode: isEpisodeContent ? nil : viewModel.showPlaybackEpisode,
+                            onPlay: { versionID in
+                                let targetID = isEpisodeContent ? item.id : viewModel.showPlaybackEpisode?.id
+                                guard let targetID else { return }
+                                if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: targetID) }
+                                playbackRequest = PlaybackRequest(itemID: targetID, mediaSourceID: versionID)
                             },
                             onResume: {
-                                Task {
-                                    if let episodeID = await viewModel.resolveSeriesPlaybackItemID() {
-                                        playbackRequest = PlaybackRequest(itemID: episodeID)
-                                    }
-                                }
+                                let targetID = isEpisodeContent ? item.id : viewModel.showPlaybackEpisode?.id
+                                guard let targetID else { return }
+                                playbackRequest = PlaybackRequest(
+                                    itemID: targetID, mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: targetID)
+                                )
                             },
-                            onRestart: { _ in
-                                Task {
-                                    if let episodeID = await viewModel.resolveSeriesPlaybackItemID() {
-                                        playbackRequest = PlaybackRequest(itemID: episodeID, startFromBeginning: true)
-                                    }
-                                }
+                            onRestart: { versionID in
+                                let targetID = isEpisodeContent ? item.id : viewModel.showPlaybackEpisode?.id
+                                guard let targetID else { return }
+                                if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: targetID) }
+                                playbackRequest = PlaybackRequest(itemID: targetID, startFromBeginning: true, mediaSourceID: versionID)
                             }
                         )
 
                         // See `MovieDetailView`'s matching call site and
-                        // `DetailTabsView.availableTabs`'s doc comment —
-                        // a Show never actually has `technicalDetails`, so
-                        // this `.id()` is a no-op in practice here, but
-                        // kept for consistency with the Movie/Episode path.
+                        // `DetailTabsView.availableTabs`'s doc comment — a
+                        // no-op for Show content (same reasoning as
+                        // `InfoMetadataRow` above), meaningful for Episode
+                        // content.
                         DetailTabsView(item: item)
                             .id(item.technicalDetails == nil)
                     }
                     .padding(.horizontal)
 
-                    if !viewModel.seasons.isEmpty {
+                    if let seriesID = viewModel.seriesID, !viewModel.seasons.isEmpty {
                         SeasonEpisodeList(
-                            seriesID: item.id,
+                            seriesID: seriesID,
                             seasons: viewModel.seasons,
                             selectedSeasonID: $selectedSeasonID,
+                            currentEpisodeID: isEpisodeContent ? item.id : nil,
                             onSelectEpisode: { episodeID in playbackRequest = PlaybackRequest(itemID: episodeID) }
                         )
                     }
@@ -104,8 +128,15 @@ struct ShowDetailView: View {
                 // (plus once up front for the case it's already populated
                 // by the time this view appears), so it can't miss the
                 // update however the timing falls.
+                //
+                // Prefers `viewModel.preselectedSeasonID` (a Season tapped
+                // directly, or an Episode's own parent season) over the
+                // first season — see that property's doc comment. It's set
+                // synchronously in `load()` alongside `seasons` itself, so
+                // it's already in place by the time this fires for the
+                // real (post-fetch) `seasons` value.
                 .onChange(of: viewModel.seasons, initial: true) { _, seasons in
-                    if selectedSeasonID == nil { selectedSeasonID = seasons.first?.id }
+                    if selectedSeasonID == nil { selectedSeasonID = viewModel.preselectedSeasonID ?? seasons.first?.id }
                 }
             }
         }

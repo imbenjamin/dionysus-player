@@ -11,11 +11,70 @@ final class AssetDetailViewModel {
         case failed(String)
     }
 
+    /// What `ShowDetailView`/`MovieDetailView` actually render as the page's
+    /// hero/synopsis/metadata/Play button/tabs content. For a Movie (or a
+    /// Series tapped directly), this is just the requested item. For a
+    /// Season or Episode tapped directly (e.g. a deep link, or an episode
+    /// from Home's Continue Watching rail), the *page* is still the Show's —
+    /// see `seriesID`/`preselectedSeasonID` below — but `item` itself is
+    /// only swapped to the Series' own item for a Season selection; an
+    /// Episode selection keeps `item` as that episode, so its own overview/
+    /// artwork/technical details/versions are what actually show, matching
+    /// what other Jellyfin clients do when you deep-link straight to an
+    /// episode. See `load()` for exactly which case does which.
     private(set) var item: MediaItem?
+    /// The Show these seasons/episodes belong to — always set alongside
+    /// `item` for a Series/Season/Episode load (never for a Movie). Distinct
+    /// from `item.id`: `item` can be an Episode's own id while this is its
+    /// parent Series' id, which is what `SeasonEpisodeList` and
+    /// `showPlaybackEpisode`'s resolution actually need to scope their
+    /// fetches.
+    private(set) var seriesID: String?
+    /// Which season `ShowDetailView`'s season picker should default to,
+    /// rather than always the first — the tapped Season itself, or an
+    /// Episode's parent season. `nil` for a Series tapped directly (falls
+    /// back to the first season, the pre-existing default).
+    private(set) var preselectedSeasonID: String?
     private(set) var seasons: [MediaItem] = []
     private(set) var similar: [MediaItem] = []
     private(set) var collections: [MediaItem] = []
     private(set) var loadState: LoadState = .idle
+
+    /// For Show content only (`item.kind == .series`, i.e. a Series tapped
+    /// directly or a Season swapped to its parent Series — see `item`'s doc
+    /// comment): the specific episode `PlayResumeButtonRow` should target,
+    /// resolved once as part of `load()` so the button can show a real
+    /// "Play S2:E4"/"Resume S2:E4" label instead of a bare one. `nil` for
+    /// Movie/Episode content (where `item` itself is already the thing to
+    /// play — `ShowDetailView`'s episode-content branch never reads this),
+    /// and briefly `nil` for Show content too until `load()` resolves it.
+    ///
+    /// Resolution differs by how the page was reached:
+    /// - Season tapped directly (`preselectedSeasonID` set): the first
+    ///   episode of *that* season specifically — a Season tap reads as
+    ///   "start this season", not "continue the show overall".
+    /// - Series tapped directly (`preselectedSeasonID` nil): Jellyfin's
+    ///   NextUp, which already returns whichever's more relevant — an
+    ///   in-progress episode if one exists (so this doubles as "the most
+    ///   recently watched part-watched episode" without needing to hunt for
+    ///   it across every season ourselves), else the next unwatched one —
+    ///   falling back to the first episode of the first season when NextUp
+    ///   has nothing at all (a never-started show).
+    ///
+    /// Either way, `PlayResumeButtonRow` decides Play-vs-Resume purely from
+    /// *this resolved episode's own* watched state (via `effectiveItem` —
+    /// see that property's doc comment), not any aggregate on the Series/
+    /// Season item — which is what makes a Season tap correctly say
+    /// "Resume" when its first episode happens to already be part-watched,
+    /// rather than always blindly "Play".
+    private(set) var showPlaybackEpisode: MediaItem?
+
+    /// The id `refreshItem()` should re-fetch to keep `item` current —
+    /// `itemID` itself for a Movie/Series/Episode load (where `item` is
+    /// built straight from `itemID`'s own DTO), but the *Series'* id for a
+    /// Season load, where `item` was swapped to the Series' DTO instead
+    /// of the tapped Season's. Set alongside `item` in `load()`.
+    private var displayedItemID: String?
 
     let itemID: String
     private let client: JellyfinAPIClient
@@ -69,14 +128,70 @@ final class AssetDetailViewModel {
         do {
             let images = await client.makeImageURLBuilder()
             let dto = try await client.item(userID: userID, itemID: itemID)
-            item = MediaItem(dto: dto, images: images)
 
-            async let similarResult = client.similarItems(itemID: itemID, userID: userID)
-            async let collectionsResult = client.collectionsContaining(itemID: itemID, userID: userID)
+            // See `item`/`seriesID`/`preselectedSeasonID`/`displayedItemID`'s
+            // own doc comments for what each branch below is actually
+            // establishing — this is the one place that decides it.
+            switch dto.type {
+            case .episode:
+                item = MediaItem(dto: dto, images: images)
+                displayedItemID = itemID
+                seriesID = dto.seriesId
+                preselectedSeasonID = dto.seasonId
+            case .season:
+                if let seriesID = dto.seriesId {
+                    // The page's content is the *Show's* own item, not the
+                    // Season's (a Season has no overview/artwork/media of
+                    // its own worth showing) — so this is the one case
+                    // where `displayedItemID` ends up different from
+                    // `itemID`.
+                    self.seriesID = seriesID
+                    preselectedSeasonID = dto.id
+                    let seriesDTO = try await client.item(userID: userID, itemID: seriesID)
+                    item = MediaItem(dto: seriesDTO, images: images)
+                    displayedItemID = seriesID
+                    // `preselectedSeasonID` (just set, above) is what tells
+                    // this it's resolving a Season tap's target, not a
+                    // Series tap's — see `resolveShowPlaybackEpisode`.
+                    await resolveShowPlaybackEpisode(seriesID: seriesID, images: images)
+                } else {
+                    // Shouldn't happen — degrades to showing the Season's
+                    // own mostly-empty item rather than crashing.
+                    item = MediaItem(dto: dto, images: images)
+                    displayedItemID = itemID
+                }
+            default:
+                // Series (the pre-existing path), or a Movie/BoxSet/
+                // anything else — none of which have a `seriesID` at all
+                // except Series itself, set just below.
+                item = MediaItem(dto: dto, images: images)
+                displayedItemID = itemID
+                if dto.type == .series { seriesID = dto.id }
+                preselectedSeasonID = nil
+            }
 
-            if dto.type == .series {
-                let seasonsResult = try await client.seasons(seriesID: itemID, userID: userID)
+            // Similar/collections are scoped to the Show for every
+            // Series/Season/Episode case (an episode's own "similar items"
+            // via the API is empty/meaningless) — falls back to `itemID`
+            // only for a Movie, where there's no Show to scope to at all.
+            let similarCollectionsID = seriesID ?? itemID
+            async let similarResult = client.similarItems(itemID: similarCollectionsID, userID: userID)
+            async let collectionsResult = client.collectionsContaining(itemID: similarCollectionsID, userID: userID)
+
+            if let seriesID {
+                let seasonsResult = try await client.seasons(seriesID: seriesID, userID: userID)
                 seasons = seasonsResult.items.map { MediaItem(dto: $0, images: images) }
+            }
+
+            // Series tapped directly — see `showPlaybackEpisode`'s doc
+            // comment. `dto.type == .series` (the *originally requested*
+            // item's real kind), not `item?.kind`, since a Season load also
+            // ends up with `item.kind == .series` after the swap above but
+            // already resolved its own (season-scoped) target just above —
+            // `resolveShowPlaybackEpisode` tells the two apart via
+            // `preselectedSeasonID` (`nil` here, set for the Season case).
+            if dto.type == .series, let seriesID {
+                await resolveShowPlaybackEpisode(seriesID: seriesID, images: images)
             }
 
             similar = try await similarResult.items.map { MediaItem(dto: $0, images: images) }
@@ -102,6 +217,11 @@ final class AssetDetailViewModel {
     /// until the returned userData actually differs from what we had (which
     /// means the server has caught up), or we hit the last attempt.
     func refreshItem() async {
+        // `displayedItemID`, not `itemID` — see that property's doc comment.
+        // They're the same value except for a Season load, where `item` was
+        // swapped to the Show's own DTO; re-fetching `itemID` there would
+        // overwrite `item` with the tapped Season's DTO instead.
+        guard let displayedItemID else { return }
         let previousTicks = item?.dto.userData?.playbackPositionTicks
         let previousPercentage = item?.dto.userData?.playedPercentage
         let previouslyPlayed = item?.dto.userData?.played
@@ -109,26 +229,50 @@ final class AssetDetailViewModel {
 
         for delay in [0.25, 0.5, 1.0, 1.5] as [Double] {
             try? await Task.sleep(for: .seconds(delay))
-            guard let dto = try? await client.item(userID: userID, itemID: itemID) else { continue }
+            guard let dto = try? await client.item(userID: userID, itemID: displayedItemID) else { continue }
             item = MediaItem(dto: dto, images: images)
             if dto.userData?.playbackPositionTicks != previousTicks
                 || dto.userData?.playedPercentage != previousPercentage
                 || dto.userData?.played != previouslyPlayed {
-                return
+                break
             }
+        }
+
+        // Show content's Play/Resume target can change after a playback
+        // session — e.g. the previously-resolved episode just got fully
+        // watched, so a Series-direct page's NextUp resolution should now
+        // point at the following episode. Episode content
+        // (`showPlaybackEpisode` always nil there) and a Movie (no
+        // `seriesID` at all) both no-op via the guard below.
+        if item?.kind == .series, let seriesID {
+            await resolveShowPlaybackEpisode(seriesID: seriesID, images: images)
         }
     }
 
-    /// For a Series' "Play" button: resumes an in-progress episode, else
-    /// the next unwatched one, else the first episode of the first season.
-    func resolveSeriesPlaybackItemID() async -> String? {
-        guard let item, item.kind == .series else { return nil }
-
-        if let next = try? await client.nextUp(userID: userID, seriesID: item.id).items.first {
-            return next.id
+    /// Resolves `showPlaybackEpisode` — see that property's doc comment for
+    /// exactly which episode each case picks. `preselectedSeasonID` being
+    /// set is what tells this it's resolving a *Season* tap's target
+    /// (scoped to that one season) rather than a *Series* tap's (NextUp,
+    /// falling back to the first episode of the first season) — safe to
+    /// rely on here because this is only ever called for Show content
+    /// (`load()`'s `.season` case and its post-`seasons` `.series` case;
+    /// `refreshItem()`'s `item?.kind == .series` guard), never for Episode
+    /// content, where `preselectedSeasonID` is *also* set (to that
+    /// episode's own season) but this function is simply never invoked.
+    private func resolveShowPlaybackEpisode(seriesID: String, images: ImageURLBuilder) async {
+        if let preselectedSeasonID {
+            if let firstEpisodeDto = try? await client.episodes(
+                seriesID: seriesID, seasonID: preselectedSeasonID, userID: userID
+            ).items.first {
+                showPlaybackEpisode = MediaItem(dto: firstEpisodeDto, images: images)
+            }
+        } else if let nextUpDto = try? await client.nextUp(userID: userID, seriesID: seriesID).items.first {
+            showPlaybackEpisode = MediaItem(dto: nextUpDto, images: images)
+        } else if let firstSeason = seasons.first,
+                  let firstEpisodeDto = try? await client.episodes(
+                      seriesID: seriesID, seasonID: firstSeason.id, userID: userID
+                  ).items.first {
+            showPlaybackEpisode = MediaItem(dto: firstEpisodeDto, images: images)
         }
-
-        guard let firstSeason = seasons.first else { return nil }
-        return try? await client.episodes(seriesID: item.id, seasonID: firstSeason.id, userID: userID).items.first?.id
     }
 }

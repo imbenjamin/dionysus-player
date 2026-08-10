@@ -184,10 +184,11 @@ actor JellyfinAPIClient {
 
     /// With `seriesID` omitted, returns next-up episodes across every show
     /// the user's watching — Home's "Next Up" rail. With it set, narrows to
-    /// just that series — `AssetDetailViewModel.resolveSeriesPlaybackItemID`
-    /// uses this to find where to resume a specific show, and doesn't need
-    /// `limit`/`Fields` (it only reads the first result's ID), so both stay
-    /// optional/omitted for that call site rather than forcing them on it.
+    /// just that series — `AssetDetailViewModel.resolveShowPlaybackEpisode`
+    /// uses this to find a Series-direct page's Play/Resume target, and
+    /// doesn't need `limit`/`Fields` (it only reads the first result), so
+    /// both stay optional/omitted for that call site rather than forcing
+    /// them on it.
     func nextUp(userID: String, seriesID: String? = nil, limit: Int? = nil) async throws -> BaseItemDtoQueryResult {
         var query = [
             URLQueryItem(name: "UserId", value: userID),
