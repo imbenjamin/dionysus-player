@@ -54,16 +54,20 @@ final class DeviceTiltObserver {
     /// actually in flight. CoreMotion's start/stop methods are documented
     /// as thread-safe ("enabling you to call them from any thread of your
     /// app") but can synchronously block for a couple of seconds on real
-    /// hardware while negotiating with the motion coprocessor — confirmed
-    /// directly: before `motionQueue` below existed, turning "3D Depth
-    /// Effects" off in Settings froze the *entire app* for a couple of
-    /// seconds (not just this screen), because `stop()` ran that blocking
-    /// call right on the main thread/actor. Now that the actual CoreMotion
-    /// call happens on a background queue instead, the app stays
-    /// interactive throughout — but the operation still isn't instant, so
-    /// this flag exists purely to give a caller (`ProfileView`'s toggle
-    /// row) something to show a spinner against, so the user isn't left
-    /// wondering whether their tap landed.
+    /// hardware while negotiating with the motion coprocessor. Confirmed
+    /// directly on a real device across two attempts: dispatching *our*
+    /// call onto `motionQueue` below wasn't actually sufficient on its own
+    /// — the app still froze whole. The real dependency was
+    /// `updateDeliveryQueue` below being `.main`: `stopDeviceMotionUpdates()`
+    /// has to synchronize with delivery to tear its handler down safely,
+    /// so as long as delivery was `.main`, stopping from *any* thread still
+    /// meant blocking the main run loop. With delivery moved off `.main`
+    /// too, the app stays interactive throughout — but the operation still
+    /// isn't instant, so this flag exists purely to give a caller
+    /// (`ProfileView`'s toggle row, which now drives `start()`/`stop()`
+    /// directly rather than relying on some `HeroHeaderView` happening to
+    /// be mounted) something to show a spinner against, so the user isn't
+    /// left wondering whether their tap landed.
     private(set) var isApplyingChange = false
 
     /// CMMotionManager's instance methods are documented as thread-safe, a
@@ -78,6 +82,25 @@ final class DeviceTiltObserver {
     private static let motionQueue = DispatchQueue(
         label: "com.imbenjamin.dionysusplayer.device-tilt", qos: .userInitiated
     )
+
+    /// Where `startDeviceMotionUpdates(to:)` below delivers each sample —
+    /// deliberately *not* `.main`. Confirmed the hard way: dispatching our
+    /// own `stopDeviceMotionUpdates()` call onto `motionQueue` (above)
+    /// wasn't enough to stop the app-wide freeze on toggle, because the
+    /// freeze wasn't caused by which thread *we* called stop from —
+    /// `stopDeviceMotionUpdates()` has to synchronize with whatever queue
+    /// updates are being *delivered* to in order to safely tear the handler
+    /// down, and that synchronization is what was blocking the main run
+    /// loop when delivery was `.main`. Delivering here instead removes that
+    /// dependency on the main queue entirely; the handler below hops back
+    /// to the main actor itself, per-sample, only for the couple of
+    /// property writes that actually need it.
+    private nonisolated static let updateDeliveryQueue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.name = "com.imbenjamin.dionysusplayer.device-tilt.updates"
+        queue.qualityOfService = .userInitiated
+        return queue
+    }()
 
     /// `false` in the Simulator (no physical sensor) and on the rare device
     /// without one — callers should treat that as "the effect just doesn't
@@ -100,16 +123,19 @@ final class DeviceTiltObserver {
                 // is lighter than the default (and typically 60-100
                 // Hz-capable) rate.
                 manager.deviceMotionUpdateInterval = 1.0 / 30.0
-                manager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
+                manager.startDeviceMotionUpdates(to: Self.updateDeliveryQueue) { [weak self] motion, _ in
                     guard let self, let motion else { return }
-                    // The `to: .main` above guarantees this closure itself
-                    // runs on the main thread/actor — `assumeIsolated` just
-                    // tells the type system what's already true at runtime,
-                    // rather than hopping through a fresh `Task` on every
-                    // single sample (this fires up to 30 times/sec).
-                    MainActor.assumeIsolated {
-                        self.x = Self.smoothed(current: self.x, sample: motion.gravity.x)
-                        self.y = Self.smoothed(current: self.y, sample: Self.uprightRelativeY(motion.gravity.y))
+                    // Runs on `updateDeliveryQueue`, not the main actor —
+                    // see that property's doc comment for why delivery was
+                    // moved off `.main`. Pull the two raw values out here
+                    // (plain `Double`s, trivially safe to cross actors)
+                    // rather than hopping with the whole `CMDeviceMotion`.
+                    let gravityX = motion.gravity.x
+                    let gravityY = motion.gravity.y
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        self.x = Self.smoothed(current: self.x, sample: gravityX)
+                        self.y = Self.smoothed(current: self.y, sample: Self.uprightRelativeY(gravityY))
                     }
                 }
                 continuation.resume()

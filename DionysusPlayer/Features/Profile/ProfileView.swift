@@ -12,6 +12,7 @@ struct ProfileView: View {
     /// actually flipped, so both call sites declaring the same default is
     /// what keeps them in agreement pre-first-launch-visit).
     @AppStorage(hero3DDepthEnabledStorageKey) private var hero3DDepthEnabled = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showSignOutConfirmation = false
     @State private var showChangeServerConfirmation = false
 
@@ -72,6 +73,26 @@ struct ProfileView: View {
             }
         }
         .navigationTitle("Profile")
+        // Drives `DeviceTiltObserver.shared` directly from the toggle that
+        // actually triggers it, rather than relying solely on whichever
+        // `HeroHeaderView` (if any) happens to still be mounted in some
+        // other tab's nav stack — that indirection is what let a previous
+        // fix attempt go untested: if no detail page was live, its
+        // `.onChange` never ran, so `stop()` was never called and this
+        // screen's own spinner never had anything to show. `HeroHeaderView`
+        // keeps its own `.onChange` too (idempotent — see
+        // `DeviceTiltObserver.start()/stop()`'s own guard clauses), for the
+        // case where a detail page *is* on screen; the two calls just no-op
+        // against each other's work.
+        .onChange(of: hero3DDepthEnabled) { _, isEnabled in
+            Task {
+                if isEnabled, !reduceMotion {
+                    await DeviceTiltObserver.shared.start()
+                } else {
+                    await DeviceTiltObserver.shared.stop()
+                }
+            }
+        }
         .confirmationDialog(
             "Sign out of \(appState.currentUser?.name ?? "your account")?",
             isPresented: $showSignOutConfirmation,
