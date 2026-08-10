@@ -26,9 +26,10 @@ struct HeroHeaderView: View {
     /// `.shared`, not a per-view instance — see `DeviceTiltObserver`'s own
     /// doc comment for why (one physical sensor, and `ProfileView`'s toggle
     /// needs visibility into the same `isApplyingChange` this view's
-    /// `.onAppear`/`.onDisappear`/`.onChange` below drive). Still only
-    /// *this* view calls `start()`/`stop()` at all — the shared instance
-    /// doesn't run itself, it's just not re-created per detail page.
+    /// `.onAppear`/`.onChange` below drive). `ProfileView`'s toggle also
+    /// calls `start()`/`stop()` directly on the same shared instance — see
+    /// that view for why — so either call site's idea of "is it running"
+    /// stays in sync regardless of which one triggered it.
     private var tiltObserver: DeviceTiltObserver { .shared }
     /// Two independent opt-outs, both meaning "don't run the effect": the
     /// system-level Reduce Motion setting, and `ProfileView`'s own "3D Depth
@@ -85,7 +86,24 @@ struct HeroHeaderView: View {
         .frame(height: Self.height)
         .padding(.top, isLandscape ? 0 : statusBarInset)
         .onAppear { if is3DDepthEnabled { Task { await tiltObserver.start() } } }
-        .onDisappear { Task { await tiltObserver.stop() } }
+        // Deliberately no `.onDisappear` calling `stop()` here — found the
+        // hard way (real-device repro, 2026-08-10): pushing a new detail
+        // page (e.g. tapping a "More Like This" item) fires this view's
+        // `.onDisappear` and the new page's `.onAppear` within moments of
+        // each other, each as its own unstructured `Task`. Nothing
+        // guarantees `stop()` actually finishes tearing the sensor down
+        // before `start()`'s guard checks whether it's already active — if
+        // `start()` wins that race, it sees "already active," no-ops, and
+        // then `stop()` goes on to really shut everything off, leaving
+        // *both* pages with a dead effect until something else happens to
+        // call `start()` again (confirmed: popping back to the original
+        // page didn't recover it either, for the same reason). A page
+        // merely being pushed under another isn't "the effect is no longer
+        // needed" anyway — `start()` above is idempotent, so leaving the
+        // sensor running across in-stack navigation is both simpler and
+        // correct. Actually stopping it stays driven only by an explicit
+        // signal: the "3D Depth Effects" toggle (`ProfileView`, this view's
+        // own `.onChange` below) or Reduce Motion changing.
         // `depthEffectPreference` can change while this view is already on
         // screen (flipped in Settings, then navigating straight to a detail
         // page without relaunching) — `.onAppear` alone would miss that,
