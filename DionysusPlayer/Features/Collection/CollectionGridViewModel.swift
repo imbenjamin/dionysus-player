@@ -13,8 +13,14 @@ final class CollectionGridViewModel {
 
     private(set) var items: [MediaItem] = []
     private(set) var loadState: LoadState = .idle
-    private(set) var sortField: CollectionSortField = .title
-    private(set) var sortOrder: CollectionSortOrder = .ascending
+    /// Seeded from `query.initialSortField`/`initialSortOrder` in `init` —
+    /// see `CollectionQuery`'s own doc comment. Still ordinary
+    /// user-changeable state from there on, via `setSortField`/
+    /// `setSortOrder`.
+    private(set) var sortField: CollectionSortField
+    private(set) var sortOrder: CollectionSortOrder
+    /// Seeded from `query.initialGenre`/`initialStudio` in `init` — same
+    /// idea as `sortField`/`sortOrder` above.
     private(set) var selectedGenre: String?
     private(set) var selectedStudio: String?
     /// A decade's start year (e.g. `2010`), matching `MediaItem.decade`.
@@ -129,6 +135,10 @@ final class CollectionGridViewModel {
         self.client = client
         self.userID = userID
         self.query = query
+        self.sortField = query.initialSortField
+        self.sortOrder = query.initialSortOrder
+        self.selectedGenre = query.initialGenre
+        self.selectedStudio = query.initialStudio
     }
 
     func loadIfNeeded() async {
