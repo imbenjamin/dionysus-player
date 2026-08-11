@@ -232,6 +232,26 @@ final class MediaItemTests: XCTestCase {
         XCTAssertNil(MediaItem(dto: dto, images: images).technicalDetails?.dynamicRange)
     }
 
+    func test_technicalDetails_frameRateTrimsTrailingZerosAndPrefersRealOverAverage() {
+        let source = MediaSourceInfo(
+            mediaStreams: [MediaStream(index: 0, type: "Video", realFrameRate: 23.976, averageFrameRate: 24)]
+        )
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        XCTAssertEqual(MediaItem(dto: dto, images: images).technicalDetails?.frameRate, "23.976 fps")
+    }
+
+    func test_technicalDetails_frameRateFallsBackToAverageAndFormatsWholeNumberCleanly() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", averageFrameRate: 60)])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        XCTAssertEqual(MediaItem(dto: dto, images: images).technicalDetails?.frameRate, "60 fps")
+    }
+
+    func test_technicalDetails_omitsFrameRateWhenAbsent() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video")])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        XCTAssertNil(MediaItem(dto: dto, images: images).technicalDetails?.frameRate)
+    }
+
     func test_technicalDetails_audioAndSubtitleTracksPreferDisplayTitle() {
         let source = MediaSourceInfo(mediaStreams: [
             MediaStream(index: 0, type: "Video"),

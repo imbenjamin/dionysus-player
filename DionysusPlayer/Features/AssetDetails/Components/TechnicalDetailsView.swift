@@ -52,6 +52,7 @@ struct TechnicalDetailsView: View {
                     if let container = details.container { SummaryRow(label: "Container", value: container) }
                     if let codec = details.videoCodec { SummaryRow(label: "Video Codec", value: codec) }
                     if let resolution = details.resolution { SummaryRow(label: "Resolution", value: resolution) }
+                    if let frameRate = details.frameRate { SummaryRow(label: "Frame Rate", value: frameRate) }
                     if let dynamicRange = details.dynamicRange { SummaryRow(label: "Dynamic Range", value: dynamicRange) }
                     if let bitrate = details.bitrate { SummaryRow(label: "Bitrate", value: bitrate) }
                     if let fileSize = details.fileSize { SummaryRow(label: "File Size", value: fileSize) }

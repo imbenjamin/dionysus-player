@@ -16,6 +16,7 @@ struct TechnicalDetails: Equatable {
     var container: String?
     var videoCodec: String?
     var resolution: String?
+    var frameRate: String?
     var dynamicRange: String?
     var bitrate: String?
     var fileSize: String?
@@ -23,8 +24,9 @@ struct TechnicalDetails: Equatable {
     var subtitleTracks: [String]
 
     var isEmpty: Bool {
-        container == nil && videoCodec == nil && resolution == nil && dynamicRange == nil
-            && bitrate == nil && fileSize == nil && audioTracks.isEmpty && subtitleTracks.isEmpty
+        container == nil && videoCodec == nil && resolution == nil && frameRate == nil
+            && dynamicRange == nil && bitrate == nil && fileSize == nil && audioTracks.isEmpty
+            && subtitleTracks.isEmpty
     }
 }
 
@@ -99,7 +101,7 @@ struct MediaItem: Identifiable {
 
     // `yearText`/`durationText`/`episodeLabel`/`railSubtitle` below, plus
     // `resolutionCommonName`/`friendlyVideoCodecName`/
-    // `friendlyDynamicRangeName`/`bitrateLabel` further down, are
+    // `friendlyDynamicRangeName`/`frameRateLabel`/`bitrateLabel` further down, are
     // deliberately left as plain (non-localized) string assembly: they're
     // either numeric/date formatting (years, durations, "S1:E4") or
     // industry-standard technical terms conventionally shown untranslated
@@ -224,11 +226,14 @@ struct MediaItem: Identifiable {
         }
         let dynamicRange = (videoStream?.videoRangeType ?? videoStream?.videoRange)
             .flatMap { $0.isEmpty || $0 == "Unknown" ? nil : Self.friendlyDynamicRangeName($0) }
+        let frameRate = (videoStream?.realFrameRate ?? videoStream?.averageFrameRate)
+            .map(Self.frameRateLabel)
 
         let details = TechnicalDetails(
             container: source.container?.uppercased(),
             videoCodec: videoStream?.codec.map(Self.friendlyVideoCodecName),
             resolution: resolution,
+            frameRate: frameRate,
             dynamicRange: dynamicRange,
             bitrate: source.bitrate.map(Self.bitrateLabel),
             fileSize: source.size.map(Self.fileSizeLabel),
@@ -576,6 +581,16 @@ struct MediaItem: Identifiable {
         if let displayTitle = stream.displayTitle, !displayTitle.isEmpty { return displayTitle }
         let parts = [stream.language, stream.codec?.uppercased()].compactMap { $0 }
         return parts.isEmpty ? String(localized: "Track \(stream.index + 1)") : parts.joined(separator: " \u{00B7} ")
+    }
+
+    /// e.g. "23.976 fps", "29.97 fps", "60 fps" — up to three decimal
+    /// places, trimmed of trailing zeros (and the decimal point itself for
+    /// whole numbers like a clean 24 or 60).
+    private static func frameRateLabel(_ fps: Double) -> String {
+        var formatted = String(format: "%.3f", fps)
+        while formatted.hasSuffix("0") { formatted.removeLast() }
+        if formatted.hasSuffix(".") { formatted.removeLast() }
+        return "\(formatted) fps"
     }
 
     private static func bitrateLabel(_ bitsPerSecond: Int) -> String {

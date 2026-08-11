@@ -217,6 +217,12 @@ struct MediaStream: Codable, Identifiable, Hashable {
     /// More specific than `videoRange` when present (e.g. "DOVI",
     /// "DOVIWithHDR10", "HDR10", "HLG") — preferred when available.
     var videoRangeType: String?
+    /// The stream's actual frame rate (e.g. `23.976`), as measured from the
+    /// file — preferred over `averageFrameRate` (a coarser, container-level
+    /// figure) when both are present. Either can be missing depending on how
+    /// the file was probed server-side.
+    var realFrameRate: Double?
+    var averageFrameRate: Double?
 
     // Audio-specific.
     var channelLayout: String?
