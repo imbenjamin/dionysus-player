@@ -16,6 +16,7 @@ struct TechnicalDetails: Equatable {
     var container: String?
     var videoCodec: String?
     var resolution: String?
+    var frameRate: String?
     var dynamicRange: String?
     var bitrate: String?
     var fileSize: String?
@@ -23,9 +24,17 @@ struct TechnicalDetails: Equatable {
     var subtitleTracks: [String]
 
     var isEmpty: Bool {
-        container == nil && videoCodec == nil && resolution == nil && dynamicRange == nil
-            && bitrate == nil && fileSize == nil && audioTracks.isEmpty && subtitleTracks.isEmpty
+        container == nil && videoCodec == nil && resolution == nil && frameRate == nil
+            && dynamicRange == nil && bitrate == nil && fileSize == nil && audioTracks.isEmpty
+            && subtitleTracks.isEmpty
     }
+}
+
+/// One entry in the Details tab's version picker — see
+/// `MediaItem.mediaVersions`.
+struct MediaVersion: Identifiable, Hashable {
+    let id: String
+    let label: String
 }
 
 /// View-friendly wrapper around a `BaseItemDto`: precomputed display
@@ -43,12 +52,19 @@ struct MediaItem: Identifiable {
     var id: String { dto.id }
     var name: String { dto.name }
     var overview: String? { dto.overview }
+    /// The marketing tagline (e.g. "Some assembly required."), shown above
+    /// the synopsis on the About tab. Jellyfin models this as an array
+    /// (`Taglines`) but populates at most one for movies/shows in practice
+    /// — first non-empty entry, `nil` if there isn't one. Only present when
+    /// fetched via `Fields=Taglines` (see `JellyfinAPIClient.detailFields`
+    /// — the detail page's own item fetch, not rail/list fetches, where a
+    /// tagline is never shown and not worth the extra payload).
+    var tagline: String? { dto.taglines?.first { !$0.isEmpty } }
     var kind: BaseItemKind { dto.type }
     var genres: [String] { dto.genres ?? [] }
     var studios: [String] { dto.studios?.map(\.name) ?? [] }
     var ageRating: String? { dto.officialRating }
     var communityRating: Double? { dto.communityRating }
-    var seriesID: String? { dto.seriesId }
     /// The decade this item's `productionYear` falls in, as its start year
     /// (e.g. `2010` for a 2016 release) — `CollectionGridView`'s Decade
     /// filter groups on this. `nil` when there's no production year to
@@ -85,7 +101,7 @@ struct MediaItem: Identifiable {
 
     // `yearText`/`durationText`/`episodeLabel`/`railSubtitle` below, plus
     // `resolutionCommonName`/`friendlyVideoCodecName`/
-    // `friendlyDynamicRangeName`/`bitrateLabel` further down, are
+    // `friendlyDynamicRangeName`/`frameRateLabel`/`bitrateLabel` further down, are
     // deliberately left as plain (non-localized) string assembly: they're
     // either numeric/date formatting (years, durations, "S1:E4") or
     // industry-standard technical terms conventionally shown untranslated
@@ -185,11 +201,22 @@ struct MediaItem: Identifiable {
     }
 
     /// Container/codec/resolution/dynamic-range summary plus per-track audio
-    /// and subtitle lists, for the detail page's "Details" tab. `nil` when
-    /// there's no media source at all (e.g. viewing a Series, which has no
-    /// file of its own — only its episodes do).
-    var technicalDetails: TechnicalDetails? {
-        guard let source = dto.mediaSources?.first else { return nil }
+    /// and subtitle lists, for the detail page's "Details" tab's default
+    /// (first/highest-quality) version. `nil` when there's no media source
+    /// at all (e.g. viewing a Series, which has no file of its own — only
+    /// its episodes do). See `technicalDetails(forVersion:)` for a specific
+    /// `mediaVersions` entry instead — this is exactly that with `nil`.
+    var technicalDetails: TechnicalDetails? { technicalDetails(forVersion: nil) }
+
+    /// Same as `technicalDetails`, but for one specific version out of
+    /// `mediaVersions` (`versionID` is a `MediaVersion.id`, i.e. a
+    /// `MediaSourceInfo.id`) — what `TechnicalDetailsView`'s version picker
+    /// switches between. `nil` falls back to the first/default source, same
+    /// as the no-argument `technicalDetails`; an unrecognized `versionID`
+    /// (shouldn't happen — the picker only ever offers ids from
+    /// `mediaVersions`) does too, rather than showing nothing.
+    func technicalDetails(forVersion versionID: String?) -> TechnicalDetails? {
+        guard let source = Self.mediaSource(in: dto, matching: versionID) else { return nil }
         let streams = source.mediaStreams ?? []
         let videoStream = streams.first { $0.type == "Video" }
 
@@ -199,11 +226,14 @@ struct MediaItem: Identifiable {
         }
         let dynamicRange = (videoStream?.videoRangeType ?? videoStream?.videoRange)
             .flatMap { $0.isEmpty || $0 == "Unknown" ? nil : Self.friendlyDynamicRangeName($0) }
+        let frameRate = (videoStream?.realFrameRate ?? videoStream?.averageFrameRate)
+            .map(Self.frameRateLabel)
 
         let details = TechnicalDetails(
             container: source.container?.uppercased(),
             videoCodec: videoStream?.codec.map(Self.friendlyVideoCodecName),
             resolution: resolution,
+            frameRate: frameRate,
             dynamicRange: dynamicRange,
             bitrate: source.bitrate.map(Self.bitrateLabel),
             fileSize: source.size.map(Self.fileSizeLabel),
@@ -211,6 +241,62 @@ struct MediaItem: Identifiable {
             subtitleTracks: streams.filter { $0.type == "Subtitle" }.map(Self.trackLabel)
         )
         return details.isEmpty ? nil : details
+    }
+
+    /// Every distinct media file backing this item, when there's more than
+    /// one — Jellyfin calls these an item's "versions". These aren't always
+    /// a technical variant (a 4K UHD remux alongside a separate 1080p
+    /// encode) — they're just as often an edition the uploader chose to
+    /// keep alongside the original (a "Director's Cut", "Extended
+    /// Version", "Black and White" cut, etc.) with identical or
+    /// near-identical technical specs, all listed in `mediaSources`. Empty
+    /// whenever there's nothing to choose between: no media file at all
+    /// (Series/Season), or the overwhelmingly common single-version case —
+    /// `TechnicalDetailsView`'s version picker only shows up when this has
+    /// more than one entry, per its call site.
+    ///
+    /// Ordered exactly as the server returns `mediaSources` — Jellyfin
+    /// itself puts the version it'd pick for direct play first, so the
+    /// first entry here doubles as "the default" (`technicalDetails`/
+    /// `metadataBadges` both implicitly use it).
+    var mediaVersions: [MediaVersion] {
+        guard let sources = dto.mediaSources, sources.count > 1 else { return [] }
+        // The filename-derived edition name (see `editionLabel`) takes
+        // priority over the resolution/dynamic-range bucket whenever
+        // Jellyfin's naming convention lets us recover one — it's what the
+        // uploader actually called this version, which a technical bucket
+        // can't express (and, for a same-spec alternate cut, can't even
+        // distinguish from the original at all). The base/canonical version
+        // itself is always labeled "Original" in that case, rather than
+        // guessing at a resolution/HDR label for it — see the comment below.
+        let canonicalName = Self.canonicalSourceName(sources)
+        var seenLabels: Set<String> = []
+        return sources.enumerated().map { index, source in
+            var label: String
+            if let canonicalName {
+                // We've confirmed this item follows Jellyfin's naming
+                // convention (every source's name either matches
+                // `canonicalName` or extends it), so we know which source
+                // is the base one — but not what dimension the *other*
+                // versions differ by, since that's whatever the uploader
+                // chose to call them. Labeling the base version by a
+                // resolution/HDR guess would imply that's the convention in
+                // play even when it isn't (e.g. an "Extended Version"
+                // alongside an identically-encoded original); "Original" is
+                // the one label that's never a wrong assumption.
+                label = Self.editionLabel(for: source, canonicalName: canonicalName)
+                    ?? String(localized: "Original")
+            } else {
+                label = Self.versionLabel(for: source, fallbackIndex: index)
+            }
+            // Disambiguate the rare case two versions land on the same
+            // coarse label (e.g. two 1080p SDR encodes) — better than
+            // silently offering two menu entries a user can't tell apart.
+            if !seenLabels.insert(label).inserted {
+                label += " (\(index + 1))"
+            }
+            return MediaVersion(id: source.id ?? String(index), label: label)
+        }
     }
 
     /// Small call-out badges for the detail page's metadata row — resolution
@@ -244,16 +330,9 @@ struct MediaItem: Identifiable {
             }
         }
 
-        if let dynamicRangeType = videoStream?.videoRangeType ?? videoStream?.videoRange {
-            if dynamicRangeType.hasPrefix("DOVI") {
-                badges.append("Dolby Vision")
-            } else if dynamicRangeType == "HDR10" {
-                badges.append("HDR10")
-            } else if dynamicRangeType == "HDR10Plus" {
-                badges.append("HDR10+")
-            } else if dynamicRangeType == "HLG" {
-                badges.append("HDR")
-            }
+        if let dynamicRangeType = videoStream?.videoRangeType ?? videoStream?.videoRange,
+           let badge = Self.dynamicRangeBadge(dynamicRangeType) {
+            badges.append(badge)
         }
 
         if audioStreams.contains(where: { $0.audioSpatialFormat == "DolbyAtmos" }) {
@@ -284,6 +363,107 @@ struct MediaItem: Identifiable {
         }
 
         return badges
+    }
+
+    /// `mediaVersions`' fallback labeling, used whenever `editionLabel`
+    /// can't recover a filename-derived edition name (Jellyfin's naming
+    /// convention wasn't followed, or this genuinely is just a plain
+    /// technical alternate with no edition of its own). Coarse
+    /// resolution+dynamic-range label for one entry, e.g. "4K HDR10" or
+    /// "1080p" — deliberately the same coarse buckets `metadataBadges`
+    /// uses (via `dynamicRangeBadge`/`resolutionCommonName` below), not
+    /// `technicalDetails`' exact dimensions/format string, since this needs
+    /// to read at a glance in a picker, not document the file precisely.
+    /// Falls back to the server's own (raw, filename-ish)
+    /// `MediaSourceInfo.name` when neither a recognized resolution nor
+    /// dynamic range is available to build a label from, and finally to a
+    /// generic "Version N" if even that's missing.
+    private static func versionLabel(for source: MediaSourceInfo, fallbackIndex: Int) -> String {
+        let videoStream = (source.mediaStreams ?? []).first { $0.type == "Video" }
+        var parts: [String] = []
+        if let width = videoStream?.width, let commonName = resolutionCommonName(width: width) {
+            parts.append(commonName)
+        }
+        if let dynamicRangeType = videoStream?.videoRangeType ?? videoStream?.videoRange,
+           let badge = dynamicRangeBadge(dynamicRangeType) {
+            parts.append(badge)
+        }
+        if !parts.isEmpty { return parts.joined(separator: " ") }
+        if let name = source.name, !name.isEmpty { return name }
+        return String(localized: "Version \(fallbackIndex + 1)")
+    }
+
+    /// The base filename every alternate version's `MediaSourceInfo.name`
+    /// is expected to extend, per Jellyfin's own multi-version naming
+    /// convention: alternate cuts live alongside the primary file as
+    /// `<primary file name> - <edition name>.ext` (e.g. a theatrical cut
+    /// named `Movie - [Bluray-2160p]-GROUP.mkv` and an extended cut named
+    /// `Movie - [Bluray-2160p]-GROUP - Extended Version.mkv`).
+    /// `MediaSourceInfo.name` is the filename-derived stem the server
+    /// already computes — confirmed against a real multi-version item on a
+    /// test server, where two sources' raw `name`s were identical except
+    /// the alternate had `" - 1080p"` appended — so the canonical source is
+    /// whichever one is a literal prefix of every other source's name.
+    /// `nil` when that relationship doesn't hold (a name missing, or this
+    /// set of versions simply doesn't follow the convention); callers
+    /// should fall back to `versionLabel`'s resolution/dynamic-range
+    /// bucketing in that case.
+    ///
+    /// Deliberately not "split every name on ` - ` and take the last
+    /// piece": real filenames routinely contain unrelated dashes of their
+    /// own (release-group tags like `[Bluray-2160p]` or `x265]-GROUP`), so
+    /// only a prefix comparison against a known canonical name can isolate
+    /// the actual edition suffix reliably.
+    private static func canonicalSourceName(_ sources: [MediaSourceInfo]) -> String? {
+        let names = sources.map { $0.name ?? "" }
+        guard sources.count > 1, names.allSatisfy({ !$0.isEmpty }) else { return nil }
+        return names.first { candidate in
+            names.allSatisfy { $0 == candidate || $0.hasPrefix(candidate + " - ") }
+        }
+    }
+
+    /// The edition name Jellyfin's filename convention encodes for one
+    /// version relative to `canonicalName` (see `canonicalSourceName`
+    /// above) — e.g. `"Extended Version"`, `"1080p"`, `"Black and White"` —
+    /// verbatim, exactly as the uploader named it. `nil` for the canonical
+    /// version itself (nothing to show) or when this source's name doesn't
+    /// extend `canonicalName` at all.
+    private static func editionLabel(for source: MediaSourceInfo, canonicalName: String?) -> String? {
+        guard let canonicalName, let name = source.name, name != canonicalName else { return nil }
+        let prefix = canonicalName + " - "
+        guard name.hasPrefix(prefix) else { return nil }
+        let suffix = String(name.dropFirst(prefix.count))
+        return suffix.isEmpty ? nil : suffix
+    }
+
+    /// Shared by `metadataBadges` (resolution/dynamic-range badges on the
+    /// detail page's second metadata line) and `versionLabel` (the version
+    /// picker's per-entry label) — both want the same coarse "Dolby
+    /// Vision"/"HDR10"/"HDR10+"/"HDR" buckets from Jellyfin's raw
+    /// `VideoRangeType`/`VideoRange`, `nil` for plain SDR (no badge/word
+    /// worth showing).
+    private static func dynamicRangeBadge(_ dynamicRangeType: String) -> String? {
+        if dynamicRangeType.hasPrefix("DOVI") { return "Dolby Vision" }
+        switch dynamicRangeType {
+        case "HDR10": return "HDR10"
+        case "HDR10Plus": return "HDR10+"
+        case "HLG": return "HDR"
+        default: return nil
+        }
+    }
+
+    /// Looks up a specific `mediaSources` entry by id, falling back to the
+    /// first/default one when `versionID` is `nil` or doesn't match
+    /// anything — split out of `technicalDetails(forVersion:)` as its own
+    /// function (rather than an inline `flatMap`/`??` one-liner) because
+    /// that inline form made the type-checker choke ("unable to type-check
+    /// this expression in reasonable time").
+    private static func mediaSource(in dto: BaseItemDto, matching versionID: String?) -> MediaSourceInfo? {
+        guard let sources = dto.mediaSources else { return nil }
+        if let versionID, let match = sources.first(where: { $0.id == versionID }) {
+            return match
+        }
+        return sources.first
     }
 
     private static func hasAudioCodec(_ streams: [MediaStream], _ codec: String) -> Bool {
@@ -401,6 +581,16 @@ struct MediaItem: Identifiable {
         if let displayTitle = stream.displayTitle, !displayTitle.isEmpty { return displayTitle }
         let parts = [stream.language, stream.codec?.uppercased()].compactMap { $0 }
         return parts.isEmpty ? String(localized: "Track \(stream.index + 1)") : parts.joined(separator: " \u{00B7} ")
+    }
+
+    /// e.g. "23.976 fps", "29.97 fps", "60 fps" — up to three decimal
+    /// places, trimmed of trailing zeros (and the decimal point itself for
+    /// whole numbers like a clean 24 or 60).
+    private static func frameRateLabel(_ fps: Double) -> String {
+        var formatted = String(format: "%.3f", fps)
+        while formatted.hasSuffix("0") { formatted.removeLast() }
+        if formatted.hasSuffix(".") { formatted.removeLast() }
+        return "\(formatted) fps"
     }
 
     private static func bitrateLabel(_ bitsPerSecond: Int) -> String {

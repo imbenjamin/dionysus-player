@@ -9,9 +9,7 @@ import SwiftUI
 /// property's doc comment for why). Grids (`CollectionGridView`,
 /// `SearchView`) always use this one regardless of item kind: they're not
 /// in scope for the landscape treatment, and their column-width math
-/// assumes a uniform portrait aspect ratio throughout — episode items can
-/// still show up here (e.g. search results), which is why the "More" menu
-/// below isn't exclusive to `LandscapeMediaCard`.
+/// assumes a uniform portrait aspect ratio throughout.
 struct PosterCard: View {
     let item: MediaItem
     var width: CGFloat = 130
@@ -19,6 +17,18 @@ struct PosterCard: View {
     private var imageHeight: CGFloat { width * 1.5 }
 
     var body: some View {
+        // Still a `ZStack`, not just the `NavigationLink` directly, even
+        // though the "⋯" menu that used to be its second child is gone —
+        // found the hard way (real-device repro, 2026-08-10): collapsing
+        // this down to the bare `NavigationLink` sent SwiftUI's layout
+        // engine into a genuine infinite loop the moment a rail of these
+        // cards rendered inside `MediaRailView`'s `LazyHStack` (confirmed
+        // via a CPU sample pegged at ~100%, entirely inside
+        // `StackLayout`/`AttributeGraph` internals — not a single frame of
+        // this app's own code on the stack). Whatever layout-negotiation
+        // role the `ZStack` was quietly playing between the `NavigationLink`
+        // and its `LazyHStack` parent, a single-child `ZStack` still
+        // provides it; the bare `NavigationLink` did not.
         ZStack(alignment: .topLeading) {
             NavigationLink(value: AppRoute.assetDetail(itemID: item.id, preloadedItem: item)) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -39,9 +49,6 @@ struct PosterCard: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-
-            EpisodeMoreMenuButton(item: item)
-                .frame(width: width, height: imageHeight, alignment: .bottomTrailing)
         }
     }
 }
@@ -62,6 +69,9 @@ struct LandscapeMediaCard: View {
     private var imageHeight: CGFloat { width * 9 / 16 }
 
     var body: some View {
+        // See `PosterCard.body`'s doc comment for why this stays a `ZStack`
+        // (now single-child) rather than collapsing to the bare
+        // `NavigationLink`.
         ZStack(alignment: .topLeading) {
             NavigationLink(value: AppRoute.assetDetail(itemID: item.id, preloadedItem: item)) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -87,44 +97,6 @@ struct LandscapeMediaCard: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-
-            EpisodeMoreMenuButton(item: item)
-                .frame(width: width, height: imageHeight, alignment: .bottomTrailing)
-        }
-    }
-}
-
-/// The "⋯" corner menu button shown only on episode tiles, in both
-/// `PosterCard` and `LandscapeMediaCard` — nothing renders for any other
-/// item kind. Just one action for now (jump to the episode's parent Show);
-/// more can be added to the `Menu`'s content later without callers changing.
-///
-/// A sibling of the card's `NavigationLink` in an outer `ZStack`, not
-/// nested inside its label — an interactive control nested inside a
-/// `NavigationLink`'s label risks having its taps swallowed by the link's
-/// own tap gesture instead of reaching the control. Being an independent
-/// sibling avoids that; callers give it a `.frame(width:height:alignment:
-/// .bottomTrailing)` matching the artwork image's own size (not the whole
-/// card, which also has the text label below) so it lands in the image's
-/// bottom-right corner specifically, same as `watchStatusOverlay`'s badges
-/// sit relative to the image rather than the whole card.
-private struct EpisodeMoreMenuButton: View {
-    let item: MediaItem
-
-    var body: some View {
-        if item.kind == .episode, let seriesID = item.seriesID {
-            Menu {
-                NavigationLink(value: AppRoute.assetDetail(itemID: seriesID)) {
-                    Label("Go to Show", systemImage: "tv")
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.white)
-                    .padding(6)
-                    .background(Circle().fill(Color.black.opacity(0.5)))
-            }
-            .padding(6)
         }
     }
 }
@@ -195,9 +167,7 @@ private extension View {
     /// `self` (expected to already be the clipped artwork image). The eye
     /// and star sit on opposite top corners so both can show at once (a
     /// favorited, fully-watched item is a completely ordinary
-    /// combination) — the bottom-trailing corner is reserved for
-    /// `EpisodeMoreMenuButton`, which is why nothing here uses that
-    /// alignment. Decorations must not intercept taps: with the progress
+    /// combination). Decorations must not intercept taps: with the progress
     /// bar as a ZStack sibling of the (rounded-clip) image, its rectangular
     /// hit region extended past the image's rounded corners and could get
     /// routed to a neighbouring card in the horizontal `ScrollView` — hence

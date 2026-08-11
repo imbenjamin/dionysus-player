@@ -232,6 +232,26 @@ final class MediaItemTests: XCTestCase {
         XCTAssertNil(MediaItem(dto: dto, images: images).technicalDetails?.dynamicRange)
     }
 
+    func test_technicalDetails_frameRateTrimsTrailingZerosAndPrefersRealOverAverage() {
+        let source = MediaSourceInfo(
+            mediaStreams: [MediaStream(index: 0, type: "Video", realFrameRate: 23.976, averageFrameRate: 24)]
+        )
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        XCTAssertEqual(MediaItem(dto: dto, images: images).technicalDetails?.frameRate, "23.976 fps")
+    }
+
+    func test_technicalDetails_frameRateFallsBackToAverageAndFormatsWholeNumberCleanly() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", averageFrameRate: 60)])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        XCTAssertEqual(MediaItem(dto: dto, images: images).technicalDetails?.frameRate, "60 fps")
+    }
+
+    func test_technicalDetails_omitsFrameRateWhenAbsent() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video")])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        XCTAssertNil(MediaItem(dto: dto, images: images).technicalDetails?.frameRate)
+    }
+
     func test_technicalDetails_audioAndSubtitleTracksPreferDisplayTitle() {
         let source = MediaSourceInfo(mediaStreams: [
             MediaStream(index: 0, type: "Video"),
@@ -255,6 +275,148 @@ final class MediaItemTests: XCTestCase {
 
     func test_technicalDetails_nilWhenNoMediaSources() {
         XCTAssertNil(makeMovie().technicalDetails)
+    }
+
+    // MARK: tagline
+
+    private func makeMovie(taglines: [String]?) -> MediaItem {
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", taglines: taglines, type: .movie)
+        return MediaItem(dto: dto, images: images)
+    }
+
+    func test_tagline_firstEntry() {
+        XCTAssertEqual(makeMovie(taglines: ["Not alone.", "A second, unused tagline"]).tagline, "Not alone.")
+    }
+
+    func test_tagline_nilWhenMissing() {
+        XCTAssertNil(makeMovie(taglines: nil).tagline)
+    }
+
+    func test_tagline_nilWhenOnlyEmptyStringsPresent() {
+        XCTAssertNil(makeMovie(taglines: [""]).tagline)
+    }
+
+    /// A leading empty entry shouldn't shadow a real tagline after it.
+    func test_tagline_skipsLeadingEmptyEntries() {
+        XCTAssertEqual(makeMovie(taglines: ["", "Some assembly required."]).tagline, "Some assembly required.")
+    }
+
+    // MARK: mediaVersions / technicalDetails(forVersion:)
+    // `makeMovie(mediaSources:)` below is shared with the "metadataBadges"
+    // section further down.
+
+    private func make4KSource(id: String = "src-4k") -> MediaSourceInfo {
+        MediaSourceInfo(
+            id: id, container: "mkv",
+            mediaStreams: [MediaStream(index: 0, type: "Video", codec: "hevc", width: 3840, height: 1606, videoRangeType: "HDR10")]
+        )
+    }
+
+    private func make1080pSource(id: String = "src-1080p") -> MediaSourceInfo {
+        MediaSourceInfo(
+            id: id, container: "mkv",
+            mediaStreams: [MediaStream(index: 0, type: "Video", codec: "h264", width: 1920, height: 804)]
+        )
+    }
+
+    func test_mediaVersions_emptyForASingleVersion() {
+        XCTAssertEqual(makeMovie(mediaSources: [make4KSource()]).mediaVersions, [])
+    }
+
+    func test_mediaVersions_emptyWhenNoMediaSourcesAtAll() {
+        XCTAssertEqual(makeMovie().mediaVersions, [])
+    }
+
+    func test_mediaVersions_labelsCombineResolutionAndDynamicRange() {
+        let item = makeMovie(mediaSources: [make4KSource(), make1080pSource()])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["4K HDR10", "1080p"])
+        XCTAssertEqual(item.mediaVersions.map(\.id), ["src-4k", "src-1080p"])
+    }
+
+    /// Two sources that land on the same coarse label (e.g. two plain 1080p
+    /// SDR encodes) still need to read as distinguishable menu entries.
+    func test_mediaVersions_disambiguatesIdenticalLabels() {
+        let item = makeMovie(mediaSources: [
+            make1080pSource(id: "src-a"), make1080pSource(id: "src-b")
+        ])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["1080p", "1080p (2)"])
+    }
+
+    /// No recognizable resolution/dynamic range to build a label from (e.g.
+    /// an audio-only or metadata-less source) falls back to the server's
+    /// own raw `Name`, then finally a generic placeholder.
+    func test_mediaVersions_fallsBackToSourceNameThenGenericPlaceholder() {
+        let named = MediaSourceInfo(id: "src-1", name: "Director's Cut", mediaStreams: [])
+        let unnamed = MediaSourceInfo(id: "src-2", mediaStreams: [])
+        let item = makeMovie(mediaSources: [named, unnamed])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["Director's Cut", "Version 2"])
+    }
+
+    /// Jellyfin's own multi-version naming convention: an alternate cut's
+    /// raw `name` is the canonical source's `name` with " - <edition>"
+    /// appended (confirmed against a real multi-version item on a test
+    /// server). `mediaVersions` prefers that filename-derived edition name
+    /// over the resolution/dynamic-range bucket — the two sources here have
+    /// *identical* technical specs, so the bucket alone couldn't even tell
+    /// them apart.
+    func test_mediaVersions_prefersFilenameDerivedEditionNameOverTechnicalBucket() {
+        let canonicalName = "[imdbid-tt8579674] - [Bluray-2160p][HDR10][x265]-GROUP"
+        let original = MediaSourceInfo(id: "src-original", name: canonicalName, mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "hevc", width: 3840, height: 1606, videoRangeType: "HDR10")
+        ])
+        let extended = MediaSourceInfo(id: "src-extended", name: canonicalName + " - Extended Version", mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "hevc", width: 3840, height: 1606, videoRangeType: "HDR10")
+        ])
+        let item = makeMovie(mediaSources: [original, extended])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["Original", "Extended Version"])
+    }
+
+    /// A purely technical alternate (no edition name of its own) still gets
+    /// its label read straight off the filename — Jellyfin uses the exact
+    /// same " - <suffix>" convention for a plain resolution alternate as it
+    /// does for a named cut. The canonical version is still labeled
+    /// "Original", not a resolution/HDR guess, even though in this
+    /// particular case a technical bucket would've been just as accurate —
+    /// `mediaVersions` doesn't special-case that, since it has no way to
+    /// tell a technical suffix from a descriptive one in general.
+    func test_mediaVersions_editionSuffixCanItselfBeATechnicalLabel() {
+        let canonicalName = "[imdbid-tt8579674] - [Bluray-2160p][HDR10][x265]-GROUP"
+        let original = MediaSourceInfo(id: "src-4k", name: canonicalName, mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "hevc", width: 3840, height: 1606, videoRangeType: "HDR10")
+        ])
+        let downscaled = MediaSourceInfo(id: "src-1080p", name: canonicalName + " - 1080p", mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "h264", width: 1920, height: 804)
+        ])
+        let item = makeMovie(mediaSources: [original, downscaled])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["Original", "1080p"])
+    }
+
+    /// Names that don't share the "canonical + ' - ' + suffix" relationship
+    /// (independently-named files that don't follow Jellyfin's convention)
+    /// fall back to the resolution/dynamic-range bucket exactly as before —
+    /// a real dash inside one of the names (a release-group tag) must not
+    /// be mistaken for an edition separator.
+    func test_mediaVersions_fallsBackToTechnicalBucketWhenNamesDontShareACommonPrefix() {
+        let unrelatedA = MediaSourceInfo(id: "src-a", name: "[Bluray-2160p]-GROUPONE", mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "hevc", width: 3840, height: 1606, videoRangeType: "HDR10")
+        ])
+        let unrelatedB = MediaSourceInfo(id: "src-b", name: "[WEBDL-1080p]-GROUPTWO", mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "h264", width: 1920, height: 804)
+        ])
+        let item = makeMovie(mediaSources: [unrelatedA, unrelatedB])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["4K HDR10", "1080p"])
+    }
+
+    func test_technicalDetailsForVersion_selectsTheMatchingSource() {
+        let item = makeMovie(mediaSources: [make4KSource(), make1080pSource()])
+        XCTAssertEqual(item.technicalDetails(forVersion: "src-4k")?.resolution, "3840\u{00D7}1606 (4K)")
+        XCTAssertEqual(item.technicalDetails(forVersion: "src-1080p")?.resolution, "1920\u{00D7}804 (1080p)")
+    }
+
+    func test_technicalDetailsForVersion_fallsBackToFirstSourceForNilOrUnknownID() {
+        let item = makeMovie(mediaSources: [make4KSource(), make1080pSource()])
+        XCTAssertEqual(item.technicalDetails(forVersion: nil)?.resolution, item.technicalDetails?.resolution)
+        XCTAssertEqual(item.technicalDetails(forVersion: "no-such-id")?.resolution, item.technicalDetails?.resolution)
     }
 
     // MARK: metadataBadges

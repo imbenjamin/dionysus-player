@@ -6,6 +6,7 @@ import SwiftUI
 struct PlayerView: View {
     let itemID: String
     var startFromBeginning: Bool = false
+    var mediaSourceID: String? = nil
 
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -57,7 +58,10 @@ struct PlayerView: View {
     private func setUpIfNeeded() async {
         guard viewModel == nil, let client = appState.apiClient, let userID = appState.currentUser?.id else { return }
         guard let engine = try? AetherPlaybackEngine() else { return }
-        let newViewModel = PlayerViewModel(client: client, userID: userID, itemID: itemID, engine: engine, startFromBeginning: startFromBeginning)
+        let newViewModel = PlayerViewModel(
+            client: client, userID: userID, itemID: itemID, engine: engine,
+            startFromBeginning: startFromBeginning, mediaSourceID: mediaSourceID
+        )
         viewModel = newViewModel
         await newViewModel.start()
     }

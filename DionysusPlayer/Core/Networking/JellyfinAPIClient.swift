@@ -40,7 +40,7 @@ actor JellyfinAPIClient {
     // in `Fields`, the server omits `BaseItemDto.studios` entirely (same
     // reason `Genres` is already listed here rather than assumed default).
     private static let defaultFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,BasicSyncInfo"
-    private static let detailFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,MediaSources,People,BasicSyncInfo"
+    private static let detailFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,MediaSources,People,Taglines,BasicSyncInfo"
 
     func userViews(userID: String) async throws -> BaseItemDtoQueryResult {
         try await get("/Users/\(userID)/Views")
@@ -75,14 +75,23 @@ actor JellyfinAPIClient {
         /// against the real `ItemsController` signature.
         personTypes: [String] = [],
         searchTerm: String? = nil,
-        limit: Int? = nil
+        limit: Int? = nil,
+        /// Overridable so a caller that only needs `id`/`name`/`type` (e.g.
+        /// `collectionsContaining`'s per-collection membership check) can
+        /// pass `""` to skip `defaultFields`' heavier payload
+        /// (Overview/Genres/Studios/...) entirely rather than paying for
+        /// data it's just going to throw away — Jellyfin already returns
+        /// those three fields with no `Fields` param at all. Every existing
+        /// caller keeps getting `defaultFields` unchanged since it's the
+        /// default here too.
+        fields: String = defaultFields
     ) async throws -> BaseItemDtoQueryResult {
         var query: [URLQueryItem] = [
             .init(name: "Recursive", value: String(recursive)),
             .init(name: "SortBy", value: sortBy),
-            .init(name: "SortOrder", value: sortOrder),
-            .init(name: "Fields", value: Self.defaultFields)
+            .init(name: "SortOrder", value: sortOrder)
         ]
+        if !fields.isEmpty { query.append(.init(name: "Fields", value: fields)) }
         if let parentID { query.append(.init(name: "ParentId", value: parentID)) }
         if !includeItemTypes.isEmpty {
             query.append(.init(name: "IncludeItemTypes", value: includeItemTypes.joined(separator: ",")))
@@ -184,10 +193,11 @@ actor JellyfinAPIClient {
 
     /// With `seriesID` omitted, returns next-up episodes across every show
     /// the user's watching — Home's "Next Up" rail. With it set, narrows to
-    /// just that series — `AssetDetailViewModel.resolveSeriesPlaybackItemID`
-    /// uses this to find where to resume a specific show, and doesn't need
-    /// `limit`/`Fields` (it only reads the first result's ID), so both stay
-    /// optional/omitted for that call site rather than forcing them on it.
+    /// just that series — `AssetDetailViewModel.resolveShowPlaybackEpisode`
+    /// uses this to find a Series-direct page's Play/Resume target, and
+    /// doesn't need `limit`/`Fields` (it only reads the first result), so
+    /// both stay optional/omitted for that call site rather than forcing
+    /// them on it.
     func nextUp(userID: String, seriesID: String? = nil, limit: Int? = nil) async throws -> BaseItemDtoQueryResult {
         var query = [
             URLQueryItem(name: "UserId", value: userID),
@@ -208,23 +218,51 @@ actor JellyfinAPIClient {
     }
 
     /// The stock Jellyfin API has no direct "which collections contain this
-    /// item" lookup, so this fetches every BoxSet and checks membership.
-    /// Fine for a personal server's collection count; worth revisiting if
-    /// that stops being true.
+    /// item" lookup, so this fetches every BoxSet, then checks each one's
+    /// membership with its own request. Two things kept this from scaling
+    /// past a personal server's modest collection count, found live once a
+    /// server actually had a couple dozen: firing all `boxSets.count`
+    /// membership checks at once could mean upwards of 100 concurrent
+    /// requests for one detail page's "Included In" rail, and a single
+    /// flaky one among them (`withThrowingTaskGroup`, `try await` inside
+    /// each task) failed the *entire* call — which `load()` then let take
+    /// down the whole page, not just this one rail. Fixed two ways: capped
+    /// concurrency (`maxConcurrency` in-flight at once, not the whole list),
+    /// and each membership check now fails soft (`try?` — a hiccup reads as
+    /// "not a match," not a thrown error) via a plain `withTaskGroup`
+    /// instead of the throwing variant. The one request this *can* still
+    /// throw for is the initial BoxSets probe itself — `load()` treats this
+    /// whole call as non-fatal regardless (see its own doc comment), so
+    /// that's still safe to propagate rather than pretend to have an answer
+    /// for.
     func collectionsContaining(itemID: String, userID: String) async throws -> [BaseItemDto] {
         let boxSets = try await items(userID: userID, includeItemTypes: ["BoxSet"], limit: 100).items
         guard !boxSets.isEmpty else { return [] }
 
-        return try await withThrowingTaskGroup(of: BaseItemDto?.self) { group in
-            for boxSet in boxSets {
+        let maxConcurrency = 5
+        return await withTaskGroup(of: BaseItemDto?.self) { group in
+            var remaining = boxSets[...]
+            var matches: [BaseItemDto] = []
+
+            func addNext() {
+                guard let boxSet = remaining.popFirst() else { return }
                 group.addTask {
-                    let children = try await self.items(userID: userID, parentID: boxSet.id, recursive: false)
+                    // `fields: ""` — this only needs each child's `id` to
+                    // check membership, none of `defaultFields`' heavier
+                    // payload (Overview/Genres/Studios/...) that would
+                    // otherwise be fetched and immediately discarded for
+                    // every item in every collection.
+                    guard let children = try? await self.items(
+                        userID: userID, parentID: boxSet.id, recursive: false, fields: ""
+                    ) else { return nil }
                     return children.items.contains(where: { $0.id == itemID }) ? boxSet : nil
                 }
             }
-            var matches: [BaseItemDto] = []
-            for try await match in group {
-                if let match { matches.append(match) }
+
+            for _ in 0..<min(maxConcurrency, boxSets.count) { addNext() }
+            while let result = await group.next() {
+                if let result { matches.append(result) }
+                addNext()
             }
             return matches
         }
@@ -232,8 +270,8 @@ actor JellyfinAPIClient {
 
     // MARK: - Playback
 
-    func playbackInfo(itemID: String, userID: String) async throws -> PlaybackInfoResponse {
-        try await post("/Items/\(itemID)/PlaybackInfo", body: PlaybackInfoRequest(userId: userID))
+    func playbackInfo(itemID: String, userID: String, mediaSourceID: String? = nil) async throws -> PlaybackInfoResponse {
+        try await post("/Items/\(itemID)/PlaybackInfo", body: PlaybackInfoRequest(userId: userID, mediaSourceId: mediaSourceID))
     }
 
     /// Builds a direct-play stream URL. Sufficient for content the device
@@ -262,22 +300,46 @@ actor JellyfinAPIClient {
 
     // MARK: - Playback progress reporting
 
-    func reportPlaybackStart(itemID: String) async throws {
-        try await postNoContent("/Sessions/Playing", body: PlaybackProgressRequest(itemId: itemID, positionTicks: 0))
+    func reportPlaybackStart(itemID: String, mediaSourceID: String? = nil) async throws {
+        try await postNoContent(
+            "/Sessions/Playing",
+            body: PlaybackProgressRequest(itemId: itemID, positionTicks: 0, mediaSourceId: mediaSourceID)
+        )
     }
 
-    func reportPlaybackProgress(itemID: String, positionTicks: Int64, isPaused: Bool) async throws {
+    func reportPlaybackProgress(itemID: String, positionTicks: Int64, isPaused: Bool, mediaSourceID: String? = nil) async throws {
         try await postNoContent(
             "/Sessions/Playing/Progress",
-            body: PlaybackProgressRequest(itemId: itemID, positionTicks: positionTicks, isPaused: isPaused)
+            body: PlaybackProgressRequest(itemId: itemID, positionTicks: positionTicks, isPaused: isPaused, mediaSourceId: mediaSourceID)
         )
     }
 
-    func reportPlaybackStopped(itemID: String, positionTicks: Int64) async throws {
+    func reportPlaybackStopped(itemID: String, positionTicks: Int64, mediaSourceID: String? = nil) async throws {
         try await postNoContent(
             "/Sessions/Playing/Stopped",
-            body: PlaybackProgressRequest(itemId: itemID, positionTicks: positionTicks)
+            body: PlaybackProgressRequest(itemId: itemID, positionTicks: positionTicks, mediaSourceId: mediaSourceID)
         )
+    }
+
+    // MARK: - Favorite / watched status
+
+    /// `POST`s to favorite, `DELETE`s to unfavorite —
+    /// `/Users/{userId}/FavoriteItems/{itemId}`, Jellyfin's standard toggle
+    /// shape (no request body either way). Used by `PlayResumeButtonRow`'s
+    /// favorite button — a plain toggle on a Movie/Episode-content page, or
+    /// one of up to three independent targets (Show/Season/Episode) on a
+    /// Show-content page's extended menu.
+    func setFavorite(_ isFavorite: Bool, itemID: String, userID: String) async throws {
+        try await sendNoContent(path: "/Users/\(userID)/FavoriteItems/\(itemID)", method: isFavorite ? "POST" : "DELETE")
+    }
+
+    /// Same `POST`-to-mark/`DELETE`-to-unmark shape as `setFavorite`, for
+    /// `/Users/{userId}/PlayedItems/{itemId}` (Jellyfin's "watched" status).
+    /// Marking a Series or Season played cascades server-side to every
+    /// episode beneath it — this just issues the one request Jellyfin
+    /// already expects for that; nothing client-side needs to fan it out.
+    func setWatched(_ isWatched: Bool, itemID: String, userID: String) async throws {
+        try await sendNoContent(path: "/Users/\(userID)/PlayedItems/\(itemID)", method: isWatched ? "POST" : "DELETE")
     }
 
     // MARK: - Search
@@ -311,6 +373,14 @@ actor JellyfinAPIClient {
 
     private func postNoContent(_ path: String, body: Encodable) async throws {
         let request = try makeRequest(path: path, method: "POST", body: body)
+        _ = try await sendRaw(request)
+    }
+
+    /// Like `postNoContent`, but for an endpoint that also needs no request
+    /// body at all (`setFavorite`/`setWatched`'s `POST`/`DELETE` toggle
+    /// shape) — `method` rather than always `"POST"` is the only difference.
+    private func sendNoContent(path: String, method: String) async throws {
+        let request = try makeRequest(path: path, method: method)
         _ = try await sendRaw(request)
     }
 

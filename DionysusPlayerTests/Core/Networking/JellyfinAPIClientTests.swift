@@ -176,6 +176,7 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(result.id, "item-1")
         XCTAssertTrue((capturedQuery["Fields"] ?? "").contains("MediaSources"))
         XCTAssertTrue((capturedQuery["Fields"] ?? "").contains("People"), "Cast & Crew tab needs this")
+        XCTAssertTrue((capturedQuery["Fields"] ?? "").contains("Taglines"), "About tab's tagline needs this")
     }
 
     func test_decodingFailure_surfacesAsDecodingError() async {
@@ -246,6 +247,55 @@ final class JellyfinAPIClientTests: XCTestCase {
         try await client.reportPlaybackStopped(itemID: "item-1", positionTicks: 12_345)
     }
 
+    /// The active session should reflect which version is actually
+    /// streaming (see `PlayerViewModel.activeMediaSourceID`'s doc comment),
+    /// not just the item — checked once here for `reportPlaybackStopped`;
+    /// `reportPlaybackStart`/`reportPlaybackProgress` share the exact same
+    /// `PlaybackProgressRequest` encoding.
+    func test_reportPlaybackStopped_includesMediaSourceIdWhenProvided() async throws {
+        let client = makeClient(accessToken: "tok")
+        struct DecodedBodyWithSource: Decodable { let MediaSourceId: String? }
+        var decoded: DecodedBodyWithSource?
+        MockURLProtocol.requestHandler = { request in
+            decoded = try JSONDecoder().decode(DecodedBodyWithSource.self, from: request.capturedHTTPBody ?? Data())
+            return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+
+        try await client.reportPlaybackStopped(itemID: "item-1", positionTicks: 12_345, mediaSourceID: "src-1080p")
+
+        XCTAssertEqual(decoded?.MediaSourceId, "src-1080p")
+    }
+
+    func test_playbackInfo_includesMediaSourceIdInRequestBodyWhenProvided() async throws {
+        let client = makeClient(accessToken: "tok")
+        struct DecodedPlaybackInfoBody: Decodable { let UserId: String; let MediaSourceId: String? }
+        var decoded: DecodedPlaybackInfoBody?
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/Items/item-1/PlaybackInfo")
+            decoded = try JSONDecoder().decode(DecodedPlaybackInfoBody.self, from: request.capturedHTTPBody ?? Data())
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaybackInfoResponse())
+        }
+
+        _ = try await client.playbackInfo(itemID: "item-1", userID: "user-1", mediaSourceID: "src-1080p")
+
+        XCTAssertEqual(decoded?.UserId, "user-1")
+        XCTAssertEqual(decoded?.MediaSourceId, "src-1080p")
+    }
+
+    func test_playbackInfo_omitsMediaSourceIdWhenNotProvided() async throws {
+        let client = makeClient(accessToken: "tok")
+        struct DecodedPlaybackInfoBody: Decodable { let MediaSourceId: String? }
+        var decoded: DecodedPlaybackInfoBody?
+        MockURLProtocol.requestHandler = { request in
+            decoded = try JSONDecoder().decode(DecodedPlaybackInfoBody.self, from: request.capturedHTTPBody ?? Data())
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaybackInfoResponse())
+        }
+
+        _ = try await client.playbackInfo(itemID: "item-1", userID: "user-1")
+
+        XCTAssertNil(decoded?.MediaSourceId)
+    }
+
     func test_reportPlaybackProgress_serverError_throwsHTTPError() async {
         let client = makeClient(accessToken: "tok")
         MockURLProtocol.requestHandler = { request in
@@ -260,6 +310,52 @@ final class JellyfinAPIClientTests: XCTestCase {
         } catch {
             XCTFail("Expected JellyfinAPIError.http, got \(error)")
         }
+    }
+
+    // MARK: Favorite / watched status
+
+    func test_setFavorite_true_postsToFavoriteItemsPath() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/Users/user-1/FavoriteItems/item-1")
+            return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+        }
+
+        try await client.setFavorite(true, itemID: "item-1", userID: "user-1")
+    }
+
+    func test_setFavorite_false_deletesFromFavoriteItemsPath() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.httpMethod, "DELETE")
+            XCTAssertEqual(request.url?.path, "/Users/user-1/FavoriteItems/item-1")
+            return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+        }
+
+        try await client.setFavorite(false, itemID: "item-1", userID: "user-1")
+    }
+
+    func test_setWatched_true_postsToPlayedItemsPath() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/Users/user-1/PlayedItems/item-1")
+            return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+        }
+
+        try await client.setWatched(true, itemID: "item-1", userID: "user-1")
+    }
+
+    func test_setWatched_false_deletesFromPlayedItemsPath() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.httpMethod, "DELETE")
+            XCTAssertEqual(request.url?.path, "/Users/user-1/PlayedItems/item-1")
+            return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+        }
+
+        try await client.setWatched(false, itemID: "item-1", userID: "user-1")
     }
 
     // MARK: Genres & Studios (Home's dynamic rail discovery)
@@ -368,5 +464,64 @@ final class JellyfinAPIClientTests: XCTestCase {
         let matches = try await client.collectionsContaining(itemID: "item-1", userID: "user-1")
         XCTAssertEqual(matches, [])
         XCTAssertEqual(requestCount, 1, "Should short-circuit after the empty BoxSet lookup instead of firing per-BoxSet requests")
+    }
+
+    /// Each per-BoxSet membership check only needs `id` to decide a match —
+    /// none of `defaultFields`' heavier payload (Overview/Genres/Studios/
+    /// ...), which used to be fetched and immediately discarded for every
+    /// item in every collection.
+    func test_collectionsContaining_membershipLookupOmitsFieldsParam() async throws {
+        let client = makeClient(accessToken: "tok")
+        let boxSet = BaseItemDto(id: "boxset-1", name: "A Collection", type: .boxSet)
+        nonisolated(unsafe) var membershipLookupQuery: [String: String]?
+
+        MockURLProtocol.requestHandler = { request in
+            let query = request.queryDictionary
+            if query["IncludeItemTypes"] == "BoxSet" {
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [boxSet], totalRecordCount: 1)
+                )
+            }
+            membershipLookupQuery = query
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        _ = try await client.collectionsContaining(itemID: "item-1", userID: "user-1")
+        XCTAssertNil(membershipLookupQuery?["Fields"])
+    }
+
+    /// A single BoxSet's membership check hiccupping (a transport error,
+    /// standing in for anything from a dropped connection to a slow one
+    /// among many in flight) shouldn't fail the *entire* call — every other
+    /// BoxSet's own check should still run and still count, and the failed
+    /// one should just read as "not a match" rather than aborting
+    /// everything. This is what `load()` (`AssetDetailViewModel`) relies on
+    /// to keep a single flaky collection check from blanking the whole
+    /// detail page.
+    func test_collectionsContaining_oneFailingMembershipLookup_stillReturnsTheOthers() async throws {
+        let client = makeClient(accessToken: "tok")
+        let failingBoxSet = BaseItemDto(id: "boxset-fails", name: "Flaky", type: .boxSet)
+        let matchingBoxSet = BaseItemDto(id: "boxset-matches", name: "Fine", type: .boxSet)
+        let targetItem = BaseItemDto(id: "item-1", name: "Arrival", type: .movie)
+
+        MockURLProtocol.requestHandler = { request in
+            let query = request.queryDictionary
+            if query["IncludeItemTypes"] == "BoxSet" {
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: BaseItemDtoQueryResult(items: [failingBoxSet, matchingBoxSet], totalRecordCount: 2)
+                )
+            }
+            if query["ParentId"] == "boxset-fails" {
+                throw URLError(.networkConnectionLost)
+            }
+            let children = query["ParentId"] == "boxset-matches" ? [targetItem] : []
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request, value: BaseItemDtoQueryResult(items: children, totalRecordCount: children.count)
+            )
+        }
+
+        let matches = try await client.collectionsContaining(itemID: "item-1", userID: "user-1")
+        XCTAssertEqual(matches.map(\.id), ["boxset-matches"])
     }
 }

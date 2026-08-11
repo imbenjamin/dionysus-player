@@ -19,11 +19,13 @@ final class PlayerViewModelTests: XCTestCase {
     private func makeViewModel(
         itemID: String = "item-1",
         startFromBeginning: Bool = false,
+        mediaSourceID: String? = nil,
         engine: FakePlaybackEngine = FakePlaybackEngine()
     ) -> (PlayerViewModel, FakePlaybackEngine) {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
         let viewModel = PlayerViewModel(
-            client: client, userID: "user-1", itemID: itemID, engine: engine, startFromBeginning: startFromBeginning
+            client: client, userID: "user-1", itemID: itemID, engine: engine,
+            startFromBeginning: startFromBeginning, mediaSourceID: mediaSourceID
         )
         return (viewModel, engine)
     }
@@ -63,6 +65,61 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertTrue(loadedURL.contains("Container=mp4"))
         XCTAssertTrue(engine.seekedTimes.isEmpty, "Nothing to resume, so it shouldn't seek")
         XCTAssertEqual(engine.playCallCount, 1)
+    }
+
+    /// A requested version (the version-choice prompt's answer, or a
+    /// remembered preference — see `PlaybackRequest.mediaSourceID`) should
+    /// both scope the `/PlaybackInfo` request and drive which of the
+    /// returned sources actually gets played, not just fall through to
+    /// `.first` as before this existed.
+    func test_start_withRequestedMediaSourceID_selectsThatSourceAndReportsItActive() async {
+        let (viewModel, engine) = makeViewModel(mediaSourceID: "src-1080p")
+        var requestedMediaSourceId: String?
+        var reportedStartMediaSourceId: String?
+        struct DecodedPlaybackInfoBody: Decodable { let MediaSourceId: String? }
+        struct DecodedProgressBody: Decodable { let MediaSourceId: String? }
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/item-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "item-1", name: "1917", type: .movie))
+            case "/Items/item-1/PlaybackInfo":
+                requestedMediaSourceId = try JSONDecoder().decode(DecodedPlaybackInfoBody.self, from: request.capturedHTTPBody ?? Data()).MediaSourceId
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaybackInfoResponse(
+                    mediaSources: [MediaSourceInfo(id: "src-4k", container: "mkv"), MediaSourceInfo(id: "src-1080p", container: "mp4")]
+                ))
+            case "/Sessions/Playing":
+                reportedStartMediaSourceId = try JSONDecoder().decode(DecodedProgressBody.self, from: request.capturedHTTPBody ?? Data()).MediaSourceId
+                return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+        }
+
+        await viewModel.start()
+
+        XCTAssertEqual(requestedMediaSourceId, "src-1080p", "PlaybackInfo should be scoped to the requested version")
+        XCTAssertTrue(engine.loadedURLs[0].absoluteString.contains("MediaSourceId=src-1080p"))
+        XCTAssertTrue(engine.loadedURLs[0].absoluteString.contains("Container=mp4"), "Should use the matched source's own container, not the first one's")
+        XCTAssertEqual(viewModel.activeMediaSourceID, "src-1080p")
+        XCTAssertEqual(reportedStartMediaSourceId, "src-1080p", "The active session should reflect which version is actually playing")
+    }
+
+    /// A stale/unrecognized requested id (e.g. a remembered preference for a
+    /// version since removed from the server) shouldn't fail playback
+    /// outright — falls back to the server's own default source, same as
+    /// no request at all.
+    func test_start_withUnrecognizedRequestedMediaSourceID_fallsBackToFirstSource() async {
+        let (viewModel, engine) = makeViewModel(mediaSourceID: "src-deleted")
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "1917", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-4k", container: "mkv"), MediaSourceInfo(id: "src-1080p", container: "mp4")]
+        )
+
+        await viewModel.start()
+
+        XCTAssertTrue(engine.loadedURLs[0].absoluteString.contains("MediaSourceId=src-4k"))
+        XCTAssertEqual(viewModel.activeMediaSourceID, "src-4k")
     }
 
     func test_start_resumesFromSavedPositionWhenNotStartingFromBeginning() async {

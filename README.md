@@ -66,8 +66,8 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
   -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
-297/297 tests passing as of this writing. See [`TESTING.md`](TESTING.md) for
-the full strategy, a coverage table, and known gaps (SwiftUI views, true
+All tests passing as of this writing. See [`TESTING.md`](TESTING.md) for the
+full strategy, a coverage table, and known gaps (SwiftUI views, true
 UI/end-to-end tests, and `AetherPlaybackEngine`'s own adapter code).
 
 ## Architecture

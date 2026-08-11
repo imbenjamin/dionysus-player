@@ -4,7 +4,7 @@ import SwiftUI
 /// "See All" link to the full collection.
 ///
 /// Used on both the Home page and detail pages (`MovieDetailView`'s/
-/// `ShowDetailView`'s "Part of These Collections"/"More Like This" rails),
+/// `ShowDetailView`'s "Included In"/"More Like This" rails),
 /// so the `PosterCard`/`LandscapeMediaCard` choice below (see
 /// `MediaCollectionRail.usesLandscapeTiles`) applies everywhere a rail
 /// shows up, not just Home.

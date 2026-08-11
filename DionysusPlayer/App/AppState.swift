@@ -29,6 +29,14 @@ final class AppState {
     func start() async {
         defer { isRestoringSession = false }
 
+        // Fire-and-forget, not awaited: pays CoreMotion's one-time
+        // daemon-connection bootstrap cost during the splash/session-restore
+        // window instead of whenever the user first reaches the "3D Depth
+        // Effects" toggle or a detail page — see
+        // `DeviceTiltObserver.warmUp()`'s doc comment. Must never delay
+        // showing the actual app once sign-in restore finishes.
+        Task { await DeviceTiltObserver.shared.warmUp() }
+
         guard let server = sessionStore.serverConfiguration else {
             phase = .serverSetup
             return

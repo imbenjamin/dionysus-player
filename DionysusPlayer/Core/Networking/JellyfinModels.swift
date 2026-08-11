@@ -57,6 +57,10 @@ struct BaseItemDto: Codable, Identifiable {
     var id: String
     var name: String
     var overview: String?
+    /// Marketing taglines. Jellyfin models this as an array but populates
+    /// at most one entry in practice; only requested via `Fields=Taglines`
+    /// on the detail page's own item fetch — see `MediaItem.tagline`.
+    var taglines: [String]?
     var type: BaseItemKind
 
     var productionYear: Int?
@@ -148,6 +152,12 @@ struct BaseItemDtoQueryResult: Codable {
 
 struct PlaybackInfoRequest: Encodable {
     var userId: String
+    /// Scopes the response to one specific version out of the item's
+    /// `mediaSources` — the version-picker's choice on the detail page
+    /// (`PlayResumeButtonRow`), or `nil` to let the server pick its own
+    /// default (the pre-existing behavior, still used for the common
+    /// single-version case).
+    var mediaSourceId: String?
 }
 
 struct PlaybackInfoResponse: Codable {
@@ -157,6 +167,16 @@ struct PlaybackInfoResponse: Codable {
 
 struct MediaSourceInfo: Codable, Identifiable {
     var id: String?
+    /// Server-computed, filename-derived (e.g. "[imdbid-tt8579674] -
+    /// [Bluray-2160p][HDR10][x265]-GROUP", or that same string plus
+    /// " - Extended Version"/" - 1080p" appended for an alternate cut,
+    /// per Jellyfin's multi-version naming convention). `MediaItem
+    /// .mediaVersions` diffs this against the item's other sources to
+    /// recover a filename-derived edition name (see its
+    /// `canonicalSourceName`/`editionLabel`), and falls back to using it
+    /// as a raw label only when no such relationship is found; everywhere
+    /// else, prefer a friendlier derived string over this.
+    var name: String?
     var path: String?
     var container: String?
     var isRemote: Bool?
@@ -197,6 +217,12 @@ struct MediaStream: Codable, Identifiable, Hashable {
     /// More specific than `videoRange` when present (e.g. "DOVI",
     /// "DOVIWithHDR10", "HDR10", "HLG") — preferred when available.
     var videoRangeType: String?
+    /// The stream's actual frame rate (e.g. `23.976`), as measured from the
+    /// file — preferred over `averageFrameRate` (a coarser, container-level
+    /// figure) when both are present. Either can be missing depending on how
+    /// the file was probed server-side.
+    var realFrameRate: Double?
+    var averageFrameRate: Double?
 
     // Audio-specific.
     var channelLayout: String?
@@ -211,6 +237,13 @@ struct PlaybackProgressRequest: Encodable {
     var itemId: String
     var positionTicks: Int64
     var isPaused: Bool = false
+    /// Which version is actually playing — the one `PlaybackInfoRequest`
+    /// resolved to in `PlayerViewModel.start()`, not necessarily what the
+    /// caller originally requested (a requested id that doesn't match any
+    /// of the item's sources falls back to the server's default). Lets the
+    /// server's active-session bookkeeping reflect the real file being
+    /// streamed.
+    var mediaSourceId: String?
 }
 
 // MARK: - Search
