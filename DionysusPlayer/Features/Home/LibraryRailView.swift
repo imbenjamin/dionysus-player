@@ -36,12 +36,26 @@ private struct LibraryCard: View {
     private let width: CGFloat = 160
 
     var body: some View {
-        NavigationLink(value: AppRoute.collection(query)) {
-            AsyncRemoteImage(url: library.imageURL(type: "Primary", maxWidth: 400), contentMode: .fill)
-                .frame(width: width, height: width * 9 / 16)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+        // Wrapped in a (single-child) `ZStack`, not a bare `NavigationLink`
+        // — see `PosterCard.body`'s doc comment for the real-device bug
+        // this avoids: a bare `NavigationLink` as a `LazyHStack` row's only
+        // content sent SwiftUI's layout engine into a genuine infinite loop
+        // there (confirmed via a CPU sample pegged at ~100% entirely inside
+        // AttributeGraph/StackLayout internals), and a single-child `ZStack`
+        // was enough to restore whatever layout-negotiation role it was
+        // quietly playing between the `NavigationLink` and its `LazyHStack`
+        // parent. This card has the identical shape (`LibraryRailView`'s own
+        // `LazyHStack` above) and was never covered by that fix, since it
+        // lives in a different file — applying it here defensively before
+        // it has its own confirmed repro.
+        ZStack {
+            NavigationLink(value: AppRoute.collection(query)) {
+                AsyncRemoteImage(url: library.imageURL(type: "Primary", maxWidth: 400), contentMode: .fill)
+                    .frame(width: width, height: width * 9 / 16)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
 
     private var query: CollectionQuery {
