@@ -46,7 +46,18 @@ final class HomeViewModel {
     /// finishes (e.g. a fast scroll).
     private(set) var isLoadingMoreDynamicRails = false
 
-    private static let dynamicRailBatchSize = 10
+    /// Kept small — each batch fires `dynamicRailBatchSize` concurrent rail
+    /// fetches and then appends all of them to `rails` in one state update,
+    /// landing right as `HomeView`'s scroll-triggered sentinel fires (i.e.
+    /// while the user is actively scrolling through exactly that region).
+    /// Brought down from 10: a batch that size meant up to 10 new rail
+    /// sections' worth of network fetches and first-page image loads
+    /// landing on the main thread in one shot, a plausible contributor to
+    /// an intermittently-reported real-device freeze scrolling into the
+    /// dynamic rails. 5 halves that burst per batch — still few enough
+    /// scroll-triggered reloads that it doesn't meaningfully change how
+    /// often `loadMoreDynamicRails` fires overall.
+    private static let dynamicRailBatchSize = 5
     /// A dynamic rail candidate needs at least this many items to become a
     /// rail — Jellyfin's `/Items` endpoint has no "minimum result count"
     /// query param to push this into the request itself, so it's a

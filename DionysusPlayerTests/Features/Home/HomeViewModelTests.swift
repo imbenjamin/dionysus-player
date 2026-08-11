@@ -277,6 +277,10 @@ final class HomeViewModelTests: XCTestCase {
         }
 
         await viewModel.load()
+        // 6 candidates, batch size 5: load()'s own first batch only picks up
+        // 5 of them, so a second call is needed to reach the 6th (director)
+        // one this test also wants to exercise.
+        await viewModel.loadMoreDynamicRails()
 
         XCTAssertEqual(
             viewModel.rails.map(\.title),
@@ -286,7 +290,7 @@ final class HomeViewModelTests: XCTestCase {
             ]
         )
         XCTAssertEqual(viewModel.rails.map { $0.items.count }, [5, 5, 5, 5, 5, 5])
-        XCTAssertFalse(viewModel.hasMoreDynamicRails, "Only 6 candidates existed, well under one batch")
+        XCTAssertFalse(viewModel.hasMoreDynamicRails, "Only 6 candidates existed, one batch plus a one-item remainder")
 
         // Actor/director item-fetches hit a genuinely different code path
         // (`.actor`/`.director` in loadMoreDynamicRails' switch) than
@@ -344,7 +348,7 @@ final class HomeViewModelTests: XCTestCase {
         )
     }
 
-    func test_loadMoreDynamicRails_loadsInBatchesOfTen() async {
+    func test_loadMoreDynamicRails_loadsInBatchesOfFive() async {
         let viewModel = makeViewModel()
         let genreDtos = (1...15).map { BaseItemDto(id: "genre-\($0)", name: "Genre\($0)", type: .unknown) }
 
@@ -371,11 +375,15 @@ final class HomeViewModelTests: XCTestCase {
         }
 
         await viewModel.load()
-        XCTAssertEqual(viewModel.rails.count, 10, "First batch should load with load() itself")
+        XCTAssertEqual(viewModel.rails.count, 5, "First batch should load with load() itself")
         XCTAssertTrue(viewModel.hasMoreDynamicRails)
 
         await viewModel.loadMoreDynamicRails()
-        XCTAssertEqual(viewModel.rails.count, 15, "Second batch should pick up the remaining 5")
+        XCTAssertEqual(viewModel.rails.count, 10, "Second batch should pick up the next 5")
+        XCTAssertTrue(viewModel.hasMoreDynamicRails)
+
+        await viewModel.loadMoreDynamicRails()
+        XCTAssertEqual(viewModel.rails.count, 15, "Third batch should pick up the remaining 5")
         XCTAssertFalse(viewModel.hasMoreDynamicRails)
 
         await viewModel.loadMoreDynamicRails()
@@ -422,10 +430,10 @@ final class HomeViewModelTests: XCTestCase {
     }
 
     func test_loadMoreDynamicRails_noOpsWhileAlreadyLoading() async {
-        // 15 candidates: load() consumes the first batch of 10, leaving 5
+        // 10 candidates: load() consumes the first batch of 5, leaving 5
         // pending — enough room to fire loadMoreDynamicRails a second time.
         let viewModel = makeViewModel()
-        let genreDtos = (1...15).map { BaseItemDto(id: "genre-\($0)", name: "Genre\($0)", type: .unknown) }
+        let genreDtos = (1...10).map { BaseItemDto(id: "genre-\($0)", name: "Genre\($0)", type: .unknown) }
         var dynamicItemsRequestCount = 0
 
         MockURLProtocol.requestHandler = { request in
@@ -451,7 +459,7 @@ final class HomeViewModelTests: XCTestCase {
         }
 
         await viewModel.load()
-        XCTAssertEqual(viewModel.rails.count, 10)
+        XCTAssertEqual(viewModel.rails.count, 5)
         dynamicItemsRequestCount = 0 // isolate the concurrent-call round below
 
         // The MainActor's cooperative scheduling guarantees whichever of
@@ -463,7 +471,7 @@ final class HomeViewModelTests: XCTestCase {
         async let second: Void = viewModel.loadMoreDynamicRails()
         _ = await (first, second)
 
-        XCTAssertEqual(viewModel.rails.count, 15, "Only the winning call should have fetched the remaining 5")
+        XCTAssertEqual(viewModel.rails.count, 10, "Only the winning call should have fetched the remaining 5")
         XCTAssertEqual(dynamicItemsRequestCount, 5, "The losing concurrent call should no-op, not fire a duplicate batch")
     }
 }
