@@ -40,4 +40,43 @@ enum DynamicRailCandidate: Hashable {
             return "Directed by \(name)"
         }
     }
+
+    /// This candidate's rail's "See All" link — the Movies/Shows grid,
+    /// scoped to this candidate's `kind`, with the matching genre/studio
+    /// filter preset (see `CollectionQuery`'s own doc comment on why a
+    /// preset filter, not just a preset parent/type). `nil` for
+    /// `.actor`/`.director`: those rails span both movies and shows at once
+    /// (see this type's own doc comment on why they have no `kind`), which
+    /// doesn't map onto a single-library `CollectionQuery` the way
+    /// `.genre`/`.studio` (each pinned to one `kind`) do — and `Person`/
+    /// `PersonTypes` isn't a `CollectionGridViewModel` filter facet at all,
+    /// so there'd be nothing for a preset to seed even for a single
+    /// library.
+    ///
+    /// - Parameters:
+    ///   - moviesLibraryID/showsLibraryID: `HomeViewModel`'s own
+    ///     already-resolved library IDs, passed in rather than looked up
+    ///     here — this type has no `JellyfinAPIClient` of its own to look
+    ///     them up with, same reasoning as `HomeViewModel.load()`'s curated
+    ///     rails' own `seeAllQuery`s.
+    func seeAllQuery(moviesLibraryID: String?, showsLibraryID: String?) -> CollectionQuery? {
+        switch self {
+        case .genre(let kind, let name):
+            return CollectionQuery(
+                title: kind == .movie ? String(localized: "Movies") : String(localized: "Shows"),
+                parentID: kind == .movie ? moviesLibraryID : showsLibraryID,
+                includeItemTypes: [kind.rawValue],
+                initialGenre: name
+            )
+        case .studio(let kind, let name):
+            return CollectionQuery(
+                title: kind == .movie ? String(localized: "Movies") : String(localized: "Shows"),
+                parentID: kind == .movie ? moviesLibraryID : showsLibraryID,
+                includeItemTypes: [kind.rawValue],
+                initialStudio: name
+            )
+        case .actor, .director:
+            return nil
+        }
+    }
 }

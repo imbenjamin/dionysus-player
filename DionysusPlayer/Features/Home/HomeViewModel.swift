@@ -57,6 +57,15 @@ final class HomeViewModel {
     /// dynamic rails. 5 halves that burst per batch — still few enough
     /// scroll-triggered reloads that it doesn't meaningfully change how
     /// often `loadMoreDynamicRails` fires overall.
+    /// Resolved once by `load()`, reused by both the curated rails' own
+    /// `seeAllQuery`s and (via `DynamicRailCandidate.seeAllQuery`)
+    /// `loadMoreDynamicRails`' — stored rather than a `load()`-local `let`
+    /// since `loadMoreDynamicRails` is also called independently later, from
+    /// `HomeView`'s scroll-triggered sentinel, long after `load()`'s own
+    /// locals are out of scope.
+    private var moviesLibraryID: String?
+    private var showsLibraryID: String?
+
     private static let dynamicRailBatchSize = 5
     /// A dynamic rail candidate needs at least this many items to become a
     /// rail — Jellyfin's `/Items` endpoint has no "minimum result count"
@@ -114,6 +123,8 @@ final class HomeViewModel {
             let views = try await client.userViews(userID: userID)
             let moviesLibraryID = views.items.first { $0.collectionType == "movies" }?.id
             let showsLibraryID = views.items.first { $0.collectionType == "tvshows" }?.id
+            self.moviesLibraryID = moviesLibraryID
+            self.showsLibraryID = showsLibraryID
 
             async let heroCandidates = client.items(
                 userID: userID,
@@ -141,14 +152,20 @@ final class HomeViewModel {
             appendRail(String(localized: "Next Up"), try await upNext.items)
             appendRail(
                 String(localized: "Recently Added Movies"), try await latestMovies,
+                // Preset newest-first — matches what "Recently Added"
+                // already means for this rail, rather than landing on the
+                // grid's own bare default (Title, ascending) and making the
+                // user reapply the exact ordering that got them here.
                 seeAllQuery: CollectionQuery(
-                    title: String(localized: "Movies"), parentID: moviesLibraryID, includeItemTypes: ["Movie"]
+                    title: String(localized: "Movies"), parentID: moviesLibraryID, includeItemTypes: ["Movie"],
+                    initialSortField: .dateAdded, initialSortOrder: .descending
                 )
             )
             appendRail(
                 String(localized: "Recently Added Shows"), try await latestShows,
                 seeAllQuery: CollectionQuery(
-                    title: String(localized: "Shows"), parentID: showsLibraryID, includeItemTypes: ["Series"]
+                    title: String(localized: "Shows"), parentID: showsLibraryID, includeItemTypes: ["Series"],
+                    initialSortField: .dateAdded, initialSortOrder: .descending
                 )
             )
 
@@ -229,6 +246,10 @@ final class HomeViewModel {
         // tasks run outside that isolation (same reason `client`/`userID`
         // are captured explicitly rather than read via `self`).
         let minimumItemCount = Self.minimumDynamicRailItemCount
+        // Same reasoning as `minimumItemCount` above — read once here, on
+        // the actor, then captured by value into each child task below.
+        let moviesLibraryID = self.moviesLibraryID
+        let showsLibraryID = self.showsLibraryID
         // Tagged with its index in `batch` so results can be restored to
         // the batch's (already-shuffled) order afterward — task-group
         // completion order isn't otherwise guaranteed to match it.
@@ -258,7 +279,11 @@ final class HomeViewModel {
                     }
                     guard let dtos, dtos.count >= minimumItemCount else { return (index, nil) }
                     let items = dtos.map { MediaItem(dto: $0, images: images) }
-                    return (index, MediaCollectionRail(title: candidate.railTitle, items: items))
+                    let rail = MediaCollectionRail(
+                        title: candidate.railTitle, items: items,
+                        seeAllQuery: candidate.seeAllQuery(moviesLibraryID: moviesLibraryID, showsLibraryID: showsLibraryID)
+                    )
+                    return (index, rail)
                 }
             }
             var results: [(Int, MediaCollectionRail?)] = []

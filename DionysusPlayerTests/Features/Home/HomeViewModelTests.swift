@@ -122,6 +122,11 @@ final class HomeViewModelTests: XCTestCase {
         let recentMovies = viewModel.rails[2]
         XCTAssertEqual(recentMovies.items.map(\.id), ["movie-1"])
         XCTAssertEqual(recentMovies.seeAllQuery?.parentID, "lib-movies")
+        XCTAssertEqual(
+            recentMovies.seeAllQuery?.initialSortField, .dateAdded,
+            "Recently Added's See All should preset newest-first, not the grid's own Title default"
+        )
+        XCTAssertEqual(recentMovies.seeAllQuery?.initialSortOrder, .descending)
     }
 
     func test_load_serverError_setsFailedStateAndLeavesRailsEmpty() async {
@@ -291,6 +296,32 @@ final class HomeViewModelTests: XCTestCase {
         )
         XCTAssertEqual(viewModel.rails.map { $0.items.count }, [5, 5, 5, 5, 5, 5])
         XCTAssertFalse(viewModel.hasMoreDynamicRails, "Only 6 candidates existed, one batch plus a one-item remainder")
+
+        // Genre/studio rails get a "See All" into the Movies/Shows grid,
+        // preset to the matching filter — actor/director rails don't (see
+        // `DynamicRailCandidate.seeAllQuery`'s doc comment for why).
+        let actionMoviesQuery = viewModel.rails[0].seeAllQuery
+        XCTAssertEqual(actionMoviesQuery?.title, "Movies")
+        XCTAssertEqual(actionMoviesQuery?.includeItemTypes, ["Movie"])
+        XCTAssertEqual(actionMoviesQuery?.initialGenre, "Action")
+
+        let documentaryShowsQuery = viewModel.rails[1].seeAllQuery
+        XCTAssertEqual(documentaryShowsQuery?.title, "Shows")
+        XCTAssertEqual(documentaryShowsQuery?.includeItemTypes, ["Series"])
+        XCTAssertEqual(documentaryShowsQuery?.initialGenre, "Documentary")
+
+        let marvelMoviesQuery = viewModel.rails[2].seeAllQuery
+        XCTAssertEqual(marvelMoviesQuery?.title, "Movies")
+        XCTAssertEqual(marvelMoviesQuery?.includeItemTypes, ["Movie"])
+        XCTAssertEqual(marvelMoviesQuery?.initialStudio, "Marvel Studios")
+
+        let hboShowsQuery = viewModel.rails[3].seeAllQuery
+        XCTAssertEqual(hboShowsQuery?.title, "Shows")
+        XCTAssertEqual(hboShowsQuery?.includeItemTypes, ["Series"])
+        XCTAssertEqual(hboShowsQuery?.initialStudio, "HBO")
+
+        XCTAssertNil(viewModel.rails[4].seeAllQuery, "Starring Tom Hanks (actor) shouldn't get a See All link")
+        XCTAssertNil(viewModel.rails[5].seeAllQuery, "Directed by Christopher Nolan (director) shouldn't get one either")
 
         // Actor/director item-fetches hit a genuinely different code path
         // (`.actor`/`.director` in loadMoreDynamicRails' switch) than

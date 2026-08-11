@@ -50,6 +50,36 @@ final class CollectionGridViewModelTests: XCTestCase {
         XCTAssertNil(captured["ParentId"])
     }
 
+    /// A "See All" link (e.g. `HomeViewModel`'s Recently Added rails, or a
+    /// dynamic Genre/Studio rail's) can preset the grid's starting sort/
+    /// filter via `CollectionQuery.initial*` — this pins down that `init`
+    /// actually seeds from them, still as ordinary, independently
+    /// user-changeable state from there (not asserted here — that's what
+    /// `test_setSortField_changesFieldAndReloads`/`setGenreFilter`'s own
+    /// tests already cover).
+    func test_init_seedsSortAndFiltersFromQueryPresets() async {
+        let query = CollectionQuery(
+            title: "Movies", includeItemTypes: ["Movie"],
+            initialSortField: .dateAdded, initialSortOrder: .descending,
+            initialGenre: "Action", initialStudio: "Marvel Studios"
+        )
+        let viewModel = makeViewModel(query: query)
+        var captured: [String: String] = [:]
+        MockURLProtocol.requestHandler = { request in
+            captured = request.queryDictionary
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        XCTAssertEqual(viewModel.sortField, .dateAdded, "Seeded before load() even runs, from query alone")
+        XCTAssertEqual(viewModel.sortOrder, .descending)
+        XCTAssertEqual(viewModel.selectedGenre, "Action")
+        XCTAssertEqual(viewModel.selectedStudio, "Marvel Studios")
+
+        await viewModel.load()
+        XCTAssertEqual(captured["SortBy"], "DateCreated", "The preset sort should reach the actual request too")
+        XCTAssertEqual(captured["SortOrder"], "Descending")
+    }
+
     // MARK: setSortField
 
     func test_setSortField_changesFieldAndReloads() async {
