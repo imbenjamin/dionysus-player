@@ -205,7 +205,29 @@ struct HeroRailView: View {
             // drag/scroll starting from the hero carousel, only from areas
             // below it."
             ScrollView(.horizontal) {
-                LazyHStack(spacing: 0) {
+                // Plain `HStack`, not `LazyHStack` (what this used to be) —
+                // `loopedItems` is capped at 12 (`HomeViewModel.load()`
+                // fetches at most 10 hero candidates, plus the loop's own 2
+                // duplicate padding pages), cheap to render all of
+                // regardless of scroll position, and eager instantiation is
+                // actually what fixes a real bug rather than just being
+                // "good enough": with `LazyHStack`, a page's
+                // `AsyncRemoteImage` (and the network fetch it kicks off in
+                // `.task`) doesn't exist at all until that page scrolls near
+                // the visible range — for a manual swipe that's a bit early,
+                // but for `tick()`'s *auto*-advance it's exactly the moment
+                // the image is needed, the worst possible timing. Confirmed
+                // live via a recorded+frame-sampled repro on a cold image
+                // cache: several frames of solid white (not even
+                // `AsyncRemoteImage`'s gray placeholder — the page genuinely
+                // had no content mounted yet) between the outgoing item
+                // sliding away and the incoming one's image arriving,
+                // exactly matching the reported "flashes to white" symptom.
+                // An eager `HStack` mounts every page (and starts every
+                // fetch) the moment Home appears, so by the time
+                // auto-advance reaches any given page it's had the full
+                // idle interval, not zero, to load.
+                HStack(spacing: 0) {
                     // `loopedItems.indices`, not `Array(loopedItems
                     // .enumerated())` (an earlier version used that) — the
                     // latter allocates a fresh `[(offset: Int, element:
