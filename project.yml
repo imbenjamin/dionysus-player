@@ -83,6 +83,11 @@ targets:
       path: Generated/Info.plist
       properties:
         CFBundleDisplayName: Dionysus
+        # Xcode target editor's General tab "App Category" dropdown — this
+        # is the Info.plist key it actually writes. A media player belongs
+        # under Entertainment, not Xcode's default (unset, which App Store
+        # Connect would otherwise prompt for at submission time).
+        LSApplicationCategoryType: public.app-category.entertainment
         # Static approximation of SplashView (App/SplashView.swift) for the
         # brief window before any app code runs — a system snapshot, not a
         # live view, so it can only offer a flat background colour + one
