@@ -21,6 +21,16 @@ settings:
     SWIFT_VERSION: "6.0"
     CODE_SIGN_STYLE: Automatic
     ENABLE_PREVIEWS: true
+    # Two of Xcode's "Update to recommended settings" suggestions — applying
+    # that dialog directly would edit the generated (gitignored) .xcodeproj,
+    # which XcodeGen would silently wipe on the next `xcodegen generate`, so
+    # these live here instead. Confirmed both build clean, including a full
+    # test run — `ENABLE_USER_SCRIPT_SANDBOXING` in particular against the
+    # one real risk: the `DionysusPlayer` target's own postCompileScripts
+    # entry below runs `git`/`PlistBuddy` and writes to a path it doesn't
+    # declare as a script input/output, exactly what sandboxing restricts.
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    STRING_CATALOG_GENERATE_SYMBOLS: YES
 
 packages:
   AetherEngine:
@@ -83,6 +93,11 @@ targets:
       path: Generated/Info.plist
       properties:
         CFBundleDisplayName: Dionysus
+        # Xcode target editor's General tab "App Category" dropdown — this
+        # is the Info.plist key it actually writes. A media player belongs
+        # under Entertainment, not Xcode's default (unset, which App Store
+        # Connect would otherwise prompt for at submission time).
+        LSApplicationCategoryType: public.app-category.entertainment
         # Static approximation of SplashView (App/SplashView.swift) for the
         # brief window before any app code runs — a system snapshot, not a
         # live view, so it can only offer a flat background colour + one
