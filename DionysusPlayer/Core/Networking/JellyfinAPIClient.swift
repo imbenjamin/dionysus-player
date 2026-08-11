@@ -75,14 +75,23 @@ actor JellyfinAPIClient {
         /// against the real `ItemsController` signature.
         personTypes: [String] = [],
         searchTerm: String? = nil,
-        limit: Int? = nil
+        limit: Int? = nil,
+        /// Overridable so a caller that only needs `id`/`name`/`type` (e.g.
+        /// `collectionsContaining`'s per-collection membership check) can
+        /// pass `""` to skip `defaultFields`' heavier payload
+        /// (Overview/Genres/Studios/...) entirely rather than paying for
+        /// data it's just going to throw away — Jellyfin already returns
+        /// those three fields with no `Fields` param at all. Every existing
+        /// caller keeps getting `defaultFields` unchanged since it's the
+        /// default here too.
+        fields: String = defaultFields
     ) async throws -> BaseItemDtoQueryResult {
         var query: [URLQueryItem] = [
             .init(name: "Recursive", value: String(recursive)),
             .init(name: "SortBy", value: sortBy),
-            .init(name: "SortOrder", value: sortOrder),
-            .init(name: "Fields", value: Self.defaultFields)
+            .init(name: "SortOrder", value: sortOrder)
         ]
+        if !fields.isEmpty { query.append(.init(name: "Fields", value: fields)) }
         if let parentID { query.append(.init(name: "ParentId", value: parentID)) }
         if !includeItemTypes.isEmpty {
             query.append(.init(name: "IncludeItemTypes", value: includeItemTypes.joined(separator: ",")))
@@ -209,23 +218,51 @@ actor JellyfinAPIClient {
     }
 
     /// The stock Jellyfin API has no direct "which collections contain this
-    /// item" lookup, so this fetches every BoxSet and checks membership.
-    /// Fine for a personal server's collection count; worth revisiting if
-    /// that stops being true.
+    /// item" lookup, so this fetches every BoxSet, then checks each one's
+    /// membership with its own request. Two things kept this from scaling
+    /// past a personal server's modest collection count, found live once a
+    /// server actually had a couple dozen: firing all `boxSets.count`
+    /// membership checks at once could mean upwards of 100 concurrent
+    /// requests for one detail page's "Included In" rail, and a single
+    /// flaky one among them (`withThrowingTaskGroup`, `try await` inside
+    /// each task) failed the *entire* call — which `load()` then let take
+    /// down the whole page, not just this one rail. Fixed two ways: capped
+    /// concurrency (`maxConcurrency` in-flight at once, not the whole list),
+    /// and each membership check now fails soft (`try?` — a hiccup reads as
+    /// "not a match," not a thrown error) via a plain `withTaskGroup`
+    /// instead of the throwing variant. The one request this *can* still
+    /// throw for is the initial BoxSets probe itself — `load()` treats this
+    /// whole call as non-fatal regardless (see its own doc comment), so
+    /// that's still safe to propagate rather than pretend to have an answer
+    /// for.
     func collectionsContaining(itemID: String, userID: String) async throws -> [BaseItemDto] {
         let boxSets = try await items(userID: userID, includeItemTypes: ["BoxSet"], limit: 100).items
         guard !boxSets.isEmpty else { return [] }
 
-        return try await withThrowingTaskGroup(of: BaseItemDto?.self) { group in
-            for boxSet in boxSets {
+        let maxConcurrency = 5
+        return await withTaskGroup(of: BaseItemDto?.self) { group in
+            var remaining = boxSets[...]
+            var matches: [BaseItemDto] = []
+
+            func addNext() {
+                guard let boxSet = remaining.popFirst() else { return }
                 group.addTask {
-                    let children = try await self.items(userID: userID, parentID: boxSet.id, recursive: false)
+                    // `fields: ""` — this only needs each child's `id` to
+                    // check membership, none of `defaultFields`' heavier
+                    // payload (Overview/Genres/Studios/...) that would
+                    // otherwise be fetched and immediately discarded for
+                    // every item in every collection.
+                    guard let children = try? await self.items(
+                        userID: userID, parentID: boxSet.id, recursive: false, fields: ""
+                    ) else { return nil }
                     return children.items.contains(where: { $0.id == itemID }) ? boxSet : nil
                 }
             }
-            var matches: [BaseItemDto] = []
-            for try await match in group {
-                if let match { matches.append(match) }
+
+            for _ in 0..<min(maxConcurrency, boxSets.count) { addNext() }
+            while let result = await group.next() {
+                if let result { matches.append(result) }
+                addNext()
             }
             return matches
         }

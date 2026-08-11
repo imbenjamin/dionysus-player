@@ -1,10 +1,10 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "192.168.1.50:8096" : {
+    "3D Depth Effects" : {
 
     },
-    "3D Depth Effects" : {
+    "192.168.1.50:8096" : {
 
     },
     "Account" : {
@@ -124,9 +124,6 @@
     "Genre" : {
 
     },
-    "Go to Show" : {
-
-    },
     "Home" : {
 
     },
@@ -184,6 +181,9 @@
     "Play" : {
 
     },
+    "Play %@" : {
+
+    },
     "Playback failed to start." : {
 
     },
@@ -209,6 +209,9 @@
 
     },
     "Resume" : {
+
+    },
+    "Resume %@" : {
 
     },
     "Search" : {

@@ -42,6 +42,16 @@ struct HeroHeaderView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(hero3DDepthEnabledStorageKey) private var depthEffectPreference = true
     private var is3DDepthEnabled: Bool { depthEffectPreference && !reduceMotion }
+    /// Whether *this* view instance currently has an outstanding
+    /// `tiltObserver.acquire()` — i.e. whether it owes a matching
+    /// `release()`. Needed because `.onAppear`/`.onDisappear`/the
+    /// `.onChange` below can each independently decide to acquire or
+    /// release; this is what keeps each of those calls paired up exactly
+    /// once rather than acquiring twice or releasing without ever having
+    /// acquired. `@State`, not a plain `var` — this struct's `body` reruns
+    /// on every tilt sample (30 Hz), which would reset a plain property
+    /// back to its initial value on every one of those.
+    @State private var isObservingTilt = false
 
     /// `@Environment` — not a plain computed property reading UIKit state
     /// directly — is what actually matters here. `statusBarInset` below
@@ -98,25 +108,25 @@ struct HeroHeaderView: View {
             tiltY: is3DDepthEnabled ? CGFloat(tiltObserver.y) : 0
         )
         .frame(height: heroHeight)
-        .onAppear { if is3DDepthEnabled { Task { await tiltObserver.start() } } }
-        // Deliberately no `.onDisappear` calling `stop()` here — found the
-        // hard way (real-device repro, 2026-08-10): pushing a new detail
-        // page (e.g. tapping a "More Like This" item) fires this view's
-        // `.onDisappear` and the new page's `.onAppear` within moments of
-        // each other, each as its own unstructured `Task`. Nothing
-        // guarantees `stop()` actually finishes tearing the sensor down
-        // before `start()`'s guard checks whether it's already active — if
-        // `start()` wins that race, it sees "already active," no-ops, and
-        // then `stop()` goes on to really shut everything off, leaving
-        // *both* pages with a dead effect until something else happens to
-        // call `start()` again (confirmed: popping back to the original
-        // page didn't recover it either, for the same reason). A page
-        // merely being pushed under another isn't "the effect is no longer
-        // needed" anyway — `start()` above is idempotent, so leaving the
-        // sensor running across in-stack navigation is both simpler and
-        // correct. Actually stopping it stays driven only by an explicit
-        // signal: the "3D Depth Effects" toggle (`ProfileView`, this view's
-        // own `.onChange` below) or Reduce Motion changing.
+        .onAppear { acquireTiltObserverIfNeeded() }
+        // A real `.onDisappear` — releasing, not stopping outright — is
+        // safe here specifically *because* `DeviceTiltObserver.acquire()`/
+        // `release()` are reference-counted with a grace period, unlike a
+        // direct `stop()` call would be. Found the hard way (real-device
+        // repro, 2026-08-10) that a direct stop-on-disappear raced a
+        // straight-to-another-detail-page push: the outgoing page's
+        // `.onDisappear` and the incoming page's `.onAppear` fire within
+        // moments of each other, each its own unstructured `Task`, and
+        // nothing guaranteed `stop()` finished before the next `start()`'s
+        // "already active" guard saw it as still running and no-opped —
+        // whichever order they landed in could leave the sensor dead for
+        // both pages. `release()`'s grace period (see its own doc comment)
+        // is what closes that race: the count never sees a *sustained* zero
+        // across a same-instant push, so no `stop()` fires there at all —
+        // while actually leaving the feature (popping back out, with
+        // nothing re-acquiring in time) now genuinely stops the sensor
+        // instead of leaving it running for the rest of the app session.
+        .onDisappear { releaseTiltObserverIfNeeded() }
         // `depthEffectPreference` can change while this view is already on
         // screen (flipped in Settings, then navigating straight to a detail
         // page without relaunching) — `.onAppear` alone would miss that,
@@ -124,15 +134,24 @@ struct HeroHeaderView: View {
         // change. `reduceMotion` is a tracked `@Environment` dependency
         // already covered by `body` re-running on its own; this just adds
         // the same coverage for the `@AppStorage` one.
-        .onChange(of: depthEffectPreference) { _, isEnabled in
-            Task {
-                if isEnabled, !reduceMotion {
-                    await tiltObserver.start()
-                } else {
-                    await tiltObserver.stop()
-                }
-            }
+        .onChange(of: depthEffectPreference) { _, _ in
+            if is3DDepthEnabled { acquireTiltObserverIfNeeded() } else { releaseTiltObserverIfNeeded() }
         }
+    }
+
+    /// See `isObservingTilt`'s doc comment — every acquire goes through
+    /// here so it only ever happens once per outstanding `release()`.
+    private func acquireTiltObserverIfNeeded() {
+        guard is3DDepthEnabled, !isObservingTilt else { return }
+        isObservingTilt = true
+        Task { await tiltObserver.acquire() }
+    }
+
+    /// See `acquireTiltObserverIfNeeded()`.
+    private func releaseTiltObserverIfNeeded() {
+        guard isObservingTilt else { return }
+        isObservingTilt = false
+        Task { await tiltObserver.release() }
     }
 }
 

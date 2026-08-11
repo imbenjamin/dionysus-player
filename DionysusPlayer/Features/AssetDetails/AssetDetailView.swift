@@ -32,6 +32,14 @@ struct AssetDetailView: View {
         content
             .navigationBarTitleDisplayMode(.inline)
             .task { await viewModel.loadIfNeeded() }
+            // Stops any favorite/watched toggle confirmation poll or
+            // post-playback refresh still in flight the moment this page
+            // is no longer on screen — see `AssetDetailViewModel
+            // .cancelBackgroundWork()`'s doc comment. This is the one
+            // reliable place for it: the actual screen-level owner of
+            // `viewModel`, not a toolbar item or a sub-view that might not
+            // get its own `.onDisappear` as predictably.
+            .onDisappear { viewModel.cancelBackgroundWork() }
     }
 
     /// Keyed on whether `viewModel.item` exists at all, not on `loadState`

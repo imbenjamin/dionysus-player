@@ -183,6 +183,62 @@ final class AssetDetailViewModelTests: XCTestCase {
         guard case .failed = viewModel.loadState else { return XCTFail("Expected .failed, got \(viewModel.loadState)") }
     }
 
+    /// `similar`/`collections`/`seasons` are all supplementary rails, not
+    /// the page itself — a hiccup fetching any one of them shouldn't take
+    /// down the whole page (hero, Play button, everything else that already
+    /// loaded fine) the way it used to. Only that one rail should end up
+    /// empty.
+    func test_load_similarItemsFetchFails_stillLoadsSuccessfullyWithEverythingElseIntact() async {
+        let itemDto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie)
+        let viewModel = makeViewModel(itemID: "movie-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/movie-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: itemDto)
+            case "/Items/movie-1/Similar":
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            case "/Users/user-1/Items": // BoxSets probe inside collectionsContaining
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(viewModel.item?.id, "movie-1")
+        XCTAssertTrue(viewModel.similar.isEmpty)
+    }
+
+    /// See the test above — same reasoning, `seasons` instead (the BoxSets
+    /// probe inside `collectionsContaining` failing outright, rather than
+    /// just one collection's own membership check, is covered here too).
+    func test_load_seasonsFetchFails_stillLoadsSuccessfullyWithEverythingElseIntact() async {
+        let itemDto = BaseItemDto(id: "series-1", name: "The Wire", type: .series)
+        let viewModel = makeViewModel(itemID: "series-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/series-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: itemDto)
+            case "/Shows/series-1/Seasons":
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            case "/Items/series-1/Similar", "/Users/user-1/Items", "/Shows/NextUp":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(viewModel.item?.id, "series-1")
+        XCTAssertTrue(viewModel.seasons.isEmpty)
+    }
+
     func test_loadIfNeeded_doesNotRefetchOnceItemIsPopulated() async {
         let itemDto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie)
         let viewModel = makeViewModel(itemID: "movie-1")
@@ -367,6 +423,57 @@ final class AssetDetailViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.seasons.first?.isFavorite, true)
         XCTAssertEqual(viewModel.item?.id, "series-1", "the Series itself (a different id) should be untouched")
+    }
+
+    // MARK: track(_:) / cancelBackgroundWork()
+
+    /// `toggleFavorite`'s confirmation poll can run for up to ~13s
+    /// (`refetchFavoriteWatchedTarget`'s retry schedule) — `AssetDetailView`
+    /// backing out mid-poll shouldn't leave that running to completion
+    /// against a screen nobody's looking at anymore. Simulates that by
+    /// never actually confirming the toggle server-side (every refetch
+    /// keeps reporting `isFavorite: false`, which would otherwise exhaust
+    /// the entire retry schedule) and cancelling shortly after starting —
+    /// a `refetchCount` well short of the full schedule is what proves the
+    /// poll loop's own `Task.isCancelled` check actually stopped it early,
+    /// not just that the outer `Task` was marked cancelled while the loop
+    /// kept running regardless.
+    func test_cancelBackgroundWork_stopsAnInFlightFavoriteTogglePoll() async {
+        let viewModel = makeViewModel(itemID: "movie-1")
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path == "/Users/user-1/Items/movie-1" {
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie))
+            }
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+        await viewModel.load()
+
+        nonisolated(unsafe) var refetchCount = 0
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/FavoriteItems/movie-1":
+                return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+            case "/Users/user-1/Items/movie-1":
+                refetchCount += 1
+                // Never actually confirms — every attempt still reads
+                // `isFavorite: false`, so nothing but cancellation would
+                // ever stop this loop short of its full 7-attempt schedule.
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                    id: "movie-1", name: "Arrival", type: .movie,
+                    userData: UserItemDataDto(playbackPositionTicks: nil, playedPercentage: nil, played: false, isFavorite: false)
+                ))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        let task = Task { await viewModel.toggleFavorite(itemID: "movie-1", currentlyFavorite: false) }
+        viewModel.track(task)
+        try? await Task.sleep(for: .milliseconds(50))
+        viewModel.cancelBackgroundWork()
+        await task.value
+
+        XCTAssertLessThan(refetchCount, 7, "cancellation should stop the poll well before exhausting its full retry schedule")
     }
 
     // MARK: selectEpisode(_:)

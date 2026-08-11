@@ -107,11 +107,81 @@ final class DeviceTiltObserver {
     /// animate," not an error; `start()` already no-ops safely either way.
     var isAvailable: Bool { motionManager.isDeviceMotionAvailable }
 
+    /// How many `HeroHeaderView` instances currently want the sensor
+    /// running — see `acquire()`/`release()`, below, for why `HeroHeaderView`
+    /// goes through those instead of calling `start()`/`stop()` directly.
+    private var activeObserverCount = 0
+    /// Bumped on every `acquire()`/`release()`; a delayed `stop()` inside
+    /// `release()` compares its own snapshot of this against the current
+    /// value before actually stopping — see `release()`'s doc comment.
+    private var generation = 0
+    /// How long `release()` waits, once the count reaches zero, before it
+    /// actually stops the sensor — long enough to cover the gap between one
+    /// detail page's `.onDisappear` and the next one's `.onAppear` when
+    /// navigating from one straight to another (confirmed live: comfortably
+    /// covers it with room to spare), short enough that genuinely leaving
+    /// the feature still stops the sensor promptly rather than lingering.
+    private static let releaseGracePeriod: Duration = .milliseconds(500)
+
+    /// Marks one more caller (a mounted `HeroHeaderView`) as wanting the
+    /// sensor running, and starts it if it isn't already. Paired with
+    /// exactly one `release()` call once that caller no longer needs it —
+    /// see `HeroHeaderView`'s own `isObservingTilt` for how it keeps its
+    /// acquire/release calls balanced across `.onAppear`/`.onDisappear`/its
+    /// "3D Depth Effects" `.onChange`.
+    ///
+    /// This reference-counted pair — not `HeroHeaderView` calling
+    /// `start()`/`stop()` directly from `.onAppear`/`.onDisappear` — is what
+    /// actually fixes two problems at once. First, the race `start()`'s own
+    /// doc comment used to describe as a reason to avoid `.onDisappear`
+    /// entirely: pushing a new detail page fires the outgoing page's
+    /// `.onDisappear` and the incoming page's `.onAppear` within moments of
+    /// each other, and a naive stop-then-start there could leave the sensor
+    /// dead if `stop()` landed after `start()` saw "already active" and
+    /// no-opped. `release()`'s grace period below means the count never
+    /// actually reaches a *sustained* zero across that gap, so no `stop()`
+    /// fires at all. Second — the actual bug this pair was added to fix —
+    /// once a detail page's `HeroHeaderView` had ever run at all, nothing
+    /// short of the Profile toggle or Reduce Motion ever stopped the
+    /// sensor again, even after backing out of the feature entirely: it
+    /// kept sampling at 30 Hz for the rest of the app session. Real
+    /// `.onDisappear`-driven `release()` calls, now safe to add because of
+    /// the grace period above, are what let the sensor actually stop again
+    /// once nothing's left that wants it.
+    func acquire() async {
+        activeObserverCount += 1
+        generation += 1
+        await start()
+    }
+
+    /// See `acquire()`. Only actually stops the sensor once the count has
+    /// been at zero continuously for `releaseGracePeriod` — `generation`
+    /// (bumped by every `acquire()`/`release()`) is what "continuously"
+    /// checks: if another call comes in while this is waiting, the snapshot
+    /// taken before the sleep no longer matches, and this bows out without
+    /// stopping anything, leaving whichever later call is actually current
+    /// in charge.
+    func release() async {
+        activeObserverCount = max(0, activeObserverCount - 1)
+        generation += 1
+        let generationAtRelease = generation
+        guard activeObserverCount == 0 else { return }
+        try? await Task.sleep(for: Self.releaseGracePeriod)
+        guard activeObserverCount == 0, generation == generationAtRelease else { return }
+        await stop()
+    }
+
     /// Idempotent — safe to call from `.onAppear` even if already running
     /// (e.g. a rapid navigate-away-and-back). `async` so callers can `await`
     /// it (or just fire-and-forget via `Task { await ... }`) — see this
     /// type's doc comment for why the underlying work needs to be off the
-    /// main actor at all.
+    /// main actor at all. Prefer `acquire()`/`release()` over calling this
+    /// directly from a view's lifecycle — see `acquire()`'s doc comment for
+    /// why. `ProfileView`'s toggle and `warmUp()` below call this (and
+    /// `stop()`) directly instead, deliberately: neither represents "a
+    /// `HeroHeaderView` wants the sensor," so they've no count to keep
+    /// balanced — both already idempotent against whatever `acquire()`/
+    /// `release()` are independently doing.
     func start() async {
         guard motionManager.isDeviceMotionAvailable, !motionManager.isDeviceMotionActive else { return }
         isApplyingChange = true

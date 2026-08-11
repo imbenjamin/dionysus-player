@@ -101,4 +101,50 @@ final class DeviceTiltObserverTests: XCTestCase {
         await observer.warmUp()
         XCTAssertFalse(observer.isApplyingChange)
     }
+
+    // MARK: acquire()/release()
+    // Same "not unit-testable" ceiling as `start()`/`stop()` above applies
+    // here too — no physical sensor in the Simulator to observe actually
+    // starting/stopping, and the reference count/grace-period bookkeeping
+    // that avoids the push-under race (see `release()`'s own doc comment)
+    // is `private`, not something a test can inspect directly. What's worth
+    // pinning down regardless: multiple `acquire()`/`release()` calls,
+    // balanced or not, must resolve rather than hang or crash — the actual
+    // race this pair fixes was found and confirmed live on a real device,
+    // per `release()`'s doc comment, not something reproducible here.
+
+    func test_acquireThenRelease_resolvesWithoutHanging() async {
+        let observer = DeviceTiltObserver()
+        await observer.acquire()
+        await observer.release()
+        XCTAssertFalse(observer.isApplyingChange)
+    }
+
+    func test_multipleAcquiresThenMatchingReleases_resolvesWithoutHanging() async {
+        let observer = DeviceTiltObserver()
+        await observer.acquire()
+        await observer.acquire()
+        await observer.release()
+        await observer.release()
+        XCTAssertFalse(observer.isApplyingChange)
+    }
+
+    func test_releaseWithoutAnyPriorAcquire_doesNotUnderflowOrCrash() async {
+        let observer = DeviceTiltObserver()
+        await observer.release()
+        XCTAssertFalse(observer.isApplyingChange)
+    }
+
+    /// The exact scenario `release()`'s grace period exists for: a release
+    /// immediately followed by a re-acquire (standing in for navigating
+    /// straight from one detail page to another) shouldn't hang or crash
+    /// either.
+    func test_releaseImmediatelyFollowedByReacquire_resolvesWithoutHanging() async {
+        let observer = DeviceTiltObserver()
+        await observer.acquire()
+        async let release: Void = observer.release()
+        await observer.acquire()
+        await release
+        XCTAssertFalse(observer.isApplyingChange)
+    }
 }

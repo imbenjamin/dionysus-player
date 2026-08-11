@@ -465,4 +465,63 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(matches, [])
         XCTAssertEqual(requestCount, 1, "Should short-circuit after the empty BoxSet lookup instead of firing per-BoxSet requests")
     }
+
+    /// Each per-BoxSet membership check only needs `id` to decide a match —
+    /// none of `defaultFields`' heavier payload (Overview/Genres/Studios/
+    /// ...), which used to be fetched and immediately discarded for every
+    /// item in every collection.
+    func test_collectionsContaining_membershipLookupOmitsFieldsParam() async throws {
+        let client = makeClient(accessToken: "tok")
+        let boxSet = BaseItemDto(id: "boxset-1", name: "A Collection", type: .boxSet)
+        nonisolated(unsafe) var membershipLookupQuery: [String: String]?
+
+        MockURLProtocol.requestHandler = { request in
+            let query = request.queryDictionary
+            if query["IncludeItemTypes"] == "BoxSet" {
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [boxSet], totalRecordCount: 1)
+                )
+            }
+            membershipLookupQuery = query
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        _ = try await client.collectionsContaining(itemID: "item-1", userID: "user-1")
+        XCTAssertNil(membershipLookupQuery?["Fields"])
+    }
+
+    /// A single BoxSet's membership check hiccupping (a transport error,
+    /// standing in for anything from a dropped connection to a slow one
+    /// among many in flight) shouldn't fail the *entire* call — every other
+    /// BoxSet's own check should still run and still count, and the failed
+    /// one should just read as "not a match" rather than aborting
+    /// everything. This is what `load()` (`AssetDetailViewModel`) relies on
+    /// to keep a single flaky collection check from blanking the whole
+    /// detail page.
+    func test_collectionsContaining_oneFailingMembershipLookup_stillReturnsTheOthers() async throws {
+        let client = makeClient(accessToken: "tok")
+        let failingBoxSet = BaseItemDto(id: "boxset-fails", name: "Flaky", type: .boxSet)
+        let matchingBoxSet = BaseItemDto(id: "boxset-matches", name: "Fine", type: .boxSet)
+        let targetItem = BaseItemDto(id: "item-1", name: "Arrival", type: .movie)
+
+        MockURLProtocol.requestHandler = { request in
+            let query = request.queryDictionary
+            if query["IncludeItemTypes"] == "BoxSet" {
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: BaseItemDtoQueryResult(items: [failingBoxSet, matchingBoxSet], totalRecordCount: 2)
+                )
+            }
+            if query["ParentId"] == "boxset-fails" {
+                throw URLError(.networkConnectionLost)
+            }
+            let children = query["ParentId"] == "boxset-matches" ? [targetItem] : []
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request, value: BaseItemDtoQueryResult(items: children, totalRecordCount: children.count)
+            )
+        }
+
+        let matches = try await client.collectionsContaining(itemID: "item-1", userID: "user-1")
+        XCTAssertEqual(matches.map(\.id), ["boxset-matches"])
+    }
 }

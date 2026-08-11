@@ -196,7 +196,10 @@ struct ShowDetailView: View {
         }
         .fullScreenCover(
             item: $playbackRequest,
-            onDismiss: { Task { await viewModel.refreshItem() } }
+            // Registered via `viewModel.track(_:)` — see its doc comment —
+            // so `AssetDetailView`'s `.onDisappear` can cancel this if the
+            // user backs out of the page again before it finishes.
+            onDismiss: { viewModel.track(Task { await viewModel.refreshItem() }) }
         ) { request in
             PlayerView(itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID)
         }

@@ -204,11 +204,16 @@ struct HeroActionButtons: View {
     }
 
     private func toggleFavorite(_ target: MediaItem) {
-        Task { await viewModel.toggleFavorite(itemID: target.id, currentlyFavorite: target.isFavorite) }
+        // Registered via `viewModel.track(_:)` — see its doc comment — so
+        // `AssetDetailView`'s `.onDisappear` can cancel this toggle's
+        // confirmation poll if the user backs out mid-flight, rather than
+        // it running to completion regardless.
+        viewModel.track(Task { await viewModel.toggleFavorite(itemID: target.id, currentlyFavorite: target.isFavorite) })
     }
 
     private func toggleWatched(_ target: MediaItem) {
-        Task { await viewModel.toggleWatched(itemID: target.id, currentlyWatched: target.isPlayed) }
+        // See `toggleFavorite(_:)` above.
+        viewModel.track(Task { await viewModel.toggleWatched(itemID: target.id, currentlyWatched: target.isPlayed) })
     }
 
     /// Same circular chrome as `ResetFiltersButton` (`CollectionGridView`) —

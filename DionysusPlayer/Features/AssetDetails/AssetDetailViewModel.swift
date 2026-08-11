@@ -196,12 +196,22 @@ final class AssetDetailViewModel {
             // Series/Season/Episode case (an episode's own "similar items"
             // via the API is empty/meaningless) — falls back to `itemID`
             // only for a Movie, where there's no Show to scope to at all.
+            //
+            // All three of these (plus `seasons` below) are `try?`, not
+            // `try await` — deliberately: they're supplementary rails, not
+            // the page itself, which by this point has already resolved
+            // successfully (the primary item fetch above, and the Series
+            // item swap-in for a Season tap, are the only fetches this
+            // function still lets fail the whole page). A hiccup on
+            // `/Similar` or `collectionsContaining`'s BoxSets probe used to
+            // take the *entire* page — hero, Play button, everything
+            // already loaded fine — down to a full-screen error instead of
+            // just leaving that one rail empty, which is what happens now.
             let similarCollectionsID = seriesID ?? itemID
-            async let similarResult = client.similarItems(itemID: similarCollectionsID, userID: userID)
-            async let collectionsResult = client.collectionsContaining(itemID: similarCollectionsID, userID: userID)
+            async let similarResult = try? client.similarItems(itemID: similarCollectionsID, userID: userID)
+            async let collectionsResult = try? client.collectionsContaining(itemID: similarCollectionsID, userID: userID)
 
-            if let seriesID {
-                let seasonsResult = try await client.seasons(seriesID: seriesID, userID: userID)
+            if let seriesID, let seasonsResult = try? await client.seasons(seriesID: seriesID, userID: userID) {
                 seasons = seasonsResult.items.map { MediaItem(dto: $0, images: images) }
             }
 
@@ -216,8 +226,12 @@ final class AssetDetailViewModel {
                 await resolveShowPlaybackEpisode(seriesID: seriesID, images: images)
             }
 
-            similar = try await similarResult.items.map { MediaItem(dto: $0, images: images) }
-            collections = try await collectionsResult.map { MediaItem(dto: $0, images: images) }
+            if let similarItems = await similarResult {
+                similar = similarItems.items.map { MediaItem(dto: $0, images: images) }
+            }
+            if let collectionsItems = await collectionsResult {
+                collections = collectionsItems.map { MediaItem(dto: $0, images: images) }
+            }
 
             loadState = .loaded
         } catch {
@@ -259,6 +273,32 @@ final class AssetDetailViewModel {
     private(set) var pendingFavoriteIDs: Set<String> = []
     /// See `pendingFavoriteIDs` — identical shape, watched status instead.
     private(set) var pendingWatchedIDs: Set<String> = []
+
+    /// Fire-and-forget `Task`s wrapping this view model's own async methods
+    /// (`toggleFavorite`/`toggleWatched`/`refreshItem`), registered here by
+    /// their call sites (`HeroActionButtons`, `MovieDetailView`/
+    /// `ShowDetailView`) via `track(_:)` right after creating each one.
+    /// `cancelBackgroundWork()` — `AssetDetailView`'s own `.onDisappear` —
+    /// is what actually stops them once this page is no longer on screen,
+    /// instead of a favorite toggle's confirmation poll (up to ~13s) or a
+    /// post-playback refresh (up to ~3.25s) running to completion
+    /// regardless, issuing network requests against a screen nobody's
+    /// looking at anymore. The methods themselves stay plain `async`
+    /// functions any caller (including tests) can `await` directly —
+    /// only real UI call sites need to route through `track(_:)` at all.
+    private var backgroundTasks: [Task<Void, Never>] = []
+
+    /// See `backgroundTasks`'s doc comment.
+    func track(_ task: Task<Void, Never>) {
+        backgroundTasks.append(task)
+    }
+
+    /// See `backgroundTasks`'s doc comment. Safe to call even with nothing
+    /// in flight — cancelling an already-finished `Task` is a no-op.
+    func cancelBackgroundWork() {
+        for task in backgroundTasks { task.cancel() }
+        backgroundTasks.removeAll()
+    }
 
     /// Toggles `itemID`'s favorite status (`HeroActionButtons`' button/
     /// menu — `itemID` is always `item.id` on a Movie/Episode-content page,
@@ -317,6 +357,13 @@ final class AssetDetailViewModel {
         let images = await client.makeImageURLBuilder()
         for delay in [0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0] as [Double] {
             try? await Task.sleep(for: .seconds(delay))
+            // `Task.sleep` throwing on cancellation is swallowed by `try?`
+            // above, so this is what actually stops the poll early once
+            // `cancelBackgroundWork()` (`AssetDetailView`'s `.onDisappear`)
+            // cancels the `Task` this is running in — otherwise a page
+            // backed out of mid-toggle would keep polling for up to ~13s
+            // more against a screen nobody's looking at.
+            guard !Task.isCancelled else { return }
             guard let dto = try? await client.item(userID: userID, itemID: itemID) else { continue }
             let updated = MediaItem(dto: dto, images: images)
             if item?.id == itemID { item = updated }
@@ -353,6 +400,9 @@ final class AssetDetailViewModel {
 
         for delay in [0.25, 0.5, 1.0, 1.5] as [Double] {
             try? await Task.sleep(for: .seconds(delay))
+            // See the matching check in `refetchFavoriteWatchedTarget` —
+            // same reasoning, same reliance on `cancelBackgroundWork()`.
+            guard !Task.isCancelled else { return }
             guard let dto = try? await client.item(userID: userID, itemID: displayedItemID) else { continue }
             item = MediaItem(dto: dto, images: images)
             if dto.userData?.playbackPositionTicks != previousTicks
