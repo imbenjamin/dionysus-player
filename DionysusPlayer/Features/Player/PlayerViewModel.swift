@@ -102,6 +102,10 @@ final class PlayerViewModel {
         engine.selectSubtitleTrack(id: id)
     }
 
+    func setZoomMode(_ mode: VideoZoomMode) {
+        engine.zoomMode = mode
+    }
+
     func stop() async {
         progressReportTask?.cancel()
         let ticks = Int64(currentTime * 10_000_000)

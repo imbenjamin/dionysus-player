@@ -17,6 +17,7 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         PlaybackTrack(id: 1, kind: .subtitle, displayTitle: "English (SDH)", isSelected: false)
     ]
     var videoFormatDescription: String? = "Dolby Vision P8.1"
+    var zoomMode: VideoZoomMode = .fit
 
     func load(url: URL) async throws {
         onStateChange?(.playing)

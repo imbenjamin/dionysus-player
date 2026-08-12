@@ -16,6 +16,7 @@ final class FakePlaybackEngine: PlaybackEngine {
     var audioTracks: [PlaybackTrack] = []
     var subtitleTracks: [PlaybackTrack] = []
     var videoFormatDescription: String?
+    var zoomMode: VideoZoomMode = .fit
 
     /// Set before calling `load` to make it throw instead of succeeding.
     var loadError: Error?

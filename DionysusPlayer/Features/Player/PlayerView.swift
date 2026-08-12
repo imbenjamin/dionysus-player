@@ -20,9 +20,23 @@ struct PlayerView: View {
     /// the two in sync rather than `PlayerControlsOverlay` reading
     /// `RotationLock` directly.
     @State private var isRotationLocked = false
+    /// Mirrors the engine's own zoom mode for the same reason
+    /// `isRotationLocked` mirrors `RotationLock` — see that property's doc
+    /// comment. Driven by `handleDoubleTap()`/`pinchZoomGesture` below, and
+    /// force-reset to `.fit` on leaving landscape (see `isLandscape`'s doc
+    /// comment).
+    @State private var zoomMode: VideoZoomMode = .fit
     /// Pending "fade the controls out" work item — armed by `scheduleAutoHide()`
     /// whenever playback is actually running, cancelled the moment it isn't.
     @State private var autoHideTask: Task<Void, Never>?
+
+    /// `.compact` is iPhone's landscape signal (see `HeroRailView.isLandscape`
+    /// for the same check/caveat: this stays `.regular` in both orientations
+    /// on iPad, so the zoom gestures below are effectively iPhone-only —
+    /// acceptable here since an iPad's video area rarely fills the whole
+    /// screen either way, unlike an iPhone in landscape).
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    private var isLandscape: Bool { verticalSizeClass == .compact }
 
     /// How long the controls sit idle before fading, once armed. Only
     /// applies while playback is running — see `scheduleAutoHide()`.
@@ -43,13 +57,24 @@ struct PlayerView: View {
             if let viewModel {
                 viewModel.engine.makeSurface()
                     .ignoresSafeArea()
-                    .onTapGesture {
-                        let isRevealing = !showControls
-                        withAnimation(isRevealing ? Self.fadeInAnimation : Self.fadeOutAnimation) {
-                            showControls.toggle()
-                        }
-                        scheduleAutoHide()
-                    }
+                    // Double tap takes priority — `exclusively(before:)`
+                    // holds the single tap back until a double tap's own
+                    // window has passed without a second tap landing, the
+                    // same disambiguation a bare `UITapGestureRecognizer`
+                    // pair would need `require(toFail:)` for. Without this,
+                    // both taps of a double tap register as sequential
+                    // single taps, showing then immediately re-hiding
+                    // controls instead of toggling zoom.
+                    .gesture(
+                        TapGesture(count: 2)
+                            .onEnded { handleDoubleTap() }
+                            .exclusively(before: TapGesture(count: 1).onEnded { handleSingleTap() })
+                    )
+                    // Simultaneous, not exclusive, with the tap gesture
+                    // above — a pinch is a distinct two-finger interaction
+                    // that can't be confused with either kind of tap, so
+                    // there's no disambiguation needed between them.
+                    .simultaneousGesture(pinchZoomGesture)
 
                 // Always mounted — animating `.opacity` directly on a
                 // permanent view, rather than conditionally including it
@@ -125,6 +150,56 @@ struct PlayerView: View {
             }
             scheduleAutoHide()
         }
+        // Zoom is a landscape-only affordance — leaving landscape with
+        // `.fill` still active would otherwise leave a portrait video
+        // cropped with no way left to un-zoom it (both gestures below are
+        // gated on `isLandscape` too), so force it back to `.fit` the
+        // moment the rotation itself takes it out of scope.
+        .onChange(of: isLandscape) { _, landscape in
+            guard !landscape else { return }
+            setZoomMode(.fit)
+        }
+    }
+
+    /// The single-tap "show/hide controls" behavior this overlay always
+    /// had, now reached only once a double tap has failed to materialize —
+    /// see the surface's `.gesture(...)` doc comment.
+    private func handleSingleTap() {
+        let isRevealing = !showControls
+        withAnimation(isRevealing ? Self.fadeInAnimation : Self.fadeOutAnimation) {
+            showControls.toggle()
+        }
+        scheduleAutoHide()
+    }
+
+    /// Toggles fit/fill, matching the standard streaming-app convention —
+    /// but only in landscape (see `isLandscape`'s doc comment) and only
+    /// while controls are hidden, so a double tap aimed at dismissing a
+    /// button/scrubber doesn't also zoom the video out from under it.
+    private func handleDoubleTap() {
+        guard isLandscape, !showControls else { return }
+        setZoomMode(zoomMode.toggled)
+    }
+
+    /// Interchangeable with the double tap above: pinching open (fingers
+    /// moving apart, `magnification > 1`) zooms in to `.fill`; pinching
+    /// closed zooms back out to `.fit`. Unlike the double tap, this isn't
+    /// gated on `showControls` — a two-finger pinch can't be confused with
+    /// a tap on a control, so there's no reason to withhold it while the
+    /// overlay happens to be showing. A small dead zone around 1.0 avoids
+    /// flipping modes on a pinch that barely moved (a light double-tap can
+    /// register a tiny incidental magnification).
+    private var pinchZoomGesture: some Gesture {
+        MagnifyGesture()
+            .onEnded { value in
+                guard isLandscape, abs(value.magnification - 1) > 0.05 else { return }
+                setZoomMode(value.magnification > 1 ? .fill : .fit)
+            }
+    }
+
+    private func setZoomMode(_ mode: VideoZoomMode) {
+        zoomMode = mode
+        viewModel?.setZoomMode(mode)
     }
 
     /// (Re)arms the 3-second auto-hide countdown, replacing any countdown

@@ -184,6 +184,12 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(engine.selectedSubtitleTrackIDs, [nil])
     }
 
+    func test_setZoomMode_delegatesToEngine() {
+        let (viewModel, engine) = makeViewModel()
+        viewModel.setZoomMode(.fill)
+        XCTAssertEqual(engine.zoomMode, .fill)
+    }
+
     // MARK: stop()
 
     func test_stop_reportsCurrentPositionAsTicksAndStopsEngine() async throws {

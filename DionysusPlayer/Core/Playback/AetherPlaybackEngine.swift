@@ -24,6 +24,18 @@ final class AetherPlaybackEngine: PlaybackEngine {
     private var selectedAudioTrackID: Int?
     private var selectedSubtitleTrackID: Int?
 
+    /// Bridges to AetherEngine's own `videoGravity`, which drives whichever
+    /// `AVPlayerLayer`/`AVSampleBufferDisplayLayer` is currently bound —
+    /// `.resizeAspect` (letterboxed, nothing cropped) for `.fit`,
+    /// `.resizeAspectFill` (fills the layer's bounds, cropping any excess)
+    /// for `.fill`. Read back from `engine.videoGravity` rather than
+    /// mirrored in a stored property, so this can't drift from what's
+    /// actually applied to the render layer.
+    var zoomMode: VideoZoomMode {
+        get { engine.videoGravity == .resizeAspectFill ? .fill : .fit }
+        set { engine.videoGravity = newValue == .fill ? .resizeAspectFill : .resizeAspect }
+    }
+
     init() throws {
         self.engine = try AetherEngine()
         observeEngine()

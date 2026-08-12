@@ -39,7 +39,7 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 
 (swap `iPhone 17` for whatever's in `xcrun simctl list devices available` on your machine.)
 
-**Verified:** the full suite (383 tests) has been run for real via
+**Verified:** the full suite (384 tests) has been run for real via
 `xcodebuild test` against the iOS 26.5 Simulator — all passing, 0 failures.
 A few real issues were caught and fixed along the way, worth knowing about
 if you extend this setup:
@@ -90,7 +90,7 @@ and the networking client, mirroring the app's own MVVM structure
 | `AppState` | `AppStateTests.swift` | The `.serverSetup` → `.login` → `.main` phase machine: silent sign-in on launch (success and failure-falls-back-to-login), `completeServerSetup`/`signIn`/`signOut`/`changeServer` all affecting the right subset of state. |
 | `LoginViewModel` | `LoginViewModelTests.swift` | `canSubmit` gating, delegation to `AppState.signIn`, the user-facing error message on failure. |
 | `ServerSetupViewModel` | `ServerSetupViewModelTests.swift` | `testConnection()`'s address validation, server-name detection/fallback, and unreachable-server handling. |
-| `PlayerViewModel` | `PlayerViewModelTests.swift` | Resume-position seeking (and the `startFromBeginning` override), playback-start/-stop reporting with correctly converted tick values, transport controls delegating to the engine, engine→ViewModel state/time callbacks, and version selection (`requestedMediaSourceID` scoping the `/PlaybackInfo` request and selecting the matching source over `.first`, an unrecognized requested id falling back to the server's default rather than failing, and `activeMediaSourceID` — whichever source actually got resolved — being reported alongside the start/progress/stop session calls). Uses `FakePlaybackEngine` (Support/) rather than a real `AetherEngine`. |
+| `PlayerViewModel` | `PlayerViewModelTests.swift` | Resume-position seeking (and the `startFromBeginning` override), playback-start/-stop reporting with correctly converted tick values, transport controls delegating to the engine, engine→ViewModel state/time callbacks, version selection (`requestedMediaSourceID` scoping the `/PlaybackInfo` request and selecting the matching source over `.first`, an unrecognized requested id falling back to the server's default rather than failing, and `activeMediaSourceID` — whichever source actually got resolved — being reported alongside the start/progress/stop session calls), and `setZoomMode(_:)` delegating straight through to the engine. Uses `FakePlaybackEngine` (Support/) rather than a real `AetherEngine`. |
 | `PlaybackRequest` | `PlaybackRequestTests.swift` | `id`'s inclusion of `startFromBeginning` and `mediaSourceID`, so a Restart-after-Resume or a different version picked on a second Play each present a fresh sheet. |
 | `MediaVersionPreferenceStore` | `MediaVersionPreferenceStoreTests.swift` | Persistence round-trips across fresh instances, overwriting a previous choice for the same item, and per-user/per-item scoping — same shape as `SearchHistoryStore`'s tests. |
 | `DeviceIdentity` | `DeviceIdentityTests.swift` | The generate-once-then-cache behavior of `deviceID`. |

@@ -26,6 +26,20 @@ enum PlaybackState: Equatable {
     case failed(String)
 }
 
+/// How the video surface fills its available space — the landscape
+/// "pinch/double-tap to zoom" affordance in `PlayerView` toggles this.
+enum VideoZoomMode: Equatable {
+    /// The whole frame is visible, letterboxed/pillarboxed if its aspect
+    /// ratio doesn't match the screen's. The default, and the only mode
+    /// used in portrait — see `PlayerView.isLandscape`'s doc comment.
+    case fit
+    /// The frame fills the screen with no letterboxing, cropping whatever
+    /// doesn't fit — the standard streaming-app "zoomed in" look.
+    case fill
+
+    var toggled: VideoZoomMode { self == .fit ? .fill : .fit }
+}
+
 /// A selectable audio or subtitle track, normalized from whatever track
 /// type the playback engine exposes.
 struct PlaybackTrack: Identifiable, Hashable {
