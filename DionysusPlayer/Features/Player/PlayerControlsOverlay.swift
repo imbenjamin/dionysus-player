@@ -6,6 +6,13 @@ struct PlayerControlsOverlay: View {
     @Binding var scrubTime: TimeInterval
     var onClose: () -> Void
     var onShowTracks: () -> Void
+    /// Called on every button tap and scrubber-drag tick — `PlayerView`
+    /// uses this to reset its auto-hide countdown, so a button press or an
+    /// in-progress drag doesn't get cut off by the fade mid-interaction. Not
+    /// called from `onClose` (playback is ending) or the timestamp-toggle
+    /// button (doesn't affect anything visible enough to warrant resetting
+    /// the timer over).
+    var onInteract: () -> Void
 
     /// Whether the scrubber's trailing timestamp reads as the asset's total
     /// duration (the default) or a `-`-prefixed countdown to the end —
@@ -123,7 +130,10 @@ struct PlayerControlsOverlay: View {
 
                 Spacer()
 
-                Button(action: onShowTracks) {
+                Button {
+                    onInteract()
+                    onShowTracks()
+                } label: {
                     Image(systemName: "captions.bubble")
                         .font(.title2)
                 }
@@ -159,12 +169,14 @@ struct PlayerControlsOverlay: View {
         } else {
             HStack(spacing: 40) {
                 Button {
+                    onInteract()
                     viewModel.seek(to: max(0, displayedTime - 15))
                 } label: {
                     Image(systemName: "gobackward.15").font(.title)
                 }
 
                 Button {
+                    onInteract()
                     viewModel.togglePlayPause()
                 } label: {
                     Image(systemName: viewModel.state == .playing ? "pause.fill" : "play.fill")
@@ -172,6 +184,7 @@ struct PlayerControlsOverlay: View {
                 }
 
                 Button {
+                    onInteract()
                     viewModel.seek(to: min(viewModel.duration, displayedTime + 30))
                 } label: {
                     Image(systemName: "goforward.30").font(.title)
@@ -313,6 +326,12 @@ struct PlayerControlsOverlay: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
+                        // Every move resets `PlayerView`'s auto-hide
+                        // countdown — without this, a long, slow drag could
+                        // outlast the 3-second timer and have the controls
+                        // (scrubber included, mid-touch) fade out from under
+                        // the user's finger.
+                        onInteract()
                         isDraggingScrubber = true
                         isScrubbing = true
                         let newFraction = min(1, max(0, drag.location.x / width))
@@ -323,6 +342,7 @@ struct PlayerControlsOverlay: View {
                         // the `onChange`s below for why, and `displayedTime`'s
                         // doc comment for what this keeps showing in the
                         // meantime.
+                        onInteract()
                         isDraggingScrubber = false
                         viewModel.seek(to: scrubTime)
                     }
