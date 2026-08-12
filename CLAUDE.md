@@ -51,6 +51,31 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
   -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
+## Manual/automated UI verification
+
+For visual or interactive changes, prefer the `ios-simulator-skill` (when
+available) over ad hoc `simctl`/coordinate-tap scripting: it drives the
+Simulator via `idb`'s accessibility tree (find-by-text/type/id, then tap)
+rather than blind pixel coordinates, which survives layout changes far
+better. It needs `idb-companion` installed (`brew tap facebook/fb && brew
+install idb-companion`) plus the `idb` Python client — install that via
+`pipx install --python $(which python3.12) fb-idb` specifically; pipx's
+default (newer) Python fails at runtime with an `asyncio.get_event_loop()`
+error. Start a session with `idb_companion --udid <udid> &` then
+`idb connect <udid>` before the first call.
+
+Confirmed (2026-08-12) working well for Login, Home, Search, Profile, and
+detail-page screens — real accessibility elements, real taps. **Confirmed
+NOT working for the Player screen** (`PlayerView`/`PlayerControlsOverlay`):
+`idb ui describe-all` returns an empty tree there (root node, zero children)
+even with controls on screen, and coordinate taps aimed at any specific
+control (close, captions, rotation-lock, transport buttons, the scrubber)
+silently do nothing, while a generic full-screen tap still works. The
+working theory is AetherEngine's constantly-updating video surface, not a
+bug in the buttons themselves — a real device tap on the same buttons works
+fine. Don't burn time retrying automated taps against the Player screen;
+ask the user to verify interactive behavior there manually instead.
+
 ## Architecture
 
 The app is a straight linear state machine at the top, with feature modules
