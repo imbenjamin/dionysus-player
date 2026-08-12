@@ -359,6 +359,16 @@ private struct HeroRailCard: View {
             BackdropLogoOverlay(item: item)
         }
         .buttonStyle(.plain)
+        // `BackdropLogoOverlay` renders a logo *image* over the backdrop
+        // whenever the item has one (see that view's doc comment) — no text
+        // at all in that case, so VoiceOver had nothing to read here either
+        // (confirmed blank/"Unnamed", same gap as `PosterCard`/
+        // `LandscapeMediaCard`/`LibraryCard`). `.ignore` + an explicit label
+        // sidesteps relying on whether a text fallback happens to be
+        // showing.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(item.accessibilityDescription)
+        .accessibilityAddTraits(.isButton)
     }
 }
 

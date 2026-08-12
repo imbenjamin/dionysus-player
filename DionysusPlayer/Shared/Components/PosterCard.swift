@@ -47,6 +47,15 @@ struct PosterCard: View {
                 }
                 .frame(width: width)
                 .contentShape(Rectangle())
+                // Explicit label + `.ignore`, not a bare
+                // `.accessibilityElement(children: .combine)` — see
+                // `MediaItem.accessibilityDescription`'s doc comment for why
+                // (the watched/favorite glyphs `watchStatusOverlay` draws
+                // would otherwise leak their raw SF Symbol names into a
+                // combined label).
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(item.accessibilityDescription)
+                .accessibilityAddTraits(.isButton)
             }
             .buttonStyle(.plain)
         }
@@ -95,6 +104,10 @@ struct LandscapeMediaCard: View {
                 }
                 .frame(width: width)
                 .contentShape(Rectangle())
+                // See `PosterCard.body`'s identical block for why.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(item.accessibilityDescription)
+                .accessibilityAddTraits(.isButton)
             }
             .buttonStyle(.plain)
         }
