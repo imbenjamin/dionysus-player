@@ -10,18 +10,21 @@ planned later). It talks to a Jellyfin server over the plain REST/JSON API
 FFmpeg + VideoToolbox playback engine (HDR10/HDR10+/Dolby Vision support), pulled
 in as a Swift Package.
 
-**Status: builds clean, playback untested.** This was originally scaffolded
-without a macOS/Xcode toolchain and expected to need fixes in
-`AetherPlaybackEngine.swift`, but as of 2026-08-07 (Xcode 26.5, iOS 26.5
-Simulator) `xcodebuild build` for the `DionysusPlayer` scheme succeeds
+**Status: builds clean, playback verified on a physical device.** This was
+originally scaffolded without a macOS/Xcode toolchain and expected to need
+fixes in `AetherPlaybackEngine.swift`, but as of 2026-08-07 (Xcode 26.5, iOS
+26.5 Simulator) `xcodebuild build` for the `DionysusPlayer` scheme succeeds
 end-to-end — package resolution (AetherEngine + its FFmpegBuild/SMBClient/
 LibDovi dependencies), compilation, and linking all complete with no errors,
 and the `DionysusPlayerTests` suite (297 tests, see `TESTING.md`) passes.
-That confirms the code compiles against AetherEngine's real API; it does
-*not* confirm playback actually works — no test here plays real media or
-exercises a real device's decoder, so treat `PlayerViewModel`/
-`AetherPlaybackEngine` runtime behavior as unverified until manually tried
-against a real Jellyfin server.
+As of 2026-08-12, real playback on a physical device (iPhone 17,1, iOS 26.6)
+was confirmed via the "stats for nerds" overlay: Dolby Vision (Profile 8)
+source decoded in hardware through VideoToolbox HEVC, EAC3 audio
+stream-copied to a 7.1 output, and buffered-duration/size stats updating
+live. That covers direct-play HDR video + passthrough audio on one device;
+still treat other paths (transcoding, non-Dolby-Vision HDR formats, other
+devices, seeking/scrubbing edge cases) as unverified until separately
+checked.
 
 ## Commands
 
