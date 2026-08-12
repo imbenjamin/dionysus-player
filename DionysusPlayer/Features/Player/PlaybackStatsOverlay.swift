@@ -69,6 +69,37 @@ struct PlaybackStatsOverlay: View {
     private static let screenSize = UIScreen.main.bounds.size
     private static let refreshRateHz = UIScreen.main.maximumFramesPerSecond
 
+    /// "1.0 (1)" — `CFBundleShortVersionString` (`" (…)"` build number),
+    /// same pairing Settings/App Store show for any app.
+    private static let appVersion: String = {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info?["CFBundleVersion"] as? String ?? "—"
+        return "\(version) (\(build))"
+    }()
+
+    /// AetherEngine exposes no runtime version API of its own (checked —
+    /// nothing on `AetherEngine` reports it), so this mirrors the version
+    /// pinned in `project.yml`/`Package.resolved` by hand. Keep it in sync
+    /// when bumping the dependency.
+    private static let aetherEngineVersion = "6.5.5"
+
+    /// Hardware identifier (e.g. "iPhone15,1"), not the marketing name —
+    /// more useful for diagnostics since it's what maps 1:1 to a specific
+    /// chip/display/decoder combination. `uname`'s `machine` field is the
+    /// standard way to read it; there's no public UIKit API for it.
+    private static let deviceModelIdentifier: String = {
+        var systemInfo = utsname()
+        uname(&systemInfo)
+        return withUnsafePointer(to: &systemInfo.machine) {
+            $0.withMemoryRebound(to: CChar.self, capacity: 1) {
+                String(cString: $0)
+            }
+        }
+    }()
+
+    private static let iOSVersion = UIDevice.current.systemVersion
+
     var body: some View {
         content
             .font(.system(size: 12, design: .monospaced))
@@ -127,6 +158,7 @@ struct PlaybackStatsOverlay: View {
                     VStack(alignment: .leading, spacing: 2) {
                         playbackSection(stats)
                         displaySection(stats)
+                        buildSection()
                     }
                 }
             } else {
@@ -135,6 +167,7 @@ struct PlaybackStatsOverlay: View {
                     audioSection(stats)
                     playbackSection(stats)
                     displaySection(stats)
+                    buildSection()
                 }
             }
         } else {
@@ -177,6 +210,18 @@ struct PlaybackStatsOverlay: View {
         row("Refresh Rate", "\(Self.refreshRateHz) Hz")
         row("EDR Headroom", String(format: "%.2fx", edrHeadroom))
         row("Thermal State", Self.describe(thermalState))
+    }
+
+    /// Build/environment info — static for the life of the process, unlike
+    /// every other section here, so it's read once into `static let`s below
+    /// rather than polled on `pollWhileVisible`'s 1s loop.
+    @ViewBuilder
+    private func buildSection() -> some View {
+        Text("Build").bold().padding(.top, 4)
+        row("App Version", Self.appVersion)
+        row("AetherEngine Version", Self.aetherEngineVersion)
+        row("Device", Self.deviceModelIdentifier)
+        row("iOS Version", Self.iOSVersion)
     }
 
     private func row(_ label: String, _ value: String) -> some View {
