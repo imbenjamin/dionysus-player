@@ -19,27 +19,7 @@ struct PlayerControlsOverlay: View {
 
             Spacer()
 
-            HStack(spacing: 40) {
-                Button {
-                    viewModel.seek(to: max(0, displayedTime - 15))
-                } label: {
-                    Image(systemName: "gobackward.15").font(.title)
-                }
-
-                Button {
-                    viewModel.togglePlayPause()
-                } label: {
-                    Image(systemName: viewModel.state == .playing ? "pause.fill" : "play.fill")
-                        .font(.system(size: 44))
-                }
-
-                Button {
-                    viewModel.seek(to: min(viewModel.duration, displayedTime + 30))
-                } label: {
-                    Image(systemName: "goforward.30").font(.title)
-                }
-            }
-            .foregroundStyle(.white)
+            transportControls
 
             Spacer()
 
@@ -144,6 +124,53 @@ struct PlayerControlsOverlay: View {
 
             titleRow
         }
+    }
+
+    /// The rewind/play-pause/forward row — swapped for a centered spinner
+    /// while `isBuffering`, rather than leaving the play/pause button
+    /// showing a state that isn't actually available yet (tapping play
+    /// mid-buffer did nothing perceptible, which read as broken rather than
+    /// "in progress"). Covers both the initial buffer on load/resume and
+    /// the re-buffer after a scrub — `PlaybackState.loading` and `.seeking`
+    /// respectively, both already reported by `AetherPlaybackEngine`.
+    @ViewBuilder
+    private var transportControls: some View {
+        if isBuffering {
+            ProgressView()
+                .progressViewStyle(.circular)
+                .tint(.white)
+                .scaleEffect(1.6)
+                // Matches the play/pause button's own `.font(.system(size:
+                // 44))` footprint, so nothing else in the layout shifts
+                // when this swaps in and out.
+                .frame(height: 44)
+        } else {
+            HStack(spacing: 40) {
+                Button {
+                    viewModel.seek(to: max(0, displayedTime - 15))
+                } label: {
+                    Image(systemName: "gobackward.15").font(.title)
+                }
+
+                Button {
+                    viewModel.togglePlayPause()
+                } label: {
+                    Image(systemName: viewModel.state == .playing ? "pause.fill" : "play.fill")
+                        .font(.system(size: 44))
+                }
+
+                Button {
+                    viewModel.seek(to: min(viewModel.duration, displayedTime + 30))
+                } label: {
+                    Image(systemName: "goforward.30").font(.title)
+                }
+            }
+            .foregroundStyle(.white)
+        }
+    }
+
+    private var isBuffering: Bool {
+        viewModel.state == .loading || viewModel.state == .seeking
     }
 
     /// Logo preferred, pinned top-left — the same "logo over text-title
