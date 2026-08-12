@@ -14,6 +14,12 @@ struct PlayerControlsOverlay: View {
     /// write back to it directly.
     var isRotationLocked: Bool
     var onToggleRotationLock: () -> Void
+    /// Whether `PlaybackStatsOverlay` is currently showing — same "plain
+    /// state in, closure out" shape as `isRotationLocked`/
+    /// `onToggleRotationLock` above, for the same reason: this button only
+    /// ever reports a tap, `PlayerView` owns the actual toggle.
+    var isPlaybackStatsVisible: Bool
+    var onTogglePlaybackStats: () -> Void
     /// Called on every button tap and scrubber-drag tick — `PlayerView`
     /// uses this to reset its auto-hide countdown, so a button press or an
     /// in-progress drag doesn't get cut off by the fade mid-interaction. Not
@@ -178,6 +184,28 @@ struct PlayerControlsOverlay: View {
                         Image(systemName: "captions.bubble")
                             .font(.title2)
                     }
+
+                    // Same active/on-state badge treatment as the rotation
+                    // lock button above — a plain glyph swap alone proved
+                    // too subtle against a busy video frame for that one
+                    // (see its own comment), and this is the same kind of
+                    // persistent-until-toggled-again state.
+                    Button {
+                        onInteract()
+                        onTogglePlaybackStats()
+                    } label: {
+                        Image(systemName: "info.circle")
+                            .font(.title2)
+                            .foregroundStyle(isPlaybackStatsVisible ? .black : .white)
+                            .frame(width: 36, height: 36)
+                            .background {
+                                if isPlaybackStatsVisible {
+                                    Circle().fill(Color.white)
+                                }
+                            }
+                    }
+                    .accessibilityLabel(isPlaybackStatsVisible ? Text("Hide playback stats") : Text("Show playback stats"))
+                    .animation(.easeInOut(duration: 0.15), value: isPlaybackStatsVisible)
                 }
             }
             .foregroundStyle(.white)

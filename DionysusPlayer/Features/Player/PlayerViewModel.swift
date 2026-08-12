@@ -34,6 +34,11 @@ final class PlayerViewModel {
     var audioTracks: [PlaybackTrack] { engine.audioTracks }
     var subtitleTracks: [PlaybackTrack] { engine.subtitleTracks }
     var videoFormatDescription: String? { engine.videoFormatDescription }
+    /// A fresh snapshot on every access — see `PlaybackStats`. Intentionally
+    /// not cached on the view model itself: `PlaybackStatsOverlay` polls
+    /// this on its own timer only while it's actually visible, so there's
+    /// nothing to keep in sync the rest of the time.
+    var stats: PlaybackStats { engine.stats }
 
     init(
         client: JellyfinAPIClient, userID: String, itemID: String, engine: PlaybackEngine,

@@ -26,6 +26,12 @@ struct PlayerView: View {
     /// force-reset to `.fit` on leaving landscape (see `isLandscape`'s doc
     /// comment).
     @State private var zoomMode: VideoZoomMode = .fit
+    /// Whether `PlaybackStatsOverlay` (the "stats for nerds" panel) is
+    /// showing. Unlike `showControls`, this has no auto-hide/fade — it's a
+    /// plain on/off toggle that only the info button in
+    /// `PlayerControlsOverlay` flips, per that overlay's own doc comment on
+    /// why it's driven separately from the rest of the controls.
+    @State private var showPlaybackStats = false
     /// Pending "fade the controls out" work item — armed by `scheduleAutoHide()`
     /// whenever playback is actually running, cancelled the moment it isn't.
     @State private var autoHideTask: Task<Void, Never>?
@@ -76,6 +82,17 @@ struct PlayerView: View {
                     // there's no disambiguation needed between them.
                     .simultaneousGesture(pinchZoomGesture)
 
+                // Between the video surface and `PlayerControlsOverlay`,
+                // per that overlay's own doc comment — the "closest
+                // possible layer to the video" placement the feature was
+                // specified with. Always mounted, like `PlayerControlsOverlay`
+                // below, with `showPlaybackStats` driving its own internal
+                // `isVisible`/opacity rather than this conditionally
+                // inserting/removing it — see `PlaybackStatsOverlay`'s doc
+                // comment for why a mount/unmount toggle here visibly
+                // shifted the rest of the player UI.
+                PlaybackStatsOverlay(viewModel: viewModel, zoomMode: zoomMode, isVisible: showPlaybackStats)
+
                 // Always mounted — animating `.opacity` directly on a
                 // permanent view, rather than conditionally including it
                 // with `.transition(.opacity)`, is deliberate. The overlay
@@ -104,6 +121,8 @@ struct PlayerView: View {
                     onShowTracks: { showTrackSelection = true },
                     isRotationLocked: isRotationLocked,
                     onToggleRotationLock: toggleRotationLock,
+                    isPlaybackStatsVisible: showPlaybackStats,
+                    onTogglePlaybackStats: { showPlaybackStats.toggle() },
                     onInteract: scheduleAutoHide
                 )
                 .opacity(showControls ? 1 : 0)

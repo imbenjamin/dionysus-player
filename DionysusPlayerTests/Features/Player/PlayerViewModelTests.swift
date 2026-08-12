@@ -240,4 +240,13 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.subtitleTracks, engine.subtitleTracks)
         XCTAssertEqual(viewModel.videoFormatDescription, "Dolby Vision")
     }
+
+    func test_stats_passesThroughFromEngine() {
+        let engine = FakePlaybackEngine()
+        engine.stats.videoSize = "1920×804"
+        engine.stats.bitrate = "12.4 Mbps"
+        let (viewModel, _) = makeViewModel(engine: engine)
+
+        XCTAssertEqual(viewModel.stats, engine.stats)
+    }
 }

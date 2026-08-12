@@ -26,6 +26,13 @@ protocol PlaybackEngine: AnyObject {
     /// source is currently loaded.
     var zoomMode: VideoZoomMode { get set }
 
+    /// A fresh diagnostics snapshot, read straight from live engine state —
+    /// see `PlaybackStats`. Not cached: callers (`PlaybackStatsOverlay`)
+    /// poll this on their own timer rather than this being pushed, so every
+    /// read should reflect the engine's current state, not whatever it was
+    /// when playback started.
+    var stats: PlaybackStats { get }
+
     func load(url: URL) async throws
     func play()
     func pause()
