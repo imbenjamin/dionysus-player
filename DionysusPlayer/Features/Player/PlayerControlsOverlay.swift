@@ -13,6 +13,15 @@ struct PlayerControlsOverlay: View {
     /// this overlay needs to know which mode is showing.
     @State private var showRemainingTime = false
 
+    /// Whether a touch is actively down on the scrubber track, as opposed to
+    /// `isScrubbing` (the binding), which now stays `true` a little longer —
+    /// through the just-issued seek landing, not just through the drag
+    /// itself. See `scrubberTrack`'s gesture and the `onChange`s below for
+    /// why the two need to be separate. Local: nothing outside this overlay
+    /// needs to know a touch is down specifically, only that scrubbing (in
+    /// the broader sense) is in progress.
+    @State private var isDraggingScrubber = false
+
     var body: some View {
         VStack {
             topSection
@@ -130,9 +139,12 @@ struct PlayerControlsOverlay: View {
     /// while `isBuffering`, rather than leaving the play/pause button
     /// showing a state that isn't actually available yet (tapping play
     /// mid-buffer did nothing perceptible, which read as broken rather than
-    /// "in progress"). Covers both the initial buffer on load/resume and
-    /// the re-buffer after a scrub — `PlaybackState.loading` and `.seeking`
-    /// respectively, both already reported by `AetherPlaybackEngine`.
+    /// "in progress"). Covers the initial buffer on load/resume
+    /// (`.loading`), an in-progress scrub (`.seeking`), and a stall that
+    /// isn't tied to either — a mid-playback rebuffer or a dropped/retrying
+    /// source connection, both bridged into `.buffering` by
+    /// `AetherPlaybackEngine` (see its doc comment there for why those two
+    /// needed a case of their own rather than just watching `.playing`).
     @ViewBuilder
     private var transportControls: some View {
         if isBuffering {
@@ -170,7 +182,7 @@ struct PlayerControlsOverlay: View {
     }
 
     private var isBuffering: Bool {
-        viewModel.state == .loading || viewModel.state == .seeking
+        viewModel.state == .loading || viewModel.state == .seeking || viewModel.state == .buffering
     }
 
     /// Logo preferred, pinned top-left — the same "logo over text-title
@@ -301,12 +313,17 @@ struct PlayerControlsOverlay: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
+                        isDraggingScrubber = true
                         isScrubbing = true
                         let newFraction = min(1, max(0, drag.location.x / width))
                         scrubTime = newFraction * viewModel.duration
                     }
                     .onEnded { _ in
-                        isScrubbing = false
+                        // `isScrubbing` deliberately stays `true` here — see
+                        // the `onChange`s below for why, and `displayedTime`'s
+                        // doc comment for what this keeps showing in the
+                        // meantime.
+                        isDraggingScrubber = false
                         viewModel.seek(to: scrubTime)
                     }
             )
@@ -325,6 +342,40 @@ struct PlayerControlsOverlay: View {
             @unknown default: break
             }
         }
+        // `viewModel.seek(to:)` is async — the engine reports its own
+        // `.seeking` state and only pushes the new `currentTime` once the
+        // seek actually lands, both some time after `onEnded` fires above.
+        // Clearing `isScrubbing` synchronously in `onEnded` (the original
+        // approach) made `displayedTime` fall back to `viewModel.currentTime`
+        // immediately — still the *pre-seek* position for that gap — so the
+        // thumb visibly snapped back to where playback had been before
+        // jumping forward again once the real update arrived. Keeping
+        // `isScrubbing` on through that gap keeps the thumb pinned exactly
+        // where the user left it; these two `onChange`s are what eventually
+        // let go of it again, once there's real evidence the seek landed
+        // rather than on a fixed timer that could fire too early or too late.
+        //
+        // Two independent signals, either sufficient on its own, since
+        // neither is individually guaranteed: a very small seek might never
+        // visibly enter `.seeking` before the matching time update arrives
+        // (the state-based check would never fire), while a target that
+        // lands exactly between two clock ticks could in principle skip past
+        // the epsilon window given engine-side rounding (the time-based
+        // check would never fire). `!isDraggingScrubber` on both guards
+        // against a stray match landing mid-drag, before `onEnded` has even
+        // issued the seek this is meant to be watching for.
+        .onChange(of: viewModel.currentTime) { _, newTime in
+            guard isScrubbing, !isDraggingScrubber else { return }
+            if abs(newTime - scrubTime) < 1.0 {
+                isScrubbing = false
+            }
+        }
+        .onChange(of: viewModel.state) { oldState, newState in
+            guard isScrubbing, !isDraggingScrubber else { return }
+            if oldState == .seeking, newState != .seeking {
+                isScrubbing = false
+            }
+        }
     }
 
     /// The scrubber's trailing timestamp — the asset's total duration by
@@ -338,6 +389,11 @@ struct PlayerControlsOverlay: View {
         return "-" + Self.formatTime(max(0, viewModel.duration - displayedTime))
     }
 
+    /// The scrub-in-progress position while `isScrubbing`, otherwise live
+    /// playback position. `isScrubbing` now covers more than the drag touch
+    /// itself — it stays on through the just-issued seek landing too (see
+    /// `scrubberTrack`'s gesture/`onChange`s) — so this keeps reading
+    /// `scrubTime` for that whole window, not just while a finger is down.
     private var displayedTime: TimeInterval {
         isScrubbing ? scrubTime : viewModel.currentTime
     }

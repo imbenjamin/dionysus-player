@@ -30,16 +30,31 @@ final class AetherPlaybackEngine: PlaybackEngine {
     }
 
     private func observeEngine() {
-        engine.$state
+        // `$playbackPhase`, not the narrower `$state` this used to watch.
+        // AetherEngine can report a mid-playback buffer underrun
+        // (`.rebuffering`) or a dropped/retrying source connection
+        // (`.stalled(reconnecting:)`) while `state` itself is still
+        // `.playing` — see AetherEngine's own `PlaybackPhase.derive(...)` —
+        // so `state` alone can't distinguish "actually playing" from
+        // "frames stopped, working on it". That gap showed up concretely as
+        // the buffering spinner never appearing when a scrub landed
+        // somewhere that then needed to rebuffer: `state` stayed `.playing`
+        // throughout, so `isBuffering` in `PlayerControlsOverlay` (which
+        // only ever saw this bridged value) had nothing to key off. Folding
+        // both into `.buffering` here means every AetherEngine surface that
+        // isn't genuinely playing/paused/seeking now reaches the host as
+        // *something* other than a silently-stuck `.playing`.
+        engine.$playbackPhase
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] state in
+            .sink { [weak self] phase in
                 let bridged: PlaybackState
-                switch state {
+                switch phase {
                 case .idle:              bridged = .idle
                 case .loading:           bridged = .loading
                 case .playing:           bridged = .playing
                 case .paused:            bridged = .paused
                 case .seeking:           bridged = .seeking
+                case .rebuffering, .stalled: bridged = .buffering
                 case .ended:             bridged = .ended
                 case .error(let message): bridged = .failed(message)
                 }
