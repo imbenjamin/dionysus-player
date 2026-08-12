@@ -15,6 +15,11 @@ struct PlayerView: View {
     @State private var showTrackSelection = false
     @State private var isScrubbing = false
     @State private var scrubTime: TimeInterval = 0
+    /// Mirrors `RotationLock`'s app-wide state for the button's own icon —
+    /// see `toggleRotationLock()`/`close()` for why this view is what keeps
+    /// the two in sync rather than `PlayerControlsOverlay` reading
+    /// `RotationLock` directly.
+    @State private var isRotationLocked = false
     /// Pending "fade the controls out" work item — armed by `scheduleAutoHide()`
     /// whenever playback is actually running, cancelled the moment it isn't.
     @State private var autoHideTask: Task<Void, Never>?
@@ -72,6 +77,8 @@ struct PlayerView: View {
                     scrubTime: $scrubTime,
                     onClose: { Task { await close() } },
                     onShowTracks: { showTrackSelection = true },
+                    isRotationLocked: isRotationLocked,
+                    onToggleRotationLock: toggleRotationLock,
                     onInteract: scheduleAutoHide
                 )
                 .opacity(showControls ? 1 : 0)
@@ -149,8 +156,27 @@ struct PlayerView: View {
         await newViewModel.start()
     }
 
+    /// Flips `RotationLock` and this view's own mirror of it together — see
+    /// `isRotationLocked`'s doc comment for why `PlayerControlsOverlay`
+    /// doesn't just read/write `RotationLock` directly.
+    private func toggleRotationLock() {
+        isRotationLocked.toggle()
+        if isRotationLocked {
+            RotationLock.lockToCurrentOrientation()
+        } else {
+            RotationLock.unlock()
+        }
+    }
+
     private func close() async {
         autoHideTask?.cancel()
+        // Rotation lock is a player-only affordance — leaving it engaged
+        // past this point would leave the rest of the app (Home, a detail
+        // page, ...) stuck in whatever orientation the player happened to
+        // be locked to when the user backed out.
+        if isRotationLocked {
+            RotationLock.unlock()
+        }
         await viewModel?.stop()
         dismiss()
     }

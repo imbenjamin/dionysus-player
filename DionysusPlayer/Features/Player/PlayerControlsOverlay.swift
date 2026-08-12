@@ -6,6 +6,14 @@ struct PlayerControlsOverlay: View {
     @Binding var scrubTime: TimeInterval
     var onClose: () -> Void
     var onShowTracks: () -> Void
+    /// Whether `RotationLock` currently has rotation locked. Plain state
+    /// owned by `PlayerView`, not a `@Binding` — this button only ever
+    /// reports a tap via `onToggleRotationLock`, the same "closure out,
+    /// value in" shape `onClose`/`onShowTracks` already use, since (unlike
+    /// the scrubber) there's no continuous in-overlay gesture that needs to
+    /// write back to it directly.
+    var isRotationLocked: Bool
+    var onToggleRotationLock: () -> Void
     /// Called on every button tap and scrubber-drag tick — `PlayerView`
     /// uses this to reset its auto-hide countdown, so a button press or an
     /// in-progress drag doesn't get cut off by the fade mid-interaction. Not
@@ -130,12 +138,46 @@ struct PlayerControlsOverlay: View {
 
                 Spacer()
 
-                Button {
-                    onInteract()
-                    onShowTracks()
-                } label: {
-                    Image(systemName: "captions.bubble")
-                        .font(.title2)
+                // Grouped with its own spacing rather than relying on the
+                // outer `HStack`'s (there's only ever been one trailing
+                // button until now) — matches the touch-target spacing
+                // `transportControls` already uses between its three
+                // buttons.
+                HStack(spacing: 20) {
+                    Button {
+                        onInteract()
+                        onToggleRotationLock()
+                    } label: {
+                        // The open/closed padlock swap alone (no background
+                        // change) turned out too subtle to notice at a
+                        // glance against a busy, constantly-changing video
+                        // frame — confirmed against a real device. Locked
+                        // now also gets a solid white "badge" behind it
+                        // (glyph flips to black for contrast on top of
+                        // that), the same active/on-state affordance a
+                        // system control center toggle uses; unlocked stays
+                        // a plain icon with no chrome, matching every other
+                        // button in this row.
+                        Image(systemName: isRotationLocked ? "lock.rotation" : "lock.rotation.open")
+                            .font(.title2)
+                            .foregroundStyle(isRotationLocked ? .black : .white)
+                            .frame(width: 36, height: 36)
+                            .background {
+                                if isRotationLocked {
+                                    Circle().fill(Color.white)
+                                }
+                            }
+                    }
+                    .accessibilityLabel(isRotationLocked ? Text("Unlock rotation") : Text("Lock rotation"))
+                    .animation(.easeInOut(duration: 0.15), value: isRotationLocked)
+
+                    Button {
+                        onInteract()
+                        onShowTracks()
+                    } label: {
+                        Image(systemName: "captions.bubble")
+                            .font(.title2)
+                    }
                 }
             }
             .foregroundStyle(.white)
