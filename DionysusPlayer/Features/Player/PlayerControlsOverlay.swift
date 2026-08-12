@@ -7,20 +7,23 @@ struct PlayerControlsOverlay: View {
     var onClose: () -> Void
     var onShowTracks: () -> Void
 
+    /// Whether the scrubber's trailing timestamp reads as the asset's total
+    /// duration (the default) or a `-`-prefixed countdown to the end —
+    /// flipped by tapping that timestamp. Local `@State`: nothing outside
+    /// this overlay needs to know which mode is showing.
+    @State private var showRemainingTime = false
+
     var body: some View {
         VStack {
             HStack {
+                // A proper close button, not a minimize/collapse affordance —
+                // `onClose` always stops playback and reports a resume point
+                // to the server (`PlayerViewModel.stop()`), it never leaves
+                // the session running in the background, so the icon should
+                // read as "exit playback" rather than "tuck this away".
                 Button(action: onClose) {
-                    Image(systemName: "chevron.down")
+                    Image(systemName: "xmark")
                         .font(.title2)
-                }
-
-                Spacer()
-
-                if let title = viewModel.item?.name {
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
                 }
 
                 Spacer()
@@ -32,6 +35,8 @@ struct PlayerControlsOverlay: View {
             }
             .foregroundStyle(.white)
             .padding()
+
+            titleRow
 
             Spacer()
 
@@ -59,7 +64,60 @@ struct PlayerControlsOverlay: View {
 
             Spacer()
 
-            VStack(spacing: 4) {
+            scrubberBar
+        }
+        .background(
+            LinearGradient(
+                colors: [.black.opacity(0.6), .clear, .black.opacity(0.6)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+    }
+
+    /// Logo preferred, pinned top-left — the same "logo over text-title
+    /// fallback" convention `BackdropLogoOverlay` uses on the detail pages.
+    /// Falls back to the plain title text when the item has no logo image at
+    /// all, or when `LogoImageView` fails to load the one it has (a 404, a
+    /// timeout after retries — see that type's doc comment).
+    @ViewBuilder
+    private var titleRow: some View {
+        if let item = viewModel.item {
+            HStack {
+                if let logoURL = item.logoImageURL {
+                    LogoImageView(url: logoURL, fallback: titleText(item))
+                        .frame(maxWidth: 240, maxHeight: 60, alignment: .leading)
+                } else {
+                    titleText(item)
+                }
+                Spacer()
+            }
+            .padding(.horizontal)
+        }
+    }
+
+    private func titleText(_ item: MediaItem) -> some View {
+        Text(item.name)
+            .font(.headline)
+            .foregroundStyle(.white)
+            .lineLimit(1)
+    }
+
+    /// Progress slider with its timestamps at either end, rather than on
+    /// their own row below it. The trailing timestamp doubles as a button —
+    /// see `showRemainingTime`.
+    private var scrubberBar: some View {
+        VStack(spacing: 4) {
+            if let format = viewModel.videoFormatDescription {
+                Text(format)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+
+            HStack(spacing: 8) {
+                Text(Self.formatTime(displayedTime))
+                    .monospacedDigit()
+
                 Slider(
                     value: Binding(
                         get: { displayedTime },
@@ -73,27 +131,28 @@ struct PlayerControlsOverlay: View {
                 )
                 .tint(.white)
 
-                HStack {
-                    Text(Self.formatTime(displayedTime))
-                    Spacer()
-                    if let format = viewModel.videoFormatDescription {
-                        Text(format)
-                    }
-                    Spacer()
-                    Text(Self.formatTime(viewModel.duration))
+                Button {
+                    showRemainingTime.toggle()
+                } label: {
+                    Text(endTimeText)
+                        .monospacedDigit()
                 }
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.8))
             }
-            .padding()
+            .font(.caption)
+            .foregroundStyle(.white.opacity(0.8))
         }
-        .background(
-            LinearGradient(
-                colors: [.black.opacity(0.6), .clear, .black.opacity(0.6)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
+        .padding()
+    }
+
+    /// The scrubber's trailing timestamp — the asset's total duration by
+    /// default, or a countdown to the end once `showRemainingTime` is
+    /// toggled on. Reads off `displayedTime` (the scrub-in-progress position
+    /// while dragging, otherwise live playback position — see
+    /// `displayedTime`), so the countdown keeps counting down as the user
+    /// scrubs, not just during normal playback.
+    private var endTimeText: String {
+        guard showRemainingTime else { return Self.formatTime(viewModel.duration) }
+        return "-" + Self.formatTime(max(0, viewModel.duration - displayedTime))
     }
 
     private var displayedTime: TimeInterval {
