@@ -246,6 +246,55 @@ struct PlaybackProgressRequest: Encodable {
     var mediaSourceId: String?
 }
 
+/// A currently-active session, as Jellyfin's `/Sessions` endpoint reports
+/// it — used only for `PlaybackStatsOverlay`'s "Streaming" section. This is
+/// deliberately separate from `PlaybackInfoResponse`: that endpoint
+/// negotiates capabilities *before* playback starts, while a transcode's
+/// actual live parameters (current bitrate, completion percentage, ...)
+/// only exist server-side in the running ffmpeg process, so they're only
+/// ever visible through the live session Jellyfin Web's own playback-info
+/// panel polls the same way.
+struct SessionInfoDto: Codable {
+    var id: String?
+    var deviceId: String?
+    var playState: PlayStateInfoDto?
+    /// Present only while `playState.playMethod == "Transcode"`.
+    var transcodingInfo: TranscodingInfoDto?
+}
+
+struct PlayStateInfoDto: Codable {
+    var mediaSourceId: String?
+    /// Jellyfin's own `PlayMethod` enum, as a raw string: `"DirectPlay"`,
+    /// `"DirectStream"`, or `"Transcode"`. Dionysus only ever requests a
+    /// static (`Static=true`) stream today (`JellyfinAPIClient.streamURL`),
+    /// so this should always come back `"DirectStream"`/`"DirectPlay"` — it
+    /// starts reflecting real transcodes automatically once transcode
+    /// negotiation is implemented, with no changes needed here.
+    var playMethod: String?
+}
+
+/// The server's live transcode diagnostics for the current session — same
+/// fields Jellyfin Web's own "Playback Info" overlay shows.
+struct TranscodingInfoDto: Codable {
+    var audioCodec: String?
+    var videoCodec: String?
+    var container: String?
+    var isVideoDirect: Bool?
+    var isAudioDirect: Bool?
+    /// Bits per second.
+    var bitrate: Int?
+    var framerate: Double?
+    var completionPercentage: Double?
+    var width: Int?
+    var height: Int?
+    var audioChannels: Int?
+    /// Why the server chose to transcode instead of direct-playing/-streaming
+    /// (e.g. `"VideoBitrateNotSupported"`, `"ContainerNotSupported"`) — an
+    /// open-ended set of Jellyfin's own reason codes, kept as raw strings
+    /// since they're only ever displayed, never branched on.
+    var transcodeReasons: [String]?
+}
+
 // MARK: - Search
 
 struct SearchHintResult: Codable {

@@ -66,6 +66,13 @@ struct PlaybackStatsOverlay: View {
     /// fresh on every call (see its doc comment) — nothing pushes updates,
     /// so a poll loop is what keeps this on screen current at all.
     private static let pollInterval: Duration = .seconds(1)
+    /// The Streaming section's `viewModel.refreshStreamingSession()` is a
+    /// network round-trip to `/Sessions`, not a local read like everything
+    /// else this polls — and a transcode's live parameters don't change
+    /// fast enough to justify hitting that every second anyway. Refreshed
+    /// on the first tick (so the section doesn't sit blank) and every
+    /// `streamingSessionPollTicks`th tick after that.
+    private static let streamingSessionPollTicks = 5
     private static let screenSize = UIScreen.main.bounds.size
     private static let refreshRateHz = UIScreen.main.maximumFramesPerSecond
 
@@ -137,11 +144,17 @@ struct PlaybackStatsOverlay: View {
 
     private func pollWhileVisible() async {
         guard isVisible else { return }
+        var tick = 0
         while !Task.isCancelled {
             stats = viewModel.stats
             audioOutputRoute = Self.currentAudioOutputRoute()
             thermalState = ProcessInfo.processInfo.thermalState
             edrHeadroom = UIScreen.main.currentEDRHeadroom
+            if tick % Self.streamingSessionPollTicks == 0 {
+                await viewModel.refreshServerVersion()
+                await viewModel.refreshStreamingSession()
+            }
+            tick += 1
             try? await Task.sleep(for: Self.pollInterval)
         }
     }
@@ -158,6 +171,7 @@ struct PlaybackStatsOverlay: View {
                     VStack(alignment: .leading, spacing: 2) {
                         playbackSection(stats)
                         displaySection(stats)
+                        streamingSection()
                         buildSection()
                     }
                 }
@@ -167,6 +181,7 @@ struct PlaybackStatsOverlay: View {
                     audioSection(stats)
                     playbackSection(stats)
                     displaySection(stats)
+                    streamingSection()
                     buildSection()
                 }
             }
@@ -182,6 +197,9 @@ struct PlaybackStatsOverlay: View {
         row("Frame Rate", stats.frameRate ?? "—")
         row("Bitrate", stats.bitrate ?? "—")
         row("Source Color", stats.sourceColorFormat)
+        if stats.sourceColorFormat.hasPrefix("Dolby Vision") {
+            row("Enhancement Layer", Self.describeEnhancementLayer(viewModel.sourceVideoStream?.videoRangeType))
+        }
         row("Decoder", stats.videoDecoder ?? "—")
         row("Backend", stats.backend)
     }
@@ -210,6 +228,31 @@ struct PlaybackStatsOverlay: View {
         row("Refresh Rate", "\(Self.refreshRateHz) Hz")
         row("EDR Headroom", String(format: "%.2fx", edrHeadroom))
         row("Thermal State", Self.describe(thermalState))
+    }
+
+    /// Jellyfin-server-side diagnostics — the server's own version, and its
+    /// live view of this session's play method (and, only while actually
+    /// transcoding, the transcode's current parameters). See
+    /// `PlayerViewModel.serverVersion`/`.streamingSession`'s doc comments
+    /// for why these come from separate, slower-polled requests rather than
+    /// `PlaybackStats`.
+    @ViewBuilder
+    private func streamingSection() -> some View {
+        Text("Streaming").bold().padding(.top, 4)
+        row("Jellyfin Server", viewModel.serverVersion ?? "—")
+        row("Play Method", Self.describePlayMethod(viewModel.streamingSession?.playState?.playMethod))
+        if let transcoding = viewModel.streamingSession?.transcodingInfo {
+            row("Transcode Video", transcoding.videoCodec ?? "—")
+            row("Transcode Audio", transcoding.audioCodec ?? "—")
+            row("Transcode Bitrate", transcoding.bitrate.map(Self.formatMbps) ?? "—")
+            if let width = transcoding.width, let height = transcoding.height {
+                row("Transcode Size", "\(width)×\(height)")
+            }
+            row("Completion", transcoding.completionPercentage.map { String(format: "%.0f%%", $0) } ?? "—")
+            if let reasons = transcoding.transcodeReasons, !reasons.isEmpty {
+                row("Reasons", reasons.joined(separator: ", "))
+            }
+        }
     }
 
     /// Build/environment info — static for the life of the process, unlike
@@ -261,6 +304,44 @@ struct PlaybackStatsOverlay: View {
 
     private static func formatKB(_ bytes: Int64) -> String {
         "\((bytes / 1024).formatted()) KB"
+    }
+
+    /// `MediaStream.videoRangeType` is Jellyfin's own server-side probe
+    /// result (ffprobe under the hood) — the same value other clients (and
+    /// Jellyfin Web's own technical-info panel) surface. Only meaningful
+    /// alongside a Dolby Vision `sourceColorFormat`; the "DOVI" case is a
+    /// single-layer source with no base layer at all (DV Profile 5), the
+    /// "DOVIWith..." cases name whichever format a non-DV panel would fall
+    /// back to.
+    private static func describeEnhancementLayer(_ videoRangeType: String?) -> String {
+        switch videoRangeType {
+        case "DOVI": return "None (single-layer)"
+        case "DOVIWithHDR10": return "HDR10"
+        case "DOVIWithHDR10Plus": return "HDR10+"
+        case "DOVIWithHLG": return "HLG"
+        case "DOVIWithSDR": return "SDR"
+        case "DOVIInvalid": return "Invalid"
+        default: return "—"
+        }
+    }
+
+    /// Jellyfin's own `PlayMethod` enum, as reported by `/Sessions` —
+    /// `"DirectPlay"`/`"DirectStream"` both read as "Direct Play" here since
+    /// neither transcodes (the distinction is server access mechanics, not
+    /// anything this overlay's audience cares about); anything else
+    /// (`"Transcode"`, or an unrecognized future value) passes through
+    /// as-is rather than being silently mapped to the wrong label.
+    private static func describePlayMethod(_ raw: String?) -> String {
+        guard let raw else { return "—" }
+        switch raw {
+        case "DirectPlay", "DirectStream": return "Direct Play"
+        case "Transcode": return "Transcoding"
+        default: return raw
+        }
+    }
+
+    private static func formatMbps(_ bitsPerSecond: Int) -> String {
+        String(format: "%.1f Mbps", Double(bitsPerSecond) / 1_000_000)
     }
 
     private static func describe(_ state: PlaybackState) -> String {

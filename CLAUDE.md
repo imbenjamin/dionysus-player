@@ -16,7 +16,7 @@ fixes in `AetherPlaybackEngine.swift`, but as of 2026-08-07 (Xcode 26.5, iOS
 26.5 Simulator) `xcodebuild build` for the `DionysusPlayer` scheme succeeds
 end-to-end — package resolution (AetherEngine + its FFmpegBuild/SMBClient/
 LibDovi dependencies), compilation, and linking all complete with no errors,
-and the `DionysusPlayerTests` suite (297 tests, see `TESTING.md`) passes.
+and the `DionysusPlayerTests` suite (392 tests, see `TESTING.md`) passes.
 As of 2026-08-12, real playback on a physical device (iPhone 17,1, iOS 26.6)
 was confirmed via the "stats for nerds" overlay: Dolby Vision (Profile 8)
 source decoded in hardware through VideoToolbox HEVC, EAC3 audio
@@ -67,6 +67,14 @@ default (newer) Python fails at runtime with an `asyncio.get_event_loop()`
 error. Start a session with `idb_companion --udid <udid> &` then
 `idb connect <udid>` before the first call.
 
+Reuse a single booted Simulator instance across tasks rather than
+booting/quitting one per session: check `xcrun simctl list devices | grep
+Booted` first and target whatever's already running (same device for
+`xcodebuild -destination`/`simctl install`/`simctl launch`), and don't
+`simctl shutdown` or quit Simulator.app when a task finishes. One instance
+reuses fine back-to-back — closing and relaunching only wastes boot time and
+throws away useful state (installed build, current screen).
+
 Confirmed (2026-08-12) working well for Login, Home, Search, Profile, and
 detail-page screens — real accessibility elements, real taps. **Confirmed
 NOT working for the Player screen** (`PlayerView`/`PlayerControlsOverlay`):
@@ -107,7 +115,9 @@ login screen.
 serialized through it, and it holds mutable state (`accessToken`) that gets
 set post-authentication. It's a thin hand-written wrapper over Jellyfin's
 REST API (no generated SDK), intentionally scoped to only what the app needs:
-server info, auth, browsing/search, playback info, and progress reporting.
+server info, auth, browsing/search, playback info, progress reporting, and
+(diagnostics-only, for `PlaybackStatsOverlay`'s Streaming section) reading
+back the server's own live session/transcode state via `/Sessions`.
 `ImageURLBuilder` is deliberately *not* actor-isolated — it's a plain struct
 snapshotted via `client.makeImageURLBuilder()` so SwiftUI views can build
 image URLs synchronously without hopping through the actor on every render.
