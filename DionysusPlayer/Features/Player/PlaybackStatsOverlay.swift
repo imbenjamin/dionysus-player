@@ -85,11 +85,11 @@ struct PlaybackStatsOverlay: View {
         return "\(version) (\(build))"
     }()
 
-    /// AetherEngine exposes no runtime version API of its own (checked —
-    /// nothing on `AetherEngine` reports it), so this mirrors the version
-    /// pinned in `project.yml`/`Package.resolved` by hand. Keep it in sync
-    /// when bumping the dependency.
-    private static let aetherEngineVersion = "6.5.5"
+    /// `AetherEngineVersion.current` is a checked-in generated constant
+    /// (`Scripts/update-aetherengine-version.sh`), not a hand-maintained
+    /// literal — see that script's own comment for why it's a generated
+    /// file rather than stamped in at build time.
+    private static let aetherEngineVersion = AetherEngineVersion.current
 
     /// Hardware identifier (e.g. "iPhone15,1"), not the marketing name —
     /// more useful for diagnostics since it's what maps 1:1 to a specific

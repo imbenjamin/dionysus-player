@@ -24,15 +24,39 @@ settings:
     # Two of Xcode's "Update to recommended settings" suggestions — applying
     # that dialog directly would edit the generated (gitignored) .xcodeproj,
     # which XcodeGen would silently wipe on the next `xcodegen generate`, so
-    # these live here instead. Confirmed both build clean, including a full
-    # test run — `ENABLE_USER_SCRIPT_SANDBOXING` in particular against the
-    # one real risk: the `DionysusPlayer` target's own postCompileScripts
-    # entry below runs `git`/`PlistBuddy` and writes to a path it doesn't
-    # declare as a script input/output, exactly what sandboxing restricts.
+    # these live here instead.
+    #
+    # `ENABLE_USER_SCRIPT_SANDBOXING`'s own doc comment used to claim this
+    # was confirmed safe against the `postCompileScripts` entry below; that
+    # claim didn't hold up under re-verification (2026-08-12) — see
+    # `Scripts/update-aetherengine-version.sh`'s doc comment for why
+    # AetherEngine's version now comes from a checked-in generated Swift
+    # constant instead of a build-time Info.plist injection, sidestepping
+    # this entirely. GitBranch/GitCommitHash below are a separate,
+    # pre-existing, still-unresolved case of the same underlying problem —
+    # flagged, not fixed, here; see that script phase's own comment.
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     STRING_CATALOG_GENERATE_SYMBOLS: YES
 
 packages:
+  # `from:` is XcodeGen/SPM's "up to next major" rule — any 6.x.x satisfies
+  # this (6.5.5 was simply whatever was latest when this was first pinned),
+  # so a fresh package resolution (no prior `Package.resolved`/DerivedData
+  # SPM cache to reuse — see `.gitignore`'s blanket `*.xcodeproj` rule,
+  # which is why that resolved file is never committed) always picks up the
+  # newest available 6.x release automatically. It only stops doing that at
+  # a 7.0.0 major bump, which needs a deliberate `from:` bump here (a major
+  # version is exactly where AetherEngine's public API is allowed to break,
+  # per semver, so that's the one case that *shouldn't* happen silently).
+  # An already-resolved local checkout won't re-resolve on its own, though
+  # — Xcode/`xcodebuild` reuse whatever's already pinned once resolved, by
+  # design (reproducible builds mid-session); periodically force a refresh
+  # locally with Xcode's File > Packages > Update to Latest Package
+  # Versions (or delete DerivedData's SPM state), then run
+  # `Scripts/update-aetherengine-version.sh` to refresh the checked-in
+  # constant `PlaybackStatsOverlay`'s "AetherEngine Version" row reads —
+  # see that script's own comment for why it's a generated file rather
+  # than something read back at build time.
   AetherEngine:
     url: https://github.com/superuser404notfound/AetherEngine
     from: 6.5.5
@@ -73,6 +97,24 @@ targets:
     # processing but still well before code signing, confirmed both by the
     # injected keys surviving into the built .app *and* `codesign --verify`
     # still passing on it.
+    #
+    # UPDATE (2026-08-12): re-verification found that claim no longer holds
+    # — under the current Xcode/build-system combination, this script phase
+    # (having no declared outputs) gets scheduled in an early "always run
+    # first" group, actually running *before* `ProcessInfoPlistFile`
+    # produces the file this writes into, so `GitBranch`/`GitCommitHash`
+    # currently get silently overwritten and never make it into a real
+    # build despite `xcodebuild` reporting success. Chasing a fix (declaring
+    # the built Info.plist as an output collides with
+    # `ProcessInfoPlistFile`'s own declared production of it — "Multiple
+    # commands produce..."; declaring it only as an input still leaves the
+    # script in that early group, and forcing a real ordering edge that way
+    # creates a dependency cycle back through `CompileStoryboard`) is a
+    # separate task from what prompted this note — left broken-but-flagged
+    # rather than silently "fixed" with an unverified guess. AetherEngine's
+    # version does *not* depend on this: see
+    # `Scripts/update-aetherengine-version.sh` for how that's kept current
+    # instead.
     postCompileScripts:
       - name: "Inject Git Branch/Commit into Info.plist"
         basedOnDependencyAnalysis: false

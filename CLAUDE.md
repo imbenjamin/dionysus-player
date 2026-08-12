@@ -54,6 +54,45 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
   -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
+### Keeping the AetherEngine version display current
+
+The player's "stats for nerds" overlay (`PlaybackStatsOverlay`) shows the
+pinned `AetherEngine` version, read from a checked-in generated constant
+(`DionysusPlayer/Core/Playback/AetherEngineVersion.swift`) rather than a
+hand-maintained literal or a build-time injection — the latter was tried and
+doesn't actually work reliably (see `project.yml`'s `postCompileScripts`
+comment). **Whenever `Package.resolved`'s `aetherengine` pin changes** — a
+fresh package resolution, `File > Packages > Update to Latest Package
+Versions` in Xcode, or a `packages:` bump in `project.yml` — regenerate it:
+
+```sh
+./Scripts/update-aetherengine-version.sh
+```
+
+`packages: AetherEngine: from: 6.5.5` in `project.yml` is already SPM's "up
+to next major" rule, so any `6.x.x` (not just `6.5.5`) satisfies it — a
+fresh package resolution (no prior `Package.resolved` to reuse) picks up
+whatever's newest automatically. An *already-resolved* local checkout won't
+re-resolve on its own, though: Xcode/`xcodebuild` reuse whatever's already
+pinned once resolved (reproducible builds mid-session, by design), so
+picking up a newer `6.x` release still needs an explicit refresh — Xcode's
+`File > Packages > Update to Latest Package Versions`, or deleting
+DerivedData's SPM state — followed by the script above.
+
+**Known bug, not yet fixed:** the same "stamp info into the built Info.plist
+via a postCompileScripts phase" trick used above for git branch/commit
+(`AppVersionInfo`'s `GitBranch`/`GitCommitHash`, shown on the Profile
+screen's footer) was re-verified 2026-08-12 and found broken — the script
+phase runs *before* Xcode's own Info.plist processing regardless of its
+position in the build phase list (a script with no declared outputs gets
+scheduled into an early "always run first" group), so those two keys
+currently never make it into a real build; `AppVersionInfo.footerText`
+silently falls back to "unknown" for both. See `project.yml`'s
+`postCompileScripts` comment for what was tried. If this needs fixing, it
+likely wants the same treatment as AetherEngine's version above (a
+generated file, not a build-time injection) rather than fighting the
+sandboxing/build-graph-ordering problem further.
+
 ## Manual/automated UI verification
 
 For visual or interactive changes, prefer the `ios-simulator-skill` (when
