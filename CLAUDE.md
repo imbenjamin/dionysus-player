@@ -16,7 +16,7 @@ fixes in `AetherPlaybackEngine.swift`, but as of 2026-08-07 (Xcode 26.5, iOS
 26.5 Simulator) `xcodebuild build` for the `DionysusPlayer` scheme succeeds
 end-to-end — package resolution (AetherEngine + its FFmpegBuild/SMBClient/
 LibDovi dependencies), compilation, and linking all complete with no errors,
-and the `DionysusPlayerTests` suite (411 tests, see `TESTING.md`) passes.
+and the `DionysusPlayerTests` suite (409 tests, see `TESTING.md`) passes.
 As of 2026-08-12, real playback on a physical device (iPhone 17,1, iOS 26.6)
 was confirmed via the "stats for nerds" overlay: Dolby Vision (Profile 8)
 source decoded in hardware through VideoToolbox HEVC, EAC3 audio
@@ -60,8 +60,9 @@ The player's "stats for nerds" overlay (`PlaybackStatsOverlay`) shows the
 pinned `AetherEngine` version, read from a checked-in generated constant
 (`DionysusPlayer/Core/Playback/AetherEngineVersion.swift`) rather than a
 hand-maintained literal or a build-time injection — the latter was tried and
-doesn't actually work reliably (see `project.yml`'s `postCompileScripts`
-comment). **Whenever `Package.resolved`'s `aetherengine` pin changes** — a
+doesn't actually work reliably (see `Scripts/update-version.sh`'s comment,
+which hit and documents the same problem for the app's own version display).
+**Whenever `Package.resolved`'s `aetherengine` pin changes** — a
 fresh package resolution, `File > Packages > Update to Latest Package
 Versions` in Xcode, or a `packages:` bump in `project.yml` — regenerate it:
 
@@ -79,19 +80,19 @@ picking up a newer `6.x` release still needs an explicit refresh — Xcode's
 `File > Packages > Update to Latest Package Versions`, or deleting
 DerivedData's SPM state — followed by the script above.
 
-**Known bug, not yet fixed:** the same "stamp info into the built Info.plist
-via a postCompileScripts phase" trick used above for git branch/commit
-(`AppVersionInfo`'s `GitBranch`/`GitCommitHash`, shown on the Profile
-screen's footer) was re-verified 2026-08-12 and found broken — the script
-phase runs *before* Xcode's own Info.plist processing regardless of its
-position in the build phase list (a script with no declared outputs gets
-scheduled into an early "always run first" group), so those two keys
-currently never make it into a real build; `AppVersionInfo.footerText`
-silently falls back to "unknown" for both. See `project.yml`'s
-`postCompileScripts` comment for what was tried. If this needs fixing, it
-likely wants the same treatment as AetherEngine's version above (a
-generated file, not a build-time injection) rather than fighting the
-sandboxing/build-graph-ordering problem further.
+### App version (SemVer)
+
+The app's own version — shown on the Profile screen's footer via
+`AppVersionInfo`/`AppVersion.swift` — follows SemVer, grounded in git tags
+and wired into `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` as far as
+Apple's numeric-only version fields allow. This used to be the same
+"stamp git branch/commit into the built Info.plist via a
+postCompileScripts phase" trick as AetherEngine's version above, and hit
+the identical build-graph-ordering bug; it's since been replaced with the
+same fix (a checked-in generated file, refreshed by
+`Scripts/update-version.sh`). See `VERSIONING.md` for the full scheme —
+tag convention, alpha/beta/final release flow, and how the version reaches
+the built app.
 
 ## Manual/automated UI verification
 

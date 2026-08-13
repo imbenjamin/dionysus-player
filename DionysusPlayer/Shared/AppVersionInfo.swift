@@ -1,19 +1,21 @@
 import Foundation
 
-/// The git branch/commit this build was actually built from, for display
-/// (Profile screen footer) rather than debugging tools.
+/// Human-facing version string for this build, shown on the Profile
+/// screen's footer.
 ///
-/// Xcode has no built-in way to surface this, so `project.yml`'s
-/// `prebuildScripts` stamps `GitBranch`/`GitCommitHash` into the *built*
-/// Info.plist at build time — see the comment there for why it's a prebuild
-/// script and not a post-build one (code signing).
+/// Sourced from `AppVersion` — a checked-in generated constant refreshed by
+/// `Scripts/update-version.sh` (see VERSIONING.md), not a build-time
+/// Info.plist injection. That approach was tried first (stamping
+/// GitBranch/GitCommitHash into the *built* Info.plist via a
+/// `postCompileScripts` phase) and confirmed broken under the current
+/// Xcode build system — see `project.yml`'s git history and
+/// `Scripts/update-aetherengine-version.sh`'s doc comment for the same
+/// lesson learned earlier for AetherEngine's version.
 enum AppVersionInfo {
-    /// `info` defaults to the running app's own Info.plist; parameterized so
-    /// tests can supply a fixed dictionary instead of depending on whatever
-    /// branch/commit happened to build the test host.
-    static func footerText(info: [String: Any]? = Bundle.main.infoDictionary) -> String {
-        let branch = info?["GitBranch"] as? String ?? "unknown"
-        let commit = info?["GitCommitHash"] as? String ?? "unknown"
-        return "Dionysus Player \(branch) (\(commit))"
+    /// `version` defaults to this build's actual `AppVersion.full`;
+    /// parameterized so tests can supply a fixed value instead of
+    /// depending on whatever tag/commit happened to build the test host.
+    static func footerText(version: String = AppVersion.full) -> String {
+        "Dionysus Player \(version)"
     }
 }

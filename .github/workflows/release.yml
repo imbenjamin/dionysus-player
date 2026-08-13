@@ -1,26 +1,40 @@
-name: iOS workflow
+name: Release
 
+# Fires on any version tag (see VERSIONING.md for the convention:
+# `v1.2.3`, `v1.2.3-alpha.4`, `v2.0.0-beta.1`). Builds and tests the exact
+# tagged commit, then publishes a GitHub Release for it — marked
+# "prerelease" for -alpha/-beta tags, a full release otherwise. No code
+# signing/archive export/TestFlight upload yet; that needs App Store
+# Connect API key secrets and is a deliberately separate follow-up.
 on:
   push:
-    branches: [ "main", "develop" ]
-  pull_request:
-    branches: [ "main", "develop" ]
+    tags:
+      - "v*.*.*"
 
 jobs:
-  build:
-    name: Build and Test default scheme using any available iPhone simulator
+  build-test-release:
+    name: Build, test, and publish a GitHub Release for the tag
     runs-on: macos-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history + tags: Scripts/update-version.sh derives the
+          # version from `git describe`/`git rev-list --count`, both of
+          # which need real history, not the default single-commit
+          # shallow clone.
+          fetch-depth: 0
+
       - name: Install XcodeGen
         run: brew install xcodegen
+
       - name: Generate Xcode project
-        # No .xcodeproj is committed (see .gitignore) — it's generated from
-        # project.yml. Without this step there is nothing for the steps
-        # below to find and build.
         run: xcodegen generate
+
+      - name: Stamp version from the tag being built
+        run: ./Scripts/update-version.sh
+
       - name: Set Default Scheme
         run: |
           scheme_list=$(xcodebuild -list -json | tr -d "\n")
@@ -49,3 +63,14 @@ jobs:
           if [ "`ls -A | grep -i \\.xcworkspace\$`" ]; then filetype_parameter="workspace" && file_to_build="`ls -A | grep -i \\.xcworkspace\$`"; else filetype_parameter="project" && file_to_build="`ls -A | grep -i \\.xcodeproj\$`"; fi
           file_to_build=`echo $file_to_build | awk '{$1=$1;print}'`
           xcodebuild test-without-building -scheme "$scheme" -"$filetype_parameter" "$file_to_build" -destination "platform=$platform,name=$device"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          PRERELEASE_FLAG=""
+          case "$TAG" in
+            *-alpha*|*-beta*) PRERELEASE_FLAG="--prerelease" ;;
+          esac
+          gh release create "$TAG" --generate-notes $PRERELEASE_FLAG

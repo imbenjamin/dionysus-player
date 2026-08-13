@@ -16,6 +16,15 @@ configs:
   Debug: debug
   Release: release
 
+# MARKETING_VERSION/CURRENT_PROJECT_VERSION (-> CFBundleShortVersionString/
+# CFBundleVersion) live in a generated, checked-in xcconfig rather than as
+# literals here, so they can be refreshed mechanically from the current
+# git version tag without hand-editing this file. See
+# `Scripts/update-version.sh` and VERSIONING.md.
+configFiles:
+  Debug: Config/Version.xcconfig
+  Release: Config/Version.xcconfig
+
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -27,14 +36,15 @@ settings:
     # these live here instead.
     #
     # `ENABLE_USER_SCRIPT_SANDBOXING`'s own doc comment used to claim this
-    # was confirmed safe against the `postCompileScripts` entry below; that
-    # claim didn't hold up under re-verification (2026-08-12) — see
+    # was confirmed safe against a since-removed `postCompileScripts` entry
+    # that used to live below; that claim didn't hold up under
+    # re-verification (2026-08-12) — see
     # `Scripts/update-aetherengine-version.sh`'s doc comment for why
-    # AetherEngine's version now comes from a checked-in generated Swift
-    # constant instead of a build-time Info.plist injection, sidestepping
-    # this entirely. GitBranch/GitCommitHash below are a separate,
-    # pre-existing, still-unresolved case of the same underlying problem —
-    # flagged, not fixed, here; see that script phase's own comment.
+    # AetherEngine's version comes from a checked-in generated Swift
+    # constant instead of a build-time Info.plist injection, and
+    # `Scripts/update-version.sh` for the same fix later applied to the
+    # git-branch/commit and app-version info that `postCompileScripts`
+    # phase used to (unsuccessfully) inject.
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     STRING_CATALOG_GENERATE_SYMBOLS: YES
 
@@ -87,54 +97,21 @@ targets:
         SUPPORTS_MACCATALYST: false
         ASSETCATALOG_COMPILER_APPICON_NAME: dionysus
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-    # Stamps the current git branch/commit into the *built* Info.plist (not
-    # the checked-in template at Generated/Info.plist) so AppVersionInfo can
-    # show what was actually built, e.g. on the Profile screen's footer.
-    # Position matters and was verified empirically, not assumed: a
-    # prebuildScript (before Compile Sources) gets silently clobbered —
-    # Xcode's own Info.plist processing runs after it and overwrites the
-    # file. postCompileScripts (right after Compile Sources) runs after that
-    # processing but still well before code signing, confirmed both by the
-    # injected keys surviving into the built .app *and* `codesign --verify`
-    # still passing on it.
-    #
-    # UPDATE (2026-08-12): re-verification found that claim no longer holds
-    # — under the current Xcode/build-system combination, this script phase
-    # (having no declared outputs) gets scheduled in an early "always run
-    # first" group, actually running *before* `ProcessInfoPlistFile`
-    # produces the file this writes into, so `GitBranch`/`GitCommitHash`
-    # currently get silently overwritten and never make it into a real
-    # build despite `xcodebuild` reporting success. Chasing a fix (declaring
-    # the built Info.plist as an output collides with
-    # `ProcessInfoPlistFile`'s own declared production of it — "Multiple
-    # commands produce..."; declaring it only as an input still leaves the
-    # script in that early group, and forcing a real ordering edge that way
-    # creates a dependency cycle back through `CompileStoryboard`) is a
-    # separate task from what prompted this note — left broken-but-flagged
-    # rather than silently "fixed" with an unverified guess. AetherEngine's
-    # version does *not* depend on this: see
-    # `Scripts/update-aetherengine-version.sh` for how that's kept current
-    # instead.
-    postCompileScripts:
-      - name: "Inject Git Branch/Commit into Info.plist"
-        basedOnDependencyAnalysis: false
-        script: |
-          set -e
-          BRANCH=$(git -C "${SRCROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
-          COMMIT=$(git -C "${SRCROOT}" rev-parse --short HEAD 2>/dev/null || echo "unknown")
-          PLIST="${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
-          if [ -f "$PLIST" ]; then
-            /usr/libexec/PlistBuddy -c "Delete :GitBranch" "$PLIST" 2>/dev/null || true
-            /usr/libexec/PlistBuddy -c "Add :GitBranch string ${BRANCH}" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Delete :GitCommitHash" "$PLIST" 2>/dev/null || true
-            /usr/libexec/PlistBuddy -c "Add :GitCommitHash string ${COMMIT}" "$PLIST"
-          else
-            echo "warning: Info.plist not found at $PLIST yet; git info not injected"
-          fi
     info:
       path: Generated/Info.plist
       properties:
         CFBundleDisplayName: Dionysus
+        # Without these, XcodeGen writes literal "1.0"/"1" into the
+        # generated Info.plist instead of a build-setting placeholder, so
+        # MARKETING_VERSION/CURRENT_PROJECT_VERSION (Config/Version.xcconfig,
+        # see `configFiles:` above and `Scripts/update-version.sh`) would
+        # silently have no effect on the built app's actual
+        # CFBundleShortVersionString/CFBundleVersion — confirmed by
+        # building and inspecting the output. `-expandbuildsettings` (part
+        # of Xcode's normal Info.plist processing, already on by default)
+        # is what resolves these placeholders at build time.
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         # Xcode target editor's General tab "App Category" dropdown — this
         # is the Info.plist key it actually writes. A media player belongs
         # under Entertainment, not Xcode's default (unset, which App Store
