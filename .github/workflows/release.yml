@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # Full history + tags: Scripts/update-version.sh derives the
           # version from `git describe`/`git rev-list --count`, both of
