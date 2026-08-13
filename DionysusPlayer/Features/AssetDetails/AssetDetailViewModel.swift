@@ -503,7 +503,17 @@ final class AssetDetailViewModel {
         // when it belongs to `item` specifically (`displayedItemID`), not a
         // `showPlaybackEpisode` guess this fetch has nothing to do with.
         let optimisticTarget = optimisticPlaybackTarget?.itemID == displayedItemID ? optimisticPlaybackTarget : nil
+        // Captured up front, before either task below can reassign `item` —
+        // see `refreshShowPlaybackEpisodeIfNeeded`'s doc comment for why
+        // this can't just re-read `item?.kind` after the poll instead.
+        let isShowContent = item?.kind == .series
         let images = await client.makeImageURLBuilder()
+
+        // Run concurrently, not sequentially — see
+        // `refreshShowPlaybackEpisodeIfNeeded`'s doc comment for why
+        // gating this behind the poll below (the original shape) left it
+        // waiting up to the poll's *entire* schedule for Show content.
+        async let showPlaybackEpisodeUpdate: Void = refreshShowPlaybackEpisodeIfNeeded(isShowContent: isShowContent, images: images)
 
         for delay in Self.userDataCommitPollSchedule {
             try? await Task.sleep(for: .seconds(delay))
@@ -533,15 +543,7 @@ final class AssetDetailViewModel {
             }
         }
 
-        // Show content's Play/Resume target can change after a playback
-        // session — e.g. the previously-resolved episode just got fully
-        // watched, so a Series-direct page's NextUp resolution should now
-        // point at the following episode. Episode content
-        // (`showPlaybackEpisode` always nil there) and a Movie (no
-        // `seriesID` at all) both no-op via the guard below.
-        if item?.kind == .series, let seriesID {
-            await resolveShowPlaybackEpisode(seriesID: seriesID, images: images)
-        }
+        await showPlaybackEpisodeUpdate
 
         // See `episodeListRefreshToken`'s own doc comment. Bumped
         // unconditionally (not just when the polling loop above actually
@@ -553,6 +555,39 @@ final class AssetDetailViewModel {
         episodeListRefreshToken = UUID()
     }
 
+    /// `refreshItem()`'s Show-content counterpart to its own item poll —
+    /// pulled out into its own function specifically so it can run
+    /// *concurrently* with that poll via `async let`, rather than after it.
+    ///
+    /// The original shape ran this sequentially, gated behind the poll
+    /// loop finishing (whether by detecting a change or exhausting its
+    /// schedule). That's fine for a Movie/Episode-content page, where the
+    /// poll and this update are the same thing — but for Show content
+    /// (`isShowContent`, i.e. `item` is the Series' own DTO) they're
+    /// polling *different* things: the loop watches the Series' own
+    /// `userData`, which essentially never reflects a single episode's
+    /// progress, so its "did this change?" exit condition almost never
+    /// fires — confirmed live (2026-08-13): a real playback session's poll
+    /// exhausted its entire ~13s schedule every time, with this call only
+    /// running (and `showPlaybackEpisode` only updating) *after* that,
+    /// regardless of how quickly the server actually committed the
+    /// episode's own new state. Running the two concurrently means this
+    /// starts immediately instead of waiting on an unrelated, near-certain
+    /// no-op.
+    ///
+    /// `isShowContent` is a parameter (`item?.kind == .series`, captured by
+    /// the caller *before* either task starts) rather than read directly
+    /// here, since by the time an `async let`-scheduled call to this
+    /// actually runs, the poll may already have reassigned `item` — for a
+    /// Series load `item` stays a Series throughout so this wouldn't
+    /// currently change the answer, but reading a value that's concurrently
+    /// being mutated elsewhere, when the correct one is trivially available
+    /// up front, is worth avoiding on principle.
+    private func refreshShowPlaybackEpisodeIfNeeded(isShowContent: Bool, images: ImageURLBuilder) async {
+        guard isShowContent, let seriesID else { return }
+        await resolveShowPlaybackEpisode(seriesID: seriesID, images: images)
+    }
+
     /// Resolves `showPlaybackEpisode` — see that property's doc comment for
     /// exactly which episode each case picks. `preselectedSeasonID` being
     /// set is what tells this it's resolving a *Season* tap's target
@@ -560,9 +595,9 @@ final class AssetDetailViewModel {
     /// falling back to the first episode of the first season) — safe to
     /// rely on here because this is only ever called for Show content
     /// (`load()`'s `.season` case and its post-`seasons` `.series` case;
-    /// `refreshItem()`'s `item?.kind == .series` guard), never for Episode
-    /// content, where `preselectedSeasonID` is *also* set (to that
-    /// episode's own season) but this function is simply never invoked.
+    /// `refreshShowPlaybackEpisodeIfNeeded`'s `isShowContent` guard), never
+    /// for Episode content, where `preselectedSeasonID` is *also* set (to
+    /// that episode's own season) but this function is simply never invoked.
     private func resolveShowPlaybackEpisode(seriesID: String, images: ImageURLBuilder) async {
         if let preselectedSeasonID {
             if let firstEpisodeDto = try? await client.episodes(
