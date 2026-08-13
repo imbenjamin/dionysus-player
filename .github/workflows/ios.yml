@@ -1,8 +1,15 @@
 name: iOS workflow
 
 on:
-  push:
-    branches: [ "main", "develop" ]
+  # No `push:` trigger: both `main` and `develop` are covered by rulesets
+  # that (a) block any push that isn't a PR merge and (b) set
+  # `strict_required_status_checks_policy: true` on this workflow's check
+  # — together that guarantees every merge commit's tree is identical to
+  # what `pull_request` already tested, so a push-triggered re-run would
+  # always be re-testing identical code. If either of those ruleset
+  # settings ever changes (bypass actors added, strict policy turned off),
+  # this reasoning no longer holds and a `push:` trigger would earn its
+  # keep again.
   pull_request:
     branches: [ "main", "develop" ]
 
