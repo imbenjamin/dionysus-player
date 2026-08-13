@@ -28,11 +28,11 @@ struct PlayerControlsOverlay: View {
     /// the timer over).
     var onInteract: () -> Void
 
-    /// Whether the scrubber's trailing timestamp reads as the asset's total
-    /// duration (the default) or a `-`-prefixed countdown to the end —
+    /// Whether the scrubber's trailing timestamp reads as a `-`-prefixed
+    /// countdown to the end (the default) or the asset's total duration —
     /// flipped by tapping that timestamp. Local `@State`: nothing outside
     /// this overlay needs to know which mode is showing.
-    @State private var showRemainingTime = false
+    @State private var showRemainingTime = true
 
     /// Whether a touch is actively down on the scrubber track, as opposed to
     /// `isScrubbing` (the binding), which now stays `true` a little longer —
