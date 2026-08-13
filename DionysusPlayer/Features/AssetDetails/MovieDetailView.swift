@@ -19,13 +19,22 @@ struct MovieDetailView: View {
     /// at all once the cover dismissed — even though the exact same
     /// mutation correctly reached `HeroActionButtons` (a `.toolbar` item
     /// with its own independent Observation subscription, a materially
-    /// different SwiftUI update path from this view's main content). A
-    /// local `@State` mutated directly on this view, from a closure that's
-    /// *this view's own* and reliably fires (`onDismiss`, confirmed via the
-    /// same instrumentation), is what reliably forces a re-render regardless
-    /// of that gap — plain `let`-input `.id()` tricks scoped to a child
-    /// (`PlayResumeButtonRow`'s below) never even get a chance to run if
-    /// this view's own `body` doesn't re-evaluate them in the first place.
+    /// different SwiftUI update path from this view's main content).
+    ///
+    /// What actually forces the re-render is the local `@State` *mutation*
+    /// itself — a `@State` write always invalidates this view regardless of
+    /// whether `refreshTrigger`'s value is read anywhere, unlike
+    /// `@Observable` property access, which only triggers a re-render for
+    /// code paths that actually read it during `body`. The `.id(refreshTrigger)`
+    /// below exists on top of that only to force a hard identity reset of
+    /// the specific metadata block that needs one — see its own comment —
+    /// not to *cause* the re-render in the first place. Originally scoped
+    /// to the whole `ScrollView` instead, which also worked but had the
+    /// unrelated side effect of resetting scroll position on every return
+    /// from playback; rescoped down to just the metadata block (2026-08-13)
+    /// once that gap was noticed on review, and confirmed live afterward
+    /// (same scrub+exit repro as the original bug) that the fix still
+    /// holds *and* scroll position now survives the return.
     @State private var refreshTrigger = UUID()
 
     var body: some View {
@@ -82,6 +91,13 @@ struct MovieDetailView: View {
                             .id(item.technicalDetails == nil)
                     }
                     .padding(.horizontal)
+                    // See `refreshTrigger`'s own doc comment. Scoped to just
+                    // this metadata block, not the whole `ScrollView` — a
+                    // hard identity reset here is enough to guarantee this
+                    // content picks up a post-playback `viewModel.item`
+                    // change; scoping it any wider only adds side effects
+                    // (resetting scroll position) with no benefit.
+                    .id(refreshTrigger)
 
                     if !viewModel.collections.isEmpty {
                         MediaRailView(rail: MediaCollectionRail(
@@ -98,8 +114,6 @@ struct MovieDetailView: View {
                 .padding(.bottom, 32)
             }
         }
-        // See `refreshTrigger`'s own doc comment.
-        .id(refreshTrigger)
         .ignoresSafeArea(edges: .top)
         // Trailing toolbar items float in the nav bar opposite the system
         // back button — same floating-over-the-hero behavior at rest, same

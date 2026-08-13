@@ -24,6 +24,21 @@ struct ShowDetailView: View {
     /// See `MovieDetailView.refreshTrigger`'s doc comment — identical
     /// reasoning and fix, needed here too since this view has the exact
     /// same shape (`viewModel` held as a plain `let`, plus its own `@State`).
+    /// Scoped even more narrowly here than there: this view also presents
+    /// `SeasonEpisodeList`, whose own `@State` (`episodes`/`isLoading`)
+    /// would get discarded and its list-fetch re-triggered *with* the
+    /// loading spinner showing if `.id(refreshTrigger)` wrapped it —
+    /// exactly the flash `episodeListRefreshToken`'s separate silent-refresh
+    /// path exists to avoid (see that property's doc comment). Keeping this
+    /// `.id()` scoped to just the metadata block below sidesteps that.
+    ///
+    /// The rescoping itself (2026-08-13) was confirmed live on
+    /// `MovieDetailView`'s equivalent (resume progress bar still updates,
+    /// scroll position now survives the return) — the additional
+    /// `SeasonEpisodeList`-flash reasoning above is deduction from the
+    /// narrower `VStack` scope excluding it, not independently re-observed
+    /// against a real Show page. Worth an eyes-on check with a real Show if
+    /// this area gets touched again.
     @State private var refreshTrigger = UUID()
 
     /// `.id()`'d by a small marker overlaid near the bottom of the hero
@@ -135,6 +150,16 @@ struct ShowDetailView: View {
                                 .id(item.technicalDetails == nil)
                         }
                         .padding(.horizontal)
+                        // See `refreshTrigger`'s own doc comment. Scoped to
+                        // just this metadata block, not the whole
+                        // `ScrollView` (nor, especially, `SeasonEpisodeList`
+                        // below) — a hard identity reset here is enough to
+                        // guarantee this content picks up a post-playback
+                        // `viewModel.item`/`showPlaybackEpisode` change;
+                        // scoping it any wider only adds side effects
+                        // (resetting scroll position, re-flashing the
+                        // episode list's loading spinner) with no benefit.
+                        .id(refreshTrigger)
 
                         if let seriesID = viewModel.seriesID, !viewModel.seasons.isEmpty {
                             SeasonEpisodeList(
@@ -194,11 +219,6 @@ struct ShowDetailView: View {
                     }
                 }
             }
-            // See `MovieDetailView.refreshTrigger`'s doc comment. Applied to
-            // the `ScrollView` itself, not the enclosing `ScrollViewReader`
-            // — keeps `scrollProxy`'s own identity (and thus
-            // `heroAnchorID`-based scrolling) stable across the reset.
-            .id(refreshTrigger)
             .ignoresSafeArea(edges: .top)
             // Trailing toolbar items float in the nav bar opposite the
             // system back button — same floating-over-the-hero behavior at
