@@ -21,6 +21,10 @@ struct ShowDetailView: View {
     let viewModel: AssetDetailViewModel
     @State private var playbackRequest: PlaybackRequest?
     @State private var selectedSeasonID: String?
+    /// See `MovieDetailView.refreshTrigger`'s doc comment — identical
+    /// reasoning and fix, needed here too since this view has the exact
+    /// same shape (`viewModel` held as a plain `let`, plus its own `@State`).
+    @State private var refreshTrigger = UUID()
 
     /// `.id()`'d by a small marker overlaid near the bottom of the hero
     /// (roughly where its logo sits — see the `HeroHeaderView` call site
@@ -113,6 +117,14 @@ struct ShowDetailView: View {
                                     playbackRequest = PlaybackRequest(itemID: targetID, startFromBeginning: true, mediaSourceID: versionID)
                                 }
                             )
+                            // See `MediaItem.playbackProgressIdentity`'s doc
+                            // comment. Covers both `item` and
+                            // `showPlaybackEpisode` — either one can be
+                            // what `PlayResumeButtonRow`'s `effectiveItem`
+                            // actually resolves to (see that type's own doc
+                            // comment), so either changing needs to force a
+                            // fresh identity here.
+                            .id("\(item.playbackProgressIdentity)-\(viewModel.showPlaybackEpisode?.playbackProgressIdentity ?? "")")
 
                             // See `MovieDetailView`'s matching call site and
                             // `DetailTabsView.availableTabs`'s doc comment — a
@@ -129,6 +141,7 @@ struct ShowDetailView: View {
                                 seriesID: seriesID,
                                 seasons: viewModel.seasons,
                                 selectedSeasonID: $selectedSeasonID,
+                                refreshToken: viewModel.episodeListRefreshToken,
                                 currentEpisodeID: isEpisodeContent ? item.id : nil,
                                 onPlayEpisode: { episodeID in playbackRequest = PlaybackRequest(itemID: episodeID) },
                                 onSelectEpisode: { episodeID in
@@ -181,6 +194,11 @@ struct ShowDetailView: View {
                     }
                 }
             }
+            // See `MovieDetailView.refreshTrigger`'s doc comment. Applied to
+            // the `ScrollView` itself, not the enclosing `ScrollViewReader`
+            // — keeps `scrollProxy`'s own identity (and thus
+            // `heroAnchorID`-based scrolling) stable across the reset.
+            .id(refreshTrigger)
             .ignoresSafeArea(edges: .top)
             // Trailing toolbar items float in the nav bar opposite the
             // system back button — same floating-over-the-hero behavior at
@@ -199,9 +217,18 @@ struct ShowDetailView: View {
             // Registered via `viewModel.track(_:)` — see its doc comment —
             // so `AssetDetailView`'s `.onDisappear` can cancel this if the
             // user backs out of the page again before it finishes.
-            onDismiss: { viewModel.track(Task { await viewModel.refreshItem() }) }
+            onDismiss: {
+                refreshTrigger = UUID()
+                viewModel.track(Task {
+                    await viewModel.refreshItem()
+                    refreshTrigger = UUID()
+                })
+            }
         ) { request in
-            PlayerView(itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID)
+            PlayerView(
+                itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID,
+                onPlaybackEnded: { viewModel.applyOptimisticPlaybackPosition($0) }
+            )
         }
     }
 }

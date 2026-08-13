@@ -581,6 +581,201 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.item?.dto.userData?.playedPercentage, 50)
     }
 
+    /// Regression test for a live bug report (2026-08-13): resuming a
+    /// movie, scrubbing to a different position, and exiting within a few
+    /// seconds left the detail page's progress bar showing the pre-scrub
+    /// position, even though the server had actually committed the new one
+    /// correctly (confirmed by Resume itself picking up the right spot).
+    /// Simulates the server needing a few poll attempts before it reflects
+    /// the change — `userDataCommitPollSchedule`'s whole reason for
+    /// existing — pinning that `refreshItem()` actually keeps polling
+    /// rather than giving up after the first miss.
+    func test_refreshItem_serverConfirmsOnALaterAttempt_stillPicksUpTheChange() async {
+        let staleTicks: Int64 = 10_000_000_000 // 1000s / ~16.7min
+        let updatedTicks: Int64 = 90_000_000_000 // 9000s / 150min
+        let viewModel = makeViewModel(itemID: "movie-1")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                id: "movie-1", name: "Saving Private Ryan", type: .movie,
+                userData: UserItemDataDto(playbackPositionTicks: staleTicks, playedPercentage: 10, played: false)
+            ))
+        }
+        await viewModel.load()
+        XCTAssertEqual(viewModel.item?.dto.userData?.playbackPositionTicks, staleTicks, "sanity check")
+
+        var attempt = 0
+        MockURLProtocol.requestHandler = { request in
+            guard request.url?.path == "/Users/user-1/Items/movie-1" else {
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+            attempt += 1
+            // First two attempts still return the pre-scrub position, as if
+            // the server hasn't committed the write yet — only the third
+            // reflects the real, scrubbed-to position.
+            let ticks = attempt < 3 ? staleTicks : updatedTicks
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                id: "movie-1", name: "Saving Private Ryan", type: .movie,
+                userData: UserItemDataDto(playbackPositionTicks: ticks, playedPercentage: 10, played: false)
+            ))
+        }
+
+        await viewModel.refreshItem()
+
+        XCTAssertEqual(attempt, 3, "should have kept polling past the first two stale responses")
+        XCTAssertEqual(viewModel.item?.dto.userData?.playbackPositionTicks, updatedTicks)
+    }
+
+    /// Regression test for the actual live bug (2026-08-13, found *after*
+    /// the two tests above shipped and the reported symptom persisted
+    /// unchanged): those tests only exercised `refreshItem()` on its own —
+    /// in real usage it always runs immediately after
+    /// `applyOptimisticPlaybackPosition(_:)`, from the same close-and-return
+    /// flow, and *that* combination had a real bug neither test caught.
+    /// `refreshItem()`'s poll captured its "did this change?" baseline from
+    /// `item` *after* the optimistic update had already set it to the
+    /// correct new position — so the poll's first attempt, which almost
+    /// always still gets the server's old, not-yet-committed value back,
+    /// looked like "a change" against that baseline and got adopted
+    /// immediately, silently undoing the optimistic fix. This pins the fix:
+    /// a stale first/second attempt must be ignored, and only a fetch that's
+    /// actually caught up (within `optimisticPositionTolerance`) gets adopted.
+    func test_refreshItemAfterOptimisticUpdate_ignoresStaleFetchesUntilServerCatchesUp() async {
+        let viewModel = makeViewModel(itemID: "movie-1")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                id: "movie-1", name: "Saving Private Ryan", type: .movie, runTimeTicks: 10_000 * 10_000_000,
+                userData: UserItemDataDto(playbackPositionTicks: 1_000 * 10_000_000, playedPercentage: 10, played: false)
+            ))
+        }
+        await viewModel.load()
+
+        // What `PlayerView.close()` does immediately on exit, before
+        // `refreshItem()` even starts.
+        viewModel.applyOptimisticPlaybackPosition(PlaybackSessionOutcome(itemID: "movie-1", positionSeconds: 9000, durationSeconds: 10_000))
+        XCTAssertEqual(viewModel.item?.resumePositionSeconds, 9000, "sanity check")
+
+        var attempt = 0
+        MockURLProtocol.requestHandler = { request in
+            guard request.url?.path == "/Users/user-1/Items/movie-1" else {
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+            attempt += 1
+            // First two attempts are the server's old, not-yet-committed
+            // position (the case that used to get wrongly adopted); only
+            // the third has actually caught up.
+            let ticks: Int64 = attempt < 3 ? 1_000 * 10_000_000 : 9000 * 10_000_000
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                id: "movie-1", name: "Saving Private Ryan", type: .movie, runTimeTicks: 10_000 * 10_000_000,
+                userData: UserItemDataDto(playbackPositionTicks: ticks, playedPercentage: 10, played: false)
+            ))
+        }
+
+        await viewModel.refreshItem()
+
+        XCTAssertEqual(attempt, 3, "should have ignored the first two stale fetches rather than adopting the first one")
+        XCTAssertEqual(viewModel.item?.resumePositionSeconds, 9000)
+    }
+
+    /// Same setup, but the server never catches up within the whole poll
+    /// window — the known-correct optimistic value should stay on screen
+    /// rather than the loop falling back to whatever stale data it last saw.
+    func test_refreshItemAfterOptimisticUpdate_serverNeverCatchesUp_keepsOptimisticValue() async {
+        let viewModel = makeViewModel(itemID: "movie-1")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                id: "movie-1", name: "Saving Private Ryan", type: .movie, runTimeTicks: 10_000 * 10_000_000,
+                userData: UserItemDataDto(playbackPositionTicks: 1_000 * 10_000_000, playedPercentage: 10, played: false)
+            ))
+        }
+        await viewModel.load()
+        viewModel.applyOptimisticPlaybackPosition(PlaybackSessionOutcome(itemID: "movie-1", positionSeconds: 9000, durationSeconds: 10_000))
+
+        MockURLProtocol.requestHandler = { request in
+            guard request.url?.path == "/Users/user-1/Items/movie-1" else {
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                id: "movie-1", name: "Saving Private Ryan", type: .movie, runTimeTicks: 10_000 * 10_000_000,
+                userData: UserItemDataDto(playbackPositionTicks: 1_000 * 10_000_000, playedPercentage: 10, played: false)
+            ))
+        }
+
+        await viewModel.refreshItem()
+
+        XCTAssertEqual(viewModel.item?.resumePositionSeconds, 9000, "should keep the known-correct optimistic value rather than regress to stale server data")
+    }
+
+    /// `SeasonEpisodeList` folds `episodeListRefreshToken` into its own
+    /// episode-list fetch so a just-finished episode's row (progress bar/
+    /// watched state) doesn't sit stale after returning from the player —
+    /// see that property's own doc comment. Pinning that it actually
+    /// changes on every `refreshItem()` call is what that wiring depends on.
+    func test_refreshItem_changesEpisodeListRefreshToken() async {
+        let viewModel = await loadedSeriesViewModel(nextUpItems: [], episodesItems: [])
+        let tokenBefore = viewModel.episodeListRefreshToken
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "series-1", name: "The Wire", type: .series))
+        }
+
+        await viewModel.refreshItem()
+
+        XCTAssertNotEqual(viewModel.episodeListRefreshToken, tokenBefore)
+    }
+
+    // MARK: applyOptimisticPlaybackPosition(_:)
+
+    /// The direct fix for the same live bug report above: rather than rely
+    /// on any poll to catch up, `PlayerView` reports its own final position
+    /// back immediately, and this applies it synchronously — no network
+    /// round trip, nothing to race.
+    func test_applyOptimisticPlaybackPosition_matchingItem_updatesResumePositionImmediately() async {
+        let viewModel = makeViewModel(itemID: "movie-1")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                id: "movie-1", name: "Saving Private Ryan", type: .movie, runTimeTicks: 100 * 10_000_000,
+                userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000, playedPercentage: 10, played: false)
+            ))
+        }
+        await viewModel.load()
+
+        viewModel.applyOptimisticPlaybackPosition(PlaybackSessionOutcome(itemID: "movie-1", positionSeconds: 90, durationSeconds: 100))
+
+        XCTAssertEqual(viewModel.item?.resumePositionSeconds, 90)
+    }
+
+    /// Show content's Play/Resume button targets `showPlaybackEpisode`, not
+    /// `item` (the Show itself) — see `PlayResumeButtonRow.targetEpisode`'s
+    /// doc comment — so that's what a playback session for one of its
+    /// episodes needs to patch instead.
+    func test_applyOptimisticPlaybackPosition_matchingShowPlaybackEpisode_updatesIt() async {
+        let episodeDto = BaseItemDto(
+            id: "ep-4", name: "Old Cases", type: .episode, runTimeTicks: 100 * 10_000_000,
+            userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000, playedPercentage: 10, played: false)
+        )
+        let viewModel = await loadedSeriesViewModel(nextUpItems: [episodeDto], episodesItems: [])
+        XCTAssertEqual(viewModel.showPlaybackEpisode?.id, "ep-4", "sanity check")
+
+        viewModel.applyOptimisticPlaybackPosition(PlaybackSessionOutcome(itemID: "ep-4", positionSeconds: 90, durationSeconds: 100))
+
+        XCTAssertEqual(viewModel.showPlaybackEpisode?.resumePositionSeconds, 90)
+        XCTAssertNil(viewModel.item?.resumePositionSeconds, "item is the Series itself here, not the episode — shouldn't be touched")
+    }
+
+    func test_applyOptimisticPlaybackPosition_nonMatchingItemID_isANoOp() async {
+        let viewModel = makeViewModel(itemID: "movie-1")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                id: "movie-1", name: "Saving Private Ryan", type: .movie,
+                userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000)
+            ))
+        }
+        await viewModel.load()
+
+        viewModel.applyOptimisticPlaybackPosition(PlaybackSessionOutcome(itemID: "some-other-item", positionSeconds: 90, durationSeconds: 100))
+
+        XCTAssertEqual(viewModel.item?.resumePositionSeconds, 10)
+    }
+
     // MARK: showPlaybackEpisode
 
     private func loadedSeriesViewModel(nextUpItems: [BaseItemDto], episodesItems: [BaseItemDto]) async -> AssetDetailViewModel {

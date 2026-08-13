@@ -187,6 +187,52 @@ final class MediaItemTests: XCTestCase {
         XCTAssertFalse(makeMovie(userData: untouched).isPartWatched)
     }
 
+    // MARK: playbackProgressIdentity
+
+    /// The whole reason this exists — see its own doc comment — is to
+    /// change value whenever `resumePositionSeconds`/`playedFraction`/
+    /// `isPlayed` would, so it can drive a `.id()` at `PlayResumeButtonRow`'s
+    /// call sites. Pin that it actually does.
+    func test_playbackProgressIdentity_changesWhenUserDataChanges() {
+        let original = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000, playedPercentage: 5, played: false))
+        let updated = original.withOptimisticPlaybackPosition(seconds: 900, duration: 3600)
+
+        XCTAssertNotEqual(original.playbackProgressIdentity, updated.playbackProgressIdentity)
+    }
+
+    func test_playbackProgressIdentity_sameForIdenticalUserData() {
+        let userData = UserItemDataDto(playbackPositionTicks: 10 * 10_000_000, playedPercentage: 5, played: false)
+        XCTAssertEqual(makeMovie(userData: userData).playbackProgressIdentity, makeMovie(userData: userData).playbackProgressIdentity)
+    }
+
+    // MARK: withOptimisticPlaybackPosition
+
+    func test_withOptimisticPlaybackPosition_overwritesTicksAndPercentage() {
+        let original = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000, playedPercentage: 5, played: false))
+
+        let updated = original.withOptimisticPlaybackPosition(seconds: 900, duration: 3600)
+
+        XCTAssertEqual(updated.resumePositionSeconds, 900)
+        XCTAssertEqual(updated.playedFraction, 0.25)
+    }
+
+    /// Deliberately untouched — see that method's own doc comment for why
+    /// (a server-side threshold judgement this isn't trying to replicate).
+    func test_withOptimisticPlaybackPosition_leavesIsPlayedAlone() {
+        let original = makeMovie(userData: UserItemDataDto(played: true))
+
+        let updated = original.withOptimisticPlaybackPosition(seconds: 30, duration: 3600)
+
+        XCTAssertTrue(updated.isPlayed)
+    }
+
+    func test_withOptimisticPlaybackPosition_noOpForZeroOrNegativeDuration() {
+        let original = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000))
+
+        XCTAssertEqual(original.withOptimisticPlaybackPosition(seconds: 900, duration: 0).resumePositionSeconds, 10)
+        XCTAssertEqual(original.withOptimisticPlaybackPosition(seconds: 900, duration: -1).resumePositionSeconds, 10)
+    }
+
     // MARK: technicalDetails
 
     func test_technicalDetails_buildsContainerCodecResolutionAndDynamicRange() {

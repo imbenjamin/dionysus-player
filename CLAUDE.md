@@ -16,7 +16,7 @@ fixes in `AetherPlaybackEngine.swift`, but as of 2026-08-07 (Xcode 26.5, iOS
 26.5 Simulator) `xcodebuild build` for the `DionysusPlayer` scheme succeeds
 end-to-end — package resolution (AetherEngine + its FFmpegBuild/SMBClient/
 LibDovi dependencies), compilation, and linking all complete with no errors,
-and the `DionysusPlayerTests` suite (392 tests, see `TESTING.md`) passes.
+and the `DionysusPlayerTests` suite (404 tests, see `TESTING.md`) passes.
 As of 2026-08-12, real playback on a physical device (iPhone 17,1, iOS 26.6)
 was confirmed via the "stats for nerds" overlay: Dolby Vision (Profile 8)
 source decoded in hardware through VideoToolbox HEVC, EAC3 audio

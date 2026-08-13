@@ -7,6 +7,10 @@ struct PlayerView: View {
     let itemID: String
     var startFromBeginning: Bool = false
     var mediaSourceID: String? = nil
+    /// Fired from `close()` with this session's final position — see
+    /// `PlaybackSessionOutcome`'s own doc comment for why. `nil` (the
+    /// default) for any presentation that doesn't need it.
+    var onPlaybackEnded: ((PlaybackSessionOutcome) -> Void)? = nil
 
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -270,6 +274,16 @@ struct PlayerView: View {
         // be locked to when the user backed out.
         if isRotationLocked {
             RotationLock.unlock()
+        }
+        // Captured before `stop()` (which reports this same `currentTime` to
+        // the server) and fired before `dismiss()`, so whichever detail page
+        // presented this already has it applied by the time its own
+        // `.fullScreenCover(onDismiss:)` fires — see `PlaybackSessionOutcome`'s
+        // doc comment for why this exists at all.
+        if let viewModel {
+            onPlaybackEnded?(PlaybackSessionOutcome(
+                itemID: itemID, positionSeconds: viewModel.currentTime, durationSeconds: viewModel.duration
+            ))
         }
         await viewModel?.stop()
         dismiss()

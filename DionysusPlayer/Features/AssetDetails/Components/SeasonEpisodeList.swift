@@ -6,6 +6,14 @@ struct SeasonEpisodeList: View {
     let seriesID: String
     let seasons: [MediaItem]
     @Binding var selectedSeasonID: String?
+    /// `AssetDetailViewModel.episodeListRefreshToken` — a new value each
+    /// time forces `loadEpisodes()` to re-run even though `selectedSeasonID`
+    /// itself hasn't changed, which is what keeps a just-played episode's
+    /// row (its own progress bar/watched state — see `EpisodeRow`) from
+    /// sitting stale after returning from the player. See that property's
+    /// own doc comment for why it's driven from there rather than this view
+    /// re-fetching on some timer/lifecycle event of its own.
+    var refreshToken: UUID
     /// The episode currently being displayed as this page's own content
     /// (`ShowDetailView`'s episode-content case — see that view's doc
     /// comment), if any — highlighted in the list below so it's clear which
@@ -62,14 +70,22 @@ struct SeasonEpisodeList: View {
             }
         }
         .task(id: selectedSeasonID) { await loadEpisodes() }
+        // Separate from the `.task(id:)` above rather than folded into one
+        // combined id: `selectedSeasonID` changing should show the loading
+        // spinner (a real season switch — nothing to show yet), but
+        // `refreshToken` changing shouldn't — it's a silent background
+        // refresh of a season the user is already looking at, and swapping
+        // to `LoadingView` every time someone returns from playback would
+        // be a jarring flash for what's meant to be invisible.
+        .onChange(of: refreshToken) { _, _ in Task { await loadEpisodes(showsLoadingIndicator: false) } }
     }
 
-    private func loadEpisodes() async {
+    private func loadEpisodes(showsLoadingIndicator: Bool = true) async {
         guard let seasonID = selectedSeasonID,
               let client = appState.apiClient,
               let userID = appState.currentUser?.id else { return }
 
-        isLoading = true
+        if showsLoadingIndicator { isLoading = true }
         defer { isLoading = false }
         do {
             let images = await client.makeImageURLBuilder()
