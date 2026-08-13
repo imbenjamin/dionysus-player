@@ -150,6 +150,24 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(engine.playCallCount, 1)
     }
 
+    /// `sourceVideoStream` is what `PlaybackStatsOverlay` reads
+    /// `videoRangeType` off of for the Dolby Vision "Enhancement Layer" row
+    /// — it should come from the video stream of whichever source `start()`
+    /// actually resolved to, not just the first stream on it.
+    func test_start_setsSourceVideoStreamFromResolvedMediaSourcesVideoStream() async {
+        let (viewModel, _) = makeViewModel()
+        let videoStream = MediaStream(index: 0, type: "Video", videoRangeType: "DOVIWithHDR10")
+        let audioStream = MediaStream(index: 1, type: "Audio")
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4", mediaStreams: [audioStream, videoStream])]
+        )
+
+        await viewModel.start()
+
+        XCTAssertEqual(viewModel.sourceVideoStream?.videoRangeType, "DOVIWithHDR10")
+    }
+
     func test_start_engineLoadThrows_setsErrorMessageAndNeverCallsPlay() async {
         let engine = FakePlaybackEngine()
         engine.loadError = URLError(.badURL)
@@ -182,6 +200,12 @@ final class PlayerViewModelTests: XCTestCase {
         viewModel.selectSubtitleTrack(id: nil)
         XCTAssertEqual(engine.selectedAudioTrackIDs, [2])
         XCTAssertEqual(engine.selectedSubtitleTrackIDs, [nil])
+    }
+
+    func test_setZoomMode_delegatesToEngine() {
+        let (viewModel, engine) = makeViewModel()
+        viewModel.setZoomMode(.fill)
+        XCTAssertEqual(engine.zoomMode, .fill)
     }
 
     // MARK: stop()
@@ -233,5 +257,91 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.audioTracks, engine.audioTracks)
         XCTAssertEqual(viewModel.subtitleTracks, engine.subtitleTracks)
         XCTAssertEqual(viewModel.videoFormatDescription, "Dolby Vision")
+    }
+
+    func test_stats_passesThroughFromEngine() {
+        let engine = FakePlaybackEngine()
+        engine.stats.videoSize = "1920×804"
+        engine.stats.bitrate = "12.4 Mbps"
+        let (viewModel, _) = makeViewModel(engine: engine)
+
+        XCTAssertEqual(viewModel.stats, engine.stats)
+    }
+
+    // MARK: refreshServerVersion() / refreshStreamingSession()
+
+    func test_refreshServerVersion_fetchesOnceThenCaches() async {
+        let (viewModel, _) = makeViewModel()
+        var requestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            guard request.url?.path == "/System/Info/Public" else {
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+            requestCount += 1
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: PublicSystemInfo(version: "10.9.7"))
+        }
+
+        await viewModel.refreshServerVersion()
+        await viewModel.refreshServerVersion()
+
+        XCTAssertEqual(viewModel.serverVersion, "10.9.7")
+        XCTAssertEqual(requestCount, 1, "A second call shouldn't re-fetch a value that can't change mid-session")
+    }
+
+    func test_refreshStreamingSession_directPlay_populatesPlayMethodWithNoTranscodingInfo() async {
+        let (viewModel, _) = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            guard request.url?.path == "/Sessions" else {
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+            let session = SessionInfoDto(
+                id: "sess-1", deviceId: DeviceIdentity.deviceID,
+                playState: PlayStateInfoDto(mediaSourceId: "src-1", playMethod: "DirectStream")
+            )
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: [session])
+        }
+
+        await viewModel.refreshStreamingSession()
+
+        XCTAssertEqual(viewModel.streamingSession?.playState?.playMethod, "DirectStream")
+        XCTAssertNil(viewModel.streamingSession?.transcodingInfo)
+    }
+
+    func test_refreshStreamingSession_transcoding_populatesLiveTranscodingParameters() async {
+        let (viewModel, _) = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            guard request.url?.path == "/Sessions" else {
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+            let session = SessionInfoDto(
+                id: "sess-1", deviceId: DeviceIdentity.deviceID,
+                playState: PlayStateInfoDto(mediaSourceId: "src-1", playMethod: "Transcode"),
+                transcodingInfo: TranscodingInfoDto(
+                    audioCodec: "aac", videoCodec: "h264", bitrate: 8_000_000,
+                    completionPercentage: 42, transcodeReasons: ["VideoBitrateNotSupported"]
+                )
+            )
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: [session])
+        }
+
+        await viewModel.refreshStreamingSession()
+
+        XCTAssertEqual(viewModel.streamingSession?.playState?.playMethod, "Transcode")
+        XCTAssertEqual(viewModel.streamingSession?.transcodingInfo?.videoCodec, "h264")
+        XCTAssertEqual(viewModel.streamingSession?.transcodingInfo?.transcodeReasons, ["VideoBitrateNotSupported"])
+    }
+
+    func test_refreshStreamingSession_requestFails_leavesStreamingSessionNil() async {
+        let (viewModel, _) = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+        }
+
+        await viewModel.refreshStreamingSession()
+
+        XCTAssertNil(viewModel.streamingSession, "A failed request should leave the last known value (nil, here) rather than crash/throw")
     }
 }

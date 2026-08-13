@@ -21,6 +21,25 @@ struct ShowDetailView: View {
     let viewModel: AssetDetailViewModel
     @State private var playbackRequest: PlaybackRequest?
     @State private var selectedSeasonID: String?
+    /// See `MovieDetailView.refreshTrigger`'s doc comment — identical
+    /// reasoning and fix, needed here too since this view has the exact
+    /// same shape (`viewModel` held as a plain `let`, plus its own `@State`).
+    /// Scoped even more narrowly here than there: this view also presents
+    /// `SeasonEpisodeList`, whose own `@State` (`episodes`/`isLoading`)
+    /// would get discarded and its list-fetch re-triggered *with* the
+    /// loading spinner showing if `.id(refreshTrigger)` wrapped it —
+    /// exactly the flash `episodeListRefreshToken`'s separate silent-refresh
+    /// path exists to avoid (see that property's doc comment). Keeping this
+    /// `.id()` scoped to just the metadata block below sidesteps that.
+    ///
+    /// The rescoping itself (2026-08-13) was confirmed live on
+    /// `MovieDetailView`'s equivalent (resume progress bar still updates,
+    /// scroll position now survives the return) — the additional
+    /// `SeasonEpisodeList`-flash reasoning above is deduction from the
+    /// narrower `VStack` scope excluding it, not independently re-observed
+    /// against a real Show page. Worth an eyes-on check with a real Show if
+    /// this area gets touched again.
+    @State private var refreshTrigger = UUID()
 
     /// `.id()`'d by a small marker overlaid near the bottom of the hero
     /// (roughly where its logo sits — see the `HeroHeaderView` call site
@@ -113,6 +132,14 @@ struct ShowDetailView: View {
                                     playbackRequest = PlaybackRequest(itemID: targetID, startFromBeginning: true, mediaSourceID: versionID)
                                 }
                             )
+                            // See `MediaItem.playbackProgressIdentity`'s doc
+                            // comment. Covers both `item` and
+                            // `showPlaybackEpisode` — either one can be
+                            // what `PlayResumeButtonRow`'s `effectiveItem`
+                            // actually resolves to (see that type's own doc
+                            // comment), so either changing needs to force a
+                            // fresh identity here.
+                            .id("\(item.playbackProgressIdentity)-\(viewModel.showPlaybackEpisode?.playbackProgressIdentity ?? "")")
 
                             // See `MovieDetailView`'s matching call site and
                             // `DetailTabsView.availableTabs`'s doc comment — a
@@ -123,12 +150,23 @@ struct ShowDetailView: View {
                                 .id(item.technicalDetails == nil)
                         }
                         .padding(.horizontal)
+                        // See `refreshTrigger`'s own doc comment. Scoped to
+                        // just this metadata block, not the whole
+                        // `ScrollView` (nor, especially, `SeasonEpisodeList`
+                        // below) — a hard identity reset here is enough to
+                        // guarantee this content picks up a post-playback
+                        // `viewModel.item`/`showPlaybackEpisode` change;
+                        // scoping it any wider only adds side effects
+                        // (resetting scroll position, re-flashing the
+                        // episode list's loading spinner) with no benefit.
+                        .id(refreshTrigger)
 
                         if let seriesID = viewModel.seriesID, !viewModel.seasons.isEmpty {
                             SeasonEpisodeList(
                                 seriesID: seriesID,
                                 seasons: viewModel.seasons,
                                 selectedSeasonID: $selectedSeasonID,
+                                refreshToken: viewModel.episodeListRefreshToken,
                                 currentEpisodeID: isEpisodeContent ? item.id : nil,
                                 onPlayEpisode: { episodeID in playbackRequest = PlaybackRequest(itemID: episodeID) },
                                 onSelectEpisode: { episodeID in
@@ -179,6 +217,29 @@ struct ShowDetailView: View {
                     .onChange(of: viewModel.seasons, initial: true) { _, seasons in
                         if selectedSeasonID == nil { selectedSeasonID = viewModel.preselectedSeasonID ?? seasons.first?.id }
                     }
+                    // Keeps the season picker following whichever episode is
+                    // actually displayed. Was never needed before
+                    // `AssetDetailViewModel.advanceToNextEpisodeIfCompleted()`
+                    // existed — every prior way `item` could become a
+                    // different episode (`selectEpisode(_:)`'s only other
+                    // caller, `SeasonEpisodeList.onSelectEpisode`) could only
+                    // ever pick one from whichever season was *already*
+                    // selected. Advancing to the next episode after finishing
+                    // one can cross a season boundary, though, so this is the
+                    // first case that actually needs the picker to react.
+                    // Guarded to Episode content and an actual mismatch, so
+                    // it's a no-op for every other `item` change (a Movie, a
+                    // Series-direct load, or same-season `selectEpisode`
+                    // calls, where `preselectedSeasonID` is already correct).
+                    // Confirmed live (2026-08-13) crossing a real season
+                    // boundary: finishing a season's last episode correctly
+                    // landed on the next season's first, picker included.
+                    .onChange(of: viewModel.item?.id) { _, _ in
+                        if isEpisodeContent, let preselectedSeasonID = viewModel.preselectedSeasonID,
+                           selectedSeasonID != preselectedSeasonID {
+                            selectedSeasonID = preselectedSeasonID
+                        }
+                    }
                 }
             }
             .ignoresSafeArea(edges: .top)
@@ -199,9 +260,18 @@ struct ShowDetailView: View {
             // Registered via `viewModel.track(_:)` — see its doc comment —
             // so `AssetDetailView`'s `.onDisappear` can cancel this if the
             // user backs out of the page again before it finishes.
-            onDismiss: { viewModel.track(Task { await viewModel.refreshItem() }) }
+            onDismiss: {
+                refreshTrigger = UUID()
+                viewModel.track(Task {
+                    await viewModel.refreshItem()
+                    refreshTrigger = UUID()
+                })
+            }
         ) { request in
-            PlayerView(itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID)
+            PlayerView(
+                itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID,
+                onPlaybackEnded: { viewModel.applyOptimisticPlaybackPosition($0) }
+            )
         }
     }
 }

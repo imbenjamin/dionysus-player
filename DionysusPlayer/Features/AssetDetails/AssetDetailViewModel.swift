@@ -244,22 +244,31 @@ final class AssetDetailViewModel {
     /// Switches this Show-content page's displayed content to `episodeID`
     /// in place — tapping the text area of an episode row in
     /// `SeasonEpisodeList` (as opposed to its play button, which plays that
-    /// episode directly without changing what this page shows). Fetches the
-    /// episode's *full* item (technical details/versions/cast — unlike the
-    /// lighter list-fetch `SeasonEpisodeList` itself already has), then
-    /// swaps `item`/`displayedItemID` to it — the exact same shape a direct
+    /// episode directly without changing what this page shows), and also
+    /// `advanceToNextEpisodeIfCompleted()`'s own way of performing its swap
+    /// once a next episode is confirmed. Fetches the episode's *full* item
+    /// (technical details/versions/cast — unlike the lighter list-fetch
+    /// `SeasonEpisodeList` itself already has), then swaps
+    /// `item`/`displayedItemID` to it — the exact same shape a direct
     /// Episode tap already produces (see `item`'s doc comment), so
     /// everything downstream (`PlayResumeButtonRow`'s `isEpisodeContent`
     /// branch, `DetailTabsView`, the episode list's own highlighted row)
     /// just follows `item` reactively with no special-casing needed here.
-    /// Deliberately doesn't touch `seriesID`/`preselectedSeasonID`/
-    /// `seasons` — the tapped episode is already within whichever season is
-    /// currently being browsed, so none of those need to change.
+    /// Deliberately doesn't touch `seriesID`/`seasons` — the episode is
+    /// always within the same Show. Does keep `preselectedSeasonID`
+    /// current, though (unlike `seriesID`/`seasons`): harmless for this
+    /// method's original caller (`SeasonEpisodeList.onSelectEpisode` can
+    /// only ever pick an episode from whichever season is already
+    /// selected, so this is a same-value reassignment there), but load-
+    /// bearing for `advanceToNextEpisodeIfCompleted()`, which can cross a
+    /// season boundary — `ShowDetailView`'s own `.onChange(of:
+    /// viewModel.item?.id)` is what keeps its season picker following this.
     func selectEpisode(_ episodeID: String) async {
         guard let dto = try? await client.item(userID: userID, itemID: episodeID) else { return }
         let images = await client.makeImageURLBuilder()
         item = MediaItem(dto: dto, images: images)
         displayedItemID = episodeID
+        preselectedSeasonID = dto.seasonId
     }
 
     /// Which items currently have a favorite toggle in flight — checked by
@@ -280,9 +289,9 @@ final class AssetDetailViewModel {
     /// `ShowDetailView`) via `track(_:)` right after creating each one.
     /// `cancelBackgroundWork()` — `AssetDetailView`'s own `.onDisappear` —
     /// is what actually stops them once this page is no longer on screen,
-    /// instead of a favorite toggle's confirmation poll (up to ~13s) or a
-    /// post-playback refresh (up to ~3.25s) running to completion
-    /// regardless, issuing network requests against a screen nobody's
+    /// instead of a favorite toggle's confirmation poll or a post-playback
+    /// refresh (both up to ~13s — `userDataCommitPollSchedule`) running to
+    /// completion regardless, issuing network requests against a screen nobody's
     /// looking at anymore. The methods themselves stay plain `async`
     /// functions any caller (including tests) can `await` directly —
     /// only real UI call sites need to route through `track(_:)` at all.
@@ -299,6 +308,34 @@ final class AssetDetailViewModel {
         for task in backgroundTasks { task.cancel() }
         backgroundTasks.removeAll()
     }
+
+    /// Shared by `refetchFavoriteWatchedTarget`/`refreshItem()`: Jellyfin's
+    /// write endpoints (`setFavorite`/`setWatched`, and — for `refreshItem()`
+    /// — whatever `/Sessions/Playing/Stopped` triggers server-side) return
+    /// 200 immediately but commit the actual userData change asynchronously
+    /// afterward, with *genuinely variable* latency. Confirmed live,
+    /// direct-to-server `curl` checks against this same server: toggling a
+    /// Movie or Episode's favorite status is reliably confirmable well under
+    /// a second, but toggling a Series' (a Show's own, not a Season/
+    /// Episode's) sometimes confirms just as fast and other times took
+    /// several seconds longer than that, on the exact same item with no code
+    /// change in between.
+    ///
+    /// `refreshItem()` used to poll on a much shorter schedule of its own
+    /// (~3.25s total) — reproduced live (2026-08-13) that it wasn't enough
+    /// for at least one real case: resuming a movie, scrubbing to a
+    /// different position, and exiting within a few seconds. The scrub
+    /// itself never reaches the server at all (playback progress only
+    /// reports every 10s while playing — see `PlayerViewModel
+    /// .startProgressReporting()` — so a short session's *only* report is
+    /// the final stop), and confirmed that write did land correctly
+    /// (resuming again afterward picked up the right position) — just not
+    /// within `refreshItem()`'s old, shorter poll window, leaving the
+    /// detail page's progress bar showing the pre-scrub position even
+    /// though the server already had the right one. Sharing this longer,
+    /// already-proven-sufficient schedule (rather than tuning a second,
+    /// shorter one and hoping) is the fix.
+    private static let userDataCommitPollSchedule: [Double] = [0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0]
 
     /// Toggles `itemID`'s favorite status (`HeroActionButtons`' button/
     /// menu — `itemID` is always `item.id` on a Movie/Episode-content page,
@@ -333,36 +370,24 @@ final class AssetDetailViewModel {
     /// Series' own favorite status when `item` *is* that Series updates
     /// both `item` and `seriesItem` together, since they're the same id).
     ///
-    /// Polls on a short/growing schedule, for the same reason
-    /// `refreshItem()` below does: Jellyfin's write endpoints (here,
-    /// `setFavorite`/`setWatched`) return 200 immediately but commit the
-    /// actual userData change asynchronously afterward, with *genuinely
-    /// variable* latency — confirmed live, direct-to-server `curl` checks
-    /// against this same server: toggling a Movie or Episode's favorite
-    /// status is reliably confirmable well under a second, but toggling a
-    /// Series' (a Show's own, not a Season/Episode's) sometimes confirms
-    /// just as fast and other times took several seconds longer than that,
-    /// on the exact same item with no code change in between. Longer/more
-    /// attempts than `refreshItem()`'s schedule (~13s total vs. ~3.25s) to
-    /// comfortably cover that slow case rather than give up and leave the
-    /// icon showing a stale status — confirmed live that this schedule's
-    /// old, shorter version reliably reproduced exactly that: the write
-    /// landing correctly (`curl` showed it), but the app's last poll
-    /// attempt still catching the old value first. `expectedFavorite`/
-    /// `expectedWatched` (whichever this call is toggling — the other
-    /// stays `nil` and is ignored) is what this polls *for*: keep
-    /// re-fetching until the server actually reports the value this just
-    /// wrote, not just any response.
+    /// Polls on a short/growing schedule, for the same reason `refreshItem()`
+    /// below does — see `userDataCommitPollSchedule`'s own doc comment for
+    /// the shared reasoning/schedule both use.
+    ///
+    /// `expectedFavorite`/`expectedWatched` (whichever this call is
+    /// toggling — the other stays `nil` and is ignored) is what this polls
+    /// *for*: keep re-fetching until the server actually reports the value
+    /// this just wrote, not just any response.
     private func refetchFavoriteWatchedTarget(itemID: String, expectedFavorite: Bool? = nil, expectedWatched: Bool? = nil) async {
         let images = await client.makeImageURLBuilder()
-        for delay in [0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0] as [Double] {
+        for delay in Self.userDataCommitPollSchedule {
             try? await Task.sleep(for: .seconds(delay))
             // `Task.sleep` throwing on cancellation is swallowed by `try?`
             // above, so this is what actually stops the poll early once
             // `cancelBackgroundWork()` (`AssetDetailView`'s `.onDisappear`)
             // cancels the `Task` this is running in — otherwise a page
-            // backed out of mid-toggle would keep polling for up to ~13s
-            // more against a screen nobody's looking at.
+            // backed out of mid-toggle would keep polling for the rest of
+            // the schedule against a screen nobody's looking at.
             guard !Task.isCancelled else { return }
             guard let dto = try? await client.item(userID: userID, itemID: itemID) else { continue }
             let updated = MediaItem(dto: dto, images: images)
@@ -376,17 +401,104 @@ final class AssetDetailViewModel {
         }
     }
 
+    /// Immediately reflects a just-closed playback session's final position
+    /// on whichever of `item`/`showPlaybackEpisode` was actually playing
+    /// (`outcome.itemID` — `item` itself for a Movie/Episode-content page,
+    /// `showPlaybackEpisode` for Show content played via the main button —
+    /// see `PlayResumeButtonRow.targetEpisode`'s doc comment for that same
+    /// split), rather than waiting on `refreshItem()`'s server poll to catch
+    /// up — see `PlaybackSessionOutcome`'s own doc comment for why that poll
+    /// alone isn't good enough here, however long its schedule is.
+    ///
+    /// Deliberately leaves `played`/the Watched badge alone — whether this
+    /// position crosses Jellyfin's own "mark as watched" threshold is a
+    /// server-side judgement call this isn't trying to replicate client-side
+    /// (getting it wrong would show an actively *incorrect* status, worse
+    /// than a briefly-stale-but-eventually-correct one). `refreshItem()`,
+    /// called right after this from the same `onDismiss` (see
+    /// `MovieDetailView`/`ShowDetailView`'s call sites), is what settles
+    /// that.
+    ///
+    /// Also records `optimisticPlaybackTarget` — see that property's own doc
+    /// comment for why `refreshItem()` needs it: without it, the very poll
+    /// this method is meant to be ahead of ends up undoing it (reproduced
+    /// live, 2026-08-13 — this method alone wasn't sufficient by itself).
+    func applyOptimisticPlaybackPosition(_ outcome: PlaybackSessionOutcome) {
+        guard outcome.durationSeconds > 0 else { return }
+        optimisticPlaybackTarget = (
+            itemID: outcome.itemID, ticks: Int64(outcome.positionSeconds * 10_000_000)
+        )
+        if let current = item, current.id == outcome.itemID {
+            item = current.withOptimisticPlaybackPosition(seconds: outcome.positionSeconds, duration: outcome.durationSeconds)
+        }
+        if let current = showPlaybackEpisode, current.id == outcome.itemID {
+            showPlaybackEpisode = current.withOptimisticPlaybackPosition(seconds: outcome.positionSeconds, duration: outcome.durationSeconds)
+        }
+    }
+
+    /// Set by `applyOptimisticPlaybackPosition(_:)`, read (and cleared) by
+    /// `refreshItem()` — the fix for a real bug in how those two interact.
+    ///
+    /// `refreshItem()`'s poll normally stops as soon as a fetch *differs*
+    /// from whatever `item` held when the poll started — a reasonable way
+    /// to detect "the server has caught up" in general. But by the time it
+    /// starts, `item` already holds *this session's own optimistic guess*
+    /// (applied by `applyOptimisticPlaybackPosition(_:)` moments earlier,
+    /// from the same close-and-return flow) — not the server's last-known
+    /// value. Reproduced live (2026-08-13): the poll's first attempt, ~0.25s
+    /// in, almost always still gets the server's *old*, not-yet-committed
+    /// position back — which "differs" from the optimistic guess just fine,
+    /// so the poll adopted it and stopped immediately, silently overwriting
+    /// the correct guess with stale data and never trying again.
+    ///
+    /// The fix: while this is set, `refreshItem()` ignores any fetch that
+    /// hasn't actually caught up to it yet (within `optimisticPositionTolerance`
+    /// — an exact match isn't realistic; see that property's own doc
+    /// comment) rather than adopting whatever it happens to get back first,
+    /// unless the server's independently decided the item is fully played
+    /// (which resets its position on its own schedule, so it would never
+    /// "catch up" to a pre-played guess otherwise). Scoped by itemID rather
+    /// than just cleared on every call: `refreshItem()`'s own `displayedItemID`
+    /// only ever concerns `item`, never `showPlaybackEpisode`, so a guess
+    /// that belongs to the latter must be left alone rather than compared
+    /// against fetches for the former.
+    private var optimisticPlaybackTarget: (itemID: String, ticks: Int64)?
+
+    /// How close a poll's fetched `playbackPositionTicks` needs to be to
+    /// `optimisticPlaybackTarget`'s guess to count as "caught up" — not an
+    /// exact match, since the guess and the value `PlayerViewModel.stop()`
+    /// actually reports are read from the engine's clock a moment apart
+    /// (whatever plays out between `PlayerView.close()` capturing this
+    /// session's outcome and its own later call to `stop()`), so they can
+    /// differ by up to a couple of real seconds even once the server has
+    /// genuinely committed the right write. 5 real seconds (in ticks, 100ns
+    /// units) comfortably covers that drift while still clearly rejecting
+    /// the *actually* stale case this exists for — a resume position tens of
+    /// minutes off from a scrub.
+    private static let optimisticPositionTolerance: Int64 = 5 * 10_000_000
+
+    /// Bumped once at the end of every `refreshItem()` call — `SeasonEpisodeList`
+    /// takes this as a prop and folds it into its own episode-list `.task(id:)`,
+    /// so returning from a playback session re-fetches that season's episode
+    /// rows too (each row's own progress bar/watched state — see
+    /// `EpisodeRow` — otherwise stayed stale until a manual season-picker
+    /// change, since that list fetches independently of `item`). A plain
+    /// `UUID`, not a `Bool`/counter: `SeasonEpisodeList`'s `.task(id:)` only
+    /// needs *some* distinct, `Equatable` value each time to force a re-run,
+    /// not anything with meaning of its own.
+    private(set) var episodeListRefreshToken = UUID()
+
     /// Re-fetches just the main item's DTO so the Play/Resume button and its
     /// progress bar reflect the latest server-side watch state (e.g. after
-    /// returning from the player). Skips the sibling rails/seasons — they
-    /// haven't meaningfully changed during one playback session.
+    /// returning from the player) — see `episodeListRefreshToken` just above
+    /// for the sibling episode list. Skips `seasons`/`similar`/`collections`
+    /// — those genuinely don't change from one playback session.
     ///
-    /// `PlayerViewModel.stop()` awaits the `/Sessions/Playing/Stopped` POST,
-    /// but Jellyfin commits the userData write asynchronously after that
-    /// response returns — and the commit latency varies. Rather than gamble
-    /// on a fixed delay, this polls the item endpoint on a short schedule
-    /// until the returned userData actually differs from what we had (which
-    /// means the server has caught up), or we hit the last attempt.
+    /// Polls on `userDataCommitPollSchedule` — see that property's own doc
+    /// comment for why, including this specific method's own history with
+    /// getting that schedule's length wrong — until the returned userData
+    /// actually differs from what we had (which means the server has caught
+    /// up), or we hit the last attempt.
     func refreshItem() async {
         // `displayedItemID`, not `itemID` — see that property's doc comment.
         // They're the same value except for a Season load, where `item` was
@@ -396,15 +508,59 @@ final class AssetDetailViewModel {
         let previousTicks = item?.dto.userData?.playbackPositionTicks
         let previousPercentage = item?.dto.userData?.playedPercentage
         let previouslyPlayed = item?.dto.userData?.played
+        // See `optimisticPlaybackTarget`'s own doc comment — only relevant
+        // when it belongs to `item` specifically (`displayedItemID`), not a
+        // `showPlaybackEpisode` guess this fetch has nothing to do with.
+        let optimisticTarget = optimisticPlaybackTarget?.itemID == displayedItemID ? optimisticPlaybackTarget : nil
+        // Captured up front, before either task below can reassign `item` —
+        // see `refreshShowPlaybackEpisodeIfNeeded`'s doc comment for why
+        // this can't just re-read `item?.kind` after the poll instead.
+        let isShowContent = item?.kind == .series
+        // Also captured up front rather than read from inside
+        // `advanceToNextEpisodeIfCompleted` — see that method's own doc
+        // comment for the race this avoids.
+        let playedEpisodeID = optimisticPlaybackTarget?.itemID
         let images = await client.makeImageURLBuilder()
 
-        for delay in [0.25, 0.5, 1.0, 1.5] as [Double] {
+        // Both run concurrently, not sequentially — see
+        // `refreshShowPlaybackEpisodeIfNeeded`'s and
+        // `advanceToNextEpisodeIfCompleted`'s own doc comments for why
+        // gating either behind the poll below (the original shape) left
+        // them waiting up to the poll's *entire* schedule for Show content.
+        async let showPlaybackEpisodeUpdate: Void = refreshShowPlaybackEpisodeIfNeeded(isShowContent: isShowContent, images: images)
+        async let nextEpisodeAdvance: Void = advanceToNextEpisodeIfCompleted(playedEpisodeID: playedEpisodeID)
+
+        for delay in Self.userDataCommitPollSchedule {
             try? await Task.sleep(for: .seconds(delay))
             // See the matching check in `refetchFavoriteWatchedTarget` —
             // same reasoning, same reliance on `cancelBackgroundWork()`.
             guard !Task.isCancelled else { return }
             guard let dto = try? await client.item(userID: userID, itemID: displayedItemID) else { continue }
+
+            // `advanceToNextEpisodeIfCompleted`, running concurrently
+            // above, can swap `self.displayedItemID` out from under this
+            // loop mid-poll (to a *different* episode entirely) — if that's
+            // already happened, this fetch (for the now-superseded item)
+            // is stale; adopting it would clobber the advance right back
+            // to the episode the user just finished. Stop rather than risk
+            // that — the advance has already produced the more current,
+            // correct state, so there's nothing more for this poll to do.
+            guard self.displayedItemID == displayedItemID else { break }
+
+            if let optimisticTarget {
+                let fetchedTicks = dto.userData?.playbackPositionTicks ?? 0
+                let played = dto.userData?.played ?? false
+                let caughtUp = fetchedTicks >= optimisticTarget.ticks - Self.optimisticPositionTolerance || played
+                // Not caught up yet — this fetch is almost certainly just
+                // the server's old, not-yet-committed value; adopting it
+                // would regress `item` back to stale data (the exact bug
+                // this whole property exists to fix), so skip it and try
+                // again next attempt instead.
+                guard caughtUp else { continue }
+            }
+
             item = MediaItem(dto: dto, images: images)
+            if optimisticPlaybackTarget?.itemID == displayedItemID { optimisticPlaybackTarget = nil }
             if dto.userData?.playbackPositionTicks != previousTicks
                 || dto.userData?.playedPercentage != previousPercentage
                 || dto.userData?.played != previouslyPlayed {
@@ -412,15 +568,130 @@ final class AssetDetailViewModel {
             }
         }
 
-        // Show content's Play/Resume target can change after a playback
-        // session — e.g. the previously-resolved episode just got fully
-        // watched, so a Series-direct page's NextUp resolution should now
-        // point at the following episode. Episode content
-        // (`showPlaybackEpisode` always nil there) and a Movie (no
-        // `seriesID` at all) both no-op via the guard below.
-        if item?.kind == .series, let seriesID {
-            await resolveShowPlaybackEpisode(seriesID: seriesID, images: images)
+        await showPlaybackEpisodeUpdate
+        await nextEpisodeAdvance
+
+        // See `episodeListRefreshToken`'s own doc comment. Bumped
+        // unconditionally (not just when the polling loop above actually
+        // detected a change) — `SeasonEpisodeList`'s own fetch is a single
+        // shot, not polled, so there's no "did this change" check to gate
+        // it on here either; a harmless extra fetch of the same data is the
+        // worst case when nothing changed (e.g. this page's currently
+        // selected season isn't the one that was just played from).
+        episodeListRefreshToken = UUID()
+    }
+
+    /// `refreshItem()`'s Show-content counterpart to its own item poll —
+    /// pulled out into its own function specifically so it can run
+    /// *concurrently* with that poll via `async let`, rather than after it.
+    ///
+    /// The original shape ran this sequentially, gated behind the poll
+    /// loop finishing (whether by detecting a change or exhausting its
+    /// schedule). That's fine for a Movie/Episode-content page, where the
+    /// poll and this update are the same thing — but for Show content
+    /// (`isShowContent`, i.e. `item` is the Series' own DTO) they're
+    /// polling *different* things: the loop watches the Series' own
+    /// `userData`, which essentially never reflects a single episode's
+    /// progress, so its "did this change?" exit condition almost never
+    /// fires — confirmed live (2026-08-13): a real playback session's poll
+    /// exhausted its entire ~13s schedule every time, with this call only
+    /// running (and `showPlaybackEpisode` only updating) *after* that,
+    /// regardless of how quickly the server actually committed the
+    /// episode's own new state. Running the two concurrently means this
+    /// starts immediately instead of waiting on an unrelated, near-certain
+    /// no-op.
+    ///
+    /// `isShowContent` is a parameter (`item?.kind == .series`, captured by
+    /// the caller *before* either task starts) rather than read directly
+    /// here, since by the time an `async let`-scheduled call to this
+    /// actually runs, the poll may already have reassigned `item` — for a
+    /// Series load `item` stays a Series throughout so this wouldn't
+    /// currently change the answer, but reading a value that's concurrently
+    /// being mutated elsewhere, when the correct one is trivially available
+    /// up front, is worth avoiding on principle.
+    private func refreshShowPlaybackEpisodeIfNeeded(isShowContent: Bool, images: ImageURLBuilder) async {
+        guard isShowContent, let seriesID else { return }
+        await resolveShowPlaybackEpisode(seriesID: seriesID, images: images)
+    }
+
+    /// After a playback session closes, checks whether the episode that was
+    /// actually playing (`playedEpisodeID` — `optimisticPlaybackTarget`'s
+    /// itemID at the time `refreshItem()` started; see
+    /// `applyOptimisticPlaybackPosition(_:)`'s doc comment, which sets it
+    /// regardless of whether this page started out as Show-direct content
+    /// or Episode content) is now fully watched, and if Jellyfin's own
+    /// NextUp resolves to a *different* episode, advances this page to show
+    /// it — reusing `selectEpisode(_:)`'s existing fetch-and-swap shape (and
+    /// its `preselectedSeasonID` update, for `ShowDetailView`'s season
+    /// picker to follow across a season boundary).
+    ///
+    /// A Show-direct page becomes an Episode-content page this way — by
+    /// design, not a special case: `isEpisodeContent` (`ShowDetailView`'s
+    /// own name for this) is purely `item?.kind == .episode`, so once
+    /// `item` swaps to the resolved next episode, the page's existing
+    /// Episode-content rendering just takes over, with no new branching
+    /// needed anywhere in the view layer.
+    ///
+    /// Deliberately its own poll, not folded into the `displayedItemID`
+    /// poll in `refreshItem()`: for a Show-direct page, the episode that
+    /// played and `displayedItemID` (the Series' own id) are two different
+    /// items entirely — that poll fetches the Series' own DTO, which can't
+    /// answer "is *this episode* played" at all. Runs concurrently with
+    /// that poll (`async let` in `refreshItem()`) for the same reason
+    /// `refreshShowPlaybackEpisodeIfNeeded` does — gating this behind an
+    /// unrelated poll's full schedule would delay it for no reason. Because
+    /// it can end up mutating `item`/`displayedItemID` itself (via
+    /// `selectEpisode`) while that other poll is still running, `refreshItem()`'s
+    /// own loop has a matching guard to avoid the two racing — see the
+    /// comment at its `self.displayedItemID == displayedItemID` check.
+    ///
+    /// Confirmed live (2026-08-13) against a real server for the
+    /// Show-direct entry point specifically: a page showing "Play S2:E2"
+    /// finished that episode and landed on "Play S2:E3" — a real
+    /// Series-direct-to-Episode-content transition, poll confirming
+    /// `played` on its very first attempt. Also separately confirmed live
+    /// crossing an actual season boundary (finishing a season's last
+    /// episode correctly landed on the next season's first, with the
+    /// season picker following — see `preselectedSeasonID`'s update below
+    /// and `ShowDetailView`'s matching `.onChange`). The Episode-content
+    /// entry point (starting already on a specific episode's own page)
+    /// exercises the identical code path and is covered by
+    /// `test_refreshItem_episodeContent_confirmedPlayed_advancesToNextEpisode`,
+    /// but wasn't separately live-confirmed with a real full-episode
+    /// completion — only with a partial watch (which correctly didn't
+    /// advance).
+    ///
+    /// No-ops (leaves `item` exactly as whatever the other concurrent steps
+    /// already produced) whenever: nothing was actually played this session
+    /// (`playedEpisodeID` nil), it wasn't Show content (no `seriesID`), the
+    /// server never confirms `played` within the poll window, or NextUp has
+    /// nothing (series finished) or returns the same episode again — all
+    /// indistinguishable from "nothing to advance to yet," which is the
+    /// correct, safe fallback in every case rather than guessing.
+    private func advanceToNextEpisodeIfCompleted(playedEpisodeID: String?) async {
+        guard let playedEpisodeID, let seriesID else { return }
+
+        var confirmedPlayed = false
+        for delay in Self.userDataCommitPollSchedule {
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            guard let dto = try? await client.item(userID: userID, itemID: playedEpisodeID) else { continue }
+            if dto.userData?.played == true {
+                confirmedPlayed = true
+                break
+            }
         }
+        guard confirmedPlayed else { return }
+
+        guard let nextDto = try? await client.nextUp(userID: userID, seriesID: seriesID).items.first,
+              nextDto.id != playedEpisodeID else { return }
+
+        await selectEpisode(nextDto.id)
+        // The guess this was tracking belonged to the now-superseded
+        // episode — leaving it set is harmless (a future `refreshItem()`'s
+        // own itemID-matching would just never match it again), but
+        // clearing it here is tidier and avoids it lingering as stale state.
+        if optimisticPlaybackTarget?.itemID == playedEpisodeID { optimisticPlaybackTarget = nil }
     }
 
     /// Resolves `showPlaybackEpisode` — see that property's doc comment for
@@ -430,9 +701,9 @@ final class AssetDetailViewModel {
     /// falling back to the first episode of the first season) — safe to
     /// rely on here because this is only ever called for Show content
     /// (`load()`'s `.season` case and its post-`seasons` `.series` case;
-    /// `refreshItem()`'s `item?.kind == .series` guard), never for Episode
-    /// content, where `preselectedSeasonID` is *also* set (to that
-    /// episode's own season) but this function is simply never invoked.
+    /// `refreshShowPlaybackEpisodeIfNeeded`'s `isShowContent` guard), never
+    /// for Episode content, where `preselectedSeasonID` is *also* set (to
+    /// that episode's own season) but this function is simply never invoked.
     private func resolveShowPlaybackEpisode(seriesID: String, images: ImageURLBuilder) async {
         if let preselectedSeasonID {
             if let firstEpisodeDto = try? await client.episodes(

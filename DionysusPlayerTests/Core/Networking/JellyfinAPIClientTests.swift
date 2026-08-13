@@ -296,6 +296,36 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertNil(decoded?.MediaSourceId)
     }
 
+    func test_currentSession_filtersByDeviceIdAndReturnsFirstMatch() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/Sessions")
+            XCTAssertEqual(request.queryDictionary["DeviceId"], "device-1")
+            let session = SessionInfoDto(
+                id: "sess-1", deviceId: "device-1",
+                playState: PlayStateInfoDto(mediaSourceId: "src-1", playMethod: "Transcode"),
+                transcodingInfo: TranscodingInfoDto(videoCodec: "h264")
+            )
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: [session])
+        }
+
+        let session = try await client.currentSession(deviceID: "device-1")
+
+        XCTAssertEqual(session?.playState?.playMethod, "Transcode")
+        XCTAssertEqual(session?.transcodingInfo?.videoCodec, "h264")
+    }
+
+    func test_currentSession_noActiveSession_returnsNil() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: [SessionInfoDto]())
+        }
+
+        let session = try await client.currentSession(deviceID: "device-1")
+
+        XCTAssertNil(session)
+    }
+
     func test_reportPlaybackProgress_serverError_throwsHTTPError() async {
         let client = makeClient(accessToken: "tok")
         MockURLProtocol.requestHandler = { request in

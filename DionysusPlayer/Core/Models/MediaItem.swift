@@ -206,6 +206,32 @@ struct MediaItem: Identifiable {
 
     var isPlayed: Bool { dto.userData?.played ?? false }
 
+    /// A cheap identity string covering exactly the fields
+    /// `PlayResumeButtonRow`'s progress bar/Play-vs-Resume label read
+    /// (`resumePositionSeconds`/`playedFraction`/`isPlayed`, all derived
+    /// from `userData`) — deliberately *not* `MediaItem`/`BaseItemDto`'s own
+    /// `Hashable`/`Equatable` conformance, which is id-only by design (see
+    /// `BaseItemDto: Equatable`'s own comment, needed for list-diffing
+    /// elsewhere) and so never changes just because `userData` did.
+    ///
+    /// Exists to be handed to `.id()` at `PlayResumeButtonRow`'s call sites
+    /// (`MovieDetailView`/`ShowDetailView`) — that view takes `item` as a
+    /// plain `let` *and* owns its own `@State` (the version-choice prompt),
+    /// which is exactly the shape that can leave a child view's `body`
+    /// silently not re-running when a plain, non-tracked `let` input
+    /// changes, even though the parent's own body correctly re-ran and
+    /// passed a genuinely different value — already hit once in this exact
+    /// codebase (see `InfoMetadataRow`/`DetailTabsView`'s matching
+    /// `.id(item.technicalDetails == nil)`, added for the same reason
+    /// before `PlayResumeButtonRow` had any `@State` of its own to be
+    /// vulnerable to it). Forcing a fresh `.id()` whenever this changes
+    /// discards and rebuilds the view (and its `@State` — an acceptable
+    /// reset, same trade-off `DetailTabsView`'s fix already made), which
+    /// reliably re-invokes `body`.
+    var playbackProgressIdentity: String {
+        "\(dto.userData?.playbackPositionTicks ?? -1)-\(dto.userData?.playedPercentage ?? -1)-\(dto.userData?.played ?? false)"
+    }
+
     var isFavorite: Bool { dto.userData?.isFavorite ?? false }
 
     /// True when the user has started but not finished this item. For movies,
@@ -678,6 +704,25 @@ struct MediaItem: Identifiable {
             return images.url(itemID: parentID, imageType: "Backdrop", tag: tag, maxWidth: 1600)
         }
         return nil
+    }
+
+    /// A copy with `resumePositionSeconds`/`playedFraction` overwritten to
+    /// reflect a just-closed playback session's final position — see
+    /// `AssetDetailViewModel.applyOptimisticPlaybackPosition(_:)` for why
+    /// this exists (a way to reflect a known-correct value immediately,
+    /// rather than waiting on a server round-trip to confirm it). Copies
+    /// `dto` and overwrites only its `userData`'s position fields, leaving
+    /// everything else (including `played`, deliberately — see that
+    /// method's own doc comment) untouched; a no-op (`self`, unchanged) for
+    /// a zero/negative duration, which can't produce a meaningful fraction.
+    func withOptimisticPlaybackPosition(seconds: TimeInterval, duration: TimeInterval) -> MediaItem {
+        guard duration > 0 else { return self }
+        var newDto = dto
+        var userData = newDto.userData ?? UserItemDataDto()
+        userData.playbackPositionTicks = Int64(seconds * 10_000_000)
+        userData.playedPercentage = min(100, max(0, (seconds / duration) * 100))
+        newDto.userData = userData
+        return MediaItem(dto: newDto, images: images)
     }
 }
 

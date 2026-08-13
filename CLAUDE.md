@@ -10,18 +10,21 @@ planned later). It talks to a Jellyfin server over the plain REST/JSON API
 FFmpeg + VideoToolbox playback engine (HDR10/HDR10+/Dolby Vision support), pulled
 in as a Swift Package.
 
-**Status: builds clean, playback untested.** This was originally scaffolded
-without a macOS/Xcode toolchain and expected to need fixes in
-`AetherPlaybackEngine.swift`, but as of 2026-08-07 (Xcode 26.5, iOS 26.5
-Simulator) `xcodebuild build` for the `DionysusPlayer` scheme succeeds
+**Status: builds clean, playback verified on a physical device.** This was
+originally scaffolded without a macOS/Xcode toolchain and expected to need
+fixes in `AetherPlaybackEngine.swift`, but as of 2026-08-07 (Xcode 26.5, iOS
+26.5 Simulator) `xcodebuild build` for the `DionysusPlayer` scheme succeeds
 end-to-end — package resolution (AetherEngine + its FFmpegBuild/SMBClient/
 LibDovi dependencies), compilation, and linking all complete with no errors,
-and the `DionysusPlayerTests` suite (297 tests, see `TESTING.md`) passes.
-That confirms the code compiles against AetherEngine's real API; it does
-*not* confirm playback actually works — no test here plays real media or
-exercises a real device's decoder, so treat `PlayerViewModel`/
-`AetherPlaybackEngine` runtime behavior as unverified until manually tried
-against a real Jellyfin server.
+and the `DionysusPlayerTests` suite (411 tests, see `TESTING.md`) passes.
+As of 2026-08-12, real playback on a physical device (iPhone 17,1, iOS 26.6)
+was confirmed via the "stats for nerds" overlay: Dolby Vision (Profile 8)
+source decoded in hardware through VideoToolbox HEVC, EAC3 audio
+stream-copied to a 7.1 output, and buffered-duration/size stats updating
+live. That covers direct-play HDR video + passthrough audio on one device;
+still treat other paths (transcoding, non-Dolby-Vision HDR formats, other
+devices, seeking/scrubbing edge cases) as unverified until separately
+checked.
 
 ## Commands
 
@@ -51,6 +54,78 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
   -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
+### Keeping the AetherEngine version display current
+
+The player's "stats for nerds" overlay (`PlaybackStatsOverlay`) shows the
+pinned `AetherEngine` version, read from a checked-in generated constant
+(`DionysusPlayer/Core/Playback/AetherEngineVersion.swift`) rather than a
+hand-maintained literal or a build-time injection — the latter was tried and
+doesn't actually work reliably (see `project.yml`'s `postCompileScripts`
+comment). **Whenever `Package.resolved`'s `aetherengine` pin changes** — a
+fresh package resolution, `File > Packages > Update to Latest Package
+Versions` in Xcode, or a `packages:` bump in `project.yml` — regenerate it:
+
+```sh
+./Scripts/update-aetherengine-version.sh
+```
+
+`packages: AetherEngine: from: 6.5.5` in `project.yml` is already SPM's "up
+to next major" rule, so any `6.x.x` (not just `6.5.5`) satisfies it — a
+fresh package resolution (no prior `Package.resolved` to reuse) picks up
+whatever's newest automatically. An *already-resolved* local checkout won't
+re-resolve on its own, though: Xcode/`xcodebuild` reuse whatever's already
+pinned once resolved (reproducible builds mid-session, by design), so
+picking up a newer `6.x` release still needs an explicit refresh — Xcode's
+`File > Packages > Update to Latest Package Versions`, or deleting
+DerivedData's SPM state — followed by the script above.
+
+**Known bug, not yet fixed:** the same "stamp info into the built Info.plist
+via a postCompileScripts phase" trick used above for git branch/commit
+(`AppVersionInfo`'s `GitBranch`/`GitCommitHash`, shown on the Profile
+screen's footer) was re-verified 2026-08-12 and found broken — the script
+phase runs *before* Xcode's own Info.plist processing regardless of its
+position in the build phase list (a script with no declared outputs gets
+scheduled into an early "always run first" group), so those two keys
+currently never make it into a real build; `AppVersionInfo.footerText`
+silently falls back to "unknown" for both. See `project.yml`'s
+`postCompileScripts` comment for what was tried. If this needs fixing, it
+likely wants the same treatment as AetherEngine's version above (a
+generated file, not a build-time injection) rather than fighting the
+sandboxing/build-graph-ordering problem further.
+
+## Manual/automated UI verification
+
+For visual or interactive changes, prefer the `ios-simulator-skill` (when
+available) over ad hoc `simctl`/coordinate-tap scripting: it drives the
+Simulator via `idb`'s accessibility tree (find-by-text/type/id, then tap)
+rather than blind pixel coordinates, which survives layout changes far
+better. It needs `idb-companion` installed (`brew tap facebook/fb && brew
+install idb-companion`) plus the `idb` Python client — install that via
+`pipx install --python $(which python3.12) fb-idb` specifically; pipx's
+default (newer) Python fails at runtime with an `asyncio.get_event_loop()`
+error. Start a session with `idb_companion --udid <udid> &` then
+`idb connect <udid>` before the first call.
+
+Reuse a single booted Simulator instance across tasks rather than
+booting/quitting one per session: check `xcrun simctl list devices | grep
+Booted` first and target whatever's already running (same device for
+`xcodebuild -destination`/`simctl install`/`simctl launch`), and don't
+`simctl shutdown` or quit Simulator.app when a task finishes. One instance
+reuses fine back-to-back — closing and relaunching only wastes boot time and
+throws away useful state (installed build, current screen).
+
+Confirmed (2026-08-12) working well for Login, Home, Search, Profile, and
+detail-page screens — real accessibility elements, real taps. **Confirmed
+NOT working for the Player screen** (`PlayerView`/`PlayerControlsOverlay`):
+`idb ui describe-all` returns an empty tree there (root node, zero children)
+even with controls on screen, and coordinate taps aimed at any specific
+control (close, captions, rotation-lock, transport buttons, the scrubber)
+silently do nothing, while a generic full-screen tap still works. The
+working theory is AetherEngine's constantly-updating video surface, not a
+bug in the buttons themselves — a real device tap on the same buttons works
+fine. Don't burn time retrying automated taps against the Player screen;
+ask the user to verify interactive behavior there manually instead.
+
 ## Architecture
 
 The app is a straight linear state machine at the top, with feature modules
@@ -79,7 +154,9 @@ login screen.
 serialized through it, and it holds mutable state (`accessToken`) that gets
 set post-authentication. It's a thin hand-written wrapper over Jellyfin's
 REST API (no generated SDK), intentionally scoped to only what the app needs:
-server info, auth, browsing/search, playback info, and progress reporting.
+server info, auth, browsing/search, playback info, progress reporting, and
+(diagnostics-only, for `PlaybackStatsOverlay`'s Streaming section) reading
+back the server's own live session/transcode state via `/Sessions`.
 `ImageURLBuilder` is deliberately *not* actor-isolated — it's a plain struct
 snapshotted via `client.makeImageURLBuilder()` so SwiftUI views can build
 image URLs synchronously without hopping through the actor on every render.

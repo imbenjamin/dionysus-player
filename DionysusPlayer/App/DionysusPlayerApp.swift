@@ -31,6 +31,11 @@ let themePreferenceStorageKey = "themePreference"
 
 @main
 struct DionysusPlayerApp: App {
+    // Only needed to answer UIKit's
+    // `application(_:supportedInterfaceOrientationsFor:)` for the player's
+    // rotation-lock button (see `AppDelegate`/`RotationLock`) — SwiftUI's
+    // `App` protocol has no hook for that itself.
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState = AppState()
     @AppStorage(themePreferenceStorageKey) private var themePreference: ThemePreference = .system
 

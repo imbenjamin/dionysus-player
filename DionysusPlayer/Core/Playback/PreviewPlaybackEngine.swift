@@ -17,6 +17,22 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         PlaybackTrack(id: 1, kind: .subtitle, displayTitle: "English (SDH)", isSelected: false)
     ]
     var videoFormatDescription: String? = "Dolby Vision P8.1"
+    var zoomMode: VideoZoomMode = .fit
+    var stats = PlaybackStats(
+        videoSize: "3840×1600",
+        frameRate: "23.976 fps",
+        bitrate: "38.2 Mbps",
+        sourceColorFormat: "Dolby Vision (Profile 8)",
+        displayColorFormat: "HDR10",
+        videoDecoder: "VideoToolbox HEVC (HW)",
+        audioDecoder: "AVPlayer",
+        audioChannels: "5.1",
+        backend: "Native",
+        bufferedSeconds: 24,
+        bufferedBytes: 8_400_000,
+        currentTime: 0,
+        duration: 5400
+    )
 
     func load(url: URL) async throws {
         onStateChange?(.playing)

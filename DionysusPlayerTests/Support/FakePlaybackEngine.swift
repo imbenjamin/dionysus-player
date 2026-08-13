@@ -16,6 +16,22 @@ final class FakePlaybackEngine: PlaybackEngine {
     var audioTracks: [PlaybackTrack] = []
     var subtitleTracks: [PlaybackTrack] = []
     var videoFormatDescription: String?
+    var zoomMode: VideoZoomMode = .fit
+    var stats = PlaybackStats(
+        videoSize: nil,
+        frameRate: nil,
+        bitrate: nil,
+        sourceColorFormat: "SDR",
+        displayColorFormat: "SDR",
+        videoDecoder: nil,
+        audioDecoder: nil,
+        audioChannels: nil,
+        backend: "None",
+        bufferedSeconds: nil,
+        bufferedBytes: nil,
+        currentTime: 0,
+        duration: 0
+    )
 
     /// Set before calling `load` to make it throw instead of succeeding.
     var loadError: Error?

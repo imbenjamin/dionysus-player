@@ -292,6 +292,17 @@ actor JellyfinAPIClient {
         return components.url
     }
 
+    /// The live session Jellyfin's server is tracking for this device —
+    /// diagnostics-only, for `PlaybackStatsOverlay`'s "Streaming" section
+    /// (server-reported play method, and live transcode parameters when
+    /// applicable). Filtered by `DeviceId`, which every request already
+    /// identifies itself with via `X-Emby-Authorization` (see
+    /// `JellyfinAuthorization`), so this is normally exactly one entry.
+    func currentSession(deviceID: String) async throws -> SessionInfoDto? {
+        let sessions: [SessionInfoDto] = try await get("/Sessions", query: [.init(name: "DeviceId", value: deviceID)])
+        return sessions.first
+    }
+
     /// Snapshot of the current base URL/token for building image URLs
     /// synchronously outside the actor — see `ImageURLBuilder`.
     func makeImageURLBuilder() -> ImageURLBuilder {

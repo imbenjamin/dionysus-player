@@ -27,6 +27,24 @@ final class PlayerViewModel {
     /// asked for.
     private(set) var activeMediaSourceID: String?
 
+    /// The video stream of whichever `MediaSourceInfo` `start()` resolved to
+    /// — Jellyfin's own server-side probe result for it (`MediaStream
+    /// .videoRangeType` in particular), used by `PlaybackStatsOverlay` to
+    /// show a Dolby Vision source's base/enhancement layer format alongside
+    /// AetherEngine's own `sourceColorFormat`. Set once in `start()`; `nil`
+    /// before that resolves or if the source genuinely has no video stream.
+    private(set) var sourceVideoStream: MediaStream?
+    /// The Jellyfin server's own version string (e.g. "10.9.7"). Fetched
+    /// lazily via `refreshServerVersion()` rather than in `start()` — it's
+    /// diagnostics-only (`PlaybackStatsOverlay`'s Streaming section), so
+    /// there's no reason to add a network round-trip to playback startup
+    /// for it.
+    private(set) var serverVersion: String?
+    /// The live session Jellyfin's server is tracking for this device —
+    /// refreshed periodically by `PlaybackStatsOverlay` while visible via
+    /// `refreshStreamingSession()`. `nil` until the first successful fetch.
+    private(set) var streamingSession: SessionInfoDto?
+
     private let client: JellyfinAPIClient
     private let userID: String
     private var progressReportTask: Task<Void, Never>?
@@ -34,6 +52,11 @@ final class PlayerViewModel {
     var audioTracks: [PlaybackTrack] { engine.audioTracks }
     var subtitleTracks: [PlaybackTrack] { engine.subtitleTracks }
     var videoFormatDescription: String? { engine.videoFormatDescription }
+    /// A fresh snapshot on every access — see `PlaybackStats`. Intentionally
+    /// not cached on the view model itself: `PlaybackStatsOverlay` polls
+    /// this on its own timer only while it's actually visible, so there's
+    /// nothing to keep in sync the rest of the time.
+    var stats: PlaybackStats { engine.stats }
 
     init(
         client: JellyfinAPIClient, userID: String, itemID: String, engine: PlaybackEngine,
@@ -67,6 +90,7 @@ final class PlayerViewModel {
             let source = requestedMediaSourceID.flatMap { id in playbackInfo.mediaSources?.first { $0.id == id } }
                 ?? playbackInfo.mediaSources?.first
             activeMediaSourceID = source?.id
+            sourceVideoStream = source?.mediaStreams?.first { $0.type == "Video" }
 
             guard let url = await client.streamURL(itemID: itemID, mediaSourceID: source?.id, container: source?.container) else {
                 errorMessage = String(localized: "Couldn't build a playback URL for this item.")
@@ -100,6 +124,28 @@ final class PlayerViewModel {
 
     func selectSubtitleTrack(id: Int?) {
         engine.selectSubtitleTrack(id: id)
+    }
+
+    func setZoomMode(_ mode: VideoZoomMode) {
+        engine.zoomMode = mode
+    }
+
+    /// Fetches `serverVersion` once and caches it — safe to call on every
+    /// `PlaybackStatsOverlay` poll tick since it short-circuits once already
+    /// set, rather than re-fetching a value that can't change mid-session.
+    func refreshServerVersion() async {
+        guard serverVersion == nil else { return }
+        serverVersion = try? await client.publicSystemInfo().version
+    }
+
+    /// Refreshes `streamingSession` from the server's own live view of this
+    /// device's playback session — see that property's doc comment. Leaves
+    /// the last known value on screen on failure rather than blanking the
+    /// overlay's Streaming section over one dropped request.
+    func refreshStreamingSession() async {
+        if let session = try? await client.currentSession(deviceID: DeviceIdentity.deviceID) {
+            streamingSession = session
+        }
     }
 
     func stop() async {

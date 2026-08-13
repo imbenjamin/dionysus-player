@@ -19,6 +19,20 @@ protocol PlaybackEngine: AnyObject {
     /// P8.1", "HDR10"), for display only. `nil` for SDR or before load.
     var videoFormatDescription: String? { get }
 
+    /// How the video surface returned by `makeSurface()` fills its space.
+    /// Settable at any time, including before `load(url:)` — AetherEngine's
+    /// own `videoGravity` (what `AetherPlaybackEngine` bridges this to)
+    /// applies to whichever render layer is bound, independent of whether a
+    /// source is currently loaded.
+    var zoomMode: VideoZoomMode { get set }
+
+    /// A fresh diagnostics snapshot, read straight from live engine state —
+    /// see `PlaybackStats`. Not cached: callers (`PlaybackStatsOverlay`)
+    /// poll this on their own timer rather than this being pushed, so every
+    /// read should reflect the engine's current state, not whatever it was
+    /// when playback started.
+    var stats: PlaybackStats { get }
+
     func load(url: URL) async throws
     func play()
     func pause()

@@ -18,8 +18,8 @@ Vision support.
 Navigation, screens, and the networking/playback plumbing are in place with
 placeholder content where noted. As of Xcode 26.5, the app builds clean end
 to end — package resolution (AetherEngine and its dependencies), compilation,
-and linking all succeed with no errors — and a 296-test unit test suite
-passes (see [Testing](#testing)). That confirms the code compiles against
+and linking all succeed with no errors — and the unit test suite passes (see
+[Testing](#testing)). That confirms the code compiles against
 AetherEngine's real API and that the ViewModel/networking layer behaves as
 intended; it does **not** confirm playback actually works — no test here
 plays real media or exercises a real device's decoder, so treat runtime

@@ -5,6 +5,37 @@ import SwiftUI
 struct MovieDetailView: View {
     let viewModel: AssetDetailViewModel
     @State private var playbackRequest: PlaybackRequest?
+    /// Bumped from `fullScreenCover(onDismiss:)` — both immediately (to
+    /// pick up `applyOptimisticPlaybackPosition(_:)`'s guess, already
+    /// applied to `viewModel.item` by the time `onDismiss` fires) and again
+    /// once `refreshItem()` finishes (to pick up the server's own
+    /// confirmed values, in particular `played`).
+    ///
+    /// Necessary because `viewModel.item` mutating on its own isn't
+    /// reliably enough to get this view's `body` to re-run. Confirmed live
+    /// (2026-08-13) with direct instrumentation: while this view is covered
+    /// by its own `.fullScreenCover`, `viewModel.item` changing underneath
+    /// it (from either of the above) produced no further `body` evaluation
+    /// at all once the cover dismissed — even though the exact same
+    /// mutation correctly reached `HeroActionButtons` (a `.toolbar` item
+    /// with its own independent Observation subscription, a materially
+    /// different SwiftUI update path from this view's main content).
+    ///
+    /// What actually forces the re-render is the local `@State` *mutation*
+    /// itself — a `@State` write always invalidates this view regardless of
+    /// whether `refreshTrigger`'s value is read anywhere, unlike
+    /// `@Observable` property access, which only triggers a re-render for
+    /// code paths that actually read it during `body`. The `.id(refreshTrigger)`
+    /// below exists on top of that only to force a hard identity reset of
+    /// the specific metadata block that needs one — see its own comment —
+    /// not to *cause* the re-render in the first place. Originally scoped
+    /// to the whole `ScrollView` instead, which also worked but had the
+    /// unrelated side effect of resetting scroll position on every return
+    /// from playback; rescoped down to just the metadata block (2026-08-13)
+    /// once that gap was noticed on review, and confirmed live afterward
+    /// (same scrub+exit repro as the original bug) that the fix still
+    /// holds *and* scroll position now survives the return.
+    @State private var refreshTrigger = UUID()
 
     var body: some View {
         ScrollView {
@@ -42,6 +73,13 @@ struct MovieDetailView: View {
                                 playbackRequest = PlaybackRequest(itemID: item.id, startFromBeginning: true, mediaSourceID: versionID)
                             }
                         )
+                        // See `MediaItem.playbackProgressIdentity`'s doc
+                        // comment: without this, the progress bar/Play-vs-
+                        // Resume label can silently stop updating after
+                        // returning from playback, since this view owns its
+                        // own `@State` (the version-choice prompt) and takes
+                        // `item` as a plain, non-tracked `let`.
+                        .id(item.playbackProgressIdentity)
 
                         // Keyed on whether a "Details" tab exists at all —
                         // see `DetailTabsView.availableTabs`'s doc comment
@@ -53,6 +91,13 @@ struct MovieDetailView: View {
                             .id(item.technicalDetails == nil)
                     }
                     .padding(.horizontal)
+                    // See `refreshTrigger`'s own doc comment. Scoped to just
+                    // this metadata block, not the whole `ScrollView` — a
+                    // hard identity reset here is enough to guarantee this
+                    // content picks up a post-playback `viewModel.item`
+                    // change; scoping it any wider only adds side effects
+                    // (resetting scroll position) with no benefit.
+                    .id(refreshTrigger)
 
                     if !viewModel.collections.isEmpty {
                         MediaRailView(rail: MediaCollectionRail(
@@ -86,9 +131,18 @@ struct MovieDetailView: View {
             // Registered via `viewModel.track(_:)` — see its doc comment —
             // so `AssetDetailView`'s `.onDisappear` can cancel this if the
             // user backs out of the page again before it finishes.
-            onDismiss: { viewModel.track(Task { await viewModel.refreshItem() }) }
+            onDismiss: {
+                refreshTrigger = UUID()
+                viewModel.track(Task {
+                    await viewModel.refreshItem()
+                    refreshTrigger = UUID()
+                })
+            }
         ) { request in
-            PlayerView(itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID)
+            PlayerView(
+                itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID,
+                onPlaybackEnded: { viewModel.applyOptimisticPlaybackPosition($0) }
+            )
         }
     }
 }
