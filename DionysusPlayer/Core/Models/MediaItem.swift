@@ -171,6 +171,22 @@ struct MediaItem: Identifiable {
         }
     }
 
+    /// What a rail/grid card's `NavigationLink` reads aloud as a whole —
+    /// `railTitle` plus `railSubtitle` (when there is one), e.g. "The Super
+    /// Mario Bros. Movie, 2023 · 1h 32m". Used instead of leaning on
+    /// SwiftUI's automatic per-child accessibility combination: cards mix
+    /// an `AsyncRemoteImage` (no label of its own) with decorative status
+    /// glyphs (favorite star, watched eye, in-progress bar) that would
+    /// otherwise leak their own SF Symbol names into the combined label —
+    /// see `PosterCard`/`LandscapeMediaCard`/`LibraryCard`/`HeroRailCard`,
+    /// none of which had *any* accessibility label before this, confirmed
+    /// via VoiceOver-style automation reading every one of them back as
+    /// blank/"Unnamed".
+    var accessibilityDescription: String {
+        guard let railSubtitle else { return railTitle }
+        return "\(railTitle), \(railSubtitle)"
+    }
+
     var resumePositionSeconds: Double? {
         guard let ticks = dto.userData?.playbackPositionTicks, ticks > 0 else { return nil }
         return Double(ticks) / 10_000_000

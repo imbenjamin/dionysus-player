@@ -355,10 +355,39 @@ private struct HeroRailCard: View {
     let item: MediaItem
 
     var body: some View {
-        NavigationLink(value: AppRoute.assetDetail(itemID: item.id, preloadedItem: item)) {
-            BackdropLogoOverlay(item: item)
+        // Wrapped in a (single-child) `ZStack`, not a bare `NavigationLink`
+        // — see `PosterCard.body`'s doc comment for the real-device bug
+        // this avoids: a bare `NavigationLink` as a horizontal rail's only
+        // per-page content sent SwiftUI's layout engine into a genuine
+        // infinite loop (confirmed via a CPU sample pegged at ~100%,
+        // entirely inside AttributeGraph/StackLayout internals — not a
+        // single frame of this app's own code on the stack), and a
+        // single-child `ZStack` was enough to restore whatever layout-
+        // negotiation role it was quietly playing between the
+        // `NavigationLink` and its parent stack. This card sat in a plain
+        // `HStack` rather than a `LazyHStack` (see `heroContent(pageWidth:)`
+        // above for why it's eager), so it was never covered by that fix or
+        // `LibraryCard`'s matching defensive one — applied here too
+        // (2026-08-13) after a live freeze on Home, mid-scroll, produced
+        // the identical signature (100% CPU, zero app frames, entirely
+        // AttributeGraph/StackLayout) with this the only remaining bare
+        // `NavigationLink` card left in the codebase.
+        ZStack {
+            NavigationLink(value: AppRoute.assetDetail(itemID: item.id, preloadedItem: item)) {
+                BackdropLogoOverlay(item: item)
+            }
+            .buttonStyle(.plain)
+            // `BackdropLogoOverlay` renders a logo *image* over the backdrop
+            // whenever the item has one (see that view's doc comment) — no
+            // text at all in that case, so VoiceOver had nothing to read
+            // here either (confirmed blank/"Unnamed", same gap as
+            // `PosterCard`/`LandscapeMediaCard`/`LibraryCard`). `.ignore` +
+            // an explicit label sidesteps relying on whether a text
+            // fallback happens to be showing.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(item.accessibilityDescription)
+            .accessibilityAddTraits(.isButton)
         }
-        .buttonStyle(.plain)
     }
 }
 

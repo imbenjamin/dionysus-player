@@ -55,6 +55,11 @@ private struct LibraryCard: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
+            // No title row on this card at all (see this type's doc
+            // comment) — without an explicit label, VoiceOver had nothing
+            // to read here whatsoever (confirmed blank/"Unnamed").
+            .accessibilityLabel(library.name)
+            .accessibilityAddTraits(.isButton)
         }
     }
 

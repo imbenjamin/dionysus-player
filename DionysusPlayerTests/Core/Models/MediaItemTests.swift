@@ -137,6 +137,23 @@ final class MediaItemTests: XCTestCase {
         XCTAssertEqual(item.railSubtitle, "2019\u{2013}")
     }
 
+    // MARK: accessibilityDescription
+
+    func test_accessibilityDescription_joinsTitleAndSubtitleWithComma() {
+        let item = makeMovie(productionYear: 2019, runTimeTicks: 90 * 60 * 10_000_000)
+        XCTAssertEqual(item.accessibilityDescription, "Arrival, 2019 \u{00B7} 1h 30m")
+    }
+
+    func test_accessibilityDescription_isJustTheTitleWhenNoSubtitle() {
+        let item = makeMovie(productionYear: nil, runTimeTicks: nil)
+        XCTAssertEqual(item.accessibilityDescription, "Arrival")
+    }
+
+    func test_accessibilityDescription_episode_usesSeriesNameAndEpisodeLabel() {
+        let item = makeEpisode(seriesName: "The Wire", indexNumber: 4, parentIndexNumber: 1, name: "Old Cases")
+        XCTAssertEqual(item.accessibilityDescription, "The Wire, S1:E4 \u{00B7} Old Cases")
+    }
+
     // MARK: resumePositionSeconds / playedFraction / isPlayed / isPartWatched
 
     func test_resumePositionSeconds_convertsTicksToSeconds() {
