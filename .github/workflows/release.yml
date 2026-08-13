@@ -11,6 +11,13 @@ on:
     tags:
       - "v*.*.*"
 
+# This repo's default GITHUB_TOKEN permissions are read-only (repo Settings
+# > Actions > General), so `gh release create` 403s without this — scoped
+# to just this workflow rather than flipping the repo-wide default, since
+# ios.yml doesn't need write access.
+permissions:
+  contents: write
+
 jobs:
   build-test-release:
     name: Build, test, and publish a GitHub Release for the tag
