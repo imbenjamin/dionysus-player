@@ -217,6 +217,29 @@ struct ShowDetailView: View {
                     .onChange(of: viewModel.seasons, initial: true) { _, seasons in
                         if selectedSeasonID == nil { selectedSeasonID = viewModel.preselectedSeasonID ?? seasons.first?.id }
                     }
+                    // Keeps the season picker following whichever episode is
+                    // actually displayed. Was never needed before
+                    // `AssetDetailViewModel.advanceToNextEpisodeIfCompleted()`
+                    // existed — every prior way `item` could become a
+                    // different episode (`selectEpisode(_:)`'s only other
+                    // caller, `SeasonEpisodeList.onSelectEpisode`) could only
+                    // ever pick one from whichever season was *already*
+                    // selected. Advancing to the next episode after finishing
+                    // one can cross a season boundary, though, so this is the
+                    // first case that actually needs the picker to react.
+                    // Guarded to Episode content and an actual mismatch, so
+                    // it's a no-op for every other `item` change (a Movie, a
+                    // Series-direct load, or same-season `selectEpisode`
+                    // calls, where `preselectedSeasonID` is already correct).
+                    // Confirmed live (2026-08-13) crossing a real season
+                    // boundary: finishing a season's last episode correctly
+                    // landed on the next season's first, picker included.
+                    .onChange(of: viewModel.item?.id) { _, _ in
+                        if isEpisodeContent, let preselectedSeasonID = viewModel.preselectedSeasonID,
+                           selectedSeasonID != preselectedSeasonID {
+                            selectedSeasonID = preselectedSeasonID
+                        }
+                    }
                 }
             }
             .ignoresSafeArea(edges: .top)

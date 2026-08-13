@@ -480,12 +480,15 @@ final class AssetDetailViewModelTests: XCTestCase {
 
     /// `SeasonEpisodeList`'s row-text tap (as opposed to its play button) —
     /// switches `item` to the tapped episode in place, on a Series-direct
-    /// page, without touching `seriesID`/`preselectedSeasonID`/`seasons`
-    /// (the tapped episode is already within whichever season is currently
-    /// browsed, so none of those need to change).
+    /// page, without touching `seriesID`/`seasons` (still the same Show).
+    /// Does update `preselectedSeasonID` to the tapped episode's own season
+    /// — a same-value reassignment for this caller specifically (the tapped
+    /// episode is always within whichever season is already selected), but
+    /// see `selectEpisode`'s own doc comment for why that's not true of
+    /// every caller.
     func test_selectEpisode_swapsItemToTheEpisodeWithoutTouchingSeriesOrSeasons() async {
         let viewModel = await loadedSeriesViewModel(nextUpItems: [], episodesItems: [])
-        let selectedEpisodeDto = BaseItemDto(id: "ep-7", name: "Ep 7", type: .episode)
+        let selectedEpisodeDto = BaseItemDto(id: "ep-7", name: "Ep 7", type: .episode, seasonId: "season-1")
         MockURLProtocol.requestHandler = { request in
             guard request.url?.path == "/Users/user-1/Items/ep-7" else {
                 XCTFail("selectEpisode should fetch the tapped episode's own full item — got \(request.url?.path ?? "?")")
@@ -499,6 +502,7 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.item?.id, "ep-7")
         XCTAssertEqual(viewModel.item?.kind, .episode)
         XCTAssertEqual(viewModel.seriesID, "series-1", "shouldn't change — still browsing the same show")
+        XCTAssertEqual(viewModel.preselectedSeasonID, "season-1", "should follow the tapped episode's own season")
     }
 
     /// Regression test for `refreshItem()`'s `displayedItemID` guard (see
@@ -803,6 +807,26 @@ final class AssetDetailViewModelTests: XCTestCase {
         return viewModel
     }
 
+    /// Episode-content counterpart to `loadedSeriesViewModel` above — `item`
+    /// is the episode itself (`itemID`'s own `.episode` DTO), not the Show.
+    private func loadedEpisodeViewModel(itemID: String = "ep-5", seasonId: String = "season-1") async -> AssetDetailViewModel {
+        let episodeDto = BaseItemDto(id: itemID, name: "Ep 5", type: .episode, seriesId: "series-1", seasonId: seasonId)
+        let seriesDto = BaseItemDto(id: "series-1", name: "The Wire", type: .series)
+        let viewModel = makeViewModel(itemID: itemID)
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/\(itemID)":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: episodeDto)
+            case "/Users/user-1/Items/series-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: seriesDto)
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        await viewModel.load()
+        return viewModel
+    }
+
     func test_load_movie_showPlaybackEpisodeStaysNil() async {
         let viewModel = makeViewModel(itemID: "movie-1")
         MockURLProtocol.requestHandler = { request in
@@ -932,6 +956,157 @@ final class AssetDetailViewModelTests: XCTestCase {
         await viewModel.refreshItem()
 
         XCTAssertEqual(viewModel.showPlaybackEpisode?.id, "ep-6")
+    }
+
+    // MARK: advanceToNextEpisodeIfCompleted() (refreshItem()'s next-episode advance)
+
+    /// The user-facing feature this all exists for (2026-08-13): once the
+    /// server confirms a just-played episode is fully watched, and
+    /// Jellyfin's own NextUp resolves to a *different* episode, the detail
+    /// page should advance to show it — instead of sitting on the
+    /// just-finished episode until the user manually picks the next one.
+    /// Covers the Episode-content entry point (deep link, Home's Continue
+    /// Watching, `selectEpisode`); `test_refreshItem_seriesDirect_confirmedPlayed_advancesPageToNextEpisode`
+    /// below covers the Series-direct entry point.
+    ///
+    /// Also exercises the season-boundary case: `ep-6` (the resolved next
+    /// episode) is in a *different* season than `ep-5` (the one just
+    /// finished) — `preselectedSeasonID` should follow it, which is what
+    /// `ShowDetailView`'s own `.onChange(of: viewModel.item?.id)` then uses
+    /// to keep its season picker in sync.
+    func test_refreshItem_episodeContent_confirmedPlayed_advancesToNextEpisode() async {
+        let viewModel = await loadedEpisodeViewModel()
+        viewModel.applyOptimisticPlaybackPosition(PlaybackSessionOutcome(itemID: "ep-5", positionSeconds: 1400, durationSeconds: 1400))
+
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/ep-5":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                    id: "ep-5", name: "Ep 5", type: .episode, seriesId: "series-1", seasonId: "season-1",
+                    userData: UserItemDataDto(playbackPositionTicks: 0, playedPercentage: 100, played: true)
+                ))
+            case "/Shows/NextUp":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(
+                    items: [BaseItemDto(id: "ep-6", name: "Ep 6", type: .episode, seriesId: "series-1", seasonId: "season-2")],
+                    totalRecordCount: 1
+                ))
+            case "/Users/user-1/Items/ep-6":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                    id: "ep-6", name: "Ep 6", type: .episode, seriesId: "series-1", seasonId: "season-2"
+                ))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.refreshItem()
+
+        XCTAssertEqual(viewModel.item?.id, "ep-6", "should advance to the resolved next episode")
+        XCTAssertEqual(viewModel.preselectedSeasonID, "season-2", "should track the new episode's own season, crossing the boundary from season-1")
+    }
+
+    /// Same confirmation as the Episode-content test above, but starting
+    /// from a Series-direct page — see `advanceToNextEpisodeIfCompleted`'s
+    /// own doc comment for why this is the *same* mechanism, not a special
+    /// case: `isEpisodeContent` is purely `item?.kind == .episode`, so once
+    /// `item` swaps to the resolved next episode, the page becomes Episode
+    /// content with no further branching needed.
+    ///
+    /// The Series' own DTO (`series-1`, what the *other* concurrent poll in
+    /// `refreshItem()` fetches) deliberately never changes here, to confirm
+    /// this advance doesn't depend on that poll detecting anything — see
+    /// `refreshShowPlaybackEpisodeIfNeeded`'s doc comment for why it
+    /// essentially never would in real usage either.
+    func test_refreshItem_seriesDirect_confirmedPlayed_advancesPageToNextEpisode() async {
+        let firstNextUp = BaseItemDto(id: "ep-5", name: "Ep 5", type: .episode)
+        let viewModel = await loadedSeriesViewModel(nextUpItems: [firstNextUp], episodesItems: [])
+        XCTAssertEqual(viewModel.showPlaybackEpisode?.id, "ep-5", "sanity check")
+        viewModel.applyOptimisticPlaybackPosition(PlaybackSessionOutcome(itemID: "ep-5", positionSeconds: 1400, durationSeconds: 1400))
+
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/series-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "series-1", name: "The Wire", type: .series))
+            case "/Users/user-1/Items/ep-5":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                    id: "ep-5", name: "Ep 5", type: .episode, seriesId: "series-1", seasonId: "season-1",
+                    userData: UserItemDataDto(playbackPositionTicks: 0, playedPercentage: 100, played: true)
+                ))
+            case "/Shows/NextUp":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(
+                    items: [BaseItemDto(id: "ep-6", name: "Ep 6", type: .episode, seriesId: "series-1", seasonId: "season-1")], totalRecordCount: 1
+                ))
+            case "/Users/user-1/Items/ep-6":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                    id: "ep-6", name: "Ep 6", type: .episode, seriesId: "series-1", seasonId: "season-1"
+                ))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.refreshItem()
+
+        XCTAssertEqual(viewModel.item?.id, "ep-6", "the Series-direct page should advance to the next episode, becoming Episode content")
+        XCTAssertEqual(viewModel.item?.kind, .episode)
+    }
+
+    /// NextUp having nothing left (the show is finished) is indistinguishable
+    /// from "nothing to advance to yet" — should leave the just-finished
+    /// episode on screen rather than erroring or clearing `item`.
+    func test_refreshItem_episodeContent_confirmedPlayed_nextUpEmpty_staysOnFinishedEpisode() async {
+        let viewModel = await loadedEpisodeViewModel()
+        viewModel.applyOptimisticPlaybackPosition(PlaybackSessionOutcome(itemID: "ep-5", positionSeconds: 1400, durationSeconds: 1400))
+
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/ep-5":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                    id: "ep-5", name: "Ep 5", type: .episode, seriesId: "series-1", seasonId: "season-1",
+                    userData: UserItemDataDto(playbackPositionTicks: 0, playedPercentage: 100, played: true)
+                ))
+            case "/Shows/NextUp":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.refreshItem()
+
+        XCTAssertEqual(viewModel.item?.id, "ep-5", "series finished — nothing to advance to, should stay put")
+    }
+
+    /// The server never actually confirming `played` within the poll
+    /// window (still mid-watch, or a slow write) should never advance —
+    /// NextUp shouldn't even be consulted on a guess. Runs the full poll
+    /// schedule (~13s, same accepted cost as
+    /// `test_refreshItemAfterOptimisticUpdate_serverNeverCatchesUp_keepsOptimisticValue`
+    /// above).
+    func test_refreshItem_episodeContent_neverConfirmedPlayed_doesNotAdvance() async {
+        let viewModel = await loadedEpisodeViewModel()
+        viewModel.applyOptimisticPlaybackPosition(PlaybackSessionOutcome(itemID: "ep-5", positionSeconds: 1400, durationSeconds: 1400))
+
+        var nextUpWasConsulted = false
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/ep-5":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                    id: "ep-5", name: "Ep 5", type: .episode, seriesId: "series-1", seasonId: "season-1",
+                    userData: UserItemDataDto(playbackPositionTicks: 1_000_000_000, playedPercentage: 99, played: false)
+                ))
+            case "/Shows/NextUp":
+                nextUpWasConsulted = true
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.refreshItem()
+
+        XCTAssertFalse(nextUpWasConsulted, "shouldn't even consult NextUp until played is actually confirmed")
+        XCTAssertEqual(viewModel.item?.id, "ep-5")
     }
 
     // MARK: preferredMediaSourceID(forPlayableItem:) / setPreferredMediaSourceID(_:forPlayableItem:)
