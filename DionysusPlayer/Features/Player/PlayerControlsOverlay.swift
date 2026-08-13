@@ -276,15 +276,33 @@ struct PlayerControlsOverlay: View {
     /// against the video behind it comes from the overlay's own background
     /// gradient (see `topSection`'s doc comment), not from anything owned
     /// here.
+    ///
+    /// For episodes, an "S1:E4 · Episode Name" line (`MediaItem.railSubtitle`
+    /// — falls back to just the episode name if the numbering isn't present)
+    /// always appears below whatever's on the first line, so the episode
+    /// itself stays identifiable even when the logo/title above it only
+    /// names the show. What's on that first line still follows the
+    /// logo-preferred rule above: the show's logo when there is one, or —
+    /// only for episodes, since a movie/series' own title already *is* the
+    /// name that would go here — the show's plain title text when there
+    /// isn't.
     @ViewBuilder
     private var titleRow: some View {
         if let item = viewModel.item {
             HStack {
-                if let logoURL = item.logoImageURL {
-                    LogoImageView(url: logoURL, fallback: titleText(item))
-                        .frame(maxWidth: 240, maxHeight: 60, alignment: .leading)
-                } else {
-                    titleText(item)
+                VStack(alignment: .leading, spacing: 2) {
+                    if let logoURL = item.logoImageURL {
+                        LogoImageView(url: logoURL, fallback: titleText(item.railTitle))
+                            .frame(maxWidth: 240, maxHeight: 60, alignment: .leading)
+                    } else if item.kind == .episode {
+                        titleText(item.railTitle)
+                    } else {
+                        titleText(item.name)
+                    }
+
+                    if item.kind == .episode, let episodeSubtitle = item.railSubtitle {
+                        episodeSubtitleText(episodeSubtitle)
+                    }
                 }
                 Spacer()
             }
@@ -293,10 +311,17 @@ struct PlayerControlsOverlay: View {
         }
     }
 
-    private func titleText(_ item: MediaItem) -> some View {
-        Text(item.name)
+    private func titleText(_ text: String) -> some View {
+        Text(text)
             .font(.headline)
             .foregroundStyle(.white)
+            .lineLimit(1)
+    }
+
+    private func episodeSubtitleText(_ text: String) -> some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(.white.opacity(0.8))
             .lineLimit(1)
     }
 
