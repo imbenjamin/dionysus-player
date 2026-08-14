@@ -147,6 +147,18 @@ pattern, since ViewModels are constructed with an already-built client
   can't detect TrueHD/Atmos), and channel layout
   ("Mono"/"Stereo"/"5.1"/"7.1"/...)) that could be tested directly by
   dropping `private`, if that logic gets more involved than it is today.
+  Same untestable-without-a-real-engine story applies to
+  `applyForcedSubtitleSelection`/`languageMatches`: right after a fresh
+  `load()`, a "forced" subtitle track (`TrackInfo.isForced`, the
+  container's own FORCED disposition — covers embedded and declared-
+  external tracks alike, no title-text matching) auto-activates without
+  waiting for an explicit pick; when more than one forced track exists,
+  whichever matches the language AetherEngine resolved as the active audio
+  track wins, else the first forced track in container order — confirmed
+  live (2026-08-14) against a real "Captain Phillips" source (English
+  Forced track alongside full subtitle tracks): the quick-controls panel
+  showed "Subtitles / Forced" already selected the instant playback
+  started, with no manual pick made.
 - **End-to-end/UI tests** — nothing drives the app in the Simulator yet.
   Worth adding once the core flows (server setup → login → browse → play)
   are stable enough that a UI test isn't just recording a moving target.

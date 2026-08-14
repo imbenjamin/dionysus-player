@@ -243,6 +243,48 @@ final class AetherPlaybackEngine: PlaybackEngine {
         self.knownAtmosAudioTrackIndices = knownAtmosAudioTrackIndices
         let options = LoadOptions(externalSubtitles: externalSubtitles.map(Self.makeExternalSubtitleTrack))
         _ = try await engine.load(url: url, options: options)
+        applyForcedSubtitleSelection()
+    }
+
+    /// A "forced" subtitle track exists specifically to caption content the audio track doesn't
+    /// already carry in the viewer's language (foreign-language dialogue, on-screen signs) — real
+    /// players activate one on load regardless of the viewer's general subtitles-on/off preference,
+    /// rather than waiting for an explicit pick. Runs once, right after a fresh `load()`; a later
+    /// user pick (`selectSubtitleTrack(id:)`) is untouched by this — there's nothing left for it to
+    /// do once the host (this call) has already made an explicit choice, same as any other
+    /// `hostExplicitSubtitleAction`.
+    ///
+    /// Source is `TrackInfo.isForced` — the container's own FORCED disposition — covering embedded
+    /// *and* declared-external tracks alike (both are seated in `engine.subtitleTracks` by the time
+    /// `engine.load()` returns; see `registerDeclaredExternalSubtitles`'s doc comment). No title/name
+    /// text-matching, same principle as `knownAtmosAudioTrackIndices` above.
+    ///
+    /// Selection when more than one forced track exists (rare — most sources carry at most one, but
+    /// nothing stops a multi-language disc/rip from carrying several): prefer whichever forced
+    /// track's language matches the audio track AetherEngine resolved as active for this load,
+    /// keeping the first match in container order if more than one still ties; fall back to the
+    /// first forced track in container order if none match (or the active audio track's language is
+    /// unknown). Confirmed live (2026-08-14) against a real "Captain Phillips" source carrying an
+    /// English Forced track alongside full subtitle tracks.
+    private func applyForcedSubtitleSelection() {
+        let forcedTracks = engine.subtitleTracks.filter(\.isForced)
+        guard !forcedTracks.isEmpty else { return }
+        let audioLanguage = engine.audioTracks.first { $0.id == engine.activeAudioTrackIndex }?.language
+        let best = forcedTracks.first { Self.languageMatches($0.language, audioLanguage) } ?? forcedTracks[0]
+        selectSubtitleTrack(id: best.id)
+    }
+
+    /// Case-insensitive, trimmed equality — deliberately simpler than AetherEngine's own internal
+    /// language matcher (which also folds ISO 639-1/639-2 B/T variants and English names together,
+    /// e.g. "en"/"eng"/"english"), since that helper isn't exposed outside the package. A non-issue
+    /// in practice: the forced subtitle track and the audio track it's compared against come from the
+    /// same container, which tags both with the same language-code convention (almost always plain
+    /// ISO 639-2), so an exact match after trimming/casing is enough. `nil` on either side never
+    /// matches, same as AetherEngine's own rule.
+    private static func languageMatches(_ trackLanguage: String?, _ other: String?) -> Bool {
+        guard let trackLanguage = trackLanguage?.trimmingCharacters(in: .whitespaces), !trackLanguage.isEmpty,
+              let other = other?.trimmingCharacters(in: .whitespaces), !other.isEmpty else { return false }
+        return trackLanguage.caseInsensitiveCompare(other) == .orderedSame
     }
 
     func play() { engine.play() }
