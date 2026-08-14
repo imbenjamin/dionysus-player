@@ -463,11 +463,14 @@ struct PlayerControlsOverlay: View {
     /// — `.padding(.vertical, 10)` (×2) plus roughly a `.subheadline` and a
     /// `.footnote` line stacked with 2pt spacing.
     private static let navigationRowHeight: CGFloat = 56
-    /// `selectionRow`'s single-line rows — `.padding(.vertical, 10)` (×2)
-    /// plus roughly one `.subheadline` line. Deliberately not sized for the
-    /// occasional 2-line wrap (see `estimatedHeight(for:)`'s doc comment on
-    /// why that's an acceptable gap, not a bug to close here).
-    private static let selectionRowHeight: CGFloat = 44
+    /// `selectionRow`'s rows — `.padding(.vertical, 10)` (×2) plus a
+    /// `.subheadline` title and, for most tracks, a `.footnote` metadata
+    /// line underneath (see `PlaybackTrack.metadata`). Sized for that
+    /// two-line case since it's the common one; a track with no flags at
+    /// all renders one line shorter than estimated, same acceptable-gap
+    /// trade-off as a title long enough to wrap (see `estimatedHeight(for:)`
+    /// 's doc comment).
+    private static let selectionRowHeight: CGFloat = 56
     /// `backRow`/`leafTitleRow`'s own height — `.padding(.vertical, 12)`
     /// (×2) plus roughly one `.subheadline` line.
     private static let leafHeaderHeight: CGFloat = 44
@@ -531,6 +534,7 @@ struct PlayerControlsOverlay: View {
                     case .subtitle:
                         selectionRow(
                             title: String(localized: "Off"),
+                            metadata: nil,
                             isSelected: !viewModel.subtitleTracks.contains { $0.isSelected }
                         ) {
                             onInteract()
@@ -678,13 +682,19 @@ struct PlayerControlsOverlay: View {
     private func trackRows(_ tracks: [PlaybackTrack], onSelect: @escaping (PlaybackTrack) -> Void) -> some View {
         ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
             if index > 0 { divider }
-            selectionRow(title: track.displayTitle, isSelected: track.isSelected) {
+            selectionRow(title: track.title, metadata: track.metadata, isSelected: track.isSelected) {
                 onSelect(track)
             }
         }
     }
 
-    private func selectionRow(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    /// `metadata` (Default/Forced/Hearing Impaired/Commentary/External, see
+    /// `AetherPlaybackEngine.metadataLabel(for:)`) renders as a second,
+    /// `.footnote`-styled line under `title` when present — same "title +
+    /// secondary line" shape as `navigationRow` above, just with a
+    /// selection checkmark leading instead of a chevron trailing. `nil`
+    /// collapses back to a single line rather than leaving an empty gap.
+    private func selectionRow(title: String, metadata: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack {
                 // Reserves the checkmark's width whether selected or not
@@ -693,9 +703,17 @@ struct PlayerControlsOverlay: View {
                 Image(systemName: "checkmark")
                     .font(.subheadline.weight(.semibold))
                     .opacity(isSelected ? 1 : 0)
-                Text(title)
-                    .font(.subheadline)
-                    .multilineTextAlignment(.leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline)
+                        .multilineTextAlignment(.leading)
+                    if let metadata {
+                        Text(metadata)
+                            .font(.footnote)
+                            .foregroundStyle(.white.opacity(0.6))
+                            .lineLimit(1)
+                    }
+                }
                 Spacer()
             }
             .padding(.horizontal, 16)
@@ -710,11 +728,11 @@ struct PlayerControlsOverlay: View {
     }
 
     private var currentAudioTrackTitle: String {
-        viewModel.audioTracks.first(where: \.isSelected)?.displayTitle ?? String(localized: "Default")
+        viewModel.audioTracks.first(where: \.isSelected)?.title ?? String(localized: "Default")
     }
 
     private var currentSubtitleTrackTitle: String {
-        viewModel.subtitleTracks.first(where: \.isSelected)?.displayTitle ?? String(localized: "Off")
+        viewModel.subtitleTracks.first(where: \.isSelected)?.title ?? String(localized: "Off")
     }
 
     /// The rewind/play-pause/forward row — swapped for a centered spinner

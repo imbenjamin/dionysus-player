@@ -124,9 +124,14 @@ pattern, since ViewModels are constructed with an already-built client
   a real display to construct). `PlayerViewModel` — the thing that actually
   has logic worth pinning down — *is* now covered, via `FakePlaybackEngine`
   standing in for it. `AetherPlaybackEngine` does have a few pure `private
-  static` helpers (`describe`, `normalize`, `displayTitle` — HDR format
-  labels, track display-title fallback) that could be tested directly by
-  dropping `private`, if that logic gets more involved than it is today.
+  static` helpers (`describe`, `normalize`, `title(for:providedName:)`,
+  `descriptiveName`, `metadataLabel` — HDR format labels, and the track
+  picker's title/language/flag-line normalization, e.g. telling a muxer's
+  bare "ENG (srt)" echo of the language apart from a genuinely descriptive
+  name like "Director's Commentary" and, in the latter case, folding the
+  language back into the metadata line so it isn't lost) that could be
+  tested directly by dropping `private`, if that logic gets more involved
+  than it is today.
 - **End-to-end/UI tests** — nothing drives the app in the Simulator yet.
   Worth adding once the core flows (server setup → login → browse → play)
   are stable enough that a UI test isn't just recording a moving target.

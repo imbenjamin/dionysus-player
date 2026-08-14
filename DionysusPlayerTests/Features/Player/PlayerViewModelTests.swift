@@ -249,8 +249,8 @@ final class PlayerViewModelTests: XCTestCase {
 
     func test_audioSubtitleAndFormatProperties_passThroughFromEngine() {
         let engine = FakePlaybackEngine()
-        engine.audioTracks = [PlaybackTrack(id: 0, kind: .audio, displayTitle: "English", isSelected: true)]
-        engine.subtitleTracks = [PlaybackTrack(id: 1, kind: .subtitle, displayTitle: "English (SDH)", isSelected: false)]
+        engine.audioTracks = [PlaybackTrack(id: 0, kind: .audio, title: "English", metadata: "Default", isSelected: true)]
+        engine.subtitleTracks = [PlaybackTrack(id: 1, kind: .subtitle, title: "English", metadata: "Hearing Impaired", isSelected: false)]
         engine.videoFormatDescription = "Dolby Vision"
         let (viewModel, _) = makeViewModel(engine: engine)
 

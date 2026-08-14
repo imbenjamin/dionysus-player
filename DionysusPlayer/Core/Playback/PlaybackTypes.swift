@@ -102,8 +102,27 @@ struct PlaybackTrack: Identifiable, Hashable {
 
     var id: Int
     var kind: Kind
-    var displayTitle: String
+    /// The picker row's main line — a provided, genuinely descriptive track
+    /// name (e.g. "Director's Commentary") when there is one, otherwise a
+    /// user-friendly language name derived from the track's language code
+    /// (e.g. "English" rather than "ENG" or "ENG (srt)"). See
+    /// `AetherPlaybackEngine.title(for:)` for how the two are told apart.
+    var title: String
+    /// The picker row's secondary, metadata line — whichever of "Default"/
+    /// "Forced"/"Hearing Impaired"/"Commentary"/"External" apply to this
+    /// track, already joined and display-ready. `nil` when none apply
+    /// (nothing to show under the title).
+    var metadata: String?
     var isSelected: Bool
+
+    /// A copy with only `isSelected` changed — `AetherPlaybackEngine`
+    /// re-maps its whole track list on every selection/active-index change
+    /// just to flip this one field, without disturbing `title`/`metadata`.
+    func selected(_ isSelected: Bool) -> PlaybackTrack {
+        var copy = self
+        copy.isSelected = isSelected
+        return copy
+    }
 }
 
 /// A decoded subtitle cue ready for the app's own overlay to paint —

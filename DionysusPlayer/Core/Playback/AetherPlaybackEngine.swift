@@ -214,9 +214,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.selectedAudioTrackID = index
-                    self.audioTracks = self.audioTracks.map {
-                        PlaybackTrack(id: $0.id, kind: $0.kind, displayTitle: $0.displayTitle, isSelected: $0.id == index)
-                    }
+                    self.audioTracks = self.audioTracks.map { $0.selected($0.id == index) }
                 }
             }
             .store(in: &cancellables)
@@ -227,9 +225,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.selectedSubtitleTrackID = index
-                    self.subtitleTracks = self.subtitleTracks.map {
-                        PlaybackTrack(id: $0.id, kind: $0.kind, displayTitle: $0.displayTitle, isSelected: $0.id == index)
-                    }
+                    self.subtitleTracks = self.subtitleTracks.map { $0.selected($0.id == index) }
                 }
             }
             .store(in: &cancellables)
@@ -251,9 +247,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
     func selectAudioTrack(id: Int) {
         engine.selectAudioTrack(index: id)
         selectedAudioTrackID = id
-        audioTracks = audioTracks.map {
-            PlaybackTrack(id: $0.id, kind: $0.kind, displayTitle: $0.displayTitle, isSelected: $0.id == id)
-        }
+        audioTracks = audioTracks.map { $0.selected($0.id == id) }
     }
 
     func selectSubtitleTrack(id: Int?) {
@@ -263,9 +257,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
         } else {
             engine.clearSubtitle()
         }
-        subtitleTracks = subtitleTracks.map {
-            PlaybackTrack(id: $0.id, kind: $0.kind, displayTitle: $0.displayTitle, isSelected: $0.id == id)
-        }
+        subtitleTracks = subtitleTracks.map { $0.selected($0.id == id) }
     }
 
     func makeSurface() -> AnyView {
@@ -321,19 +313,83 @@ final class AetherPlaybackEngine: PlaybackEngine {
 
     private static func normalize(_ tracks: [TrackInfo], kind: PlaybackTrack.Kind, selectedID: Int?) -> [PlaybackTrack] {
         tracks.map { track in
-            PlaybackTrack(
+            // Computed once and threaded through both `title(for:)` and
+            // `metadataLabel(for:)` — the latter needs to know whether the
+            // former is *about* to show the provided name rather than the
+            // language, so it can put the language back on the metadata
+            // line instead of losing it entirely (see that doc comment).
+            let providedName = descriptiveName(track)
+            return PlaybackTrack(
                 id: track.id,
                 kind: kind,
-                displayTitle: displayTitle(for: track),
+                title: title(for: track, providedName: providedName),
+                metadata: metadataLabel(for: track, providedName: providedName),
                 isSelected: track.id == selectedID
             )
         }
     }
 
-    private static func displayTitle(for track: TrackInfo) -> String {
+    /// The row's main line: `providedName` (`track.name`, when it reads as
+    /// a genuinely descriptive title, e.g. "Director's Commentary") when
+    /// there is one, otherwise a user-friendly language name built from
+    /// `track.language`. Muxers commonly set `name` to a bare, none-too-
+    /// friendly echo of the language field ("ENG", "ENG (srt)") that adds
+    /// no information beyond what `metadataLabel(for:)` and the language
+    /// itself already cover — `descriptiveName(_:)` filters those out so
+    /// this falls through to the friendly language name instead of showing
+    /// the raw label verbatim.
+    private static func title(for track: TrackInfo, providedName: String?) -> String {
+        if let providedName { return providedName }
+        if let language = track.language, let friendly = friendlyLanguageName(language) { return friendly }
         if !track.name.isEmpty { return track.name }
-        if let language = track.language, !language.isEmpty { return language }
-        return "Track \(track.id)"
+        return String(localized: "Track \(track.id)")
+    }
+
+    /// `nil` when `track.name` is empty, or — once a trailing "(...)"
+    /// parenthetical is stripped (the "(srt)" in "ENG (srt)") — is just the
+    /// raw language code or its own friendly name wearing different
+    /// capitalization ("ENG"/"eng"/"English" for an `.language` of "eng").
+    /// Non-nil (and returned verbatim) only for a name that's actually
+    /// carrying information beyond the language, like "Director's
+    /// Commentary" or "Director's Commentary with Brad Pitt, Edward Norton
+    /// & Helena Bonham Carter".
+    private static func descriptiveName(_ track: TrackInfo) -> String? {
+        guard !track.name.isEmpty else { return nil }
+        guard let language = track.language, !language.isEmpty else { return track.name }
+        let stripped = track.name
+            .replacingOccurrences(of: #"\s*\([^)]*\)\s*$"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+        if stripped.caseInsensitiveCompare(language) == .orderedSame { return nil }
+        if let friendly = friendlyLanguageName(language), stripped.caseInsensitiveCompare(friendly) == .orderedSame {
+            return nil
+        }
+        return track.name
+    }
+
+    private static func friendlyLanguageName(_ languageCode: String) -> String? {
+        Locale.current.localizedString(forIdentifier: languageCode)
+    }
+
+    /// The row's secondary line: whichever flags apply, in this fixed
+    /// order, space-dot-joined — `nil` when none do, so `selectionRow`
+    /// shows a single-line row rather than an empty second line.
+    ///
+    /// When `providedName` is non-nil, `title(for:providedName:)` is about
+    /// to show it instead of the language — the language would otherwise
+    /// not appear anywhere on the row at all, so it leads the flag list
+    /// here instead (e.g. "English · Commentary" under "Director's
+    /// Commentary").
+    private static func metadataLabel(for track: TrackInfo, providedName: String?) -> String? {
+        var flags: [String] = []
+        if providedName != nil, let language = track.language, let friendly = friendlyLanguageName(language) {
+            flags.append(friendly)
+        }
+        if track.isDefault { flags.append(String(localized: "Default")) }
+        if track.isForced { flags.append(String(localized: "Forced")) }
+        if track.isHearingImpaired { flags.append(String(localized: "Hearing Impaired")) }
+        if track.isCommentary { flags.append(String(localized: "Commentary")) }
+        if track.isExternal { flags.append(String(localized: "External")) }
+        return flags.isEmpty ? nil : flags.joined(separator: " \u{00B7} ")
     }
 
     private static func normalize(_ cue: SubtitleCue) -> SubtitleCueDisplay {

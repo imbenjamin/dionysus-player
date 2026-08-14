@@ -11,12 +11,12 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     var onSourceTimeUpdate: ((TimeInterval) -> Void)?
 
     var audioTracks: [PlaybackTrack] = [
-        PlaybackTrack(id: 0, kind: .audio, displayTitle: "English 5.1", isSelected: true),
-        PlaybackTrack(id: 1, kind: .audio, displayTitle: "Commentary", isSelected: false)
+        PlaybackTrack(id: 0, kind: .audio, title: "English", metadata: "Default", isSelected: true),
+        PlaybackTrack(id: 1, kind: .audio, title: "Director's Commentary", metadata: "Commentary", isSelected: false)
     ]
     var subtitleTracks: [PlaybackTrack] = [
-        PlaybackTrack(id: 0, kind: .subtitle, displayTitle: "English", isSelected: false),
-        PlaybackTrack(id: 1, kind: .subtitle, displayTitle: "English (SDH)", isSelected: false)
+        PlaybackTrack(id: 0, kind: .subtitle, title: "English", metadata: "Default", isSelected: false),
+        PlaybackTrack(id: 1, kind: .subtitle, title: "English", metadata: "Hearing Impaired", isSelected: false)
     ]
     var videoFormatDescription: String? = "Dolby Vision P8.1"
     var videoNaturalSize: CGSize? = CGSize(width: 3840, height: 1600)
