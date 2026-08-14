@@ -16,10 +16,19 @@ final class AetherPlaybackEngine: PlaybackEngine {
 
     var onStateChange: ((PlaybackState) -> Void)?
     var onTimeUpdate: ((TimeInterval, TimeInterval) -> Void)?
+    var onSubtitleCuesChange: (([SubtitleCueDisplay]) -> Void)?
+    var onSourceTimeUpdate: ((TimeInterval) -> Void)?
 
     private(set) var audioTracks: [PlaybackTrack] = []
     private(set) var subtitleTracks: [PlaybackTrack] = []
     private(set) var videoFormatDescription: String?
+
+    /// Read straight off `engine`'s own stored properties, same reasoning as
+    /// `stats` above — they're set once per source and rarely re-read.
+    var videoNaturalSize: CGSize? {
+        guard engine.sourceVideoWidth > 0, engine.sourceVideoHeight > 0 else { return nil }
+        return CGSize(width: Int(engine.sourceVideoWidth), height: Int(engine.sourceVideoHeight))
+    }
 
     private var selectedAudioTrackID: Int?
     private var selectedSubtitleTrackID: Int?
@@ -123,6 +132,34 @@ final class AetherPlaybackEngine: PlaybackEngine {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.onTimeUpdate?(time, self.engine.duration)
+                }
+            }
+            .store(in: &cancellables)
+
+        // Separate from `clock.$currentTime` above on purpose — subtitle
+        // cues are stamped in source PTS, which can diverge from the item/
+        // AVPlayer-axis clock across producer restarts (see
+        // `PlaybackEngine.onSourceTimeUpdate`'s doc comment).
+        engine.clock.$sourceTime
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] sourceTime in
+                MainActor.assumeIsolated {
+                    self?.onSourceTimeUpdate?(sourceTime)
+                }
+            }
+            .store(in: &cancellables)
+
+        // AetherEngine draws nothing itself ("the engine emits SubtitleCue;
+        // your UI paints them") — this is the only place cues cross into
+        // the app, normalized to `SubtitleCueDisplay` so the rest of the
+        // app never touches AetherEngine's `SubtitleCue`/`SubtitleTextRun`/
+        // `SubtitleImage` directly, same as `audioTracks`/`subtitleTracks`
+        // above do for `TrackInfo`.
+        engine.$subtitleCues
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] cues in
+                MainActor.assumeIsolated {
+                    self?.onSubtitleCuesChange?(cues.map(Self.normalize))
                 }
             }
             .store(in: &cancellables)
@@ -297,5 +334,37 @@ final class AetherPlaybackEngine: PlaybackEngine {
         if !track.name.isEmpty { return track.name }
         if let language = track.language, !language.isEmpty { return language }
         return "Track \(track.id)"
+    }
+
+    private static func normalize(_ cue: SubtitleCue) -> SubtitleCueDisplay {
+        SubtitleCueDisplay(
+            id: cue.id,
+            startTime: cue.startTime,
+            endTime: cue.endTime,
+            body: normalize(cue.body),
+            placement: cue.placement.map { SubtitleCueDisplay.Placement(alignment: $0.alignment, position: $0.position) }
+        )
+    }
+
+    private static func normalize(_ body: SubtitleCue.Body) -> SubtitleCueDisplay.Body {
+        switch body {
+        case .text(let string):
+            return .text(string)
+        case .richText(let runs):
+            return .richText(runs.map(normalize))
+        case .image(let image):
+            return .image(image.cgImage, rect: image.position, canvasSize: image.canvasSize)
+        }
+    }
+
+    private static func normalize(_ run: SubtitleTextRun) -> SubtitleCueDisplay.Run {
+        SubtitleCueDisplay.Run(
+            text: run.text,
+            color: run.color.map { Color(red: Double($0.r) / 255, green: Double($0.g) / 255, blue: Double($0.b) / 255) },
+            isBold: run.isBold,
+            isItalic: run.isItalic,
+            isUnderlined: run.isUnderlined,
+            isStruckThrough: run.isStruckThrough
+        )
     }
 }

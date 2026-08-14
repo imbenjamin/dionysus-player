@@ -7,6 +7,8 @@ import SwiftUI
 final class PreviewPlaybackEngine: PlaybackEngine {
     var onStateChange: ((PlaybackState) -> Void)?
     var onTimeUpdate: ((TimeInterval, TimeInterval) -> Void)?
+    var onSubtitleCuesChange: (([SubtitleCueDisplay]) -> Void)?
+    var onSourceTimeUpdate: ((TimeInterval) -> Void)?
 
     var audioTracks: [PlaybackTrack] = [
         PlaybackTrack(id: 0, kind: .audio, displayTitle: "English 5.1", isSelected: true),
@@ -17,6 +19,7 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         PlaybackTrack(id: 1, kind: .subtitle, displayTitle: "English (SDH)", isSelected: false)
     ]
     var videoFormatDescription: String? = "Dolby Vision P8.1"
+    var videoNaturalSize: CGSize? = CGSize(width: 3840, height: 1600)
     var zoomMode: VideoZoomMode = .fit
     var stats = PlaybackStats(
         videoSize: "3840×1600",

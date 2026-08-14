@@ -12,10 +12,13 @@ import SwiftUI
 final class FakePlaybackEngine: PlaybackEngine {
     var onStateChange: ((PlaybackState) -> Void)?
     var onTimeUpdate: ((TimeInterval, TimeInterval) -> Void)?
+    var onSubtitleCuesChange: (([SubtitleCueDisplay]) -> Void)?
+    var onSourceTimeUpdate: ((TimeInterval) -> Void)?
 
     var audioTracks: [PlaybackTrack] = []
     var subtitleTracks: [PlaybackTrack] = []
     var videoFormatDescription: String?
+    var videoNaturalSize: CGSize?
     var zoomMode: VideoZoomMode = .fit
     var stats = PlaybackStats(
         videoSize: nil,

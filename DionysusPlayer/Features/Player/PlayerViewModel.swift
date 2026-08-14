@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Observation
 
@@ -9,6 +10,15 @@ final class PlayerViewModel {
     private(set) var duration: TimeInterval = 0
     private(set) var item: MediaItem?
     private(set) var errorMessage: String?
+    /// Decoded subtitle cues, unfiltered — covers a window ahead of the
+    /// playhead, not just what's active now. `SubtitleOverlayView` filters
+    /// this against `sourceTime` itself; see `SubtitleCueDisplay`'s doc
+    /// comment for why filtering happens downstream rather than here.
+    private(set) var subtitleCues: [SubtitleCueDisplay] = []
+    /// Source-PTS playhead, the axis `subtitleCues` is stamped in — kept
+    /// separate from `currentTime` (the item/AVPlayer clock `onTimeUpdate`
+    /// reports) since the two can diverge across producer restarts.
+    private(set) var sourceTime: TimeInterval = 0
 
     let engine: PlaybackEngine
     let itemID: String
@@ -52,6 +62,7 @@ final class PlayerViewModel {
     var audioTracks: [PlaybackTrack] { engine.audioTracks }
     var subtitleTracks: [PlaybackTrack] { engine.subtitleTracks }
     var videoFormatDescription: String? { engine.videoFormatDescription }
+    var videoNaturalSize: CGSize? { engine.videoNaturalSize }
     /// A fresh snapshot on every access — see `PlaybackStats`. Intentionally
     /// not cached on the view model itself: `PlaybackStatsOverlay` polls
     /// this on its own timer only while it's actually visible, so there's
@@ -74,6 +85,8 @@ final class PlayerViewModel {
             self?.currentTime = time
             self?.duration = duration
         }
+        engine.onSubtitleCuesChange = { [weak self] cues in self?.subtitleCues = cues }
+        engine.onSourceTimeUpdate = { [weak self] sourceTime in self?.sourceTime = sourceTime }
     }
 
     func start() async {

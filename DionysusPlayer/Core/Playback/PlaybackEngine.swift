@@ -12,12 +12,33 @@ protocol PlaybackEngine: AnyObject {
     var onStateChange: ((PlaybackState) -> Void)? { get set }
     /// Called at the engine's own cadence with `(currentTime, duration)`, in seconds.
     var onTimeUpdate: ((TimeInterval, TimeInterval) -> Void)? { get set }
+    /// Called whenever the decoded subtitle cue list changes — see
+    /// `SubtitleCueDisplay`'s doc comment. Not filtered to "active now":
+    /// the list covers a window ahead of the playhead, so `SubtitleOverlayView`
+    /// filters against `onSourceTimeUpdate` itself.
+    var onSubtitleCuesChange: (([SubtitleCueDisplay]) -> Void)? { get set }
+    /// Called at the engine's own clock cadence with the source-PTS playhead
+    /// — the axis subtitle cue `startTime`/`endTime` are stamped in, which
+    /// can diverge from `onTimeUpdate`'s item/AVPlayer-axis time across
+    /// producer restarts. Kept as its own callback (rather than folded into
+    /// `onTimeUpdate`) so subtitle-only observers don't need to unpack a
+    /// tuple they'd ignore half of.
+    var onSourceTimeUpdate: ((TimeInterval) -> Void)? { get set }
 
     var audioTracks: [PlaybackTrack] { get }
     var subtitleTracks: [PlaybackTrack] { get }
     /// A short description of the detected video format (e.g. "Dolby Vision
     /// P8.1", "HDR10"), for display only. `nil` for SDR or before load.
     var videoFormatDescription: String? { get }
+
+    /// Coded pixel dimensions of the source video, `nil` before they're
+    /// known (still loading, or an audio-only source) — `SubtitleOverlayView`
+    /// needs this to work out the actual on-screen picture rect (as opposed
+    /// to the surface's own, possibly letterboxed, container) for placing
+    /// image cues and `\pos`-anchored text cues. Read on demand rather than
+    /// pushed, same treatment as `stats` — it settles once per load and
+    /// nothing needs it before the first subtitle cue can possibly arrive.
+    var videoNaturalSize: CGSize? { get }
 
     /// How the video surface returned by `makeSurface()` fills its space.
     /// Settable at any time, including before `load(url:)` — AetherEngine's

@@ -92,6 +92,15 @@ struct PlayerView: View {
                     // there's no disambiguation needed between them.
                     .simultaneousGesture(pinchZoomGesture)
 
+                // Above the video surface but below the transport chrome —
+                // visible independent of `showControls` (subtitles aren't
+                // "controls", they shouldn't fade with them), with its own
+                // bottom clearance animating in step with the controls fade
+                // instead. See `SubtitleOverlayView.controlsVisible`'s doc
+                // comment.
+                SubtitleOverlayView(viewModel: viewModel, zoomMode: zoomMode, controlsVisible: showControls)
+                    .ignoresSafeArea()
+
                 // Between the video surface and `PlayerControlsOverlay`,
                 // per that overlay's own doc comment — the "closest
                 // possible layer to the video" placement the feature was

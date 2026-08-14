@@ -1,4 +1,6 @@
+import CoreGraphics
 import Foundation
+import SwiftUI
 
 /// Playback state as the rest of the app sees it — deliberately smaller
 /// than AetherEngine's own state so feature code isn't coupled to it.
@@ -102,4 +104,82 @@ struct PlaybackTrack: Identifiable, Hashable {
     var kind: Kind
     var displayTitle: String
     var isSelected: Bool
+}
+
+/// A decoded subtitle cue ready for the app's own overlay to paint —
+/// normalized from AetherEngine's `SubtitleCue`/`SubtitleTextRun`/
+/// `SubtitleTextPlacement`/`SubtitleImage` so `SubtitleOverlayView` never
+/// depends on AetherEngine's types directly, matching `PlaybackTrack`'s
+/// existing role for the track lists. AetherEngine emits cues; it draws
+/// nothing itself — see `AetherPlaybackEngine.observeEngine()` for where
+/// this gets populated from `engine.$subtitleCues`.
+///
+/// `startTime`/`endTime` are in source PTS seconds — filter against
+/// `PlayerViewModel.sourceTime`, not `currentTime` (the item/AVPlayer
+/// clock), since the two can diverge across producer restarts. The cue
+/// list itself covers a window ahead of the playhead rather than just
+/// "now," so a cue with no active window simply isn't rendered yet.
+struct SubtitleCueDisplay: Identifiable, Equatable {
+    var id: Int
+    var startTime: TimeInterval
+    var endTime: TimeInterval
+    var body: Body
+    /// Where the source asked this cue to be drawn (ASS `\an`/`\pos`);
+    /// `nil` for the overwhelming majority of cues, which want the
+    /// overlay's own default (bottom-center). Text/rich-text cues only —
+    /// an image cue carries its own geometry on `Body.image`.
+    var placement: Placement?
+
+    enum Body: Equatable {
+        case text(String)
+        case richText([Run])
+        /// `rect`/`canvasSize` are normalized `[0, 1]` against the source
+        /// video frame, same contract as `SubtitleImage.position`/
+        /// `.canvasSize` — map them onto the on-screen video rect to place
+        /// the image where the disc/broadcast authored it. `canvasSize ==
+        /// .zero` means "treat canvas == video," per that property's own
+        /// doc comment.
+        case image(CGImage, rect: CGRect, canvasSize: CGSize)
+
+        static func == (lhs: Body, rhs: Body) -> Bool {
+            switch (lhs, rhs) {
+            case (.text(let l), .text(let r)): return l == r
+            case (.richText(let l), .richText(let r)): return l == r
+            case (.image(let li, let lr, let lc), .image(let ri, let rr, let rc)):
+                return li === ri && lr == rr && lc == rc
+            default: return false
+            }
+        }
+    }
+
+    /// One contiguous same-styling span of a rich-text cue — SRT/WebVTT
+    /// inline tags, ASS override tags, and teletext colour all arrive
+    /// normalized to this same shape. A run with no attribute set stays
+    /// plain `.text` upstream rather than becoming a one-run `.richText`.
+    struct Run: Equatable {
+        var text: String
+        var color: Color?
+        var isBold: Bool = false
+        var isItalic: Bool = false
+        var isUnderlined: Bool = false
+        var isStruckThrough: Bool = false
+    }
+
+    /// ASS numpad alignment (`\an`: 1 bottom-left through 9 top-right, 5
+    /// centred) plus an optional `[0, 1]`-normalized anchor from `\pos`
+    /// (y from the top). Either may be present alone.
+    struct Placement: Equatable {
+        var alignment: Int?
+        var position: CGPoint?
+    }
+
+    /// Plain text for text and rich-text cues (rich runs concatenated);
+    /// `nil` for image cues. Mirrors `SubtitleCue.text`.
+    var text: String? {
+        switch body {
+        case .text(let string): return string
+        case .richText(let runs): return runs.map(\.text).joined()
+        case .image: return nil
+        }
+    }
 }
