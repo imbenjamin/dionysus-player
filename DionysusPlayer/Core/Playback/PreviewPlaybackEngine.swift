@@ -37,7 +37,7 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         duration: 5400
     )
 
-    func load(url: URL) async throws {
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource]) async throws {
         onStateChange?(.playing)
         onTimeUpdate?(0, 5400)
     }

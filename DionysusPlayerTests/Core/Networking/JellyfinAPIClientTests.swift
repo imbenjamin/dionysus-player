@@ -217,6 +217,36 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(query["ApiKey"], "tok")
     }
 
+    // MARK: subtitleURL (pure, no network)
+
+    func test_subtitleURL_buildsWellKnownRouteWithNoApiKeyWhenSignedOut() async {
+        let client = makeClient()
+        let url = await client.subtitleURL(itemID: "item-1", mediaSourceID: "src-1", streamIndex: 3, codec: "subrip")
+        XCTAssertEqual(url?.path, "/Videos/item-1/src-1/Subtitles/3/Stream.srt")
+        let query = URLRequest(url: url!).queryDictionary
+        XCTAssertNil(query["ApiKey"])
+    }
+
+    func test_subtitleURL_includesApiKeyWhenSignedIn() async {
+        let client = makeClient(accessToken: "tok")
+        let url = await client.subtitleURL(itemID: "item-1", mediaSourceID: "src-1", streamIndex: 3, codec: "subrip")
+        let query = URLRequest(url: url!).queryDictionary
+        XCTAssertEqual(query["ApiKey"], "tok")
+    }
+
+    /// The extension has to match the stream's own codec (ass/ssa/vtt) so
+    /// Jellyfin serves the sidecar file byte-for-byte rather than
+    /// server-side converting it — anything else, including an absent
+    /// codec, falls back to "srt", the most common external format.
+    func test_subtitleURL_derivesFileExtensionFromCodec() async {
+        let client = makeClient()
+        let cases: [(String?, String)] = [("subrip", "srt"), ("ass", "ass"), ("ssa", "ssa"), ("webvtt", "vtt"), (nil, "srt"), ("mystery", "srt")]
+        for (codec, expectedExtension) in cases {
+            let url = await client.subtitleURL(itemID: "item-1", mediaSourceID: "src-1", streamIndex: 0, codec: codec)
+            XCTAssertEqual(url?.path, "/Videos/item-1/src-1/Subtitles/0/Stream.\(expectedExtension)", "codec \(codec ?? "nil")")
+        }
+    }
+
     // MARK: makeImageURLBuilder
 
     func test_makeImageURLBuilder_snapshotsCurrentBaseURLAndToken() async {

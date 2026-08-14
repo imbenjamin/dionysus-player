@@ -168,6 +168,49 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.sourceVideoStream?.videoRangeType, "DOVIWithHDR10")
     }
 
+    /// `isExternal == true` subtitle streams (Jellyfin sidecar files) should
+    /// reach the engine as `ExternalSubtitleSource`s; an embedded stream on
+    /// the same source shouldn't — it already arrives through the demuxer,
+    /// re-registering it as external would double it up.
+    func test_start_registersExternalSubtitleStreamsWithTheEngine() async {
+        let (viewModel, engine) = makeViewModel()
+        let embeddedSubtitle = MediaStream(index: 2, type: "Subtitle", codec: "hdmv_pgs_subtitle", language: "eng")
+        let externalSubtitle = MediaStream(
+            index: 3, type: "Subtitle", codec: "subrip", language: "spa", title: "Forced",
+            isForced: true, isExternal: true
+        )
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "The Amazing Spider-Man", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mkv", mediaStreams: [embeddedSubtitle, externalSubtitle])]
+        )
+
+        await viewModel.start()
+
+        XCTAssertEqual(engine.loadedExternalSubtitles.count, 1)
+        let registered = engine.loadedExternalSubtitles[0]
+        XCTAssertEqual(registered.count, 1, "The embedded PGS stream shouldn't be re-registered as external")
+        XCTAssertEqual(registered.first?.language, "spa")
+        XCTAssertEqual(registered.first?.name, "Forced")
+        XCTAssertEqual(registered.first?.isForced, true)
+        XCTAssertEqual(registered.first?.formatHint, "subrip")
+        let url = try? XCTUnwrap(registered.first?.url.absoluteString)
+        XCTAssertTrue(url?.contains("/Videos/item-1/src-1/Subtitles/3/Stream.srt") ?? false, "Should be built from itemID/mediaSourceID/index/codec, not a server-provided deliveryUrl (unreliable — see subtitleURL's doc comment)")
+        XCTAssertTrue(url?.contains("ApiKey=tok") ?? false, "The side-demuxer fetches this itself, so the token has to travel in the URL")
+    }
+
+    /// `MediaSourceInfo.id` missing (no resolved source at all) should skip
+    /// external subtitle registration entirely rather than failing the
+    /// load — external subtitles are a bonus, not a requirement to play.
+    func test_start_noResolvedMediaSourceID_skipsExternalSubtitleRegistration() async {
+        let (viewModel, engine) = makeViewModel()
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie), mediaSources: [])
+
+        await viewModel.start()
+
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertEqual(engine.loadedExternalSubtitles, [[]])
+    }
+
     func test_start_engineLoadThrows_setsErrorMessageAndNeverCallsPlay() async {
         let engine = FakePlaybackEngine()
         engine.loadError = URLError(.badURL)

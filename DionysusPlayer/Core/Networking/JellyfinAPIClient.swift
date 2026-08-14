@@ -292,6 +292,48 @@ actor JellyfinAPIClient {
         return components.url
     }
 
+    /// Builds a direct-fetch URL for an external subtitle stream (a
+    /// `MediaStream` with `isExternal == true`). Deliberately does NOT read
+    /// `MediaStream.deliveryUrl` — confirmed live against a real server that
+    /// Jellyfin only populates that field when the `/PlaybackInfo` request
+    /// carries a `DeviceProfile` negotiating subtitle delivery, which this
+    /// app's direct-play-only `playbackInfo(itemID:userID:mediaSourceID:)`
+    /// doesn't send, so the field comes back `nil` for every external
+    /// stream in practice. Instead this builds Jellyfin's own well-known
+    /// subtitle route directly (`/Videos/{itemId}/{mediaSourceId}/
+    /// Subtitles/{streamIndex}/Stream.{format}`), same as `streamURL`
+    /// builds the video route by hand. AetherEngine's side-demuxer fetches
+    /// this directly over HTTP itself — outside this actor, with no
+    /// `X-Emby-Authorization` header — so the token has to travel as the
+    /// same `ApiKey` query item `streamURL` uses.
+    func subtitleURL(itemID: String, mediaSourceID: String, streamIndex: Int, codec: String?) -> URL? {
+        let ext = Self.subtitleFileExtension(forCodec: codec)
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent("Videos/\(itemID)/\(mediaSourceID)/Subtitles/\(streamIndex)/Stream.\(ext)"),
+            resolvingAgainstBaseURL: false
+        ) else { return nil }
+
+        var query: [URLQueryItem] = []
+        if let accessToken { query.append(.init(name: "ApiKey", value: accessToken)) }
+        components.queryItems = query.isEmpty ? nil : query
+        return components.url
+    }
+
+    /// Maps a `MediaStream.codec` to the file extension Jellyfin's subtitle
+    /// route needs to serve the sidecar file byte-for-byte rather than
+    /// running it through a server-side format conversion. Unknown/absent
+    /// codecs fall back to "srt" — by far the most common external
+    /// subtitle format, and Jellyfin serves *something* for it rather than
+    /// a 404.
+    private static func subtitleFileExtension(forCodec codec: String?) -> String {
+        switch codec?.lowercased() {
+        case "ass": return "ass"
+        case "ssa": return "ssa"
+        case "webvtt", "vtt": return "vtt"
+        default: return "srt"
+        }
+    }
+
     /// The live session Jellyfin's server is tracking for this device —
     /// diagnostics-only, for `PlaybackStatsOverlay`'s "Streaming" section
     /// (server-reported play method, and live transcode parameters when

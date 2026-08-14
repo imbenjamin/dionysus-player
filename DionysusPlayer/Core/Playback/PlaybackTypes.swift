@@ -125,6 +125,35 @@ struct PlaybackTrack: Identifiable, Hashable {
     }
 }
 
+/// A sidecar subtitle file to register alongside a load — normalized from
+/// Jellyfin's `MediaStream` (the `isExternal == true` entries in a
+/// `MediaSourceInfo.mediaStreams` list) so `PlaybackEngine` conformers never
+/// depend on AetherEngine's own `ExternalSubtitleTrack` directly, matching
+/// `PlaybackTrack`/`SubtitleCueDisplay`'s existing role. `AetherPlaybackEngine
+/// .load(url:externalSubtitles:)` maps these onto `LoadOptions
+/// .externalSubtitles`; AetherEngine then folds each into `$subtitleTracks`
+/// with a synthetic id and `isExternal == true`, which the existing track-
+/// label normalization already turns into an "External" metadata flag.
+struct ExternalSubtitleSource: Equatable {
+    var url: URL
+    /// The embedded-style track name, if Jellyfin reports one — same
+    /// "genuinely descriptive title vs. bare language echo" heuristic in
+    /// `AetherPlaybackEngine.descriptiveName(_:)` applies once this reaches
+    /// `TrackInfo.name`, so passing `nil` here is fine and just falls
+    /// through to a friendly language name.
+    var name: String?
+    /// BCP-47 / ISO 639 code, same convention as `PlaybackTrack`'s embedded
+    /// tracks.
+    var language: String?
+    var isForced: Bool = false
+    var isHearingImpaired: Bool = false
+    var isDefault: Bool = false
+    /// File-extension override for a `url` whose path doesn't reveal the
+    /// subtitle format — Jellyfin's `MediaStream.codec` values ("subrip",
+    /// "ass", "webvtt", ...) already match what AetherEngine expects here.
+    var formatHint: String?
+}
+
 /// A decoded subtitle cue ready for the app's own overlay to paint —
 /// normalized from AetherEngine's `SubtitleCue`/`SubtitleTextRun`/
 /// `SubtitleTextPlacement`/`SubtitleImage` so `SubtitleOverlayView` never

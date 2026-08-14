@@ -40,6 +40,11 @@ final class FakePlaybackEngine: PlaybackEngine {
     var loadError: Error?
 
     private(set) var loadedURLs: [URL] = []
+    /// Recorded alongside each `loadedURLs` entry, same index — the
+    /// `externalSubtitles` list `load(url:externalSubtitles:)` was called
+    /// with, for tests asserting `PlayerViewModel.start()` built the right
+    /// sidecar list from a `MediaSourceInfo`'s external `MediaStream`s.
+    private(set) var loadedExternalSubtitles: [[ExternalSubtitleSource]] = []
     private(set) var playCallCount = 0
     private(set) var pauseCallCount = 0
     private(set) var togglePlayPauseCallCount = 0
@@ -48,9 +53,10 @@ final class FakePlaybackEngine: PlaybackEngine {
     private(set) var selectedAudioTrackIDs: [Int] = []
     private(set) var selectedSubtitleTrackIDs: [Int?] = []
 
-    func load(url: URL) async throws {
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource]) async throws {
         if let loadError { throw loadError }
         loadedURLs.append(url)
+        loadedExternalSubtitles.append(externalSubtitles)
     }
 
     func play() { playCallCount += 1 }

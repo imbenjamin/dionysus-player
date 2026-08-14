@@ -231,8 +231,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
             .store(in: &cancellables)
     }
 
-    func load(url: URL) async throws {
-        _ = try await engine.load(url: url)
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource]) async throws {
+        let options = LoadOptions(externalSubtitles: externalSubtitles.map(Self.makeExternalSubtitleTrack))
+        _ = try await engine.load(url: url, options: options)
     }
 
     func play() { engine.play() }
@@ -265,6 +266,18 @@ final class AetherPlaybackEngine: PlaybackEngine {
     }
 
     // MARK: - Bridging
+
+    private static func makeExternalSubtitleTrack(_ source: ExternalSubtitleSource) -> ExternalSubtitleTrack {
+        ExternalSubtitleTrack(
+            url: source.url,
+            name: source.name,
+            language: source.language,
+            isForced: source.isForced,
+            isHearingImpaired: source.isHearingImpaired,
+            isDefault: source.isDefault,
+            formatHint: source.formatHint
+        )
+    }
 
     private static func describe(_ format: VideoFormat) -> String? {
         switch format {

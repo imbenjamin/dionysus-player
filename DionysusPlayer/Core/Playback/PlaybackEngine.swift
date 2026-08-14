@@ -54,7 +54,14 @@ protocol PlaybackEngine: AnyObject {
     /// when playback started.
     var stats: PlaybackStats { get }
 
-    func load(url: URL) async throws
+    /// `externalSubtitles` are sidecar files (Jellyfin's `isExternal ==
+    /// true` `MediaStream`s) to register alongside the load, so they show up
+    /// in `subtitleTracks` next to the embedded ones — see
+    /// `ExternalSubtitleSource`'s doc comment. Pass `[]` when there are
+    /// none; the default-argument overload below covers that for callers
+    /// that never deal with external subtitles at all (previews, most
+    /// tests).
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource]) async throws
     func play()
     func pause()
     func togglePlayPause()
@@ -67,4 +74,14 @@ protocol PlaybackEngine: AnyObject {
 
     /// Type-erased SwiftUI surface that renders this engine's video output.
     func makeSurface() -> AnyView
+}
+
+extension PlaybackEngine {
+    /// Convenience for callers with no external subtitles to register —
+    /// protocol requirements can't carry default argument values, so this
+    /// covers what would otherwise be every pre-existing `load(url:)` call
+    /// site.
+    func load(url: URL) async throws {
+        try await load(url: url, externalSubtitles: [])
+    }
 }

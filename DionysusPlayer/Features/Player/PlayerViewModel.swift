@@ -110,7 +110,14 @@ final class PlayerViewModel {
                 return
             }
 
-            try await engine.load(url: url)
+            var externalSubtitles: [ExternalSubtitleSource] = []
+            if let source, let mediaSourceID = source.id {
+                externalSubtitles = await Self.externalSubtitleSources(
+                    itemID: itemID, mediaSourceID: mediaSourceID, mediaStreams: source.mediaStreams ?? [], client: client
+                )
+            }
+
+            try await engine.load(url: url, externalSubtitles: externalSubtitles)
             if !startFromBeginning, let resumeSeconds = mediaItem.resumePositionSeconds, resumeSeconds > 0 {
                 await engine.seek(to: resumeSeconds)
             }
@@ -121,6 +128,35 @@ final class PlayerViewModel {
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "Playback failed to start.")
         }
+    }
+
+    /// Maps the `isExternal == true` subtitle `MediaStream`s off a resolved
+    /// `MediaSourceInfo` into `ExternalSubtitleSource`s AetherEngine can
+    /// register alongside the load — see `ExternalSubtitleSource`'s doc
+    /// comment and `JellyfinAPIClient.subtitleURL`'s for why the URL is
+    /// built from `itemID`/`mediaSourceID`/`stream.index` rather than read
+    /// off the stream itself. A URL `subtitleURL` can't resolve is skipped
+    /// rather than failing the whole load; external subtitles are a bonus,
+    /// not a requirement to play.
+    static func externalSubtitleSources(
+        itemID: String, mediaSourceID: String, mediaStreams: [MediaStream], client: JellyfinAPIClient
+    ) async -> [ExternalSubtitleSource] {
+        var sources: [ExternalSubtitleSource] = []
+        for stream in mediaStreams where stream.type == "Subtitle" && stream.isExternal == true {
+            guard let url = await client.subtitleURL(
+                itemID: itemID, mediaSourceID: mediaSourceID, streamIndex: stream.index, codec: stream.codec
+            ) else { continue }
+            sources.append(ExternalSubtitleSource(
+                url: url,
+                name: stream.title,
+                language: stream.language,
+                isForced: stream.isForced ?? false,
+                isHearingImpaired: stream.isHearingImpaired ?? false,
+                isDefault: stream.isDefault ?? false,
+                formatHint: stream.codec
+            ))
+        }
+        return sources
     }
 
     func togglePlayPause() {
