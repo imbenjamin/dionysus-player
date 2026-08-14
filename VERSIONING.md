@@ -51,6 +51,29 @@ Successive builds at the same core version bump the trailing number:
 `v1.2.0-alpha.2`, `v1.2.0-alpha.3`, ... then `v1.2.0-beta.1`, ... then,
 once approved and merged to `main`, `v1.2.0`.
 
+### Release notes
+
+CI publishes the release with `gh release create --generate-notes`, which
+is just an auto-generated "What's Changed" PR list — accurate but not
+something a human tester wants to read first. Once the workflow finishes,
+edit the release to prepend a short, plain-language summary above that
+list before treating the release as done:
+
+```sh
+gh release view vX.Y.Z-alpha.N --json body --jq '.body'   # grab the auto-generated notes
+# write summary + the existing body to a file, then:
+gh release edit vX.Y.Z-alpha.N --notes-file notes.md
+```
+
+The summary is a few bullet points aimed at whoever's actually installing
+the build (an internal tester, not a future contributor reading `git log`):
+what changed from a user's perspective, in plain language — no internal
+type/file names, no implementation detail. Skip bullets for pure
+chores/CI fixes that a user wouldn't notice; call out real features/fixes
+only. End with a one-line "still an early alpha, expect rough edges"
+disclaimer while prerelease. Established with `v0.1.0-alpha.2`'s notes —
+use those as the template.
+
 ## How the version gets into the app
 
 `Scripts/update-version.sh` is the single source of truth's consumer — it
