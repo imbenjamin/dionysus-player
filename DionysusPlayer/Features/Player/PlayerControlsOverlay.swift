@@ -4,14 +4,21 @@ struct PlayerControlsOverlay: View {
     let viewModel: PlayerViewModel
     @Binding var isScrubbing: Bool
     @Binding var scrubTime: TimeInterval
+    /// Whether the audio/subtitle track picker (`trackSelectionButton`) is
+    /// showing — a `@Binding`, not local `@State` like the picker's other
+    /// state (`trackPickerPage`), because `PlayerView`'s auto-hide timer
+    /// needs to know about it too: without this, the timer had no way to
+    /// tell the picker was open and would fade the whole controls row out
+    /// from under it a few seconds in, panel and all. See
+    /// `PlayerView.scheduleAutoHide()`.
+    @Binding var isShowingTrackPicker: Bool
     var onClose: () -> Void
-    var onShowTracks: () -> Void
     /// Whether `RotationLock` currently has rotation locked. Plain state
     /// owned by `PlayerView`, not a `@Binding` — this button only ever
     /// reports a tap via `onToggleRotationLock`, the same "closure out,
-    /// value in" shape `onClose`/`onShowTracks` already use, since (unlike
-    /// the scrubber) there's no continuous in-overlay gesture that needs to
-    /// write back to it directly.
+    /// value in" shape `onClose` already uses, since (unlike the scrubber)
+    /// there's no continuous in-overlay gesture that needs to write back to
+    /// it directly.
     var isRotationLocked: Bool
     var onToggleRotationLock: () -> Void
     /// Whether `PlaybackStatsOverlay` is currently showing — same "plain
@@ -42,6 +49,39 @@ struct PlayerControlsOverlay: View {
     /// needs to know a touch is down specifically, only that scrubbing (in
     /// the broader sense) is in progress.
     @State private var isDraggingScrubber = false
+
+    /// A fixed cap on the track picker panel's height, *not* a measured
+    /// half of the real screen height — every attempt to read the real
+    /// screen height via `GeometryReader`/`PreferenceKey` (a `GeometryReader`
+    /// as `body`'s root, then a `.background(GeometryReader{...})`
+    /// measurement instead) ended with the panel rendering nowhere at all;
+    /// the common factor across every failure was *some* `GeometryReader`/
+    /// `PreferenceKey` still in play somewhere in this view, which is why
+    /// `estimatedHeight(for:)` below is a plain arithmetic estimate rather
+    /// than a measurement too. Landscape iPhones (this player's primary
+    /// orientation) comfortably clear this fixed cap in practice.
+    private static let trackPickerMaxHeight: CGFloat = 320
+    /// The panel's own width — named alongside `trackPickerMaxHeight` rather
+    /// than left as bare literals on `trackPickerContent`'s `.frame(...)`,
+    /// matching every other picker sizing constant here.
+    private static let trackPickerIdealWidth: CGFloat = 320
+    private static let trackPickerMaxWidth: CGFloat = 360
+
+    /// Shared open/close transition for the track picker panel — one
+    /// constant so the open and close feel identical rather than drifting
+    /// apart across the several call sites that toggle `isShowingTrackPicker`
+    /// (the button, the backdrop tap, each row's selection). Reintroduced
+    /// after confirming the panel reliably shows *without* it — see
+    /// `trackSelectionButton`'s doc comment on why a `.transition` was the
+    /// first thing stripped out while diagnosing that.
+    private static let trackPickerAnimation: Animation = .easeOut(duration: 0.18)
+
+    /// Drill-down/back navigation between picker pages, distinct from
+    /// `trackPickerAnimation` above — slower and `.easeInOut` rather than
+    /// `.easeOut`, matching `UINavigationController`'s own push/pop timing
+    /// (~0.3s, symmetric acceleration) rather than the snappier pop-open
+    /// feel appropriate for the panel itself appearing/disappearing.
+    private static let trackPickerNavigationAnimation: Animation = .easeInOut(duration: 0.3)
 
     var body: some View {
         VStack {
@@ -116,6 +156,36 @@ struct PlayerControlsOverlay: View {
             // indicator the way they should.
             .ignoresSafeArea()
         )
+        // Full-screen, effectively-invisible tap catcher — placed in its own
+        // `.overlay` *before* the panel's below, so the panel (added after,
+        // and therefore on top) still receives its own taps while any tap
+        // elsewhere on screen falls through to this and closes the picker.
+        // Needs its own opaque-enough-to-hit-test fill (SwiftUI won't
+        // hit-test a fully `.clear` shape) but visually reads as nothing —
+        // without it, a tap meant to dismiss the picker would instead reach
+        // `PlayerView`'s own single-tap gesture on the video surface
+        // underneath and toggle `showControls` on top of closing the picker.
+        .overlay {
+            if isShowingTrackPicker {
+                Color.black.opacity(0.001)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation(Self.trackPickerAnimation) { isShowingTrackPicker = false }
+                    }
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if isShowingTrackPicker {
+                trackPickerContent
+                    // Approximate clearance for the top button row + its
+                    // padding, not a measured value — the row's own height
+                    // varies a little with Dynamic Type, so this is a
+                    // reasonable anchor rather than a pixel-exact one.
+                    .padding(.top, 76)
+                    .padding(.trailing, 20)
+                    .transition(.scale(scale: 0.92, anchor: .topTrailing).combined(with: .opacity))
+            }
+        }
     }
 
     /// Close/track-selection buttons and the logo/title row. The
@@ -177,13 +247,7 @@ struct PlayerControlsOverlay: View {
                     .accessibilityLabel(isRotationLocked ? Text("Unlock rotation") : Text("Lock rotation"))
                     .animation(.easeInOut(duration: 0.15), value: isRotationLocked)
 
-                    Button {
-                        onInteract()
-                        onShowTracks()
-                    } label: {
-                        Image(systemName: "captions.bubble")
-                            .font(.title2)
-                    }
+                    trackSelectionButton
 
                     // Same active/on-state badge treatment as the rotation
                     // lock button above — a plain glyph swap alone proved
@@ -213,6 +277,444 @@ struct PlayerControlsOverlay: View {
 
             titleRow
         }
+    }
+
+    /// Which page of the track picker is showing — `.root` (the
+    /// "Audio"/"Subtitles" entry rows) when both categories have a choice to
+    /// make, one of the leaf pages otherwise (see `trackSelectionButton`,
+    /// which skips straight to the one applicable leaf rather than showing a
+    /// `.root` page with a single row on it). Reset by
+    /// `trackSelectionButton`'s tap handler every time the picker opens, so
+    /// it never reopens mid-drill-down from wherever it was left last time.
+    private enum TrackPickerPage: Equatable {
+        case root
+        case audio
+        case subtitle
+    }
+
+    @State private var trackPickerPage: TrackPickerPage = .root
+
+    /// A leaf page's identity — narrower than `TrackPickerPage`, which also
+    /// has a `.root` case with no equivalent here. `displayedLeafPage` below
+    /// is never root (see its own doc comment), so this type makes that
+    /// invariant structural rather than relying on an "unreachable" `switch`
+    /// case that has to be trusted by inspection.
+    private enum TrackPickerLeaf {
+        case audio
+        case subtitle
+
+        var page: TrackPickerPage {
+            switch self {
+            case .audio: return .audio
+            case .subtitle: return .subtitle
+            }
+        }
+    }
+
+    /// Which leaf page's *content* is currently built, independent of
+    /// `trackPickerPage` — see `leafPage`'s doc comment for why this needs
+    /// to be tracked separately rather than just switching on
+    /// `trackPickerPage` directly.
+    @State private var displayedLeafPage: TrackPickerLeaf = .audio
+
+    /// The picker panel's current height, driving `trackPickerContent`'s
+    /// outer `.frame(height:)` directly — a plain `@State` rather than a
+    /// value computed reactively from `trackPickerPage` inside the view
+    /// body, so it's a genuinely independent, ordinary animatable property
+    /// with no `.transition`/`.animation(_:value:)` modifier anywhere near
+    /// it to interact badly with (see `navigateToTrackPickerPage`'s doc
+    /// comment for why that mattered enough to structure it this way).
+    @State private var trackPickerHeight: CGFloat = 0
+
+    /// The one place that changes `trackPickerPage` after the picker's
+    /// initial open (`trackSelectionButton` sets the *first* page directly,
+    /// before anything is on screen to animate). `displayedLeafPage` updates
+    /// first, outside the animated block, and only for a real leaf — going
+    /// back to `.root` leaves whatever leaf was last shown in place, so it
+    /// still has real content to slide away with instead of going blank
+    /// mid-exit. `trackPickerHeight` and `trackPickerPage` then change
+    /// together inside the *same* `withAnimation`, so the panel's resize and
+    /// `leafPage`'s slide (driven by `trackPickerPage`, via its `.offset` in
+    /// `trackPickerContent`) play in sync as one motion, the same way a
+    /// native `UINavigationController` push both slides the new page in and
+    /// resizes its own nav bar together rather than as two separately-timed
+    /// steps. Both are plain `@State` writes with nothing else watching
+    /// them, unlike the `.transition`-based approaches tried before this —
+    /// see `trackPickerContent`'s doc comment — so there's no ambient
+    /// animation-cascading risk in combining them here.
+    private func navigateToTrackPickerPage(_ page: TrackPickerPage) {
+        switch page {
+        case .audio: displayedLeafPage = .audio
+        case .subtitle: displayedLeafPage = .subtitle
+        case .root: break
+        }
+        withAnimation(Self.trackPickerNavigationAnimation) {
+            trackPickerPage = page
+            trackPickerHeight = min(estimatedHeight(for: page), Self.trackPickerMaxHeight)
+        }
+    }
+
+    private var hasAudioChoice: Bool { viewModel.audioTracks.count > 1 }
+    private var hasSubtitleChoice: Bool { !viewModel.subtitleTracks.isEmpty }
+
+    /// Audio/subtitle track picker. A compact panel — not the full sheet
+    /// (`TrackSelectionSheet`) this used to present, for what's really just
+    /// a small in-place choice, not a task that ever warranted a dedicated
+    /// screen. The root page's "Audio"/"Subtitles" rows only appear when
+    /// there's an actual choice to make there: `hasAudioChoice` requires
+    /// more than one audio track (a single-track asset has nothing to pick
+    /// between), and `hasSubtitleChoice` requires at least one subtitle
+    /// track at all. When only one of the two applies, the tap handler below
+    /// skips the root page and opens straight into that one leaf — no point
+    /// showing a picker whose only choice is which single row to tap. When
+    /// *neither* applies — e.g. a single-audio-track asset with no
+    /// subtitles — the button disables itself and dims rather than opening
+    /// an empty picker.
+    ///
+    /// Hand-rolled overlay content (see `body`'s two `.overlay`s), not a
+    /// plain `Menu`, `List`-in-`.popover`, or even a bare `.popover` (all
+    /// tried first): a native `Menu`'s width/font are entirely
+    /// system-controlled, which left long commentary-track titles wrapping
+    /// across 3+ cramped lines with no way to widen the popup or shrink the
+    /// text to compensate. Swapping that for a `List` fixed the sizing but
+    /// not the legibility — `List` brings its own translucent system
+    /// background that read poorly here. Moving that same content into a
+    /// plain `.popover` (an explicit `.presentationBackground` in place of
+    /// `List`'s) fixed *that*, but introduced a new problem: the system's
+    /// own popover chrome — the arrow/rounded-rect border `UIPopoverBackgroundView`
+    /// draws, independent of `.presentationBackground` — kept its own
+    /// default light fill, so during the open/close transition that light
+    /// chrome and this view's dark content visibly animated as two
+    /// separate layers moving slightly out of step. A plain view positioned
+    /// with `.overlay(alignment:)` is one single layer with one transition,
+    /// so there's nothing left for it to visibly desync against.
+    @ViewBuilder
+    private var trackSelectionButton: some View {
+        let hasAnyChoice = hasAudioChoice || hasSubtitleChoice
+
+        Button {
+            onInteract()
+            if hasAudioChoice && hasSubtitleChoice {
+                trackPickerPage = .root
+            } else if hasAudioChoice {
+                trackPickerPage = .audio
+                displayedLeafPage = .audio
+            } else {
+                trackPickerPage = .subtitle
+                displayedLeafPage = .subtitle
+            }
+            // Set directly (not via `navigateToTrackPickerPage`) — this is
+            // the picker's very first page, appearing together with the
+            // whole panel via its own open/close transition below, not a
+            // drill-down with anything to slide.
+            trackPickerHeight = min(estimatedHeight(for: trackPickerPage), Self.trackPickerMaxHeight)
+            withAnimation(Self.trackPickerAnimation) { isShowingTrackPicker = true }
+        } label: {
+            Image(systemName: "captions.bubble")
+                .font(.title2)
+                .opacity(hasAnyChoice ? 1 : 0.4)
+        }
+        .disabled(!hasAnyChoice)
+    }
+
+    /// A deterministic, synchronous *estimate* of a page's content height —
+    /// not a real measurement. Two real `GeometryReader`+`PreferenceKey`
+    /// measurement approaches were tried first (measuring the visible
+    /// `ScrollView`'s own content in place, then a decoupled hidden
+    /// `.fixedSize` copy of it) and *both* ended up with the panel rendering
+    /// at zero size — some combination of SwiftUI's layout engine and this
+    /// view's own conditionally-mounted, animated-transition, nested-in-an-
+    /// `.overlay` context meant the height either never resolved away from
+    /// its initial 0 or resolved to 0 outright, and nothing short of trial
+    /// and error on a real device (unavailable here) was pinning down which.
+    /// Row counts, by contrast, are already known synchronously
+    /// (`viewModel.audioTracks.count` etc.) — computing an approximate
+    /// height from those needs no measurement pass, no preference-key round
+    /// trip, and so has no equivalent "stuck at zero" failure mode at all.
+    /// The trade-off is precision: a title long enough to wrap onto 2 lines
+    /// makes that one row taller than estimated, so the `ScrollView` below
+    /// can end up very slightly short for it — but "slightly short inside a
+    /// `ScrollView`" just means an extra half-line of scroll headroom, not a
+    /// broken or invisible panel.
+    private func estimatedHeight(for page: TrackPickerPage) -> CGFloat {
+        // Root's two rows are taller than a leaf row — each carries a title
+        // *and* a current-selection subtitle line (see `navigationRow`)
+        // where a leaf row is normally one line (see `selectionRow`). A
+        // leaf's own height also has to add its header (`leafHeaderHeight`)
+        // now that header and rows move together as a single sliding unit
+        // (see `leafPage`'s doc comment) rather than living outside the
+        // animated area the way `.root` never needed one to.
+        switch page {
+        case .root:
+            return Self.navigationRowHeight * 2 + Self.dividerHeight
+        case .audio:
+            let count = viewModel.audioTracks.count
+            let rows = Self.selectionRowHeight * CGFloat(count) + Self.dividerHeight * CGFloat(max(0, count - 1))
+            return Self.leafHeaderHeight + Self.dividerHeight + rows
+        case .subtitle:
+            // +1 for the "Off" row, which isn't in `subtitleTracks`.
+            let count = viewModel.subtitleTracks.count + 1
+            let rows = Self.selectionRowHeight * CGFloat(count) + Self.dividerHeight * CGFloat(max(0, count - 1))
+            return Self.leafHeaderHeight + Self.dividerHeight + rows
+        }
+    }
+
+    /// `navigationRow`'s two-line (title + current-selection subtitle) rows
+    /// — `.padding(.vertical, 10)` (×2) plus roughly a `.subheadline` and a
+    /// `.footnote` line stacked with 2pt spacing.
+    private static let navigationRowHeight: CGFloat = 56
+    /// `selectionRow`'s single-line rows — `.padding(.vertical, 10)` (×2)
+    /// plus roughly one `.subheadline` line. Deliberately not sized for the
+    /// occasional 2-line wrap (see `estimatedHeight(for:)`'s doc comment on
+    /// why that's an acceptable gap, not a bug to close here).
+    private static let selectionRowHeight: CGFloat = 44
+    /// `backRow`/`leafTitleRow`'s own height — `.padding(.vertical, 12)`
+    /// (×2) plus roughly one `.subheadline` line.
+    private static let leafHeaderHeight: CGFloat = 44
+    private static let dividerHeight: CGFloat = 1
+
+    /// The root page — "Audio"/"Subtitles" navigation rows. Always mounted,
+    /// at its own fixed height, regardless of `trackPickerPage` — see
+    /// `trackPickerContent`'s doc comment for why this is structured as an
+    /// always-present base layer rather than one case of a `switch` that
+    /// swaps in and out.
+    private var rootPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                navigationRow(
+                    systemImage: "waveform", title: String(localized: "Audio"), value: currentAudioTrackTitle
+                ) { navigateToTrackPickerPage(.audio) }
+                divider
+                navigationRow(
+                    systemImage: "captions.bubble", title: String(localized: "Subtitles"), value: currentSubtitleTrackTitle
+                ) { navigateToTrackPickerPage(.subtitle) }
+            }
+        }
+        .frame(height: estimatedHeight(for: .root))
+    }
+
+    /// Slides `leafPage` fully clear of the panel's own bounds when parked
+    /// off-screen — bigger than `trackPickerMaxWidth` on purpose, so it's
+    /// unambiguously outside the panel regardless of which width between
+    /// `trackPickerIdealWidth` and `trackPickerMaxWidth` actually gets used.
+    private static let trackPickerSlideOffset: CGFloat = 400
+
+    /// A leaf page (`.audio`/`.subtitle`) for whichever page
+    /// `displayedLeafPage` currently names — *not* `trackPickerPage`
+    /// directly, and always mounted (not conditionally, the way an earlier
+    /// version of this did with `if trackPickerPage != .root`) — see
+    /// `trackPickerContent`'s doc comment for why. Its own back/title header
+    /// (`backRow`/`leafTitleRow`) is stacked *inside* this same view,
+    /// directly above its track list, so both move together as one unit
+    /// when the whole thing slides — a separate, independently cross-fading
+    /// header was part of what made an earlier version of this read as "a
+    /// strong fade" rather than a clean slide.
+    private var leafPage: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if hasAudioChoice && hasSubtitleChoice {
+                backRow(for: displayedLeafPage)
+            } else {
+                leafTitleRow(for: displayedLeafPage)
+            }
+            divider
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    switch displayedLeafPage {
+                    case .audio:
+                        trackRows(viewModel.audioTracks) { track in
+                            onInteract()
+                            viewModel.selectAudioTrack(id: track.id)
+                            withAnimation(Self.trackPickerAnimation) { isShowingTrackPicker = false }
+                        }
+
+                    case .subtitle:
+                        selectionRow(
+                            title: String(localized: "Off"),
+                            isSelected: !viewModel.subtitleTracks.contains { $0.isSelected }
+                        ) {
+                            onInteract()
+                            viewModel.selectSubtitleTrack(id: nil)
+                            withAnimation(Self.trackPickerAnimation) { isShowingTrackPicker = false }
+                        }
+                        if !viewModel.subtitleTracks.isEmpty { divider }
+                        trackRows(viewModel.subtitleTracks) { track in
+                            onInteract()
+                            viewModel.selectSubtitleTrack(id: track.id)
+                            withAnimation(Self.trackPickerAnimation) { isShowingTrackPicker = false }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(height: min(estimatedHeight(for: displayedLeafPage.page), Self.trackPickerMaxHeight))
+        // Opaque, matching the panel's own fill — without this, both this
+        // leaf and `rootPage` underneath are transparent apart from their
+        // own text/icons, so root's rows would show through wherever this
+        // leaf's rows don't happen to cover the exact same pixels mid-slide.
+        .background(Color(white: 0.1))
+    }
+
+    /// The picker's actual content: `rootPage` as a permanent base layer,
+    /// with `leafPage` layered on top, always mounted but pushed off to
+    /// `trackPickerSlideOffset` (invisible, clipped by the panel's own
+    /// bounds) while `trackPickerPage == .root`, animated back to `0` (
+    /// covering root) otherwise. Two things were tried and abandoned before
+    /// landing on plain `.offset` + `withAnimation`:
+    ///
+    /// 1. A single view whose *content* swapped via `.id()` + `.transition`.
+    ///    The outgoing and incoming view necessarily animate together as a
+    ///    matched pair with no independent "this one stays still" option,
+    ///    which read as a cross-dissolve rather than a page landing on top
+    ///    of a stationary one (reported as "a strong fade").
+    /// 2. Two independent views (`rootPage` + a conditionally-mounted
+    ///    `leafPage`) with the leaf's *insertion/removal* carrying a
+    ///    `.transition(.move(edge:))`. Correct in principle, but disabling
+    ///    the *container's* height animation via `.animation(nil, value:)`
+    ///    turned out to cascade down as the ambient transaction for
+    ///    everything inside it too, silently killing the leaf's own
+    ///    `.transition` right along with it (reported as no animation at
+    ///    all, just an instant swap) — and an explicit override
+    ///    (`.animation(_:value:)` back on the leaf) didn't reliably survive
+    ///    contact with `.transition`'s own insert/remove machinery either.
+    ///
+    /// Plain `.offset(x:)` sidesteps both: it's not `.transition` at all, so
+    /// there's no insert/remove pairing and no ambient-animation cascading
+    /// to fight. `trackPickerHeight` below is an ordinary `@State` `CGFloat`
+    /// with nothing else watching it, changed in the same `withAnimation` as
+    /// `trackPickerPage` (see `navigateToTrackPickerPage`) — so the resize
+    /// and the slide play as one synchronized motion rather than the panel
+    /// growing/shrinking independently of the page moving across it.
+    @ViewBuilder
+    private var trackPickerContent: some View {
+        ZStack(alignment: .topLeading) {
+            rootPage
+
+            leafPage
+                .offset(x: trackPickerPage == .root ? Self.trackPickerSlideOffset : 0)
+                // Belt-and-suspenders alongside the panel's own `.clipped()`
+                // below — without this, the leaf parked off-screen could
+                // still intercept taps meant for `rootPage` underneath it.
+                .allowsHitTesting(trackPickerPage != .root)
+        }
+        .frame(idealWidth: Self.trackPickerIdealWidth, maxWidth: Self.trackPickerMaxWidth)
+        .frame(height: trackPickerHeight, alignment: .top)
+        .clipped()
+        .foregroundStyle(.white)
+        .background(Color(white: 0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12))
+        }
+        .shadow(color: .black.opacity(0.4), radius: 20, y: 8)
+    }
+
+    private func backRow(for page: TrackPickerLeaf) -> some View {
+        Button {
+            navigateToTrackPickerPage(.root)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.left")
+                Text(page == .audio ? String(localized: "Audio") : String(localized: "Subtitles"))
+                    .font(.subheadline.weight(.semibold))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func leafTitleRow(for page: TrackPickerLeaf) -> some View {
+        Text(page == .audio ? String(localized: "Audio") : String(localized: "Subtitles"))
+            .font(.subheadline.weight(.semibold))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+    }
+
+    /// A root-page row that drills into a leaf page rather than selecting
+    /// anything itself — its trailing chevron (vs. a leaf row's checkmark)
+    /// is what signals that, and `value` previews the leaf's current
+    /// selection so it's visible without the extra tap. `systemImage`
+    /// (`"waveform"` for Audio, `"captions.bubble"` for Subtitles — the
+    /// latter shared with `trackSelectionButton`'s own icon deliberately,
+    /// since it's Apple's canonical captions/subtitles glyph) gives the two
+    /// rows the same "leading icon, title, chevron" shape as a native
+    /// Settings row.
+    private func navigationRow(
+        systemImage: String, title: String, value: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack {
+                Image(systemName: systemImage)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.subheadline)
+                    Text(value)
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.6))
+                        .lineLimit(1)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// A leaf-page row's list of tracks, dividers interleaved between
+    /// entries (not after the last) — the same separator `List` would draw
+    /// for free, hand-rolled here since this view doesn't use `List` (see
+    /// `trackSelectionButton`'s doc comment for why).
+    @ViewBuilder
+    private func trackRows(_ tracks: [PlaybackTrack], onSelect: @escaping (PlaybackTrack) -> Void) -> some View {
+        ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
+            if index > 0 { divider }
+            selectionRow(title: track.displayTitle, isSelected: track.isSelected) {
+                onSelect(track)
+            }
+        }
+    }
+
+    private func selectionRow(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                // Reserves the checkmark's width whether selected or not
+                // (`.opacity` rather than an `if`) so the title doesn't
+                // shift left/right as selection changes between rows.
+                Image(systemName: "checkmark")
+                    .font(.subheadline.weight(.semibold))
+                    .opacity(isSelected ? 1 : 0)
+                Text(title)
+                    .font(.subheadline)
+                    .multilineTextAlignment(.leading)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var divider: some View {
+        Divider().overlay(Color.white.opacity(0.15))
+    }
+
+    private var currentAudioTrackTitle: String {
+        viewModel.audioTracks.first(where: \.isSelected)?.displayTitle ?? String(localized: "Default")
+    }
+
+    private var currentSubtitleTrackTitle: String {
+        viewModel.subtitleTracks.first(where: \.isSelected)?.displayTitle ?? String(localized: "Off")
     }
 
     /// The rewind/play-pause/forward row — swapped for a centered spinner

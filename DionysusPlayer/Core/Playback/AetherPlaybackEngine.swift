@@ -156,6 +156,46 @@ final class AetherPlaybackEngine: PlaybackEngine {
                 }
             }
             .store(in: &cancellables)
+
+        // `selectedAudioTrackID`/`selectedSubtitleTrackID` used to be written
+        // *only* from `selectAudioTrack(id:)`/`selectSubtitleTrack(id:)` — an
+        // explicit user pick — which left both `nil` (so nothing showed a
+        // checkmark) for the entire stretch between load and the first
+        // manual selection, even though AetherEngine had already resolved
+        // and was actively playing a default track the whole time. These two
+        // subscriptions pick up that resolved default (and any other
+        // engine-internal change to the active track, e.g. after the
+        // `reloadWithAudioOverride` a track switch triggers) directly from
+        // AetherEngine's own published `activeAudioTrackIndex`/
+        // `activeSubtitleTrackIndex`, independent of firing order against
+        // the `$audioTracks`/`$subtitleTracks` subscriptions above — whichever
+        // of the two arrives second is what actually paints the checkmark,
+        // and either order lands on the same result.
+        engine.$activeAudioTrackIndex
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] index in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.selectedAudioTrackID = index
+                    self.audioTracks = self.audioTracks.map {
+                        PlaybackTrack(id: $0.id, kind: $0.kind, displayTitle: $0.displayTitle, isSelected: $0.id == index)
+                    }
+                }
+            }
+            .store(in: &cancellables)
+
+        engine.$activeSubtitleTrackIndex
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] index in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.selectedSubtitleTrackID = index
+                    self.subtitleTracks = self.subtitleTracks.map {
+                        PlaybackTrack(id: $0.id, kind: $0.kind, displayTitle: $0.displayTitle, isSelected: $0.id == index)
+                    }
+                }
+            }
+            .store(in: &cancellables)
     }
 
     func load(url: URL) async throws {
