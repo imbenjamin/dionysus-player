@@ -211,6 +211,59 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(engine.loadedExternalSubtitles, [[]])
     }
 
+    /// `MediaStream.audioSpatialFormat == "DolbyAtmos"` should reach the
+    /// engine as a track-index hint — deliberately keyed off that
+    /// server-reported field rather than the stream's codec/title, since
+    /// AetherEngine's own `TrackInfo.isAtmos` can't detect Atmos on a
+    /// TrueHD track (EAC3-only). A non-Atmos audio stream and a non-audio
+    /// stream with the same field set shouldn't be swept in.
+    func test_start_registersAtmosAudioTrackIndicesFromAudioSpatialFormat() async {
+        let (viewModel, engine) = makeViewModel()
+        let trueHDAtmos = MediaStream(index: 1, type: "Audio", codec: "truehd", audioSpatialFormat: "DolbyAtmos")
+        let ddPlusPlain = MediaStream(index: 2, type: "Audio", codec: "eac3", audioSpatialFormat: "None")
+        let notAudio = MediaStream(index: 3, type: "Subtitle", audioSpatialFormat: "DolbyAtmos")
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Saving Private Ryan", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mkv", mediaStreams: [trueHDAtmos, ddPlusPlain, notAudio])]
+        )
+
+        await viewModel.start()
+
+        XCTAssertEqual(engine.loadedAtmosAudioTrackIndices, [[1]])
+    }
+
+    /// Regression test for a real bug (found live, 2026-08-14, on a Saving
+    /// Private Ryan source): Jellyfin numbers `isExternal == true` streams
+    /// into the same index sequence as embedded ones even though they
+    /// carry no bytes in the physical container AetherEngine demuxes, so a
+    /// stream's reported `index` can run ahead of its true position in the
+    /// file — an external subtitle at index 0 shifted every embedded audio
+    /// stream's reported index one higher than AetherEngine's own
+    /// numbering for the identical tracks. The hint set has to report the
+    /// *physical* index (matching `TrackInfo.id`), not `MediaStream.index`
+    /// verbatim, or the flag silently never matches any real track.
+    func test_start_atmosAudioTrackIndices_correctsForPrecedingExternalStreams() async {
+        let (viewModel, engine) = makeViewModel()
+        let externalSubtitle = MediaStream(index: 0, type: "Subtitle", isExternal: true)
+        let video = MediaStream(index: 1, type: "Video")
+        let trueHDAtmos = MediaStream(index: 2, type: "Audio", codec: "truehd", audioSpatialFormat: "DolbyAtmos")
+        let ddPlusAtmos = MediaStream(index: 3, type: "Audio", codec: "eac3", audioSpatialFormat: "DolbyAtmos")
+        let ddPlusPlain = MediaStream(index: 4, type: "Audio", codec: "eac3", audioSpatialFormat: "None")
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Saving Private Ryan", type: .movie),
+            mediaSources: [MediaSourceInfo(
+                id: "src-1", container: "mkv",
+                mediaStreams: [externalSubtitle, video, trueHDAtmos, ddPlusAtmos, ddPlusPlain]
+            )]
+        )
+
+        await viewModel.start()
+
+        // Jellyfin reports 2/3; AetherEngine's own physical numbering for
+        // the same tracks (one external stream precedes them) is 1/2.
+        XCTAssertEqual(engine.loadedAtmosAudioTrackIndices, [[1, 2]])
+    }
+
     func test_start_engineLoadThrows_setsErrorMessageAndNeverCallsPlay() async {
         let engine = FakePlaybackEngine()
         engine.loadError = URLError(.badURL)

@@ -116,8 +116,11 @@ final class PlayerViewModel {
                     itemID: itemID, mediaSourceID: mediaSourceID, mediaStreams: source.mediaStreams ?? [], client: client
                 )
             }
+            let atmosAudioTrackIndices = Self.atmosAudioTrackIndices(from: source?.mediaStreams ?? [])
 
-            try await engine.load(url: url, externalSubtitles: externalSubtitles)
+            try await engine.load(
+                url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: atmosAudioTrackIndices
+            )
             if !startFromBeginning, let resumeSeconds = mediaItem.resumePositionSeconds, resumeSeconds > 0 {
                 await engine.seek(to: resumeSeconds)
             }
@@ -157,6 +160,37 @@ final class PlayerViewModel {
             ))
         }
         return sources
+    }
+
+    /// Audio track indices Jellyfin's own server-side probe flagged
+    /// `audioSpatialFormat == "DolbyAtmos"` — forwarded to the engine as
+    /// `knownAtmosAudioTrackIndices` so the picker can show an "Atmos" flag
+    /// for a track AetherEngine itself has no way to detect as such
+    /// (TrueHD's Atmos extension — see `PlaybackEngine.load(url:
+    /// externalSubtitles:knownAtmosAudioTrackIndices:)`'s doc comment).
+    /// Deliberately reads this field rather than text-matching the
+    /// stream's codec/title — `audioSpatialFormat`'s own doc comment
+    /// calls that out as the *less* reliable way to detect Atmos.
+    ///
+    /// Returns *physical* indices (matching AetherEngine's `TrackInfo.id`/
+    /// `PlaybackTrack.id`), NOT `MediaStream.index` verbatim: confirmed
+    /// live (2026-08-14) that Jellyfin numbers external (`isExternal ==
+    /// true`) streams into the same index sequence as embedded ones even
+    /// though they carry no bytes in the physical container AetherEngine
+    /// actually demuxes — a Saving Private Ryan source with one external
+    /// subtitle at index 0 reported every embedded audio stream's index
+    /// one higher than AetherEngine's own numbering for the identical
+    /// tracks (2/3/4 vs. AetherEngine's 1/2/3). Subtracting, for each
+    /// stream, the count of external streams whose index precedes it
+    /// recovers the physical index.
+    static func atmosAudioTrackIndices(from mediaStreams: [MediaStream]) -> Set<Int> {
+        let externalIndices = mediaStreams.filter { $0.isExternal == true }.map(\.index)
+        func physicalIndex(_ index: Int) -> Int {
+            index - externalIndices.filter { $0 < index }.count
+        }
+        return Set(mediaStreams
+            .filter { $0.type == "Audio" && $0.audioSpatialFormat == "DolbyAtmos" }
+            .map { physicalIndex($0.index) })
     }
 
     func togglePlayPause() {

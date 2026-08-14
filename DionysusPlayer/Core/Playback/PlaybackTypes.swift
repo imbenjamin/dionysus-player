@@ -110,8 +110,13 @@ struct PlaybackTrack: Identifiable, Hashable {
     var title: String
     /// The picker row's secondary, metadata line — whichever of "Default"/
     /// "Forced"/"Hearing Impaired"/"Commentary"/"External" apply to this
-    /// track, already joined and display-ready. `nil` when none apply
-    /// (nothing to show under the title).
+    /// track, already joined and display-ready. Audio tracks additionally
+    /// carry their format ("DD"/"DD+"/"DTS"/...), a separate "Atmos" flag
+    /// when applicable (additive, not a replacement for the format — a
+    /// Dolby Digital Plus/Atmos track is still "DD+" first), and channel
+    /// layout ("Stereo"/"5.1"/"7.1"/...) — see `AetherPlaybackEngine
+    /// .audioFormatLabel(for:)`/`.channelsLabel(for:)`. `nil` when none of
+    /// the above apply (nothing to show under the title).
     var metadata: String?
     var isSelected: Bool
 

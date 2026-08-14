@@ -57,11 +57,24 @@ protocol PlaybackEngine: AnyObject {
     /// `externalSubtitles` are sidecar files (Jellyfin's `isExternal ==
     /// true` `MediaStream`s) to register alongside the load, so they show up
     /// in `subtitleTracks` next to the embedded ones — see
-    /// `ExternalSubtitleSource`'s doc comment. Pass `[]` when there are
-    /// none; the default-argument overload below covers that for callers
-    /// that never deal with external subtitles at all (previews, most
-    /// tests).
-    func load(url: URL, externalSubtitles: [ExternalSubtitleSource]) async throws
+    /// `ExternalSubtitleSource`'s doc comment.
+    ///
+    /// `knownAtmosAudioTrackIndices` are audio track indices (matching
+    /// `PlaybackTrack.id`/`MediaStream.index`) Jellyfin's own
+    /// `MediaStream.audioSpatialFormat == "DolbyAtmos"` already identified
+    /// as carrying Atmos — that field's own doc comment calls it "more
+    /// reliable than text-matching the codec/title for Atmos", which is
+    /// exactly why this exists: AetherEngine's own `TrackInfo.isAtmos` only
+    /// fires for the EAC3 JOC profile marker, with no equivalent detection
+    /// for TrueHD's Atmos (MAT 2.0) extension, so a TrueHD/Atmos track
+    /// needs this server-reported hint to be flagged at all — see
+    /// `AetherPlaybackEngine.audioFormatLabel(for:)`'s doc comment for the
+    /// full nuance this exists to fix.
+    ///
+    /// Pass `[]`/`Set()` for either when there's nothing to register/hint —
+    /// the default-argument overloads below cover callers that don't deal
+    /// with either at all (previews, most tests).
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws
     func play()
     func pause()
     func togglePlayPause()
@@ -77,11 +90,17 @@ protocol PlaybackEngine: AnyObject {
 }
 
 extension PlaybackEngine {
-    /// Convenience for callers with no external subtitles to register —
-    /// protocol requirements can't carry default argument values, so this
-    /// covers what would otherwise be every pre-existing `load(url:)` call
-    /// site.
+    /// Convenience for callers with no external subtitles or Atmos hints to
+    /// register — protocol requirements can't carry default argument
+    /// values, so this covers what would otherwise be every pre-existing
+    /// `load(url:)` call site.
     func load(url: URL) async throws {
-        try await load(url: url, externalSubtitles: [])
+        try await load(url: url, externalSubtitles: [], knownAtmosAudioTrackIndices: [])
+    }
+
+    /// Convenience for callers with external subtitles but no Atmos hints —
+    /// same reasoning as `load(url:)` above.
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource]) async throws {
+        try await load(url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: [])
     }
 }

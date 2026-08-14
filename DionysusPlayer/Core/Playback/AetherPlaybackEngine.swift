@@ -32,6 +32,11 @@ final class AetherPlaybackEngine: PlaybackEngine {
 
     private var selectedAudioTrackID: Int?
     private var selectedSubtitleTrackID: Int?
+    /// Set once per `load(url:externalSubtitles:knownAtmosAudioTrackIndices:)`
+    /// call, read by the `$audioTracks` subscription below every time
+    /// AetherEngine republishes the list — see that parameter's doc comment
+    /// on the protocol for why this exists.
+    private var knownAtmosAudioTrackIndices: Set<Int> = []
 
     /// Bridges to AetherEngine's own `videoGravity`, which drives whichever
     /// `AVPlayerLayer`/`AVSampleBufferDisplayLayer` is currently bound —
@@ -179,7 +184,10 @@ final class AetherPlaybackEngine: PlaybackEngine {
             .sink { [weak self] tracks in
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    self.audioTracks = Self.normalize(tracks, kind: .audio, selectedID: self.selectedAudioTrackID)
+                    self.audioTracks = Self.normalize(
+                        tracks, kind: .audio, selectedID: self.selectedAudioTrackID,
+                        knownAtmosAudioTrackIndices: self.knownAtmosAudioTrackIndices
+                    )
                 }
             }
             .store(in: &cancellables)
@@ -231,7 +239,8 @@ final class AetherPlaybackEngine: PlaybackEngine {
             .store(in: &cancellables)
     }
 
-    func load(url: URL, externalSubtitles: [ExternalSubtitleSource]) async throws {
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws {
+        self.knownAtmosAudioTrackIndices = knownAtmosAudioTrackIndices
         let options = LoadOptions(externalSubtitles: externalSubtitles.map(Self.makeExternalSubtitleTrack))
         _ = try await engine.load(url: url, options: options)
     }
@@ -324,7 +333,10 @@ final class AetherPlaybackEngine: PlaybackEngine {
         }
     }
 
-    private static func normalize(_ tracks: [TrackInfo], kind: PlaybackTrack.Kind, selectedID: Int?) -> [PlaybackTrack] {
+    private static func normalize(
+        _ tracks: [TrackInfo], kind: PlaybackTrack.Kind, selectedID: Int?,
+        knownAtmosAudioTrackIndices: Set<Int> = []
+    ) -> [PlaybackTrack] {
         tracks.map { track in
             // Computed once and threaded through both `title(for:)` and
             // `metadataLabel(for:)` — the latter needs to know whether the
@@ -336,7 +348,10 @@ final class AetherPlaybackEngine: PlaybackEngine {
                 id: track.id,
                 kind: kind,
                 title: title(for: track, providedName: providedName),
-                metadata: metadataLabel(for: track, providedName: providedName),
+                metadata: metadataLabel(
+                    for: track, kind: kind, providedName: providedName,
+                    knownAtmosAudioTrackIndices: knownAtmosAudioTrackIndices
+                ),
                 isSelected: track.id == selectedID
             )
         }
@@ -392,10 +407,36 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// not appear anywhere on the row at all, so it leads the flag list
     /// here instead (e.g. "English · Commentary" under "Director's
     /// Commentary").
-    private static func metadataLabel(for track: TrackInfo, providedName: String?) -> String? {
+    ///
+    /// Audio tracks additionally get the format (e.g. "DD+"), an "Atmos"
+    /// flag when applicable, and channel layout (e.g. "5.1") right after
+    /// the language, ahead of the boolean flags — see
+    /// `audioFormatLabel`/`channelsLabel`. None of the three apply to
+    /// subtitle tracks (`channels`/codec-as-audio-format are meaningless
+    /// there), hence `kind` gating them.
+    ///
+    /// "Atmos" is deliberately its own flag, additive to `audioFormatLabel`
+    /// rather than replacing it (that was the original, wrong shape here —
+    /// see that function's doc comment): a Dolby Digital Plus/Atmos track
+    /// is still a DD+ track first and foremost, same as the file's own
+    /// embedded title reads "Dolby TrueHD Atmos"/"Dolby Digital Plus
+    /// Atmos" — format *and* Atmos together, never just one. Its source is
+    /// `track.isAtmos` OR `knownAtmosAudioTrackIndices` (Jellyfin's own
+    /// `MediaStream.audioSpatialFormat`, forwarded at load time) — see the
+    /// `PlaybackEngine.load(url:externalSubtitles:knownAtmosAudioTrackIndices:)`
+    /// doc comment for why both are needed rather than just the former.
+    private static func metadataLabel(
+        for track: TrackInfo, kind: PlaybackTrack.Kind, providedName: String?,
+        knownAtmosAudioTrackIndices: Set<Int>
+    ) -> String? {
         var flags: [String] = []
         if providedName != nil, let language = track.language, let friendly = friendlyLanguageName(language) {
             flags.append(friendly)
+        }
+        if kind == .audio {
+            if let format = audioFormatLabel(for: track) { flags.append(format) }
+            if track.isAtmos || knownAtmosAudioTrackIndices.contains(track.id) { flags.append("Atmos") }
+            if let channels = channelsLabel(for: track) { flags.append(channels) }
         }
         if track.isDefault { flags.append(String(localized: "Default")) }
         if track.isForced { flags.append(String(localized: "Forced")) }
@@ -403,6 +444,71 @@ final class AetherPlaybackEngine: PlaybackEngine {
         if track.isCommentary { flags.append(String(localized: "Commentary")) }
         if track.isExternal { flags.append(String(localized: "External")) }
         return flags.isEmpty ? nil : flags.joined(separator: " \u{00B7} ")
+    }
+
+    /// The metadata line's audio-format entry — the underlying codec
+    /// family, same shorthand `MediaItem.metadataBadges` uses for the
+    /// Details tab ("DD"/"DD+"/"Dolby TrueHD"/"DTS"), kept consistent
+    /// across the app rather than inventing a second vocabulary here.
+    /// Unlike that badge (server-side `MediaStream.profile`, which can
+    /// tell DTS-HD apart from core DTS), `TrackInfo.codec` is just the bare
+    /// libavcodec name with no profile info, so every DTS-family track
+    /// reads as plain "DTS" here — an accepted simplification, not a bug,
+    /// for this data source. `nil` for a codec with no established
+    /// shorthand (rare in practice) rather than showing a raw, none-too-
+    /// friendly libavcodec name verbatim.
+    ///
+    /// Deliberately does NOT special-case `track.isAtmos` — `metadataLabel`
+    /// appends "Atmos" as its own separate flag instead. A first version of
+    /// this returned "Dolby Atmos" here in place of the codec's own format
+    /// (e.g. hiding "DD+"), which silently lost real information: a Dolby
+    /// Digital Plus/Atmos track and a Dolby TrueHD/Atmos track both
+    /// legitimately carry Atmos, but they're not interchangeable — TrueHD's
+    /// lossless core is the higher-quality carrier of the two — and
+    /// collapsing both to a bare "Dolby Atmos" made them indistinguishable
+    /// (found live, 2026-08-14, on a Saving Private Ryan source with both).
+    ///
+    /// `"dca"` (not just `"dts"`) matches DTS: `Demuxer.trackInfo(from:)`
+    /// sets `codec` from `avcodec_find_decoder(...).pointee.name` — the
+    /// FFmpeg *decoder's* own registered name, not the codec's canonical
+    /// short name — and FFmpeg's DTS decoder has historically been
+    /// registered as `"dca"` (`ffmpeg -codecs` shows `dts ... (decoders:
+    /// dca) (encoders: dca)`); confirmed live (2026-08-14) that every DTS
+    /// track's `codec` actually reads `"dca"`, not `"dts"`. `"dts"` stays
+    /// as a fallback for the rarer case `trackInfo(from:)` falls back to
+    /// the codec-descriptor name (no decoder built).
+    private static func audioFormatLabel(for track: TrackInfo) -> String? {
+        switch track.codec.lowercased() {
+        case "ac3": return "DD"
+        case "eac3": return "DD+"
+        case "truehd": return "Dolby TrueHD"
+        case "dts", "dca": return "DTS"
+        case "aac": return "AAC"
+        case "flac": return "FLAC"
+        case "mp3": return "MP3"
+        case "opus": return "Opus"
+        case "vorbis": return "Vorbis"
+        default:
+            return track.codec.hasPrefix("pcm") ? "PCM" : nil
+        }
+    }
+
+    /// The metadata line's channel-layout entry — friendlier labels
+    /// ("Mono"/"Stereo") than `describeChannels` above uses for Stats-for-
+    /// Nerds ("1.0"/"2.0"), which is a denser diagnostics readout rather
+    /// than a picker row a user reads at a glance. Deliberately does NOT
+    /// collapse to "Atmos" for an Atmos track the way `describeChannels`
+    /// does — `audioFormatLabel` already surfaces that, and the bed channel
+    /// count (typically 5.1) is still useful alongside it here.
+    private static func channelsLabel(for track: TrackInfo) -> String? {
+        guard track.channels > 0 else { return nil }
+        switch track.channels {
+        case 1: return String(localized: "Mono")
+        case 2: return String(localized: "Stereo")
+        case 6: return "5.1"
+        case 8: return "7.1"
+        default: return "\(track.channels)ch"
+        }
     }
 
     private static func normalize(_ cue: SubtitleCue) -> SubtitleCueDisplay {
