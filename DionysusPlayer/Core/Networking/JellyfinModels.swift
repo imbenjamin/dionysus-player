@@ -201,7 +201,6 @@ struct MediaStream: Codable, Identifiable, Hashable {
     var isDefault: Bool?
     var isForced: Bool?
     var isExternal: Bool?
-    var deliveryUrl: String?
     /// Server-detected, primarily for subtitle streams (SDH/closed-caption
     /// naming conventions); occasionally set for an accessible audio track
     /// too. One of a few signals `MediaItem.metadataBadges` checks for "AD".

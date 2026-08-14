@@ -1,4 +1,6 @@
+import CoreGraphics
 import Foundation
+import SwiftUI
 
 /// Playback state as the rest of the app sees it — deliberately smaller
 /// than AetherEngine's own state so feature code isn't coupled to it.
@@ -100,6 +102,137 @@ struct PlaybackTrack: Identifiable, Hashable {
 
     var id: Int
     var kind: Kind
-    var displayTitle: String
+    /// The picker row's main line — a provided, genuinely descriptive track
+    /// name (e.g. "Director's Commentary") when there is one, otherwise a
+    /// user-friendly language name derived from the track's language code
+    /// (e.g. "English" rather than "ENG" or "ENG (srt)"). See
+    /// `AetherPlaybackEngine.title(for:)` for how the two are told apart.
+    var title: String
+    /// The picker row's secondary, metadata line — whichever of "Default"/
+    /// "Forced"/"Hearing Impaired"/"Commentary"/"External" apply to this
+    /// track, already joined and display-ready. Audio tracks additionally
+    /// carry their format ("DD"/"DD+"/"DTS"/...), a separate "Atmos" flag
+    /// when applicable (additive, not a replacement for the format — a
+    /// Dolby Digital Plus/Atmos track is still "DD+" first), and channel
+    /// layout ("Stereo"/"5.1"/"7.1"/...) — see `AetherPlaybackEngine
+    /// .audioFormatLabel(for:)`/`.channelsLabel(for:)`. `nil` when none of
+    /// the above apply (nothing to show under the title).
+    var metadata: String?
     var isSelected: Bool
+
+    /// A copy with only `isSelected` changed — `AetherPlaybackEngine`
+    /// re-maps its whole track list on every selection/active-index change
+    /// just to flip this one field, without disturbing `title`/`metadata`.
+    func selected(_ isSelected: Bool) -> PlaybackTrack {
+        var copy = self
+        copy.isSelected = isSelected
+        return copy
+    }
+}
+
+/// A sidecar subtitle file to register alongside a load — normalized from
+/// Jellyfin's `MediaStream` (the `isExternal == true` entries in a
+/// `MediaSourceInfo.mediaStreams` list) so `PlaybackEngine` conformers never
+/// depend on AetherEngine's own `ExternalSubtitleTrack` directly, matching
+/// `PlaybackTrack`/`SubtitleCueDisplay`'s existing role. `AetherPlaybackEngine
+/// .load(url:externalSubtitles:)` maps these onto `LoadOptions
+/// .externalSubtitles`; AetherEngine then folds each into `$subtitleTracks`
+/// with a synthetic id and `isExternal == true`, which the existing track-
+/// label normalization already turns into an "External" metadata flag.
+struct ExternalSubtitleSource: Equatable {
+    var url: URL
+    /// The embedded-style track name, if Jellyfin reports one — same
+    /// "genuinely descriptive title vs. bare language echo" heuristic in
+    /// `AetherPlaybackEngine.descriptiveName(_:)` applies once this reaches
+    /// `TrackInfo.name`, so passing `nil` here is fine and just falls
+    /// through to a friendly language name.
+    var name: String?
+    /// BCP-47 / ISO 639 code, same convention as `PlaybackTrack`'s embedded
+    /// tracks.
+    var language: String?
+    var isForced: Bool = false
+    var isHearingImpaired: Bool = false
+    var isDefault: Bool = false
+    /// File-extension override for a `url` whose path doesn't reveal the
+    /// subtitle format — Jellyfin's `MediaStream.codec` values ("subrip",
+    /// "ass", "webvtt", ...) already match what AetherEngine expects here.
+    var formatHint: String?
+}
+
+/// A decoded subtitle cue ready for the app's own overlay to paint —
+/// normalized from AetherEngine's `SubtitleCue`/`SubtitleTextRun`/
+/// `SubtitleTextPlacement`/`SubtitleImage` so `SubtitleOverlayView` never
+/// depends on AetherEngine's types directly, matching `PlaybackTrack`'s
+/// existing role for the track lists. AetherEngine emits cues; it draws
+/// nothing itself — see `AetherPlaybackEngine.observeEngine()` for where
+/// this gets populated from `engine.$subtitleCues`.
+///
+/// `startTime`/`endTime` are in source PTS seconds — filter against
+/// `PlayerViewModel.sourceTime`, not `currentTime` (the item/AVPlayer
+/// clock), since the two can diverge across producer restarts. The cue
+/// list itself covers a window ahead of the playhead rather than just
+/// "now," so a cue with no active window simply isn't rendered yet.
+struct SubtitleCueDisplay: Identifiable, Equatable {
+    var id: Int
+    var startTime: TimeInterval
+    var endTime: TimeInterval
+    var body: Body
+    /// Where the source asked this cue to be drawn (ASS `\an`/`\pos`);
+    /// `nil` for the overwhelming majority of cues, which want the
+    /// overlay's own default (bottom-center). Text/rich-text cues only —
+    /// an image cue carries its own geometry on `Body.image`.
+    var placement: Placement?
+
+    enum Body: Equatable {
+        case text(String)
+        case richText([Run])
+        /// `rect`/`canvasSize` are normalized `[0, 1]` against the source
+        /// video frame, same contract as `SubtitleImage.position`/
+        /// `.canvasSize` — map them onto the on-screen video rect to place
+        /// the image where the disc/broadcast authored it. `canvasSize ==
+        /// .zero` means "treat canvas == video," per that property's own
+        /// doc comment.
+        case image(CGImage, rect: CGRect, canvasSize: CGSize)
+
+        static func == (lhs: Body, rhs: Body) -> Bool {
+            switch (lhs, rhs) {
+            case (.text(let l), .text(let r)): return l == r
+            case (.richText(let l), .richText(let r)): return l == r
+            case (.image(let li, let lr, let lc), .image(let ri, let rr, let rc)):
+                return li === ri && lr == rr && lc == rc
+            default: return false
+            }
+        }
+    }
+
+    /// One contiguous same-styling span of a rich-text cue — SRT/WebVTT
+    /// inline tags, ASS override tags, and teletext colour all arrive
+    /// normalized to this same shape. A run with no attribute set stays
+    /// plain `.text` upstream rather than becoming a one-run `.richText`.
+    struct Run: Equatable {
+        var text: String
+        var color: Color?
+        var isBold: Bool = false
+        var isItalic: Bool = false
+        var isUnderlined: Bool = false
+        var isStruckThrough: Bool = false
+    }
+
+    /// ASS numpad alignment (`\an`: 1 bottom-left through 9 top-right, 5
+    /// centred) plus an optional `[0, 1]`-normalized anchor from `\pos`
+    /// (y from the top). Either may be present alone.
+    struct Placement: Equatable {
+        var alignment: Int?
+        var position: CGPoint?
+    }
+
+    /// Plain text for text and rich-text cues (rich runs concatenated);
+    /// `nil` for image cues. Mirrors `SubtitleCue.text`.
+    var text: String? {
+        switch body {
+        case .text(let string): return string
+        case .richText(let runs): return runs.map(\.text).joined()
+        case .image: return nil
+        }
+    }
 }

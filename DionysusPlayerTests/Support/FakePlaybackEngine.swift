@@ -12,10 +12,13 @@ import SwiftUI
 final class FakePlaybackEngine: PlaybackEngine {
     var onStateChange: ((PlaybackState) -> Void)?
     var onTimeUpdate: ((TimeInterval, TimeInterval) -> Void)?
+    var onSubtitleCuesChange: (([SubtitleCueDisplay]) -> Void)?
+    var onSourceTimeUpdate: ((TimeInterval) -> Void)?
 
     var audioTracks: [PlaybackTrack] = []
     var subtitleTracks: [PlaybackTrack] = []
     var videoFormatDescription: String?
+    var videoNaturalSize: CGSize?
     var zoomMode: VideoZoomMode = .fit
     var stats = PlaybackStats(
         videoSize: nil,
@@ -37,6 +40,17 @@ final class FakePlaybackEngine: PlaybackEngine {
     var loadError: Error?
 
     private(set) var loadedURLs: [URL] = []
+    /// Recorded alongside each `loadedURLs` entry, same index — the
+    /// `externalSubtitles` list `load(url:externalSubtitles:)` was called
+    /// with, for tests asserting `PlayerViewModel.start()` built the right
+    /// sidecar list from a `MediaSourceInfo`'s external `MediaStream`s.
+    private(set) var loadedExternalSubtitles: [[ExternalSubtitleSource]] = []
+    /// Recorded alongside each `loadedURLs` entry, same index — the
+    /// `knownAtmosAudioTrackIndices` set `load(url:externalSubtitles:
+    /// knownAtmosAudioTrackIndices:)` was called with, for tests asserting
+    /// `PlayerViewModel.start()` derived the right set from a
+    /// `MediaSourceInfo`'s audio `MediaStream`s' `audioSpatialFormat`.
+    private(set) var loadedAtmosAudioTrackIndices: [Set<Int>] = []
     private(set) var playCallCount = 0
     private(set) var pauseCallCount = 0
     private(set) var togglePlayPauseCallCount = 0
@@ -45,9 +59,11 @@ final class FakePlaybackEngine: PlaybackEngine {
     private(set) var selectedAudioTrackIDs: [Int] = []
     private(set) var selectedSubtitleTrackIDs: [Int?] = []
 
-    func load(url: URL) async throws {
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws {
         if let loadError { throw loadError }
         loadedURLs.append(url)
+        loadedExternalSubtitles.append(externalSubtitles)
+        loadedAtmosAudioTrackIndices.append(knownAtmosAudioTrackIndices)
     }
 
     func play() { playCallCount += 1 }

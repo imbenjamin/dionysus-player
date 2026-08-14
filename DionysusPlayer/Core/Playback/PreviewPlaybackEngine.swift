@@ -7,16 +7,19 @@ import SwiftUI
 final class PreviewPlaybackEngine: PlaybackEngine {
     var onStateChange: ((PlaybackState) -> Void)?
     var onTimeUpdate: ((TimeInterval, TimeInterval) -> Void)?
+    var onSubtitleCuesChange: (([SubtitleCueDisplay]) -> Void)?
+    var onSourceTimeUpdate: ((TimeInterval) -> Void)?
 
     var audioTracks: [PlaybackTrack] = [
-        PlaybackTrack(id: 0, kind: .audio, displayTitle: "English 5.1", isSelected: true),
-        PlaybackTrack(id: 1, kind: .audio, displayTitle: "Commentary", isSelected: false)
+        PlaybackTrack(id: 0, kind: .audio, title: "Dolby Digital Plus Atmos 7.1", metadata: "DD+ · Atmos · 7.1 · Default", isSelected: true),
+        PlaybackTrack(id: 1, kind: .audio, title: "Director's Commentary", metadata: "English · AAC · Stereo · Commentary", isSelected: false)
     ]
     var subtitleTracks: [PlaybackTrack] = [
-        PlaybackTrack(id: 0, kind: .subtitle, displayTitle: "English", isSelected: false),
-        PlaybackTrack(id: 1, kind: .subtitle, displayTitle: "English (SDH)", isSelected: false)
+        PlaybackTrack(id: 0, kind: .subtitle, title: "English", metadata: "Default", isSelected: false),
+        PlaybackTrack(id: 1, kind: .subtitle, title: "English", metadata: "Hearing Impaired", isSelected: false)
     ]
     var videoFormatDescription: String? = "Dolby Vision P8.1"
+    var videoNaturalSize: CGSize? = CGSize(width: 3840, height: 1600)
     var zoomMode: VideoZoomMode = .fit
     var stats = PlaybackStats(
         videoSize: "3840×1600",
@@ -34,7 +37,7 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         duration: 5400
     )
 
-    func load(url: URL) async throws {
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws {
         onStateChange?(.playing)
         onTimeUpdate?(0, 5400)
     }

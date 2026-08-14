@@ -16,9 +16,15 @@ struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: PlayerViewModel?
     @State private var showControls = true
-    @State private var showTrackSelection = false
     @State private var isScrubbing = false
     @State private var scrubTime: TimeInterval = 0
+    /// Whether `PlayerControlsOverlay`'s audio/subtitle track picker is
+    /// showing — see `scheduleAutoHide()`'s guard, the reason this needs to
+    /// live here rather than as that overlay's own local `@State`: without
+    /// it, the auto-hide timer had no way to know the picker was open and
+    /// would fade the whole controls row (picker included) out from under
+    /// the user reading it.
+    @State private var isShowingTrackPicker = false
     /// Mirrors `RotationLock`'s app-wide state for the button's own icon —
     /// see `toggleRotationLock()`/`close()` for why this view is what keeps
     /// the two in sync rather than `PlayerControlsOverlay` reading
@@ -86,6 +92,15 @@ struct PlayerView: View {
                     // there's no disambiguation needed between them.
                     .simultaneousGesture(pinchZoomGesture)
 
+                // Above the video surface but below the transport chrome —
+                // visible independent of `showControls` (subtitles aren't
+                // "controls", they shouldn't fade with them), with its own
+                // bottom clearance animating in step with the controls fade
+                // instead. See `SubtitleOverlayView.controlsVisible`'s doc
+                // comment.
+                SubtitleOverlayView(viewModel: viewModel, zoomMode: zoomMode, controlsVisible: showControls)
+                    .ignoresSafeArea()
+
                 // Between the video surface and `PlayerControlsOverlay`,
                 // per that overlay's own doc comment — the "closest
                 // possible layer to the video" placement the feature was
@@ -121,8 +136,8 @@ struct PlayerView: View {
                     viewModel: viewModel,
                     isScrubbing: $isScrubbing,
                     scrubTime: $scrubTime,
+                    isShowingTrackPicker: $isShowingTrackPicker,
                     onClose: { Task { await close() } },
-                    onShowTracks: { showTrackSelection = true },
                     isRotationLocked: isRotationLocked,
                     onToggleRotationLock: toggleRotationLock,
                     isPlaybackStatsVisible: showPlaybackStats,
@@ -153,11 +168,6 @@ struct PlayerView: View {
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
         .task { await setUpIfNeeded() }
-        .sheet(isPresented: $showTrackSelection) {
-            if let viewModel {
-                TrackSelectionSheet(viewModel: viewModel)
-            }
-        }
         // The controls only ever fade while `.playing` — every other state
         // (paused, loading, seeking, buffering, ended, failed) both cancels
         // any pending fade and forces them back on screen. That covers not
@@ -181,6 +191,14 @@ struct PlayerView: View {
         .onChange(of: isLandscape) { _, landscape in
             guard !landscape else { return }
             setZoomMode(.fit)
+        }
+        // Opening the track picker cancels any pending fade (the guard in
+        // `scheduleAutoHide()` blocks a reschedule while it's showing);
+        // closing it starts a fresh countdown, the same "you get another
+        // full `autoHideDelay` after an interaction" treatment every other
+        // tap in this screen already gets via `onInteract`.
+        .onChange(of: isShowingTrackPicker) { _, _ in
+            scheduleAutoHide()
         }
     }
 
@@ -227,15 +245,18 @@ struct PlayerView: View {
 
     /// (Re)arms the 3-second auto-hide countdown, replacing any countdown
     /// already pending. A no-op — and clears any pending countdown — unless
-    /// controls are actually showing and playback is actually running;
-    /// callers (the reveal tap, every button/drag in
-    /// `PlayerControlsOverlay`, and playback resuming) call this
-    /// unconditionally on every interaction rather than checking those
-    /// themselves, so this is the one place that decides whether a fade
-    /// should happen at all.
+    /// controls are actually showing, playback is actually running, and the
+    /// track picker isn't up (see `isShowingTrackPicker`'s doc comment —
+    /// without that last check, a user who paused to read the picker's
+    /// options for a few seconds would have the whole controls row,
+    /// including the picker itself, fade out from under them); callers (the
+    /// reveal tap, every button/drag in `PlayerControlsOverlay`, and
+    /// playback resuming) call this unconditionally on every interaction
+    /// rather than checking those themselves, so this is the one place that
+    /// decides whether a fade should happen at all.
     private func scheduleAutoHide() {
         autoHideTask?.cancel()
-        guard showControls, viewModel?.state == .playing else { return }
+        guard showControls, !isShowingTrackPicker, viewModel?.state == .playing else { return }
         autoHideTask = Task {
             try? await Task.sleep(for: Self.autoHideDelay)
             guard !Task.isCancelled else { return }

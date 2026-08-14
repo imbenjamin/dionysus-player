@@ -168,6 +168,102 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.sourceVideoStream?.videoRangeType, "DOVIWithHDR10")
     }
 
+    /// `isExternal == true` subtitle streams (Jellyfin sidecar files) should
+    /// reach the engine as `ExternalSubtitleSource`s; an embedded stream on
+    /// the same source shouldn't — it already arrives through the demuxer,
+    /// re-registering it as external would double it up.
+    func test_start_registersExternalSubtitleStreamsWithTheEngine() async {
+        let (viewModel, engine) = makeViewModel()
+        let embeddedSubtitle = MediaStream(index: 2, type: "Subtitle", codec: "hdmv_pgs_subtitle", language: "eng")
+        let externalSubtitle = MediaStream(
+            index: 3, type: "Subtitle", codec: "subrip", language: "spa", title: "Forced",
+            isForced: true, isExternal: true
+        )
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "The Amazing Spider-Man", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mkv", mediaStreams: [embeddedSubtitle, externalSubtitle])]
+        )
+
+        await viewModel.start()
+
+        XCTAssertEqual(engine.loadedExternalSubtitles.count, 1)
+        let registered = engine.loadedExternalSubtitles[0]
+        XCTAssertEqual(registered.count, 1, "The embedded PGS stream shouldn't be re-registered as external")
+        XCTAssertEqual(registered.first?.language, "spa")
+        XCTAssertEqual(registered.first?.name, "Forced")
+        XCTAssertEqual(registered.first?.isForced, true)
+        XCTAssertEqual(registered.first?.formatHint, "subrip")
+        let url = try? XCTUnwrap(registered.first?.url.absoluteString)
+        XCTAssertTrue(url?.contains("/Videos/item-1/src-1/Subtitles/3/Stream.srt") ?? false, "Should be built from itemID/mediaSourceID/index/codec, not a server-provided deliveryUrl (unreliable — see subtitleURL's doc comment)")
+        XCTAssertTrue(url?.contains("ApiKey=tok") ?? false, "The side-demuxer fetches this itself, so the token has to travel in the URL")
+    }
+
+    /// `MediaSourceInfo.id` missing (no resolved source at all) should skip
+    /// external subtitle registration entirely rather than failing the
+    /// load — external subtitles are a bonus, not a requirement to play.
+    func test_start_noResolvedMediaSourceID_skipsExternalSubtitleRegistration() async {
+        let (viewModel, engine) = makeViewModel()
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie), mediaSources: [])
+
+        await viewModel.start()
+
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertEqual(engine.loadedExternalSubtitles, [[]])
+    }
+
+    /// `MediaStream.audioSpatialFormat == "DolbyAtmos"` should reach the
+    /// engine as a track-index hint — deliberately keyed off that
+    /// server-reported field rather than the stream's codec/title, since
+    /// AetherEngine's own `TrackInfo.isAtmos` can't detect Atmos on a
+    /// TrueHD track (EAC3-only). A non-Atmos audio stream and a non-audio
+    /// stream with the same field set shouldn't be swept in.
+    func test_start_registersAtmosAudioTrackIndicesFromAudioSpatialFormat() async {
+        let (viewModel, engine) = makeViewModel()
+        let trueHDAtmos = MediaStream(index: 1, type: "Audio", codec: "truehd", audioSpatialFormat: "DolbyAtmos")
+        let ddPlusPlain = MediaStream(index: 2, type: "Audio", codec: "eac3", audioSpatialFormat: "None")
+        let notAudio = MediaStream(index: 3, type: "Subtitle", audioSpatialFormat: "DolbyAtmos")
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Saving Private Ryan", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mkv", mediaStreams: [trueHDAtmos, ddPlusPlain, notAudio])]
+        )
+
+        await viewModel.start()
+
+        XCTAssertEqual(engine.loadedAtmosAudioTrackIndices, [[1]])
+    }
+
+    /// Regression test for a real bug (found live, 2026-08-14, on a Saving
+    /// Private Ryan source): Jellyfin numbers `isExternal == true` streams
+    /// into the same index sequence as embedded ones even though they
+    /// carry no bytes in the physical container AetherEngine demuxes, so a
+    /// stream's reported `index` can run ahead of its true position in the
+    /// file — an external subtitle at index 0 shifted every embedded audio
+    /// stream's reported index one higher than AetherEngine's own
+    /// numbering for the identical tracks. The hint set has to report the
+    /// *physical* index (matching `TrackInfo.id`), not `MediaStream.index`
+    /// verbatim, or the flag silently never matches any real track.
+    func test_start_atmosAudioTrackIndices_correctsForPrecedingExternalStreams() async {
+        let (viewModel, engine) = makeViewModel()
+        let externalSubtitle = MediaStream(index: 0, type: "Subtitle", isExternal: true)
+        let video = MediaStream(index: 1, type: "Video")
+        let trueHDAtmos = MediaStream(index: 2, type: "Audio", codec: "truehd", audioSpatialFormat: "DolbyAtmos")
+        let ddPlusAtmos = MediaStream(index: 3, type: "Audio", codec: "eac3", audioSpatialFormat: "DolbyAtmos")
+        let ddPlusPlain = MediaStream(index: 4, type: "Audio", codec: "eac3", audioSpatialFormat: "None")
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Saving Private Ryan", type: .movie),
+            mediaSources: [MediaSourceInfo(
+                id: "src-1", container: "mkv",
+                mediaStreams: [externalSubtitle, video, trueHDAtmos, ddPlusAtmos, ddPlusPlain]
+            )]
+        )
+
+        await viewModel.start()
+
+        // Jellyfin reports 2/3; AetherEngine's own physical numbering for
+        // the same tracks (one external stream precedes them) is 1/2.
+        XCTAssertEqual(engine.loadedAtmosAudioTrackIndices, [[1, 2]])
+    }
+
     func test_start_engineLoadThrows_setsErrorMessageAndNeverCallsPlay() async {
         let engine = FakePlaybackEngine()
         engine.loadError = URLError(.badURL)
@@ -249,8 +345,8 @@ final class PlayerViewModelTests: XCTestCase {
 
     func test_audioSubtitleAndFormatProperties_passThroughFromEngine() {
         let engine = FakePlaybackEngine()
-        engine.audioTracks = [PlaybackTrack(id: 0, kind: .audio, displayTitle: "English", isSelected: true)]
-        engine.subtitleTracks = [PlaybackTrack(id: 1, kind: .subtitle, displayTitle: "English (SDH)", isSelected: false)]
+        engine.audioTracks = [PlaybackTrack(id: 0, kind: .audio, title: "English", metadata: "Default", isSelected: true)]
+        engine.subtitleTracks = [PlaybackTrack(id: 1, kind: .subtitle, title: "English", metadata: "Hearing Impaired", isSelected: false)]
         engine.videoFormatDescription = "Dolby Vision"
         let (viewModel, _) = makeViewModel(engine: engine)
 

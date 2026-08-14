@@ -39,7 +39,7 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 
 (swap `iPhone 17` for whatever's in `xcrun simctl list devices available` on your machine.)
 
-**Verified:** the full suite (409 tests) has been run for real via
+**Verified:** the full suite (416 tests) has been run for real via
 `xcodebuild test` against the iOS 26.5 Simulator — all passing, 0 failures.
 A few real issues were caught and fixed along the way, worth knowing about
 if you extend this setup:
@@ -78,7 +78,7 @@ and the networking client, mirroring the app's own MVVM structure
 | `ServerConfiguration.parse` | `ServerConfigurationTests.swift` | Parsing whatever a user types into server setup (bare host, host:port, full URL, garbage input). |
 | `JellyfinAuthorization` | `JellyfinAuthorizationTests.swift` | The auth header format Jellyfin expects. |
 | `JellyfinJSON` (coding) | `JellyfinCodingTests.swift` | PascalCase↔camelCase key conversion, and the date decoder's handling of Jellyfin/.NET's inconsistent fractional-second precision (including the 7-digit tick-precision case). |
-| `JellyfinAPIClient` | `JellyfinAPIClientTests.swift` | Request construction (paths, query params, auth headers), response decoding, HTTP/decoding error handling, the `collectionsContaining` fan-out logic — including its capped concurrency, its per-collection membership check omitting `defaultFields`' heavier payload (`Fields` absent from that specific request), and one collection's membership check failing not failing the whole call — `genres`/`studios`/`persons` discovery requests, `items(...)`'s `Genres`/`Studios` filters being pipe-delimited vs. `Person`/`PersonTypes` being comma-delimited (neither matches `IncludeItemTypes`/`Filters`'s own delimiter, and they don't match each other either), `searchHints(...)`'s query construction against the dedicated `/Search/Hints` endpoint and result decoding, `playbackInfo(...)`/`reportPlaybackStart`/`reportPlaybackProgress`/`reportPlaybackStopped` including an explicit `mediaSourceID` in their request bodies (the version-picker's choice) when provided and omitting it when not, `setFavorite`/`setWatched` each `POST`ing to mark and `DELETE`ing to unmark against their respective `FavoriteItems`/`PlayedItems` paths, and `currentSession(deviceID:)` filtering `/Sessions` by `DeviceId` and returning `nil` when no session matches — all against a fake server (see below), not a real one. |
+| `JellyfinAPIClient` | `JellyfinAPIClientTests.swift` | Request construction (paths, query params, auth headers), response decoding, HTTP/decoding error handling, the `collectionsContaining` fan-out logic — including its capped concurrency, its per-collection membership check omitting `defaultFields`' heavier payload (`Fields` absent from that specific request), and one collection's membership check failing not failing the whole call — `genres`/`studios`/`persons` discovery requests, `items(...)`'s `Genres`/`Studios` filters being pipe-delimited vs. `Person`/`PersonTypes` being comma-delimited (neither matches `IncludeItemTypes`/`Filters`'s own delimiter, and they don't match each other either), `searchHints(...)`'s query construction against the dedicated `/Search/Hints` endpoint and result decoding, `playbackInfo(...)`/`reportPlaybackStart`/`reportPlaybackProgress`/`reportPlaybackStopped` including an explicit `mediaSourceID` in their request bodies (the version-picker's choice) when provided and omitting it when not, `setFavorite`/`setWatched` each `POST`ing to mark and `DELETE`ing to unmark against their respective `FavoriteItems`/`PlayedItems` paths, `currentSession(deviceID:)` filtering `/Sessions` by `DeviceId` and returning `nil` when no session matches, and `subtitleURL(itemID:mediaSourceID:streamIndex:codec:)` building an external subtitle stream's URL from scratch (deliberately not from `MediaStream.deliveryUrl`, which a real server only populates given a `DeviceProfile` this app doesn't send — confirmed live, see that method's doc comment) with the `ApiKey` query item appended only when signed in, and the file extension chosen to match the stream's own codec (ass/ssa/vtt, falling back to srt) — all against a fake server (see below), not a real one. |
 | `KeychainStore` | `KeychainStoreTests.swift` | Save/load/delete round-trips against the real Keychain (Simulator keychain access needs no special entitlement for this). |
 | `ServerSessionStore` | `ServerSessionStoreTests.swift` | Persistence round-trips across fresh instances, and that `clearCredentials` vs. `clearAll` affect the right subset of state. |
 | `SearchHistoryStore` | `SearchHistoryStoreTests.swift` | Persistence round-trips across fresh instances, most-recent-first ordering, re-selecting an existing entry moving it to the front instead of duplicating, trimming to the max-entries cap, per-user scoping, and `remove`/`clear` only affecting the given entry/user. |
@@ -90,7 +90,7 @@ and the networking client, mirroring the app's own MVVM structure
 | `AppState` | `AppStateTests.swift` | The `.serverSetup` → `.login` → `.main` phase machine: silent sign-in on launch (success and failure-falls-back-to-login), `completeServerSetup`/`signIn`/`signOut`/`changeServer` all affecting the right subset of state. |
 | `LoginViewModel` | `LoginViewModelTests.swift` | `canSubmit` gating, delegation to `AppState.signIn`, the user-facing error message on failure. |
 | `ServerSetupViewModel` | `ServerSetupViewModelTests.swift` | `testConnection()`'s address validation, server-name detection/fallback, and unreachable-server handling. |
-| `PlayerViewModel` | `PlayerViewModelTests.swift` | Resume-position seeking (and the `startFromBeginning` override), playback-start/-stop reporting with correctly converted tick values, transport controls delegating to the engine, engine→ViewModel state/time callbacks, version selection (`requestedMediaSourceID` scoping the `/PlaybackInfo` request and selecting the matching source over `.first`, an unrecognized requested id falling back to the server's default rather than failing, and `activeMediaSourceID` — whichever source actually got resolved — being reported alongside the start/progress/stop session calls), `setZoomMode(_:)` delegating straight through to the engine, `stats` passing through the engine's diagnostics snapshot unchanged, `sourceVideoStream` being set from the resolved media source's own video stream (not just its first stream), and `refreshServerVersion()`/`refreshStreamingSession()` — the Streaming section's server-version fetch-once-and-cache behavior, and the live `/Sessions` poll populating play method and (only while transcoding) live transcode parameters, leaving the last known value in place on a failed request. Uses `FakePlaybackEngine` (Support/) rather than a real `AetherEngine`. |
+| `PlayerViewModel` | `PlayerViewModelTests.swift` | Resume-position seeking (and the `startFromBeginning` override), playback-start/-stop reporting with correctly converted tick values, transport controls delegating to the engine, engine→ViewModel state/time callbacks, version selection (`requestedMediaSourceID` scoping the `/PlaybackInfo` request and selecting the matching source over `.first`, an unrecognized requested id falling back to the server's default rather than failing, and `activeMediaSourceID` — whichever source actually got resolved — being reported alongside the start/progress/stop session calls), `setZoomMode(_:)` delegating straight through to the engine, `stats` passing through the engine's diagnostics snapshot unchanged, `sourceVideoStream` being set from the resolved media source's own video stream (not just its first stream), `refreshServerVersion()`/`refreshStreamingSession()` — the Streaming section's server-version fetch-once-and-cache behavior, and the live `/Sessions` poll populating play method and (only while transcoding) live transcode parameters, leaving the last known value in place on a failed request — `externalSubtitleSources(from:client:)` mapping a resolved source's `isExternal == true` subtitle `MediaStream`s (Jellyfin sidecar files) onto `ExternalSubtitleSource`s passed into `engine.load(url:externalSubtitles:knownAtmosAudioTrackIndices:)`, leaving embedded streams alone (they arrive through the demuxer already) and skipping a stream whose `deliveryUrl` can't resolve into a URL rather than failing the whole load — and `atmosAudioTrackIndices(from:)` deriving the audio-track-index hint set from `MediaStream.audioSpatialFormat == "DolbyAtmos"` (server-reported, not codec/title text-matched — see that field's own doc comment), excluding a non-Atmos audio stream and a non-audio stream carrying the same field, and — a real bug found live, 2026-08-14 — correcting Jellyfin's reported `index` for any `isExternal == true` streams preceding it in the same source, since those consume slots in Jellyfin's index sequence without existing in the physical container AetherEngine actually demuxes (confirmed on a real Saving Private Ryan source: one external subtitle at index 0 shifted every embedded audio stream's reported index one higher than AetherEngine's own numbering for the identical tracks). Uses `FakePlaybackEngine` (Support/) rather than a real `AetherEngine`. |
 | `PlaybackRequest` | `PlaybackRequestTests.swift` | `id`'s inclusion of `startFromBeginning` and `mediaSourceID`, so a Restart-after-Resume or a different version picked on a second Play each present a fresh sheet. |
 | `MediaVersionPreferenceStore` | `MediaVersionPreferenceStoreTests.swift` | Persistence round-trips across fresh instances, overwriting a previous choice for the same item, and per-user/per-item scoping — same shape as `SearchHistoryStore`'s tests. |
 | `DeviceIdentity` | `DeviceIdentityTests.swift` | The generate-once-then-cache behavior of `deviceID`. |
@@ -124,9 +124,41 @@ pattern, since ViewModels are constructed with an already-built client
   a real display to construct). `PlayerViewModel` — the thing that actually
   has logic worth pinning down — *is* now covered, via `FakePlaybackEngine`
   standing in for it. `AetherPlaybackEngine` does have a few pure `private
-  static` helpers (`describe`, `normalize`, `displayTitle` — HDR format
-  labels, track display-title fallback) that could be tested directly by
+  static` helpers (`describe`, `normalize`, `title(for:providedName:)`,
+  `descriptiveName`, `metadataLabel`, `audioFormatLabel`, `channelsLabel`,
+  `makeExternalSubtitleTrack` — HDR format labels, and the track picker's
+  title/language/flag-line normalization, e.g. telling a muxer's bare "ENG
+  (srt)" echo of the language apart from a genuinely descriptive name like
+  "Director's Commentary" and, in the latter case, folding the language
+  back into the metadata line so it isn't lost, plus (audio tracks only)
+  a format badge ("DD"/"DD+"/"DTS"/...) derived from the track's codec — 
+  including that FFmpeg's DTS decoder is registered as `"dca"`, not
+  `"dts"` (confirmed live) — a separate additive "Atmos" flag rather than
+  Atmos replacing the format (a Dolby Digital Plus/Atmos track is still
+  "DD+" first — the first version of this got that backwards, confirmed
+  live on a Saving Private Ryan source carrying both a TrueHD/Atmos and a
+  DD+/Atmos track), sourced from `TrackInfo.isAtmos` (EAC3-only) OR'd with
+  a `knownAtmosAudioTrackIndices` hint set the *ViewModel* layer derives
+  from Jellyfin's own `MediaStream.audioSpatialFormat` and forwards at
+  load time (deliberately not a text heuristic over the track's embedded
+  name — see `PlayerViewModel.atmosAudioTrackIndices(from:)`, which *is*
+  covered, and the `PlaybackEngine.load(url:externalSubtitles:
+  knownAtmosAudioTrackIndices:)` doc comment for why AetherEngine alone
+  can't detect TrueHD/Atmos), and channel layout
+  ("Mono"/"Stereo"/"5.1"/"7.1"/...)) that could be tested directly by
   dropping `private`, if that logic gets more involved than it is today.
+  Same untestable-without-a-real-engine story applies to
+  `applyForcedSubtitleSelection`/`languageMatches`: right after a fresh
+  `load()`, a "forced" subtitle track (`TrackInfo.isForced`, the
+  container's own FORCED disposition — covers embedded and declared-
+  external tracks alike, no title-text matching) auto-activates without
+  waiting for an explicit pick; when more than one forced track exists,
+  whichever matches the language AetherEngine resolved as the active audio
+  track wins, else the first forced track in container order — confirmed
+  live (2026-08-14) against a real "Captain Phillips" source (English
+  Forced track alongside full subtitle tracks): the quick-controls panel
+  showed "Subtitles / Forced" already selected the instant playback
+  started, with no manual pick made.
 - **End-to-end/UI tests** — nothing drives the app in the Simulator yet.
   Worth adding once the core flows (server setup → login → browse → play)
   are stable enough that a UI test isn't just recording a moving target.

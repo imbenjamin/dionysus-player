@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Observation
 
@@ -9,6 +10,15 @@ final class PlayerViewModel {
     private(set) var duration: TimeInterval = 0
     private(set) var item: MediaItem?
     private(set) var errorMessage: String?
+    /// Decoded subtitle cues, unfiltered — covers a window ahead of the
+    /// playhead, not just what's active now. `SubtitleOverlayView` filters
+    /// this against `sourceTime` itself; see `SubtitleCueDisplay`'s doc
+    /// comment for why filtering happens downstream rather than here.
+    private(set) var subtitleCues: [SubtitleCueDisplay] = []
+    /// Source-PTS playhead, the axis `subtitleCues` is stamped in — kept
+    /// separate from `currentTime` (the item/AVPlayer clock `onTimeUpdate`
+    /// reports) since the two can diverge across producer restarts.
+    private(set) var sourceTime: TimeInterval = 0
 
     let engine: PlaybackEngine
     let itemID: String
@@ -52,6 +62,7 @@ final class PlayerViewModel {
     var audioTracks: [PlaybackTrack] { engine.audioTracks }
     var subtitleTracks: [PlaybackTrack] { engine.subtitleTracks }
     var videoFormatDescription: String? { engine.videoFormatDescription }
+    var videoNaturalSize: CGSize? { engine.videoNaturalSize }
     /// A fresh snapshot on every access — see `PlaybackStats`. Intentionally
     /// not cached on the view model itself: `PlaybackStatsOverlay` polls
     /// this on its own timer only while it's actually visible, so there's
@@ -74,6 +85,8 @@ final class PlayerViewModel {
             self?.currentTime = time
             self?.duration = duration
         }
+        engine.onSubtitleCuesChange = { [weak self] cues in self?.subtitleCues = cues }
+        engine.onSourceTimeUpdate = { [weak self] sourceTime in self?.sourceTime = sourceTime }
     }
 
     func start() async {
@@ -97,7 +110,17 @@ final class PlayerViewModel {
                 return
             }
 
-            try await engine.load(url: url)
+            var externalSubtitles: [ExternalSubtitleSource] = []
+            if let source, let mediaSourceID = source.id {
+                externalSubtitles = await Self.externalSubtitleSources(
+                    itemID: itemID, mediaSourceID: mediaSourceID, mediaStreams: source.mediaStreams ?? [], client: client
+                )
+            }
+            let atmosAudioTrackIndices = Self.atmosAudioTrackIndices(from: source?.mediaStreams ?? [])
+
+            try await engine.load(
+                url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: atmosAudioTrackIndices
+            )
             if !startFromBeginning, let resumeSeconds = mediaItem.resumePositionSeconds, resumeSeconds > 0 {
                 await engine.seek(to: resumeSeconds)
             }
@@ -108,6 +131,66 @@ final class PlayerViewModel {
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "Playback failed to start.")
         }
+    }
+
+    /// Maps the `isExternal == true` subtitle `MediaStream`s off a resolved
+    /// `MediaSourceInfo` into `ExternalSubtitleSource`s AetherEngine can
+    /// register alongside the load — see `ExternalSubtitleSource`'s doc
+    /// comment and `JellyfinAPIClient.subtitleURL`'s for why the URL is
+    /// built from `itemID`/`mediaSourceID`/`stream.index` rather than read
+    /// off the stream itself. A URL `subtitleURL` can't resolve is skipped
+    /// rather than failing the whole load; external subtitles are a bonus,
+    /// not a requirement to play.
+    static func externalSubtitleSources(
+        itemID: String, mediaSourceID: String, mediaStreams: [MediaStream], client: JellyfinAPIClient
+    ) async -> [ExternalSubtitleSource] {
+        var sources: [ExternalSubtitleSource] = []
+        for stream in mediaStreams where stream.type == "Subtitle" && stream.isExternal == true {
+            guard let url = await client.subtitleURL(
+                itemID: itemID, mediaSourceID: mediaSourceID, streamIndex: stream.index, codec: stream.codec
+            ) else { continue }
+            sources.append(ExternalSubtitleSource(
+                url: url,
+                name: stream.title,
+                language: stream.language,
+                isForced: stream.isForced ?? false,
+                isHearingImpaired: stream.isHearingImpaired ?? false,
+                isDefault: stream.isDefault ?? false,
+                formatHint: stream.codec
+            ))
+        }
+        return sources
+    }
+
+    /// Audio track indices Jellyfin's own server-side probe flagged
+    /// `audioSpatialFormat == "DolbyAtmos"` — forwarded to the engine as
+    /// `knownAtmosAudioTrackIndices` so the picker can show an "Atmos" flag
+    /// for a track AetherEngine itself has no way to detect as such
+    /// (TrueHD's Atmos extension — see `PlaybackEngine.load(url:
+    /// externalSubtitles:knownAtmosAudioTrackIndices:)`'s doc comment).
+    /// Deliberately reads this field rather than text-matching the
+    /// stream's codec/title — `audioSpatialFormat`'s own doc comment
+    /// calls that out as the *less* reliable way to detect Atmos.
+    ///
+    /// Returns *physical* indices (matching AetherEngine's `TrackInfo.id`/
+    /// `PlaybackTrack.id`), NOT `MediaStream.index` verbatim: confirmed
+    /// live (2026-08-14) that Jellyfin numbers external (`isExternal ==
+    /// true`) streams into the same index sequence as embedded ones even
+    /// though they carry no bytes in the physical container AetherEngine
+    /// actually demuxes — a Saving Private Ryan source with one external
+    /// subtitle at index 0 reported every embedded audio stream's index
+    /// one higher than AetherEngine's own numbering for the identical
+    /// tracks (2/3/4 vs. AetherEngine's 1/2/3). Subtracting, for each
+    /// stream, the count of external streams whose index precedes it
+    /// recovers the physical index.
+    static func atmosAudioTrackIndices(from mediaStreams: [MediaStream]) -> Set<Int> {
+        let externalIndices = mediaStreams.filter { $0.isExternal == true }.map(\.index)
+        func physicalIndex(_ index: Int) -> Int {
+            index - externalIndices.filter { $0 < index }.count
+        }
+        return Set(mediaStreams
+            .filter { $0.type == "Audio" && $0.audioSpatialFormat == "DolbyAtmos" }
+            .map { physicalIndex($0.index) })
     }
 
     func togglePlayPause() {
