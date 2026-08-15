@@ -239,6 +239,65 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.seasons.isEmpty)
     }
 
+    /// A BoxSet's own children fetch (`collectionItems`) is scoped by
+    /// `ParentId=<itemID>`, hitting the exact same `/Users/user-1/Items`
+    /// path as the `collectionsContaining` BoxSets probe every `load()`
+    /// call already makes — this pins that the two don't get confused for
+    /// each other by asserting on the actual `ParentId` query param, not
+    /// just the path.
+    func test_load_boxSet_fetchesCollectionItems() async {
+        let collectionDto = BaseItemDto(id: "collection-1", name: "The Trilogy", type: .boxSet)
+        let movieDto = BaseItemDto(id: "movie-1", name: "Part One", type: .movie)
+        let viewModel = makeViewModel(itemID: "collection-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/collection-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: collectionDto)
+            case "/Items/collection-1/Similar":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items":
+                if request.queryDictionary["ParentId"] == "collection-1" {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [movieDto], totalRecordCount: 1))
+                }
+                // BoxSets probe inside collectionsContaining
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(viewModel.item?.id, "collection-1")
+        XCTAssertEqual(viewModel.collectionItems.map(\.id), ["movie-1"])
+        XCTAssertTrue(viewModel.seasons.isEmpty)
+    }
+
+    /// Movies (and every other non-BoxSet kind) have no `ParentId`-scoped
+    /// children of their own — `collectionItems` should stay untouched
+    /// rather than firing a pointless fetch that would just come back empty.
+    func test_load_movie_neverFetchesCollectionItems() async {
+        let itemDto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie)
+        let viewModel = makeViewModel(itemID: "movie-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/movie-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: itemDto)
+            case "/Items/movie-1/Similar", "/Users/user-1/Items": // BoxSets probe inside collectionsContaining
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertTrue(viewModel.collectionItems.isEmpty)
+    }
+
     func test_loadIfNeeded_doesNotRefetchOnceItemIsPopulated() async {
         let itemDto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie)
         let viewModel = makeViewModel(itemID: "movie-1")
@@ -583,6 +642,71 @@ final class AssetDetailViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.item?.id, "series-1")
         XCTAssertEqual(viewModel.item?.dto.userData?.playedPercentage, 50)
+    }
+
+    /// A movie played directly from `CollectionItemList`'s own play button
+    /// never pushes into that movie's own detail page, so it never goes
+    /// through *that* page's `refreshItem()` — this page's own `refreshItem()`
+    /// (fired when its `fullScreenCover` closes, same as any other item)
+    /// has to re-fetch `collectionItems` itself so the played movie's
+    /// watched/progress overlay updates once the player closes.
+    func test_refreshItem_boxSet_refetchesCollectionItems() async {
+        let collectionDto = BaseItemDto(id: "collection-1", name: "The Trilogy", type: .boxSet)
+        let movieDto = BaseItemDto(id: "movie-1", name: "Part One", type: .movie)
+        // `played: true` differs from the initial load's `nil` (no
+        // `userData` at all) — what actually makes the poll loop below
+        // break after its very first attempt instead of exhausting its
+        // whole schedule; the BoxSet's own `played` value itself isn't
+        // otherwise meaningful to this test.
+        let refreshedCollectionDto = BaseItemDto(
+            id: "collection-1", name: "The Trilogy", type: .boxSet,
+            userData: UserItemDataDto(playbackPositionTicks: nil, playedPercentage: nil, played: true)
+        )
+        let updatedMovieDto = BaseItemDto(
+            id: "movie-1", name: "Part One", type: .movie,
+            userData: UserItemDataDto(playbackPositionTicks: nil, playedPercentage: nil, played: true)
+        )
+        let viewModel = makeViewModel(itemID: "collection-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/collection-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: collectionDto)
+            case "/Items/collection-1/Similar":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items":
+                if request.queryDictionary["ParentId"] == "collection-1" {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [movieDto], totalRecordCount: 1))
+                }
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        await viewModel.load()
+        XCTAssertEqual(viewModel.collectionItems.first?.isPlayed, false, "sanity check")
+
+        // Differs from the initial (all-nil) userData on the very first
+        // poll attempt, same trick every other `refreshItem()` test in this
+        // file uses to keep the poll loop from actually running out its
+        // full schedule.
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/collection-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: refreshedCollectionDto)
+            case "/Users/user-1/Items":
+                XCTAssertEqual(request.queryDictionary["ParentId"], "collection-1")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [updatedMovieDto], totalRecordCount: 1))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.refreshItem()
+
+        XCTAssertEqual(viewModel.collectionItems.map(\.id), ["movie-1"])
+        XCTAssertEqual(viewModel.collectionItems.first?.isPlayed, true)
     }
 
     /// Regression test for a live bug report (2026-08-13): resuming a
