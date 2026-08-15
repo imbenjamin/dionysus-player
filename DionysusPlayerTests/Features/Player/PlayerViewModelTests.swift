@@ -4,14 +4,26 @@ import XCTest
 /// `PlayerViewModel` was previously untested — it's the one place that ties
 /// the Jellyfin networking layer to a `PlaybackEngine`, so it's worth
 /// pinning: resume-position seeking, the start-from-beginning override,
-/// playback-progress reporting, and that transport controls delegate
-/// straight through to the engine. `FakePlaybackEngine` (Support/) stands
-/// in for AetherEngine.
+/// playback-progress reporting, that transport controls delegate straight
+/// through to the engine, and that a `TrackPreferenceStore`-remembered
+/// audio/subtitle choice is restored on `start()` (falling back to the
+/// engine's own default/forced-subtitle selection when nothing's stored,
+/// and skipping a stored id no longer present in the freshly loaded track
+/// list). `FakePlaybackEngine` (Support/) stands in for AetherEngine.
 @MainActor
 final class PlayerViewModelTests: XCTestCase {
     private let baseURL = URL(string: "https://jellyfin.example.com")!
+    private var defaults: UserDefaults!
+    private let suiteName = "com.dionysusplayer.tests.PlayerViewModelTests"
+
+    override func setUp() {
+        super.setUp()
+        defaults = UserDefaults(suiteName: suiteName)
+        defaults.removePersistentDomain(forName: suiteName)
+    }
 
     override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
         MockURLProtocol.reset()
         super.tearDown()
     }
@@ -20,12 +32,14 @@ final class PlayerViewModelTests: XCTestCase {
         itemID: String = "item-1",
         startFromBeginning: Bool = false,
         mediaSourceID: String? = nil,
-        engine: FakePlaybackEngine = FakePlaybackEngine()
+        engine: FakePlaybackEngine = FakePlaybackEngine(),
+        trackPreferenceStore: TrackPreferenceStore? = nil
     ) -> (PlayerViewModel, FakePlaybackEngine) {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
         let viewModel = PlayerViewModel(
             client: client, userID: "user-1", itemID: itemID, engine: engine,
-            startFromBeginning: startFromBeginning, mediaSourceID: mediaSourceID
+            startFromBeginning: startFromBeginning, mediaSourceID: mediaSourceID,
+            trackPreferenceStore: trackPreferenceStore ?? TrackPreferenceStore(defaults: defaults)
         )
         return (viewModel, engine)
     }
@@ -276,6 +290,104 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(engine.playCallCount, 0)
     }
 
+    // MARK: start() restores a remembered track preference
+
+    /// A stored audio/subtitle choice (`TrackPreferenceStore`) should
+    /// override whatever `engine.load(...)` just defaulted to — including
+    /// any forced-subtitle auto-select a real engine would have already
+    /// applied by the time `load()` returns.
+    func test_start_appliesStoredAudioAndSubtitleTrackSelection() async {
+        let engine = FakePlaybackEngine()
+        engine.audioTracks = [
+            PlaybackTrack(id: 1, kind: .audio, title: "English", metadata: nil, isSelected: true),
+            PlaybackTrack(id: 2, kind: .audio, title: "Spanish", metadata: nil, isSelected: false),
+        ]
+        engine.subtitleTracks = [PlaybackTrack(id: 5, kind: .subtitle, title: "English (Forced)", metadata: nil, isSelected: true)]
+        let store = TrackPreferenceStore(defaults: defaults)
+        store.recordAudioSelection(.init(id: 2, title: "Spanish"), forItem: "item-1", userID: "user-1")
+        store.recordSubtitleSelection(.init(id: 5, title: "English (Forced)"), forItem: "item-1", userID: "user-1")
+        let (viewModel, _) = makeViewModel(engine: engine, trackPreferenceStore: store)
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie))
+
+        await viewModel.start()
+
+        XCTAssertEqual(engine.selectedAudioTrackIDs, [2])
+        XCTAssertEqual(engine.selectedSubtitleTrackIDs, [5])
+    }
+
+    /// Subtitles explicitly turned off is as real a remembered choice as a
+    /// specific track — should re-apply as `nil`, same as
+    /// `selectSubtitleTrack(id: nil)`'s own meaning.
+    func test_start_appliesStoredOffSubtitlePreference() async {
+        let engine = FakePlaybackEngine()
+        engine.subtitleTracks = [PlaybackTrack(id: 5, kind: .subtitle, title: "English (Forced)", metadata: nil, isSelected: true)]
+        let store = TrackPreferenceStore(defaults: defaults)
+        store.recordSubtitleSelection(nil, forItem: "item-1", userID: "user-1")
+        let (viewModel, _) = makeViewModel(engine: engine, trackPreferenceStore: store)
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie))
+
+        await viewModel.start()
+
+        XCTAssertEqual(engine.selectedSubtitleTrackIDs, [nil])
+    }
+
+    /// A fresh item with no playback history should behave exactly as
+    /// before this feature existed — nothing extra selected, so the
+    /// engine's own default/forced-subtitle selection stands untouched.
+    func test_start_withNoStoredPreference_doesNotSelectAnyTrack() async {
+        let (viewModel, engine) = makeViewModel()
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie))
+
+        await viewModel.start()
+
+        XCTAssertTrue(engine.selectedAudioTrackIDs.isEmpty)
+        XCTAssertTrue(engine.selectedSubtitleTrackIDs.isEmpty)
+    }
+
+    /// A stored id that no longer matches the freshly loaded track list — a
+    /// different version resolved than the one the preference was recorded
+    /// against, say — should be skipped rather than passed through to the
+    /// engine with a now-meaningless index.
+    func test_start_ignoresStoredTrackIDsNotInTheLoadedTrackList() async {
+        let engine = FakePlaybackEngine()
+        engine.audioTracks = [PlaybackTrack(id: 1, kind: .audio, title: "English", metadata: nil, isSelected: true)]
+        engine.subtitleTracks = []
+        let store = TrackPreferenceStore(defaults: defaults)
+        store.recordAudioSelection(.init(id: 99, title: "Spanish"), forItem: "item-1", userID: "user-1")
+        store.recordSubtitleSelection(.init(id: 99, title: "English"), forItem: "item-1", userID: "user-1")
+        let (viewModel, _) = makeViewModel(engine: engine, trackPreferenceStore: store)
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie))
+
+        await viewModel.start()
+
+        XCTAssertTrue(engine.selectedAudioTrackIDs.isEmpty)
+        XCTAssertTrue(engine.selectedSubtitleTrackIDs.isEmpty)
+    }
+
+    /// The trickier case a bare id-existence check can't catch: the stored
+    /// id is still present in the freshly loaded list, but now belongs to a
+    /// different track (the layout reordered — a different version
+    /// resolved, a re-mux — without the track *count* changing). The title
+    /// carried alongside the id is what catches this: a mismatch means
+    /// skip, same as the id being gone entirely.
+    func test_start_ignoresStoredTrackID_whenItsCurrentTitleNoLongerMatches() async {
+        let engine = FakePlaybackEngine()
+        // Same id (2) as what's stored below, but it's French now, not the
+        // Spanish track the preference was actually recorded against.
+        engine.audioTracks = [
+            PlaybackTrack(id: 1, kind: .audio, title: "English", metadata: nil, isSelected: true),
+            PlaybackTrack(id: 2, kind: .audio, title: "French", metadata: nil, isSelected: false),
+        ]
+        let store = TrackPreferenceStore(defaults: defaults)
+        store.recordAudioSelection(.init(id: 2, title: "Spanish"), forItem: "item-1", userID: "user-1")
+        let (viewModel, _) = makeViewModel(engine: engine, trackPreferenceStore: store)
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie))
+
+        await viewModel.start()
+
+        XCTAssertTrue(engine.selectedAudioTrackIDs.isEmpty, "id 2 exists, but it's not the same track anymore")
+    }
+
     // MARK: transport controls delegate to the engine
 
     func test_togglePlayPause_delegatesToEngine() {
@@ -296,6 +408,36 @@ final class PlayerViewModelTests: XCTestCase {
         viewModel.selectSubtitleTrack(id: nil)
         XCTAssertEqual(engine.selectedAudioTrackIDs, [2])
         XCTAssertEqual(engine.selectedSubtitleTrackIDs, [nil])
+    }
+
+    /// Every user-driven pick should also land in `TrackPreferenceStore`
+    /// (alongside the track's own title — see `TrackPreferenceStore
+    /// .TrackChoice`'s doc comment) so a later `start()` on this item can
+    /// restore it — see the `start()` restore tests above.
+    func test_selectAudioAndSubtitleTracks_alsoPersistToTheTrackPreferenceStore() {
+        let engine = FakePlaybackEngine()
+        engine.audioTracks = [PlaybackTrack(id: 2, kind: .audio, title: "Spanish", metadata: nil, isSelected: false)]
+        engine.subtitleTracks = [PlaybackTrack(id: 5, kind: .subtitle, title: "English", metadata: nil, isSelected: false)]
+        let store = TrackPreferenceStore(defaults: defaults)
+        let (viewModel, _) = makeViewModel(engine: engine, trackPreferenceStore: store)
+
+        viewModel.selectAudioTrack(id: 2)
+        viewModel.selectSubtitleTrack(id: 5)
+
+        let selection = store.selection(forItem: "item-1", userID: "user-1")
+        XCTAssertEqual(selection?.audioTrack, .init(id: 2, title: "Spanish"))
+        XCTAssertEqual(selection?.subtitlePreference, .track(.init(id: 5, title: "English")))
+    }
+
+    /// Turning subtitles off is itself a rememberable choice — no track to
+    /// look up a title for, so it should persist unconditionally.
+    func test_selectSubtitleTrack_withNil_alsoPersistsOffToTheTrackPreferenceStore() {
+        let store = TrackPreferenceStore(defaults: defaults)
+        let (viewModel, _) = makeViewModel(trackPreferenceStore: store)
+
+        viewModel.selectSubtitleTrack(id: nil)
+
+        XCTAssertEqual(store.selection(forItem: "item-1", userID: "user-1")?.subtitlePreference, .off)
     }
 
     func test_setZoomMode_delegatesToEngine() {
