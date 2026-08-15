@@ -57,6 +57,7 @@ final class PlayerViewModel {
 
     private let client: JellyfinAPIClient
     private let userID: String
+    private let trackPreferenceStore: TrackPreferenceStore
     private var progressReportTask: Task<Void, Never>?
 
     var audioTracks: [PlaybackTrack] { engine.audioTracks }
@@ -71,7 +72,8 @@ final class PlayerViewModel {
 
     init(
         client: JellyfinAPIClient, userID: String, itemID: String, engine: PlaybackEngine,
-        startFromBeginning: Bool = false, mediaSourceID: String? = nil
+        startFromBeginning: Bool = false, mediaSourceID: String? = nil,
+        trackPreferenceStore: TrackPreferenceStore = TrackPreferenceStore()
     ) {
         self.client = client
         self.userID = userID
@@ -79,6 +81,7 @@ final class PlayerViewModel {
         self.engine = engine
         self.startFromBeginning = startFromBeginning
         self.requestedMediaSourceID = mediaSourceID
+        self.trackPreferenceStore = trackPreferenceStore
 
         engine.onStateChange = { [weak self] state in self?.state = state }
         engine.onTimeUpdate = { [weak self] time, duration in
@@ -121,6 +124,7 @@ final class PlayerViewModel {
             try await engine.load(
                 url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: atmosAudioTrackIndices
             )
+            applyStoredTrackSelection()
             if !startFromBeginning, let resumeSeconds = mediaItem.resumePositionSeconds, resumeSeconds > 0 {
                 await engine.seek(to: resumeSeconds)
             }
@@ -193,6 +197,41 @@ final class PlayerViewModel {
             .map { physicalIndex($0.index) })
     }
 
+    /// Restores the audio/subtitle tracks the user last explicitly picked
+    /// for this item (`TrackPreferenceStore`), overriding whatever
+    /// `engine.load(...)` just defaulted to — including
+    /// `AetherPlaybackEngine`'s own forced-subtitle auto-select, which
+    /// documents itself as a one-time default a later explicit selection
+    /// (`selectSubtitleTrack(id:)`) is expected to override. Does nothing
+    /// when there's no stored preference at all (a fresh item, or one never
+    /// explicitly touched), leaving that default selection exactly as-is.
+    ///
+    /// A stored track is only restored when a track with the *same id and
+    /// title* still exists in the freshly loaded list — id alone isn't
+    /// enough (see `TrackPreferenceStore.TrackChoice`'s doc comment: track
+    /// ids are physical container positions, so the same id can silently
+    /// point at a different track if the layout changed). Anything that
+    /// doesn't match is skipped rather than passed through: same "fall back
+    /// gracefully rather than fail" treatment as `requestedMediaSourceID`
+    /// above.
+    private func applyStoredTrackSelection() {
+        guard let selection = trackPreferenceStore.selection(forItem: itemID, userID: userID) else { return }
+        if let audioTrack = selection.audioTrack,
+           engine.audioTracks.contains(where: { $0.id == audioTrack.id && $0.title == audioTrack.title }) {
+            engine.selectAudioTrack(id: audioTrack.id)
+        }
+        switch selection.subtitlePreference {
+        case .unset:
+            break
+        case .off:
+            engine.selectSubtitleTrack(id: nil)
+        case .track(let subtitleTrack):
+            if engine.subtitleTracks.contains(where: { $0.id == subtitleTrack.id && $0.title == subtitleTrack.title }) {
+                engine.selectSubtitleTrack(id: subtitleTrack.id)
+            }
+        }
+    }
+
     func togglePlayPause() {
         engine.togglePlayPause()
     }
@@ -203,10 +242,22 @@ final class PlayerViewModel {
 
     func selectAudioTrack(id: Int) {
         engine.selectAudioTrack(id: id)
+        guard let track = engine.audioTracks.first(where: { $0.id == id }) else { return }
+        trackPreferenceStore.recordAudioSelection(
+            TrackPreferenceStore.TrackChoice(id: track.id, title: track.title), forItem: itemID, userID: userID
+        )
     }
 
     func selectSubtitleTrack(id: Int?) {
         engine.selectSubtitleTrack(id: id)
+        guard let id else {
+            trackPreferenceStore.recordSubtitleSelection(nil, forItem: itemID, userID: userID)
+            return
+        }
+        guard let track = engine.subtitleTracks.first(where: { $0.id == id }) else { return }
+        trackPreferenceStore.recordSubtitleSelection(
+            TrackPreferenceStore.TrackChoice(id: track.id, title: track.title), forItem: itemID, userID: userID
+        )
     }
 
     func setZoomMode(_ mode: VideoZoomMode) {
