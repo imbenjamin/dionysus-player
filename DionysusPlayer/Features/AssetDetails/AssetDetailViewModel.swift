@@ -38,6 +38,15 @@ final class AssetDetailViewModel {
     private(set) var seasons: [MediaItem] = []
     private(set) var similar: [MediaItem] = []
     private(set) var collections: [MediaItem] = []
+    /// A BoxSet's own child items (its movies) — `CollectionDetailView`'s
+    /// `CollectionItemList` section. Always empty for every other item
+    /// type. Fetched alongside `similar`/`collections` in `load()` (same
+    /// non-fatal `try?` treatment — see that method's own doc comment), and
+    /// re-fetched at the end of `refreshItem()` so a movie played directly
+    /// from the grid (bypassing that movie's own detail page, hence never
+    /// going through *its* `refreshItem()`) still shows an up-to-date
+    /// watched/progress overlay once the player closes.
+    private(set) var collectionItems: [MediaItem] = []
     private(set) var loadState: LoadState = .idle
 
     /// The Show's own item — always set alongside `seriesID` for a
@@ -210,6 +219,15 @@ final class AssetDetailViewModel {
             let similarCollectionsID = seriesID ?? itemID
             async let similarResult = try? client.similarItems(itemID: similarCollectionsID, userID: userID)
             async let collectionsResult = try? client.collectionsContaining(itemID: similarCollectionsID, userID: userID)
+            // `collectionItems`' own fetch — see that property's doc
+            // comment. Scoped to `dto.type == .boxSet` specifically (not
+            // just always fetched and thrown away for other kinds), since
+            // there's no `ParentId`-scoped child list to fetch for anything
+            // else — a Movie/Episode has no children at all, and a Series'
+            // are `seasons`, already fetched separately below.
+            async let collectionItemsResult: BaseItemDtoQueryResult? = dto.type == .boxSet
+                ? try? client.items(userID: userID, parentID: itemID, recursive: false, sortBy: "PremiereDate")
+                : nil
 
             if let seriesID, let seasonsResult = try? await client.seasons(seriesID: seriesID, userID: userID) {
                 seasons = seasonsResult.items.map { MediaItem(dto: $0, images: images) }
@@ -231,6 +249,9 @@ final class AssetDetailViewModel {
             }
             if let collectionsItems = await collectionsResult {
                 collections = collectionsItems.map { MediaItem(dto: $0, images: images) }
+            }
+            if let collectionItemsItems = await collectionItemsResult {
+                collectionItems = collectionItemsItems.items.map { MediaItem(dto: $0, images: images) }
             }
 
             loadState = .loaded
@@ -570,6 +591,25 @@ final class AssetDetailViewModel {
 
         await showPlaybackEpisodeUpdate
         await nextEpisodeAdvance
+
+        // `collectionItems`' own refresh — see that property's doc comment
+        // for why this needs its own re-fetch (a movie played directly from
+        // the grid never goes through its own `refreshItem()`). Placed
+        // after the polling loop above rather than run concurrently with
+        // it like `showPlaybackEpisodeUpdate`/`nextEpisodeAdvance` are —
+        // deliberately: this page's own `displayedItemID` poll never
+        // "catches up" for a BoxSet (its own `userData` has nothing to do
+        // with any one child's progress), so that loop harmlessly runs its
+        // entire schedule regardless, which incidentally buys enough real
+        // time for the played child's own userData commit to have already
+        // landed by the time this fires — same latency `userDataCommitPollSchedule`
+        // exists to wait out elsewhere, just piggybacked here rather than
+        // polled separately.
+        if item?.kind == .boxSet, let childrenResult = try? await client.items(
+            userID: userID, parentID: displayedItemID, recursive: false, sortBy: "PremiereDate"
+        ) {
+            collectionItems = childrenResult.items.map { MediaItem(dto: $0, images: images) }
+        }
 
         // See `episodeListRefreshToken`'s own doc comment. Bumped
         // unconditionally (not just when the polling loop above actually

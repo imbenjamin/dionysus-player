@@ -18,43 +18,63 @@ struct DetailTabsView: View {
     let item: MediaItem
     @State private var selectedTab: Tab = .about
 
-    /// A Show or Season has no media file of its own — only its episodes
-    /// do — so `item.technicalDetails` is always `nil` for them; only real
-    /// playable assets (movies, episodes) have a "Details" tab worth
-    /// showing at all.
+    /// "About" always shows (genres/synopsis apply to every item kind, even
+    /// with nothing in either of the other two). "Cast & Crew" only shows
+    /// once `item.cast` actually has something in it — a Collection, or any
+    /// item nobody bothered crediting, doesn't get a tab that just says "No
+    /// cast or crew information available." "Details" only shows for a real
+    /// playable asset (movie, episode) with its own media file — a Show,
+    /// Season, or Collection has `item.technicalDetails == nil` always,
+    /// having no media file of its own (only its children do).
     ///
     /// `AssetDetailViewModel`'s preloaded item (see its doc comment) renders
-    /// this view before `technicalDetails` exists, so this starts as a
-    /// 2-element array and grows to 3 once `load()`'s full item lands —
-    /// `MovieDetailView`/`ShowDetailView` key `DetailTabsView`'s identity to
-    /// this same condition (see their call sites), which is required for
-    /// that transition to actually show up. Confirmed via a temporary
-    /// runtime probe (prints in this view's `body` and in `MovieDetailView`
-    /// 's) that without that `.id()`, `MovieDetailView.body` re-ran a
-    /// second time once `load()` landed the full item (it reads the
-    /// `@Observable` `viewModel.item` directly, so it's a tracked
-    /// dependency) but *this* view's `body` — holding `item` as a plain,
-    /// non-`Equatable`, non-tracked `let` under an otherwise-unchanged view
-    /// identity (same type/position, `selectedTab`'s `@State` box intact)
-    /// — never fired again, so `availableTabs` stayed frozen at whatever it
-    /// was the first time this view ever rendered. Forcing a fresh identity
-    /// via `.id()` on the change that matters is what actually gets this
-    /// view's `body` invoked again; relying on the parent alone re-running
-    /// did not, for whatever reason, propagate down to this specific view
-    /// in practice.
+    /// this view before either `cast` or `technicalDetails` exist — both are
+    /// only populated by the same `Fields=People,MediaSources,...` full-item
+    /// fetch, so they always arrive together — so this starts as a 1-element
+    /// array (just "About") and grows once `load()`'s full item lands.
+    /// `MovieDetailView`/`ShowDetailView`/`CollectionDetailView` key
+    /// `DetailTabsView`'s identity to `technicalDetails == nil` (see their
+    /// call sites), which is required for that transition to actually show
+    /// up — since `cast` becomes known at the exact same moment, that one
+    /// key covers both. Confirmed via a temporary runtime probe (prints in
+    /// this view's `body` and in `MovieDetailView`'s) that without that
+    /// `.id()`, `MovieDetailView.body` re-ran a second time once `load()`
+    /// landed the full item (it reads the `@Observable` `viewModel.item`
+    /// directly, so it's a tracked dependency) but *this* view's `body` —
+    /// holding `item` as a plain, non-`Equatable`, non-tracked `let` under
+    /// an otherwise-unchanged view identity (same type/position,
+    /// `selectedTab`'s `@State` box intact) — never fired again, so
+    /// `availableTabs` stayed frozen at whatever it was the first time this
+    /// view ever rendered. Forcing a fresh identity via `.id()` on the
+    /// change that matters is what actually gets this view's `body` invoked
+    /// again; relying on the parent alone re-running did not, for whatever
+    /// reason, propagate down to this specific view in practice.
     private var availableTabs: [Tab] {
-        item.technicalDetails == nil ? Tab.allCases.filter { $0 != .details } : Tab.allCases
+        Tab.allCases.filter { tab in
+            switch tab {
+            case .about: true
+            case .cast: !item.cast.isEmpty
+            case .details: item.technicalDetails != nil
+            }
+        }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Picker("Section", selection: $selectedTab) {
-                ForEach(availableTabs) { tab in
-                    Text(tab.rawValue).tag(tab)
+            // Nothing to switch between with only "About" available (e.g. a
+            // Collection, or any item with neither cast/crew credits nor its
+            // own technical details) — the segmented control itself would
+            // just be a single dead-looking segment, so it's dropped
+            // entirely rather than shown with one option.
+            if availableTabs.count > 1 {
+                Picker("Section", selection: $selectedTab) {
+                    ForEach(availableTabs) { tab in
+                        Text(tab.rawValue).tag(tab)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .tint(.dionysusPrimary)
             }
-            .pickerStyle(.segmented)
-            .tint(.dionysusPrimary)
 
             switch selectedTab {
             case .about:

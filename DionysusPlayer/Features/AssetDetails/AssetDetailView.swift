@@ -63,6 +63,8 @@ struct AssetDetailView: View {
                 // what actually matters: `ShowDetailView` renders correctly
                 // for all three by that point.
                 ShowDetailView(viewModel: viewModel)
+            case .boxSet:
+                CollectionDetailView(viewModel: viewModel)
             default:
                 MovieDetailView(viewModel: viewModel)
             }

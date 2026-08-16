@@ -136,7 +136,7 @@ private struct MediaCardLabel: View {
     }
 }
 
-private extension View {
+extension View {
     /// Episode-only: a Disney+-style logo (falling back through
     /// season/series per `MediaItem.logoImageURL`) over a bottom gradient
     /// for contrast, mirroring the hero rail/detail header treatment
@@ -176,7 +176,8 @@ private extension View {
     }
 
     /// Composites the in-progress bar / fully-watched eye / favorite star
-    /// treatment shared by `PosterCard` and `LandscapeMediaCard`, onto
+    /// treatment shared by `PosterCard`, `LandscapeMediaCard`, and
+    /// `CollectionItemList`'s own row thumbnail, onto
     /// `self` (expected to already be the clipped artwork image). The eye
     /// and star sit on opposite top corners so both can show at once (a
     /// favorited, fully-watched item is a completely ordinary
