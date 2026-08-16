@@ -250,6 +250,29 @@ final class MediaItemTests: XCTestCase {
         XCTAssertEqual(original.withOptimisticPlaybackPosition(seconds: 900, duration: -1).resumePositionSeconds, 10)
     }
 
+    // MARK: withOptimisticFavoriteWatched
+
+    func test_withOptimisticFavoriteWatched_overwritesOnlyThePassedField() {
+        let original = makeMovie(userData: UserItemDataDto(played: false, isFavorite: false))
+
+        let favoritedOnly = original.withOptimisticFavoriteWatched(favorite: true)
+        XCTAssertTrue(favoritedOnly.isFavorite)
+        XCTAssertFalse(favoritedOnly.isPlayed, "watched wasn't passed, so it should be untouched")
+
+        let watchedOnly = original.withOptimisticFavoriteWatched(watched: true)
+        XCTAssertTrue(watchedOnly.isPlayed)
+        XCTAssertFalse(watchedOnly.isFavorite, "favorite wasn't passed, so it should be untouched")
+
+        let both = original.withOptimisticFavoriteWatched(favorite: true, watched: true)
+        XCTAssertTrue(both.isFavorite)
+        XCTAssertTrue(both.isPlayed)
+    }
+
+    func test_withOptimisticFavoriteWatched_noOpWhenNeitherFieldPassed() {
+        let original = makeMovie(userData: UserItemDataDto(played: false, isFavorite: false))
+        XCTAssertEqual(original, original.withOptimisticFavoriteWatched())
+    }
+
     // MARK: technicalDetails
 
     func test_technicalDetails_buildsContainerCodecResolutionAndDynamicRange() {

@@ -193,6 +193,11 @@ struct HeroActionButtons: View {
         } label: {
             Label(label, systemImage: target.isFavorite ? "star.circle.fill" : "star.circle")
         }
+        // Same guard as the collapsed (non-Menu) button's `.disabled(isPending)`
+        // — without it, re-opening the menu and tapping the same row again
+        // while its own toggle is still in flight fires a second, redundant
+        // write concurrently with the first rather than being a no-op.
+        .disabled(viewModel.pendingFavoriteIDs.contains(target.id))
     }
 
     private func watchedMenuRow(for target: MediaItem, label: String) -> some View {
@@ -201,19 +206,30 @@ struct HeroActionButtons: View {
         } label: {
             Label(label, systemImage: target.isPlayed ? "eye.circle.fill" : "eye.circle")
         }
+        // See `favoriteMenuRow`'s matching guard above.
+        .disabled(viewModel.pendingWatchedIDs.contains(target.id))
     }
 
     private func toggleFavorite(_ target: MediaItem) {
+        // `target.isFavorite` is deliberately NOT what gets sent below — see
+        // `AssetDetailViewModel.currentFavoriteWatchedStatus(forItemID:)`'s
+        // doc comment for why trusting this closure's own captured `target`
+        // is unreliable here (a real, confirmed toolbar staleness bug), and
+        // why reading through `viewModel` instead fixes it. `target.id` is
+        // still used to identify *which* item — safe, since an item's id
+        // never changes across renders the way its `isFavorite` does.
+        let currentlyFavorite = viewModel.currentFavoriteWatchedStatus(forItemID: target.id)?.favorite ?? target.isFavorite
         // Registered via `viewModel.track(_:)` — see its doc comment — so
         // `AssetDetailView`'s `.onDisappear` can cancel this toggle's
         // confirmation poll if the user backs out mid-flight, rather than
         // it running to completion regardless.
-        viewModel.track(Task { await viewModel.toggleFavorite(itemID: target.id, currentlyFavorite: target.isFavorite) })
+        viewModel.track(Task { await viewModel.toggleFavorite(itemID: target.id, currentlyFavorite: currentlyFavorite) })
     }
 
     private func toggleWatched(_ target: MediaItem) {
         // See `toggleFavorite(_:)` above.
-        viewModel.track(Task { await viewModel.toggleWatched(itemID: target.id, currentlyWatched: target.isPlayed) })
+        let currentlyWatched = viewModel.currentFavoriteWatchedStatus(forItemID: target.id)?.watched ?? target.isPlayed
+        viewModel.track(Task { await viewModel.toggleWatched(itemID: target.id, currentlyWatched: currentlyWatched) })
     }
 
     /// Same circular chrome as `ResetFiltersButton` (`CollectionGridView`) —

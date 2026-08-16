@@ -304,6 +304,44 @@ final class AssetDetailViewModel {
     /// See `pendingFavoriteIDs` — identical shape, watched status instead.
     private(set) var pendingWatchedIDs: Set<String> = []
 
+    /// Looks up `itemID`'s live favorite/watched status from whichever of
+    /// `item`/`seriesItem`/`showPlaybackEpisode`/`seasons` currently holds
+    /// it — the same set of targets `applyOptimisticFavoriteWatched` and
+    /// `refetchFavoriteWatchedTarget` patch. `HeroActionButtons` calls this
+    /// right when a toggle actually fires, rather than trusting the
+    /// `MediaItem` its own button/menu-row closure captured, however
+    /// recently that closure was constructed.
+    ///
+    /// Exists because of a real, confirmed-live (2026-08-16) SwiftUI toolbar
+    /// bug: `HeroActionButtons` is hosted as a `ToolbarItem`, and while its
+    /// *displayed* icon reliably tracks `item`/`seriesItem` reactively (see
+    /// `MovieDetailView`'s own doc comment on this), the `Button`/`Menu` row
+    /// *action* closures underneath it can keep firing with the `MediaItem`
+    /// snapshot captured the *first* time that toolbar content was built —
+    /// not the latest one — even many renders and toggles later. Confirmed
+    /// directly: tapping Favorite, waiting for it to fully confirm (icon
+    /// visibly updates), then tapping it again read the second tap's
+    /// `currentlyFavorite` as the value from *before the first tap*, so the
+    /// second write silently repeated the first instead of reversing it —
+    /// exactly the reported "second press looks like it does nothing" bug.
+    /// Routing the lookup through `viewModel` (a stable reference the whole
+    /// page keeps one instance of) rather than through the closure's own
+    /// captured value sidesteps the staleness regardless of how out of date
+    /// that closure is: `viewModel.item` etc. are read fresh here, every
+    /// call. Falls back to the caller's own belief if `itemID` doesn't match
+    /// anything currently held (shouldn't happen in practice — every
+    /// favorite/watched target offered in the UI comes from one of these
+    /// four properties).
+    func currentFavoriteWatchedStatus(forItemID itemID: String) -> (favorite: Bool, watched: Bool)? {
+        if let item, item.id == itemID { return (item.isFavorite, item.isPlayed) }
+        if let seriesItem, seriesItem.id == itemID { return (seriesItem.isFavorite, seriesItem.isPlayed) }
+        if let showPlaybackEpisode, showPlaybackEpisode.id == itemID {
+            return (showPlaybackEpisode.isFavorite, showPlaybackEpisode.isPlayed)
+        }
+        if let season = seasons.first(where: { $0.id == itemID }) { return (season.isFavorite, season.isPlayed) }
+        return nil
+    }
+
     /// Fire-and-forget `Task`s wrapping this view model's own async methods
     /// (`toggleFavorite`/`toggleWatched`/`refreshItem`), registered here by
     /// their call sites (`HeroActionButtons`, `MovieDetailView`/
@@ -368,8 +406,15 @@ final class AssetDetailViewModel {
     func toggleFavorite(itemID: String, currentlyFavorite: Bool) async {
         pendingFavoriteIDs.insert(itemID)
         defer { pendingFavoriteIDs.remove(itemID) }
-        try? await client.setFavorite(!currentlyFavorite, itemID: itemID, userID: userID)
-        await refetchFavoriteWatchedTarget(itemID: itemID, expectedFavorite: !currentlyFavorite)
+        let newValue = !currentlyFavorite
+        let succeeded = (try? await client.setFavorite(newValue, itemID: itemID, userID: userID)) != nil
+        // See `applyOptimisticFavoriteWatched(itemID:favorite:watched:)`'s
+        // doc comment for why this can't just wait on the confirmation poll
+        // below — only applied once the write itself has actually
+        // succeeded, so a genuinely failed request doesn't show a false
+        // "it worked" state.
+        if succeeded { applyOptimisticFavoriteWatched(itemID: itemID, favorite: newValue) }
+        await refetchFavoriteWatchedTarget(itemID: itemID, expectedFavorite: newValue)
     }
 
     /// See `toggleFavorite(itemID:currentlyFavorite:)` — identical shape,
@@ -377,8 +422,47 @@ final class AssetDetailViewModel {
     func toggleWatched(itemID: String, currentlyWatched: Bool) async {
         pendingWatchedIDs.insert(itemID)
         defer { pendingWatchedIDs.remove(itemID) }
-        try? await client.setWatched(!currentlyWatched, itemID: itemID, userID: userID)
-        await refetchFavoriteWatchedTarget(itemID: itemID, expectedWatched: !currentlyWatched)
+        let newValue = !currentlyWatched
+        let succeeded = (try? await client.setWatched(newValue, itemID: itemID, userID: userID)) != nil
+        if succeeded { applyOptimisticFavoriteWatched(itemID: itemID, watched: newValue) }
+        await refetchFavoriteWatchedTarget(itemID: itemID, expectedWatched: newValue)
+    }
+
+    /// Immediately reflects a just-succeeded `setFavorite`/`setWatched`
+    /// write on whichever of `item`/`seriesItem`/`showPlaybackEpisode`/
+    /// `seasons` currently holds `itemID` — the same set of targets
+    /// `refetchFavoriteWatchedTarget` patches once the server actually
+    /// confirms the change, and the same "reflect a known-correct value
+    /// immediately rather than waiting on a round trip" shape as
+    /// `applyOptimisticPlaybackPosition(_:)` above.
+    ///
+    /// Exists because that confirmation can take far longer than
+    /// `userDataCommitPollSchedule` waits out — confirmed live (2026-08-16):
+    /// a movie's favorite write returned success immediately (per Jellyfin's
+    /// documented behavior — see that property's own doc comment), but
+    /// didn't actually commit server-side for several *minutes* on a real
+    /// server, an order of magnitude past the poll's ~13s budget. Without
+    /// this, `refetchFavoriteWatchedTarget`'s poll kept re-fetching the
+    /// still-stale (pre-write) value and patching it straight into `item`
+    /// on every attempt, so by the time the poll gave up, the button looked
+    /// exactly like tapping it had done nothing at all — the reported bug
+    /// this fixes. `refetchFavoriteWatchedTarget` itself no longer adopts an
+    /// unconfirmed fetch (see its own doc comment), so once this has run,
+    /// nothing downstream can regress it back to that stale value while the
+    /// real commit is still in flight.
+    private func applyOptimisticFavoriteWatched(itemID: String, favorite: Bool? = nil, watched: Bool? = nil) {
+        if let current = item, current.id == itemID {
+            item = current.withOptimisticFavoriteWatched(favorite: favorite, watched: watched)
+        }
+        if let current = seriesItem, current.id == itemID {
+            seriesItem = current.withOptimisticFavoriteWatched(favorite: favorite, watched: watched)
+        }
+        if let current = showPlaybackEpisode, current.id == itemID {
+            showPlaybackEpisode = current.withOptimisticFavoriteWatched(favorite: favorite, watched: watched)
+        }
+        if let index = seasons.firstIndex(where: { $0.id == itemID }) {
+            seasons[index] = seasons[index].withOptimisticFavoriteWatched(favorite: favorite, watched: watched)
+        }
     }
 
     /// Shared by `toggleFavorite`/`toggleWatched`: re-fetches whichever item
@@ -412,13 +496,23 @@ final class AssetDetailViewModel {
             guard !Task.isCancelled else { return }
             guard let dto = try? await client.item(userID: userID, itemID: itemID) else { continue }
             let updated = MediaItem(dto: dto, images: images)
+            let favoriteConfirmed = expectedFavorite.map { $0 == updated.isFavorite } ?? true
+            let watchedConfirmed = expectedWatched.map { $0 == updated.isPlayed } ?? true
+            // Not confirmed yet — this fetch is almost certainly just the
+            // server's still-uncommitted old value (see
+            // `applyOptimisticFavoriteWatched`'s doc comment for why that
+            // commit can take far longer than this whole poll schedule).
+            // Adopting it here would regress `item`/etc. straight back to
+            // that stale value, undoing the optimistic update the toggle
+            // already applied — skip it and try again next attempt instead,
+            // exactly like `refreshItem()`'s own `optimisticTarget` guard
+            // just below.
+            guard favoriteConfirmed && watchedConfirmed else { continue }
             if item?.id == itemID { item = updated }
             if seriesItem?.id == itemID { seriesItem = updated }
             if showPlaybackEpisode?.id == itemID { showPlaybackEpisode = updated }
             if let index = seasons.firstIndex(where: { $0.id == itemID }) { seasons[index] = updated }
-            let favoriteConfirmed = expectedFavorite.map { $0 == updated.isFavorite } ?? true
-            let watchedConfirmed = expectedWatched.map { $0 == updated.isPlayed } ?? true
-            if favoriteConfirmed && watchedConfirmed { break }
+            break
         }
     }
 

@@ -724,6 +724,28 @@ struct MediaItem: Identifiable {
         newDto.userData = userData
         return MediaItem(dto: newDto, images: images)
     }
+
+    /// A copy with `isFavorite`/`isPlayed` overwritten immediately — the
+    /// `withOptimisticPlaybackPosition`'s sibling for the other two
+    /// server-async `userData` fields. See
+    /// `AssetDetailViewModel.applyOptimisticFavoriteWatched(itemID:favorite:watched:)`
+    /// for why this exists: confirmed live, a favorite/watched write that
+    /// returned success immediately didn't actually commit server-side for
+    /// several *minutes* on a real server, well past what this app's
+    /// confirmation poll waits out — without applying the known-good value
+    /// right away, the toolbar button looked like a second tap did nothing
+    /// at all. `favorite`/`watched` each default to `nil` (leave that field
+    /// as-is) so a caller changing only one doesn't need to know the
+    /// other's current value.
+    func withOptimisticFavoriteWatched(favorite: Bool? = nil, watched: Bool? = nil) -> MediaItem {
+        guard favorite != nil || watched != nil else { return self }
+        var newDto = dto
+        var userData = newDto.userData ?? UserItemDataDto()
+        if let favorite { userData.isFavorite = favorite }
+        if let watched { userData.played = watched }
+        newDto.userData = userData
+        return MediaItem(dto: newDto, images: images)
+    }
 }
 
 extension MediaItem: Hashable {
