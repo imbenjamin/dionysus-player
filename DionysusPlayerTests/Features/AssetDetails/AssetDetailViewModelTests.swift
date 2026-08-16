@@ -484,6 +484,71 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.item?.id, "series-1", "the Series itself (a different id) should be untouched")
     }
 
+    /// The live bug this exists to fix (2026-08-16): confirmed against a
+    /// real server that a favorite/watched write can return success
+    /// immediately but not actually commit server-side for several
+    /// *minutes* — an order of magnitude past `userDataCommitPollSchedule`'s
+    /// ~13s budget. Before `applyOptimisticFavoriteWatched` existed, the
+    /// poll below kept re-fetching that still-stale value and patching it
+    /// straight into `item` on *every* attempt (not just once it actually
+    /// confirmed), so once the poll gave up, `item` was left showing the
+    /// pre-toggle value — indistinguishable from the tap having done
+    /// nothing. Same "ignore unconfirmed fetches, keep the known-correct
+    /// value" shape as `test_refreshItemAfterOptimisticUpdate_serverNeverCatchesUp_keepsOptimisticValue`
+    /// above, for the favorite/watched poll instead of the playback-position
+    /// one.
+    func test_toggleFavorite_serverNeverConfirms_keepsOptimisticValueRatherThanRegressingToStaleData() async {
+        let viewModel = makeViewModel(itemID: "movie-1")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie))
+        }
+        await viewModel.load()
+        XCTAssertEqual(viewModel.item?.isFavorite, false, "sanity check")
+
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/FavoriteItems/movie-1":
+                return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+            case "/Users/user-1/Items/movie-1":
+                // The write above returned success, but every re-fetch still
+                // reports the server's old, not-yet-committed value — the
+                // real, confirmed-live scenario this test pins.
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                    id: "movie-1", name: "Arrival", type: .movie,
+                    userData: UserItemDataDto(playbackPositionTicks: nil, playedPercentage: nil, played: false, isFavorite: false)
+                ))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.toggleFavorite(itemID: "movie-1", currentlyFavorite: false)
+
+        XCTAssertEqual(
+            viewModel.item?.isFavorite, true,
+            "the write succeeded, so the optimistic value should stick even though the server never confirmed it"
+        )
+    }
+
+    // MARK: currentFavoriteWatchedStatus(forItemID:)
+
+    /// `HeroActionButtons` calls this right when a toggle fires rather than
+    /// trusting its own button/menu-row closure's captured `MediaItem` — see
+    /// this method's own doc comment for the real, confirmed toolbar
+    /// staleness bug that motivated it. Pins that it actually finds the
+    /// right value across all four possible targets, and `nil` for anything
+    /// that doesn't match one.
+    func test_currentFavoriteWatchedStatus_findsTheRightTargetAmongItemSeriesItemShowPlaybackEpisodeAndSeasons() async {
+        let viewModel = await loadedSeriesViewModel(
+            nextUpItems: [BaseItemDto(id: "episode-1", name: "Pilot", type: .episode, userData: UserItemDataDto(isFavorite: true))],
+            episodesItems: []
+        )
+
+        XCTAssertEqual(viewModel.currentFavoriteWatchedStatus(forItemID: "series-1")?.favorite, false, "matches item/seriesItem (same id for a Series-direct page)")
+        XCTAssertEqual(viewModel.currentFavoriteWatchedStatus(forItemID: "episode-1")?.favorite, true, "matches showPlaybackEpisode (NextUp)")
+        XCTAssertNil(viewModel.currentFavoriteWatchedStatus(forItemID: "nonexistent-id"))
+    }
+
     // MARK: track(_:) / cancelBackgroundWork()
 
     /// `toggleFavorite`'s confirmation poll can run for up to ~13s
