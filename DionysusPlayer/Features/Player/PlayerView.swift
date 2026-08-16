@@ -112,14 +112,6 @@ struct PlayerView: View {
                 // shifted the rest of the player UI.
                 PlaybackStatsOverlay(viewModel: viewModel, zoomMode: zoomMode, isVisible: showPlaybackStats)
 
-                // Above the stats overlay and the transport chrome — while a
-                // PiP window has this session's picture, nothing underneath
-                // is visible or meant to be interactive. See
-                // `PictureInPictureOverlay`'s own doc comment for why it (and
-                // the video surface above) stay mounted rather than being
-                // swapped in/out.
-                PictureInPictureOverlay(isVisible: viewModel.isPictureInPictureActive)
-
                 // Always mounted — animating `.opacity` directly on a
                 // permanent view, rather than conditionally including it
                 // with `.transition(.opacity)`, is deliberate. The overlay
@@ -165,6 +157,14 @@ struct PlayerView: View {
                 // but invisible while faded out.
                 .accessibilityHidden(!showControls)
 
+                // Above the transport chrome (added after it in this ZStack)
+                // — while a PiP window has this session's picture, nothing
+                // underneath, controls included, is visible or meant to be
+                // interactive. See `PictureInPictureOverlay`'s own doc
+                // comment for why it (and the video surface above) stay
+                // mounted rather than being swapped in/out.
+                PictureInPictureOverlay(isVisible: viewModel.isPictureInPictureActive)
+
                 if let errorMessage = viewModel.errorMessage {
                     ErrorStateView(message: errorMessage) {
                         Task { await viewModel.start() }
@@ -184,7 +184,15 @@ struct PlayerView: View {
         // `.seeking`/`.buffering` spell landing right as a stale timer was
         // about to fire, or the controls having been auto-hidden just
         // before the user paused some other way (e.g. a route change).
+        //
+        // Skipped entirely while PiP is active: a state change reachable
+        // from there (e.g. pausing from the system PiP overlay) would
+        // otherwise force the transport chrome back on screen over
+        // `PictureInPictureOverlay`'s placeholder, with no interaction of
+        // the PiP-active `onChange` below to hide it again since that one
+        // only fires on a transition of `isPictureInPictureActive` itself.
         .onChange(of: viewModel?.state) { _, newState in
+            guard viewModel?.isPictureInPictureActive != true else { return }
             guard newState == .playing else {
                 autoHideTask?.cancel()
                 withAnimation(Self.fadeInAnimation) { showControls = true }

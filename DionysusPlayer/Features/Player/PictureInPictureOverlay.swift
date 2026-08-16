@@ -31,7 +31,7 @@ struct PictureInPictureOverlay: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .opacity(isVisible ? 1 : 0)
         .allowsHitTesting(isVisible)
-        .accessibilityHidden(!isVisible)
         .accessibilityElement(children: .combine)
+        .accessibilityHidden(!isVisible)
     }
 }

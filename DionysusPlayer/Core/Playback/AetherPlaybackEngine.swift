@@ -382,7 +382,19 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// tolerates a controller going out of scope mid-session, and there's no
     /// "swap the layer" API for a `playerLayer`-based controller the way
     /// there is for a sample-buffer `ContentSource`.
+    ///
+    /// If the outgoing controller was mid-PiP-session (a same-host reload —
+    /// e.g. a stall/reconnect folded into `.buffering` — can re-emit
+    /// `$currentAVPlayer` while a PiP window is still up), dropping it
+    /// without first mirroring `handlePictureInPictureDidStop()`'s cleanup
+    /// would leave `engine.pictureInPictureActive`/`onPictureInPictureActiveChange`
+    /// stuck at `true` forever: AVKit never calls the old delegate's
+    /// `didStopPictureInPicture` for a controller that simply went out of
+    /// scope on the host's side, so nothing else would ever reset it.
     private func updatePictureInPictureController() {
+        if pipController?.isPictureInPictureActive == true {
+            handlePictureInPictureDidStop()
+        }
         pipPossibleObservation = nil
         pipController = nil
         onPictureInPicturePossibleChange?(false)
@@ -515,7 +527,8 @@ final class AetherPlaybackEngine: PlaybackEngine {
         center.skipForwardCommand.removeTarget(nil)
         center.skipForwardCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
-            Task { await self.engine.seek(to: self.engine.currentTime + 30) }
+            let target = min(engine.duration, engine.currentTime + 30)
+            Task { await self.engine.seek(to: target) }
             return .success
         }
 
