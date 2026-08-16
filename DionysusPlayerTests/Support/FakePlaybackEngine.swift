@@ -14,6 +14,8 @@ final class FakePlaybackEngine: PlaybackEngine {
     var onTimeUpdate: ((TimeInterval, TimeInterval) -> Void)?
     var onSubtitleCuesChange: (([SubtitleCueDisplay]) -> Void)?
     var onSourceTimeUpdate: ((TimeInterval) -> Void)?
+    var onPictureInPicturePossibleChange: ((Bool) -> Void)?
+    var onPictureInPictureActiveChange: ((Bool) -> Void)?
 
     var audioTracks: [PlaybackTrack] = []
     var subtitleTracks: [PlaybackTrack] = []
@@ -58,6 +60,8 @@ final class FakePlaybackEngine: PlaybackEngine {
     private(set) var stopCallCount = 0
     private(set) var selectedAudioTrackIDs: [Int] = []
     private(set) var selectedSubtitleTrackIDs: [Int?] = []
+    private(set) var startPictureInPictureCallCount = 0
+    private(set) var stopPictureInPictureCallCount = 0
 
     func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws {
         if let loadError { throw loadError }
@@ -73,6 +77,8 @@ final class FakePlaybackEngine: PlaybackEngine {
     func stop() { stopCallCount += 1 }
     func selectAudioTrack(id: Int) { selectedAudioTrackIDs.append(id) }
     func selectSubtitleTrack(id: Int?) { selectedSubtitleTrackIDs.append(id) }
+    func startPictureInPicture() { startPictureInPictureCallCount += 1 }
+    func stopPictureInPicture() { stopPictureInPictureCallCount += 1 }
 
     func makeSurface() -> AnyView { AnyView(EmptyView()) }
 }

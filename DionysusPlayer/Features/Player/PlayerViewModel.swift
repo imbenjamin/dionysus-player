@@ -19,6 +19,13 @@ final class PlayerViewModel {
     /// separate from `currentTime` (the item/AVPlayer clock `onTimeUpdate`
     /// reports) since the two can diverge across producer restarts.
     private(set) var sourceTime: TimeInterval = 0
+    /// Drives the PiP button's enabled state — see
+    /// `PlaybackEngine.onPictureInPicturePossibleChange`'s doc comment.
+    private(set) var isPictureInPicturePossible = false
+    /// While `true`, `PlayerView` shows a placeholder over the video surface
+    /// instead of the live picture — see `PlaybackEngine
+    /// .onPictureInPictureActiveChange`'s doc comment.
+    private(set) var isPictureInPictureActive = false
 
     let engine: PlaybackEngine
     let itemID: String
@@ -90,6 +97,8 @@ final class PlayerViewModel {
         }
         engine.onSubtitleCuesChange = { [weak self] cues in self?.subtitleCues = cues }
         engine.onSourceTimeUpdate = { [weak self] sourceTime in self?.sourceTime = sourceTime }
+        engine.onPictureInPicturePossibleChange = { [weak self] possible in self?.isPictureInPicturePossible = possible }
+        engine.onPictureInPictureActiveChange = { [weak self] active in self?.isPictureInPictureActive = active }
     }
 
     func start() async {
@@ -262,6 +271,10 @@ final class PlayerViewModel {
 
     func setZoomMode(_ mode: VideoZoomMode) {
         engine.zoomMode = mode
+    }
+
+    func startPictureInPicture() {
+        engine.startPictureInPicture()
     }
 
     /// Fetches `serverVersion` once and caches it — safe to call on every

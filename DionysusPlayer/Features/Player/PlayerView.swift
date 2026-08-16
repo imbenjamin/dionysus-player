@@ -112,6 +112,14 @@ struct PlayerView: View {
                 // shifted the rest of the player UI.
                 PlaybackStatsOverlay(viewModel: viewModel, zoomMode: zoomMode, isVisible: showPlaybackStats)
 
+                // Above the stats overlay and the transport chrome — while a
+                // PiP window has this session's picture, nothing underneath
+                // is visible or meant to be interactive. See
+                // `PictureInPictureOverlay`'s own doc comment for why it (and
+                // the video surface above) stay mounted rather than being
+                // swapped in/out.
+                PictureInPictureOverlay(isVisible: viewModel.isPictureInPictureActive)
+
                 // Always mounted — animating `.opacity` directly on a
                 // permanent view, rather than conditionally including it
                 // with `.transition(.opacity)`, is deliberate. The overlay
@@ -142,6 +150,7 @@ struct PlayerView: View {
                     onToggleRotationLock: toggleRotationLock,
                     isPlaybackStatsVisible: showPlaybackStats,
                     onTogglePlaybackStats: { showPlaybackStats.toggle() },
+                    onEnterPictureInPicture: { viewModel.startPictureInPicture() },
                     onInteract: scheduleAutoHide
                 )
                 .opacity(showControls ? 1 : 0)
@@ -199,6 +208,26 @@ struct PlayerView: View {
         // tap in this screen already gets via `onInteract`.
         .onChange(of: isShowingTrackPicker) { _, _ in
             scheduleAutoHide()
+        }
+        // Entering PiP from the in-app button leaves the app foregrounded —
+        // unlike every other case `showControls` reacts to, nothing else
+        // here (state, orientation, the track picker) changes when that
+        // happens, so without this the transport chrome just sat there on
+        // screen, on top of `PictureInPictureOverlay`'s placeholder. No
+        // `withAnimation` on the way in: PiP itself is instant, so the
+        // controls should vanish with it rather than still be mid-fade a
+        // moment later. Leaving PiP restores them the same way any other
+        // interaction does — a quick fade-in, then a fresh auto-hide
+        // countdown if still playing.
+        .onChange(of: viewModel?.isPictureInPictureActive) { _, isActive in
+            guard let isActive else { return }
+            if isActive {
+                autoHideTask?.cancel()
+                showControls = false
+            } else {
+                withAnimation(Self.fadeInAnimation) { showControls = true }
+                scheduleAutoHide()
+            }
         }
     }
 

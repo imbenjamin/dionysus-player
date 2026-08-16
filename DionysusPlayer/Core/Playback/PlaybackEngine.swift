@@ -24,6 +24,18 @@ protocol PlaybackEngine: AnyObject {
     /// `onTimeUpdate`) so subtitle-only observers don't need to unpack a
     /// tuple they'd ignore half of.
     var onSourceTimeUpdate: ((TimeInterval) -> Void)? { get set }
+    /// Mirrors `AVPictureInPictureController.isPictureInPicturePossible` —
+    /// drives the PiP button's enabled state. Stays permanently `false` for a
+    /// session on AetherEngine's software (non-AVPlayer) route: PiP here is
+    /// built around `AVPictureInPictureController(playerLayer:)`, which needs
+    /// a native player layer that route never has — see
+    /// `AetherPlaybackEngine`'s PiP section for why that's enough to make the
+    /// button self-disable with no separate route check.
+    var onPictureInPicturePossibleChange: ((Bool) -> Void)? { get set }
+    /// Whether a PiP window is currently showing this session's video —
+    /// `PlayerView` swaps the video surface for a "Playing in Picture in
+    /// Picture" placeholder while this is `true`.
+    var onPictureInPictureActiveChange: ((Bool) -> Void)? { get set }
 
     var audioTracks: [PlaybackTrack] { get }
     var subtitleTracks: [PlaybackTrack] { get }
@@ -84,6 +96,12 @@ protocol PlaybackEngine: AnyObject {
     func selectAudioTrack(id: Int)
     /// `nil` disables subtitles.
     func selectSubtitleTrack(id: Int?)
+
+    /// No-op when PiP isn't currently possible (see
+    /// `onPictureInPicturePossibleChange`) — callers don't need to guard the
+    /// call themselves.
+    func startPictureInPicture()
+    func stopPictureInPicture()
 
     /// Type-erased SwiftUI surface that renders this engine's video output.
     func makeSurface() -> AnyView

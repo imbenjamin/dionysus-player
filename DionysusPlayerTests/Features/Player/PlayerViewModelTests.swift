@@ -446,6 +446,12 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(engine.zoomMode, .fill)
     }
 
+    func test_startPictureInPicture_delegatesToEngine() {
+        let (viewModel, engine) = makeViewModel()
+        viewModel.startPictureInPicture()
+        XCTAssertEqual(engine.startPictureInPictureCallCount, 1)
+    }
+
     // MARK: stop()
 
     func test_stop_reportsCurrentPositionAsTicksAndStopsEngine() async throws {
@@ -481,6 +487,21 @@ final class PlayerViewModelTests: XCTestCase {
         engine.onTimeUpdate?(12, 120)
         XCTAssertEqual(viewModel.currentTime, 12)
         XCTAssertEqual(viewModel.duration, 120)
+    }
+
+    func test_pictureInPictureCallbacks_updateViewModelState() {
+        let (viewModel, engine) = makeViewModel()
+        XCTAssertFalse(viewModel.isPictureInPicturePossible)
+        XCTAssertFalse(viewModel.isPictureInPictureActive)
+
+        engine.onPictureInPicturePossibleChange?(true)
+        XCTAssertTrue(viewModel.isPictureInPicturePossible)
+
+        engine.onPictureInPictureActiveChange?(true)
+        XCTAssertTrue(viewModel.isPictureInPictureActive)
+
+        engine.onPictureInPictureActiveChange?(false)
+        XCTAssertFalse(viewModel.isPictureInPictureActive)
     }
 
     // MARK: passthrough properties

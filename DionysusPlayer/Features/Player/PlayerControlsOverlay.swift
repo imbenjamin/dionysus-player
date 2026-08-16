@@ -27,6 +27,13 @@ struct PlayerControlsOverlay: View {
     /// ever reports a tap, `PlayerView` owns the actual toggle.
     var isPlaybackStatsVisible: Bool
     var onTogglePlaybackStats: () -> Void
+    /// A one-shot action, unlike the two toggle buttons above — there's no
+    /// "currently in PiP" state to mirror here, `viewModel
+    /// .isPictureInPicturePossible` alone decides whether the button is
+    /// enabled at all, and once tapped there's nothing left for this overlay
+    /// to reflect (the "Playing in Picture in Picture" placeholder lives in
+    /// `PlayerView`, keyed off `viewModel.isPictureInPictureActive`).
+    var onEnterPictureInPicture: () -> Void
     /// Called on every button tap and scrubber-drag tick — `PlayerView`
     /// uses this to reset its auto-hide countdown, so a button press or an
     /// in-progress drag doesn't get cut off by the fade mid-interaction. Not
@@ -248,6 +255,23 @@ struct PlayerControlsOverlay: View {
                     .animation(.easeInOut(duration: 0.15), value: isRotationLocked)
 
                     trackSelectionButton
+
+                    // Omitted entirely rather than shown disabled — PiP is
+                    // only ever unavailable because the active session is on
+                    // AetherEngine's software route (see `PlaybackEngine
+                    // .onPictureInPicturePossibleChange`'s doc comment) or
+                    // because AVKit hasn't yet reported the layer ready, and
+                    // neither is a state worth surfacing an inert button for.
+                    if viewModel.isPictureInPicturePossible {
+                        Button {
+                            onInteract()
+                            onEnterPictureInPicture()
+                        } label: {
+                            Image(systemName: "pip.enter")
+                                .font(.title2)
+                        }
+                        .accessibilityLabel(Text("Picture in Picture"))
+                    }
 
                     // Same active/on-state badge treatment as the rotation
                     // lock button above — a plain glyph swap alone proved
