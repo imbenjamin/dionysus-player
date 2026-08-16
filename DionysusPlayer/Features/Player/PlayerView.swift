@@ -142,6 +142,7 @@ struct PlayerView: View {
                     onToggleRotationLock: toggleRotationLock,
                     isPlaybackStatsVisible: showPlaybackStats,
                     onTogglePlaybackStats: { showPlaybackStats.toggle() },
+                    onEnterPictureInPicture: { viewModel.startPictureInPicture() },
                     onInteract: scheduleAutoHide
                 )
                 .opacity(showControls ? 1 : 0)
@@ -155,6 +156,14 @@ struct PlayerView: View {
                 // Keeps VoiceOver from landing on buttons that are present
                 // but invisible while faded out.
                 .accessibilityHidden(!showControls)
+
+                // Above the transport chrome (added after it in this ZStack)
+                // — while a PiP window has this session's picture, nothing
+                // underneath, controls included, is visible or meant to be
+                // interactive. See `PictureInPictureOverlay`'s own doc
+                // comment for why it (and the video surface above) stay
+                // mounted rather than being swapped in/out.
+                PictureInPictureOverlay(isVisible: viewModel.isPictureInPictureActive)
 
                 if let errorMessage = viewModel.errorMessage {
                     ErrorStateView(message: errorMessage) {
@@ -175,7 +184,15 @@ struct PlayerView: View {
         // `.seeking`/`.buffering` spell landing right as a stale timer was
         // about to fire, or the controls having been auto-hidden just
         // before the user paused some other way (e.g. a route change).
+        //
+        // Skipped entirely while PiP is active: a state change reachable
+        // from there (e.g. pausing from the system PiP overlay) would
+        // otherwise force the transport chrome back on screen over
+        // `PictureInPictureOverlay`'s placeholder, with no interaction of
+        // the PiP-active `onChange` below to hide it again since that one
+        // only fires on a transition of `isPictureInPictureActive` itself.
         .onChange(of: viewModel?.state) { _, newState in
+            guard viewModel?.isPictureInPictureActive != true else { return }
             guard newState == .playing else {
                 autoHideTask?.cancel()
                 withAnimation(Self.fadeInAnimation) { showControls = true }
@@ -199,6 +216,26 @@ struct PlayerView: View {
         // tap in this screen already gets via `onInteract`.
         .onChange(of: isShowingTrackPicker) { _, _ in
             scheduleAutoHide()
+        }
+        // Entering PiP from the in-app button leaves the app foregrounded —
+        // unlike every other case `showControls` reacts to, nothing else
+        // here (state, orientation, the track picker) changes when that
+        // happens, so without this the transport chrome just sat there on
+        // screen, on top of `PictureInPictureOverlay`'s placeholder. No
+        // `withAnimation` on the way in: PiP itself is instant, so the
+        // controls should vanish with it rather than still be mid-fade a
+        // moment later. Leaving PiP restores them the same way any other
+        // interaction does — a quick fade-in, then a fresh auto-hide
+        // countdown if still playing.
+        .onChange(of: viewModel?.isPictureInPictureActive) { _, isActive in
+            guard let isActive else { return }
+            if isActive {
+                autoHideTask?.cancel()
+                showControls = false
+            } else {
+                withAnimation(Self.fadeInAnimation) { showControls = true }
+                scheduleAutoHide()
+            }
         }
     }
 

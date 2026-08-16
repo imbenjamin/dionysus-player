@@ -176,6 +176,38 @@ in SwiftUI previews. When changing playback behavior, change the protocol
 and both conformers; `PlayerViewModel` should only ever talk to the
 `PlaybackEngine` abstraction.
 
+Picture in Picture is wired for AetherEngine's native (AVPlayer) route only —
+covers HEVC/H.264, effectively all of this app's real content today.
+`AetherPlaybackEngine` owns the `AVPictureInPictureController` (built around
+`AetherEngine.nativePlayerLayer`, rebuilt whenever `engine.$currentAVPlayer`
+re-emits) behind a small `NSObject` delegate proxy (`PictureInPictureDelegateProxy`
+in the same file) — `AetherPlaybackEngine` itself can't conform to the
+Objective-C `AVPictureInPictureControllerDelegate` directly without giving up
+its throwing `init()`. On PiP start/stop it calls AetherEngine's own
+`setNativeSubtitleRendering(_:)`, the documented host hook for handing
+whichever subtitle track the app has selected to AVKit as a native WebVTT
+rendition — the app's own `SubtitleOverlayView` isn't visible inside the
+captured layer. The software (sample-buffer) route — AV1/VP9/interlaced/
+legacy sources — has no PiP support yet; the button in `PlayerControlsOverlay`
+is omitted there for free (not shown disabled), since `isPictureInPicturePossible`
+never turns true without a controller, which never gets built without a
+native player layer.
+
+`AetherPlaybackEngine` also opts into owning the native video path's system
+Now-Playing session (`engine.ownsVideoNowPlayingSession = true`, set before
+`load()`) — required for the lock screen/Control Center card to show
+anything at all, since this app renders its own transport chrome rather than
+going through `AVPlayerViewController` (which would get Now-Playing from
+AVKit for free, and must NOT also opt into a session of its own — see
+AetherEngine's own doc comment on why the default is off). Opting in makes
+the *host* responsible for wiring transport commands too: `AetherPlaybackEngine`
+registers play/pause/skip against `engine.videoNowPlayingSession
+.remoteCommandCenter` (re-registered on the same `$currentAVPlayer` signal
+PiP rebuilds on), and `PlayerViewModel.start()` stages title/subtitle
+(`MediaItem.railTitle`/`.railSubtitle`) via `engine.setNowPlayingInfo(title:
+subtitle:artwork:)` immediately, with artwork following separately once
+fetched through `RemoteImageLoader`.
+
 ### Features (`Features/*`)
 
 Each feature folder is a vertical slice: a SwiftUI `View` + an `@Observable`

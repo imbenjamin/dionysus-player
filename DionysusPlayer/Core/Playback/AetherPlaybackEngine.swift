@@ -1,5 +1,7 @@
+import AVKit
 import Combine
 import Foundation
+import MediaPlayer
 import SwiftUI
 import AetherEngine
 
@@ -18,6 +20,24 @@ final class AetherPlaybackEngine: PlaybackEngine {
     var onTimeUpdate: ((TimeInterval, TimeInterval) -> Void)?
     var onSubtitleCuesChange: (([SubtitleCueDisplay]) -> Void)?
     var onSourceTimeUpdate: ((TimeInterval) -> Void)?
+    var onPictureInPicturePossibleChange: ((Bool) -> Void)?
+    var onPictureInPictureActiveChange: ((Bool) -> Void)?
+
+    /// Built around `engine.nativePlayerLayer` — the native (AVPlayer) route
+    /// only, see `PlaybackEngine.onPictureInPicturePossibleChange`'s doc
+    /// comment. (Re)built from the `engine.$currentAVPlayer` sink below,
+    /// which is documented as "re-emitted on every reload" — exactly when a
+    /// stale layer needs replacing with a fresh one, or a session that just
+    /// went native for the first time gets one at all.
+    private var pipController: AVPictureInPictureController?
+    private var pipPossibleObservation: NSKeyValueObservation?
+    /// `AVPictureInPictureControllerDelegate` is an Objective-C protocol
+    /// (`NSObjectProtocol`-bound), which this plain Swift class can't
+    /// conform to directly without giving up its own throwing, argument-less
+    /// `init()` (NSObject's own non-throwing `init()` would occupy that same
+    /// signature) — a tiny dedicated `NSObject` proxy sidesteps that instead
+    /// of retrofitting inheritance onto this class for one protocol.
+    private let pipDelegateProxy = PictureInPictureDelegateProxy()
 
     private(set) var audioTracks: [PlaybackTrack] = []
     private(set) var subtitleTracks: [PlaybackTrack] = []
@@ -93,6 +113,16 @@ final class AetherPlaybackEngine: PlaybackEngine {
 
     init() throws {
         self.engine = try AetherEngine()
+        pipDelegateProxy.engine = self
+        // Opts into owning the system Now-Playing session on the native
+        // video path — off by default in AetherEngine because it's also
+        // consumed by `AVPlayerViewController` hosts, where AVKit owns
+        // Now-Playing itself. This app renders its own transport chrome
+        // (`makeSurface()` + `PlayerControlsOverlay`, never AVKit's own
+        // player UI), so it's exactly the "custom UI" case that's meant to
+        // opt in. Must be set before `load()` — see `AetherEngine
+        // .ownsVideoNowPlayingSession`'s doc comment.
+        engine.ownsVideoNowPlayingSession = true
         observeEngine()
     }
 
@@ -237,11 +267,35 @@ final class AetherPlaybackEngine: PlaybackEngine {
                 }
             }
             .store(in: &cancellables)
+
+        // Re-emitted on every reload (per its own doc comment) — exactly
+        // when `engine.nativePlayerLayer` can go from nil to a fresh layer,
+        // or from one layer to a newly-rebuilt one, so this is the signal to
+        // (re)build the PiP controller around whatever layer exists now.
+        engine.$currentAVPlayer
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.updatePictureInPictureController()
+                    // Same signal, same reasoning: `engine.videoNowPlayingSession`
+                    // only exists once a native host does, and a rebuilt host
+                    // means a fresh `remoteCommandCenter` with no targets on
+                    // it yet.
+                    self?.updateNowPlayingCommands()
+                }
+            }
+            .store(in: &cancellables)
     }
 
     func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws {
         self.knownAtmosAudioTrackIndices = knownAtmosAudioTrackIndices
-        let options = LoadOptions(externalSubtitles: externalSubtitles.map(Self.makeExternalSubtitleTrack))
+        let options = LoadOptions(
+            // Needed for `setNativeSubtitleRendering(_:)` (called on PiP
+            // entry/exit below) to have a native WebVTT rendition to select
+            // at all — see that method's doc comment in AetherEngine.
+            prepareNativeSubtitles: true,
+            externalSubtitles: externalSubtitles.map(Self.makeExternalSubtitleTrack)
+        )
         _ = try await engine.load(url: url, options: options)
         applyForcedSubtitleSelection()
     }
@@ -314,6 +368,176 @@ final class AetherPlaybackEngine: PlaybackEngine {
 
     func makeSurface() -> AnyView {
         AnyView(AetherPlayerSurface(engine: engine))
+    }
+
+    // MARK: - Picture in Picture
+
+    func startPictureInPicture() { pipController?.startPictureInPicture() }
+    func stopPictureInPicture() { pipController?.stopPictureInPicture() }
+
+    /// (Re)builds `pipController` around whatever `engine.nativePlayerLayer`
+    /// currently is — called from the `engine.$currentAVPlayer` subscription
+    /// in `observeEngine()`, see that call site's comment for why that's the
+    /// right signal. The old controller (if any) is just dropped: AVKit
+    /// tolerates a controller going out of scope mid-session, and there's no
+    /// "swap the layer" API for a `playerLayer`-based controller the way
+    /// there is for a sample-buffer `ContentSource`.
+    ///
+    /// If the outgoing controller was mid-PiP-session (a same-host reload —
+    /// e.g. a stall/reconnect folded into `.buffering` — can re-emit
+    /// `$currentAVPlayer` while a PiP window is still up), dropping it
+    /// without first mirroring `handlePictureInPictureDidStop()`'s cleanup
+    /// would leave `engine.pictureInPictureActive`/`onPictureInPictureActiveChange`
+    /// stuck at `true` forever: AVKit never calls the old delegate's
+    /// `didStopPictureInPicture` for a controller that simply went out of
+    /// scope on the host's side, so nothing else would ever reset it.
+    private func updatePictureInPictureController() {
+        if pipController?.isPictureInPictureActive == true {
+            handlePictureInPictureDidStop()
+        }
+        pipPossibleObservation = nil
+        pipController = nil
+        onPictureInPicturePossibleChange?(false)
+
+        guard let layer = engine.nativePlayerLayer, AVPictureInPictureController.isPictureInPictureSupported() else {
+            return
+        }
+        let controller = AVPictureInPictureController(playerLayer: layer)
+        controller?.delegate = pipDelegateProxy
+        // The one flag that makes backgrounding while this session is
+        // playing auto-start PiP, with no app-level scene-phase observing
+        // needed anywhere in the app.
+        controller?.canStartPictureInPictureAutomaticallyFromInline = true
+        pipController = controller
+        pipPossibleObservation = controller?.observe(\.isPictureInPicturePossible, options: [.initial, .new]) { [weak self] _, change in
+            let possible = change.newValue ?? false
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.onPictureInPicturePossibleChange?(possible)
+                }
+            }
+        }
+    }
+
+    /// `engine.pictureInPictureActive` drives AetherEngine's own background
+    /// keepalive policy (see that property's doc comment) — this is the one
+    /// place in the app that ever sets it, kept in lockstep with AVKit's own
+    /// notion of "a PiP window is showing" rather than inferred from
+    /// anything else. `setNativeSubtitleRendering(true)` hands whichever
+    /// subtitle track is currently selected to AVKit as a native WebVTT
+    /// rendition, since the app's own `SubtitleOverlayView` isn't visible
+    /// inside the captured layer.
+    fileprivate func handlePictureInPictureDidStart() {
+        engine.pictureInPictureActive = true
+        engine.setNativeSubtitleRendering(true)
+        onPictureInPictureActiveChange?(true)
+    }
+
+    /// Mirrors `handlePictureInPictureDidStart` — deselects the native
+    /// rendition so a subsequent in-app frame doesn't double-draw the app's
+    /// own overlay cues on top of AVKit's burned-in ones.
+    fileprivate func handlePictureInPictureDidStop() {
+        engine.pictureInPictureActive = false
+        engine.setNativeSubtitleRendering(false)
+        onPictureInPictureActiveChange?(false)
+    }
+
+    fileprivate func handlePictureInPictureFailedToStart() {
+        onPictureInPictureActiveChange?(false)
+    }
+
+    // MARK: - Now Playing
+
+    func setNowPlayingInfo(title: String, subtitle: String?, artwork: UIImage?) {
+        var info: [String: Any] = [MPMediaItemPropertyTitle: title]
+        info[MPMediaItemPropertyArtist] = subtitle
+        if let artwork {
+            info[MPMediaItemPropertyArtwork] = Self.makeArtwork(artwork)
+        }
+        engine.setVideoNowPlayingInfo(info)
+    }
+
+    /// `nonisolated`, not just factored out — the crash this fixed (device,
+    /// 2026-08-16): `MPMediaItemArtwork`'s request handler is called back
+    /// later, off-main, by MediaPlayer's own Now-Playing serialization
+    /// (`-[MPMediaItemArtwork jpegDataWithSize:]` on a background dispatch
+    /// queue) to actually render the JPEG for Control Center/the lock
+    /// screen. A closure literal written directly in `setNowPlayingInfo`
+    /// (a `@MainActor` method, since the whole class is) infers `@MainActor`
+    /// isolation from that enclosing context even though its declared type —
+    /// a plain synchronous `(CGSize) -> UIImage`, nothing async or
+    /// `@MainActor` in `MPMediaItemArtwork`'s own signature — never asked
+    /// for that; Swift's runtime isolation check then traps the instant
+    /// MediaPlayer calls it from anywhere but the main actor, which is
+    /// unconditionally what it does. Defining the closure inside a
+    /// `nonisolated` function instead means it has no enclosing isolation to
+    /// inherit, so it can run on whatever thread the caller uses, which is
+    /// exactly what this handler needs to tolerate.
+    private nonisolated static func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+    }
+
+    /// Registers play/pause/skip against `engine.videoNowPlayingSession`'s
+    /// own `remoteCommandCenter` — required once `ownsVideoNowPlayingSession`
+    /// is on (set in `init`): AetherEngine's own doc comment is explicit that
+    /// owning the session means the host, not the system, is responsible for
+    /// wiring commands, and the session auto-publishing elapsed/rate/duration
+    /// only covers *info*, not *handling* taps.
+    ///
+    /// `removeTarget(nil)` before every `addTarget` guards against stacking
+    /// duplicate handlers if this runs again against the same still-live
+    /// `remoteCommandCenter` (a same-host reload also re-emits
+    /// `$currentAVPlayer` — see the call site) — harmless on a freshly built
+    /// one, where there's nothing to remove yet.
+    ///
+    /// Skip intervals (15s back / 30s forward) match the in-app transport
+    /// controls' own `gobackward.15`/`goforward.30` buttons, so Control
+    /// Center/the lock screen behaves the same as the app itself.
+    private func updateNowPlayingCommands() {
+        guard let center = engine.videoNowPlayingSession?.remoteCommandCenter else { return }
+
+        center.playCommand.removeTarget(nil)
+        center.playCommand.addTarget { [weak self] _ in
+            self?.engine.play()
+            return .success
+        }
+
+        center.pauseCommand.removeTarget(nil)
+        center.pauseCommand.addTarget { [weak self] _ in
+            self?.engine.pause()
+            return .success
+        }
+
+        center.togglePlayPauseCommand.removeTarget(nil)
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in
+            self?.engine.togglePlayPause()
+            return .success
+        }
+
+        center.skipBackwardCommand.preferredIntervals = [15]
+        center.skipBackwardCommand.removeTarget(nil)
+        center.skipBackwardCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            let target = max(0, engine.currentTime - 15)
+            Task { await self.engine.seek(to: target) }
+            return .success
+        }
+
+        center.skipForwardCommand.preferredIntervals = [30]
+        center.skipForwardCommand.removeTarget(nil)
+        center.skipForwardCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            let target = min(engine.duration, engine.currentTime + 30)
+            Task { await self.engine.seek(to: target) }
+            return .success
+        }
+
+        center.changePlaybackPositionCommand.removeTarget(nil)
+        center.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let self, let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            Task { await self.engine.seek(to: event.positionTime) }
+            return .success
+        }
     }
 
     // MARK: - Bridging
@@ -583,5 +807,40 @@ final class AetherPlaybackEngine: PlaybackEngine {
             isUnderlined: run.isUnderlined,
             isStruckThrough: run.isStruckThrough
         )
+    }
+}
+
+// MARK: - AVPictureInPictureControllerDelegate
+
+/// See `AetherPlaybackEngine.pipDelegateProxy`'s doc comment for why this is
+/// a separate object rather than a delegate conformance on that class
+/// directly. Pure forwarding — all the actual behavior lives on
+/// `AetherPlaybackEngine.handlePictureInPicture...` methods.
+@MainActor
+private final class PictureInPictureDelegateProxy: NSObject, @MainActor AVPictureInPictureControllerDelegate {
+    weak var engine: AetherPlaybackEngine?
+
+    func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        engine?.handlePictureInPictureDidStart()
+    }
+
+    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        engine?.handlePictureInPictureDidStop()
+    }
+
+    func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error
+    ) {
+        engine?.handlePictureInPictureFailedToStart()
+    }
+
+    /// `PlayerView` is never dismissed to start PiP (the manual button just
+    /// shows a placeholder over the still-presented player), so there's
+    /// nothing to re-present here — complete immediately.
+    func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
+    ) {
+        completionHandler(true)
     }
 }

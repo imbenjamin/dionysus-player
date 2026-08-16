@@ -1,5 +1,6 @@
 #if DEBUG
 import SwiftUI
+import UIKit
 
 /// Fake `PlaybackEngine` for SwiftUI previews, so `PlayerView` can be
 /// previewed without a real AetherEngine instance or network access.
@@ -9,6 +10,8 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     var onTimeUpdate: ((TimeInterval, TimeInterval) -> Void)?
     var onSubtitleCuesChange: (([SubtitleCueDisplay]) -> Void)?
     var onSourceTimeUpdate: ((TimeInterval) -> Void)?
+    var onPictureInPicturePossibleChange: ((Bool) -> Void)?
+    var onPictureInPictureActiveChange: ((Bool) -> Void)?
 
     var audioTracks: [PlaybackTrack] = [
         PlaybackTrack(id: 0, kind: .audio, title: "Dolby Digital Plus Atmos 7.1", metadata: "DD+ · Atmos · 7.1 · Default", isSelected: true),
@@ -49,6 +52,9 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     func stop() { onStateChange?(.ended) }
     func selectAudioTrack(id: Int) {}
     func selectSubtitleTrack(id: Int?) {}
+    func startPictureInPicture() {}
+    func stopPictureInPicture() {}
+    func setNowPlayingInfo(title: String, subtitle: String?, artwork: UIImage?) {}
 
     func makeSurface() -> AnyView {
         AnyView(Color.black)
