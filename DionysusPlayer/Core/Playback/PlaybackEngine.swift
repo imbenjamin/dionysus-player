@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 /// Everything `PlayerViewModel` needs from a playback engine.
 ///
@@ -102,6 +103,19 @@ protocol PlaybackEngine: AnyObject {
     /// call themselves.
     func startPictureInPicture()
     func stopPictureInPicture()
+
+    /// Populates the system Now Playing info (lock screen / Control Center)
+    /// for this session — `title`/`subtitle` are plain display strings
+    /// (`PlayerViewModel` supplies `MediaItem.railTitle`/`.railSubtitle`, the
+    /// same pair a rail card's own label already uses), and `artwork` is
+    /// used as-is: this layer has no image-loading of its own, so a caller
+    /// that wants artwork fetches/decodes it itself (see
+    /// `RemoteImageLoader`) and passes the result in. Elapsed time/duration
+    /// aren't parameters here — the system session merges those from the
+    /// player directly. Safe to call before or after `load()`; harmless
+    /// (just never surfaced anywhere) on a route with no Now-Playing session
+    /// to write into.
+    func setNowPlayingInfo(title: String, subtitle: String?, artwork: UIImage?)
 
     /// Type-erased SwiftUI surface that renders this engine's video output.
     func makeSurface() -> AnyView

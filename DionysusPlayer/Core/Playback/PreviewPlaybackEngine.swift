@@ -1,5 +1,6 @@
 #if DEBUG
 import SwiftUI
+import UIKit
 
 /// Fake `PlaybackEngine` for SwiftUI previews, so `PlayerView` can be
 /// previewed without a real AetherEngine instance or network access.
@@ -53,6 +54,7 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     func selectSubtitleTrack(id: Int?) {}
     func startPictureInPicture() {}
     func stopPictureInPicture() {}
+    func setNowPlayingInfo(title: String, subtitle: String?, artwork: UIImage?) {}
 
     func makeSurface() -> AnyView {
         AnyView(Color.black)

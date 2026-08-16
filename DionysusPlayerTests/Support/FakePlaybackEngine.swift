@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 @testable import Dionysus
 
 /// A controllable, recording `PlaybackEngine` fake — this is exactly what
@@ -62,6 +63,7 @@ final class FakePlaybackEngine: PlaybackEngine {
     private(set) var selectedSubtitleTrackIDs: [Int?] = []
     private(set) var startPictureInPictureCallCount = 0
     private(set) var stopPictureInPictureCallCount = 0
+    private(set) var nowPlayingInfoCalls: [(title: String, subtitle: String?, artwork: UIImage?)] = []
 
     func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws {
         if let loadError { throw loadError }
@@ -79,6 +81,9 @@ final class FakePlaybackEngine: PlaybackEngine {
     func selectSubtitleTrack(id: Int?) { selectedSubtitleTrackIDs.append(id) }
     func startPictureInPicture() { startPictureInPictureCallCount += 1 }
     func stopPictureInPicture() { stopPictureInPictureCallCount += 1 }
+    func setNowPlayingInfo(title: String, subtitle: String?, artwork: UIImage?) {
+        nowPlayingInfoCalls.append((title: title, subtitle: subtitle, artwork: artwork))
+    }
 
     func makeSurface() -> AnyView { AnyView(EmptyView()) }
 }

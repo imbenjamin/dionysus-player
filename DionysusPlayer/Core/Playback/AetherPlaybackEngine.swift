@@ -1,6 +1,7 @@
 import AVKit
 import Combine
 import Foundation
+import MediaPlayer
 import SwiftUI
 import AetherEngine
 
@@ -113,6 +114,15 @@ final class AetherPlaybackEngine: PlaybackEngine {
     init() throws {
         self.engine = try AetherEngine()
         pipDelegateProxy.engine = self
+        // Opts into owning the system Now-Playing session on the native
+        // video path — off by default in AetherEngine because it's also
+        // consumed by `AVPlayerViewController` hosts, where AVKit owns
+        // Now-Playing itself. This app renders its own transport chrome
+        // (`makeSurface()` + `PlayerControlsOverlay`, never AVKit's own
+        // player UI), so it's exactly the "custom UI" case that's meant to
+        // opt in. Must be set before `load()` — see `AetherEngine
+        // .ownsVideoNowPlayingSession`'s doc comment.
+        engine.ownsVideoNowPlayingSession = true
         observeEngine()
     }
 
@@ -267,6 +277,11 @@ final class AetherPlaybackEngine: PlaybackEngine {
             .sink { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.updatePictureInPictureController()
+                    // Same signal, same reasoning: `engine.videoNowPlayingSession`
+                    // only exists once a native host does, and a rebuilt host
+                    // means a fresh `remoteCommandCenter` with no targets on
+                    // it yet.
+                    self?.updateNowPlayingCommands()
                 }
             }
             .store(in: &cancellables)
@@ -417,6 +432,99 @@ final class AetherPlaybackEngine: PlaybackEngine {
 
     fileprivate func handlePictureInPictureFailedToStart() {
         onPictureInPictureActiveChange?(false)
+    }
+
+    // MARK: - Now Playing
+
+    func setNowPlayingInfo(title: String, subtitle: String?, artwork: UIImage?) {
+        var info: [String: Any] = [MPMediaItemPropertyTitle: title]
+        info[MPMediaItemPropertyArtist] = subtitle
+        if let artwork {
+            info[MPMediaItemPropertyArtwork] = Self.makeArtwork(artwork)
+        }
+        engine.setVideoNowPlayingInfo(info)
+    }
+
+    /// `nonisolated`, not just factored out — the crash this fixed (device,
+    /// 2026-08-16): `MPMediaItemArtwork`'s request handler is called back
+    /// later, off-main, by MediaPlayer's own Now-Playing serialization
+    /// (`-[MPMediaItemArtwork jpegDataWithSize:]` on a background dispatch
+    /// queue) to actually render the JPEG for Control Center/the lock
+    /// screen. A closure literal written directly in `setNowPlayingInfo`
+    /// (a `@MainActor` method, since the whole class is) infers `@MainActor`
+    /// isolation from that enclosing context even though its declared type —
+    /// a plain synchronous `(CGSize) -> UIImage`, nothing async or
+    /// `@MainActor` in `MPMediaItemArtwork`'s own signature — never asked
+    /// for that; Swift's runtime isolation check then traps the instant
+    /// MediaPlayer calls it from anywhere but the main actor, which is
+    /// unconditionally what it does. Defining the closure inside a
+    /// `nonisolated` function instead means it has no enclosing isolation to
+    /// inherit, so it can run on whatever thread the caller uses, which is
+    /// exactly what this handler needs to tolerate.
+    private nonisolated static func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+    }
+
+    /// Registers play/pause/skip against `engine.videoNowPlayingSession`'s
+    /// own `remoteCommandCenter` — required once `ownsVideoNowPlayingSession`
+    /// is on (set in `init`): AetherEngine's own doc comment is explicit that
+    /// owning the session means the host, not the system, is responsible for
+    /// wiring commands, and the session auto-publishing elapsed/rate/duration
+    /// only covers *info*, not *handling* taps.
+    ///
+    /// `removeTarget(nil)` before every `addTarget` guards against stacking
+    /// duplicate handlers if this runs again against the same still-live
+    /// `remoteCommandCenter` (a same-host reload also re-emits
+    /// `$currentAVPlayer` — see the call site) — harmless on a freshly built
+    /// one, where there's nothing to remove yet.
+    ///
+    /// Skip intervals (15s back / 30s forward) match the in-app transport
+    /// controls' own `gobackward.15`/`goforward.30` buttons, so Control
+    /// Center/the lock screen behaves the same as the app itself.
+    private func updateNowPlayingCommands() {
+        guard let center = engine.videoNowPlayingSession?.remoteCommandCenter else { return }
+
+        center.playCommand.removeTarget(nil)
+        center.playCommand.addTarget { [weak self] _ in
+            self?.engine.play()
+            return .success
+        }
+
+        center.pauseCommand.removeTarget(nil)
+        center.pauseCommand.addTarget { [weak self] _ in
+            self?.engine.pause()
+            return .success
+        }
+
+        center.togglePlayPauseCommand.removeTarget(nil)
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in
+            self?.engine.togglePlayPause()
+            return .success
+        }
+
+        center.skipBackwardCommand.preferredIntervals = [15]
+        center.skipBackwardCommand.removeTarget(nil)
+        center.skipBackwardCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            let target = max(0, engine.currentTime - 15)
+            Task { await self.engine.seek(to: target) }
+            return .success
+        }
+
+        center.skipForwardCommand.preferredIntervals = [30]
+        center.skipForwardCommand.removeTarget(nil)
+        center.skipForwardCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { await self.engine.seek(to: self.engine.currentTime + 30) }
+            return .success
+        }
+
+        center.changePlaybackPositionCommand.removeTarget(nil)
+        center.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let self, let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            Task { await self.engine.seek(to: event.positionTime) }
+            return .success
+        }
     }
 
     // MARK: - Bridging

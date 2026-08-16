@@ -107,6 +107,12 @@ final class PlayerViewModel {
             let dto = try await client.item(userID: userID, itemID: itemID)
             let mediaItem = MediaItem(dto: dto, images: images)
             item = mediaItem
+            // Title/subtitle land immediately so the lock screen/Control
+            // Center have *something* as soon as this resolves — artwork
+            // trails in separately once fetched (see
+            // `loadNowPlayingArtwork(for:)`), rather than blocking on it.
+            engine.setNowPlayingInfo(title: mediaItem.railTitle, subtitle: mediaItem.railSubtitle, artwork: nil)
+            loadNowPlayingArtwork(for: mediaItem)
 
             let playbackInfo = try await client.playbackInfo(itemID: itemID, userID: userID, mediaSourceID: requestedMediaSourceID)
             // The requested id might not match anything (stale preference
@@ -143,6 +149,20 @@ final class PlayerViewModel {
             startProgressReporting()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "Playback failed to start.")
+        }
+    }
+
+    /// Fire-and-forget: fetches the item's poster (if it has one) via
+    /// `RemoteImageLoader` and re-stages the full Now Playing info with it
+    /// once it resolves — title/subtitle already went in synchronously in
+    /// `start()`, this only ever adds artwork on top. A failed/absent fetch
+    /// just leaves Now Playing without artwork, same as before this ran;
+    /// nothing here can fail `start()` itself.
+    private func loadNowPlayingArtwork(for item: MediaItem) {
+        guard let artworkURL = item.primaryImageURL else { return }
+        Task { [weak self] in
+            guard let image = try? await RemoteImageLoader.shared.image(for: artworkURL) else { return }
+            self?.engine.setNowPlayingInfo(title: item.railTitle, subtitle: item.railSubtitle, artwork: image)
         }
     }
 

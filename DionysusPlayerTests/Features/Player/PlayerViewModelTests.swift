@@ -182,6 +182,29 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.sourceVideoStream?.videoRangeType, "DOVIWithHDR10")
     }
 
+    /// The lock screen/Control Center Now Playing card should be populated
+    /// as soon as the item resolves, not left blank until playback actually
+    /// starts (or forever, on the AV1/software route which currently has no
+    /// artwork-loading path of its own to race against) — see
+    /// `PlaybackEngine.setNowPlayingInfo(title:subtitle:artwork:)`'s doc
+    /// comment. Title/subtitle are what `start()` can set synchronously;
+    /// artwork trails in via a separate `RemoteImageLoader` fetch
+    /// (`loadNowPlayingArtwork(for:)`) not exercised here, so this only
+    /// asserts the first (artwork == nil) call `start()` itself makes.
+    func test_start_setsNowPlayingTitleAndSubtitleImmediately() async {
+        let (viewModel, engine) = makeViewModel()
+        stubStart(itemDto: BaseItemDto(
+            id: "item-1", name: "Arrival", type: .movie, productionYear: 2016, runTimeTicks: 116 * 60 * 10_000_000
+        ))
+
+        await viewModel.start()
+
+        let call = try? XCTUnwrap(engine.nowPlayingInfoCalls.first)
+        XCTAssertEqual(call?.title, "Arrival")
+        XCTAssertEqual(call?.subtitle, "2016 \u{00B7} 1h 56m")
+        XCTAssertNil(call?.artwork)
+    }
+
     /// `isExternal == true` subtitle streams (Jellyfin sidecar files) should
     /// reach the engine as `ExternalSubtitleSource`s; an embedded stream on
     /// the same source shouldn't — it already arrives through the demuxer,
