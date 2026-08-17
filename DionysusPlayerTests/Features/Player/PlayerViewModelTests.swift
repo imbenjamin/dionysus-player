@@ -768,4 +768,27 @@ final class PlayerViewModelTests: XCTestCase {
         engine.onTimeUpdate?(295, 300)
         XCTAssertNil(viewModel.nextUpSecondsRemaining)
     }
+
+    /// Pins a live bug (2026-08-17, ultrareview finding): auto-advancing
+    /// while in Picture in Picture tore down the engine (and the
+    /// `AVPictureInPictureController` it owns) out from under the user's
+    /// PiP window. Suppressed for as long as `isPictureInPictureActive` is
+    /// true, and recomputes correctly the moment it goes back to `false`
+    /// (still within the window here) rather than staying stuck suppressed.
+    func test_nextUpSecondsRemaining_suppressedWhilePictureInPictureActive() async {
+        let (viewModel, engine) = makeViewModel(itemID: "ep-1")
+        stubStartWithNextEpisode()
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+
+        engine.onTimeUpdate?(295, 300)
+        XCTAssertEqual(viewModel.nextUpSecondsRemaining, 5)
+
+        engine.onPictureInPictureActiveChange?(true)
+        XCTAssertNil(viewModel.nextUpSecondsRemaining)
+
+        engine.onPictureInPictureActiveChange?(false)
+        XCTAssertEqual(viewModel.nextUpSecondsRemaining, 5)
+    }
 }

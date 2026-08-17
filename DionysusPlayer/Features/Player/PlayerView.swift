@@ -375,14 +375,48 @@ struct PlayerView: View {
     }
 
     private func close() async {
+        await tearDown()
+    }
+
+    /// `NextUpOverlay`'s Play Now button, and the automatic countdown-hits-
+    /// zero case (`.onChange(of: nextUpSecondsRemaining)` above). `guard`ed
+    /// separately from `tearDown(nextItemID:)` itself (rather than folding
+    /// the `nextEpisode` unwrap in there too) since `close()` has no
+    /// equivalent id to guard on — it always tears down unconditionally.
+    private func advanceToNextEpisode() async {
+        guard let viewModel, let nextEpisode = viewModel.nextEpisode, !isAdvancingToNextEpisode else { return }
+        isAdvancingToNextEpisode = true
+        await tearDown(nextItemID: nextEpisode.id)
+    }
+
+    /// The shared teardown behind both `close()` and `advanceToNextEpisode()`
+    /// — cancels the auto-hide countdown, unlocks rotation (a player-only
+    /// affordance; leaving it engaged past this point would leave the rest
+    /// of the app stuck in whatever orientation the player happened to be
+    /// locked to), reports this session's outcome and stops the same way
+    /// either path needs to, then dismisses. `nextItemID`, when given, is
+    /// handed to `onRequestNextItem` right before that dismiss — see its
+    /// doc comment for why `ShowDetailView` only actually opens it once
+    /// this dismiss reaches `onDismiss`, not synchronously here.
+    ///
+    /// Also where the close-vs-auto-advance race found live (2026-08-17)
+    /// is closed: `dismissNextUp()` runs *before* the `await viewModel.stop()`
+    /// below, which reports playback stopped over the network and can
+    /// suspend long enough for a queued `onTimeUpdate` to land in the
+    /// meantime (`nextUpSecondsRemaining`'s own doc comment documents the
+    /// engine's clock overshooting `duration` at end-of-stream). Without
+    /// this, that stray tick could push `nextUpSecondsRemaining` to exactly
+    /// `0` *while a plain `close()` was already mid-flight*, firing
+    /// `PlayerView`'s auto-advance `.onChange` concurrently and re-opening
+    /// the next episode despite the user having tapped close — the same
+    /// protection `dismissNextUp()` already gives the Cancel button, now
+    /// covering every exit path instead of just one.
+    private func tearDown(nextItemID: String? = nil) async {
         autoHideTask?.cancel()
-        // Rotation lock is a player-only affordance — leaving it engaged
-        // past this point would leave the rest of the app (Home, a detail
-        // page, ...) stuck in whatever orientation the player happened to
-        // be locked to when the user backed out.
         if isRotationLocked {
             RotationLock.unlock()
         }
+        viewModel?.dismissNextUp()
         // Captured before `stop()` (which reports this same `currentTime` to
         // the server) and fired before `dismiss()`, so whichever detail page
         // presented this already has it applied by the time its own
@@ -394,32 +428,9 @@ struct PlayerView: View {
             ))
         }
         await viewModel?.stop()
-        dismiss()
-    }
-
-    /// `NextUpOverlay`'s Play Now button, and the automatic countdown-hits-
-    /// zero case (`.onChange(of: nextUpSecondsRemaining)` above). Nearly
-    /// identical to `close()` — reports this episode's outcome, stops the
-    /// same way closing would, unlocks rotation the same way closing
-    /// would (this instance really is going away, even though a fresh one
-    /// for the next episode is coming right back — see `onRequestNextItem`'s
-    /// doc comment for why an in-place swap isn't what actually happens
-    /// here), and dismisses — except it hands the next episode's id to
-    /// `onRequestNextItem` first, so `ShowDetailView` has it stashed
-    /// before this dismiss reaches its `onDismiss`, which is what actually
-    /// opens it.
-    private func advanceToNextEpisode() async {
-        guard let viewModel, let nextEpisode = viewModel.nextEpisode, !isAdvancingToNextEpisode else { return }
-        isAdvancingToNextEpisode = true
-        autoHideTask?.cancel()
-        if isRotationLocked {
-            RotationLock.unlock()
+        if let nextItemID {
+            onRequestNextItem?(nextItemID)
         }
-        onPlaybackEnded?(PlaybackSessionOutcome(
-            itemID: itemID, positionSeconds: viewModel.currentTime, durationSeconds: viewModel.duration
-        ))
-        await viewModel.stop()
-        onRequestNextItem?(nextEpisode.id)
         dismiss()
     }
 }

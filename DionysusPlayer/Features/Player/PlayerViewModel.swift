@@ -124,8 +124,23 @@ final class PlayerViewModel {
     /// auto-trigger) is itself what clears this prompt now, by tearing this
     /// `PlayerView` instance's content down, so there's no longer a reason
     /// to hide it early anyway.
+    ///
+    /// Also suppressed for as long as `isPictureInPictureActive` is true —
+    /// found live (2026-08-17): auto-advancing while in PiP tears down
+    /// `AetherPlaybackEngine` (and with it, the `AVPictureInPictureController`
+    /// it owns), closing the user's PiP window out from under them with no
+    /// guarantee it comes back (auto-PiP only re-triggers on a fresh
+    /// foreground→background transition, so a next episode that mounts
+    /// while already backgrounded just plays invisibly). `NextUpOverlay`
+    /// is already fully covered by `PictureInPictureOverlay`'s own
+    /// placeholder while PiP is active — see `PlayerView`'s ZStack — so
+    /// this just makes the underlying state match what's already true on
+    /// screen, rather than actually freezing/resuming anything: the moment
+    /// PiP ends, this recomputes fresh from wherever `duration`/`currentTime`
+    /// actually are, same as it would after being dismissed for any other
+    /// reason above.
     var nextUpSecondsRemaining: Int? {
-        guard nextEpisode != nil, !isNextUpDismissed,
+        guard nextEpisode != nil, !isNextUpDismissed, !isPictureInPictureActive,
               let countdownSeconds = nextUpPreferenceStore.countdownSeconds,
               duration > 0 else { return nil }
         let remaining = duration - currentTime
