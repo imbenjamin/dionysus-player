@@ -20,6 +20,13 @@ import SwiftUI
 struct ShowDetailView: View {
     let viewModel: AssetDetailViewModel
     @State private var playbackRequest: PlaybackRequest?
+    /// The "Up Next" prompt's chosen next episode, staged here by
+    /// `PlayerView`'s `onRequestNextItem` rather than opened immediately —
+    /// see that property's doc comment for why setting `playbackRequest`
+    /// straight to it while the current `.fullScreenCover` is still
+    /// presented doesn't reliably work. Applied from `onDismiss` below,
+    /// once the cover has genuinely gone through `nil` first.
+    @State private var pendingNextEpisodeID: String?
     @State private var selectedSeasonID: String?
     /// See `MovieDetailView.refreshTrigger`'s doc comment — identical
     /// reasoning and fix, needed here too since this view has the exact
@@ -266,11 +273,20 @@ struct ShowDetailView: View {
                     await viewModel.refreshItem()
                     refreshTrigger = UUID()
                 })
+                // Only reached once `playbackRequest` has genuinely gone
+                // through `nil` (this dismiss) — see `pendingNextEpisodeID`'s
+                // doc comment for why this can't just be set directly from
+                // `onRequestNextItem` instead.
+                if let pendingNextEpisodeID {
+                    self.pendingNextEpisodeID = nil
+                    playbackRequest = PlaybackRequest(itemID: pendingNextEpisodeID)
+                }
             }
         ) { request in
             PlayerView(
                 itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID,
-                onPlaybackEnded: { viewModel.applyOptimisticPlaybackPosition($0) }
+                onPlaybackEnded: { viewModel.applyOptimisticPlaybackPosition($0) },
+                onRequestNextItem: { pendingNextEpisodeID = $0 }
             )
         }
     }

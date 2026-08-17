@@ -208,6 +208,40 @@ actor JellyfinAPIClient {
         return try await get("/Shows/NextUp", query: query)
     }
 
+    /// The episode immediately following `currentEpisodeID`, regardless of
+    /// watched state — unlike `nextUp(userID:seriesID:)` above, which keeps
+    /// returning the *current* episode until the server has confirmed it
+    /// `played` (see `AssetDetailViewModel.advanceToNextEpisodeIfCompleted`'s
+    /// own poll-and-wait dance for that, and `[[jellyfin-userdata-commit-
+    /// latency]]`). `PlayerViewModel`'s in-player "Up Next" countdown needs
+    /// the real next episode instantly, mid-playback, well before any of
+    /// that can settle, so it uses this instead.
+    ///
+    /// Fetches the current season's episode list, sorts by `indexNumber`,
+    /// and returns whatever follows `currentEpisodeID`. If that episode is
+    /// last in its season (or, degenerately, not found in the list at all),
+    /// falls through to the next *season*'s first episode instead of
+    /// stopping at the season boundary. Returns `nil` when there's no next
+    /// season or it's empty — the series has finished.
+    func nextEpisode(currentEpisodeID: String, seriesID: String, seasonID: String, userID: String) async throws -> BaseItemDto? {
+        let currentSeasonEpisodes = try await episodes(seriesID: seriesID, seasonID: seasonID, userID: userID).items
+            .sorted { ($0.indexNumber ?? 0) < ($1.indexNumber ?? 0) }
+        if let currentIndex = currentSeasonEpisodes.firstIndex(where: { $0.id == currentEpisodeID }),
+           currentIndex + 1 < currentSeasonEpisodes.count {
+            return currentSeasonEpisodes[currentIndex + 1]
+        }
+
+        let allSeasons = try await seasons(seriesID: seriesID, userID: userID).items
+            .sorted { ($0.indexNumber ?? 0) < ($1.indexNumber ?? 0) }
+        guard let currentSeasonIndex = allSeasons.firstIndex(where: { $0.id == seasonID }),
+              currentSeasonIndex + 1 < allSeasons.count else { return nil }
+        let nextSeason = allSeasons[currentSeasonIndex + 1]
+
+        return try await episodes(seriesID: seriesID, seasonID: nextSeason.id, userID: userID).items
+            .sorted { ($0.indexNumber ?? 0) < ($1.indexNumber ?? 0) }
+            .first
+    }
+
     /// "More Like This" for a detail page.
     func similarItems(itemID: String, userID: String, limit: Int = 12) async throws -> BaseItemDtoQueryResult {
         try await get("/Items/\(itemID)/Similar", query: [
