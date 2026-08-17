@@ -46,7 +46,9 @@ final class PlayerViewModel {
     /// item, fetched fire-and-forget in `start()` alongside `nextEpisode` —
     /// see `loadMediaSegments(for:)`. Empty (not `nil`) both before that
     /// resolves and once resolved with zero segments; nothing downstream
-    /// distinguishes the two.
+    /// distinguishes the two. `endCreditsSegment` is derived from this at
+    /// the same point it's set, rather than recomputed from it on every
+    /// read — see that property's own doc comment.
     private(set) var mediaSegments: [PlaybackSegment] = []
 
     let engine: PlaybackEngine
@@ -135,9 +137,19 @@ final class PlayerViewModel {
     /// credits" for `nextUpSecondsRemaining`'s override below. `nil` when
     /// this item has no `.outro` segment at all (most content, and any
     /// item `mediaSegments` hasn't resolved for yet).
-    private var endCreditsSegment: PlaybackSegment? {
-        mediaSegments.filter { $0.kind == .outro }.max { $0.startSeconds < $1.startSeconds }
-    }
+    ///
+    /// Cached by `loadMediaSegments(for:)` at the same moment it sets
+    /// `mediaSegments`, rather than a computed property re-deriving this
+    /// with a fresh `.filter{}.max{}` pass on every read — this is read
+    /// from `updateNextUpCountdownAnchor()` on *every* engine time-update
+    /// tick (~10x/sec, for the whole session, not just near the credits),
+    /// plus once or twice more per render from `nextUpSecondsRemaining`/
+    /// `nextUpTotalCountdownSeconds`/`currentSkipSegment`. `mediaSegments`
+    /// is set exactly once and never mutated afterward, so there's only
+    /// ever one moment this can actually change — computing it there and
+    /// reusing the cached value everywhere else is free of any staleness
+    /// risk.
+    private var endCreditsSegment: PlaybackSegment?
 
     /// The playhead value the end-credits countdown is currently timed
     /// from — distinct from `endCreditsSegment.startSeconds` itself
@@ -427,10 +439,17 @@ final class PlayerViewModel {
     /// that doesn't support the Media Segments feature at all) just leaves
     /// `mediaSegments` empty, the same "bonus, not a requirement" treatment
     /// external subtitles and `nextEpisode` already get.
+    ///
+    /// Also derives `endCreditsSegment` here, alongside `mediaSegments`
+    /// itself — see that property's own doc comment for why it's cached at
+    /// this single point rather than recomputed from `mediaSegments` on
+    /// every read.
     private func loadMediaSegments(for item: MediaItem) {
         Task { [weak self] in
             guard let dtos = try? await self?.client.mediaSegments(itemID: item.id) else { return }
-            self?.mediaSegments = dtos.compactMap(PlaybackSegment.init(dto:))
+            let segments = dtos.compactMap(PlaybackSegment.init(dto:))
+            self?.mediaSegments = segments
+            self?.endCreditsSegment = segments.filter { $0.kind == .outro }.max { $0.startSeconds < $1.startSeconds }
         }
     }
 
