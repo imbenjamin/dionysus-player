@@ -189,116 +189,163 @@ struct HeroRailView: View {
 
     @ViewBuilder
     private func heroContent(pageWidth: CGFloat) -> some View {
-        ZStack(alignment: .bottomTrailing) {
-            // `ScrollView(.horizontal) + .scrollTargetBehavior(.paging)`,
-            // not `TabView(.page)` (what this used to be) — `TabView(.page)`
-            // is backed by `UIPageViewController`, which is known to
-            // aggressively claim touches within its own bounds, including
-            // vertical ones, rather than letting them fall through to an
-            // ancestor scroll view the way nested `UIScrollView`s normally
-            // negotiate (this is exactly how e.g. the App Store's own
-            // horizontal "Featured" carousels let you start a vertical drag
-            // directly on top of them to scroll the whole page). A plain
-            // `ScrollView` is a real `UIScrollView` under the hood and gets
-            // that same built-in cooperative behavior for free, which is
-            // the whole reason for this rewrite: reported bug was "can't
-            // drag/scroll starting from the hero carousel, only from areas
-            // below it."
-            ScrollView(.horizontal) {
-                // Plain `HStack`, not `LazyHStack` (what this used to be) —
-                // `loopedItems` is capped at 12 (`HomeViewModel.load()`
-                // fetches at most 10 hero candidates, plus the loop's own 2
-                // duplicate padding pages), cheap to render all of
-                // regardless of scroll position, and eager instantiation is
-                // actually what fixes a real bug rather than just being
-                // "good enough": with `LazyHStack`, a page's
-                // `AsyncRemoteImage` (and the network fetch it kicks off in
-                // `.task`) doesn't exist at all until that page scrolls near
-                // the visible range — for a manual swipe that's a bit early,
-                // but for `tick()`'s *auto*-advance it's exactly the moment
-                // the image is needed, the worst possible timing. Confirmed
-                // live via a recorded+frame-sampled repro on a cold image
-                // cache: several frames of solid white (not even
-                // `AsyncRemoteImage`'s gray placeholder — the page genuinely
-                // had no content mounted yet) between the outgoing item
-                // sliding away and the incoming one's image arriving,
-                // exactly matching the reported "flashes to white" symptom.
-                // An eager `HStack` mounts every page (and starts every
-                // fetch) the moment Home appears, so by the time
-                // auto-advance reaches any given page it's had the full
-                // idle interval, not zero, to load.
-                HStack(spacing: 0) {
-                    // `loopedItems.indices`, not `Array(loopedItems
-                    // .enumerated())` (an earlier version used that) — the
-                    // latter allocates a fresh `[(offset: Int, element:
-                    // MediaItem)]` on every single `body` evaluation
-                    // (`tick()`'s once-a-second timer among them) despite
-                    // `loopedItems` itself now being fixed for this view's
-                    // lifetime (see that property's own doc comment for the
-                    // matching fix). `Range<Int>.indices` is a cheap value
-                    // type, not an allocation, and `loopedItems[offset]`
-                    // below is an O(1) array subscript — same result, no
-                    // per-render allocation to produce it.
-                    ForEach(loopedItems.indices, id: \.self) { offset in
-                        HeroRailCard(item: loopedItems[offset])
-                            .frame(width: pageWidth)
-                            .id(offset)
+        // `ScrollViewReader` wraps the paging `ScrollView` purely so
+        // `resyncScrollPosition(using:)` can force a real, immediate scroll
+        // via `proxy.scrollTo(_:anchor:)` on reappear — see that function's
+        // doc comment for the live-reproduced bug this fixes. It coexists
+        // fine with `.scrollPosition(id: $scrollPosition)` below: that
+        // binding stays the source of truth for state (auto-advance writes,
+        // the dot indicator reads), this proxy is only ever invoked as a
+        // one-shot imperative nudge, never continuously.
+        ScrollViewReader { scrollProxy in
+            ZStack(alignment: .bottomTrailing) {
+                // `ScrollView(.horizontal) + .scrollTargetBehavior(.paging)`,
+                // not `TabView(.page)` (what this used to be) — `TabView(.page)`
+                // is backed by `UIPageViewController`, which is known to
+                // aggressively claim touches within its own bounds, including
+                // vertical ones, rather than letting them fall through to an
+                // ancestor scroll view the way nested `UIScrollView`s normally
+                // negotiate (this is exactly how e.g. the App Store's own
+                // horizontal "Featured" carousels let you start a vertical drag
+                // directly on top of them to scroll the whole page). A plain
+                // `ScrollView` is a real `UIScrollView` under the hood and gets
+                // that same built-in cooperative behavior for free, which is
+                // the whole reason for this rewrite: reported bug was "can't
+                // drag/scroll starting from the hero carousel, only from areas
+                // below it."
+                ScrollView(.horizontal) {
+                    // Plain `HStack`, not `LazyHStack` (what this used to be) —
+                    // `loopedItems` is capped at 12 (`HomeViewModel.load()`
+                    // fetches at most 10 hero candidates, plus the loop's own 2
+                    // duplicate padding pages), cheap to render all of
+                    // regardless of scroll position, and eager instantiation is
+                    // actually what fixes a real bug rather than just being
+                    // "good enough": with `LazyHStack`, a page's
+                    // `AsyncRemoteImage` (and the network fetch it kicks off in
+                    // `.task`) doesn't exist at all until that page scrolls near
+                    // the visible range — for a manual swipe that's a bit early,
+                    // but for `tick()`'s *auto*-advance it's exactly the moment
+                    // the image is needed, the worst possible timing. Confirmed
+                    // live via a recorded+frame-sampled repro on a cold image
+                    // cache: several frames of solid white (not even
+                    // `AsyncRemoteImage`'s gray placeholder — the page genuinely
+                    // had no content mounted yet) between the outgoing item
+                    // sliding away and the incoming one's image arriving,
+                    // exactly matching the reported "flashes to white" symptom.
+                    // An eager `HStack` mounts every page (and starts every
+                    // fetch) the moment Home appears, so by the time
+                    // auto-advance reaches any given page it's had the full
+                    // idle interval, not zero, to load.
+                    HStack(spacing: 0) {
+                        // `loopedItems.indices`, not `Array(loopedItems
+                        // .enumerated())` (an earlier version used that) — the
+                        // latter allocates a fresh `[(offset: Int, element:
+                        // MediaItem)]` on every single `body` evaluation
+                        // (`tick()`'s once-a-second timer among them) despite
+                        // `loopedItems` itself now being fixed for this view's
+                        // lifetime (see that property's own doc comment for the
+                        // matching fix). `Range<Int>.indices` is a cheap value
+                        // type, not an allocation, and `loopedItems[offset]`
+                        // below is an O(1) array subscript — same result, no
+                        // per-render allocation to produce it.
+                        ForEach(loopedItems.indices, id: \.self) { offset in
+                            HeroRailCard(item: loopedItems[offset])
+                                .frame(width: pageWidth)
+                                .id(offset)
+                        }
+                    }
+                    .scrollTargetLayout()
+                    // Pause-on-touch detection — attached to the `LazyHStack`
+                    // (the scroll view's own *content*), not the `ScrollView`
+                    // itself below — see `RegionTouchObserver`'s doc comment
+                    // for the two earlier, broader-than-necessary attachment
+                    // points (window, then the app's root view) that each
+                    // caused a real bug, and why attaching to the hero's own
+                    // `UIScrollView` specifically avoids both. Placement
+                    // matters here too, confirmed via a live view-hierarchy
+                    // dump: a `.background` on the `ScrollView` container
+                    // itself doesn't end up nested *inside* that scroll view's
+                    // own backing `UIScrollView` — walking up from it lands on
+                    // the next ancestor scroll view instead (the outer,
+                    // vertical Home one, exactly what this must *not* attach
+                    // to). A `.background` on the content passed *into* the
+                    // scroll view is a genuine descendant of its own
+                    // `UIScrollView`, so walking up from there correctly finds
+                    // the hero's own one first.
+                    .background {
+                        RegionTouchObserver { isDown in
+                            isInteracting = isDown
+                        }
                     }
                 }
-                .scrollTargetLayout()
-                // Pause-on-touch detection — attached to the `LazyHStack`
-                // (the scroll view's own *content*), not the `ScrollView`
-                // itself below — see `RegionTouchObserver`'s doc comment
-                // for the two earlier, broader-than-necessary attachment
-                // points (window, then the app's root view) that each
-                // caused a real bug, and why attaching to the hero's own
-                // `UIScrollView` specifically avoids both. Placement
-                // matters here too, confirmed via a live view-hierarchy
-                // dump: a `.background` on the `ScrollView` container
-                // itself doesn't end up nested *inside* that scroll view's
-                // own backing `UIScrollView` — walking up from it lands on
-                // the next ancestor scroll view instead (the outer,
-                // vertical Home one, exactly what this must *not* attach
-                // to). A `.background` on the content passed *into* the
-                // scroll view is a genuine descendant of its own
-                // `UIScrollView`, so walking up from there correctly finds
-                // the hero's own one first.
-                .background {
-                    RegionTouchObserver { isDown in
-                        isInteracting = isDown
-                    }
+                .scrollTargetBehavior(.paging)
+                .scrollPosition(id: $scrollPosition)
+                .scrollIndicators(.hidden)
+                .scrollDisabled(items.count <= 1)
+                .onChange(of: scrollPosition) { _, newValue in
+                    guard let newValue else { return }
+                    snapIfNeeded(from: newValue)
                 }
-            }
-            .scrollTargetBehavior(.paging)
-            .scrollPosition(id: $scrollPosition)
-            .scrollIndicators(.hidden)
-            .scrollDisabled(items.count <= 1)
-            .onChange(of: scrollPosition) { _, newValue in
-                guard let newValue else { return }
-                snapIfNeeded(from: newValue)
-            }
-            // `tick()`'s own auto-advance already zeroes `idleSeconds`
-            // directly, but that's the only path that did — a *manual*
-            // swipe changes `scrollPosition`/`currentIndex` without ever
-            // going through `tick()`, so without this, `idleSeconds` kept
-            // counting up from whatever the previous item's elapsed time
-            // was instead of restarting for the newly-current item. That
-            // stale value is exactly what `HeroPageIndicator` reads to
-            // freeze/resume its fill, so the bug showed up there as the
-            // fill popping to some arbitrary leftover position instead of
-            // starting fresh — harmless to also fire redundantly right
-            // after an auto-advance (idleSeconds is already 0 by then).
-            .onChange(of: currentIndex) { _, _ in idleSeconds = 0 }
-            .onReceive(tickTimer) { _ in tick() }
+                // `tick()`'s own auto-advance already zeroes `idleSeconds`
+                // directly, but that's the only path that did — a *manual*
+                // swipe changes `scrollPosition`/`currentIndex` without ever
+                // going through `tick()`, so without this, `idleSeconds` kept
+                // counting up from whatever the previous item's elapsed time
+                // was instead of restarting for the newly-current item. That
+                // stale value is exactly what `HeroPageIndicator` reads to
+                // freeze/resume its fill, so the bug showed up there as the
+                // fill popping to some arbitrary leftover position instead of
+                // starting fresh — harmless to also fire redundantly right
+                // after an auto-advance (idleSeconds is already 0 by then).
+                .onChange(of: currentIndex) { _, _ in idleSeconds = 0 }
+                .onReceive(tickTimer) { _ in tick() }
 
-            if items.count > 1 {
-                HeroPageIndicator(
-                    count: items.count,
-                    currentIndex: currentIndex,
-                    isInteracting: isInteracting
-                )
-                .padding(16)
+                if items.count > 1 {
+                    HeroPageIndicator(
+                        count: items.count,
+                        currentIndex: currentIndex,
+                        isInteracting: isInteracting
+                    )
+                    .padding(16)
+                }
             }
+            .onAppear { resyncScrollPosition(using: scrollProxy) }
+        }
+    }
+
+    /// Forces the real, backing `UIScrollView` to jump (no animation) to
+    /// wherever `scrollPosition` currently says the carousel should be.
+    ///
+    /// Root-causes a live-reproduced bug (2026-08-17): `tickTimer`'s
+    /// `.onReceive` isn't gated on this view's on-screen visibility, so
+    /// `tick()` keeps advancing `scrollPosition` — and therefore
+    /// `currentIndex`, which `HeroPageIndicator`'s dots are a pure function
+    /// of — even while `HeroRailView` is covered by a `.fullScreenCover`
+    /// (the Player, presented from a pushed detail screen that sits *above*
+    /// Home's own root in the same `NavigationStack`, so Home stays mounted
+    /// underneath rather than being torn down) or sitting in a backgrounded
+    /// `TabView` tab. The real `UIScrollView` those writes are meant to
+    /// drive can't actually move itself while detached from a window,
+    /// though, so it silently stays wherever it last visually was — the
+    /// `scrollPosition(id:)` binding and the on-screen content quietly
+    /// desync, with nothing to notice or correct it once the view becomes
+    /// visible again. Confirmed via a live repro: the dot indicator kept
+    /// advancing every ~5s with the Player closed and Home back on screen,
+    /// while the hero content itself stayed frozen on whatever item was
+    /// showing when the Player was opened — until a real touch-driven swipe
+    /// forced the scroll view to resync, after which auto-advance resumed
+    /// normally on its own. `proxy.scrollTo(_:anchor:)` is what a manual
+    /// touch was effectively doing for free; calling it explicitly the
+    /// moment this view reappears (`.onAppear` fires here on every
+    /// `.fullScreenCover` dismissal and initial appearance alike) closes
+    /// the gap without needing an actual touch. A no-op, invisible jump to
+    /// the same spot on any appearance where no drift actually happened.
+    private func resyncScrollPosition(using proxy: ScrollViewProxy) {
+        guard let scrollPosition else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            proxy.scrollTo(scrollPosition, anchor: .leading)
         }
     }
 
