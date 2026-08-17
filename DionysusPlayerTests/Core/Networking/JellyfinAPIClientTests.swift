@@ -584,4 +584,84 @@ final class JellyfinAPIClientTests: XCTestCase {
         let matches = try await client.collectionsContaining(itemID: "item-1", userID: "user-1")
         XCTAssertEqual(matches.map(\.id), ["boxset-matches"])
     }
+
+    // MARK: nextEpisode — unlike nextUp(userID:seriesID:), works regardless of watched state
+
+    func test_nextEpisode_sameSeason_returnsFollowingIndexNumber() async throws {
+        let client = makeClient(accessToken: "tok")
+        let episodes = [
+            BaseItemDto(id: "ep-1", name: "One", type: .episode, indexNumber: 1),
+            BaseItemDto(id: "ep-2", name: "Two", type: .episode, indexNumber: 2),
+            BaseItemDto(id: "ep-3", name: "Three", type: .episode, indexNumber: 3)
+        ]
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/Shows/series-1/Episodes")
+            XCTAssertEqual(request.queryDictionary["seasonId"], "season-1")
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request, value: BaseItemDtoQueryResult(items: episodes, totalRecordCount: episodes.count)
+            )
+        }
+
+        let next = try await client.nextEpisode(currentEpisodeID: "ep-1", seriesID: "series-1", seasonID: "season-1", userID: "user-1")
+        XCTAssertEqual(next?.id, "ep-2")
+    }
+
+    func test_nextEpisode_lastInSeason_crossesToFirstEpisodeOfNextSeason() async throws {
+        let client = makeClient(accessToken: "tok")
+        let season1Episodes = [BaseItemDto(id: "ep-1", name: "One", type: .episode, indexNumber: 1)]
+        let season2Episodes = [
+            BaseItemDto(id: "ep-2-1", name: "Two One", type: .episode, indexNumber: 1),
+            BaseItemDto(id: "ep-2-2", name: "Two Two", type: .episode, indexNumber: 2)
+        ]
+        let seasons = [
+            BaseItemDto(id: "season-1", name: "Season 1", type: .season, indexNumber: 1),
+            BaseItemDto(id: "season-2", name: "Season 2", type: .season, indexNumber: 2)
+        ]
+        MockURLProtocol.requestHandler = { request in
+            switch (request.url?.path, request.queryDictionary["seasonId"]) {
+            case ("/Shows/series-1/Episodes", "season-1"):
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: season1Episodes, totalRecordCount: season1Episodes.count)
+                )
+            case ("/Shows/series-1/Episodes", "season-2"):
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: season2Episodes, totalRecordCount: season2Episodes.count)
+                )
+            case ("/Shows/series-1/Seasons", _):
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: seasons, totalRecordCount: seasons.count)
+                )
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                throw MockURLProtocol.UnhandledRequest()
+            }
+        }
+
+        let next = try await client.nextEpisode(currentEpisodeID: "ep-1", seriesID: "series-1", seasonID: "season-1", userID: "user-1")
+        XCTAssertEqual(next?.id, "ep-2-1")
+    }
+
+    func test_nextEpisode_lastEpisodeOfSeries_returnsNil() async throws {
+        let client = makeClient(accessToken: "tok")
+        let onlySeasonEpisodes = [BaseItemDto(id: "ep-1", name: "One", type: .episode, indexNumber: 1)]
+        let onlySeason = [BaseItemDto(id: "season-1", name: "Season 1", type: .season, indexNumber: 1)]
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Shows/series-1/Episodes":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: onlySeasonEpisodes, totalRecordCount: onlySeasonEpisodes.count)
+                )
+            case "/Shows/series-1/Seasons":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: onlySeason, totalRecordCount: onlySeason.count)
+                )
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                throw MockURLProtocol.UnhandledRequest()
+            }
+        }
+
+        let next = try await client.nextEpisode(currentEpisodeID: "ep-1", seriesID: "series-1", seasonID: "season-1", userID: "user-1")
+        XCTAssertNil(next)
+    }
 }

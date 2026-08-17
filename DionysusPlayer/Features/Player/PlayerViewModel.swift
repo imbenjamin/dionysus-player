@@ -27,6 +27,21 @@ final class PlayerViewModel {
     /// .onPictureInPictureActiveChange`'s doc comment.
     private(set) var isPictureInPictureActive = false
 
+    /// The episode immediately following this one, for the in-player "Up
+    /// Next" prompt (`NextUpOverlay`) — `nil` for non-episode content, a
+    /// series' last episode, or while the fire-and-forget lookup in
+    /// `start()` hasn't resolved yet (or failed; see that method's doc
+    /// comment). Resolved via `JellyfinAPIClient.nextEpisode(...)`, not
+    /// `nextUp(...)` — see that method's own doc comment for why the latter
+    /// can't answer "what's next" reliably mid-playback.
+    private(set) var nextEpisode: MediaItem?
+    /// Set by `dismissNextUp()` (the "Up Next" card's Cancel button) —
+    /// once true, `nextUpSecondsRemaining` stays `nil` for the rest of this
+    /// item's playback even if `currentTime` moves back inside the
+    /// countdown window (e.g. the user scrubs backward), matching "cancel
+    /// the whole automatic countdown" rather than just dismissing once.
+    private(set) var isNextUpDismissed = false
+
     let engine: PlaybackEngine
     let itemID: String
     let startFromBeginning: Bool
@@ -65,6 +80,7 @@ final class PlayerViewModel {
     private let client: JellyfinAPIClient
     private let userID: String
     private let trackPreferenceStore: TrackPreferenceStore
+    private let nextUpPreferenceStore: NextUpPreferenceStore
     private var progressReportTask: Task<Void, Never>?
 
     var audioTracks: [PlaybackTrack] { engine.audioTracks }
@@ -77,10 +93,51 @@ final class PlayerViewModel {
     /// nothing to keep in sync the rest of the time.
     var stats: PlaybackStats { engine.stats }
 
+    /// The configured countdown length itself, for `NextUpOverlay`'s ring
+    /// to compute a remaining-*fraction* from alongside
+    /// `nextUpSecondsRemaining` — a plain elapsing count has no notion of
+    /// its own starting point. A passthrough of `nextUpPreferenceStore
+    /// .countdownSeconds`, same shape as `stats`/`audioTracks` above.
+    var nextUpTotalCountdownSeconds: Int? { nextUpPreferenceStore.countdownSeconds }
+
+    /// Seconds remaining before this episode ends, while the "Up Next"
+    /// prompt should be showing — `nil` otherwise (no next episode
+    /// resolved yet, the feature's off, dismissed for this session, or
+    /// simply outside the countdown window). Derived purely from `duration`/
+    /// `currentTime`, with no separate `Timer`/countdown `Task` of its own:
+    /// `currentTime` already ticks ~10x/sec during playback via
+    /// `onTimeUpdate` and holds steady while paused, so this value updates
+    /// and freezes for free, the same way `sourceTime` does.
+    ///
+    /// Clamped to `0` rather than excluded once `remaining` reaches or
+    /// passes it — confirmed live (2026-08-17) that `currentTime` doesn't
+    /// reliably stop exactly at `duration`: the transport clock kept
+    /// advancing past the item's real end even once it had stopped
+    /// actually playing, which used to push `remaining` negative and fail
+    /// an earlier `remaining > 0` guard here. That guard's intent (clear
+    /// the prompt right at the real end rather than overlap with today's
+    /// unchanged end-of-playback behavior) was correct, but excluding `0`
+    /// meant this value could jump straight from `1` to `nil` and skip `0`
+    /// entirely — silently breaking `PlayerView`'s `.onChange(of:
+    /// nextUpSecondsRemaining)` auto-advance trigger, which only fires on
+    /// an exact `0`. Reaching `advanceToNextEpisode()` (Play Now, or that
+    /// auto-trigger) is itself what clears this prompt now, by tearing this
+    /// `PlayerView` instance's content down, so there's no longer a reason
+    /// to hide it early anyway.
+    var nextUpSecondsRemaining: Int? {
+        guard nextEpisode != nil, !isNextUpDismissed,
+              let countdownSeconds = nextUpPreferenceStore.countdownSeconds,
+              duration > 0 else { return nil }
+        let remaining = duration - currentTime
+        guard remaining <= Double(countdownSeconds) else { return nil }
+        return max(0, Int(remaining.rounded(.up)))
+    }
+
     init(
         client: JellyfinAPIClient, userID: String, itemID: String, engine: PlaybackEngine,
         startFromBeginning: Bool = false, mediaSourceID: String? = nil,
-        trackPreferenceStore: TrackPreferenceStore = TrackPreferenceStore()
+        trackPreferenceStore: TrackPreferenceStore = TrackPreferenceStore(),
+        nextUpPreferenceStore: NextUpPreferenceStore = NextUpPreferenceStore()
     ) {
         self.client = client
         self.userID = userID
@@ -89,6 +146,7 @@ final class PlayerViewModel {
         self.startFromBeginning = startFromBeginning
         self.requestedMediaSourceID = mediaSourceID
         self.trackPreferenceStore = trackPreferenceStore
+        self.nextUpPreferenceStore = nextUpPreferenceStore
 
         engine.onStateChange = { [weak self] state in self?.state = state }
         engine.onTimeUpdate = { [weak self] time, duration in
@@ -113,6 +171,7 @@ final class PlayerViewModel {
             // `loadNowPlayingArtwork(for:)`), rather than blocking on it.
             engine.setNowPlayingInfo(title: mediaItem.railTitle, subtitle: mediaItem.railSubtitle, artwork: nil)
             loadNowPlayingArtwork(for: mediaItem)
+            loadNextEpisode(for: mediaItem, images: images)
 
             let playbackInfo = try await client.playbackInfo(itemID: itemID, userID: userID, mediaSourceID: requestedMediaSourceID)
             // The requested id might not match anything (stale preference
@@ -164,6 +223,32 @@ final class PlayerViewModel {
             guard let image = try? await RemoteImageLoader.shared.image(for: artworkURL) else { return }
             self?.engine.setNowPlayingInfo(title: item.railTitle, subtitle: item.railSubtitle, artwork: image)
         }
+    }
+
+    /// Fire-and-forget, same shape as `loadNowPlayingArtwork(for:)`: resolves
+    /// `nextEpisode` for the "Up Next" prompt via `JellyfinAPIClient
+    /// .nextEpisode(...)` — see that method's doc comment for why this can't
+    /// use `nextUp(...)` instead. A no-op for non-episode content or an
+    /// episode DTO missing `seriesId`/`seasonId` (shouldn't happen in
+    /// practice, but there's nothing to look up without them); a failed
+    /// fetch just leaves `nextEpisode` `nil`, the same "bonus, not a
+    /// requirement" treatment `start()` already gives external subtitles.
+    private func loadNextEpisode(for item: MediaItem, images: ImageURLBuilder) {
+        guard item.kind == .episode, let seriesID = item.dto.seriesId, let seasonID = item.dto.seasonId else { return }
+        let userID = self.userID
+        Task { [weak self] in
+            guard let dto = try? await self?.client.nextEpisode(
+                currentEpisodeID: item.id, seriesID: seriesID, seasonID: seasonID, userID: userID
+            ) else { return }
+            self?.nextEpisode = MediaItem(dto: dto, images: images)
+        }
+    }
+
+    /// The "Up Next" prompt's Cancel button — see `isNextUpDismissed`'s doc
+    /// comment for why this sticks for the rest of this item's playback
+    /// rather than just hiding the card once.
+    func dismissNextUp() {
+        isNextUpDismissed = true
     }
 
     /// Maps the `isExternal == true` subtitle `MediaStream`s off a resolved

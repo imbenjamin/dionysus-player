@@ -12,6 +12,10 @@ struct ProfileView: View {
     /// actually flipped, so both call sites declaring the same default is
     /// what keeps them in agreement pre-first-launch-visit).
     @AppStorage(hero3DDepthEnabledStorageKey) private var hero3DDepthEnabled = true
+    /// Default `.seconds30` — matches `NextUpPreferenceStore.countdownSeconds`'s
+    /// own fallback for the same "both sides declare the same default"
+    /// reason as `hero3DDepthEnabled` above.
+    @AppStorage(nextUpCountdownStorageKey) private var nextUpCountdown: NextUpCountdownPreference = .seconds30
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showSignOutConfirmation = false
     @State private var showChangeServerConfirmation = false
@@ -48,6 +52,18 @@ struct ProfileView: View {
                         }
                     }
                 }
+            }
+
+            Section {
+                Picker("Next Episode Countdown", selection: $nextUpCountdown) {
+                    ForEach(NextUpCountdownPreference.allCases) { preference in
+                        Text(preference.displayName).tag(preference)
+                    }
+                }
+            } header: {
+                Text("Playback")
+            } footer: {
+                Text("How long the \u{201C}Up Next\u{201D} prompt counts down before automatically playing the next episode.")
             }
 
             Section {

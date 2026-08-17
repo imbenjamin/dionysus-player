@@ -33,15 +33,32 @@ final class PlayerViewModelTests: XCTestCase {
         startFromBeginning: Bool = false,
         mediaSourceID: String? = nil,
         engine: FakePlaybackEngine = FakePlaybackEngine(),
-        trackPreferenceStore: TrackPreferenceStore? = nil
+        trackPreferenceStore: TrackPreferenceStore? = nil,
+        nextUpPreferenceStore: NextUpPreferenceStore? = nil
     ) -> (PlayerViewModel, FakePlaybackEngine) {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
         let viewModel = PlayerViewModel(
             client: client, userID: "user-1", itemID: itemID, engine: engine,
             startFromBeginning: startFromBeginning, mediaSourceID: mediaSourceID,
-            trackPreferenceStore: trackPreferenceStore ?? TrackPreferenceStore(defaults: defaults)
+            trackPreferenceStore: trackPreferenceStore ?? TrackPreferenceStore(defaults: defaults),
+            nextUpPreferenceStore: nextUpPreferenceStore ?? NextUpPreferenceStore(defaults: defaults)
         )
         return (viewModel, engine)
+    }
+
+    /// `loadNextEpisode(for:images:)` resolves `nextEpisode` from a
+    /// fire-and-forget `Task` `start()` kicks off but doesn't await — polls
+    /// with a bounded timeout rather than asserting immediately after
+    /// `start()` returns, since nothing guarantees that Task has actually
+    /// run by then. Everything it awaits in these tests is a `MockURLProtocol`
+    /// response with no artificial delay, so in practice this resolves
+    /// within a poll or two; the timeout is just a safety net against a hang
+    /// reading as a slow test instead of an infinite one.
+    private func waitUntilNextEpisodeResolved(_ viewModel: PlayerViewModel, timeout: TimeInterval = 1) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while viewModel.nextEpisode == nil, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     /// Standard item/playbackInfo/session-start stubbing shared by most
@@ -625,5 +642,130 @@ final class PlayerViewModelTests: XCTestCase {
         await viewModel.refreshStreamingSession()
 
         XCTAssertNil(viewModel.streamingSession, "A failed request should leave the last known value (nil, here) rather than crash/throw")
+    }
+
+    // MARK: "Up Next" — nextEpisode resolution and nextUpSecondsRemaining
+
+    /// Routes an episode's full `start()` flow (item/playbackInfo/session,
+    /// same as `stubStart`) plus the `nextEpisode(...)` lookup's own
+    /// `/Shows/.../Episodes` request — everything `loadNextEpisode(for:
+    /// images:)` needs to resolve `nextEpisode` for a two-episode season.
+    private func stubStartWithNextEpisode(itemID: String = "ep-1", nextEpisodeID: String = "ep-2") {
+        let itemDto = BaseItemDto(
+            id: itemID, name: "Episode One", type: .episode, runTimeTicks: 100 * 10_000_000,
+            seriesId: "series-1", seasonId: "season-1", indexNumber: 1
+        )
+        let nextEpisodeDto = BaseItemDto(id: nextEpisodeID, name: "Episode Two", type: .episode, seriesId: "series-1", seasonId: "season-1", indexNumber: 2)
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/\(itemID)":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: itemDto)
+            case "/Items/\(itemID)/PlaybackInfo":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaybackInfoResponse(mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")], playSessionId: "sess-1"))
+            case "/Sessions/Playing":
+                return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+            case "/Shows/series-1/Episodes":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [itemDto, nextEpisodeDto], totalRecordCount: 2)
+                )
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+        }
+    }
+
+    func test_start_episodeWithNextEpisode_resolvesNextEpisode() async {
+        let (viewModel, _) = makeViewModel(itemID: "ep-1")
+        stubStartWithNextEpisode()
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+
+        XCTAssertEqual(viewModel.nextEpisode?.id, "ep-2")
+    }
+
+    /// `loadNextEpisode(for:images:)` guards on `kind == .episode` before
+    /// firing anything — a Movie should never even attempt the lookup.
+    /// `stubStart`'s `default: XCTFail` doubles as the assertion here: if
+    /// this guard were missing, the unstubbed `/Shows/.../Episodes` request
+    /// would fail the test instead of `nextEpisode` just staying `nil`.
+    func test_start_movie_neverResolvesNextEpisode() async {
+        let (viewModel, _) = makeViewModel()
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie), mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")])
+
+        await viewModel.start()
+        try? await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertNil(viewModel.nextEpisode)
+    }
+
+    func test_nextUpSecondsRemaining_withinCountdownWindow_reportsRemainingSeconds() async {
+        let (viewModel, engine) = makeViewModel(itemID: "ep-1")
+        stubStartWithNextEpisode()
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+
+        engine.onTimeUpdate?(100, 300) // 200s from the end — outside the default 30s window
+        XCTAssertNil(viewModel.nextUpSecondsRemaining)
+
+        engine.onTimeUpdate?(295, 300) // 5s from the end — inside it
+        XCTAssertEqual(viewModel.nextUpSecondsRemaining, 5)
+    }
+
+    /// Pins a live bug (2026-08-17): `nextUpSecondsRemaining` used to
+    /// exclude `remaining == 0` (a strict `remaining > 0` guard), so the
+    /// value jumped straight from `1` to `nil` and never actually reported
+    /// `0` — silently breaking `PlayerView`'s `.onChange(of:
+    /// nextUpSecondsRemaining)` auto-advance trigger, which only fires on
+    /// an exact `0`. Also covers the real, separately-observed symptom
+    /// that made it obvious: `currentTime` overshooting `duration` (the
+    /// transport clock kept advancing past the item's real end) — this
+    /// must clamp at `0` rather than go negative-and-`nil` in that case
+    /// too, not just land on exactly `0` when the numbers line up evenly.
+    func test_nextUpSecondsRemaining_reachesExactlyZero_ratherThanJumpingToNil() async {
+        let (viewModel, engine) = makeViewModel(itemID: "ep-1")
+        stubStartWithNextEpisode()
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+
+        engine.onTimeUpdate?(300, 300) // exactly at the end
+        XCTAssertEqual(viewModel.nextUpSecondsRemaining, 0)
+
+        engine.onTimeUpdate?(301, 300) // the clock overshooting duration, as observed live
+        XCTAssertEqual(viewModel.nextUpSecondsRemaining, 0, "Should clamp at 0, not go negative and drop to nil")
+    }
+
+    func test_dismissNextUp_staysNilEvenAfterScrubbingBackIntoTheWindow() async {
+        let (viewModel, engine) = makeViewModel(itemID: "ep-1")
+        stubStartWithNextEpisode()
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+
+        engine.onTimeUpdate?(295, 300)
+        XCTAssertEqual(viewModel.nextUpSecondsRemaining, 5)
+
+        viewModel.dismissNextUp()
+        XCTAssertNil(viewModel.nextUpSecondsRemaining)
+
+        // Scrubbing back out and into the window again shouldn't resurrect it.
+        engine.onTimeUpdate?(100, 300)
+        engine.onTimeUpdate?(298, 300)
+        XCTAssertNil(viewModel.nextUpSecondsRemaining)
+    }
+
+    func test_nextUpSecondsRemaining_countdownOff_neverReportsRemainingSeconds() async {
+        defaults.set(NextUpCountdownPreference.off.rawValue, forKey: nextUpCountdownStorageKey)
+        let (viewModel, engine) = makeViewModel(itemID: "ep-1")
+        stubStartWithNextEpisode()
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+
+        engine.onTimeUpdate?(295, 300)
+        XCTAssertNil(viewModel.nextUpSecondsRemaining)
     }
 }

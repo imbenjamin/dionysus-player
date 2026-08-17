@@ -11,6 +11,26 @@ struct PlayerView: View {
     /// `PlaybackSessionOutcome`'s own doc comment for why. `nil` (the
     /// default) for any presentation that doesn't need it.
     var onPlaybackEnded: ((PlaybackSessionOutcome) -> Void)? = nil
+    /// Fired when the "Up Next" prompt (`NextUpOverlay`) advances to the
+    /// next episode — via its own Play Now button, or automatically once
+    /// its countdown reaches zero — with that episode's id, right before
+    /// this `PlayerView` dismisses itself. `nil` (the default) for
+    /// `MovieDetailView`/`CollectionDetailView`, whose items are never
+    /// `.episode`, so `PlayerViewModel.nextEpisode` never resolves to
+    /// anything there and this never fires.
+    ///
+    /// `ShowDetailView` implements it by *stashing* the id (a local
+    /// `@State`), not by re-pointing `playbackRequest` at it directly —
+    /// see `advanceToNextEpisode()`'s doc comment for why setting an
+    /// already-presented `.fullScreenCover(item:)`'s bound value straight
+    /// to a new id, while still presented, doesn't reliably re-present:
+    /// confirmed live (2026-08-17), it doesn't just fail to animate a
+    /// clean transition, the actual episode that ends up on screen after
+    /// is wrong and unplayable. `playbackRequest` only ever gets set from
+    /// `onDismiss`, once the cover has genuinely gone through `nil` first —
+    /// the same nil-then-non-nil path every ordinary Play/Resume tap
+    /// already takes.
+    var onRequestNextItem: ((String) -> Void)? = nil
 
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -42,6 +62,13 @@ struct PlayerView: View {
     /// `PlayerControlsOverlay` flips, per that overlay's own doc comment on
     /// why it's driven separately from the rest of the controls.
     @State private var showPlaybackStats = false
+    /// Guards `advanceToNextEpisode()` against firing a second time while
+    /// its own `await viewModel.stop()` is still in flight — the
+    /// `.onChange(of: nextUpSecondsRemaining)` trigger below could
+    /// otherwise re-fire on some intermediate re-render before
+    /// `onRequestNextItem` has actually swapped this screen out from under
+    /// itself.
+    @State private var isAdvancingToNextEpisode = false
     /// Pending "fade the controls out" work item — armed by `scheduleAutoHide()`
     /// whenever playback is actually running, cancelled the moment it isn't.
     @State private var autoHideTask: Task<Void, Never>?
@@ -157,6 +184,20 @@ struct PlayerView: View {
                 // but invisible while faded out.
                 .accessibilityHidden(!showControls)
 
+                // Above `PlayerControlsOverlay` (added after it in this
+                // ZStack), and — unlike it — not gated on `showControls` at
+                // all: see `NextUpOverlay`'s own doc comment for why it's
+                // meant to be complementary to the transport chrome rather
+                // than part of it, staying shown/interactive whether the
+                // controls are faded in or out.
+                NextUpOverlay(
+                    nextEpisode: viewModel.nextEpisode,
+                    secondsRemaining: viewModel.nextUpSecondsRemaining,
+                    totalSeconds: viewModel.nextUpTotalCountdownSeconds,
+                    onPlayNow: { Task { await advanceToNextEpisode() } },
+                    onCancel: { viewModel.dismissNextUp() }
+                )
+
                 // Above the transport chrome (added after it in this ZStack)
                 // — while a PiP window has this session's picture, nothing
                 // underneath, controls included, is visible or meant to be
@@ -216,6 +257,15 @@ struct PlayerView: View {
         // tap in this screen already gets via `onInteract`.
         .onChange(of: isShowingTrackPicker) { _, _ in
             scheduleAutoHide()
+        }
+        // The "automatic" half of the Up Next countdown — reaching 0 with
+        // no interaction advances on its own; Play Now/Cancel are the two
+        // ways to preempt that. See `NextUpOverlay`'s doc comment for why
+        // this is driven by `nextUpSecondsRemaining` reaching 0 rather than
+        // a separate timer.
+        .onChange(of: viewModel?.nextUpSecondsRemaining) { _, secondsRemaining in
+            guard secondsRemaining == 0 else { return }
+            Task { await advanceToNextEpisode() }
         }
         // Entering PiP from the in-app button leaves the app foregrounded —
         // unlike every other case `showControls` reacts to, nothing else
@@ -344,6 +394,32 @@ struct PlayerView: View {
             ))
         }
         await viewModel?.stop()
+        dismiss()
+    }
+
+    /// `NextUpOverlay`'s Play Now button, and the automatic countdown-hits-
+    /// zero case (`.onChange(of: nextUpSecondsRemaining)` above). Nearly
+    /// identical to `close()` — reports this episode's outcome, stops the
+    /// same way closing would, unlocks rotation the same way closing
+    /// would (this instance really is going away, even though a fresh one
+    /// for the next episode is coming right back — see `onRequestNextItem`'s
+    /// doc comment for why an in-place swap isn't what actually happens
+    /// here), and dismisses — except it hands the next episode's id to
+    /// `onRequestNextItem` first, so `ShowDetailView` has it stashed
+    /// before this dismiss reaches its `onDismiss`, which is what actually
+    /// opens it.
+    private func advanceToNextEpisode() async {
+        guard let viewModel, let nextEpisode = viewModel.nextEpisode, !isAdvancingToNextEpisode else { return }
+        isAdvancingToNextEpisode = true
+        autoHideTask?.cancel()
+        if isRotationLocked {
+            RotationLock.unlock()
+        }
+        onPlaybackEnded?(PlaybackSessionOutcome(
+            itemID: itemID, positionSeconds: viewModel.currentTime, durationSeconds: viewModel.duration
+        ))
+        await viewModel.stop()
+        onRequestNextItem?(nextEpisode.id)
         dismiss()
     }
 }
