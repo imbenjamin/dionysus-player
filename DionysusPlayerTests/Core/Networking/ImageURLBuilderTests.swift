@@ -40,4 +40,19 @@ final class ImageURLBuilderTests: XCTestCase {
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
         XCTAssertEqual(components.path, "/Users/user-1/Images/Primary")
     }
+
+    func test_trickplayTileURL_buildsWidthAndIndexedPathWithApiKey() throws {
+        let builder = ImageURLBuilder(baseURL: baseURL, accessToken: "tok")
+        let url = try XCTUnwrap(builder.trickplayTileURL(itemID: "item-1", width: 320, sheetIndex: 3))
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        XCTAssertEqual(components.path, "/Videos/item-1/Trickplay/320/3.jpg")
+        let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value) })
+        XCTAssertEqual(query["ApiKey"], "tok")
+    }
+
+    func test_trickplayTileURL_omitsApiKeyWhenNoAccessToken() throws {
+        let builder = ImageURLBuilder(baseURL: baseURL, accessToken: nil)
+        let url = try XCTUnwrap(builder.trickplayTileURL(itemID: "item-1", width: 320, sheetIndex: 0))
+        XCTAssertFalse(url.absoluteString.contains("ApiKey"))
+    }
 }

@@ -1,3 +1,4 @@
+import CoreGraphics
 import XCTest
 @testable import Dionysus
 
@@ -490,6 +491,41 @@ final class PlayerViewModelTests: XCTestCase {
         let (viewModel, engine) = makeViewModel()
         viewModel.startPictureInPicture()
         XCTAssertEqual(engine.startPictureInPictureCallCount, 1)
+    }
+
+    // MARK: scrub thumbnails (Jellyfin Trickplay)
+
+    func test_scrubThumbnail_beforeStart_returnsNil() async {
+        let (viewModel, _) = makeViewModel()
+        XCTAssertFalse(viewModel.supportsScrubThumbnails)
+        let result = await viewModel.scrubThumbnail(atSeconds: 10)
+        XCTAssertNil(result)
+    }
+
+    func test_start_dtoWithMatchingTrickplayEntry_resolvesSupportsScrubThumbnails() async {
+        let (viewModel, _) = makeViewModel()
+        let info = TrickplayInfo(width: 320, height: 180, tileWidth: 10, tileHeight: 10, thumbnailCount: 1017, interval: 10000, bandwidth: 14011)
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie, trickplay: ["src-1": ["320": info]]),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")]
+        )
+
+        await viewModel.start()
+
+        XCTAssertTrue(viewModel.supportsScrubThumbnails)
+    }
+
+    func test_start_dtoWithNoTrickplayEntryForResolvedMediaSource_leavesSupportsScrubThumbnailsFalse() async {
+        let (viewModel, _) = makeViewModel()
+        let info = TrickplayInfo(width: 320, height: 180, tileWidth: 10, tileHeight: 10, thumbnailCount: 1017, interval: 10000, bandwidth: 14011)
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie, trickplay: ["some-other-media-source": ["320": info]]),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")]
+        )
+
+        await viewModel.start()
+
+        XCTAssertFalse(viewModel.supportsScrubThumbnails)
     }
 
     // MARK: stop()

@@ -1,3 +1,4 @@
+import CoreGraphics
 import SwiftUI
 
 struct PlayerControlsOverlay: View {
@@ -41,6 +42,15 @@ struct PlayerControlsOverlay: View {
     /// button (doesn't affect anything visible enough to warrant resetting
     /// the timer over).
     var onInteract: () -> Void
+    /// A tap that landed on blank space within this overlay — not on any
+    /// button/scrubber/picker — while the controls are visible. `PlayerView`
+    /// hides them immediately (with the same fade `scheduleAutoHide()`'s
+    /// timer uses) rather than making the user wait out the full auto-hide
+    /// delay. See `body`'s own `.onTapGesture` for why a plain tap gesture
+    /// on the root `VStack` is enough to only catch *blank* taps — actual
+    /// buttons/the scrubber/the track picker's own backdrop all sit above it
+    /// and claim their own taps first.
+    var onDismissControls: () -> Void
 
     /// Whether the scrubber's trailing timestamp reads as a `-`-prefixed
     /// countdown to the end (the default) or the asset's total duration —
@@ -56,6 +66,19 @@ struct PlayerControlsOverlay: View {
     /// needs to know a touch is down specifically, only that scrubbing (in
     /// the broader sense) is in progress.
     @State private var isDraggingScrubber = false
+
+    /// Latest resolved scrub-preview still, shown by `ScrubThumbnailPreview`
+    /// while `isDraggingScrubber`. Deliberately not cleared between fetches
+    /// — a `nil` result from `viewModel.scrubThumbnail(atSeconds:)` means
+    /// "not available yet", not "no thumbnail exists", so this keeps
+    /// whatever it last had rather than flashing blank. Reset only
+    /// implicitly, by the next drag's first successful fetch overwriting it.
+    @State private var scrubThumbnailImage: CGImage?
+    /// Pending debounced scrub-thumbnail fetch — cancelled and replaced on
+    /// every drag tick, same cancel-then-`Task.sleep`-then-check-cancellation
+    /// shape `SearchViewModel`'s search debounce uses, just much shorter
+    /// since this is a local decode rather than a network round trip.
+    @State private var scrubThumbnailTask: Task<Void, Never>?
 
     /// A fixed cap on the track picker panel's height, *not* a measured
     /// half of the real screen height — every attempt to read the real
@@ -94,11 +117,33 @@ struct PlayerControlsOverlay: View {
         VStack {
             topSection
 
-            Spacer()
-
-            transportControls
-
-            Spacer()
+            // Only this middle band — the two `Spacer()`s plus whatever
+            // blank gaps sit between `transportControls`' own buttons —
+            // dismisses on a blank tap; see `onDismissControls`'s doc
+            // comment. `topSection`'s and `scrubberBar`'s own rows are
+            // deliberately excluded (this container stops short of both),
+            // not just their buttons/scrubber — a tap that lands close to
+            // but just misses one of those is far more likely a mis-aimed
+            // attempt to use them than a request to dismiss, so the whole
+            // horizontal band they occupy stays "protected": a near-miss
+            // there does nothing, same as it did before this feature
+            // existed, rather than closing the controls out from under the
+            // user's thumb.
+            //
+            // Needs its own explicit `.contentShape`: a `VStack` otherwise
+            // only hit-tests its children's actual drawn content, not the
+            // `Spacer()` gaps. Placed before `.background`/the track-picker
+            // overlays below so those — the picker's own backdrop tap
+            // catcher included — still claim their own taps first.
+            VStack {
+                Spacer()
+                transportControls
+                Spacer()
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onDismissControls()
+            }
 
             scrubberBar
         }
@@ -891,16 +936,34 @@ struct PlayerControlsOverlay: View {
             // padding on `scrubberTrack` itself, so both ends keep equal
             // spacing.
             HStack(spacing: 16) {
-                Text(Self.formatTime(displayedTime))
-                    .monospacedDigit()
+                // Both labels reserve space for the widest string
+                // `formatTime`/`endTimeText` can ever produce (an invisible
+                // `"-9:59:59"`/`"9:59:59"` reference inside a `ZStack`,
+                // rather than a hardcoded point width, so this still tracks
+                // Dynamic Type) — without this, crossing an hour/minute
+                // digit-count boundary (e.g. the countdown ticking from
+                // "-1:00:00" to "-59:59") changed each label's natural
+                // width, which pushed `scrubberTrack`'s own bounds around
+                // with it. Each label is aligned toward the scrubber (the
+                // leading one trailing-aligned, the trailing one
+                // leading-aligned) so its digits grow away from the track
+                // rather than shifting it. Fixing the track's own width
+                // this way is also what keeps `ScrubThumbnailPreview`'s
+                // drag-to-x-offset math stable while scrubbing.
+                ZStack(alignment: .trailing) {
+                    Text("9:59:59").monospacedDigit().hidden()
+                    Text(Self.formatTime(displayedTime)).monospacedDigit()
+                }
 
                 scrubberTrack
 
                 Button {
                     showRemainingTime.toggle()
                 } label: {
-                    Text(endTimeText)
-                        .monospacedDigit()
+                    ZStack(alignment: .leading) {
+                        Text("-9:59:59").monospacedDigit().hidden()
+                        Text(endTimeText).monospacedDigit()
+                    }
                 }
             }
             .font(.caption)
@@ -957,6 +1020,46 @@ struct PlayerControlsOverlay: View {
                     .offset(x: width * fraction - 10)
             }
             .frame(maxHeight: .infinity)
+            // `.overlay`, not a 4th `ZStack` sibling above — a `ZStack`
+            // sizes itself to its *largest* child (see the Capsules' own
+            // doc comment just above for the same lesson learned the hard
+            // way about the 20pt thumb), so the bubble's own much taller
+            // natural size (~114pt: 90pt image + spacing + the timestamp
+            // pill) was inflating this whole track's reported height even
+            // though `.offset` only moves where it *renders* — confirmed
+            // live (2026-08-17): the scrubber row visibly dropped every
+            // time a drag started. An `.overlay` is layout-inert by
+            // definition — its content can never affect the base view's
+            // own reported size, however tall it is — so this is the
+            // correct tool here, not just a workaround.
+            .overlay(alignment: .leading) {
+                // Gated on `isDraggingScrubber`, not `isScrubbing` — the
+                // latter deliberately stays `true` past finger-lift while a
+                // seek lands (see that property's own doc comment above),
+                // which would otherwise leave a stale bubble hanging on
+                // screen after the finger's already gone. Clamped so its
+                // own 160pt width stays fully inside the track even when
+                // dragging to either extreme — unlike the 20pt thumb above,
+                // it would otherwise clip off-screen there.
+                if isDraggingScrubber, viewModel.supportsScrubThumbnails {
+                    ScrubThumbnailPreview(image: scrubThumbnailImage, timeText: Self.formatTime(scrubTime))
+                        .offset(
+                            x: min(
+                                max(width * fraction - ScrubThumbnailPreview.width / 2, 0),
+                                width - ScrubThumbnailPreview.width
+                            ),
+                            // Clears both the thumb and a finger actually
+                            // touching it — `.overlay(alignment: .leading)`
+                            // keeps the same vertically-centered-on-the-
+                            // track baseline the old `ZStack(alignment:
+                            // .leading)` gave it, so this offset needs no
+                            // change from what that vertical centering
+                            // already required: roughly half the bubble's
+                            // own height plus the thumb's half-height.
+                            y: -90
+                        )
+                }
+            }
             // The visible track is a thin 4pt line, but the drag target
             // spans this whole `GeometryReader` frame (see `.frame(height:
             // 44)` below) — matches a plain `Slider`'s actual tap target,
@@ -975,6 +1078,7 @@ struct PlayerControlsOverlay: View {
                         isScrubbing = true
                         let newFraction = min(1, max(0, drag.location.x / width))
                         scrubTime = newFraction * viewModel.duration
+                        requestScrubThumbnail(at: scrubTime)
                     }
                     .onEnded { _ in
                         // `isScrubbing` deliberately stays `true` here — see
@@ -983,6 +1087,7 @@ struct PlayerControlsOverlay: View {
                         // meantime.
                         onInteract()
                         isDraggingScrubber = false
+                        scrubThumbnailTask?.cancel()
                         viewModel.seek(to: scrubTime)
                     }
             )
@@ -1033,6 +1138,32 @@ struct PlayerControlsOverlay: View {
             guard isScrubbing, !isDraggingScrubber else { return }
             if oldState == .seeking, newState != .seeking {
                 isScrubbing = false
+            }
+        }
+    }
+
+    /// Debounced scrub-thumbnail fetch, called from every `scrubberTrack`
+    /// drag tick — cancels any still-pending fetch and starts a fresh one,
+    /// same cancel-then-`Task.sleep`-then-check-cancellation shape
+    /// `SearchViewModel`'s search debounce uses, just much shorter (120ms
+    /// vs. its 350ms) since this is a local decode off already-buffered
+    /// segment bytes, not a network round trip. No-ops when
+    /// `supportsScrubThumbnails` is false, matching `scrubberTrack`'s own
+    /// gate on rendering the bubble at all.
+    private func requestScrubThumbnail(at seconds: TimeInterval) {
+        guard viewModel.supportsScrubThumbnails else { return }
+        scrubThumbnailTask?.cancel()
+        scrubThumbnailTask = Task {
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            let image = await viewModel.scrubThumbnail(atSeconds: seconds)
+            guard !Task.isCancelled else { return }
+            // `nil` means "not available yet", not "no thumbnail exists" —
+            // see `PlaybackEngine.scrubThumbnail(atSeconds:maxWidth:)`'s doc
+            // comment — so only a successful result overwrites what's
+            // already showing.
+            if let image {
+                scrubThumbnailImage = image
             }
         }
     }

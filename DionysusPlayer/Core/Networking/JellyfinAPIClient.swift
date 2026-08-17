@@ -40,7 +40,7 @@ actor JellyfinAPIClient {
     // in `Fields`, the server omits `BaseItemDto.studios` entirely (same
     // reason `Genres` is already listed here rather than assumed default).
     private static let defaultFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,BasicSyncInfo"
-    private static let detailFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,MediaSources,People,Taglines,BasicSyncInfo"
+    private static let detailFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,MediaSources,People,Taglines,BasicSyncInfo,Trickplay"
 
     func userViews(userID: String) async throws -> BaseItemDtoQueryResult {
         try await get("/Users/\(userID)/Views")
