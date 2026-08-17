@@ -42,6 +42,13 @@ final class PlayerViewModel {
     /// the whole automatic countdown" rather than just dismissing once.
     private(set) var isNextUpDismissed = false
 
+    /// Skippable Intro/Outro/Recap/Preview/Commercial time ranges for this
+    /// item, fetched fire-and-forget in `start()` alongside `nextEpisode` —
+    /// see `loadMediaSegments(for:)`. Empty (not `nil`) both before that
+    /// resolves and once resolved with zero segments; nothing downstream
+    /// distinguishes the two.
+    private(set) var mediaSegments: [PlaybackSegment] = []
+
     let engine: PlaybackEngine
     let itemID: String
     let startFromBeginning: Bool
@@ -98,7 +105,85 @@ final class PlayerViewModel {
     /// `nextUpSecondsRemaining` — a plain elapsing count has no notion of
     /// its own starting point. A passthrough of `nextUpPreferenceStore
     /// .countdownSeconds`, same shape as `stats`/`audioTracks` above.
-    var nextUpTotalCountdownSeconds: Int? { nextUpPreferenceStore.countdownSeconds }
+    /// The end-credits countdown's own total length right now (see
+    /// `endCreditsCountdownTotalSeconds`) once this item has an end-credits
+    /// segment, else the configured preference — `NextUpOverlay`'s ring
+    /// needs whichever total actually governs the countdown currently in
+    /// effect, not always the user's raw preference. Before
+    /// `nextUpCountdownAnchorTime` has a value yet (segment not entered),
+    /// falls back to the flat `endCreditsCountdownSeconds` cap as a
+    /// reasonable "what it'll most likely be" default — nothing shows the
+    /// ring at this point anyway, since `nextUpSecondsRemaining` is `nil`
+    /// until there's an anchor to compute it from.
+    var nextUpTotalCountdownSeconds: Int? {
+        guard endCreditsSegment != nil else { return nextUpPreferenceStore.countdownSeconds }
+        guard let total = endCreditsCountdownTotalSeconds else { return Self.endCreditsCountdownSeconds }
+        return Int(total.rounded())
+    }
+
+    /// Cap on the end-credits countdown's length — see
+    /// `nextUpSecondsRemaining`'s doc comment for why this replaces the
+    /// user's configured preference entirely once an end-credits segment
+    /// exists, rather than combining with it.
+    private static let endCreditsCountdownSeconds = 10
+
+    /// The `.outro`-typed segment nearest this item's end (the last one
+    /// chronologically, if there's more than one) — Jellyfin has no
+    /// separate "opening credits" vs. "closing credits" segment type, so an
+    /// item with, say, a mid-content credits roll *and* true end credits
+    /// reports two `.outro` segments; only the later one is "the end
+    /// credits" for `nextUpSecondsRemaining`'s override below. `nil` when
+    /// this item has no `.outro` segment at all (most content, and any
+    /// item `mediaSegments` hasn't resolved for yet).
+    private var endCreditsSegment: PlaybackSegment? {
+        mediaSegments.filter { $0.kind == .outro }.max { $0.startSeconds < $1.startSeconds }
+    }
+
+    /// The playhead value the end-credits countdown is currently timed
+    /// from — distinct from `endCreditsSegment.startSeconds` itself
+    /// specifically to fix a live bug (2026-08-18, confirmed with the
+    /// user): scrubbing straight to a point already past where a
+    /// from-the-segment's-own-start countdown would have finished computed
+    /// an already-negative (clamped-to-`0`) `remaining` on landing, which
+    /// silently auto-advanced to the next episode with no countdown UI
+    /// ever shown. `updateNextUpCountdownAnchor()` sets this the moment
+    /// `currentTime` (re-)enters the segment — from natural playback *or*
+    /// a scrub/seek landing inside it — and `seek(to:)` clears it
+    /// unconditionally first, so any explicit jump (the scrubber, the
+    /// rewind/forward buttons, VoiceOver's adjustable action) always
+    /// re-anchors fresh at wherever it actually lands, rather than reusing
+    /// a stale anchor from before the jump. `nil` whenever `currentTime`
+    /// is outside the segment.
+    private var nextUpCountdownAnchorTime: TimeInterval?
+
+    /// `endCreditsCountdownSeconds` (10s), capped to however much of the
+    /// item's own duration remains from the anchor — so a segment (or a
+    /// scrub landing) within the final 10 seconds of the item counts down
+    /// to reach exactly `0` right at the asset's true end, rather than
+    /// implying a target past it. `nil` before there's an anchor to
+    /// compute from.
+    private var endCreditsCountdownTotalSeconds: Double? {
+        guard let anchor = nextUpCountdownAnchorTime else { return nil }
+        return max(0, min(Double(Self.endCreditsCountdownSeconds), duration - anchor))
+    }
+
+    /// Called from `onTimeUpdate` on every engine time tick — see
+    /// `nextUpCountdownAnchorTime`'s doc comment. Purely a "rising edge"
+    /// detector: once set, the anchor is left alone as `currentTime`
+    /// progresses naturally forward through the segment (letting a live
+    /// countdown actually count down and complete), and only re-derived
+    /// when `currentTime` (re-)enters the segment from outside it — which
+    /// `seek(to:)` engineers to be true again immediately after any
+    /// explicit jump, by clearing the anchor first.
+    private func updateNextUpCountdownAnchor() {
+        guard let endCreditsSegment, currentTime >= endCreditsSegment.startSeconds else {
+            nextUpCountdownAnchorTime = nil
+            return
+        }
+        if nextUpCountdownAnchorTime == nil {
+            nextUpCountdownAnchorTime = currentTime
+        }
+    }
 
     /// Seconds remaining before this episode ends, while the "Up Next"
     /// prompt should be showing — `nil` otherwise (no next episode
@@ -139,13 +224,80 @@ final class PlayerViewModel {
     /// PiP ends, this recomputes fresh from wherever `duration`/`currentTime`
     /// actually are, same as it would after being dismissed for any other
     /// reason above.
+    ///
+    /// **End-credits override:** when this item has an `endCreditsSegment`,
+    /// that segment's start time fully replaces the duration-relative
+    /// trigger above — the configured `countdownSeconds` preference plays
+    /// no role in *when* this fires once such a segment exists, only in
+    /// *whether* Up Next is enabled at all. The card appears the instant
+    /// the segment starts and counts down `endCreditsCountdownTotalSeconds`
+    /// from there, regardless of how that compares to the preference
+    /// window: a segment starting later than the preference would have
+    /// fired stays hidden until the segment itself starts (no early
+    /// duration-relative fallback), and one starting earlier fires right
+    /// then rather than waiting for the preference's own window. Confirmed
+    /// with the user (2026-08-17) this is the intended behavior in both
+    /// directions, not just "whichever fires first."
+    ///
+    /// The countdown is timed from `nextUpCountdownAnchorTime`, not
+    /// `endCreditsSegment.startSeconds` directly — see that property's own
+    /// doc comment for the scrub-landing-past-the-trigger-point bug
+    /// (2026-08-18) this distinction fixes.
+    ///
+    /// Truncates (`Int(remaining)`) rather than rounding up — confirmed
+    /// live (2026-08-18): rounding up made this consistently read one
+    /// *higher* than the scrubber's own "time remaining" label
+    /// (`PlayerControlsOverlay.endTimeText`/`formatTime`, which truncates),
+    /// since a fractional `remaining` almost never lands on an exact whole
+    /// second — e.g. landing a scrub where the scrubber itself reads "0:06"
+    /// remaining (truncating anything in `[6, 7)`) showed `7` here instead
+    /// of `6` whenever the true remaining time was, say, `6.4s`. Truncating
+    /// here instead matches that convention. `max(0, ...)` below still
+    /// covers the clamp-at-`0` case documented above unchanged — a negative
+    /// `remaining` truncates to a negative `Int` same as it rounded to one.
     var nextUpSecondsRemaining: Int? {
         guard nextEpisode != nil, !isNextUpDismissed, !isPictureInPictureActive,
               let countdownSeconds = nextUpPreferenceStore.countdownSeconds,
               duration > 0 else { return nil }
+
+        if endCreditsSegment != nil {
+            guard let anchor = nextUpCountdownAnchorTime, let total = endCreditsCountdownTotalSeconds else { return nil }
+            let remaining = total - (currentTime - anchor)
+            return max(0, Int(remaining))
+        }
+
         let remaining = duration - currentTime
         guard remaining <= Double(countdownSeconds) else { return nil }
-        return max(0, Int(remaining.rounded(.up)))
+        return max(0, Int(remaining))
+    }
+
+    /// Segment ids `skipSegment(_:)` has already been called for — see that
+    /// method's doc comment. Sticks for the rest of this item's playback,
+    /// same "once acted on, don't resurrect it" treatment `isNextUpDismissed`
+    /// gives the Up Next card's Cancel button.
+    private var skippedSegmentIDs: Set<String> = []
+
+    /// The segment (any kind) containing `currentTime` right now, if any —
+    /// drives `SkipSegmentOverlay`'s plain "Skip Intro"/"Skip Recap"/etc.
+    /// button. Suppressed for the item's end-credits segment specifically
+    /// whenever `nextUpSecondsRemaining` is covering that window instead
+    /// (`PlayerView` mounts both overlays in the same bottom-trailing slot,
+    /// and only one should ever be showing there); suppressed entirely
+    /// during PiP — same reasoning as `nextUpSecondsRemaining`'s own guard,
+    /// nothing should be interactive over `PictureInPictureOverlay`'s
+    /// placeholder; and suppressed for any segment already in
+    /// `skippedSegmentIDs` — the button needs to disappear the instant it's
+    /// tapped, not once `currentTime` actually catches up to the seek
+    /// target, which can lag behind by a buffering spell's worth of time.
+    var currentSkipSegment: PlaybackSegment? {
+        guard !isPictureInPictureActive,
+              let segment = mediaSegments.first(where: { $0.startSeconds <= currentTime && currentTime < $0.endSeconds }),
+              !skippedSegmentIDs.contains(segment.id)
+        else { return nil }
+        if segment.id == endCreditsSegment?.id, nextUpSecondsRemaining != nil {
+            return nil
+        }
+        return segment
     }
 
     init(
@@ -167,6 +319,7 @@ final class PlayerViewModel {
         engine.onTimeUpdate = { [weak self] time, duration in
             self?.currentTime = time
             self?.duration = duration
+            self?.updateNextUpCountdownAnchor()
         }
         engine.onSubtitleCuesChange = { [weak self] cues in self?.subtitleCues = cues }
         engine.onSourceTimeUpdate = { [weak self] sourceTime in self?.sourceTime = sourceTime }
@@ -187,6 +340,7 @@ final class PlayerViewModel {
             engine.setNowPlayingInfo(title: mediaItem.railTitle, subtitle: mediaItem.railSubtitle, artwork: nil)
             loadNowPlayingArtwork(for: mediaItem)
             loadNextEpisode(for: mediaItem, images: images)
+            loadMediaSegments(for: mediaItem)
 
             let playbackInfo = try await client.playbackInfo(itemID: itemID, userID: userID, mediaSourceID: requestedMediaSourceID)
             // The requested id might not match anything (stale preference
@@ -264,6 +418,30 @@ final class PlayerViewModel {
     /// rather than just hiding the card once.
     func dismissNextUp() {
         isNextUpDismissed = true
+    }
+
+    /// Fire-and-forget, same shape as `loadNextEpisode(for:images:)`:
+    /// resolves `mediaSegments` via `JellyfinAPIClient.mediaSegments(itemID:)`.
+    /// Unlike `loadNextEpisode`, this isn't episode-only — movies get
+    /// Skip Intro/Recap/etc. too. A failed fetch (including an older server
+    /// that doesn't support the Media Segments feature at all) just leaves
+    /// `mediaSegments` empty, the same "bonus, not a requirement" treatment
+    /// external subtitles and `nextEpisode` already get.
+    private func loadMediaSegments(for item: MediaItem) {
+        Task { [weak self] in
+            guard let dtos = try? await self?.client.mediaSegments(itemID: item.id) else { return }
+            self?.mediaSegments = dtos.compactMap(PlaybackSegment.init(dto:))
+        }
+    }
+
+    /// `SkipSegmentOverlay`'s button — records the segment as skipped (see
+    /// `skippedSegmentIDs`, which immediately hides its button via
+    /// `currentSkipSegment` rather than waiting for the seek below to
+    /// actually land) and jumps to the end of the segment, reusing
+    /// `seek(to:)` verbatim.
+    func skipSegment(_ segment: PlaybackSegment) {
+        skippedSegmentIDs.insert(segment.id)
+        seek(to: segment.endSeconds)
     }
 
     /// Maps the `isExternal == true` subtitle `MediaStream`s off a resolved
@@ -365,7 +543,15 @@ final class PlayerViewModel {
         engine.togglePlayPause()
     }
 
+    /// Clears `nextUpCountdownAnchorTime` unconditionally before issuing
+    /// the seek — see that property's own doc comment for why every
+    /// explicit jump (this is the one choke point all of them go through:
+    /// the scrubber, the rewind/forward buttons, VoiceOver's adjustable
+    /// action) needs to force a fresh end-credits countdown anchor at
+    /// wherever it lands, rather than risk reusing a stale one from before
+    /// the jump.
     func seek(to time: TimeInterval) {
+        nextUpCountdownAnchorTime = nil
         Task { await engine.seek(to: time) }
     }
 

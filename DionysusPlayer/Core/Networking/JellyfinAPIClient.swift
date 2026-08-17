@@ -302,6 +302,17 @@ actor JellyfinAPIClient {
         }
     }
 
+    // MARK: - Media Segments
+
+    /// Skippable Intro/Outro/Recap/Preview/Commercial time ranges for an
+    /// item — see `MediaSegmentType`'s doc comment for the server-version
+    /// caveat. Unfiltered (includes `.unknown`-typed segments, if any); the
+    /// caller (`PlaybackSegment.init?(dto:)`) drops those.
+    func mediaSegments(itemID: String) async throws -> [MediaSegmentDto] {
+        let result: MediaSegmentDtoQueryResult = try await get("/MediaSegments/\(itemID)")
+        return result.items
+    }
+
     // MARK: - Playback
 
     func playbackInfo(itemID: String, userID: String, mediaSourceID: String? = nil) async throws -> PlaybackInfoResponse {
