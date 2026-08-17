@@ -74,11 +74,22 @@ struct PlayerControlsOverlay: View {
     /// whatever it last had rather than flashing blank. Reset only
     /// implicitly, by the next drag's first successful fetch overwriting it.
     @State private var scrubThumbnailImage: CGImage?
-    /// Pending debounced scrub-thumbnail fetch — cancelled and replaced on
-    /// every drag tick, same cancel-then-`Task.sleep`-then-check-cancellation
-    /// shape `SearchViewModel`'s search debounce uses, just much shorter
-    /// since this is a local decode rather than a network round trip.
+    /// A scheduled/in-flight scrub-thumbnail fetch, or `nil` when none is
+    /// pending — see `requestScrubThumbnail(at:)`'s doc comment for the
+    /// throttle (not debounce) shape this drives.
     @State private var scrubThumbnailTask: Task<Void, Never>?
+    /// The latest drag position requested — always kept current by every
+    /// `.onChanged` tick, independent of whether a fetch is actually
+    /// scheduled right now. When a throttled fetch finally runs, it reads
+    /// *this* rather than whatever position was current when it was
+    /// scheduled, so a burst of ticks collapses into one fetch at the
+    /// drag's latest position rather than a stale in-between one.
+    @State private var pendingScrubSeconds: TimeInterval?
+    /// When the last scrub-thumbnail fetch actually started — the
+    /// throttle's own clock, measured from real elapsed time rather than
+    /// "time since the last drag tick" (which is what a debounce, the
+    /// shape this replaced, would key off instead).
+    @State private var lastScrubThumbnailFireDate: Date?
 
     /// A fixed cap on the track picker panel's height, *not* a measured
     /// half of the real screen height — every attempt to read the real
@@ -1140,31 +1151,67 @@ struct PlayerControlsOverlay: View {
                 isScrubbing = false
             }
         }
+        // SwiftUI only auto-cancels a `.task { }`-modifier Task on
+        // disappearance, not a plain `Task` stored in `@State` like
+        // `scrubThumbnailTask` — without this, closing the player mid-drag
+        // (before a throttled fetch has fired) would leave that fetch/crop
+        // running to completion against a state box nobody can ever render
+        // from again. Harmless (no crash), just wasted network/CPU work
+        // with no observer left.
+        .onDisappear {
+            scrubThumbnailTask?.cancel()
+        }
     }
 
-    /// Debounced scrub-thumbnail fetch, called from every `scrubberTrack`
-    /// drag tick — cancels any still-pending fetch and starts a fresh one,
-    /// same cancel-then-`Task.sleep`-then-check-cancellation shape
-    /// `SearchViewModel`'s search debounce uses, just much shorter (120ms
-    /// vs. its 350ms) since this is a local decode off already-buffered
-    /// segment bytes, not a network round trip. No-ops when
-    /// `supportsScrubThumbnails` is false, matching `scrubberTrack`'s own
-    /// gate on rendering the bubble at all.
+    /// How often `requestScrubThumbnail(at:)` allows a fetch to actually
+    /// fire during a continuous drag.
+    private static let scrubThumbnailThrottleInterval: TimeInterval = 0.12
+
+    /// Throttled scrub-thumbnail fetch, called from every `scrubberTrack`
+    /// drag tick. Deliberately a *throttle*, not a debounce (the shape this
+    /// replaced, matching `SearchViewModel`'s search-as-you-type debounce):
+    /// a debounce only fires once input goes quiet, which for a scrubber
+    /// drag means a sufficiently fast, sustained, continuous gesture could
+    /// in principle never let it fire at all until the finger actually
+    /// pauses. A throttle instead guarantees a fetch roughly every
+    /// `scrubThumbnailThrottleInterval` throughout continuous movement:
+    /// fires immediately if that long has already passed since the last
+    /// fetch *started* (not since the last tick — this is wall-clock time
+    /// via `lastScrubThumbnailFireDate`, unrelated to how often
+    /// `.onChanged` itself fires), otherwise schedules exactly one trailing
+    /// fetch for whenever the window is up. Every tick in between just
+    /// updates `pendingScrubSeconds`, which that already-scheduled fetch
+    /// reads when it actually runs — so a whole burst of ticks collapses
+    /// into a single fetch at the drag's *latest* position, not a stale
+    /// one from partway through the burst.
+    ///
+    /// No-ops when `supportsScrubThumbnails` is false, matching
+    /// `scrubberTrack`'s own gate on rendering the bubble at all.
     private func requestScrubThumbnail(at seconds: TimeInterval) {
         guard viewModel.supportsScrubThumbnails else { return }
-        scrubThumbnailTask?.cancel()
+        pendingScrubSeconds = seconds
+        guard scrubThumbnailTask == nil else { return }
+
+        let elapsed = lastScrubThumbnailFireDate.map { Date().timeIntervalSince($0) } ?? .greatestFiniteMagnitude
+        let delay = max(0, Self.scrubThumbnailThrottleInterval - elapsed)
         scrubThumbnailTask = Task {
-            try? await Task.sleep(for: .milliseconds(120))
-            guard !Task.isCancelled else { return }
-            let image = await viewModel.scrubThumbnail(atSeconds: seconds)
-            guard !Task.isCancelled else { return }
+            if delay > 0 {
+                try? await Task.sleep(for: .seconds(delay))
+            }
+            guard !Task.isCancelled else {
+                scrubThumbnailTask = nil
+                return
+            }
+            lastScrubThumbnailFireDate = Date()
+            let requested = pendingScrubSeconds ?? seconds
+            let image = await viewModel.scrubThumbnail(atSeconds: requested)
             // `nil` means "not available yet", not "no thumbnail exists" —
-            // see `PlaybackEngine.scrubThumbnail(atSeconds:maxWidth:)`'s doc
-            // comment — so only a successful result overwrites what's
-            // already showing.
-            if let image {
+            // see `TrickplayThumbnailProvider`'s doc comment — so only a
+            // successful result overwrites what's already showing.
+            if !Task.isCancelled, let image {
                 scrubThumbnailImage = image
             }
+            scrubThumbnailTask = nil
         }
     }
 

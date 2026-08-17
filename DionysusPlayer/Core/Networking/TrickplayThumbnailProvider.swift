@@ -63,12 +63,33 @@ enum TrickplayMath {
 /// same sheet after the first are a synchronous crop — `RemoteImageLoader`
 /// caches the whole sheet by URL, no repeat fetch.
 struct TrickplayThumbnailProvider {
+    /// A tile sheet decodes to roughly `bytesPerRow × height` in memory —
+    /// for the 3200×1800 sheets confirmed live against a real server
+    /// (10×10 grid of 320×180 tiles), that's ~23MB *each*, versus
+    /// `RemoteImageLoader.defaultTotalCostLimit`'s 150MB shared budget for
+    /// every poster/backdrop/logo app-wide. A scrub session touching just a
+    /// handful of sheets could otherwise fill that whole shared cache on
+    /// its own and evict images the rest of the app depends on for instant
+    /// redisplay — confirmed by reading `RemoteImageLoader
+    /// .estimatedByteCost(of:)`, which costs by decoded size, not file
+    /// size. This budget is deliberately smaller (room for several sheets,
+    /// not dozens) and, more importantly, on its own dedicated instance
+    /// (see `imageLoader` below) rather than shared at all.
+    private static let dedicatedCacheCostLimit = 80 * 1024 * 1024
+
     let itemID: String
     let info: TrickplayInfo
     let imageURLBuilder: ImageURLBuilder
-    /// Injectable for tests (a `MockURLProtocol`-backed instance); defaults
-    /// to the app-wide singleton every other image fetch in the app uses.
-    var imageLoader: RemoteImageLoader = .shared
+    /// A dedicated instance, not `RemoteImageLoader.shared` — see
+    /// `dedicatedCacheCostLimit`'s doc comment for why sharing the app-wide
+    /// poster/backdrop cache is the wrong call for these unusually large
+    /// images. Constructed fresh (this is a `var` property default,
+    /// re-evaluated per instance) each time `PlayerViewModel.start()`
+    /// builds a provider, so it — and whatever it's cached — is scoped to
+    /// and released with that player session, rather than lingering under
+    /// the shared cache's LRU policy after the player closes. Injectable
+    /// for tests (a `MockURLProtocol`-backed instance).
+    var imageLoader: RemoteImageLoader = RemoteImageLoader(totalCostLimit: TrickplayThumbnailProvider.dedicatedCacheCostLimit)
 
     func thumbnail(atSeconds seconds: Double) async -> CGImage? {
         guard let frame = TrickplayMath.frame(atSeconds: seconds, info: info),

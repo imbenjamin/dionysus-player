@@ -40,7 +40,11 @@ actor JellyfinAPIClient {
     // in `Fields`, the server omits `BaseItemDto.studios` entirely (same
     // reason `Genres` is already listed here rather than assumed default).
     private static let defaultFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,BasicSyncInfo"
-    private static let detailFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,MediaSources,People,Taglines,BasicSyncInfo,Trickplay"
+    private static let detailFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,MediaSources,People,Taglines,BasicSyncInfo"
+    /// `detailFields` plus `Trickplay` — `PlayerViewModel.start()`'s own
+    /// item fetch passes this explicitly (see `item(userID:itemID:fields:)`'s
+    /// doc comment for why `detailFields` itself doesn't carry this).
+    static let detailFieldsWithTrickplay = detailFields + ",Trickplay"
 
     func userViews(userID: String) async throws -> BaseItemDtoQueryResult {
         try await get("/Users/\(userID)/Views")
@@ -157,8 +161,16 @@ actor JellyfinAPIClient {
         return try await get("/Persons", query: query)
     }
 
-    func item(userID: String, itemID: String) async throws -> BaseItemDto {
-        try await get("/Users/\(userID)/Items/\(itemID)", query: [.init(name: "Fields", value: Self.detailFields)])
+    /// `fields` overridable, same shape/reasoning as `items(...)`'s own
+    /// `fields:` param — a caller that needs more than `detailFields`
+    /// (e.g. `PlayerViewModel.start()`, which also wants `Trickplay`) can
+    /// ask for it without widening the default every other caller of this
+    /// method pays for too. `AssetDetailViewModel` alone calls this at
+    /// several sites, some of them polling loops that fire repeatedly —
+    /// none of them need trickplay data, so `detailFields` itself stays
+    /// lean.
+    func item(userID: String, itemID: String, fields: String = detailFields) async throws -> BaseItemDto {
+        try await get("/Users/\(userID)/Items/\(itemID)", query: [.init(name: "Fields", value: fields)])
     }
 
     func resumeItems(userID: String, limit: Int = 12) async throws -> BaseItemDtoQueryResult {

@@ -180,7 +180,12 @@ final class PlayerViewModel {
     func start() async {
         do {
             let images = await client.makeImageURLBuilder()
-            let dto = try await client.item(userID: userID, itemID: itemID)
+            // `detailFieldsWithTrickplay`, not the plain default — this is
+            // the one caller of `item(userID:itemID:)` that actually needs
+            // `Trickplay` (for `trickplayProvider` below); see that
+            // parameter's own doc comment for why the shared default
+            // doesn't carry it for every other caller too.
+            let dto = try await client.item(userID: userID, itemID: itemID, fields: JellyfinAPIClient.detailFieldsWithTrickplay)
             let mediaItem = MediaItem(dto: dto, images: images)
             item = mediaItem
             // Title/subtitle land immediately so the lock screen/Control
