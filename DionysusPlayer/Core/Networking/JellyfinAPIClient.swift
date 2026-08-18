@@ -24,6 +24,19 @@ actor JellyfinAPIClient {
         try await get("/System/Info/Public")
     }
 
+    /// Jellyfin's lightweight, purpose-built liveness endpoint (`GET
+    /// /health` — plain "Healthy" text, not JSON) — used for the app's own
+    /// connectivity probes (see `DionysusPlayerApp`'s scenePhase-driven
+    /// resume check) rather than `publicSystemInfo()` above, which fetches
+    /// and JSON-decodes a full payload just to prove reachability.
+    /// Unauthenticated, same as `publicSystemInfo()`. The result is
+    /// discarded by callers — the point is `sendRaw`'s side effect on
+    /// `ConnectivityMonitor`, not anything in the response body.
+    func healthCheck() async throws {
+        let request = try makeRequest(path: "/health", method: "GET")
+        _ = try await sendRaw(request)
+    }
+
     // MARK: - Auth
 
     @discardableResult
@@ -542,10 +555,48 @@ actor JellyfinAPIClient {
         }
     }
 
+    /// `.shared`'s default `timeoutIntervalForRequest` is 60s — fine
+    /// generally, but far too slow for offline detection: when *some*
+    /// network path exists (cellular, a different Wi-Fi network, ...) but
+    /// it can't actually route to a LAN-only server, the OS attempts a
+    /// real connection and only gives up after the full timeout elapses,
+    /// which read as an indefinite hang (the launch splash screen never
+    /// resolving — confirmed live, 2026-08-18) rather than a prompt
+    /// "you're offline". Enforced here via an explicit race against
+    /// `Task.sleep`, deliberately *not* by swapping in a session with a
+    /// shorter `timeoutIntervalForRequest` — that broke every test that
+    /// builds its `JellyfinAPIClient` internally (`AppState`/
+    /// `LoginViewModel`/`ServerSetupViewModel`) and relies on
+    /// `URLProtocol.registerClass` hooking `.shared` specifically; a
+    /// freshly constructed session doesn't pick up that registration.
+    /// Matches `RemoteImageLoader`'s own 20s session timeout for
+    /// consistency — short enough to fail fast, long enough not to
+    /// misfire on a real but momentarily slow/loaded local server.
+    private static let requestTimeout: TimeInterval = 20
+
     @discardableResult
     private func sendRaw(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await session.data(for: request)
+        let session = self.session
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await withThrowingTaskGroup(of: (Data, URLResponse).self) { group in
+                group.addTask { try await session.data(for: request) }
+                group.addTask {
+                    try await Task.sleep(for: .seconds(Self.requestTimeout))
+                    throw URLError(.timedOut)
+                }
+                defer { group.cancelAll() }
+                return try await group.next()!
+            }
+        } catch let urlError as URLError where urlError.indicatesOffline {
+            await ConnectivityMonitor.shared.reportFailure()
+            throw urlError
+        }
         guard let http = response as? HTTPURLResponse else { throw JellyfinAPIError.invalidResponse }
+        // Reaching a real HTTP response — success or an error status — means
+        // the server was reachable, so this is what clears offline state.
+        await ConnectivityMonitor.shared.reportSuccess()
         guard (200..<300).contains(http.statusCode) else {
             throw JellyfinAPIError.http(status: http.statusCode, message: String(data: data, encoding: .utf8))
         }

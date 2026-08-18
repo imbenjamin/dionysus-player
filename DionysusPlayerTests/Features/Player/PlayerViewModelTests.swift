@@ -180,6 +180,40 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(engine.playCallCount, 1)
     }
 
+    /// The connectivity-loss retry path (`PlayerView`'s offline overlay)
+    /// passes the last known `currentTime` here to resume in place — it
+    /// should win over both the server's own last-known resume position
+    /// and `startFromBeginning`, since this is recovering an
+    /// already-started session, not an intentional "play from the top".
+    func test_start_withResumeSecondsOverride_seeksThereIgnoringStartFromBeginningAndServerResumePosition() async {
+        let (viewModel, engine) = makeViewModel(startFromBeginning: true)
+        let dto = BaseItemDto(
+            id: "item-1", name: "Arrival", type: .movie,
+            runTimeTicks: 100 * 10_000_000, userData: UserItemDataDto(playbackPositionTicks: 30 * 10_000_000)
+        )
+        stubStart(itemDto: dto)
+
+        await viewModel.start(resumeSeconds: 42)
+
+        XCTAssertEqual(engine.seekedTimes, [42])
+        XCTAssertEqual(engine.playCallCount, 1)
+    }
+
+    /// A retry (from either the generic error overlay or the offline
+    /// screen) must not leave a stale error message on screen once
+    /// `start()` succeeds again.
+    func test_start_clearsAnyPreviousErrorMessage() async {
+        let (viewModel, engine) = makeViewModel()
+        engine.onStateChange?(.failed("boom"))
+        XCTAssertNotNil(viewModel.errorMessage)
+        let dto = BaseItemDto(id: "item-1", name: "Arrival", type: .movie)
+        stubStart(itemDto: dto)
+
+        await viewModel.start()
+
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
     func test_start_startFromBeginning_skipsSeekEvenWithAResumePosition() async {
         let (viewModel, engine) = makeViewModel(startFromBeginning: true)
         let dto = BaseItemDto(
@@ -575,6 +609,26 @@ final class PlayerViewModelTests: XCTestCase {
         engine.onTimeUpdate?(12, 120)
         XCTAssertEqual(viewModel.currentTime, 12)
         XCTAssertEqual(viewModel.duration, 120)
+    }
+
+    /// Previously a terminal engine failure was silent: `state` updated,
+    /// but nothing derived `errorMessage` from it, so `PlayerView`'s error
+    /// overlay (which only ever reads `errorMessage`) never appeared —
+    /// the video just froze with no spinner and no message. This pins the
+    /// fix: a `.failed` state reaching `onStateChange` — not just a thrown
+    /// error from `start()` — must populate `errorMessage` too.
+    /// `ConnectivityMonitor.shared.isOffline` at that same moment is what
+    /// `PlayerView` separately reads to decide between the shared offline
+    /// screen and the generic error view — a SwiftUI view concern, so it's
+    /// not re-asserted here.
+    func test_engineFailedState_setsErrorMessage() {
+        let (viewModel, engine) = makeViewModel()
+        XCTAssertNil(viewModel.errorMessage)
+
+        engine.onStateChange?(.failed("Source read failed (code 5)"))
+
+        XCTAssertEqual(viewModel.state, .failed("Source read failed (code 5)"))
+        XCTAssertEqual(viewModel.errorMessage, "Source read failed (code 5)")
     }
 
     func test_pictureInPictureCallbacks_updateViewModelState() {

@@ -820,22 +820,28 @@ struct PlayerControlsOverlay: View {
     /// showing a state that isn't actually available yet (tapping play
     /// mid-buffer did nothing perceptible, which read as broken rather than
     /// "in progress"). Covers the initial buffer on load/resume
-    /// (`.loading`), an in-progress scrub (`.seeking`), and a stall that
-    /// isn't tied to either — a mid-playback rebuffer or a dropped/retrying
-    /// source connection, both bridged into `.buffering` by
-    /// `AetherPlaybackEngine` (see its doc comment there for why those two
-    /// needed a case of their own rather than just watching `.playing`).
+    /// (`.loading`), an in-progress scrub (`.seeking`), an ordinary
+    /// mid-playback rebuffer (`.buffering`), and a dropped/retrying source
+    /// connection (`.reconnecting` — labeled distinctly below, rather than
+    /// reading as an unexplained generic stall).
     @ViewBuilder
     private var transportControls: some View {
         if isBuffering {
-            ProgressView()
-                .progressViewStyle(.circular)
-                .tint(.white)
-                .scaleEffect(1.6)
-                // Matches the play/pause button's own `.font(.system(size:
-                // 44))` footprint, so nothing else in the layout shifts
-                // when this swaps in and out.
-                .frame(height: 44)
+            VStack(spacing: 8) {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .tint(.white)
+                    .scaleEffect(1.6)
+                if viewModel.state == .reconnecting {
+                    Text("Reconnecting…")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+            }
+            // Matches the play/pause button's own `.font(.system(size:
+            // 44))` footprint, so nothing else in the layout shifts
+            // when this swaps in and out.
+            .frame(height: 44)
         } else {
             HStack(spacing: 40) {
                 Button {
@@ -865,7 +871,8 @@ struct PlayerControlsOverlay: View {
     }
 
     private var isBuffering: Bool {
-        viewModel.state == .loading || viewModel.state == .seeking || viewModel.state == .buffering
+        viewModel.state == .loading || viewModel.state == .seeking
+            || viewModel.state == .buffering || viewModel.state == .reconnecting
     }
 
     /// Logo preferred, pinned top-left — the same "logo over text-title

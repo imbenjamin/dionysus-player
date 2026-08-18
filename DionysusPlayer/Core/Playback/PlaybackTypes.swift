@@ -10,20 +10,24 @@ enum PlaybackState: Equatable {
     case playing
     case paused
     case seeking
-    /// Frames have stopped advancing for a reason that isn't a user-driven
-    /// seek — a mid-playback buffer underrun on an otherwise-healthy
-    /// connection, or the source connection itself dropping and retrying.
-    /// Bridged from AetherEngine's `PlaybackPhase.rebuffering` and
-    /// `.stalled(reconnecting:)` — see `AetherPlaybackEngine.observeEngine()`
-    /// — both of which AetherEngine can report while its own underlying
-    /// `state` is still `.playing`, so watching `state` alone (as this app
-    /// briefly did) missed them entirely: a scrub-seek landing into a spot
-    /// that then needs to rebuffer looked like it had silently paused, with
-    /// no spinner, rather than reading as still loading. Collapsed into one
-    /// case here since the UI treats both the same way (a spinner); nothing
-    /// downstream currently needs to distinguish "buffering" from "network
-    /// retrying".
+    /// Frames have stopped advancing because of an ordinary mid-playback
+    /// buffer underrun on an otherwise-healthy connection. Bridged from
+    /// AetherEngine's `PlaybackPhase.rebuffering` — see
+    /// `AetherPlaybackEngine.observeEngine()` — which AetherEngine can
+    /// report while its own underlying `state` is still `.playing`, so
+    /// watching `state` alone (as this app briefly did) missed it entirely:
+    /// a scrub-seek landing into a spot that then needs to rebuffer looked
+    /// like it had silently paused, with no spinner, rather than reading as
+    /// still loading.
     case buffering
+    /// Frames have stopped advancing because the source *connection*
+    /// itself dropped and AetherEngine is actively retrying — distinct
+    /// from `.buffering`'s healthy-connection underrun so the UI can show
+    /// "Reconnecting…" instead of a generic spinner, and so a subsequent
+    /// terminal `.failed` reads as "the reconnect attempt gave up" rather
+    /// than an unrelated surprise. Bridged from AetherEngine's
+    /// `PlaybackPhase.stalled(reconnecting:)`.
+    case reconnecting
     case ended
     case failed(String)
 }

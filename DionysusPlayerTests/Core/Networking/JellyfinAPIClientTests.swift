@@ -7,11 +7,15 @@ import XCTest
 /// `MockURLProtocol`, which is the same seam the app itself would use to
 /// point at a real server — so what's under test is the real request
 /// building, auth header, and decoding logic, not a reimplementation of it.
+@MainActor
 final class JellyfinAPIClientTests: XCTestCase {
     private let baseURL = URL(string: "https://jellyfin.example.com")!
 
     override func tearDown() {
         MockURLProtocol.reset()
+        // Process-wide singleton, same cross-test-pollution risk
+        // `MockURLProtocol.reset()` above already guards against.
+        ConnectivityMonitor.shared.reset()
         super.tearDown()
     }
 
@@ -60,6 +64,65 @@ final class JellyfinAPIClientTests: XCTestCase {
         } catch {
             XCTFail("Expected JellyfinAPIError.http, got \(error)")
         }
+    }
+
+    // MARK: ConnectivityMonitor reporting
+
+    func test_transportFailure_reportsOffline() async {
+        let client = makeClient()
+        MockURLProtocol.requestHandler = { _ in throw URLError(.cannotConnectToHost) }
+
+        do {
+            _ = try await client.publicSystemInfo()
+            XCTFail("Expected the transport error to propagate")
+        } catch {
+            // expected — URLError propagates unwrapped, see sendRaw's doc comment
+        }
+        XCTAssertTrue(ConnectivityMonitor.shared.isOffline)
+    }
+
+    /// A real HTTP response — success or an error status — means the
+    /// server was reachable, so it must never be treated as offline.
+    func test_httpErrorResponse_doesNotReportOffline() async {
+        let client = makeClient()
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+        }
+
+        do {
+            _ = try await client.publicSystemInfo()
+            XCTFail("Expected the HTTP error to propagate")
+        } catch {
+            // expected
+        }
+        XCTAssertFalse(ConnectivityMonitor.shared.isOffline)
+    }
+
+    func test_healthCheck_hitsHealthEndpointUnauthenticated() async throws {
+        let client = makeClient()
+        var capturedRequest: URLRequest?
+        MockURLProtocol.requestHandler = { request in
+            capturedRequest = request
+            return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("Healthy".utf8))
+        }
+
+        try await client.healthCheck()
+
+        XCTAssertEqual(capturedRequest?.url?.path, "/health")
+        XCTAssertEqual(capturedRequest?.httpMethod, "GET")
+    }
+
+    func test_successfulResponse_afterAPriorFailure_clearsOffline() async {
+        let client = makeClient()
+        MockURLProtocol.requestHandler = { _ in throw URLError(.notConnectedToInternet) }
+        _ = try? await client.publicSystemInfo()
+        XCTAssertTrue(ConnectivityMonitor.shared.isOffline)
+
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: PublicSystemInfo())
+        }
+        _ = try? await client.publicSystemInfo()
+        XCTAssertFalse(ConnectivityMonitor.shared.isOffline)
     }
 
     // MARK: Request construction

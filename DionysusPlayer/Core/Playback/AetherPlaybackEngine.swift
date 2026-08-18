@@ -137,10 +137,13 @@ final class AetherPlaybackEngine: PlaybackEngine {
         // the buffering spinner never appearing when a scrub landed
         // somewhere that then needed to rebuffer: `state` stayed `.playing`
         // throughout, so `isBuffering` in `PlayerControlsOverlay` (which
-        // only ever saw this bridged value) had nothing to key off. Folding
-        // both into `.buffering` here means every AetherEngine surface that
-        // isn't genuinely playing/paused/seeking now reaches the host as
-        // *something* other than a silently-stuck `.playing`.
+        // only ever saw this bridged value) had nothing to key off.
+        // `.rebuffering` and `.stalled` are bridged to *separate* app-level
+        // states (`.buffering` vs. `.reconnecting`) rather than folded
+        // together, so the UI can tell a healthy buffer underrun apart from
+        // an actual dropped source connection — and so PlayerViewModel can
+        // consult `ConnectivityMonitor` specifically when a `.reconnecting`
+        // spell ends in `.failed`, not when an ordinary rebuffer does.
         engine.$playbackPhase
             .receive(on: DispatchQueue.main)
             .sink { [weak self] phase in
@@ -151,7 +154,8 @@ final class AetherPlaybackEngine: PlaybackEngine {
                 case .playing:           bridged = .playing
                 case .paused:            bridged = .paused
                 case .seeking:           bridged = .seeking
-                case .rebuffering, .stalled: bridged = .buffering
+                case .rebuffering:       bridged = .buffering
+                case .stalled:           bridged = .reconnecting
                 case .ended:             bridged = .ended
                 case .error(let message): bridged = .failed(message)
                 }

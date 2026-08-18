@@ -1,10 +1,34 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "" : {
+
+    },
+    "-9:59:59" : {
+
+    },
     "%@:" : {
 
     },
+    "%lld" : {
+
+    },
     "3D Depth Effects" : {
+
+    },
+    "9:59:59" : {
+
+    },
+    "15s" : {
+
+    },
+    "30s (Default)" : {
+
+    },
+    "45s" : {
+
+    },
+    "60s" : {
 
     },
     "192.168.1.50:8096" : {
@@ -44,6 +68,9 @@
 
     },
     "Build" : {
+
+    },
+    "Can't reach your Jellyfin server. If it's on your local network, make sure you're connected to the same Wi-Fi." : {
 
     },
     "Cancel" : {
@@ -115,6 +142,9 @@
     "Display" : {
 
     },
+    "Done" : {
+
+    },
     "Enter a valid server address, like 192.168.1.50:8096." : {
 
     },
@@ -145,6 +175,9 @@
     "Genre" : {
 
     },
+    "Go to Settings" : {
+
+    },
     "Hearing Impaired" : {
 
     },
@@ -152,6 +185,9 @@
 
     },
     "Home" : {
+
+    },
+    "How long before the end of an episode to countdown the next episode, if end credits are not detected." : {
 
     },
     "Included In" : {
@@ -176,6 +212,9 @@
 
     },
     "Network" : {
+
+    },
+    "Next Episode Countdown" : {
 
     },
     "Next Up" : {
@@ -211,10 +250,16 @@
     "Password (optional)" : {
 
     },
+    "Picture in Picture" : {
+
+    },
     "Play" : {
 
     },
     "Play %@" : {
+
+    },
+    "Play Now" : {
 
     },
     "Playback" : {
@@ -224,6 +269,9 @@
 
     },
     "Playback position" : {
+
+    },
+    "Playing in Picture in Picture" : {
 
     },
     "Profile" : {
@@ -236,6 +284,9 @@
 
     },
     "Recently Added Shows" : {
+
+    },
+    "Reconnecting…" : {
 
     },
     "Release Date" : {
@@ -300,6 +351,21 @@
 
     },
     "Sign out of %@?" : {
+
+    },
+    "Skip Commercial" : {
+
+    },
+    "Skip Credits" : {
+
+    },
+    "Skip Intro" : {
+
+    },
+    "Skip Preview" : {
+
+    },
+    "Skip Recap" : {
 
     },
     "Something went wrong loading your library." : {
@@ -378,6 +444,9 @@
 
     },
     "You're not signed in." : {
+
+    },
+    "You're Offline" : {
 
     },
     "Your Server" : {

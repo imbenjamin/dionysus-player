@@ -27,6 +27,7 @@ final class AppStateTests: XCTestCase {
     override func tearDown() {
         URLProtocol.unregisterClass(MockURLProtocol.self)
         MockURLProtocol.reset()
+        ConnectivityMonitor.shared.reset()
         defaults.removePersistentDomain(forName: suiteName)
         KeychainStore.delete(forKey: credentialsKey)
         super.tearDown()
@@ -83,7 +84,25 @@ final class AppStateTests: XCTestCase {
 
         await appState.start()
 
+        // A real HTTP response (bad credentials) — not a connectivity
+        // failure — must still land on `.login`, not `.offline`.
         XCTAssertEqual(appState.phase, .login)
+    }
+
+    /// Distinct from the test above: the server couldn't be reached at all
+    /// (a `URLError`, not an HTTP response), so this should land on the new
+    /// `.offline` phase instead of `.login` — see `Phase.offline`'s doc
+    /// comment for why the two are kept separate.
+    func test_start_serverUnreachable_goesToOffline() async {
+        let store = ServerSessionStore(defaults: defaults)
+        store.saveServer(exampleServer)
+        store.saveCredentials(StoredCredentials(username: "ben", password: "hunter2", accessToken: nil, userID: nil))
+        MockURLProtocol.requestHandler = { _ in throw URLError(.cannotConnectToHost) }
+        let appState = AppState(sessionStore: store)
+
+        await appState.start()
+
+        XCTAssertEqual(appState.phase, .offline)
     }
 
     // MARK: completeServerSetup / signIn / signOut / changeServer

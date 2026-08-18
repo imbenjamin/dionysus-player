@@ -110,7 +110,7 @@ struct PlayerView: View {
     private var isSkipBuffering: Bool {
         guard isSkippingSegment else { return false }
         switch viewModel?.state {
-        case .loading, .seeking, .buffering: return true
+        case .loading, .seeking, .buffering, .reconnecting: return true
         default: return false
         }
     }
@@ -264,8 +264,21 @@ struct PlayerView: View {
                 PictureInPictureOverlay(isVisible: viewModel.isPictureInPictureActive)
 
                 if let errorMessage = viewModel.errorMessage {
-                    ErrorStateView(message: errorMessage) {
-                        Task { await viewModel.start() }
+                    // A terminal failure that coincides with the app already
+                    // being offline (the common case for a LAN drop — the
+                    // same outage kills `reportPlaybackProgress` too, which
+                    // is what keeps `ConnectivityMonitor` current) gets the
+                    // shared offline screen with a retry that resumes in
+                    // place; anything else (codec/DRM/other) keeps the
+                    // existing generic error UI, restarting via `start()`.
+                    if ConnectivityMonitor.shared.isOffline {
+                        OfflineStateView(retry: {
+                            Task { await viewModel.start(resumeSeconds: viewModel.currentTime) }
+                        })
+                    } else {
+                        ErrorStateView(message: errorMessage) {
+                            Task { await viewModel.start() }
+                        }
                     }
                 }
             } else {
@@ -276,7 +289,8 @@ struct PlayerView: View {
         .persistentSystemOverlays(.hidden)
         .task { await setUpIfNeeded() }
         // The controls only ever fade while `.playing` — every other state
-        // (paused, loading, seeking, buffering, ended, failed) both cancels
+        // (paused, loading, seeking, buffering, reconnecting, ended, failed)
+        // both cancels
         // any pending fade and forces them back on screen. That covers not
         // just "don't hide while paused", but also things like a mid-scrub
         // `.seeking`/`.buffering` spell landing right as a stale timer was

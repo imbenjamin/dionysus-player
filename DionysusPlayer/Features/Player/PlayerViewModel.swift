@@ -330,7 +330,21 @@ final class PlayerViewModel {
         self.trackPreferenceStore = trackPreferenceStore
         self.nextUpPreferenceStore = nextUpPreferenceStore
 
-        engine.onStateChange = { [weak self] state in self?.state = state }
+        engine.onStateChange = { [weak self] state in
+            guard let self else { return }
+            self.state = state
+            // A terminal engine failure used to be silent: `state` updated,
+            // but nothing derived `errorMessage` from it, so the video just
+            // froze on its last frame with no spinner and no message — the
+            // only place `.failed` was ever visible was the diagnostics-only
+            // "stats for nerds" overlay. `PlayerView`'s error overlay reads
+            // `errorMessage`, so it needs to actually be set here too, not
+            // just from `start()`'s own `catch`.
+            if case .failed(let message) = state {
+                self.progressReportTask?.cancel()
+                self.errorMessage = message
+            }
+        }
         engine.onTimeUpdate = { [weak self] time, duration in
             self?.currentTime = time
             self?.duration = duration
@@ -342,7 +356,13 @@ final class PlayerViewModel {
         engine.onPictureInPictureActiveChange = { [weak self] active in self?.isPictureInPictureActive = active }
     }
 
-    func start() async {
+    /// - Parameter resumeSeconds: When provided, seeks here after loading
+    ///   instead of consulting `mediaItem.resumePositionSeconds` (the
+    ///   server's last-known position, which may be stale/unrelated) —
+    ///   used to resume in place after a connectivity-loss retry, where
+    ///   the caller already knows exactly where playback stopped.
+    func start(resumeSeconds: TimeInterval? = nil) async {
+        errorMessage = nil
         do {
             let images = await client.makeImageURLBuilder()
             // `detailFieldsWithTrickplay`, not the plain default — this is
@@ -392,7 +412,14 @@ final class PlayerViewModel {
                 url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: atmosAudioTrackIndices
             )
             applyStoredTrackSelection()
-            if !startFromBeginning, let resumeSeconds = mediaItem.resumePositionSeconds, resumeSeconds > 0 {
+            // An explicit `resumeSeconds` (connectivity-loss retry, resuming
+            // exactly where playback stopped) always wins over the server's
+            // last-known resume position and ignores `startFromBeginning` —
+            // this is recovering an already-started session, not honoring
+            // an intentional "play from the top" request.
+            if let resumeSeconds, resumeSeconds > 0 {
+                await engine.seek(to: resumeSeconds)
+            } else if !startFromBeginning, let resumeSeconds = mediaItem.resumePositionSeconds, resumeSeconds > 0 {
                 await engine.seek(to: resumeSeconds)
             }
             engine.play()

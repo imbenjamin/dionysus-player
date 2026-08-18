@@ -38,6 +38,7 @@ struct DionysusPlayerApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState = AppState()
     @AppStorage(themePreferenceStorageKey) private var themePreference: ThemePreference = .system
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -46,6 +47,22 @@ struct DionysusPlayerApp: App {
                 .preferredColorScheme(themePreference.colorScheme)
                 .task {
                     await appState.start()
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    // Cheap unauthenticated reachability probe on every
+                    // foreground transition (covers both "resume" and
+                    // "return from background" — ScenePhase doesn't
+                    // distinguish them). `healthCheck()` — Jellyfin's own
+                    // purpose-built liveness endpoint — rather than
+                    // `publicSystemInfo()`, which fetches and decodes a
+                    // full JSON payload just to prove reachability. The
+                    // result is discarded either way; the point is
+                    // sendRaw's success/failure side effect on
+                    // ConnectivityMonitor. Firing again on the very first
+                    // activation alongside appState.start()'s own real
+                    // request is harmless.
+                    guard newPhase == .active, let client = appState.apiClient else { return }
+                    Task { try? await client.healthCheck() }
                 }
         }
     }

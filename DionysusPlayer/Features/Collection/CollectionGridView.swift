@@ -301,30 +301,38 @@ struct CollectionGridView: View {
 
     @ViewBuilder
     private func content(containerWidth: CGFloat) -> some View {
-        switch viewModel?.loadState ?? .loading {
-        case .idle, .loading:
-            LoadingView().frame(minHeight: 300)
-        case .failed(let message):
-            ErrorStateView(message: message) { Task { await viewModel?.load() } }
+        // Only short-circuits the "nothing to show yet" states — see
+        // HomeView's equivalent check for why already-loaded content must
+        // never be blanked out by a stale/background offline flag.
+        if ConnectivityMonitor.shared.isOffline, viewModel?.loadState != .loaded {
+            OfflineStateView(retry: { Task { await viewModel?.load() } })
                 .frame(minHeight: 300)
-        case .loaded:
-            let items = viewModel?.items ?? []
-            if items.isEmpty {
-                ErrorStateView(message: String(localized: "Nothing here yet."), retry: nil)
+        } else {
+            switch viewModel?.loadState ?? .loading {
+            case .idle, .loading:
+                LoadingView().frame(minHeight: 300)
+            case .failed(let message):
+                ErrorStateView(message: message) { Task { await viewModel?.load() } }
                     .frame(minHeight: 300)
-            } else {
-                VStack(alignment: .leading, spacing: 16) {
-                    filterRow
+            case .loaded:
+                let items = viewModel?.items ?? []
+                if items.isEmpty {
+                    ErrorStateView(message: String(localized: "Nothing here yet."), retry: nil)
+                        .frame(minHeight: 300)
+                } else {
+                    VStack(alignment: .leading, spacing: 16) {
+                        filterRow
 
-                    let filtered = viewModel?.filteredItems ?? []
-                    if filtered.isEmpty {
-                        ErrorStateView(message: String(localized: "No items match these filters."), retry: nil)
-                            .frame(minHeight: 200)
-                    } else {
-                        let metrics = PosterGridMetrics(containerWidth: containerWidth)
-                        LazyVGrid(columns: metrics.columns, spacing: 20) {
-                            ForEach(filtered) { item in
-                                PosterCard(item: item, width: metrics.itemWidth)
+                        let filtered = viewModel?.filteredItems ?? []
+                        if filtered.isEmpty {
+                            ErrorStateView(message: String(localized: "No items match these filters."), retry: nil)
+                                .frame(minHeight: 200)
+                        } else {
+                            let metrics = PosterGridMetrics(containerWidth: containerWidth)
+                            LazyVGrid(columns: metrics.columns, spacing: 20) {
+                                ForEach(filtered) { item in
+                                    PosterCard(item: item, width: metrics.itemWidth)
+                                }
                             }
                         }
                     }

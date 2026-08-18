@@ -47,9 +47,28 @@ struct AssetDetailView: View {
     /// so the real layout should already be showing rather than a spinner.
     /// Falls back to the loading/error placeholders only when there's truly
     /// nothing to show yet (no preload, fetch still in flight or failed).
+    ///
+    /// The offline check runs *first*, ahead of that preloaded-item branch,
+    /// specifically when `loadState != .loaded` — a preload only ever
+    /// carries the tapped card's shallow DTO (title/poster), not cast,
+    /// episode list, similar/collections, etc.; those only arrive once
+    /// `load()` (which `loadIfNeeded()` always still triggers even with a
+    /// preload — see that method's own doc comment) actually completes. If
+    /// that real fetch failed because the app is offline, showing the
+    /// preload anyway silently renders a half-populated page — a hero
+    /// image stuck failing to load and entire sections just missing, with
+    /// no indication why, and no way back to an offline screen at all
+    /// (confirmed live, 2026-08-18: tapping into an item from an
+    /// already-offline cached Home screen left the app stuck exactly like
+    /// this with no recovery). Once `loadState` does reach `.loaded`, this
+    /// check stops applying — matching every other screen's rule that
+    /// already-loaded content is never blanked out by a stale/background
+    /// offline flag.
     @ViewBuilder
     private var content: some View {
-        if let item = viewModel.item {
+        if ConnectivityMonitor.shared.isOffline, viewModel.loadState != .loaded {
+            OfflineStateView(retry: { Task { await viewModel.load() } })
+        } else if let item = viewModel.item {
             switch item.kind {
             case .series, .season, .episode:
                 // `.season`/`.episode` here covers the moment before
