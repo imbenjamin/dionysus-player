@@ -148,6 +148,33 @@ struct BackdropLogoOverlay: View {
                     x: -tiltX * Self.logoShadowRange, y: -tiltY * Self.logoShadowRange * 0.5 + 4
                 )
             }
+            // Root-causes a live-reproduced bug (2026-08-18): "the hero rail
+            // item is hard to tap; right-hand taps register as the *next*
+            // item instead." `AsyncRemoteImage`'s backdrop is `.resizable()
+            // .aspectRatio(contentMode: .fill)`, which — by definition of
+            // "fill" — lays out *larger* than the frame it's asked to cover
+            // whenever the source image's aspect ratio doesn't exactly match
+            // the container's; `.clipped()` above only crops what's
+            // *rendered*, not the view's actual layout geometry. Without an
+            // explicit shape, a `Button`/`NavigationLink` wrapping this
+            // infers its tappable region from that oversized, unclipped
+            // geometry rather than the visually clipped frame, so this
+            // view's real hit-test area came out roughly 1.9–2x its own
+            // width — confirmed via a live accessibility-tree dump on the
+            // hero rail, where every loaded page's reported frame was ~758pt
+            // wide against a 402pt page/screen width (one page still on its
+            // loading placeholder, with no aspect-filled image yet, measured
+            // correctly at 402pt in the same dump — isolating the backdrop
+            // image specifically). In a `HStack` of same-sized overlapping
+            // hittable regions, UIKit resolves the overlap to whichever
+            // sibling is later in hit-test order, which here was
+            // consistently the *next* page — matching the reported "right
+            // side taps the next item, left side taps this one" asymmetry.
+            // Pinning the tappable shape to this view's own laid-out bounds
+            // makes it exactly `.clipped()`'s frame, matching what's
+            // actually visible, regardless of what the backdrop image
+            // underneath does.
+            .contentShape(Rectangle())
     }
 
     private var tiltRotation: (angle: Angle, axis: (x: CGFloat, y: CGFloat, z: CGFloat)) {
