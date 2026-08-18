@@ -63,7 +63,7 @@ struct ProfileView: View {
             } header: {
                 Text("Playback")
             } footer: {
-                Text("How long the \u{201C}Up Next\u{201D} prompt counts down before automatically playing the next episode.")
+                Text("How long before the end of an episode to countdown the next episode, if end credits are not detected.")
             }
 
             Section {
