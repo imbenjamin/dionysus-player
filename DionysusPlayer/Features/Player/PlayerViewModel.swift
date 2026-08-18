@@ -91,6 +91,9 @@ final class PlayerViewModel {
     private let trackPreferenceStore: TrackPreferenceStore
     private let nextUpPreferenceStore: NextUpPreferenceStore
     private var progressReportTask: Task<Void, Never>?
+    /// Resolved in `start()` once `activeMediaSourceID` is known — see
+    /// `supportsScrubThumbnails`/`scrubThumbnail(atSeconds:)`.
+    private var trickplayProvider: TrickplayThumbnailProvider?
 
     var audioTracks: [PlaybackTrack] { engine.audioTracks }
     var subtitleTracks: [PlaybackTrack] { engine.subtitleTracks }
@@ -342,7 +345,12 @@ final class PlayerViewModel {
     func start() async {
         do {
             let images = await client.makeImageURLBuilder()
-            let dto = try await client.item(userID: userID, itemID: itemID)
+            // `detailFieldsWithTrickplay`, not the plain default — this is
+            // the one caller of `item(userID:itemID:)` that actually needs
+            // `Trickplay` (for `trickplayProvider` below); see that
+            // parameter's own doc comment for why the shared default
+            // doesn't carry it for every other caller too.
+            let dto = try await client.item(userID: userID, itemID: itemID, fields: JellyfinAPIClient.detailFieldsWithTrickplay)
             let mediaItem = MediaItem(dto: dto, images: images)
             item = mediaItem
             // Title/subtitle land immediately so the lock screen/Control
@@ -362,6 +370,10 @@ final class PlayerViewModel {
                 ?? playbackInfo.mediaSources?.first
             activeMediaSourceID = source?.id
             sourceVideoStream = source?.mediaStreams?.first { $0.type == "Video" }
+            if let mediaSourceID = activeMediaSourceID,
+               let info = TrickplayMath.bestInfo(from: mediaItem.dto.trickplay, mediaSourceID: mediaSourceID) {
+                trickplayProvider = TrickplayThumbnailProvider(itemID: itemID, info: info, imageURLBuilder: images)
+            }
 
             guard let url = await client.streamURL(itemID: itemID, mediaSourceID: source?.id, container: source?.container) else {
                 errorMessage = String(localized: "Couldn't build a playback URL for this item.")
@@ -600,6 +612,23 @@ final class PlayerViewModel {
 
     func startPictureInPicture() {
         engine.startPictureInPicture()
+    }
+
+    /// `true` once `start()` has resolved a Jellyfin trickplay track for
+    /// the active media source — `PlayerControlsOverlay` gates the
+    /// scrub-preview bubble on this, same "self-disable, don't show
+    /// broken" treatment `onPictureInPicturePossibleChange` gives the PiP
+    /// button. `false` for content Jellyfin hasn't scanned for trickplay
+    /// yet, same as before `start()` has resolved anything at all.
+    var supportsScrubThumbnails: Bool { trickplayProvider != nil }
+
+    /// Thin passthrough to `trickplayProvider.thumbnail(atSeconds:)` — see
+    /// `TrickplayThumbnailProvider`'s doc comment for the nil/"keep showing
+    /// the last still" contract callers should follow (rare here — a miss
+    /// only happens on a request/decode failure, not a "not resident yet"
+    /// case the way AetherEngine's cache-backed version had).
+    func scrubThumbnail(atSeconds seconds: Double) async -> CGImage? {
+        await trickplayProvider?.thumbnail(atSeconds: seconds)
     }
 
     /// Fetches `serverVersion` once and caches it — safe to call on every

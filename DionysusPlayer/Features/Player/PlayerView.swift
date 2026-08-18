@@ -204,7 +204,8 @@ struct PlayerView: View {
                     isPlaybackStatsVisible: showPlaybackStats,
                     onTogglePlaybackStats: { showPlaybackStats.toggle() },
                     onEnterPictureInPicture: { viewModel.startPictureInPicture() },
-                    onInteract: scheduleAutoHide
+                    onInteract: scheduleAutoHide,
+                    onDismissControls: dismissControls
                 )
                 .opacity(showControls ? 1 : 0)
                 // Disabled the instant `showControls` flips, not once the
@@ -415,6 +416,17 @@ struct PlayerView: View {
             guard !Task.isCancelled else { return }
             withAnimation(Self.fadeOutAnimation) { showControls = false }
         }
+    }
+
+    /// A blank-space tap inside `PlayerControlsOverlay` while it's showing —
+    /// see `PlayerControlsOverlay.onDismissControls`'s doc comment. Same
+    /// fade `scheduleAutoHide()`'s timer branch uses, just triggered
+    /// immediately rather than waited out; cancels any pending auto-hide
+    /// countdown since there's nothing left for it to do once this has
+    /// already hidden the controls.
+    private func dismissControls() {
+        autoHideTask?.cancel()
+        withAnimation(Self.fadeOutAnimation) { showControls = false }
     }
 
     private func setUpIfNeeded() async {

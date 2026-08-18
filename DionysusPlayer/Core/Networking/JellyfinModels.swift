@@ -87,6 +87,15 @@ struct BaseItemDto: Codable, Identifiable {
     // Images
     var imageTags: [String: String]?
     var backdropImageTags: [String]?
+    /// Server-generated scrub-preview tile sheets — outer key is the
+    /// `MediaSourceInfo.id` these thumbnails cover (a single item can have
+    /// multiple versions/sources), inner key is a tile width in pixels as a
+    /// string (e.g. `"320"`; a server can offer more than one resolution).
+    /// Only populated when requested via `Fields=Trickplay`; `nil`/empty
+    /// for content Jellyfin hasn't scanned for trickplay yet. See
+    /// `TrickplayMath` for turning a scrub position into which tile of
+    /// which sheet to show.
+    var trickplay: [String: [String: TrickplayInfo]]?
     var parentBackdropItemId: String?
     var parentBackdropImageTags: [String]?
     /// Server-resolved: the nearest ancestor that actually has a logo (e.g.
@@ -134,6 +143,21 @@ struct NameGuidPair: Codable, Hashable {
 extension BaseItemDto: Equatable, Hashable {
     static func == (lhs: BaseItemDto, rhs: BaseItemDto) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
+/// One resolution of a Jellyfin server-generated trickplay track — a still
+/// every `interval` ms across the item's full runtime, packed into
+/// `tileWidth × tileHeight`-still tile-sheet JPEGs (row-major from the
+/// top-left). See `TrickplayMath` for the seconds → sheet/tile lookup, and
+/// `BaseItemDto.trickplay` for how these are keyed.
+struct TrickplayInfo: Codable, Equatable {
+    var width: Int
+    var height: Int
+    var tileWidth: Int
+    var tileHeight: Int
+    var thumbnailCount: Int
+    var interval: Int
+    var bandwidth: Int
 }
 
 struct UserItemDataDto: Codable {
