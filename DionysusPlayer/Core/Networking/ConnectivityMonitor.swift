@@ -23,10 +23,21 @@ final class ConnectivityMonitor {
     private init() {}
 
     func reportFailure() {
+        // `@Observable`'s change tracking fires on every assignment
+        // regardless of whether the value actually changes — since this
+        // runs on every single failed request app-wide, an unconditional
+        // write would re-invalidate (and recompute the `body` of) every
+        // screen that reads `isOffline` directly, for no observable change.
+        guard !isOffline else { return }
         isOffline = true
     }
 
     func reportSuccess() {
+        // Same reasoning as `reportFailure()` above, mirrored for the
+        // (far more common) success path — this runs on every successful
+        // request app-wide, including the playback-progress heartbeat that
+        // fires every 10s during video playback.
+        guard isOffline else { return }
         isOffline = false
     }
 

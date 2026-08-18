@@ -530,6 +530,9 @@ actor JellyfinAPIClient {
         // to be fresh — the default `useProtocolCachePolicy` was letting the
         // detail-page refresh after playback show stale progress.
         request.cachePolicy = .reloadIgnoringLocalCacheData
+        // Per-request override of `.shared`'s default 60s
+        // `timeoutIntervalForRequest` — see `requestTimeout`'s doc comment.
+        request.timeoutInterval = Self.requestTimeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(
             JellyfinAuthorization.headerValue(token: requiresAuth ? accessToken : nil),
@@ -562,33 +565,29 @@ actor JellyfinAPIClient {
     /// real connection and only gives up after the full timeout elapses,
     /// which read as an indefinite hang (the launch splash screen never
     /// resolving — confirmed live, 2026-08-18) rather than a prompt
-    /// "you're offline". Enforced here via an explicit race against
-    /// `Task.sleep`, deliberately *not* by swapping in a session with a
-    /// shorter `timeoutIntervalForRequest` — that broke every test that
-    /// builds its `JellyfinAPIClient` internally (`AppState`/
-    /// `LoginViewModel`/`ServerSetupViewModel`) and relies on
+    /// "you're offline". Enforced via `URLRequest.timeoutInterval`, set
+    /// per-request in `makeRequest` — that's honored by `URLSession`
+    /// regardless of which session dispatches the request, so this doesn't
+    /// need a session with a shorter `timeoutIntervalForRequest`, which
+    /// broke every test that builds its `JellyfinAPIClient` internally
+    /// (`AppState`/`LoginViewModel`/`ServerSetupViewModel`) and relies on
     /// `URLProtocol.registerClass` hooking `.shared` specifically; a
-    /// freshly constructed session doesn't pick up that registration.
-    /// Matches `RemoteImageLoader`'s own 20s session timeout for
-    /// consistency — short enough to fail fast, long enough not to
-    /// misfire on a real but momentarily slow/loaded local server.
+    /// freshly constructed session doesn't pick up that registration. (An
+    /// earlier version of this enforced the timeout via an explicit race
+    /// against `Task.sleep` in a `withThrowingTaskGroup` instead, for the
+    /// same reason — that worked too, but spun up an extra `Task` on every
+    /// single request in the app just to get a timeout `URLRequest` already
+    /// supports natively.) Matches `RemoteImageLoader`'s own 20s session
+    /// timeout for consistency — short enough to fail fast, long enough not
+    /// to misfire on a real but momentarily slow/loaded local server.
     private static let requestTimeout: TimeInterval = 20
 
     @discardableResult
     private func sendRaw(_ request: URLRequest) async throws -> Data {
-        let session = self.session
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await withThrowingTaskGroup(of: (Data, URLResponse).self) { group in
-                group.addTask { try await session.data(for: request) }
-                group.addTask {
-                    try await Task.sleep(for: .seconds(Self.requestTimeout))
-                    throw URLError(.timedOut)
-                }
-                defer { group.cancelAll() }
-                return try await group.next()!
-            }
+            (data, response) = try await session.data(for: request)
         } catch let urlError as URLError where urlError.indicatesOffline {
             await ConnectivityMonitor.shared.reportFailure()
             throw urlError
