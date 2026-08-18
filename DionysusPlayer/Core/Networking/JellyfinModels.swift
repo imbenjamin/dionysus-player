@@ -172,6 +172,41 @@ struct BaseItemDtoQueryResult: Codable {
     var totalRecordCount: Int
 }
 
+// MARK: - Media Segments
+
+/// Jellyfin's "Media Segments" feature (skippable Intro/Outro/Recap/Preview/
+/// Commercial time ranges). Requires a Jellyfin server new enough to support
+/// it — older servers just error on the endpoint, which
+/// `PlayerViewModel.loadMediaSegments(for:)` tolerates the same way it
+/// tolerates any other optional lookup failing.
+enum MediaSegmentType: String, Codable {
+    case intro = "Intro"
+    case outro = "Outro"
+    case recap = "Recap"
+    case preview = "Preview"
+    case commercial = "Commercial"
+    case unknown = "Unknown"
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        self = MediaSegmentType(rawValue: raw) ?? .unknown
+    }
+}
+
+struct MediaSegmentDto: Codable, Identifiable {
+    var id: String
+    var itemId: String
+    var type: MediaSegmentType
+    var startTicks: Int64
+    var endTicks: Int64
+}
+
+struct MediaSegmentDtoQueryResult: Codable {
+    var items: [MediaSegmentDto]
+    var totalRecordCount: Int
+}
+
 // MARK: - Playback
 
 struct PlaybackInfoRequest: Encodable {

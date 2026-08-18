@@ -72,6 +72,24 @@ struct PlayerView: View {
     /// Pending "fade the controls out" work item — armed by `scheduleAutoHide()`
     /// whenever playback is actually running, cancelled the moment it isn't.
     @State private var autoHideTask: Task<Void, Never>?
+    /// True from the moment `SkipSegmentOverlay`'s button is tapped until
+    /// playback resumes — suppresses the `viewModel?.state`
+    /// `.onChange` below from doing its normal "anything other than
+    /// `.playing` forces the main transport chrome back on screen" thing,
+    /// which a segment skip's own `.seeking`/`.buffering` spell would
+    /// otherwise trigger same as any other pause/stall. `SkipSegmentOverlay`
+    /// shows its own small spinner in the skipped button's place instead —
+    /// see `isSkipBuffering`.
+    @State private var isSkippingSegment = false
+    /// Invalidates a stale `isSkippingSegment` reset — see the safety-net
+    /// `Task` in `SkipSegmentOverlay`'s `onSkip` closure below for why one
+    /// exists at all (a very small skip might never visibly enter
+    /// `.seeking` before landing, the same gap `PlayerControlsOverlay`'s
+    /// scrubber documents) and why it needs a generation token: without
+    /// one, an in-flight timeout from an *earlier* skip could clear
+    /// suppression for a *later* one still in progress if the user tapped
+    /// Skip again within that window.
+    @State private var skipSegmentGeneration = 0
 
     /// `.compact` is iPhone's landscape signal (see `HeroRailView.isLandscape`
     /// for the same check/caveat: this stays `.regular` in both orientations
@@ -80,6 +98,22 @@ struct PlayerView: View {
     /// screen either way, unlike an iPhone in landscape).
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
+
+    /// Drives `SkipSegmentOverlay`'s spinner — `isSkippingSegment` alone
+    /// stays true for the whole suppression window (including once
+    /// playback has already resumed but the reset hasn't landed yet on some
+    /// intermediate render), so this also requires the engine to actually
+    /// be in a buffering-like state right now, matching
+    /// `PlayerControlsOverlay.isBuffering`'s own state list. Keeps the
+    /// spinner honest about "if necessary" — a skip that lands
+    /// near-instantly shouldn't flash one at all.
+    private var isSkipBuffering: Bool {
+        guard isSkippingSegment else { return false }
+        switch viewModel?.state {
+        case .loading, .seeking, .buffering: return true
+        default: return false
+        }
+    }
 
     /// How long the controls sit idle before fading, once armed. Only
     /// applies while playback is running — see `scheduleAutoHide()`.
@@ -199,6 +233,28 @@ struct PlayerView: View {
                     onCancel: { viewModel.dismissNextUp() }
                 )
 
+                // Same bottom-trailing slot as `NextUpOverlay`, same "always
+                // mounted" treatment — see `SkipSegmentOverlay`'s own doc
+                // comment for why the two never actually compete for it.
+                SkipSegmentOverlay(
+                    segment: viewModel.currentSkipSegment,
+                    isBuffering: isSkipBuffering,
+                    onSkip: { segment in
+                        isSkippingSegment = true
+                        skipSegmentGeneration += 1
+                        let generation = skipSegmentGeneration
+                        viewModel.skipSegment(segment)
+                        // Safety net: see `skipSegmentGeneration`'s doc
+                        // comment for why this is generation-guarded rather
+                        // than an unconditional reset.
+                        Task {
+                            try? await Task.sleep(for: .seconds(5))
+                            guard generation == skipSegmentGeneration else { return }
+                            isSkippingSegment = false
+                        }
+                    }
+                )
+
                 // Above the transport chrome (added after it in this ZStack)
                 // — while a PiP window has this session's picture, nothing
                 // underneath, controls included, is visible or meant to be
@@ -233,13 +289,23 @@ struct PlayerView: View {
         // `PictureInPictureOverlay`'s placeholder, with no interaction of
         // the PiP-active `onChange` below to hide it again since that one
         // only fires on a transition of `isPictureInPictureActive` itself.
+        //
+        // Also skipped while `isSkippingSegment` — a segment skip's own
+        // `.seeking`/`.buffering` spell shouldn't reveal the main transport
+        // chrome the same way a user-initiated pause/scrub does;
+        // `SkipSegmentOverlay` shows its own small spinner instead (see
+        // `isSkipBuffering`), and if the chrome happened to already be
+        // visible when Skip was tapped, this just leaves it exactly as it
+        // was rather than touching it either way.
         .onChange(of: viewModel?.state) { _, newState in
             guard viewModel?.isPictureInPictureActive != true else { return }
             guard newState == .playing else {
+                guard !isSkippingSegment else { return }
                 autoHideTask?.cancel()
                 withAnimation(Self.fadeInAnimation) { showControls = true }
                 return
             }
+            isSkippingSegment = false
             scheduleAutoHide()
         }
         // Zoom is a landscape-only affordance — leaving landscape with

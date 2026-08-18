@@ -64,8 +64,14 @@ final class PlayerViewModelTests: XCTestCase {
 
     /// Standard item/playbackInfo/session-start stubbing shared by most
     /// `start()` tests; `itemDto` varies per test (e.g. to add a resume
-    /// position), everything else is boilerplate.
-    private func stubStart(itemID: String = "item-1", itemDto: BaseItemDto, mediaSources: [MediaSourceInfo]? = nil) {
+    /// position), everything else is boilerplate. Includes `/MediaSegments/
+    /// {itemID}` (empty, unless overridden — see `mediaSegments`) since
+    /// `start()` now fires that fire-and-forget alongside every other
+    /// request here, same as `/Sessions/Playing`.
+    private func stubStart(
+        itemID: String = "item-1", itemDto: BaseItemDto, mediaSources: [MediaSourceInfo]? = nil,
+        mediaSegments: [MediaSegmentDto] = []
+    ) {
         MockURLProtocol.requestHandler = { request in
             switch request.url?.path {
             case "/Users/user-1/Items/\(itemID)":
@@ -74,6 +80,10 @@ final class PlayerViewModelTests: XCTestCase {
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaybackInfoResponse(mediaSources: mediaSources, playSessionId: "sess-1"))
             case "/Sessions/Playing":
                 return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+            case "/MediaSegments/\(itemID)":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: MediaSegmentDtoQueryResult(items: mediaSegments, totalRecordCount: mediaSegments.count)
+                )
             default:
                 XCTFail("unexpected request to \(request.url?.path ?? "?")")
                 return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
@@ -122,6 +132,8 @@ final class PlayerViewModelTests: XCTestCase {
             case "/Sessions/Playing":
                 reportedStartMediaSourceId = try JSONDecoder().decode(DecodedProgressBody.self, from: request.capturedHTTPBody ?? Data()).MediaSourceId
                 return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+            case "/MediaSegments/item-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: MediaSegmentDtoQueryResult(items: [], totalRecordCount: 0))
             default:
                 XCTFail("unexpected request to \(request.url?.path ?? "?")")
                 return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
@@ -686,7 +698,9 @@ final class PlayerViewModelTests: XCTestCase {
     /// same as `stubStart`) plus the `nextEpisode(...)` lookup's own
     /// `/Shows/.../Episodes` request — everything `loadNextEpisode(for:
     /// images:)` needs to resolve `nextEpisode` for a two-episode season.
-    private func stubStartWithNextEpisode(itemID: String = "ep-1", nextEpisodeID: String = "ep-2") {
+    private func stubStartWithNextEpisode(
+        itemID: String = "ep-1", nextEpisodeID: String = "ep-2", mediaSegments: [MediaSegmentDto] = []
+    ) {
         let itemDto = BaseItemDto(
             id: itemID, name: "Episode One", type: .episode, runTimeTicks: 100 * 10_000_000,
             seriesId: "series-1", seasonId: "season-1", indexNumber: 1
@@ -703,6 +717,10 @@ final class PlayerViewModelTests: XCTestCase {
             case "/Shows/series-1/Episodes":
                 return try MockURLProtocol.encodedJSONResponse(
                     for: request, value: BaseItemDtoQueryResult(items: [itemDto, nextEpisodeDto], totalRecordCount: 2)
+                )
+            case "/MediaSegments/\(itemID)":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: MediaSegmentDtoQueryResult(items: mediaSegments, totalRecordCount: mediaSegments.count)
                 )
             default:
                 XCTFail("unexpected request to \(request.url?.path ?? "?")")
@@ -748,6 +766,21 @@ final class PlayerViewModelTests: XCTestCase {
 
         engine.onTimeUpdate?(295, 300) // 5s from the end — inside it
         XCTAssertEqual(viewModel.nextUpSecondsRemaining, 5)
+    }
+
+    /// Same truncation fix as the end-credits-segment case (see
+    /// `test_nextUpSecondsRemaining_fractionalRemaining_truncatesRatherThanRoundsUp_matchingScrubberLabel`) —
+    /// this duration-relative branch went through the identical
+    /// `.rounded(.up)` → `Int(remaining)` change.
+    func test_nextUpSecondsRemaining_fractionalRemaining_noEndCreditsSegment_alsoTruncates() async {
+        let (viewModel, engine) = makeViewModel(itemID: "ep-1")
+        stubStartWithNextEpisode()
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+
+        engine.onTimeUpdate?(293.6, 300) // 6.4s from the end
+        XCTAssertEqual(viewModel.nextUpSecondsRemaining, 6, "Should truncate, not round up to 7")
     }
 
     /// Pins a live bug (2026-08-17): `nextUpSecondsRemaining` used to
@@ -826,5 +859,233 @@ final class PlayerViewModelTests: XCTestCase {
 
         engine.onPictureInPictureActiveChange?(false)
         XCTAssertEqual(viewModel.nextUpSecondsRemaining, 5)
+    }
+
+    // MARK: Skippable segments
+
+    func test_start_loadsMediaSegments() async {
+        let (viewModel, _) = makeViewModel()
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")],
+            mediaSegments: [
+                MediaSegmentDto(id: "seg-intro", itemId: "item-1", type: .intro, startTicks: 0, endTicks: 60 * 10_000_000)
+            ]
+        )
+
+        await viewModel.start()
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+
+        XCTAssertEqual(viewModel.mediaSegments.first?.kind, .intro)
+    }
+
+    func test_currentSkipSegment_returnsSegmentContainingCurrentTime_elseNil() async {
+        let (viewModel, engine) = makeViewModel()
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")],
+            mediaSegments: [
+                MediaSegmentDto(id: "seg-intro", itemId: "item-1", type: .intro, startTicks: 0, endTicks: 60 * 10_000_000)
+            ]
+        )
+
+        await viewModel.start()
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+
+        engine.onTimeUpdate?(30, 300) // inside the intro
+        XCTAssertEqual(viewModel.currentSkipSegment?.kind, .intro)
+
+        engine.onTimeUpdate?(90, 300) // past it
+        XCTAssertNil(viewModel.currentSkipSegment)
+    }
+
+    /// Jellyfin has no separate "opening credits" vs. "closing credits"
+    /// segment type — an item with a mid-content credits roll *and* true
+    /// end credits reports two `.outro` segments. Only the later one is
+    /// "the end credits"; the earlier one still gets a plain skip button,
+    /// even with a resolved `nextEpisode`.
+    func test_currentSkipSegment_multipleOutroSegments_onlyTheLastDefersToNextUp() async {
+        let (viewModel, engine) = makeViewModel(itemID: "ep-1")
+        stubStartWithNextEpisode(mediaSegments: [
+            MediaSegmentDto(id: "seg-outro-early", itemId: "ep-1", type: .outro, startTicks: 100 * 10_000_000, endTicks: 110 * 10_000_000),
+            MediaSegmentDto(id: "seg-outro-end", itemId: "ep-1", type: .outro, startTicks: 290 * 10_000_000, endTicks: 300 * 10_000_000)
+        ])
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+
+        engine.onTimeUpdate?(105, 300) // inside the earlier, non-terminal outro
+        XCTAssertEqual(viewModel.currentSkipSegment?.id, "seg-outro-early", "An earlier Outro segment isn't the end credits and should still show a plain skip button")
+
+        engine.onTimeUpdate?(295, 300) // inside the true end credits
+        XCTAssertNil(viewModel.currentSkipSegment, "The end-credits segment defers to the Up Next card instead of showing its own skip button")
+        XCTAssertEqual(viewModel.nextUpSecondsRemaining, 5)
+    }
+
+    /// Confirmed with the user (2026-08-17): the end-credits segment's own
+    /// start time fully replaces the duration-relative Up Next trigger —
+    /// even when the segment starts *later* than the configured preference
+    /// window would have fired on its own, nothing shows until the segment
+    /// itself starts.
+    func test_nextUpSecondsRemaining_endCreditsSegment_startsLaterThanPreferenceWindow_waitsForSegmentStart() async {
+        let (viewModel, engine) = makeViewModel(itemID: "ep-1") // default preference: 30s
+        stubStartWithNextEpisode(mediaSegments: [
+            MediaSegmentDto(id: "seg-outro", itemId: "ep-1", type: .outro, startTicks: 280 * 10_000_000, endTicks: 300 * 10_000_000)
+        ])
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+
+        engine.onTimeUpdate?(275, 300) // 25s from the end — inside the default 30s window, but before the segment starts
+        XCTAssertNil(viewModel.nextUpSecondsRemaining, "The segment hasn't started yet, so the duration-relative window shouldn't apply")
+
+        engine.onTimeUpdate?(280, 300) // the segment's own start
+        XCTAssertEqual(viewModel.nextUpSecondsRemaining, 10)
+
+        engine.onTimeUpdate?(285, 300) // 5s into the segment
+        XCTAssertEqual(viewModel.nextUpSecondsRemaining, 5)
+    }
+
+    /// Symmetric case: a segment starting *earlier* than the configured
+    /// preference window still fires right at the segment's start, rather
+    /// than waiting for the preference's own (later) trigger point.
+    func test_nextUpSecondsRemaining_endCreditsSegment_startsEarlierThanPreferenceWindow_firesAtSegmentStart() async {
+        let (viewModel, engine) = makeViewModel(itemID: "ep-1") // default preference: 30s
+        stubStartWithNextEpisode(mediaSegments: [
+            MediaSegmentDto(id: "seg-outro", itemId: "ep-1", type: .outro, startTicks: 250 * 10_000_000, endTicks: 300 * 10_000_000)
+        ])
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+
+        engine.onTimeUpdate?(250, 300) // the segment's own start — 50s from the end, well outside the 30s preference window
+        XCTAssertEqual(viewModel.nextUpSecondsRemaining, 10, "The segment's start should win even though it's earlier than the configured preference window")
+    }
+
+    func test_nextUpTotalCountdownSeconds_reflectsEndCreditsOverride() async {
+        let (viewModel, engine) = makeViewModel(itemID: "ep-1")
+        stubStartWithNextEpisode(mediaSegments: [
+            MediaSegmentDto(id: "seg-outro", itemId: "ep-1", type: .outro, startTicks: 280 * 10_000_000, endTicks: 300 * 10_000_000)
+        ])
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+
+        XCTAssertEqual(viewModel.nextUpTotalCountdownSeconds, 10)
+
+        engine.onTimeUpdate?(280, 300)
+        XCTAssertEqual(viewModel.nextUpTotalCountdownSeconds, 10)
+    }
+
+    /// Pins a live bug (2026-08-18, confirmed with the user): scrubbing
+    /// straight past where the end-credits countdown's own trigger point
+    /// would already have elapsed used to compute an instantly-`0`
+    /// `remaining` on landing — silently auto-advancing to the next
+    /// episode with no countdown UI ever shown. A scrub landing anywhere
+    /// inside the segment should always get a fresh countdown timed from
+    /// wherever it actually landed, not from the segment's own start.
+    func test_nextUpSecondsRemaining_scrubPastTriggerPoint_getsFreshCountdownInsteadOfInstantZero() async {
+        let (viewModel, engine) = makeViewModel(itemID: "ep-1")
+        stubStartWithNextEpisode(mediaSegments: [
+            MediaSegmentDto(id: "seg-outro", itemId: "ep-1", type: .outro, startTicks: 60 * 10_000_000, endTicks: 120 * 10_000_000)
+        ])
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+
+        engine.onTimeUpdate?(65, 120) // naturally entered the segment; anchored to 65
+        XCTAssertEqual(viewModel.nextUpSecondsRemaining, 10)
+
+        // The user scrubs well past where a from-65 countdown would already
+        // have hit 0 (65 + 10 = 75) — `seek(to:)` clears the stale anchor,
+        // and the engine reporting the seek having landed re-anchors fresh
+        // right there instead of computing a negative-then-clamped-`0`
+        // remaining from the old one.
+        viewModel.seek(to: 100)
+        engine.onTimeUpdate?(100, 120)
+
+        XCTAssertEqual(viewModel.nextUpSecondsRemaining, 10, "Should restart a fresh countdown at the landing point, not jump straight to 0")
+    }
+
+    /// A scrub landing within the final 10 seconds of the item's own
+    /// duration should count down only as far as the real end, not imply a
+    /// target past it — same "or up to the end of the asset" requirement
+    /// `nextUpTotalCountdownSeconds`'s ring reflects too.
+    func test_nextUpSecondsRemaining_scrubIntoFinalTenSeconds_countsDownToTheRealEndOnly() async {
+        let (viewModel, engine) = makeViewModel(itemID: "ep-1")
+        stubStartWithNextEpisode(mediaSegments: [
+            MediaSegmentDto(id: "seg-outro", itemId: "ep-1", type: .outro, startTicks: 60 * 10_000_000, endTicks: 125 * 10_000_000)
+        ])
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+
+        viewModel.seek(to: 120) // 5s from the item's real end (125)
+        engine.onTimeUpdate?(120, 125)
+
+        XCTAssertEqual(viewModel.nextUpSecondsRemaining, 5)
+        XCTAssertEqual(viewModel.nextUpTotalCountdownSeconds, 5)
+    }
+
+    /// Pins a live bug (2026-08-18, confirmed with the user): a fractional
+    /// `remaining` used to round *up*, reading one higher than the
+    /// scrubber's own "time remaining" label (`PlayerControlsOverlay
+    /// .endTimeText`, which truncates) for the entire time in between whole
+    /// seconds — landing a scrub the scrubber itself would show as "0:06"
+    /// remaining (6.4s truly remaining) showed `7` here instead of `6`.
+    func test_nextUpSecondsRemaining_fractionalRemaining_truncatesRatherThanRoundsUp_matchingScrubberLabel() async {
+        let (viewModel, engine) = makeViewModel(itemID: "ep-1")
+        stubStartWithNextEpisode(mediaSegments: [
+            MediaSegmentDto(id: "seg-outro", itemId: "ep-1", type: .outro, startTicks: 60 * 10_000_000, endTicks: 125 * 10_000_000)
+        ])
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+
+        viewModel.seek(to: 118.6) // 6.4s from the item's real end (125) — the scrubber itself would read "0:06"
+        engine.onTimeUpdate?(118.6, 125)
+
+        XCTAssertEqual(viewModel.nextUpSecondsRemaining, 6, "Should truncate to match the scrubber's own remaining-time label, not round up to 7")
+    }
+
+    /// `currentSkipSegment` must hide as soon as the button is tapped, not
+    /// once `currentTime` actually catches up to the seek target — that gap
+    /// can be a whole buffering spell's worth of time (confirmed with the
+    /// user, 2026-08-17).
+    func test_skipSegment_hidesCurrentSkipSegmentImmediately_beforeCurrentTimeCatchesUp() async {
+        let (viewModel, engine) = makeViewModel()
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")],
+            mediaSegments: [
+                MediaSegmentDto(id: "seg-intro", itemId: "item-1", type: .intro, startTicks: 0, endTicks: 60 * 10_000_000)
+            ]
+        )
+        await viewModel.start()
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+        engine.onTimeUpdate?(30, 300)
+        let segment = viewModel.currentSkipSegment!
+
+        viewModel.skipSegment(segment)
+
+        // `currentTime` is still 30 — inside the segment's own range — but
+        // the button should already be gone.
+        XCTAssertNil(viewModel.currentSkipSegment)
+    }
+
+    func test_skipSegment_delegatesToEngineSeekAtSegmentEnd() async throws {
+        let (viewModel, engine) = makeViewModel()
+        let segment = PlaybackSegment(dto: MediaSegmentDto(id: "seg-1", itemId: "item-1", type: .intro, startTicks: 0, endTicks: 60 * 10_000_000))!
+
+        viewModel.skipSegment(segment)
+
+        try await waitUntil { engine.seekedTimes.contains(60) }
     }
 }
