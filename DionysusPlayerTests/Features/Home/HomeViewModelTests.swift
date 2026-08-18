@@ -460,6 +460,113 @@ final class HomeViewModelTests: XCTestCase {
         )
     }
 
+    // MARK: Dynamic rail discovery failure/recovery (2026-08-18, offline detection)
+
+    /// Confirmed live: dynamic rail discovery landing in the brief window
+    /// right after the app reconnects can have one of its six fetches fail
+    /// while the rest succeed — `dynamicRailCandidatesFailed` is what lets
+    /// `HomeView` tell that apart from a library that legitimately has no
+    /// dynamic rails to offer, so it knows whether a later "back online"
+    /// transition is worth retrying.
+    func test_load_oneDynamicRailFetchFails_setsDynamicRailCandidatesFailed() async {
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            switch request.url?.path {
+            case "/Genres":
+                if request.queryDictionary["IncludeItemTypes"] == "Movie" {
+                    throw URLError(.networkConnectionLost)
+                }
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Studios", "/Persons":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertTrue(viewModel.dynamicRailCandidatesFailed)
+    }
+
+    /// `HomeView` calls this when `ConnectivityMonitor` transitions back
+    /// online — should re-run discovery and pick up rails that failed to
+    /// load the first time.
+    func test_retryDynamicRailCandidatesIfNeeded_afterFailure_succeedsAndClearsFailedFlag() async {
+        let viewModel = makeViewModel()
+        nonisolated(unsafe) var genresShouldFail = true
+        let actionMovies = Self.makeItems("action", count: 5)
+
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            let query = request.queryDictionary
+            switch request.url?.path {
+            case "/Genres":
+                guard query["IncludeItemTypes"] == "Movie" else {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                if genresShouldFail { throw URLError(.networkConnectionLost) }
+                let genre = BaseItemDto(id: "genre-action", name: "Action", type: .unknown)
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [genre], totalRecordCount: 1))
+            case "/Studios", "/Persons":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items":
+                guard query["SortBy"] != "Random" else {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                guard query["Genres"] == "Action" else {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: actionMovies, totalRecordCount: actionMovies.count))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+        XCTAssertTrue(viewModel.dynamicRailCandidatesFailed)
+        XCTAssertTrue(viewModel.rails.isEmpty)
+
+        genresShouldFail = false
+        await viewModel.retryDynamicRailCandidatesIfNeeded()
+
+        XCTAssertFalse(viewModel.dynamicRailCandidatesFailed)
+        XCTAssertEqual(viewModel.rails.map(\.title), ["Action Movies"])
+    }
+
+    /// Guards against duplicate rails: an already-successful (or
+    /// legitimately-empty) attempt must not be re-fetched just because
+    /// connectivity happened to flip back online again later.
+    func test_retryDynamicRailCandidatesIfNeeded_noPriorFailure_doesNotRefetch() async {
+        let viewModel = makeViewModel()
+        nonisolated(unsafe) var requestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            requestCount += 1
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+        XCTAssertFalse(viewModel.dynamicRailCandidatesFailed)
+        let requestCountAfterLoad = requestCount
+
+        await viewModel.retryDynamicRailCandidatesIfNeeded()
+
+        XCTAssertEqual(requestCount, requestCountAfterLoad, "Nothing failed, so retry should no-op without firing new requests")
+    }
+
     func test_loadMoreDynamicRails_noOpsWhileAlreadyLoading() async {
         // 10 candidates: load() consumes the first batch of 5, leaving 5
         // pending — enough room to fire loadMoreDynamicRails a second time.

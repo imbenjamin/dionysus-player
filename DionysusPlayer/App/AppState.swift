@@ -11,6 +11,10 @@ final class AppState {
         case serverSetup
         case login
         case main
+        /// Session restore at launch couldn't reach the server at all
+        /// (distinct from `.login`, which also covers a user actively
+        /// signing in manually — see `start()`'s doc comment).
+        case offline
     }
 
     private(set) var phase: Phase = .serverSetup
@@ -53,8 +57,14 @@ final class AppState {
         do {
             try await signIn(username: credentials.username, password: credentials.password ?? "", client: client)
         } catch {
-            // Remembered credentials no longer work; fall back to manual sign-in.
-            phase = .login
+            // Either the remembered credentials no longer work (fall back to
+            // manual sign-in), or the server couldn't be reached at all —
+            // `ConnectivityMonitor` reflects this specific attempt's outcome
+            // since `sendRaw`'s reporting call is awaited inline in the same
+            // chain this catch waits on, so it's never stale here. A 401/other
+            // HTTP error still reports success, so bad credentials still land
+            // on `.login` as before.
+            phase = ConnectivityMonitor.shared.isOffline ? .offline : .login
         }
     }
 

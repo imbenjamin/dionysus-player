@@ -45,6 +45,14 @@ final class HomeViewModel {
     /// overlapping batch if the sentinel re-appears before the first
     /// finishes (e.g. a fast scroll).
     private(set) var isLoadingMoreDynamicRails = false
+    /// Set when the *last* `loadDynamicRailCandidates()` attempt had at
+    /// least one of its six fetches throw (typically a connectivity blip
+    /// right after the app reconnects) — distinct from `pendingDynamicRailCandidates`
+    /// legitimately ending up empty because the library just has nothing
+    /// to offer. `HomeView` uses this to know whether a later "we're back
+    /// online" transition is worth retrying at all; see
+    /// `retryDynamicRailCandidatesIfNeeded()`.
+    private(set) var dynamicRailCandidatesFailed = false
 
     /// Kept small — each batch fires `dynamicRailBatchSize` concurrent rail
     /// fetches and then appends all of them to `rails` in one state update,
@@ -200,28 +208,42 @@ final class HomeViewModel {
         )
 
         var candidates: [DynamicRailCandidate] = []
-        if let items = try? await movieGenres.items {
-            candidates += items.map { DynamicRailCandidate.genre(kind: .movie, name: $0.name) }
-        }
-        if let items = try? await showGenres.items {
-            candidates += items.map { DynamicRailCandidate.genre(kind: .series, name: $0.name) }
-        }
-        if let items = try? await movieStudios.items {
-            candidates += items.map { DynamicRailCandidate.studio(kind: .movie, name: $0.name) }
-        }
-        if let items = try? await showStudios.items {
-            candidates += items.map { DynamicRailCandidate.studio(kind: .series, name: $0.name) }
-        }
-        if let items = try? await actors.items {
-            candidates += items.map { DynamicRailCandidate.actor(name: $0.name) }
-        }
-        if let items = try? await directors.items {
-            candidates += items.map { DynamicRailCandidate.director(name: $0.name) }
-        }
+        var anyFetchFailed = false
+        do {
+            candidates += try await movieGenres.items.map { DynamicRailCandidate.genre(kind: .movie, name: $0.name) }
+        } catch { anyFetchFailed = true }
+        do {
+            candidates += try await showGenres.items.map { DynamicRailCandidate.genre(kind: .series, name: $0.name) }
+        } catch { anyFetchFailed = true }
+        do {
+            candidates += try await movieStudios.items.map { DynamicRailCandidate.studio(kind: .movie, name: $0.name) }
+        } catch { anyFetchFailed = true }
+        do {
+            candidates += try await showStudios.items.map { DynamicRailCandidate.studio(kind: .series, name: $0.name) }
+        } catch { anyFetchFailed = true }
+        do {
+            candidates += try await actors.items.map { DynamicRailCandidate.actor(name: $0.name) }
+        } catch { anyFetchFailed = true }
+        do {
+            candidates += try await directors.items.map { DynamicRailCandidate.director(name: $0.name) }
+        } catch { anyFetchFailed = true }
 
         pendingDynamicRailCandidates = shuffle(candidates)
         hasMoreDynamicRails = !pendingDynamicRailCandidates.isEmpty
+        dynamicRailCandidatesFailed = anyFetchFailed
         await loadMoreDynamicRails()
+    }
+
+    /// Called by `HomeView` when `ConnectivityMonitor` transitions back
+    /// online — re-runs dynamic rail discovery only if the last attempt
+    /// actually failed (typically because it landed in the brief window
+    /// right after reconnecting), so a library that legitimately has no
+    /// dynamic rails to offer, or an attempt that already succeeded,
+    /// doesn't get needlessly re-fetched or risk appending duplicate rails.
+    func retryDynamicRailCandidatesIfNeeded() async {
+        guard dynamicRailCandidatesFailed else { return }
+        dynamicRailCandidatesFailed = false
+        await loadDynamicRailCandidates()
     }
 
     /// Fetches the next `dynamicRailBatchSize` candidates (concurrently)

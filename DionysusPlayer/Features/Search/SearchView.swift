@@ -66,30 +66,43 @@ struct SearchView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch viewModel?.loadState ?? .idle {
-        case .idle:
-            let history = viewModel?.history ?? []
-            if !isSearching, !history.isEmpty {
-                historyList(history)
-            } else {
-                ContentUnavailableView(
-                    "Search Your Library",
-                    systemImage: "magnifyingglass",
-                    description: Text("Find movies, shows, and episodes on your server.")
-                )
-            }
-        case .searching:
-            LoadingView()
-        case .failed(let message):
-            ErrorStateView(message: message, retry: nil)
-        case .loaded:
-            let results = viewModel?.results ?? []
-            if results.isEmpty {
-                ContentUnavailableView.search
-            } else {
-                resultsList(results)
+        // Only gates `.searching`/`.failed` — `.idle` is local history with
+        // no network involved, and `.loaded` is content already on screen;
+        // neither should be blanked out by a stale/background offline flag.
+        if ConnectivityMonitor.shared.isOffline,
+           viewModel?.loadState == .searching || isFailedState(viewModel?.loadState) {
+            OfflineStateView(retry: { viewModel?.queryChanged() })
+        } else {
+            switch viewModel?.loadState ?? .idle {
+            case .idle:
+                let history = viewModel?.history ?? []
+                if !isSearching, !history.isEmpty {
+                    historyList(history)
+                } else {
+                    ContentUnavailableView(
+                        "Search Your Library",
+                        systemImage: "magnifyingglass",
+                        description: Text("Find movies, shows, and episodes on your server.")
+                    )
+                }
+            case .searching:
+                LoadingView()
+            case .failed(let message):
+                ErrorStateView(message: message, retry: nil)
+            case .loaded:
+                let results = viewModel?.results ?? []
+                if results.isEmpty {
+                    ContentUnavailableView.search
+                } else {
+                    resultsList(results)
+                }
             }
         }
+    }
+
+    private func isFailedState(_ state: SearchViewModel.LoadState?) -> Bool {
+        if case .failed = state { return true }
+        return false
     }
 
     private func resultsList(_ results: [SearchResult]) -> some View {

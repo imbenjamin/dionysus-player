@@ -42,3 +42,37 @@ struct ErrorStateView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+
+/// Generic "can't reach your Jellyfin server" state — the screen any
+/// connectivity-failure event in the app routes to, driven by
+/// `ConnectivityMonitor.shared.isOffline`. `retry` should reload whatever
+/// the caller was already trying to show (not restart some unrelated
+/// flow); `secondaryAction`, when provided, offers an escape hatch to
+/// server settings for contexts where the normal tab bar/Profile screen
+/// isn't reachable yet (e.g. before sign-in completes).
+struct OfflineStateView: View {
+    var retry: () -> Void
+    var secondaryActionTitle: String?
+    var secondaryAction: (() -> Void)?
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "wifi.slash")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text("You're Offline")
+                .font(.headline)
+            Text("Can't reach your Jellyfin server. If it's on your local network, make sure you're connected to the same Wi-Fi.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+            Button("Try Again", action: retry)
+                .buttonStyle(.borderedProminent)
+            if let secondaryActionTitle, let secondaryAction {
+                Button(secondaryActionTitle, action: secondaryAction)
+                    .buttonStyle(.bordered)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}

@@ -34,50 +34,71 @@ struct HomeView: View {
         .ignoresSafeArea(edges: .top)
         .navigationBarTitleDisplayMode(.inline)
         .task { await setUpIfNeeded() }
+        // Dynamic rail discovery fails silently by design (see
+        // `HomeViewModel.load()`'s doc comment — Home stays usable rather
+        // than erroring over a supplementary fetch), which means nothing
+        // else ever retries it. If that failure happened to land in the
+        // brief window right after reconnecting, the rails would otherwise
+        // stay missing for the rest of this Home instance's lifetime —
+        // this catches the "we're back online" transition and gives it
+        // one retry.
+        .onChange(of: ConnectivityMonitor.shared.isOffline) { wasOffline, isOffline in
+            guard wasOffline, !isOffline else { return }
+            Task { await viewModel?.retryDynamicRailCandidatesIfNeeded() }
+        }
     }
 
     @ViewBuilder
     private var content: some View {
-        switch viewModel?.loadState ?? .loading {
-        case .idle, .loading:
-            LoadingView().frame(height: 300)
-        case .failed(let message):
-            ErrorStateView(message: message) {
-                Task { await viewModel?.load() }
-            }
-            .frame(height: 300)
-        case .loaded:
-            let heroItems = viewModel?.heroItems ?? []
-            let libraries = viewModel?.libraries ?? []
-            let rails = viewModel?.rails ?? []
-            if heroItems.isEmpty && libraries.isEmpty && rails.isEmpty {
-                ErrorStateView(message: String(localized: "Nothing here yet."), retry: nil)
-                    .frame(height: 200)
-            } else {
-                // `LazyVStack`, not `VStack` — with dynamic rails
-                // potentially pushing the rail count well past the curated
-                // set, this avoids constructing every rail's view hierarchy
-                // up front.
-                LazyVStack(alignment: .leading, spacing: 24) {
-                    if !heroItems.isEmpty {
-                        HeroRailView(items: heroItems)
-                    }
-                    if !libraries.isEmpty {
-                        LibraryRailView(libraries: libraries)
-                    }
-                    // `rails.indices`, not `Array(rails.enumerated())` —
-                    // same reasoning as `HeroRailView.loopedItems`'s
-                    // `ForEach`: avoids allocating a fresh array of tuples
-                    // every time this recomputes.
-                    ForEach(rails.indices, id: \.self) { index in
-                        MediaRailView(rail: rails[index])
-                    }
-
-                    if viewModel?.isLoadingMoreDynamicRails == true {
-                        LoadingView().frame(height: 150)
-                    }
+        // Only short-circuits the "nothing to show yet" states — a
+        // scenePhase-triggered background ping failing while Home already
+        // has loaded content must never blank the screen out from under
+        // the user.
+        if ConnectivityMonitor.shared.isOffline, viewModel?.loadState != .loaded {
+            OfflineStateView(retry: { Task { await viewModel?.load() } })
+                .frame(height: 300)
+        } else {
+            switch viewModel?.loadState ?? .loading {
+            case .idle, .loading:
+                LoadingView().frame(height: 300)
+            case .failed(let message):
+                ErrorStateView(message: message) {
+                    Task { await viewModel?.load() }
                 }
-                .padding(.bottom, 24)
+                .frame(height: 300)
+            case .loaded:
+                let heroItems = viewModel?.heroItems ?? []
+                let libraries = viewModel?.libraries ?? []
+                let rails = viewModel?.rails ?? []
+                if heroItems.isEmpty && libraries.isEmpty && rails.isEmpty {
+                    ErrorStateView(message: String(localized: "Nothing here yet."), retry: nil)
+                        .frame(height: 200)
+                } else {
+                    // `LazyVStack`, not `VStack` — with dynamic rails
+                    // potentially pushing the rail count well past the curated
+                    // set, this avoids constructing every rail's view hierarchy
+                    // up front.
+                    LazyVStack(alignment: .leading, spacing: 24) {
+                        if !heroItems.isEmpty {
+                            HeroRailView(items: heroItems)
+                        }
+                        if !libraries.isEmpty {
+                            LibraryRailView(libraries: libraries)
+                        }
+                        // `rails.indices`, not `Array(rails.enumerated())` —
+                        // same reasoning as `HeroRailView.loopedItems`'s
+                        // `ForEach`: avoids allocating a fresh array of tuples
+                        // every time this recomputes.
+                        ForEach(rails.indices, id: \.self) { index in
+                            MediaRailView(rail: rails[index])
+                        }
+
+                        if viewModel?.isLoadingMoreDynamicRails == true {
+                            LoadingView().frame(height: 150)
+                        }
+                    }
+                    .padding(.bottom, 24)
+                }
             }
         }
     }
