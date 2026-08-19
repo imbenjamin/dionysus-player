@@ -12,10 +12,27 @@ import SwiftUI
 /// from `DownloadPreferencesStore` (`ProfileView`'s Downloads settings) —
 /// not chosen per-download here.
 struct DownloadButton: View {
+    /// Which chrome this renders with — the *state* logic below (idle/
+    /// resolving/preparing/downloading/downloaded, prompts, errors) is
+    /// identical either way; only the visual weight differs.
+    enum Style {
+        /// The bordered-prominent chip next to Play/Resume/Restart at the
+        /// top of the detail page.
+        case prominent
+        /// A subtle circular badge — the same black-circle/white-icon
+        /// treatment as the video-thumbnail Play button it sits alongside
+        /// in `EpisodeRow` — for when this is overlaid directly on artwork
+        /// instead of sitting in a plain row next to other bordered
+        /// buttons. Confirmed live (2026-08-19) that reusing `.prominent`'s
+        /// heavy chip chrome there read as far too heavy against a thumbnail.
+        case overlay
+    }
+
     let item: MediaItem
     let client: JellyfinAPIClient
     let userID: String
     let downloadManager: DownloadManager
+    var style: Style = .prominent
 
     private let preferences = DownloadPreferencesStore()
 
@@ -86,58 +103,26 @@ struct DownloadButton: View {
     /// `.large` control size.
     private let ringSize: CGFloat = 20
 
+    /// White on the `.overlay` badge (matching the Play button's own
+    /// white icon on the same black circle), the brand primary color on
+    /// the `.prominent` chip (matching Restart/checkmark elsewhere on the
+    /// detail page).
+    private var iconColor: Color { style == .overlay ? .white : Color.dionysusPrimary }
+
     var body: some View {
         Group {
-            if isDownloaded {
-                // Already downloaded — a second tap should open the
-                // download's own page (to play it offline, check its
-                // size, or delete it), not silently re-download the same
-                // item from scratch.
-                NavigationLink(value: AppRoute.downloadedAsset(itemID: item.id)) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Color.dionysusPrimary)
-                        .frame(width: ringSize, height: ringSize)
-                }
-            } else {
-                Button(action: startResolving) {
-                    // Every branch shares the same explicit frame — a
-                    // plain `Image(systemName:)`, a bare `ProgressView()`,
-                    // and `DownloadProgressRing` each report a different
-                    // natural size to their parent when left unconstrained
-                    // (`ProgressView()` in particular renders noticeably
-                    // larger than the SF Symbol glyph at this control
-                    // size), so without this the button's own footprint
-                    // visibly popped to a different size for a frame or
-                    // two on every state change — confirmed live
-                    // (2026-08-19) — before settling back once the new
-                    // content re-laid-out. One fixed frame around whatever
-                    // the current branch renders keeps the button itself a
-                    // constant size throughout.
-                    Group {
-                        if let progress {
-                            DownloadProgressRing(progress: progress)
-                        } else if isResolving || isPreparing {
-                            // A plain spinner, not the progress ring —
-                            // there's no determined byte progress yet to
-                            // show as one (see `isPreparing`'s own doc
-                            // comment), and an indeterminate ring at 0%
-                            // reads as "stuck", not "starting".
-                            ProgressView()
-                                .tint(Color.dionysusPrimary)
-                        } else {
-                            Image(systemName: "arrow.down.circle")
-                                .foregroundStyle(Color.dionysusPrimary)
-                        }
-                    }
-                    .frame(width: ringSize, height: ringSize)
-                }
-                .disabled(isBusy)
+            switch style {
+            case .prominent:
+                content
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.roundedRectangle(radius: cornerRadius))
+                    .tint(.dionysusPrimaryLight)
+                    .controlSize(.large)
+            case .overlay:
+                content
+                    .buttonStyle(.plain)
             }
         }
-        .buttonStyle(.borderedProminent)
-        .buttonBorderShape(.roundedRectangle(radius: cornerRadius))
-        .tint(.dionysusPrimaryLight)
-        .controlSize(.large)
         .confirmationDialog(
             "Choose an Audio Track", isPresented: $isShowingAudioPrompt, titleVisibility: .visible
         ) {
@@ -163,6 +148,65 @@ struct DownloadButton: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage)
+        }
+    }
+
+    /// The actual tap target/state icon — identical between styles, see
+    /// `body`'s own doc comment for why only the chrome around this
+    /// differs.
+    @ViewBuilder
+    private var content: some View {
+        if isDownloaded {
+            // Already downloaded — a second tap should open the
+            // download's own page (to play it offline, check its size, or
+            // delete it), not silently re-download the same item from
+            // scratch.
+            NavigationLink(value: AppRoute.downloadedAsset(itemID: item.id)) {
+                badge { Image(systemName: "checkmark.circle.fill").foregroundStyle(iconColor) }
+            }
+        } else {
+            Button(action: startResolving) {
+                if let progress {
+                    badge { DownloadProgressRing(progress: progress, tint: iconColor) }
+                } else if isResolving || isPreparing {
+                    // A plain spinner, not the progress ring — there's no
+                    // determined byte progress yet to show as one (see
+                    // `isPreparing`'s own doc comment), and an
+                    // indeterminate ring at 0% reads as "stuck", not
+                    // "starting".
+                    badge { ProgressView().tint(iconColor) }
+                } else {
+                    badge { Image(systemName: "arrow.down.circle").foregroundStyle(iconColor) }
+                }
+            }
+            .disabled(isBusy)
+        }
+    }
+
+    /// Wraps the state icon/spinner/ring in whatever fixed-size container
+    /// `style` calls for. Always a fixed frame regardless of style — a
+    /// plain `Image(systemName:)`, a bare `ProgressView()`, and
+    /// `DownloadProgressRing` each report a different natural size to
+    /// their parent when left unconstrained (`ProgressView()` in
+    /// particular renders noticeably larger than an SF Symbol glyph at
+    /// this control size), so without one the button's own footprint
+    /// visibly popped to a different size for a frame or two on every
+    /// state change — confirmed live (2026-08-19) — before settling back
+    /// once the new content re-laid-out.
+    @ViewBuilder
+    private func badge<Content: View>(@ViewBuilder _ inner: () -> Content) -> some View {
+        switch style {
+        case .prominent:
+            inner().frame(width: ringSize, height: ringSize)
+        case .overlay:
+            // Same black-circle/white-icon treatment as the video
+            // thumbnail's own Play button (`EpisodeRow`), sized a touch
+            // smaller (32pt vs. Play's 36pt) so it reads as the
+            // secondary/corner action next to it.
+            inner()
+                .frame(width: 16, height: 16)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(.black.opacity(0.55)))
         }
     }
 

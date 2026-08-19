@@ -36,23 +36,28 @@ import SwiftUI
 struct DownloadProgressRing: View {
     var progress: DownloadProgress
     var lineWidth: CGFloat = 3
+    /// Overridable so `DownloadButton`'s `.overlay` style (a black badge on
+    /// artwork, matching the video thumbnail's own Play button) can render
+    /// this in white instead of the usual brand primary color, the same
+    /// way that badge's icon/spinner already do.
+    var tint: Color = .dionysusPrimary
 
     var body: some View {
         ZStack {
             if progress.isTotalKnown {
                 Circle()
-                    .stroke(Color.dionysusPrimary.opacity(0.2), lineWidth: lineWidth)
+                    .stroke(tint.opacity(0.2), lineWidth: lineWidth)
                 Circle()
                     // A sliver (2%) floor rather than 0 — a fresh download
                     // reads as "nothing's happening" at a literal empty
                     // ring rather than "just started".
                     .trim(from: 0, to: max(0.02, min(1, progress.fractionCompleted)))
-                    .stroke(Color.dionysusPrimary, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             } else {
                 ProgressView()
                     .progressViewStyle(.circular)
-                    .tint(Color.dionysusPrimary)
+                    .tint(tint)
             }
         }
     }

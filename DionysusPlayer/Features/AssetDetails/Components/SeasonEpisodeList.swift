@@ -36,7 +36,7 @@ struct SeasonEpisodeList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
+            HStack(spacing: 8) {
                 Text("Episodes")
                     .font(.title3.bold())
 
@@ -50,6 +50,16 @@ struct SeasonEpisodeList: View {
                     }
                     .pickerStyle(.menu)
                 }
+
+                // Next to the picker when there's one to show; in its place
+                // (still trailing the "Episodes" title) for a single-season
+                // show, where the picker itself is omitted above.
+                if let client = appState.apiClient, let userID = appState.currentUser?.id, let selectedSeasonID {
+                    SeasonDownloadButton(
+                        seriesID: seriesID, seasonID: selectedSeasonID, episodes: episodes,
+                        client: client, userID: userID, downloadManager: appState.downloadManager
+                    )
+                }
             }
             .padding(.horizontal)
 
@@ -62,7 +72,10 @@ struct SeasonEpisodeList: View {
                             episode: episode,
                             isCurrent: episode.id == currentEpisodeID,
                             onPlay: { onPlayEpisode(episode.id) },
-                            onSelect: { onSelectEpisode(episode.id) }
+                            onSelect: { onSelectEpisode(episode.id) },
+                            client: appState.apiClient,
+                            userID: appState.currentUser?.id,
+                            downloadManager: appState.downloadManager
                         )
                     }
                 }
@@ -113,6 +126,13 @@ private struct EpisodeRow: View {
     var isCurrent: Bool = false
     var onPlay: () -> Void
     var onSelect: () -> Void
+    /// `nil` (no live session — shouldn't happen in practice on a screen
+    /// that already requires one, but degrades gracefully) omits the
+    /// per-episode download button entirely rather than showing one that
+    /// can't actually resolve `playbackInfo`.
+    var client: JellyfinAPIClient?
+    var userID: String?
+    var downloadManager: DownloadManager?
 
     private static let thumbnailWidth: CGFloat = 160
     private static let thumbnailHeight: CGFloat = 90
@@ -126,37 +146,55 @@ private struct EpisodeRow: View {
                 .fill(isCurrent ? Color.dionysusPrimary : .clear)
                 .frame(width: 3)
 
-            Button(action: onPlay) {
-                ZStack {
-                    AsyncRemoteImage(url: episode.imageURL(type: "Primary", maxWidth: 300))
-                        .frame(width: Self.thumbnailWidth, height: Self.thumbnailHeight)
-                        // Same progress-bar treatment as `PosterCard`'s rail
-                        // thumbnails (`watchStatusOverlay`) — this can show
-                        // up alongside the main Play/Resume button's own
-                        // progress bar when this row's episode is also the
-                        // page's current content; a deliberate, harmless
-                        // overlap rather than something worth suppressing.
-                        .overlay(alignment: .bottom) {
-                            if let fraction = episode.playedFraction, fraction > 0, !episode.isPlayed {
-                                ProgressView(value: fraction)
-                                    .tint(.dionysusHighlight)
-                                    .padding(.horizontal, 4)
-                                    .padding(.bottom, 4)
+            // A `ZStack`, not the download button nested inside the Play
+            // `Button`'s own label — a button nested in another button's
+            // label risks having its taps swallowed by the outer one
+            // instead of reaching it (see this type's own doc comment on
+            // why the thumbnail/title-row split above already avoids
+            // that); this keeps the two as independent sibling tap targets
+            // layered on the same thumbnail instead.
+            ZStack(alignment: .topTrailing) {
+                Button(action: onPlay) {
+                    ZStack {
+                        AsyncRemoteImage(url: episode.imageURL(type: "Primary", maxWidth: 300))
+                            .frame(width: Self.thumbnailWidth, height: Self.thumbnailHeight)
+                            // Same progress-bar treatment as `PosterCard`'s rail
+                            // thumbnails (`watchStatusOverlay`) — this can show
+                            // up alongside the main Play/Resume button's own
+                            // progress bar when this row's episode is also the
+                            // page's current content; a deliberate, harmless
+                            // overlap rather than something worth suppressing.
+                            .overlay(alignment: .bottom) {
+                                if let fraction = episode.playedFraction, fraction > 0, !episode.isPlayed {
+                                    ProgressView(value: fraction)
+                                        .tint(.dionysusHighlight)
+                                        .padding(.horizontal, 4)
+                                        .padding(.bottom, 4)
+                                }
                             }
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
 
-                    Circle()
-                        .fill(.black.opacity(0.55))
-                        .frame(width: 36, height: 36)
-                        .overlay {
-                            Image(systemName: "play.fill")
-                                .font(.subheadline.bold())
-                                .foregroundStyle(.white)
-                        }
+                        Circle()
+                            .fill(.black.opacity(0.55))
+                            .frame(width: 36, height: 36)
+                            .overlay {
+                                Image(systemName: "play.fill")
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(.white)
+                            }
+                    }
+                }
+                .buttonStyle(.plain)
+
+                // Same component the detail page's own Play/Resume row
+                // uses — full parity (idle/preparing/downloading/
+                // downloaded states, audio-track prompt, subtitle
+                // warning), not a slimmed-down copy.
+                if let client, let userID, let downloadManager {
+                    DownloadButton(item: episode, client: client, userID: userID, downloadManager: downloadManager, style: .overlay)
+                        .padding(4)
                 }
             }
-            .buttonStyle(.plain)
 
             Button(action: onSelect) {
                 HStack(spacing: 8) {
