@@ -74,13 +74,18 @@ struct SeasonDownloadButton: View {
     }
 
     var body: some View {
-        // Plain, not `.borderedProminent` — this sits directly beside the
-        // season `Picker`, which is itself just tinted text/a chevron with
-        // no background chip; matching that weight (rather than
-        // `DownloadButton`'s own heavier chrome, which read as too heavy
-        // here — confirmed live, 2026-08-19) is what makes this read as a
-        // peer of the picker instead of a competing, more important-looking
-        // control.
+        // Not `.borderedProminent` — `DownloadButton`'s own heavy
+        // rectangular chip read as too heavy sitting directly beside the
+        // season `Picker` (confirmed live, 2026-08-19). But a bare icon
+        // with no chrome at all under-read as tappable in its own right —
+        // direct follow-up feedback the same day. This splits the
+        // difference: a filled circular badge using `dionysusPrimaryLight`,
+        // the same tint the Restart button already uses for "related to
+        // the primary action, but visibly secondary" — enough of a shape to
+        // read as a real button, still a step down from the full
+        // `DownloadButton` chip. The `.padding(8)` around the 20pt icon
+        // (rather than sizing the circle tight to it) is also what gives
+        // this a larger, easier tap target than the bare-icon version had.
         Button(action: startBulkDownload) {
             Group {
                 if let aggregateProgress {
@@ -102,6 +107,8 @@ struct SeasonDownloadButton: View {
                 }
             }
             .frame(width: 20, height: 20)
+            .padding(8)
+            .background(Circle().fill(Color.dionysusPrimaryLight))
         }
         .buttonStyle(.plain)
         .disabled(isQueuing || isAnyInProgress || missingEpisodes.isEmpty)
