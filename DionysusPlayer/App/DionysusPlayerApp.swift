@@ -62,7 +62,17 @@ struct DionysusPlayerApp: App {
                     // activation alongside appState.start()'s own real
                     // request is harmless.
                     guard newPhase == .active, let client = appState.apiClient else { return }
-                    Task { try? await client.healthCheck() }
+                    Task {
+                        try? await client.healthCheck()
+                        // Piggybacks on this same reconnect check rather
+                        // than its own trigger — see
+                        // `DownloadSyncManager`'s doc comment. Only
+                        // meaningful once `healthCheck()` above has had a
+                        // chance to clear `ConnectivityMonitor.isOffline`
+                        // if reachability was actually just restored.
+                        guard !ConnectivityMonitor.shared.isOffline else { return }
+                        await DownloadSyncManager.syncIfNeeded(client: client, store: appState.downloadManager.store)
+                    }
                 }
         }
     }

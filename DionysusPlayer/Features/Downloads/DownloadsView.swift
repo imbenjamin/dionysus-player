@@ -1,0 +1,252 @@
+import SwiftUI
+
+/// The Downloads tab's landing screen: one alphabetically-sorted list
+/// mixing standalone items (movies, or lone episodes) and per-show group
+/// rows — see `DownloadsRow`/`DownloadsViewModel`. Reachable both as a
+/// `MainTabView` tab and, with no live session required, from `RootView`'s
+/// `.offline` "View Downloads" escape hatch — everything here reads
+/// straight from local storage.
+///
+/// Bulk delete: the trash toolbar button enters selection mode (same
+/// Cancel-top-left/Select-All-top-right/destructive-action-in-a-bottom-bar
+/// shape Photos/Files use for their own selection mode, rather than a
+/// bespoke design) — each row (including a whole show group, selected as
+/// one unit) gets a checkbox in place of its usual navigation, and the
+/// bottom bar's Delete button confirms against the real total asset count
+/// first (a selected show's own episodes all count individually, not the
+/// one group row — see `DownloadsViewModel.selectedAssetCount`).
+struct DownloadsView: View {
+    @Environment(AppState.self) private var appState
+    @State private var viewModel: DownloadsViewModel?
+    @State private var showDeleteConfirmation = false
+
+    var body: some View {
+        content
+            .navigationTitle("Downloads")
+            .onAppear {
+                if viewModel == nil {
+                    viewModel = DownloadsViewModel(downloadManager: appState.downloadManager)
+                } else {
+                    // A download that finished, or a delete from a pushed
+                    // detail page, since this last appeared — re-reads
+                    // local storage fresh rather than relying on any
+                    // automatic SwiftData observation (see
+                    // `DownloadsViewModel`'s own doc comment for why there
+                    // isn't one).
+                    viewModel?.refresh()
+                }
+            }
+            .toolbar { toolbarContent }
+            .confirmationDialog(
+                deleteConfirmationTitle, isPresented: $showDeleteConfirmation, titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    viewModel?.deleteSelected()
+                }
+                Button("Cancel", role: .cancel) {}
+            }
+    }
+
+    private var deleteConfirmationTitle: String {
+        let count = viewModel?.selectedAssetCount ?? 0
+        return count == 1
+            ? String(localized: "Delete 1 Download?")
+            : String(localized: "Delete \(count) Downloads?")
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        if let viewModel, !viewModel.rows.isEmpty {
+            if viewModel.isSelecting {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { viewModel.cancelSelecting() }
+                }
+                // Both live in the top nav bar, not a `.bottomBar` item —
+                // confirmed live (2026-08-19): this app's tab bar floats
+                // as its own overlay (iOS 26's default style), which sits
+                // at a higher z-order than a `.bottomBar` toolbar and
+                // simply covers it rather than making room for it. The
+                // asset count still shows, just in the confirmation
+                // dialog's own title rather than on this button, keeping
+                // it icon-only so both fit comfortably alongside Cancel/
+                // Select All.
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(viewModel.isAllSelected ? "Deselect All" : "Select All") {
+                        viewModel.toggleSelectAll()
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(role: .destructive) {
+                        showDeleteConfirmation = true
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .disabled(viewModel.selectedRowIDs.isEmpty)
+                }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        viewModel.beginSelecting()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let viewModel {
+            if viewModel.rows.isEmpty {
+                ErrorStateView(message: String(localized: "No downloads yet. Download something to watch offline from its detail page."), retry: nil)
+            } else {
+                List {
+                    ForEach(viewModel.rows) { row in
+                        DownloadsRowView(
+                            row: row,
+                            downloadManager: appState.downloadManager,
+                            isSelecting: viewModel.isSelecting,
+                            isSelected: viewModel.selectedRowIDs.contains(row.id),
+                            onToggleSelection: { viewModel.toggleSelection(row.id) }
+                        )
+                        .swipeActions {
+                            // Only the ordinary single-item delete — bulk
+                            // selection has its own bottom-bar action, and
+                            // swiping a row mid-selection would be a
+                            // confusing second way to remove just one item
+                            // out from under a multi-row selection.
+                            if !viewModel.isSelecting, case .standalone(let item) = row {
+                                Button("Delete", role: .destructive) { viewModel.delete(itemID: item.itemID) }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            LoadingView()
+        }
+    }
+}
+
+/// One row of `DownloadsView`'s list — a standalone item (pushes
+/// `.downloadedAsset`) or a show group (pushes `.downloadedShow`) normally;
+/// in selection mode (`isSelecting`), a plain tappable row with a leading
+/// checkbox instead, toggling `onToggleSelection` rather than navigating.
+/// A plain `NavigationLink` as a `List`/`ForEach` row's content is fine
+/// here (unlike the known bare-`NavigationLink`-in-`LazyHStack`/
+/// `LazyVStack` freeze — see `LibraryRailView`'s history — `List` doesn't
+/// hit that bug class).
+private struct DownloadsRowView: View {
+    let row: DownloadsRow
+    let downloadManager: DownloadManager
+    var isSelecting: Bool = false
+    var isSelected: Bool = false
+    var onToggleSelection: () -> Void = {}
+
+    var body: some View {
+        if isSelecting {
+            Button(action: onToggleSelection) {
+                HStack(spacing: 12) {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(isSelected ? Color.dionysusPrimary : Color.secondary)
+                    rowContent
+                }
+            }
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink(value: route) {
+                rowContent
+            }
+        }
+    }
+
+    private var route: AppRoute {
+        switch row {
+        case .standalone(let item): return .downloadedAsset(itemID: item.itemID)
+        case .show(let seriesID, _, _, _): return .downloadedShow(seriesID: seriesID)
+        }
+    }
+
+    /// The row's actual content — identical whether it ends up inside a
+    /// `NavigationLink` or a selection `Button`, per this type's own doc
+    /// comment.
+    @ViewBuilder
+    private var rowContent: some View {
+        switch row {
+        case .standalone(let item):
+            // A lone downloaded episode (its series has no other downloads
+            // — otherwise it'd be a `.show` group instead) still needs the
+            // show name visible here, same as every rail elsewhere in the
+            // app: `MediaItem.railTitle`/`railSubtitle` show the series
+            // name as the primary line and "S1:E4 · Episode Name" as the
+            // secondary one for episode content — mirrored here since
+            // `DownloadedItem` has no `MediaItem` of its own to read that
+            // convention from directly.
+            HStack(spacing: 12) {
+                thumbnail(relativePath: item.kind == .episode ? (item.thumbImagePath ?? item.posterImagePath) : item.posterImagePath)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.kind == .episode ? (item.seriesTitle ?? item.title) : item.title).lineLimit(1)
+                    subtitleLine(for: item)
+                }
+                Spacer()
+                if let progress = progress(for: item) {
+                    DownloadProgressRing(progress: progress)
+                        .frame(width: 28, height: 28)
+                } else if item.status == .downloading || item.status == .queued {
+                    // No byte progress yet (still fetching the
+                    // metadata/artwork snapshot before the video task
+                    // starts — see `DownloadButton.isPreparing`'s doc
+                    // comment) — a plain spinner, not blank space, says
+                    // "this is happening" honestly.
+                    ProgressView().controlSize(.small)
+                }
+            }
+        case .show(_, let seriesTitle, let posterImagePath, let episodeCount):
+            HStack(spacing: 12) {
+                thumbnail(relativePath: posterImagePath)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(seriesTitle).lineLimit(1)
+                    Text("\(episodeCount) Episodes").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// Live byte progress for a standalone row still mid-download —
+    /// `nil` once completed (or if it somehow failed, see `subtitleLine`).
+    private func progress(for item: DownloadedItem) -> DownloadProgress? {
+        guard item.status == .downloading || item.status == .queued else { return nil }
+        return downloadManager.activeDownloads[item.itemID]
+    }
+
+    @ViewBuilder
+    private func subtitleLine(for item: DownloadedItem) -> some View {
+        switch item.status {
+        case .downloading, .queued:
+            if let progress = progress(for: item) {
+                Text(progress.statusText).font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text("Downloading…").font(.caption).foregroundStyle(.secondary)
+            }
+        case .failed:
+            Text("Download Failed").font(.caption).foregroundStyle(.red)
+        case .paused:
+            Text("Paused").font(.caption).foregroundStyle(.secondary)
+        case .completed:
+            if item.kind == .episode {
+                // "S1:E4 · Episode Name" — same pattern as
+                // `MediaItem.railSubtitle`'s episode case.
+                Text(item.episodeLabel.map { "\($0) \u{00B7} \(item.title)" } ?? item.title)
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func thumbnail(relativePath: String?) -> some View {
+        LocalFileImage(url: relativePath.map(DownloadFileStore.url(forRelativePath:)))
+            .frame(width: 44, height: 66)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+}

@@ -90,6 +90,12 @@ final class PlayerViewModel {
     private let userID: String
     private let trackPreferenceStore: TrackPreferenceStore
     private let nextUpPreferenceStore: NextUpPreferenceStore
+    /// Set only via `init(downloadedItem:downloadStore:...)` — when
+    /// non-nil, `start()`/`stop()`/progress reporting all route through the
+    /// local-only offline paths below instead of any network call. See the
+    /// offline-downloads plan's "Offline playback wiring" section.
+    private let downloadedItem: DownloadedItem?
+    private let downloadStore: DownloadStore?
     private var progressReportTask: Task<Void, Never>?
     /// Resolved in `start()` once `activeMediaSourceID` is known — see
     /// `supportsScrubThumbnails`/`scrubThumbnail(atSeconds:)`.
@@ -319,7 +325,16 @@ final class PlayerViewModel {
         client: JellyfinAPIClient, userID: String, itemID: String, engine: PlaybackEngine,
         startFromBeginning: Bool = false, mediaSourceID: String? = nil,
         trackPreferenceStore: TrackPreferenceStore = TrackPreferenceStore(),
-        nextUpPreferenceStore: NextUpPreferenceStore = NextUpPreferenceStore()
+        nextUpPreferenceStore: NextUpPreferenceStore = NextUpPreferenceStore(),
+        /// Non-nil routes this whole session through the offline playback
+        /// path — see `downloadedItem`'s own doc comment. `itemID` should
+        /// still be `downloadedItem.itemID` in that case (the same
+        /// Jellyfin item id, just played from a local file); `client`/
+        /// `userID` are still required and still valid to pass through
+        /// even offline (nothing here calls them unless reconnected), so
+        /// callers don't need a separate offline-only initializer shape.
+        downloadedItem: DownloadedItem? = nil,
+        downloadStore: DownloadStore? = nil
     ) {
         self.client = client
         self.userID = userID
@@ -329,6 +344,8 @@ final class PlayerViewModel {
         self.requestedMediaSourceID = mediaSourceID
         self.trackPreferenceStore = trackPreferenceStore
         self.nextUpPreferenceStore = nextUpPreferenceStore
+        self.downloadedItem = downloadedItem
+        self.downloadStore = downloadStore
 
         engine.onStateChange = { [weak self] state in
             guard let self else { return }
@@ -363,6 +380,10 @@ final class PlayerViewModel {
     ///   the caller already knows exactly where playback stopped.
     func start(resumeSeconds: TimeInterval? = nil) async {
         errorMessage = nil
+        if let downloadedItem {
+            await startOffline(downloadedItem, resumeSeconds: resumeSeconds)
+            return
+        }
         do {
             let images = await client.makeImageURLBuilder()
             // `detailFieldsWithTrickplay`, not the plain default — this is
@@ -429,6 +450,122 @@ final class PlayerViewModel {
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "Playback failed to start.")
         }
+    }
+
+    /// Offline counterpart to the network path above — see `downloadedItem`'s
+    /// doc comment and the offline-downloads plan's "Offline playback
+    /// wiring" section. Builds a `file://` playback URL and local
+    /// `ExternalSubtitleSource`s from `DownloadFileStore` instead of
+    /// `client.streamURL`/`subtitleURL`, and skips every network call
+    /// `start()` makes (item fetch, `playbackInfo`, `reportPlaybackStart`,
+    /// next-episode lookup — none of which have anything to fetch offline;
+    /// `nextEpisode` simply stays `nil`, same as any item whose lookup
+    /// fails today) in favor of the download's own stored snapshot
+    /// (`mediaSegments`, resume position). Progress/stop route to
+    /// `writeOfflineProgress(_:)` instead of `reportPlaybackProgress`/
+    /// `reportPlaybackStopped`.
+    ///
+    /// `item` is still populated — with a synthetic `MediaItem` built from
+    /// an otherwise-empty `BaseItemDto` carrying just the stored title/
+    /// episode info — purely so `PlayerControlsOverlay`'s existing title
+    /// row keeps working unmodified: no `imageTags` means
+    /// `logoImageURL`/`primaryImageURL` all resolve to `nil`, which that
+    /// view already renders as a plain title-text fallback (the same path
+    /// a live item with no logo takes) rather than attempting a network
+    /// image fetch against a placeholder URL.
+    private func startOffline(_ downloadedItem: DownloadedItem, resumeSeconds: TimeInterval?) async {
+        let dto = BaseItemDto(
+            id: downloadedItem.itemID,
+            name: downloadedItem.title,
+            type: downloadedItem.kind == .episode ? .episode : .movie,
+            runTimeTicks: downloadedItem.runtimeTicks,
+            seriesId: downloadedItem.seriesID,
+            seriesName: downloadedItem.seriesTitle,
+            indexNumber: downloadedItem.episodeNumber,
+            parentIndexNumber: downloadedItem.seasonNumber
+        )
+        // Any placeholder base URL works: with no `imageTags` on `dto`
+        // above, nothing this builder is capable of building ever actually
+        // gets requested — see this method's own doc comment.
+        let mediaItem = MediaItem(dto: dto, images: ImageURLBuilder(baseURL: URL(string: "https://offline.invalid")!))
+        item = mediaItem
+        engine.setNowPlayingInfo(title: mediaItem.railTitle, subtitle: mediaItem.railSubtitle, artwork: nil)
+
+        activeMediaSourceID = downloadedItem.mediaSourceID
+        mediaSegments = downloadedItem.segments.map(PlaybackSegment.init(downloaded:))
+        endCreditsSegment = mediaSegments.filter { $0.kind == .outro }.max { $0.startSeconds < $1.startSeconds }
+
+        let videoURL = DownloadFileStore.url(forRelativePath: downloadedItem.videoFilePath)
+        let externalSubtitles = downloadedItem.subtitleFiles.map { file in
+            ExternalSubtitleSource(
+                url: DownloadFileStore.url(forRelativePath: file.relativePath),
+                name: file.displayTitle,
+                language: file.language,
+                isForced: file.isForced,
+                isHearingImpaired: file.isHearingImpaired,
+                isDefault: file.isDefault
+            )
+        }
+
+        do {
+            try await engine.load(url: videoURL, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: [])
+            applyStoredTrackSelection()
+            if let resumeSeconds, resumeSeconds > 0 {
+                await engine.seek(to: resumeSeconds)
+            } else if !startFromBeginning, downloadedItem.resumePositionTicks > 0 {
+                await engine.seek(to: Double(downloadedItem.resumePositionTicks) / 10_000_000)
+            }
+            engine.play()
+            startOfflineProgressReporting(downloadedItem)
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "Playback failed to start.")
+        }
+    }
+
+    /// Fraction of the item played at which offline playback considers it
+    /// "watched" — there's no server to make this judgement call the way
+    /// `reportPlaybackStopped` normally defers to (see that call's doc
+    /// comment elsewhere in this app), so this is a client-side stand-in.
+    /// 90% matches Jellyfin server's own common default resume/played
+    /// threshold.
+    private static let offlineWatchedThreshold = 0.9
+
+    private func startOfflineProgressReporting(_ downloadedItem: DownloadedItem) {
+        progressReportTask?.cancel()
+        progressReportTask = Task { [weak self] in
+            while true {
+                try? await Task.sleep(for: .seconds(10))
+                guard !Task.isCancelled, let self else { return }
+                self.writeOfflineProgress(downloadedItem)
+            }
+        }
+    }
+
+    /// Writes local resume/watched state directly onto the `DownloadedItem`
+    /// row and marks it `pendingSync` — the offline counterpart to
+    /// `reportPlaybackProgress`/`reportPlaybackStopped`, which this path
+    /// must never depend on network for. `DownloadSyncManager` is what
+    /// eventually pushes this to the server, once reconnected.
+    private func writeOfflineProgress(_ downloadedItem: DownloadedItem) {
+        guard duration > 0 else { return }
+        let fraction = min(1, max(0, currentTime / duration))
+        if fraction >= Self.offlineWatchedThreshold {
+            downloadedItem.isPlayed = true
+            downloadedItem.resumePositionTicks = 0
+            downloadedItem.playedPercentage = 100
+        } else {
+            downloadedItem.resumePositionTicks = Int64(currentTime * 10_000_000)
+            downloadedItem.playedPercentage = fraction * 100
+        }
+        // The real, on-device moment this actually happened — see
+        // `DownloadedItem.lastPlayedAt`'s doc comment for why this has to
+        // be captured here (while it's genuinely happening, possibly
+        // fully offline) rather than left for the server to infer once
+        // `DownloadSyncManager` eventually reaches it, which could be
+        // hours or days later.
+        downloadedItem.lastPlayedAt = Date()
+        downloadedItem.pendingSync = true
+        downloadStore?.save()
     }
 
     /// Fire-and-forget: fetches the item's poster (if it has one) via
@@ -678,6 +815,11 @@ final class PlayerViewModel {
 
     func stop() async {
         progressReportTask?.cancel()
+        if let downloadedItem {
+            engine.stop()
+            writeOfflineProgress(downloadedItem)
+            return
+        }
         let ticks = Int64(currentTime * 10_000_000)
         engine.stop()
         try? await client.reportPlaybackStopped(itemID: itemID, positionTicks: ticks, mediaSourceID: activeMediaSourceID)

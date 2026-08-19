@@ -11,7 +11,9 @@ servers, targeting iOS/iPadOS first, with tvOS and macOS to follow. It talks
 to your Jellyfin server over the [Jellyfin REST API](https://api.jellyfin.org/)
 and plays media using [AetherEngine](https://github.com/superuser404notfound/AetherEngine),
 an FFmpeg + VideoToolbox based playback engine with HDR10, HDR10+ and Dolby
-Vision support.
+Vision support. It also supports downloading a device-transcoded copy of a
+title for fully offline playback (its own Downloads tab, reachable even on a
+cold launch with no network at all — see `Core/Downloads`/`Features/Downloads`).
 
 ## Status
 
@@ -79,7 +81,9 @@ DionysusPlayer/
 │   ├── Models/          Server config, credentials, domain models
 │   ├── Networking/      Jellyfin REST API client & DTOs
 │   ├── Playback/        Playback engine protocol + AetherEngine adapter
-│   └── Persistence/     Keychain-backed session storage, on-device search history
+│   ├── Persistence/     Keychain-backed session storage, on-device search history
+│   └── Downloads/       Offline downloads — SwiftData model, file store,
+│                        download/sync managers (see below)
 ├── Features/
 │   ├── ServerSetup/     One-time server address entry
 │   ├── Login/           Jellyfin sign-in, remembers & auto-logs in
@@ -87,8 +91,10 @@ DionysusPlayer/
 │   ├── Collection/      Grid of a library/collection's items
 │   ├── AssetDetails/    Movie/Show detail — hero header, Play/Resume/Restart,
 │   │                    tabbed About/Cast & Crew/Details area
-│   ├── Player/          AetherEngine-backed playback UI
+│   ├── Player/          AetherEngine-backed playback UI (online and offline)
 │   ├── Search/          Jellyfin search, results list
+│   ├── Downloads/       Offline-downloaded content — list, per-show/season
+│   │                    grouping, and a fully local detail page
 │   └── Profile/         Server/account settings, build version footer
 └── Shared/         Reusable components (poster cards, async images, nav)
 ```

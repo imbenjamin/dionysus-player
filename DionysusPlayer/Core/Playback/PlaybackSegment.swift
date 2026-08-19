@@ -53,4 +53,32 @@ struct PlaybackSegment: Identifiable, Equatable {
         self.startSeconds = Double(dto.startTicks) / 10_000_000
         self.endSeconds = Double(dto.endTicks) / 10_000_000
     }
+
+    /// Builds directly from a locally stored `DownloadedSegment` snapshot —
+    /// offline playback seeds `PlayerViewModel.mediaSegments` from this
+    /// instead of a live `mediaSegments(itemID:)` fetch (see the
+    /// offline-downloads plan's "Offline playback wiring" section), so
+    /// there's no server-assigned `id` to reuse; kind+start is stable and
+    /// unique enough per item to stand in for one. Always succeeds —
+    /// `DownloadedSegment.Kind` has no `.unknown` case to reject, unlike
+    /// the live DTO's `MediaSegmentType` — so this isn't failable the way
+    /// `init?(dto:)` is.
+    init(downloaded: DownloadedSegment) {
+        self.id = "\(downloaded.kind.rawValue)-\(downloaded.startSeconds)"
+        self.kind = Kind(downloadedKind: downloaded.kind)
+        self.startSeconds = downloaded.startSeconds
+        self.endSeconds = downloaded.endSeconds
+    }
+}
+
+private extension PlaybackSegment.Kind {
+    init(downloadedKind: DownloadedSegment.Kind) {
+        switch downloadedKind {
+        case .intro: self = .intro
+        case .outro: self = .outro
+        case .recap: self = .recap
+        case .preview: self = .preview
+        case .commercial: self = .commercial
+        }
+    }
 }

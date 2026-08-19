@@ -13,6 +13,14 @@ struct RootView: View {
     /// `sessionStore.credentials?.username`) and needs no network to
     /// render, so it's safe to show here even mid-outage.
     @State private var showingSettingsWhileOffline = false
+    /// Same idea as `showingSettingsWhileOffline`, for the offline screen's
+    /// "View Downloads" action — lets a genuinely cold, fully-offline
+    /// launch (sign-in never completed this session, so `.main`/
+    /// `MainTabView`'s own Downloads tab is unreachable) still reach
+    /// offline-downloaded content. `DownloadsView` and everything it can
+    /// push (`AppRoute.downloadedAsset`/`.downloadedShow`/`.downloadedSeason`,
+    /// including playback) needs no live session at all.
+    @State private var showingDownloadsWhileOffline = false
 
     var body: some View {
         Group {
@@ -36,6 +44,16 @@ struct RootView: View {
                                     }
                                 }
                         }
+                    } else if showingDownloadsWhileOffline {
+                        NavigationStack {
+                            DownloadsView()
+                                .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
+                                .toolbar {
+                                    ToolbarItem(placement: .cancellationAction) {
+                                        Button("Done") { showingDownloadsWhileOffline = false }
+                                    }
+                                }
+                        }
                     } else {
                         // Same plain-`Group`/switch pattern as the rest of
                         // this view, deliberately not `.sheet`/
@@ -46,7 +64,9 @@ struct RootView: View {
                         OfflineStateView(
                             retry: { Task { await appState.start() } },
                             secondaryActionTitle: String(localized: "Go to Settings"),
-                            secondaryAction: { showingSettingsWhileOffline = true }
+                            secondaryAction: { showingSettingsWhileOffline = true },
+                            tertiaryActionTitle: String(localized: "View Downloads"),
+                            tertiaryAction: { showingDownloadsWhileOffline = true }
                         )
                     }
                 }
@@ -59,7 +79,10 @@ struct RootView: View {
         // (e.g. after `changeServer()` circles back through `.login` and
         // fails to reach the new server too) starts from the offline
         // screen again, not straight back into Settings.
-        .onChange(of: appState.phase) { _, _ in showingSettingsWhileOffline = false }
+        .onChange(of: appState.phase) { _, _ in
+            showingSettingsWhileOffline = false
+            showingDownloadsWhileOffline = false
+        }
     }
 }
 

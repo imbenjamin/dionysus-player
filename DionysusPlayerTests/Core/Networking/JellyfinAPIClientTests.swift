@@ -310,6 +310,98 @@ final class JellyfinAPIClientTests: XCTestCase {
         }
     }
 
+    // MARK: isImageBasedSubtitleCodec (pure, no network)
+
+    func test_isImageBasedSubtitleCodec_recognizesBitmapFormats() {
+        for codec in ["pgssub", "hdmv_pgs_subtitle", "dvdsub", "dvd_subtitle", "dvbsub", "dvb_subtitle", "xsub", "PGSSUB"] {
+            XCTAssertTrue(JellyfinAPIClient.isImageBasedSubtitleCodec(codec), "expected \(codec) to be image-based")
+        }
+    }
+
+    func test_isImageBasedSubtitleCodec_falseForTextFormatsAndNil() {
+        for codec: String? in ["subrip", "ass", "ssa", "webvtt", nil, "mystery"] {
+            XCTAssertFalse(JellyfinAPIClient.isImageBasedSubtitleCodec(codec), "expected \(codec ?? "nil") to not be image-based")
+        }
+    }
+
+    // MARK: downloadStreamURL (pure, no network)
+
+    func test_downloadStreamURL_alwaysTranscodesToHEVCMp4Stereo() async {
+        let client = makeClient()
+        let url = await client.downloadStreamURL(
+            itemID: "item-1", mediaSourceID: nil, audioStreamIndex: nil,
+            resolution: .hd1080p, preset: .normal, isSourceHDR: false,
+            sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil
+        )
+        XCTAssertEqual(url?.path, "/Videos/item-1/stream.mp4")
+        let query = URLRequest(url: url!).queryDictionary
+        XCTAssertEqual(query["Static"], "false")
+        XCTAssertEqual(query["Container"], "mp4")
+        XCTAssertEqual(query["VideoCodec"], "hevc")
+        XCTAssertEqual(query["AudioCodec"], "aac")
+        XCTAssertEqual(query["MaxAudioChannels"], "2")
+        XCTAssertNotNil(query["DeviceId"])
+    }
+
+    func test_downloadStreamURL_capsResolutionAndBitrateToTierWhenSourceIsLarger() async {
+        let client = makeClient()
+        let url = await client.downloadStreamURL(
+            itemID: "item-1", mediaSourceID: "src-1", audioStreamIndex: 2,
+            resolution: .hd1080p, preset: .high, isSourceHDR: false,
+            sourceWidth: 3840, sourceHeight: 2160, sourceBitrate: 50_000_000
+        )
+        let query = URLRequest(url: url!).queryDictionary
+        XCTAssertEqual(query["MaxWidth"], "1920")
+        XCTAssertEqual(query["MaxHeight"], "1080")
+        XCTAssertEqual(query["VideoBitrate"], "6000000")
+        XCTAssertEqual(query["AudioBitrate"], "192000")
+        XCTAssertEqual(query["MediaSourceId"], "src-1")
+        XCTAssertEqual(query["AudioStreamIndex"], "2")
+    }
+
+    /// Never upscale/inflate: a source below the requested tier keeps its
+    /// own (lower) dimensions/bitrate rather than being padded up to the
+    /// tier's max.
+    func test_downloadStreamURL_neverExceedsSourceWhenSourceIsSmaller() async {
+        let client = makeClient()
+        let url = await client.downloadStreamURL(
+            itemID: "item-1", mediaSourceID: nil, audioStreamIndex: nil,
+            resolution: .uhd4K, preset: .high, isSourceHDR: false,
+            sourceWidth: 1280, sourceHeight: 720, sourceBitrate: 2_000_000
+        )
+        let query = URLRequest(url: url!).queryDictionary
+        XCTAssertEqual(query["MaxWidth"], "1280")
+        XCTAssertEqual(query["MaxHeight"], "720")
+        XCTAssertEqual(query["VideoBitrate"], "2000000")
+    }
+
+    func test_downloadStreamURL_setsMain10ProfileOnlyForHDRSource() async {
+        let client = makeClient()
+        let hdrURL = await client.downloadStreamURL(
+            itemID: "item-1", mediaSourceID: nil, audioStreamIndex: nil,
+            resolution: .hd1080p, preset: .normal, isSourceHDR: true,
+            sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil
+        )
+        XCTAssertEqual(URLRequest(url: hdrURL!).queryDictionary["VideoProfile"], "main10")
+
+        let sdrURL = await client.downloadStreamURL(
+            itemID: "item-1", mediaSourceID: nil, audioStreamIndex: nil,
+            resolution: .hd1080p, preset: .normal, isSourceHDR: false,
+            sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil
+        )
+        XCTAssertEqual(URLRequest(url: sdrURL!).queryDictionary["VideoProfile"], "main")
+    }
+
+    func test_downloadStreamURL_includesApiKeyWhenSignedIn() async {
+        let client = makeClient(accessToken: "tok")
+        let url = await client.downloadStreamURL(
+            itemID: "item-1", mediaSourceID: nil, audioStreamIndex: nil,
+            resolution: .hd1080p, preset: .normal, isSourceHDR: false,
+            sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil
+        )
+        XCTAssertEqual(URLRequest(url: url!).queryDictionary["ApiKey"], "tok")
+    }
+
     // MARK: makeImageURLBuilder
 
     func test_makeImageURLBuilder_snapshotsCurrentBaseURLAndToken() async {
@@ -357,6 +449,26 @@ final class JellyfinAPIClientTests: XCTestCase {
         try await client.reportPlaybackStopped(itemID: "item-1", positionTicks: 12_345, mediaSourceID: "src-1080p")
 
         XCTAssertEqual(decoded?.MediaSourceId, "src-1080p")
+    }
+
+    // MARK: updateUserData (offline sync — no active-session requirement)
+
+    func test_updateUserData_sendsPositionPlayedAndPercentage() async throws {
+        let client = makeClient(accessToken: "tok")
+        struct DecodedBody: Decodable { let PlaybackPositionTicks: Int64; let Played: Bool; let PlayedPercentage: Double }
+        var decoded: DecodedBody?
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/Users/user-1/Items/item-1/UserData")
+            XCTAssertEqual(request.httpMethod, "POST")
+            decoded = try JSONDecoder().decode(DecodedBody.self, from: request.capturedHTTPBody ?? Data())
+            return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+
+        try await client.updateUserData(itemID: "item-1", userID: "user-1", positionTicks: 98_765, isPlayed: true, playedPercentage: 87.5)
+
+        XCTAssertEqual(decoded?.PlaybackPositionTicks, 98_765)
+        XCTAssertEqual(decoded?.Played, true)
+        XCTAssertEqual(decoded?.PlayedPercentage, 87.5)
     }
 
     func test_playbackInfo_includesMediaSourceIdInRequestBodyWhenProvided() async throws {

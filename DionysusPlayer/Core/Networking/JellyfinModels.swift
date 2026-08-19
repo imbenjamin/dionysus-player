@@ -304,6 +304,28 @@ struct PlaybackProgressRequest: Encodable {
     var mediaSourceId: String?
 }
 
+/// Body for `JellyfinAPIClient.updateUserData` (`POST
+/// /Users/{userId}/Items/{itemId}/UserData`) — a direct write of a user's
+/// watched/resume state, unlike `PlaybackProgressRequest` above which is
+/// scoped to an active `/Sessions/Playing*` session. Jellyfin's real
+/// `UpdateUserItemDataDto` has more fields (`isFavorite`, etc.); only the
+/// ones the offline sync path actually needs to write are modeled here.
+struct UpdateUserDataRequest: Encodable {
+    var playbackPositionTicks: Int64
+    var played: Bool
+    var playedPercentage: Double
+    /// Jellyfin's own `UserItemDataDto.LastPlayedDate` field — without this,
+    /// the server stamps its own value as the moment it *receives* this
+    /// request, which for the offline-downloads sync path
+    /// (`DownloadSyncManager`) can be hours or days after the item was
+    /// actually watched. `nil` is omitted from the encoded request body
+    /// entirely (Swift's synthesized `Encodable` uses `encodeIfPresent`
+    /// for `Optional` properties), leaving the server's existing value
+    /// alone rather than clearing it — in practice every current caller is
+    /// the offline sync path and always supplies one.
+    var lastPlayedDate: Date?
+}
+
 /// A currently-active session, as Jellyfin's `/Sessions` endpoint reports
 /// it — used only for `PlaybackStatsOverlay`'s "Streaming" section. This is
 /// deliberately separate from `PlaybackInfoResponse`: that endpoint

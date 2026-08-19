@@ -16,9 +16,21 @@ struct ProfileView: View {
     /// own fallback for the same "both sides declare the same default"
     /// reason as `hero3DDepthEnabled` above.
     @AppStorage(nextUpCountdownStorageKey) private var nextUpCountdown: NextUpCountdownPreference = .seconds30
+    @AppStorage(downloadResolutionStorageKey) private var downloadResolution: DownloadResolution = .hd1080p
+    @AppStorage(downloadBitratePresetStorageKey) private var downloadBitratePreset: DownloadBitratePreset = .normal
+    @AppStorage(downloadWifiOnlyStorageKey) private var downloadWifiOnly = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showSignOutConfirmation = false
     @State private var showChangeServerConfirmation = false
+
+    /// Recomputed on every `body` evaluation — a plain `FileManager`
+    /// directory scan (`DownloadFileStore.totalSizeOnDisk()`), not cached
+    /// or reactively tied to `DownloadManager`. Fine for a settings row
+    /// visited occasionally, and simpler than wiring a dedicated
+    /// `@Observable` size tracker just for this one label.
+    private var downloadsStorageUsedText: String {
+        ByteCountFormatter.string(fromByteCount: DownloadFileStore.totalSizeOnDisk(), countStyle: .file)
+    }
 
     var body: some View {
         List {
@@ -64,6 +76,25 @@ struct ProfileView: View {
                 Text("Playback")
             } footer: {
                 Text("How long before the end of an episode to countdown the next episode, if end credits are not detected.")
+            }
+
+            Section {
+                Picker("Resolution", selection: $downloadResolution) {
+                    ForEach(DownloadResolution.allCases) { resolution in
+                        Text(resolution.displayName).tag(resolution)
+                    }
+                }
+                Picker("Quality", selection: $downloadBitratePreset) {
+                    ForEach(DownloadBitratePreset.allCases) { preset in
+                        Text(preset.displayName(in: downloadResolution)).tag(preset)
+                    }
+                }
+                Toggle("Wi-Fi Only", isOn: $downloadWifiOnly)
+                LabeledContent("Storage Used", value: downloadsStorageUsedText)
+            } header: {
+                Text("Downloads")
+            } footer: {
+                Text("Downloaded videos are transcoded to fit your chosen resolution and quality, and are never upscaled past the source.")
             }
 
             Section {

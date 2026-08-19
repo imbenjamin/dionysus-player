@@ -394,14 +394,93 @@ actor JellyfinAPIClient {
     /// running it through a server-side format conversion. Unknown/absent
     /// codecs fall back to "srt" — by far the most common external
     /// subtitle format, and Jellyfin serves *something* for it rather than
-    /// a 404.
-    private static func subtitleFileExtension(forCodec codec: String?) -> String {
+    /// a 404. Not `private` — `DownloadManager` also needs this to name a
+    /// downloaded subtitle sidecar file correctly.
+    static func subtitleFileExtension(forCodec codec: String?) -> String {
         switch codec?.lowercased() {
         case "ass": return "ass"
         case "ssa": return "ssa"
         case "webvtt", "vtt": return "vtt"
         default: return "srt"
         }
+    }
+
+    /// True for bitmap/image-based subtitle formats (PGS, VobSub, DVB) —
+    /// AetherEngine can render these live during normal playback just fine,
+    /// but they genuinely can't be brought into an offline download:
+    /// Jellyfin's subtitle-extraction endpoint (`subtitleURL`) has no
+    /// server-side OCR to convert them to text, and MP4 has no way to embed
+    /// a bitmap subtitle track either. Download-building callers must skip
+    /// these rather than falling through `subtitleFileExtension(forCodec:)`'s
+    /// `default: "srt"` case, which would otherwise silently mis-request a
+    /// bitmap stream as a (garbage) `.srt` file.
+    static func isImageBasedSubtitleCodec(_ codec: String?) -> Bool {
+        switch codec?.lowercased() {
+        case "pgssub", "hdmv_pgs_subtitle", "dvdsub", "dvd_subtitle", "dvbsub", "dvb_subtitle", "xsub":
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Builds a device-transcoded download URL for offline storage —
+    /// H.265/HEVC MP4, resolution/bitrate capped to `resolution`/`preset`
+    /// and never exceeding the source's own values (see
+    /// `DownloadTranscodeCalculator.target`, which computes the actual
+    /// `MaxWidth`/`MaxHeight`/`VideoBitrate`/`VideoProfile` sent below).
+    /// Unlike `streamURL` (`Static=true`, direct play), this always
+    /// transcodes (`Static=false`): the whole point of a download is a
+    /// device-friendly capped copy, so even a source already within the
+    /// tier's bounds still gets re-muxed to MP4/AAC, which `Static=true`
+    /// wouldn't do. Audio is always transcoded to AAC-LC stereo
+    /// (`MaxAudioChannels=2`) regardless of the source's channel layout —
+    /// a deliberate v1 simplification (see the offline-downloads plan).
+    /// `ApiKey` travels as a query param, not a header, for the same reason
+    /// `streamURL`/`subtitleURL` do: this URL is handed to a plain
+    /// `URLSessionDownloadTask` outside this actor's own request pipeline.
+    func downloadStreamURL(
+        itemID: String,
+        mediaSourceID: String?,
+        audioStreamIndex: Int?,
+        resolution: DownloadResolution,
+        preset: DownloadBitratePreset,
+        isSourceHDR: Bool,
+        sourceWidth: Int?,
+        sourceHeight: Int?,
+        sourceBitrate: Int?
+    ) -> URL? {
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent("Videos/\(itemID)/stream.mp4"),
+            resolvingAgainstBaseURL: false
+        ) else { return nil }
+
+        let target = DownloadTranscodeCalculator.target(
+            resolution: resolution,
+            preset: preset,
+            isSourceHDR: isSourceHDR,
+            sourceWidth: sourceWidth,
+            sourceHeight: sourceHeight,
+            sourceBitrate: sourceBitrate
+        )
+
+        var query: [URLQueryItem] = [
+            .init(name: "Static", value: "false"),
+            .init(name: "Container", value: "mp4"),
+            .init(name: "VideoCodec", value: "hevc"),
+            .init(name: "AudioCodec", value: "aac"),
+            .init(name: "MaxWidth", value: String(target.maxWidth)),
+            .init(name: "MaxHeight", value: String(target.maxHeight)),
+            .init(name: "VideoBitrate", value: String(target.videoBitrate)),
+            .init(name: "AudioBitrate", value: String(preset.audioBitrate)),
+            .init(name: "MaxAudioChannels", value: "2"),
+            .init(name: "VideoProfile", value: target.videoProfile)
+        ]
+        if let mediaSourceID { query.append(.init(name: "MediaSourceId", value: mediaSourceID)) }
+        if let audioStreamIndex { query.append(.init(name: "AudioStreamIndex", value: String(audioStreamIndex))) }
+        if let accessToken { query.append(.init(name: "ApiKey", value: accessToken)) }
+        query.append(.init(name: "DeviceId", value: DeviceIdentity.deviceID))
+        components.queryItems = query
+        return components.url
     }
 
     /// The live session Jellyfin's server is tracking for this device —
@@ -441,6 +520,26 @@ actor JellyfinAPIClient {
         try await postNoContent(
             "/Sessions/Playing/Stopped",
             body: PlaybackProgressRequest(itemId: itemID, positionTicks: positionTicks, mediaSourceId: mediaSourceID)
+        )
+    }
+
+    /// Directly sets a user's watched/resume state for an item — `POST
+    /// /Users/{userId}/Items/{itemId}/UserData`. Used by the offline
+    /// `DownloadSyncManager` instead of `reportPlaybackProgress`/
+    /// `reportPlaybackStopped` above, both of which assume a live
+    /// `PlaySessionId` an offline-recorded position won't have. This
+    /// endpoint has no active-session requirement, which is exactly what
+    /// "post an update hours or days later, once reconnected" needs.
+    /// `lastPlayedDate` should be the real, on-device moment this actually
+    /// happened (`DownloadedItem.lastPlayedAt`) — see
+    /// `UpdateUserDataRequest.lastPlayedDate`'s doc comment for why this
+    /// can't just be left for the server to infer.
+    func updateUserData(itemID: String, userID: String, positionTicks: Int64, isPlayed: Bool, playedPercentage: Double, lastPlayedDate: Date? = nil) async throws {
+        try await postNoContent(
+            "/Users/\(userID)/Items/\(itemID)/UserData",
+            body: UpdateUserDataRequest(
+                playbackPositionTicks: positionTicks, played: isPlayed, playedPercentage: playedPercentage, lastPlayedDate: lastPlayedDate
+            )
         )
     }
 
