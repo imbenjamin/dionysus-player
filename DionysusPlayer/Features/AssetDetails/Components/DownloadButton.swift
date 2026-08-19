@@ -9,8 +9,12 @@ import SwiftUI
 /// without its default/forced subtitle track (image-based tracks can't be
 /// brought offline — see `JellyfinAPIClient.isImageBasedSubtitleCodec`),
 /// then hands off to `DownloadManager.enqueue`. Quality/resolution come
-/// from `DownloadPreferencesStore` (`ProfileView`'s Downloads settings) —
-/// not chosen per-download here.
+/// from `DownloadPreferencesStore` (`ProfileView`'s Downloads settings) by
+/// default; a long-press on the idle button instead presents
+/// `AdvancedDownloadOptionsView` to override resolution/quality for this one
+/// download only (`overrideResolution`/`overridePreset` below) — everything
+/// else in the flow (audio prompt, subtitle warning, enqueue) is identical
+/// either way.
 struct DownloadButton: View {
     /// Which chrome this renders with — the *state* logic below (idle/
     /// resolving/preparing/downloading/downloaded, prompts, errors) is
@@ -42,6 +46,14 @@ struct DownloadButton: View {
     @State private var isShowingSubtitleWarning = false
     @State private var isShowingError = false
     @State private var errorMessage = ""
+    @State private var isShowingAdvancedOptions = false
+    /// Set by `AdvancedDownloadOptionsView`'s "Download" action, read (and
+    /// cleared) by `enqueue(mediaSource:audioTrack:subtitleTracks:)` in
+    /// place of `preferences.resolution`/`.bitratePreset` — `nil` the rest
+    /// of the time, which is what makes a plain tap fall through to the
+    /// normal device-wide preference unchanged.
+    @State private var overrideResolution: DownloadResolution?
+    @State private var overridePreset: DownloadBitratePreset?
 
     /// What's been resolved from `playbackInfo` so far, waiting on the
     /// audio-track prompt (if any) before `beginDownload(audioTrack:)` can
@@ -149,6 +161,25 @@ struct DownloadButton: View {
         } message: {
             Text(errorMessage)
         }
+        .sheet(isPresented: $isShowingAdvancedOptions) {
+            AdvancedDownloadOptionsView(
+                itemTitle: advancedOptionsTitle,
+                initialResolution: preferences.resolution,
+                initialPreset: preferences.bitratePreset
+            ) { resolution, preset in
+                overrideResolution = resolution
+                overridePreset = preset
+                startResolving()
+            }
+        }
+    }
+
+    /// e.g. "S1:E4 · Pilot" for an episode, the plain title otherwise —
+    /// same per-type formatting `MediaItem.railSubtitle` already uses, so
+    /// this reads as the same kind of label the rest of the app shows for
+    /// this item rather than inventing a new convention just for this sheet.
+    private var advancedOptionsTitle: String {
+        item.episodeLabel.map { "\($0) \u{00B7} \(item.name)" } ?? item.name
     }
 
     /// The actual tap target/state icon — identical between styles, see
@@ -180,6 +211,26 @@ struct DownloadButton: View {
                 }
             }
             .disabled(isBusy)
+            // Hold instead of tap: same idle button, different entry point
+            // into the same resolve/prompt/enqueue flow (`startResolving`)
+            // — see `AdvancedDownloadOptionsView`'s own doc comment.
+            // `.highPriorityGesture`, not a plain `.onLongPressGesture` —
+            // confirmed live (2026-08-19, RocketSim + Simulator) that a
+            // bare `.onLongPressGesture` attached to a `Button` doesn't
+            // suppress the Button's own tap action once the hold completes;
+            // both fired, so a long-press opened the advanced sheet *and*
+            // immediately started a plain-preference download underneath
+            // it. `.highPriorityGesture` is the documented mechanism for a
+            // gesture that should win outright over a view's own built-in
+            // one, rather than compete alongside it — the Button's tap only
+            // fires when this one fails to recognize (a genuinely short
+            // tap), never both.
+            .highPriorityGesture(
+                LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                    guard !isBusy else { return }
+                    isShowingAdvancedOptions = true
+                }
+            )
         }
     }
 
@@ -260,11 +311,17 @@ struct DownloadButton: View {
     }
 
     private func enqueue(mediaSource: MediaSourceInfo, audioTrack: MediaStream?, subtitleTracks: [MediaStream]) async {
-        defer { pendingResolution = nil }
+        // `overrideResolution`/`overridePreset` only carry a value between
+        // `AdvancedDownloadOptionsView`'s "Download" action and this call —
+        // cleared here regardless of outcome so a later *plain* tap (after
+        // a cancelled/failed advanced download) doesn't silently reuse a
+        // stale one-off choice instead of falling back to the real
+        // preference again.
+        defer { pendingResolution = nil; overrideResolution = nil; overridePreset = nil }
         do {
             try await downloadManager.enqueue(
                 item: item, mediaSource: mediaSource, audioTrack: audioTrack, subtitleTracks: subtitleTracks,
-                resolution: preferences.resolution, preset: preferences.bitratePreset,
+                resolution: overrideResolution ?? preferences.resolution, preset: overridePreset ?? preferences.bitratePreset,
                 client: client, userID: userID
             )
         } catch {
