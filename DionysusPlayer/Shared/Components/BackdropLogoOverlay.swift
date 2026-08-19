@@ -28,7 +28,40 @@ import SwiftUI
 /// carousel doesn't, since a constantly-moving background there would
 /// fight the slide transition rather than complement it.
 struct BackdropLogoOverlay: View {
-    let item: MediaItem
+    /// The backdrop image to show — a live item's own network URL, or an
+    /// offline download's local file URL (`DownloadFileStore
+    /// .url(forRelativePath:)`); `AdaptiveArtworkImage` below picks the
+    /// right rendering path (`AsyncRemoteImage` vs `LocalFileImage`) from
+    /// `url.isFileURL` alone, so callers don't need to say which kind of
+    /// item they have. Plain values rather than a `MediaItem` — this used
+    /// to take `item: MediaItem` directly, tying the tuned 3D-tilt
+    /// composition below to a live, network-backed model; generalized
+    /// (2026-08-19) so `DownloadedAssetDetailView`'s offline hero header
+    /// can reuse the exact same effect from its own local artwork instead
+    /// of a separately-maintained copy.
+    let backdropURL: URL?
+    /// `nil` falls back to `titleText` — same as a live item with no logo
+    /// image of its own.
+    let logoURL: URL?
+    /// The show/movie/collection's own name — the no-logo fallback's first
+    /// (only, for non-episode content) line.
+    let title: String
+    /// Non-`nil` only for episode content — the specific episode's own
+    /// title, shown as a second line under whichever of the logo/`title`
+    /// rendered above it (see `identityText`): under the logo image when
+    /// there is one, or under `title` as a second line when there isn't.
+    /// Added (2026-08-19) after confirming live that neither case
+    /// otherwise named the episode anywhere in the hero at all — only the
+    /// show's own logo/name.
+    var episodeTitle: String? = nil
+    /// `.leading` (Disney+-style, unchanged) for `HeroRailCard`'s hero rail
+    /// cards; `HeroHeaderView` (every detail-page hero) passes `.center`
+    /// instead — per direct feedback (2026-08-19): a left-aligned logo/
+    /// episode-title stack reads as lopsided whenever the two lines are
+    /// noticeably different widths (a narrow logo over a long episode
+    /// title, or vice versa), which centering fixes regardless of either
+    /// element's own width, without needing to know either one in advance.
+    var alignment: HorizontalAlignment = .leading
     /// Whether to reserve the extra backdrop headroom (`backdropScale`)
     /// the effect needs to never uncover an image edge — kept as its own
     /// flag rather than inferred from `tiltX`/`tiltY` being nonzero, so the
@@ -114,7 +147,7 @@ struct BackdropLogoOverlay: View {
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
-                AsyncRemoteImage(url: item.backdropImageURL ?? item.primaryImageURL)
+                AdaptiveArtworkImage(url: backdropURL)
                     .scaleEffect(enable3DDepth ? Self.backdropScale : 1)
                     .rotation3DEffect(
                         tiltRotation.angle, axis: tiltRotation.axis,
@@ -129,13 +162,38 @@ struct BackdropLogoOverlay: View {
                     endPoint: .bottom
                 )
             }
-            .overlay(alignment: .bottomLeading) {
-                Group {
-                    if let logoURL = item.logoImageURL {
-                        LogoImageView(url: logoURL, fallback: titleText)
-                            .frame(maxWidth: 240, maxHeight: 80, alignment: .leading)
-                    } else {
-                        titleText
+            .overlay(alignment: Alignment(horizontal: alignment, vertical: .bottom)) {
+                // A single `VStack` rather than the logo/title alone —
+                // `episodeTitle`, when present, stacks as its own line
+                // below whichever identity element rendered above it,
+                // rotating/casting shadow together with it as one unit
+                // rather than needing its own separate 3D treatment.
+                VStack(alignment: alignment, spacing: 4) {
+                    Group {
+                        if let logoURL {
+                            // `LogoImageView`'s fade-in is worth it for a
+                            // network fetch that can take a moment; a local
+                            // file read (`LocalFileImage`) is synchronous
+                            // and already cached, so there's no load
+                            // latency for a fade to hide — rendering it
+                            // plainly instead.
+                            if logoURL.isFileURL {
+                                LocalFileImage(url: logoURL, contentMode: .fit)
+                                    .frame(maxWidth: 240, maxHeight: 80, alignment: Alignment(horizontal: alignment, vertical: .center))
+                            } else {
+                                LogoImageView(url: logoURL, fallback: titleText)
+                                    .frame(maxWidth: 240, maxHeight: 80, alignment: Alignment(horizontal: alignment, vertical: .center))
+                            }
+                        } else {
+                            titleText
+                        }
+                    }
+
+                    if let episodeTitle {
+                        Text(episodeTitle)
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.9))
+                            .multilineTextAlignment(textAlignment)
                     }
                 }
                 .padding()
@@ -211,8 +269,39 @@ struct BackdropLogoOverlay: View {
     }
 
     private var titleText: some View {
-        Text(item.name)
+        Text(title)
             .font(.title.bold())
             .foregroundStyle(.white)
+            .multilineTextAlignment(textAlignment)
+    }
+
+    /// `TextAlignment` has no direct `HorizontalAlignment` conversion —
+    /// `.leading`/`.trailing` map straight across, anything else (in
+    /// practice, just `.center`) falls back to `.center` too, the only
+    /// other value either call site actually passes.
+    private var textAlignment: TextAlignment {
+        switch alignment {
+        case .leading: .leading
+        case .trailing: .trailing
+        default: .center
+        }
+    }
+}
+
+/// Renders `url` via `LocalFileImage` when it's a local file (an offline
+/// download's own artwork) or `AsyncRemoteImage` otherwise (a live item's
+/// network artwork) — the one place `BackdropLogoOverlay` needs to know
+/// which of the two it's dealing with, so neither caller has to say so
+/// explicitly.
+private struct AdaptiveArtworkImage: View {
+    let url: URL?
+    var contentMode: ContentMode = .fill
+
+    var body: some View {
+        if url?.isFileURL == true {
+            LocalFileImage(url: url, contentMode: contentMode)
+        } else {
+            AsyncRemoteImage(url: url, contentMode: contentMode)
+        }
     }
 }

@@ -139,7 +139,11 @@ private struct AboutTabContent: View {
 /// weren't there at all; `.fixedSize` lets it instead measure and lay out
 /// at its own full unwrapped width, which is what actually gives the
 /// `ScrollView` content wider than its viewport to scroll through.
-private struct MetadataLine: View {
+///
+/// Not `private` — `DownloadedDetailTabsView`'s own About tab reuses this
+/// exact presentation for the same genre/studio lines, sourced from
+/// `DownloadedItemMetadata` instead of a live `MediaItem`.
+struct MetadataLine: View {
     let text: String
 
     /// Width of the trailing fade below — see `body`'s comment.

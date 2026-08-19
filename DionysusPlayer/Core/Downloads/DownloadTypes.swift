@@ -37,7 +37,12 @@ enum DownloadResolution: String, Codable, CaseIterable, Identifiable {
 
     /// Video bitrate in bits/sec for this tier at the given preset — the
     /// bitrate ladder from the offline-downloads plan: 4K 20/12/6 Mbps,
-    /// 1080p 6/3/1.5 Mbps, 480p 2/1.2/0.6 Mbps (High/Normal/Data Saver).
+    /// 1080p 6/3/1.5 Mbps, 480p 1.2 Mbps/600/350 Kbps (High/Normal/Data
+    /// Saver). The 480p rung was retuned down from an original flat
+    /// 2/1.2/0.6 Mbps (2026-08-19, direct feedback) — 480p's own pixel
+    /// count needs meaningfully less bitrate than that to still encode
+    /// cleanly, so the original numbers erred high relative to 1080p's own
+    /// rung immediately above it on the same ladder.
     func videoBitrate(preset: DownloadBitratePreset) -> Int {
         switch (self, preset) {
         case (.uhd4K, .high):      return 20_000_000
@@ -46,9 +51,9 @@ enum DownloadResolution: String, Codable, CaseIterable, Identifiable {
         case (.hd1080p, .high):      return 6_000_000
         case (.hd1080p, .normal):    return 3_000_000
         case (.hd1080p, .dataSaver): return 1_500_000
-        case (.sd480p, .high):      return 2_000_000
-        case (.sd480p, .normal):    return 1_200_000
-        case (.sd480p, .dataSaver): return 600_000
+        case (.sd480p, .high):      return 1_200_000
+        case (.sd480p, .normal):    return 600_000
+        case (.sd480p, .dataSaver): return 350_000
         }
     }
 }
@@ -121,6 +126,20 @@ enum DownloadTranscodeCalculator {
     /// source is never artificially inflated. `sourceWidth`/`sourceHeight`/
     /// `sourceBitrate` of `nil` (metadata Jellyfin didn't report) skips that
     /// particular cap rather than failing — the tier's own max is used as-is.
+    ///
+    /// The bitrate itself is looked up from `effectiveTier`, not `resolution`
+    /// (the tier the user actually requested) directly — a real bug, found
+    /// live (2026-08-19): a source only available in 480p, with "1080p HD"
+    /// requested, correctly capped `maxWidth`/`maxHeight` down to the
+    /// source's own SD dimensions, but still looked its bitrate up from the
+    /// *requested* 1080p tier's own ladder rung (3 Mbps at "Normal") rather
+    /// than 480p's (1.2 Mbps) — needlessly inflating the download for video
+    /// that was only ever going to render at 480p regardless. `min(...,
+    /// sourceBitrate)` alone doesn't catch this: a source can easily have
+    /// its own bitrate well above even the *requested* tier's ladder rung
+    /// (an old high-bitrate SD encode, say), so that cap alone never pulls
+    /// the number back down to match the achieved resolution the way
+    /// `effectiveTier` does.
     static func target(
         resolution: DownloadResolution,
         preset: DownloadBitratePreset,
@@ -129,11 +148,31 @@ enum DownloadTranscodeCalculator {
         sourceHeight: Int?,
         sourceBitrate: Int?
     ) -> DownloadTranscodeTarget {
-        DownloadTranscodeTarget(
+        let maxHeight = min(resolution.maxHeight, sourceHeight ?? resolution.maxHeight)
+        let effectiveTier = effectiveTier(forAchievedHeight: maxHeight, notExceeding: resolution)
+        return DownloadTranscodeTarget(
             maxWidth: min(resolution.maxWidth, sourceWidth ?? resolution.maxWidth),
-            maxHeight: min(resolution.maxHeight, sourceHeight ?? resolution.maxHeight),
-            videoBitrate: min(resolution.videoBitrate(preset: preset), sourceBitrate ?? resolution.videoBitrate(preset: preset)),
+            maxHeight: maxHeight,
+            videoBitrate: min(effectiveTier.videoBitrate(preset: preset), sourceBitrate ?? effectiveTier.videoBitrate(preset: preset)),
             videoProfile: isSourceHDR ? "main10" : "main"
         )
+    }
+
+    /// The three resolution tiers, smallest-to-largest by `maxHeight` — the
+    /// order `effectiveTier(forAchievedHeight:notExceeding:)` scans in to
+    /// find the ladder rung that actually matches an achieved resolution,
+    /// rather than relying on `DownloadResolution`'s own (descending)
+    /// `CaseIterable` order.
+    private static let tiersByAscendingHeight: [DownloadResolution] = [.sd480p, .hd1080p, .uhd4K]
+
+    /// The smallest tier whose own `maxHeight` still covers `achievedHeight`
+    /// — i.e. the bitrate ladder rung that actually matches this download's
+    /// real output resolution — without ever exceeding `requested` (the
+    /// tier the user actually chose in `ProfileView`). `achievedHeight` is
+    /// always already clamped to `requested.maxHeight` by the caller, so
+    /// `requested` itself is always a valid — and the largest possible —
+    /// candidate; this only ever steps *down* from it, never up.
+    private static func effectiveTier(forAchievedHeight achievedHeight: Int, notExceeding requested: DownloadResolution) -> DownloadResolution {
+        tiersByAscendingHeight.first { $0.maxHeight >= achievedHeight } ?? requested
     }
 }

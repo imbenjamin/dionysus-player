@@ -71,7 +71,20 @@ struct ShowDetailView: View {
             ScrollView {
                 if let item = viewModel.item {
                     VStack(alignment: .leading, spacing: 20) {
-                        HeroHeaderView(item: item)
+                        // `railTitle` is the show's own name for episode
+                        // content (`dto.seriesName ?? name`) and just
+                        // `item.name` otherwise — see its own doc comment;
+                        // `episodeTitle` is only ever non-nil for episode
+                        // content, which is what actually puts the episode's
+                        // own name in the hero at all (confirmed live,
+                        // 2026-08-19: neither the logo nor the no-logo
+                        // fallback named the specific episode before this).
+                        HeroHeaderView(
+                            backdropURL: item.backdropImageURL ?? item.primaryImageURL,
+                            logoURL: item.logoImageURL,
+                            title: item.railTitle,
+                            episodeTitle: isEpisodeContent ? item.name : nil
+                        )
                             // The scroll anchor itself — see `heroAnchorID`'s
                             // doc comment. `BackdropLogoOverlay` bottom-aligns
                             // the logo with its own default `.padding()`

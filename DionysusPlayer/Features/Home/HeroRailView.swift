@@ -421,7 +421,7 @@ private struct HeroRailCard: View {
         // `NavigationLink` card left in the codebase.
         ZStack {
             NavigationLink(value: AppRoute.assetDetail(itemID: item.id, preloadedItem: item)) {
-                BackdropLogoOverlay(item: item)
+                BackdropLogoOverlay(backdropURL: item.backdropImageURL ?? item.primaryImageURL, logoURL: item.logoImageURL, title: item.name)
             }
             .buttonStyle(.plain)
             // `BackdropLogoOverlay` renders a logo *image* over the backdrop

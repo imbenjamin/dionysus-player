@@ -7,6 +7,34 @@ import SwiftUI
 /// (which assume a live, network-backed `BaseItemDto` and make their own
 /// network calls for similar items/collections — deliberately not offered
 /// here, since those only make sense against a live, browsable library).
+///
+/// Deliberately laid out to match `MovieDetailView`/`ShowDetailView` as
+/// closely as this page's offline-only data allows (2026-08-19): the same
+/// tilt-effect hero (`HeroHeaderView`, generalized to take plain artwork
+/// URLs instead of a live `MediaItem` — see its own doc comment), the same
+/// two-line metadata row (`DownloadedInfoMetadataRow`, mirroring
+/// `InfoMetadataRow`), the same bordered-prominent Play/Resume/Restart row
+/// (`DownloadedPlayResumeButtonRow`, mirroring `PlayResumeButtonRow`), and
+/// the same segmented About/Cast & Crew/Details tabs (`DownloadedDetailTabsView`,
+/// mirroring `DetailTabsView`) — reusing several of the live page's own
+/// presentational pieces directly (`MetadataLine`, `SummaryRow`,
+/// `TrackListSection`, `CastCrewGridView`) where they had no real
+/// `MediaItem` coupling to begin with. The item's own title never appears
+/// as a separate text line — same as the live pages, which rely entirely
+/// on the hero for that, with no second copy anywhere else on the page
+/// (confirmed live, 2026-08-19, against a real Show page — an earlier
+/// version of this page did duplicate it). An episode's "SXX:EYY" likewise
+/// lives only in the Play/Resume button's own label
+/// (`DownloadedPlayResumeButtonRow.buttonTitle`), not a line of its own.
+/// The hero itself carries both the series name (`title:`) and, for
+/// episode content, the specific episode's own name (`episodeTitle:`) —
+/// see `HeroHeaderView`/`BackdropLogoOverlay`'s own doc comments for how
+/// those two combine depending on whether a logo is available. Before this
+/// (2026-08-19), the hero only ever showed the series' own logo/name, so a
+/// separate plain-text series-title line was kept here to at least name
+/// the show; that's redundant now that the hero conveys both names itself,
+/// and was removed.
+///
 /// Its Play button starts the offline `PlayerViewModel` path; its
 /// destructive "Delete Download" toolbar button mirrors `ProfileView`'s
 /// Sign Out/Change Server `confirmationDialog` pattern.
@@ -16,6 +44,7 @@ struct DownloadedAssetDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var isPlayerPresented = false
+    @State private var startFromBeginning = false
     @State private var showDeleteConfirmation = false
 
     private var downloadedItem: DownloadedItem? { downloadManager.store.item(itemID: itemID) }
@@ -24,70 +53,41 @@ struct DownloadedAssetDetailView: View {
         Group {
             if let item = downloadedItem {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        // Backdrop, else Thumb (an episode's own still —
-                        // usually present even when it has no Backdrop of
-                        // its own or a parent to borrow one from), else
-                        // Primary/poster as the last resort.
-                        LocalFileImage(url: (item.backdropImagePath ?? item.thumbImagePath ?? item.posterImagePath).map(DownloadFileStore.url(forRelativePath:)))
-                            .frame(height: 220)
-                            .clipped()
+                    VStack(alignment: .leading, spacing: 20) {
+                        HeroHeaderView(
+                            backdropURL: heroBackdropURL(item),
+                            logoURL: item.logoImagePath.map(DownloadFileStore.url(forRelativePath:)),
+                            title: item.seriesTitle ?? item.title,
+                            episodeTitle: item.kind == .episode ? item.title : nil
+                        )
 
-                        VStack(alignment: .leading, spacing: 12) {
-                            // The show name — shown unconditionally for
-                            // episode content, not just implied by
-                            // context, since this page (unlike a live
-                            // Show-content page) has no persistent hero
-                            // logo/title elsewhere on screen naming it.
-                            if let seriesTitle = item.seriesTitle {
-                                Text(seriesTitle).font(.subheadline).foregroundStyle(.secondary)
-                            }
-                            Text(item.title).font(.title2.bold())
-                            if let episodeLabel = item.episodeLabel {
-                                Text(episodeLabel).foregroundStyle(.secondary)
-                            }
+                        VStack(alignment: .leading, spacing: 16) {
+                            DownloadedInfoMetadataRow(item: item)
 
-                            metadataLine(item)
-
-                            if item.status == .completed {
-                                Button {
+                            DownloadedPlayResumeButtonRow(
+                                item: item,
+                                downloadManager: downloadManager,
+                                onPlay: {
+                                    startFromBeginning = false
                                     isPlayerPresented = true
-                                } label: {
-                                    Label(playButtonTitle(item), systemImage: "play.fill")
-                                        .frame(maxWidth: .infinity)
+                                },
+                                onRestart: {
+                                    startFromBeginning = true
+                                    isPlayerPresented = true
                                 }
-                                .buttonStyle(.borderedProminent)
-                                .tint(.dionysusPrimary)
-                                .controlSize(.large)
-                            } else {
-                                downloadStatusRow(item)
-                            }
+                            )
 
-                            if let overview = item.metadata.overview, !overview.isEmpty {
-                                Text(overview)
-                            }
-
-                            if !item.metadata.genres.isEmpty {
-                                Text(item.metadata.genres.joined(separator: ", "))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            if !item.skippedSubtitleTracks.isEmpty {
-                                Text("Not available offline (image-based subtitles): \(item.skippedSubtitleTracks.joined(separator: ", "))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            if !item.metadata.people.isEmpty {
-                                castSection(item)
-                            }
+                            DownloadedDetailTabsView(item: item)
                         }
                         .padding(.horizontal)
                     }
                     .padding(.bottom, 32)
                 }
-                .navigationBarTitleDisplayMode(.inline)
+                // Same hero-bleeds-under-the-status-bar treatment as
+                // `MovieDetailView`/`ShowDetailView` — see `HeroHeaderView`'s
+                // own doc comment on why it renders flush with the screen's
+                // physical top edge rather than clearing it.
+                .ignoresSafeArea(edges: .top)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button(role: .destructive) { showDeleteConfirmation = true } label: {
@@ -105,7 +105,7 @@ struct DownloadedAssetDetailView: View {
                     Button("Cancel", role: .cancel) {}
                 }
                 .fullScreenCover(isPresented: $isPlayerPresented) {
-                    PlayerView(itemID: item.itemID, downloadedItem: item)
+                    PlayerView(itemID: item.itemID, startFromBeginning: startFromBeginning, downloadedItem: item)
                 }
             } else {
                 ErrorStateView(message: String(localized: "This download is no longer available."), retry: nil)
@@ -113,121 +113,10 @@ struct DownloadedAssetDetailView: View {
         }
     }
 
-    /// Stands in for the Play button while the download isn't actually
-    /// playable yet — Play is deliberately not just disabled-but-visible:
-    /// the file on disk may not exist yet at all (`.queued`) or be only
-    /// partially written (`.downloading`), so starting playback would fail
-    /// or play garbage rather than just being briefly unavailable.
-    @ViewBuilder
-    private func downloadStatusRow(_ item: DownloadedItem) -> some View {
-        HStack(spacing: 12) {
-            switch item.status {
-            case .downloading:
-                if let progress = downloadManager.activeDownloads[item.itemID] {
-                    DownloadProgressRing(progress: progress)
-                        .frame(width: 32, height: 32)
-                    Text(progress.statusText)
-                } else {
-                    ProgressView().controlSize(.small)
-                    Text("Preparing download…")
-                }
-            case .queued:
-                // Waiting for a concurrency slot (`DownloadPreferencesStore
-                // .maxConcurrentDownloads`) — distinct from `.downloading`'s
-                // own brief "no bytes yet" moment above, worth its own
-                // label so a download that's been waiting behind others
-                // doesn't read as stuck.
-                ProgressView().controlSize(.small)
-                Text("Queued…")
-            case .failed:
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-                Text(item.errorMessage ?? String(localized: "Download failed."))
-            case .paused:
-                Image(systemName: "pause.circle").foregroundStyle(.secondary)
-                Text("Download Paused")
-            case .completed:
-                EmptyView()
-            }
-        }
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func playButtonTitle(_ item: DownloadedItem) -> String {
-        if item.isPlayed { return String(localized: "Play Again") }
-        if item.resumePositionTicks > 0 { return String(localized: "Resume") }
-        return String(localized: "Play")
-    }
-
-    /// Age rating, runtime, resolution, HDR (when applicable), whether
-    /// subtitles are included, and the actual on-disk file size — what
-    /// actually varies per download and is useful to know offline.
-    /// Deliberately omits video codec: every download is transcoded to
-    /// HEVC (see the offline-downloads plan), so showing it would just be
-    /// the same word on every single item, unlike `MediaItem
-    /// .metadataBadges`'s live equivalent, which shows codec-derived audio
-    /// format badges that genuinely do vary.
-    private func metadataLine(_ item: DownloadedItem) -> some View {
-        HStack(spacing: 6) {
-            if let rating = item.metadata.officialRating {
-                Text(rating)
-            }
-            if let duration = Self.durationText(ticks: item.runtimeTicks) {
-                Text(duration)
-            }
-            if let resolution = Self.resolutionLabel(height: item.height) {
-                Text(resolution)
-            }
-            if item.isHDR { Text("HDR") }
-            if !item.subtitleFiles.isEmpty { Text("CC") }
-            if let fileSize = DownloadFileStore.fileSize(forRelativePath: item.videoFilePath) {
-                Text(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))
-            }
-        }
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(.secondary)
-    }
-
-    /// Same "Xh Ym" formatting as `MediaItem.durationText` — duplicated
-    /// rather than shared since that one is `private` on a type built
-    /// around a live `BaseItemDto`, and this only needs the one line of
-    /// tick math.
-    private static func durationText(ticks: Int64?) -> String? {
-        guard let ticks, ticks > 0 else { return nil }
-        let totalMinutes = Int(ticks / 10_000_000 / 60)
-        let hours = totalMinutes / 60
-        let minutes = totalMinutes % 60
-        if hours > 0 { return "\(hours)h \(minutes)m" }
-        return "\(minutes)m"
-    }
-
-    /// Coarse SD/HD/4K buckets — matches this page's original, simpler
-    /// vocabulary rather than `MediaItem.metadataBadges`' own "4K"/"HD"-
-    /// only distinction stretched to a finer 1440p/1080p/720p/480p split;
-    /// reverted per direct feedback that the finer buckets read as less
-    /// user-friendly here.
-    private static func resolutionLabel(height: Int?) -> String? {
-        guard let height else { return nil }
-        if height >= 2160 { return "4K" }
-        if height >= 720 { return "HD" }
-        return "SD"
-    }
-
-    private func castSection(_ item: DownloadedItem) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Cast & Crew").font(.headline)
-            ForEach(Array(item.metadata.people.enumerated()), id: \.offset) { pair in
-                HStack {
-                    Image(systemName: "person.crop.circle.fill")
-                        .foregroundStyle(.secondary)
-                    VStack(alignment: .leading) {
-                        Text(pair.element.name)
-                        if let role = pair.element.role {
-                            Text(role).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-        }
+    /// Backdrop, else Thumb (an episode's own still — usually present even
+    /// when it has no Backdrop of its own or a parent to borrow one from),
+    /// else Primary/poster as the last resort.
+    private func heroBackdropURL(_ item: DownloadedItem) -> URL? {
+        (item.backdropImagePath ?? item.thumbImagePath ?? item.posterImagePath).map(DownloadFileStore.url(forRelativePath:))
     }
 }

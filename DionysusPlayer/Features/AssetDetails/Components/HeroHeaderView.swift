@@ -23,7 +23,16 @@ import UIKit
 /// there; kept as a second copy here rather than a shared helper, matching
 /// how `isLandscape`/`statusBarInset` below already duplicate that view's.
 struct HeroHeaderView: View {
-    let item: MediaItem
+    /// Plain values, not `item: MediaItem` — generalized (2026-08-19) so
+    /// `DownloadedAssetDetailView`'s offline hero header can reuse this
+    /// exact tilt-effect composition from its own local artwork; see
+    /// `BackdropLogoOverlay`'s own doc comment for the rest of the story.
+    let backdropURL: URL?
+    let logoURL: URL?
+    let title: String
+    /// Forwarded straight to `BackdropLogoOverlay` — see its own doc
+    /// comment.
+    var episodeTitle: String? = nil
 
     /// `.shared`, not a per-view instance — see `DeviceTiltObserver`'s own
     /// doc comment for why (one physical sensor, and `ProfileView`'s toggle
@@ -102,7 +111,14 @@ struct HeroHeaderView: View {
 
     var body: some View {
         BackdropLogoOverlay(
-            item: item,
+            backdropURL: backdropURL,
+            logoURL: logoURL,
+            title: title,
+            episodeTitle: episodeTitle,
+            // Every detail-page hero centers, unlike `HeroRailCard`'s own
+            // left-aligned default — see `BackdropLogoOverlay.alignment`'s
+            // own doc comment for why.
+            alignment: .center,
             enable3DDepth: is3DDepthEnabled,
             tiltX: is3DDepthEnabled ? CGFloat(tiltObserver.x) : 0,
             tiltY: is3DDepthEnabled ? CGFloat(tiltObserver.y) : 0

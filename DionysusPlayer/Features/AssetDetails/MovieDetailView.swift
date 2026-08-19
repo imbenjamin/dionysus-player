@@ -42,7 +42,7 @@ struct MovieDetailView: View {
         ScrollView {
             if let item = viewModel.item {
                 VStack(alignment: .leading, spacing: 20) {
-                    HeroHeaderView(item: item)
+                    HeroHeaderView(backdropURL: item.backdropImageURL ?? item.primaryImageURL, logoURL: item.logoImageURL, title: item.name)
 
                     VStack(alignment: .leading, spacing: 16) {
                         // Keyed for the same reason as `DetailTabsView`
