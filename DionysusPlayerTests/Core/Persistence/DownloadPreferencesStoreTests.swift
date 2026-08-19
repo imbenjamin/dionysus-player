@@ -21,6 +21,20 @@ final class DownloadPreferencesStoreTests: XCTestCase {
         XCTAssertEqual(store.resolution, .hd1080p)
         XCTAssertEqual(store.bitratePreset, .normal)
         XCTAssertEqual(store.wifiOnly, true)
+        XCTAssertEqual(store.maxConcurrentDownloads, 5)
+    }
+
+    /// Same key `ProfileView`'s slider writes to.
+    func test_maxConcurrentDownloads_readsWhateverWasWrittenToTheSharedKey() {
+        defaults.set(3, forKey: downloadMaxConcurrentStorageKey)
+        XCTAssertEqual(DownloadPreferencesStore(defaults: defaults).maxConcurrentDownloads, 3)
+    }
+
+    /// `0` is the slider's own "Unlimited" sentinel — mapped to `nil` so
+    /// call sites reason about "no limit" the normal Swift way.
+    func test_maxConcurrentDownloads_zero_mapsToNilForUnlimited() {
+        defaults.set(0, forKey: downloadMaxConcurrentStorageKey)
+        XCTAssertNil(DownloadPreferencesStore(defaults: defaults).maxConcurrentDownloads)
     }
 
     /// Same key `ProfileView`'s `@AppStorage(downloadResolutionStorageKey)`

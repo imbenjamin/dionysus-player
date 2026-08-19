@@ -122,7 +122,7 @@ struct DownloadedAssetDetailView: View {
     private func downloadStatusRow(_ item: DownloadedItem) -> some View {
         HStack(spacing: 12) {
             switch item.status {
-            case .downloading, .queued:
+            case .downloading:
                 if let progress = downloadManager.activeDownloads[item.itemID] {
                     DownloadProgressRing(progress: progress)
                         .frame(width: 32, height: 32)
@@ -131,6 +131,14 @@ struct DownloadedAssetDetailView: View {
                     ProgressView().controlSize(.small)
                     Text("Preparing download…")
                 }
+            case .queued:
+                // Waiting for a concurrency slot (`DownloadPreferencesStore
+                // .maxConcurrentDownloads`) — distinct from `.downloading`'s
+                // own brief "no bytes yet" moment above, worth its own
+                // label so a download that's been waiting behind others
+                // doesn't read as stuck.
+                ProgressView().controlSize(.small)
+                Text("Queued…")
             case .failed:
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
                 Text(item.errorMessage ?? String(localized: "Download failed."))

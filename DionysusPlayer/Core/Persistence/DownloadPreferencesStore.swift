@@ -15,6 +15,17 @@ let downloadBitratePresetStorageKey = "downloadBitratePresetPreference"
 /// for: a multi-GB cellular transcode download is the single most common
 /// way this kind of feature burns a user's data plan.
 let downloadWifiOnlyStorageKey = "downloadWifiOnlyPreference"
+/// Stored as a plain `Int` (`ProfileView`'s slider, `0...10`) rather than an
+/// `Optional<Int>` — `@AppStorage`/`UserDefaults` have no native optional
+/// representation, so `0` is the slider's own "Unlimited" sentinel, mapped
+/// to `nil` by `maxConcurrentDownloads` below so every other call site
+/// reasons about "no limit" the normal Swift way instead of a magic number
+/// leaking out of this file. Default `5` (both here and on the slider
+/// itself, same "both sides declare the same default" reasoning as
+/// `downloadResolutionStorageKey` above) — a deliberate, explicit choice to
+/// be considerate of the server by default rather than defaulting to
+/// Unlimited, which was this feature's original (undeliberate) behavior.
+let downloadMaxConcurrentStorageKey = "downloadMaxConcurrentPreference"
 
 /// Quality/network settings for offline downloads. Local to the device
 /// only, like `NextUpPreferenceStore`/`TrackPreferenceStore`: plain
@@ -45,5 +56,17 @@ struct DownloadPreferencesStore {
 
     var wifiOnly: Bool {
         defaults.object(forKey: downloadWifiOnlyStorageKey) as? Bool ?? true
+    }
+
+    /// The most video downloads `DownloadManager` will run at once — `nil`
+    /// means unlimited (only reachable by deliberately dragging
+    /// `ProfileView`'s slider all the way to "Unlimited"; `5` is the default
+    /// for anyone who hasn't visited it yet, see `downloadMaxConcurrentStorageKey`'s
+    /// own doc comment). Only gates the actual background video transfer —
+    /// subtitle/artwork fetches always run inline as soon as a download is
+    /// requested, regardless of this limit, since they're small and quick.
+    var maxConcurrentDownloads: Int? {
+        let raw = defaults.object(forKey: downloadMaxConcurrentStorageKey) as? Int ?? 5
+        return raw > 0 ? raw : nil
     }
 }

@@ -224,12 +224,16 @@ private struct DownloadsRowView: View {
     @ViewBuilder
     private func subtitleLine(for item: DownloadedItem) -> some View {
         switch item.status {
-        case .downloading, .queued:
+        case .downloading:
             if let progress = progress(for: item) {
                 Text(progress.statusText).font(.caption).foregroundStyle(.secondary)
             } else {
-                Text("Downloading…").font(.caption).foregroundStyle(.secondary)
+                Text("Preparing download…").font(.caption).foregroundStyle(.secondary)
             }
+        case .queued:
+            // Waiting for a concurrency slot — see `DownloadedAssetDetailView
+            // .downloadStatusRow`'s doc comment on the same distinction.
+            Text("Queued…").font(.caption).foregroundStyle(.secondary)
         case .failed:
             Text("Download Failed").font(.caption).foregroundStyle(.red)
         case .paused:

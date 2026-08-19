@@ -86,14 +86,45 @@ final class DownloadManager: NSObject {
     private static let downloadResourceTimeout: TimeInterval = 60 * 60 * 6
 
     /// Delegates keyed by itemID — kept alive here for the download's
-    /// lifetime since `URLSession` doesn't retain its own delegate.
+    /// lifetime since `URLSession` doesn't retain its own delegate. Also
+    /// doubles as the "how many video downloads are actually running right
+    /// now" count (`canStartAnotherDownload`) — a started background
+    /// session always has one of these, a merely `.queued`-waiting-for-a-
+    /// slot item never does.
     private var delegates: [String: DownloadSessionDelegate] = [:]
     /// Stashed by a background relaunch (`reattachBackgroundSession`),
     /// called once that session reports every queued callback delivered.
     private var backgroundCompletionHandlers: [String: () -> Void] = [:]
+    /// Item IDs waiting for a concurrency slot (`DownloadPreferencesStore
+    /// .maxConcurrentDownloads`), in the order they became ready to wait —
+    /// FIFO, popped from the front by `admitQueuedDownloadsIfPossible`. Not
+    /// the same thing as "every `.queued` row": an item can be `.queued` and
+    /// not yet in here too, for the brief window `enqueue` spends fetching
+    /// its subtitle sidecars before it's actually ready to queue for video.
+    private var pendingQueue: [String] = []
+    /// Injectable (same DI spirit as `store`) so `DownloadManagerTests` can
+    /// drive `maxConcurrentDownloads` directly rather than mutating
+    /// `UserDefaults.standard` for the duration of a test.
+    private let preferences: DownloadPreferencesStore
+    /// Test-only DI seam (`nil` — the default — always uses the real
+    /// `startVideoDownload`, a real background `URLSessionDownloadTask`):
+    /// lets `DownloadManagerTests` verify `admitQueuedDownloadsIfPossible`'s
+    /// own FIFO/concurrency-limit bookkeeping without hitting the network
+    /// or creating a real background session, same "don't unit-test the
+    /// real download engine" boundary this file's tests already document.
+    /// Passed into `init` (rather than assigned after) so it's in place
+    /// before `resumePendingQueue()` runs, which can itself admit
+    /// downloads immediately.
+    private let startVideoDownloadOverride: ((String, URL, String) -> Void)?
 
-    init(store: DownloadStore) {
+    init(
+        store: DownloadStore,
+        preferences: DownloadPreferencesStore = DownloadPreferencesStore(),
+        startVideoDownloadOverride: ((String, URL, String) -> Void)? = nil
+    ) {
         self.store = store
+        self.preferences = preferences
+        self.startVideoDownloadOverride = startVideoDownloadOverride
         super.init()
         NotificationCenter.default.addObserver(
             forName: .dionysusHandleBackgroundURLSession, object: nil, queue: .main
@@ -108,6 +139,7 @@ final class DownloadManager: NSObject {
                 self?.reattachBackgroundSession(identifier: identifier, completionHandler: box.handler)
             }
         }
+        resumePendingQueue()
     }
 
     convenience override init() {
@@ -117,12 +149,15 @@ final class DownloadManager: NSObject {
     // MARK: - Enqueue
 
     /// Flow: build the capped transcode URL → capture the metadata/segments/
-    /// artwork snapshot → create the `DownloadedItem` row (`.downloading`)
-    /// → download text-based subtitle sidecars inline (small, quick) →
-    /// hand the video request to a background `URLSessionDownloadTask` so
-    /// it survives backgrounding. `mediaSource`/`audioTrack`/
-    /// `subtitleTracks` are whatever the caller (`DownloadButton`) already
-    /// resolved via its own `playbackInfo` fetch and prompts — this doesn't
+    /// artwork snapshot → create the `DownloadedItem` row (`.queued`) →
+    /// download text-based subtitle sidecars inline (small, quick) → hand
+    /// the video request to `queueVideoDownload`, which starts it on a
+    /// background `URLSessionDownloadTask` immediately if there's a free
+    /// concurrency slot (`DownloadPreferencesStore.maxConcurrentDownloads`)
+    /// or leaves it `.queued` to wait for one otherwise. `mediaSource`/
+    /// `audioTrack`/`subtitleTracks` are whatever the caller
+    /// (`DownloadButton`) already resolved via its own `playbackInfo` fetch
+    /// and prompts — this doesn't
     /// re-fetch or re-prompt.
     func enqueue(
         item: MediaItem,
@@ -235,7 +270,14 @@ final class DownloadManager: NSObject {
             skippedSubtitleTracks: subtitleTracks
                 .filter { JellyfinAPIClient.isImageBasedSubtitleCodec($0.codec) }
                 .map { $0.displayTitle ?? String(localized: "Track \($0.index + 1)") },
-            status: .downloading,
+            // Not yet `.downloading` — the video task doesn't actually
+            // start until `queueVideoDownload` below admits it past
+            // `DownloadPreferencesStore.maxConcurrentDownloads`, which may
+            // not happen right away. `pendingDownloadURLString` is what
+            // lets that later admission (possibly after an app relaunch —
+            // see `resumePendingQueue`) find its way back to this exact URL.
+            status: .queued,
+            pendingDownloadURLString: downloadURL.absoluteString,
             metadata: metadata,
             posterImagePath: posterPath,
             backdropImagePath: backdropPath,
@@ -250,7 +292,7 @@ final class DownloadManager: NSObject {
         )
         store.save()
 
-        startVideoDownload(itemID: item.id, url: downloadURL, relativePath: downloaded.videoFilePath)
+        queueVideoDownload(itemID: item.id)
     }
 
     /// Downloads every text-based subtitle track inline via a plain shared
@@ -343,6 +385,81 @@ final class DownloadManager: NSObject {
         }
     }
 
+    // MARK: - Concurrency-limited queue
+
+    /// Appends to `pendingQueue` (a no-op if it's already there — guards
+    /// against a stray double-call, not expected in practice) and
+    /// immediately tries to admit it, same as every other slot-freeing
+    /// event below. Not `private` — `enqueue` is its only production call
+    /// site, but `DownloadManagerTests` calls this directly too, to drive
+    /// the queue without going through the full async `enqueue` flow.
+    func queueVideoDownload(itemID: String) {
+        guard !pendingQueue.contains(itemID) else { return }
+        pendingQueue.append(itemID)
+        admitQueuedDownloadsIfPossible()
+    }
+
+    /// Starts as many queued video downloads as `DownloadPreferencesStore
+    /// .maxConcurrentDownloads` currently allows, strictly in FIFO order —
+    /// called whenever the queue gains an entry (`queueVideoDownload`) or a
+    /// slot frees up (a download finishing, in `makeVideoDownloadDelegate`'s
+    /// `onCompletion`). A row popped here that's no longer actually
+    /// `.queued` with a URL to start (deleted, or somehow already started)
+    /// is silently skipped rather than retried — nothing else would have
+    /// left it in this list in that state.
+    private func admitQueuedDownloadsIfPossible() {
+        while canStartAnotherDownload {
+            guard !pendingQueue.isEmpty else { return }
+            let itemID = pendingQueue.removeFirst()
+            guard let row = store.item(itemID: itemID), row.status == .queued,
+                  let urlString = row.pendingDownloadURLString, let url = URL(string: urlString)
+            else { continue }
+            row.status = .downloading
+            row.pendingDownloadURLString = nil
+            store.save()
+            // Reserve the slot up front, before either starter below runs
+            // — `startVideoDownload` immediately overwrites this with the
+            // real delegate; `startVideoDownloadOverride` (tests only)
+            // leaves this placeholder in place, which is all
+            // `canStartAnotherDownload` needs to count the slot as
+            // occupied without the override having to call back into any
+            // of this type's private state itself.
+            delegates[itemID] = DownloadSessionDelegate(
+                destinationRelativePath: row.videoFilePath, onProgress: { _, _ in }, onCompletion: { _ in }, onFinishedEvents: {}
+            )
+            if let startVideoDownloadOverride {
+                startVideoDownloadOverride(itemID, url, row.videoFilePath)
+            } else {
+                startVideoDownload(itemID: itemID, url: url, relativePath: row.videoFilePath)
+            }
+        }
+    }
+
+    /// `delegates.count` is exactly "how many video downloads are actually
+    /// transferring right now" (see that property's own doc comment) —
+    /// `nil` (Unlimited) always allows another.
+    private var canStartAnotherDownload: Bool {
+        guard let limit = preferences.maxConcurrentDownloads else { return true }
+        return delegates.count < limit
+    }
+
+    /// Rebuilds `pendingQueue` from whatever `.queued` rows survived to a
+    /// fresh launch — a row still waiting for a concurrency slot when the
+    /// app was last backgrounded/terminated has no in-memory queue entry to
+    /// resume from otherwise (unlike an already-*started* download, which
+    /// survives via `reattachBackgroundSession`'s background `URLSession`
+    /// reattachment): without this it would sit at `.queued` forever with
+    /// nothing left to ever admit it. Ordered by `createdAt` so a relaunch
+    /// preserves the same tap order the queue already promised within one
+    /// session. Called once, from `init`.
+    private func resumePendingQueue() {
+        let queuedRows = store.allItems()
+            .filter { $0.status == .queued && $0.pendingDownloadURLString != nil }
+            .sorted { $0.createdAt < $1.createdAt }
+        pendingQueue = queuedRows.map(\.itemID)
+        admitQueuedDownloadsIfPossible()
+    }
+
     // MARK: - Video download (background session)
 
     private func startVideoDownload(itemID: String, url: URL, relativePath: String) {
@@ -392,6 +509,10 @@ final class DownloadManager: NSObject {
                 guard let self else { return }
                 self.activeDownloads[itemID] = nil
                 self.delegates[itemID] = nil
+                // A slot just freed up — try to admit whatever's next in
+                // line regardless of whether this row still exists below
+                // (it may have been deleted mid-download).
+                self.admitQueuedDownloadsIfPossible()
                 guard let row = self.store.item(itemID: itemID) else { return }
                 switch result {
                 case .success:
@@ -429,6 +550,10 @@ final class DownloadManager: NSObject {
         }
         activeDownloads[itemID] = nil
         delegates[itemID] = nil
+        // Only meaningful for a row that was still waiting for a
+        // concurrency slot (never got as far as starting a real
+        // `URLSessionDownloadTask`) — a harmless no-op otherwise.
+        pendingQueue.removeAll { $0 == itemID }
 
         if downloaded.pendingSync {
             downloaded.markedForDeletion = true
@@ -437,6 +562,22 @@ final class DownloadManager: NSObject {
             store.delete(downloaded)
         }
     }
+
+    #if DEBUG
+    // MARK: - Test seam (DownloadManagerTests only — see `startVideoDownloadOverride`)
+
+    /// Frees a concurrency slot `admitQueuedDownloadsIfPossible` reserved
+    /// (see its own doc comment on why that reservation happens
+    /// unconditionally, before either the real or test-override starter
+    /// runs) and admits the next queued item, exactly like the real
+    /// `onCompletion` closure does. `#if DEBUG`-gated the same way
+    /// `PreviewPlaybackEngine` is: compiled out of Release, available to
+    /// the test target.
+    func test_simulateDownloadFinished(itemID: String) {
+        delegates[itemID] = nil
+        admitQueuedDownloadsIfPossible()
+    }
+    #endif
 }
 
 extension Notification.Name {

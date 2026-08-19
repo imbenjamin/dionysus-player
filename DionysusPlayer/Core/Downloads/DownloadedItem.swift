@@ -147,6 +147,20 @@ final class DownloadedItem: Identifiable {
     var totalBytesExpected: Int64
     var bytesDownloaded: Int64
     var errorMessage: String?
+    /// The resolved transcode stream URL for this item's video, captured
+    /// once at enqueue time — needed to actually start the background
+    /// `URLSessionDownloadTask` whenever a concurrency slot frees up (see
+    /// `DownloadPreferencesStore.maxConcurrentDownloads`), which can happen
+    /// much later than the original `enqueue()` call: a `.queued` row can
+    /// easily outlive the app being foregrounded (e.g. a season's worth of
+    /// episodes waiting behind a low limit), so this can't just live in an
+    /// in-memory dictionary the way a same-session-only value could —
+    /// `DownloadManager` rebuilds its pending queue from whichever rows
+    /// still have one of these on a fresh launch. `nil` once the video task
+    /// has actually started (cleared by `DownloadManager
+    /// .admitQueuedDownloadsIfPossible`) — nothing needs it again after
+    /// that point.
+    var pendingDownloadURLString: String?
 
     var createdAt: Date
     var resumePositionTicks: Int64
@@ -254,6 +268,7 @@ final class DownloadedItem: Identifiable {
         totalBytesExpected: Int64 = 0,
         bytesDownloaded: Int64 = 0,
         errorMessage: String? = nil,
+        pendingDownloadURLString: String? = nil,
         createdAt: Date = Date(),
         resumePositionTicks: Int64 = 0,
         isPlayed: Bool = false,
@@ -298,6 +313,7 @@ final class DownloadedItem: Identifiable {
         self.totalBytesExpected = totalBytesExpected
         self.bytesDownloaded = bytesDownloaded
         self.errorMessage = errorMessage
+        self.pendingDownloadURLString = pendingDownloadURLString
         self.createdAt = createdAt
         self.resumePositionTicks = resumePositionTicks
         self.isPlayed = isPlayed

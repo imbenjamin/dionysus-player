@@ -111,12 +111,16 @@ struct DownloadedEpisodeRow: View {
     @ViewBuilder
     private var statusLine: some View {
         switch episode.status {
-        case .downloading, .queued:
+        case .downloading:
             if let progress {
                 Text(progress.statusText).font(.caption2).foregroundStyle(.secondary)
             } else {
-                Text("Downloading…").font(.caption2).foregroundStyle(.secondary)
+                Text("Preparing download…").font(.caption2).foregroundStyle(.secondary)
             }
+        case .queued:
+            // Waiting for a concurrency slot — see `DownloadedAssetDetailView
+            // .downloadStatusRow`'s doc comment on the same distinction.
+            Text("Queued…").font(.caption2).foregroundStyle(.secondary)
         case .failed:
             Text("Download Failed").font(.caption2).foregroundStyle(.red)
         case .paused:

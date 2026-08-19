@@ -27,7 +27,10 @@ enum DownloadTestHelpers {
         posterImagePath: String? = nil,
         backdropImagePath: String? = nil,
         logoImagePath: String? = nil,
-        thumbImagePath: String? = nil
+        thumbImagePath: String? = nil,
+        status: DownloadStatus = .queued,
+        pendingDownloadURLString: String? = nil,
+        createdAt: Date = Date()
     ) -> DownloadedItem {
         DownloadedItem(
             itemID: itemID,
@@ -38,6 +41,9 @@ enum DownloadTestHelpers {
             requestedResolution: .hd1080p,
             requestedPreset: .normal,
             videoFilePath: DownloadFileStore.videoRelativePath(itemID: itemID),
+            status: status,
+            pendingDownloadURLString: pendingDownloadURLString,
+            createdAt: createdAt,
             pendingSync: pendingSync,
             markedForDeletion: markedForDeletion,
             metadata: makeMetadata(),
