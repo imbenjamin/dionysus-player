@@ -3,6 +3,7 @@ import Combine
 import Foundation
 import MediaPlayer
 import SwiftUI
+import UIKit
 import AetherEngine
 
 /// `PlaybackEngine` implemented on top of AetherEngine.
@@ -15,6 +16,10 @@ import AetherEngine
 final class AetherPlaybackEngine: PlaybackEngine {
     private let engine: AetherEngine
     private var cancellables: Set<AnyCancellable> = []
+    /// See `observeAppLifecycle()`'s doc comment — repairs a paused session
+    /// AetherEngine's own background grace-window teardown left without a
+    /// pipeline to resume.
+    private var didBecomeActiveObserver: NSObjectProtocol?
 
     var onStateChange: ((PlaybackState) -> Void)?
     var onTimeUpdate: ((TimeInterval, TimeInterval) -> Void)?
@@ -124,6 +129,16 @@ final class AetherPlaybackEngine: PlaybackEngine {
         // .ownsVideoNowPlayingSession`'s doc comment.
         engine.ownsVideoNowPlayingSession = true
         observeEngine()
+        observeAppLifecycle()
+    }
+
+    // `isolated deinit` — `didBecomeActiveObserver` is `@MainActor`-isolated
+    // state (this whole class is `@MainActor`), which a plain `nonisolated
+    // deinit` can't touch directly under Swift 6 strict concurrency.
+    isolated deinit {
+        if let didBecomeActiveObserver {
+            NotificationCenter.default.removeObserver(didBecomeActiveObserver)
+        }
     }
 
     private func observeEngine() {
@@ -171,6 +186,37 @@ final class AetherPlaybackEngine: PlaybackEngine {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.onTimeUpdate?(time, self.engine.duration)
+                }
+            }
+            .store(in: &cancellables)
+
+        // `engine.duration` is `@Published` on AetherEngine and settles from
+        // its own dedicated sink inside AetherEngine's loading path,
+        // independent of `clock.$currentTime`'s ticks above — a fresh
+        // duration can land before, after, or well outside any clock tick
+        // (there is no tick at all while paused, since nothing is advancing
+        // to publish). Bridging `onTimeUpdate` only off `clock.$currentTime`
+        // — the first version of this — meant a duration that settled after
+        // the last tick a paused session would ever produce just never
+        // reached `PlayerViewModel`. Confirmed live (2026-08-20,
+        // screenshot): the background-teardown reload in
+        // `reloadIfBackgroundTeardownLeftSessionUnready()` re-pauses right
+        // after reloading, and its own reload can outlast the last real
+        // tick — `PlayerViewModel.currentTime` (correct, from that last
+        // tick) and `.duration` (stuck at 0) visibly disagreed, "19:09" next
+        // to a scrubber pinned at the left edge and a "-0:00" remaining-time
+        // label. A one-shot manual nudge right after that reload's `pause()`
+        // was tried first and wasn't enough — `engine.duration` itself can
+        // still read 0 at that exact instant if AetherEngine's own duration
+        // sink hasn't landed yet. Mirroring `$duration`'s own publisher here
+        // instead means whenever it actually lands, this fires — no guessing
+        // about timing.
+        engine.$duration
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] duration in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.onTimeUpdate?(self.engine.currentTime, duration)
                 }
             }
             .store(in: &cancellables)
@@ -291,6 +337,73 @@ final class AetherPlaybackEngine: PlaybackEngine {
             .store(in: &cancellables)
     }
 
+    /// Repairs a real bug, confirmed live (2026-08-20): pause a session
+    /// (don't exit the player), lock the phone, wait past AetherEngine's
+    /// own `backgroundTeardownGraceSeconds` (15s default — a couple of
+    /// minutes locked is nowhere close) — its `#127` grace-window teardown
+    /// releases the decode session to stay suspension-safe (see
+    /// `AetherEngine`'s own doc comments on `teardownVideoForBackground`/
+    /// `reloadAtCurrentPosition`), leaving `state == .paused` but
+    /// `isSessionReady == false`: a session with nothing left to resume.
+    /// AetherEngine's own `play()` just forwards to the (now torn-down)
+    /// transport host and silently no-ops — tapping Play does nothing,
+    /// the exact symptom reported; only backing out and restarting playback
+    /// recovered. `reloadAtCurrentPosition()`'s own doc comment says
+    /// "Call after background return" — that call is this host's
+    /// responsibility, not something AetherEngine does for itself
+    /// (confirmed: its own `didBecomeActive` observer only cancels the
+    /// grace window, never reloads). Reloading proactively here, right on
+    /// foreground return, means the fix is invisible by the time the user
+    /// is actually looking at the screen — `play()` below is a defensive
+    /// fallback for whatever races past this. A session that's still alive
+    /// (a quick app switch inside the grace window, or one AetherEngine
+    /// itself kept playing through the background) is untouched:
+    /// `isSessionReady` only goes false for a session AetherEngine actually
+    /// tore down.
+    private func observeAppLifecycle() {
+        didBecomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reloadIfBackgroundTeardownLeftSessionUnready()
+            }
+        }
+    }
+
+    /// A second real bug found live right after the first (2026-08-20):
+    /// `reloadAtCurrentPosition()` takes no parameters of its own — its
+    /// autostart behavior is entirely inherited from `LoadOptions.autoplay`
+    /// as captured at the *original* `load()` call, which `load(url:
+    /// externalSubtitles:knownAtmosAudioTrackIndices:)` below never
+    /// overrides (`LoadOptions.autoplay` defaults to `true`). So the reload
+    /// this repair triggers always resumes playback — even though the
+    /// guard above only ever fires for a session that was genuinely
+    /// `.paused`, i.e. the user's last explicit action before backgrounding.
+    /// AetherEngine has no "reload but stay paused" entry point to ask for
+    /// instead, so this pauses again immediately once the reload settles —
+    /// same net effect (paused, pipeline alive, `isSessionReady` true, a
+    /// later `play()` works) with at most a brief internal autostart the
+    /// user was never looking at (this whole repair runs on `didBecomeActive`,
+    /// before the screen is realistically in view) rather than a
+    /// perceptibly-sustained unwanted resume.
+    /// A third real bug found live right after the second (2026-08-20,
+    /// screenshot confirmed): re-pausing right after the reload could land
+    /// on the last `PlayerViewModel.currentTime`/`.duration` update this
+    /// session would ever get while paused (nothing advancing = nothing
+    /// left to tick), with `duration` not yet caught up — "19:09" next to a
+    /// "-0:00" remaining-time label and a scrubber pinned at the left edge.
+    /// Fixed at the source, not here — see `observeEngine()`'s `engine
+    /// .$duration` subscription, which now bridges independently of
+    /// `clock.$currentTime`'s ticks, so whenever the real duration lands
+    /// (paused or not) `onTimeUpdate` fires regardless.
+    private func reloadIfBackgroundTeardownLeftSessionUnready() {
+        guard engine.state == .paused, !engine.isSessionReady else { return }
+        Task { @MainActor in
+            try? await engine.reloadAtCurrentPosition()
+            engine.pause()
+        }
+    }
+
     func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws {
         self.knownAtmosAudioTrackIndices = knownAtmosAudioTrackIndices
         let options = LoadOptions(
@@ -345,7 +458,26 @@ final class AetherPlaybackEngine: PlaybackEngine {
         return trackLanguage.caseInsensitiveCompare(other) == .orderedSame
     }
 
-    func play() { engine.play() }
+    /// Defensive fallback for `observeAppLifecycle()`'s proactive reload —
+    /// see that method's doc comment for the underlying bug (a paused
+    /// session torn down by AetherEngine's own background grace-window
+    /// teardown reports `state == .paused` but `isSessionReady == false`,
+    /// and AetherEngine's own `play()` has no pipeline left to act on).
+    /// Whatever race left that reload undone by the time the user actually
+    /// taps Play, this catches it here instead of a silently-dead button —
+    /// same "kick off the async step, then act" shape AetherEngine's own
+    /// `play()` already uses for its "rewind a VOD parked at its final
+    /// frame" case.
+    func play() {
+        guard engine.state == .paused, !engine.isSessionReady else {
+            engine.play()
+            return
+        }
+        Task { @MainActor in
+            try? await engine.reloadAtCurrentPosition()
+            engine.play()
+        }
+    }
     func pause() { engine.pause() }
     func togglePlayPause() { engine.togglePlayPause() }
     func stop() { engine.stop() }

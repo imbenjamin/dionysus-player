@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 @testable import Dionysus
 
@@ -109,6 +110,45 @@ final class PlayerViewModelOfflineTests: XCTestCase {
         XCTAssertEqual(viewModel.mediaSegments.first?.endSeconds, 30)
     }
 
+    // MARK: trickplay
+
+    func test_startOffline_noStoredTrickplayInfo_scrubThumbnailsUnsupported() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        store.insert(item)
+        let (viewModel, _) = makeOfflineViewModel(downloadedItem: item, store: store)
+
+        await viewModel.start()
+
+        XCTAssertFalse(viewModel.supportsScrubThumbnails)
+        let thumbnail = await viewModel.scrubThumbnail(atSeconds: 1)
+        XCTAssertNil(thumbnail)
+    }
+
+    func test_startOffline_storedTrickplayInfo_readsLocalTileSheet() async throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let info = TrickplayInfo(width: 4, height: 4, tileWidth: 2, tileHeight: 2, thumbnailCount: 4, interval: 1000, bandwidth: 1)
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1", trickplayInfo: info)
+        store.insert(item)
+        defer { DownloadFileStore.deleteItemFiles(itemID: "item-1") }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let sheetData = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8), format: format).image { context in
+            UIColor.blue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }.pngData()!
+        try DownloadFileStore.write(sheetData, toRelativePath: DownloadFileStore.trickplayTileRelativePath(itemID: "item-1", width: 4, sheetIndex: 0))
+        let (viewModel, _) = makeOfflineViewModel(downloadedItem: item, store: store)
+
+        await viewModel.start()
+
+        XCTAssertTrue(viewModel.supportsScrubThumbnails)
+        let fetched = await viewModel.scrubThumbnail(atSeconds: 1)
+        let thumbnail = try XCTUnwrap(fetched)
+        XCTAssertEqual(thumbnail.width, 4)
+        XCTAssertEqual(thumbnail.height, 4)
+    }
+
     func test_startOffline_setsNowPlayingInfoFromStoredTitle() async {
         let store = DownloadTestHelpers.makeInMemoryStore()
         let item = DownloadTestHelpers.makeItem(itemID: "item-1")
@@ -146,6 +186,48 @@ final class PlayerViewModelOfflineTests: XCTestCase {
         await viewModel.stop()
 
         XCTAssertFalse(requestMade)
+    }
+
+    // MARK: isOfflinePlayback / PlaybackStatsOverlay's Streaming section
+
+    func test_isOfflinePlayback_trueForADownloadedItemSession() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        store.insert(item)
+        let (viewModel, _) = makeOfflineViewModel(downloadedItem: item, store: store)
+
+        XCTAssertTrue(viewModel.isOfflinePlayback)
+    }
+
+    /// `refreshServerVersion()`/`refreshStreamingSession()` back
+    /// `PlaybackStatsOverlay`'s Streaming section — a real bug this session
+    /// fixed: they used to dispatch a doomed network request every time the
+    /// overlay polled, even during offline playback, where there's no live
+    /// server to ask. Both must now no-op entirely, leaving
+    /// `serverVersion`/`streamingSession` `nil` rather than attempting
+    /// (and silently swallowing the failure of) a request that can never
+    /// succeed.
+    func test_refreshServerVersionAndStreamingSession_offlinePlayback_noOpWithoutHittingNetwork() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        store.insert(item)
+        var requestMade = false
+        MockURLProtocol.requestHandler = { request in
+            requestMade = true
+            return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data())
+        }
+        let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
+        let viewModel = PlayerViewModel(
+            client: client, userID: item.userID, itemID: item.itemID, engine: FakePlaybackEngine(),
+            downloadedItem: item, downloadStore: store
+        )
+
+        await viewModel.refreshServerVersion()
+        await viewModel.refreshStreamingSession()
+
+        XCTAssertFalse(requestMade)
+        XCTAssertNil(viewModel.serverVersion)
+        XCTAssertNil(viewModel.streamingSession)
     }
 
     // MARK: writeOfflineProgress (via stop())

@@ -96,10 +96,20 @@ final class PlayerViewModel {
     /// offline-downloads plan's "Offline playback wiring" section.
     private let downloadedItem: DownloadedItem?
     private let downloadStore: DownloadStore?
+    /// `true` for a session playing an offline download rather than
+    /// streaming live — `PlaybackStatsOverlay`'s Streaming section reads
+    /// this to show "Download" as the play method and skip the
+    /// network-only rows (server version, live transcode parameters) that
+    /// have nothing to report for a file already sitting on disk.
+    var isOfflinePlayback: Bool { downloadedItem != nil }
     private var progressReportTask: Task<Void, Never>?
-    /// Resolved in `start()` once `activeMediaSourceID` is known — see
-    /// `supportsScrubThumbnails`/`scrubThumbnail(atSeconds:)`.
-    private var trickplayProvider: TrickplayThumbnailProvider?
+    /// Resolved in `start()`/`startOffline()` once `activeMediaSourceID` is
+    /// known — see `supportsScrubThumbnails`/`scrubThumbnail(atSeconds:)`.
+    /// `any ScrubThumbnailProviding`, not the concrete `TrickplayThumbnailProvider`
+    /// — `startOffline()` installs `OfflineTrickplayThumbnailProvider`
+    /// instead, and everything downstream of this property only ever needs
+    /// the shared `thumbnail(atSeconds:)` shape, not which conformer.
+    private var trickplayProvider: (any ScrubThumbnailProviding)?
 
     var audioTracks: [PlaybackTrack] { engine.audioTracks }
     var subtitleTracks: [PlaybackTrack] { engine.subtitleTracks }
@@ -494,6 +504,13 @@ final class PlayerViewModel {
         activeMediaSourceID = downloadedItem.mediaSourceID
         mediaSegments = downloadedItem.segments.map(PlaybackSegment.init(downloaded:))
         endCreditsSegment = mediaSegments.filter { $0.kind == .outro }.max { $0.startSeconds < $1.startSeconds }
+        // `nil` (no scrub thumbnails offline) when this download predates
+        // trickplay support, or its own best-effort fetch at enqueue time
+        // came up empty — see `DownloadedItem.trickplayInfo`'s own doc
+        // comment.
+        if let trickplayInfo = downloadedItem.trickplayInfo {
+            trickplayProvider = OfflineTrickplayThumbnailProvider(itemID: downloadedItem.itemID, info: trickplayInfo)
+        }
 
         let videoURL = DownloadFileStore.url(forRelativePath: downloadedItem.videoFilePath)
         let externalSubtitles = downloadedItem.subtitleFiles.map { file in
@@ -799,15 +816,22 @@ final class PlayerViewModel {
     /// `PlaybackStatsOverlay` poll tick since it short-circuits once already
     /// set, rather than re-fetching a value that can't change mid-session.
     func refreshServerVersion() async {
-        guard serverVersion == nil else { return }
+        // Offline playback has no live server to ask — `isOfflinePlayback`
+        // gates this before it ever dispatches a doomed request, same
+        // "route through local-only paths, no network call" contract every
+        // other offline-aware method here follows.
+        guard !isOfflinePlayback, serverVersion == nil else { return }
         serverVersion = try? await client.publicSystemInfo().version
     }
 
     /// Refreshes `streamingSession` from the server's own live view of this
     /// device's playback session — see that property's doc comment. Leaves
     /// the last known value on screen on failure rather than blanking the
-    /// overlay's Streaming section over one dropped request.
+    /// overlay's Streaming section over one dropped request. No-ops offline
+    /// for the same reason `refreshServerVersion()` does above — there's no
+    /// live session for the server to report on.
     func refreshStreamingSession() async {
+        guard !isOfflinePlayback else { return }
         if let session = try? await client.currentSession(deviceID: DeviceIdentity.deviceID) {
             streamingSession = session
         }
