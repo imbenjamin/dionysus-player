@@ -47,6 +47,11 @@ struct DownloadButton: View {
     @State private var isShowingError = false
     @State private var errorMessage = ""
     @State private var isShowingAdvancedOptions = false
+    /// Flipped (never read directly) every time the long-press below
+    /// recognizes — `.sensoryFeedback(_:trigger:)` fires on each *change*
+    /// of its trigger value, not on a particular value, so a plain toggle
+    /// is all this needs to be.
+    @State private var advancedOptionsHapticTrigger = false
     /// Set by `AdvancedDownloadOptionsView`'s "Download" action, read (and
     /// cleared) by `enqueue(mediaSource:audioTrack:subtitleTracks:)` in
     /// place of `preferences.resolution`/`.bitratePreset` — `nil` the rest
@@ -228,9 +233,15 @@ struct DownloadButton: View {
             .highPriorityGesture(
                 LongPressGesture(minimumDuration: 0.5).onEnded { _ in
                     guard !isBusy else { return }
+                    advancedOptionsHapticTrigger.toggle()
                     isShowingAdvancedOptions = true
                 }
             )
+            // The same medium-weight impact UIKit fires for its own
+            // long-press-recognized moments (context menus, reordering,
+            // icon-jiggle entry) — matches the system feel rather than
+            // inventing a bespoke one for this one gesture.
+            .sensoryFeedback(.impact, trigger: advancedOptionsHapticTrigger)
         }
     }
 

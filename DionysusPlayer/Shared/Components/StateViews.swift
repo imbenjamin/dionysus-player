@@ -24,10 +24,15 @@ struct LoadingView: View {
 struct ErrorStateView: View {
     var message: String
     var retry: (() -> Void)?
+    /// Defaults to the generic error triangle — every real-error call site
+    /// leaves this unset. A caller using this view for an *empty* state
+    /// rather than a failure (e.g. `DownloadsView`'s "no downloads yet")
+    /// can pass something more on-topic instead.
+    var icon: String = "exclamationmark.triangle"
 
     var body: some View {
         VStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle")
+            Image(systemName: icon)
                 .font(.largeTitle)
                 .foregroundStyle(.secondary)
             Text(message)

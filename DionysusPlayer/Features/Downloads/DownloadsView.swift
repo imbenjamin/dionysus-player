@@ -99,7 +99,11 @@ struct DownloadsView: View {
     private var content: some View {
         if let viewModel {
             if viewModel.rows.isEmpty {
-                ErrorStateView(message: String(localized: "No downloads yet. Download something to watch offline from its detail page."), retry: nil)
+                ErrorStateView(
+                    message: String(localized: "No downloads yet. Download something to watch offline from its detail page."),
+                    retry: nil,
+                    icon: "square.and.arrow.down.on.square"
+                )
             } else {
                 List {
                     ForEach(viewModel.rows) { row in

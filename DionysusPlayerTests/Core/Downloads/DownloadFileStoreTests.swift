@@ -43,6 +43,13 @@ final class DownloadFileStoreTests: XCTestCase {
         )
     }
 
+    func test_trickplayTileRelativePath_isItemAndWidthAndSheetScoped() {
+        XCTAssertEqual(
+            DownloadFileStore.trickplayTileRelativePath(itemID: "abc", width: 320, sheetIndex: 3),
+            "abc/trickplay/320/3.jpg"
+        )
+    }
+
     func test_imageRelativePath_isContentAddressedNotItemScoped() {
         // Real Jellyfin item ids are plain hex GUIDs with no punctuation —
         // use one here so the separator hyphens this method inserts aren't

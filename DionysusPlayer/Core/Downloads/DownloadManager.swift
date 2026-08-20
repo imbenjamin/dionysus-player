@@ -102,6 +102,16 @@ final class DownloadManager: NSObject {
     /// not yet in here too, for the brief window `enqueue` spends fetching
     /// its subtitle sidecars before it's actually ready to queue for video.
     private var pendingQueue: [String] = []
+    /// Live background `URLSession`s, keyed by itemID — kept alive here for
+    /// the same reason `delegates` is (`URLSession` doesn't need to be
+    /// retained for a background transfer to keep running at the OS level,
+    /// but *this* manager needs a handle back to it so `delete(itemID:)` can
+    /// actually cancel an in-flight one — see that method's own doc comment
+    /// for the real bug this fixes). Populated by both `startVideoDownload`
+    /// and `reattachBackgroundSession` (a relaunch-recovered session is just
+    /// as cancellable as one started this launch), cleared alongside
+    /// `delegates` on completion or cancellation.
+    private var sessions: [String: URLSession] = [:]
     /// Injectable (same DI spirit as `store`) so `DownloadManagerTests` can
     /// drive `maxConcurrentDownloads` directly rather than mutating
     /// `UserDefaults.standard` for the duration of a test.
@@ -116,15 +126,23 @@ final class DownloadManager: NSObject {
     /// before `resumePendingQueue()` runs, which can itself admit
     /// downloads immediately.
     private let startVideoDownloadOverride: ((String, URL, String) -> Void)?
+    /// Test-only DI seam, same spirit as `startVideoDownloadOverride`: when
+    /// set, `delete(itemID:)` calls this instead of touching `sessions`
+    /// directly, so `DownloadManagerTests` can assert a cancellation was
+    /// requested for a given itemID without a real background session to
+    /// invalidate.
+    private let cancelVideoDownloadOverride: ((String) -> Void)?
 
     init(
         store: DownloadStore,
         preferences: DownloadPreferencesStore = DownloadPreferencesStore(),
-        startVideoDownloadOverride: ((String, URL, String) -> Void)? = nil
+        startVideoDownloadOverride: ((String, URL, String) -> Void)? = nil,
+        cancelVideoDownloadOverride: ((String) -> Void)? = nil
     ) {
         self.store = store
         self.preferences = preferences
         self.startVideoDownloadOverride = startVideoDownloadOverride
+        self.cancelVideoDownloadOverride = cancelVideoDownloadOverride
         super.init()
         NotificationCenter.default.addObserver(
             forName: .dionysusHandleBackgroundURLSession, object: nil, queue: .main
@@ -215,6 +233,8 @@ final class DownloadManager: NSObject {
             return DownloadedSegment(kind: kind, startSeconds: Double(dto.startTicks) / 10_000_000, endSeconds: Double(dto.endTicks) / 10_000_000)
         }
 
+        let trickplayInfo = await downloadTrickplayTiles(itemID: item.id, mediaSourceID: mediaSourceID, client: client, userID: userID, images: images)
+
         let metadata = DownloadedItemMetadata(
             overview: item.dto.overview,
             taglines: (item.dto.taglines ?? []).filter { !$0.isEmpty },
@@ -283,7 +303,8 @@ final class DownloadManager: NSObject {
             backdropImagePath: backdropPath,
             logoImagePath: logoPath,
             thumbImagePath: thumbPath,
-            segments: segments
+            segments: segments,
+            trickplayInfo: trickplayInfo
         )
         store.insert(downloaded)
 
@@ -367,6 +388,48 @@ final class DownloadManager: NSObject {
         } catch {
             return nil
         }
+    }
+
+    /// Fetches this item's trickplay track (if the server has scanned one)
+    /// and every one of its tile-sheet JPEGs, so `OfflineTrickplayThumbnailProvider`
+    /// has something to read during offline scrubbing — the offline
+    /// counterpart to `TrickplayThumbnailProvider`'s live on-demand fetch.
+    /// Entirely best-effort, same spirit as `mediaSegments` just above:
+    /// `item`'s own DTO (whatever the caller's detail-page view model
+    /// already had in hand) doesn't carry `Trickplay` — only
+    /// `PlayerViewModel.start()`'s own item fetch requests that field, see
+    /// `JellyfinAPIClient.detailFieldsWithTrickplay`'s doc comment — so this
+    /// re-fetches the item with that field explicitly rather than relying
+    /// on what's already loaded. Returns `nil` (no download attempted, no
+    /// row poisoned by a partial one) whenever the item has no trickplay
+    /// track at all, or the fetch to *learn* that fails; once a track is
+    /// found, an individual sheet failing is non-fatal — same "this is a
+    /// nice-to-have, not core to the download" tolerance `downloadSubtitles`
+    /// applies to a single subtitle track — since a missing sheet just
+    /// means `OfflineTrickplayThumbnailProvider` returns `nil` for whatever
+    /// seconds land on it, no different from scrubbing past the end of a
+    /// track Jellyfin never generated.
+    private func downloadTrickplayTiles(
+        itemID: String, mediaSourceID: String, client: JellyfinAPIClient, userID: String, images: ImageURLBuilder
+    ) async -> TrickplayInfo? {
+        guard let dto = try? await client.item(userID: userID, itemID: itemID, fields: JellyfinAPIClient.detailFieldsWithTrickplay),
+              let info = TrickplayMath.bestInfo(from: dto.trickplay, mediaSourceID: mediaSourceID)
+        else { return nil }
+
+        let sheetCount = TrickplayMath.sheetCount(for: info)
+        guard sheetCount > 0 else { return nil }
+        for sheetIndex in 0..<sheetCount {
+            guard let url = images.trickplayTileURL(itemID: itemID, width: info.width, sheetIndex: sheetIndex) else { continue }
+            do {
+                let (data, response) = try await URLSession.shared.data(from: url)
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty else { continue }
+                let relativePath = DownloadFileStore.trickplayTileRelativePath(itemID: itemID, width: info.width, sheetIndex: sheetIndex)
+                try DownloadFileStore.write(data, toRelativePath: relativePath)
+            } catch {
+                continue
+            }
+        }
+        return info
     }
 
     private static func isHDR(_ videoStream: MediaStream?) -> Bool {
@@ -469,6 +532,7 @@ final class DownloadManager: NSObject {
         configuration.timeoutIntervalForRequest = Self.downloadRequestTimeout
         configuration.timeoutIntervalForResource = Self.downloadResourceTimeout
         let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+        sessions[itemID] = session
         session.downloadTask(with: url).resume()
     }
 
@@ -486,7 +550,7 @@ final class DownloadManager: NSObject {
         backgroundCompletionHandlers[itemID] = completionHandler
         let delegate = makeVideoDownloadDelegate(itemID: itemID, relativePath: DownloadFileStore.videoRelativePath(itemID: itemID))
         delegates[itemID] = delegate
-        _ = URLSession(configuration: .background(withIdentifier: identifier), delegate: delegate, delegateQueue: nil)
+        sessions[itemID] = URLSession(configuration: .background(withIdentifier: identifier), delegate: delegate, delegateQueue: nil)
     }
 
     private func makeVideoDownloadDelegate(itemID: String, relativePath: String) -> DownloadSessionDelegate {
@@ -509,6 +573,7 @@ final class DownloadManager: NSObject {
                 guard let self else { return }
                 self.activeDownloads[itemID] = nil
                 self.delegates[itemID] = nil
+                self.sessions[itemID] = nil
                 // A slot just freed up — try to admit whatever's next in
                 // line regardless of whether this row still exists below
                 // (it may have been deleted mid-download).
@@ -542,14 +607,43 @@ final class DownloadManager: NSObject {
     /// offline-downloads plan's "Delete semantics" section and
     /// `DownloadSyncManager`, which removes the row for real once that sync
     /// succeeds.
+    ///
+    /// Also cancels the item's in-flight background session, if it still
+    /// has one — a real bug, found live (2026-08-20, "Rushmore"): deleting
+    /// a `.downloading` row used to only drop this manager's own delegate
+    /// reference, never the underlying `URLSessionDownloadTask` itself,
+    /// which — being a *background* transfer — keeps right on running at
+    /// the OS level, orphaned, under `com.dionysus.downloads.<itemID>`
+    /// (`backgroundSessionIdentifierPrefix` is deterministic and
+    /// itemID-only, no per-attempt suffix). A same-day re-download of that
+    /// same item then reused that identifier while the OS still considered
+    /// it "in use" by the orphaned transfer, and the *new* background
+    /// session's task was cancelled almost immediately —
+    /// `NSURLErrorCancelled` (-999). Actually invalidating the old session
+    /// here frees the identifier for real, so a later re-download starts
+    /// clean.
     func delete(itemID: String) {
         guard let downloaded = store.item(itemID: itemID) else { return }
         DownloadFileStore.deleteItemFiles(itemID: itemID)
         for path in [downloaded.posterImagePath, downloaded.backdropImagePath, downloaded.logoImagePath, downloaded.thumbImagePath] {
             DownloadFileStore.deleteImageIfUnreferenced(relativePath: path, excludingItemID: itemID, store: store)
         }
+        // `delegates[itemID] != nil` is exactly "this item's background
+        // session actually started" (see that property's own doc comment)
+        // — gating the cancel on it keeps this a no-op for a row that was
+        // still `.queued` and never got as far as a real session to cancel,
+        // matching what `sessions.removeValue(forKey:)` alone would do in
+        // the non-overridden path anyway.
+        let wasActivelyDownloading = delegates[itemID] != nil
         activeDownloads[itemID] = nil
         delegates[itemID] = nil
+        if wasActivelyDownloading {
+            if let cancelVideoDownloadOverride {
+                cancelVideoDownloadOverride(itemID)
+            } else if let session = sessions.removeValue(forKey: itemID) {
+                session.invalidateAndCancel()
+            }
+        }
         // Only meaningful for a row that was still waiting for a
         // concurrency slot (never got as far as starting a real
         // `URLSessionDownloadTask`) — a harmless no-op otherwise.
@@ -561,6 +655,11 @@ final class DownloadManager: NSObject {
         } else {
             store.delete(downloaded)
         }
+        // A `.downloading` row just had its concurrency slot freed above
+        // (`delegates[itemID] = nil`) — admit whatever's next in line
+        // immediately rather than leaving it `.queued` until some other,
+        // unrelated event happens to call this.
+        admitQueuedDownloadsIfPossible()
     }
 
     #if DEBUG

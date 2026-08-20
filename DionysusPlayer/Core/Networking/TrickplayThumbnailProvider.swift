@@ -34,6 +34,20 @@ enum TrickplayMath {
         )
     }
 
+    /// How many tile-sheet JPEGs a trickplay track is split across — every
+    /// sheet fully packed (`tileWidth × tileHeight` stills) except possibly
+    /// the last. The live scrub path never needs this (it fetches sheets
+    /// on demand as `frame(atSeconds:info:)` names them), but an offline
+    /// download has to fetch every sheet up front — see
+    /// `DownloadManager.enqueue`'s trickplay section. `0` for the same
+    /// degenerate-`info` cases `frame(atSeconds:info:)` itself guards
+    /// against.
+    static func sheetCount(for info: TrickplayInfo) -> Int {
+        let perSheet = info.tileWidth * info.tileHeight
+        guard perSheet > 0, info.thumbnailCount > 0 else { return 0 }
+        return (info.thumbnailCount + perSheet - 1) / perSheet
+    }
+
     /// Picks which resolution to use when a server offers more than one —
     /// the smallest width that's still `>= preferredWidth`, falling back to
     /// the largest available if none clears that bar. `nil` when this
@@ -49,6 +63,29 @@ enum TrickplayMath {
     }
 }
 
+/// Abstraction over "get me a scrub-preview still for this second" —
+/// `TrickplayThumbnailProvider` below (fetches tile sheets over the
+/// network) and `OfflineTrickplayThumbnailProvider` (reads sheets already
+/// on disk from an offline download) share identical seconds→sheet/tile
+/// math (`TrickplayMath`) and differ only in where the sheet bytes come
+/// from. `PlayerViewModel.trickplayProvider` is typed against this so
+/// `start()`/`startOffline()` can each install whichever conformer applies
+/// without the rest of the view model (`supportsScrubThumbnails`,
+/// `scrubThumbnail(atSeconds:)`) needing to branch on which. The
+/// requirement itself is `@MainActor` — both conformers' `thumbnail(
+/// atSeconds:)` is only ever called from `PlayerViewModel` (itself
+/// `@MainActor`), and isolating just this method keeps every call a
+/// same-actor hop rather than tripping Swift's "sending a non-`Sendable`
+/// existential" check on a bare, unisolated `async` requirement.
+/// Deliberately *not* `@MainActor` on the protocol itself — that would
+/// infer the same isolation onto every conformer's own initializer too
+/// (Swift's global-actor-inference-from-conformance rule), which would
+/// make `TrickplayThumbnailProvider.init` MainActor-only and break its
+/// existing off-actor test construction for no reason this actually needs.
+protocol ScrubThumbnailProviding {
+    @MainActor func thumbnail(atSeconds seconds: Double) async -> CGImage?
+}
+
 /// Fetches + crops a single trickplay tile for a scrub position — the
 /// Jellyfin-provided replacement for AetherEngine's cache-backed scrub
 /// stills, which turned out to only serve a narrow window of already-
@@ -62,7 +99,7 @@ enum TrickplayMath {
 /// sheet spanning ~1000s at a 10s interval), so repeated calls within the
 /// same sheet after the first are a synchronous crop — `RemoteImageLoader`
 /// caches the whole sheet by URL, no repeat fetch.
-struct TrickplayThumbnailProvider {
+struct TrickplayThumbnailProvider: ScrubThumbnailProviding {
     /// A tile sheet decodes to roughly `bytesPerRow × height` in memory —
     /// for the 3200×1800 sheets confirmed live against a real server
     /// (10×10 grid of 320×180 tiles), that's ~23MB *each*, versus

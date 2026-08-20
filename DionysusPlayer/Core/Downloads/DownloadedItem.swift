@@ -200,6 +200,17 @@ final class DownloadedItem: Identifiable {
     var logoImagePath: String?
     var thumbImagePath: String?
     var segments: [DownloadedSegment]
+    /// `nil` when this download has no scrub-preview thumbnails — either
+    /// the source item had no trickplay track scanned by the server yet
+    /// (see `BaseItemDto.trickplay`'s own doc comment), or the fetch for it
+    /// failed at enqueue time (best-effort — see `DownloadManager.enqueue`'s
+    /// trickplay section, non-fatal to the download either way). The tile
+    /// sheet JPEGs this describes live under `DownloadFileStore
+    /// .trickplayTileRelativePath(itemID:width:sheetIndex:)`, not tracked
+    /// individually here — `TrickplayMath.sheetCount(for:)` derives how many
+    /// there are straight from this info, same as the live path derives it
+    /// from a fetched `TrickplayInfo` with no separate file inventory.
+    var trickplayInfo: TrickplayInfo?
 
     var kind: DownloadedItemKind {
         get { DownloadedItemKind(rawValue: kindRaw) ?? .movie }
@@ -282,7 +293,8 @@ final class DownloadedItem: Identifiable {
         backdropImagePath: String? = nil,
         logoImagePath: String? = nil,
         thumbImagePath: String? = nil,
-        segments: [DownloadedSegment] = []
+        segments: [DownloadedSegment] = [],
+        trickplayInfo: TrickplayInfo? = nil
     ) {
         self.itemID = itemID
         self.userID = userID
@@ -328,5 +340,6 @@ final class DownloadedItem: Identifiable {
         self.logoImagePath = logoImagePath
         self.thumbImagePath = thumbImagePath
         self.segments = segments
+        self.trickplayInfo = trickplayInfo
     }
 }

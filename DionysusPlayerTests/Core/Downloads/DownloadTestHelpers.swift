@@ -30,7 +30,8 @@ enum DownloadTestHelpers {
         thumbImagePath: String? = nil,
         status: DownloadStatus = .queued,
         pendingDownloadURLString: String? = nil,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        trickplayInfo: TrickplayInfo? = nil
     ) -> DownloadedItem {
         DownloadedItem(
             itemID: itemID,
@@ -50,7 +51,8 @@ enum DownloadTestHelpers {
             posterImagePath: posterImagePath,
             backdropImagePath: backdropImagePath,
             logoImagePath: logoImagePath,
-            thumbImagePath: thumbImagePath
+            thumbImagePath: thumbImagePath,
+            trickplayInfo: trickplayInfo
         )
     }
 }

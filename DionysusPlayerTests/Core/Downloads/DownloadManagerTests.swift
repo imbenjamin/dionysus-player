@@ -228,4 +228,54 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertNil(store.item(itemID: "item-2"), "deleted, must not have been admitted")
         XCTAssertEqual(startedOrder, ["item-1"])
     }
+
+    // MARK: cancel-on-delete (the "Rushmore" -999 bug, 2026-08-20)
+
+    /// The core regression this session fixed: deleting a row that's
+    /// actually `.downloading` (a real background session started) must
+    /// cancel that session, not just drop this manager's own bookkeeping —
+    /// see `DownloadManager.delete(itemID:)`'s own doc comment for the real
+    /// bug (an orphaned background session left an identifier the OS still
+    /// considered "in use", so a same-day re-download of the same item got
+    /// its brand-new session's task cancelled almost immediately).
+    func test_delete_downloadingItem_cancelsItsSession() {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        var cancelledItemIDs: [String] = []
+        let manager = DownloadManager(
+            store: store,
+            preferences: makePreferences(maxConcurrentDownloads: 5),
+            startVideoDownloadOverride: { _, _, _ in },
+            cancelVideoDownloadOverride: { cancelledItemIDs.append($0) }
+        )
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .queued, pendingDownloadURLString: "https://example.com/1"))
+        manager.queueVideoDownload(itemID: "item-1")
+        XCTAssertEqual(store.item(itemID: "item-1")?.status, .downloading, "must actually have started for this to be a meaningful test")
+
+        manager.delete(itemID: "item-1")
+
+        XCTAssertEqual(cancelledItemIDs, ["item-1"])
+    }
+
+    /// The flip side: a row still `.queued` — never admitted, no real
+    /// session ever started — must not fire a cancel at all, matching what
+    /// the real (non-overridden) path does when `sessions` has no entry for
+    /// it.
+    func test_delete_queuedNeverStartedItem_doesNotInvokeCancelOverride() {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        var cancelledItemIDs: [String] = []
+        let manager = DownloadManager(
+            store: store,
+            preferences: makePreferences(maxConcurrentDownloads: 0),
+            startVideoDownloadOverride: { _, _, _ in },
+            cancelVideoDownloadOverride: { cancelledItemIDs.append($0) }
+        )
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .queued, pendingDownloadURLString: "https://example.com/1"))
+        // `maxConcurrentDownloads: 0` alone (Unlimited) would still admit
+        // immediately — never call `queueVideoDownload` at all, so this row
+        // stays `.queued` with no delegate/session ever created.
+
+        manager.delete(itemID: "item-1")
+
+        XCTAssertTrue(cancelledItemIDs.isEmpty)
+    }
 }

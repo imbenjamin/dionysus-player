@@ -43,6 +43,19 @@ enum DownloadFileStore {
         "\(itemID)/subs/\(index)-\(sanitized(language ?? "und")).\(fileExtension)"
     }
 
+    /// Per-item, not content-addressed like the poster/backdrop/logo/thumb
+    /// pool above — unlike those, a trickplay tile sheet is never shared
+    /// across items (each item's own scrub track), so there's no dedup
+    /// benefit to keying by content identity. `width` is the resolution tier
+    /// (see `TrickplayInfo.width`, which a server can offer more than one
+    /// of), `sheetIndex` selects which sheet of that resolution — same two
+    /// variables `ImageURLBuilder.trickplayTileURL` addresses live. Living
+    /// under `<itemID>/`, these are already cleaned up for free by
+    /// `deleteItemFiles(itemID:)`.
+    static func trickplayTileRelativePath(itemID: String, width: Int, sheetIndex: Int) -> String {
+        "\(itemID)/trickplay/\(width)/\(sheetIndex).jpg"
+    }
+
     /// Content-addressed, not tied to which download(s) reference it — see
     /// this type's own doc comment.
     static func imageRelativePath(sourceItemID: String, imageType: String, tag: String) -> String {
