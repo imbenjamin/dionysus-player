@@ -129,6 +129,34 @@ final class DownloadFileStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: DownloadFileStore.url(forRelativePath: DownloadFileStore.videoRelativePath(itemID: itemID)).path))
     }
 
+    // MARK: deleteOrphanedItemDirectories — the launch-time orphan sweep (2026-08-20)
+
+    func test_deleteOrphanedItemDirectories_removesDirectoriesWithNoKnownItemID() throws {
+        let orphanID = uniqueItemID()
+        let knownID = uniqueItemID()
+        try DownloadFileStore.write(Data("orphan".utf8), toRelativePath: DownloadFileStore.videoRelativePath(itemID: orphanID))
+        try DownloadFileStore.write(Data("known".utf8), toRelativePath: DownloadFileStore.videoRelativePath(itemID: knownID))
+
+        DownloadFileStore.deleteOrphanedItemDirectories(knownItemIDs: [knownID])
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: DownloadFileStore.url(forRelativePath: DownloadFileStore.videoRelativePath(itemID: orphanID)).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: DownloadFileStore.url(forRelativePath: DownloadFileStore.videoRelativePath(itemID: knownID)).path))
+    }
+
+    func test_deleteOrphanedItemDirectories_neverTouchesTheSharedImagesPool() throws {
+        let tag = "sweep-test-\(UUID().uuidString)"
+        let imagePath = DownloadFileStore.imageRelativePath(sourceItemID: "series-1", imageType: "Logo", tag: tag)
+        touchedRelativePaths.append(imagePath)
+        try DownloadFileStore.write(Data("logo".utf8), toRelativePath: imagePath)
+
+        // No known item IDs at all — if this treated "images" as just
+        // another per-item directory name, it would delete the whole
+        // shared pool.
+        DownloadFileStore.deleteOrphanedItemDirectories(knownItemIDs: [])
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: DownloadFileStore.url(forRelativePath: imagePath).path))
+    }
+
     // MARK: deleteImageIfUnreferenced — the shared-artwork delete guard
 
     @MainActor

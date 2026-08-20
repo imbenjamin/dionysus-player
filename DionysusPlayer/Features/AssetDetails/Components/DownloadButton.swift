@@ -96,15 +96,35 @@ struct DownloadButton: View {
     private var isDownloading: Bool {
         downloadManager.activeDownloads[item.id] != nil
     }
+    /// A row that's been deleted but still has an unsynced watched/resume
+    /// write to carry (see the offline-downloads plan's "Delete semantics"
+    /// section) — its files are already gone, but `downloadedRow` above
+    /// still finds the row itself (a raw, unfiltered lookup), and the row's
+    /// own `status` is untouched by delete, still whatever it was before
+    /// (typically `.completed`). A real bug, found live (2026-08-20):
+    /// without accounting for this separately, `isDownloaded` below read
+    /// `true` for a `markedForDeletion` row, so this button kept showing
+    /// the "already downloaded" checkmark and navigating to a now-broken
+    /// `DownloadedAssetDetailView` (its video file already gone) until
+    /// `DownloadSyncManager` finally got a chance to push the pending sync
+    /// and let `DownloadManager.delete(itemID:)`'s next pass remove the row
+    /// for real — which can take a while, since that sync is only
+    /// triggered on app-foreground/reconnect, not on any fixed timer.
+    private var isPendingDeletion: Bool {
+        downloadedRow?.markedForDeletion == true
+    }
     private var isDownloaded: Bool {
-        downloadedRow?.status == .completed
+        downloadedRow?.status == .completed && !isPendingDeletion
     }
     /// Everything that should block a second tap — resolving, preparing,
-    /// or actively downloading. `isResolving || isDownloading` alone
-    /// (the original condition) left the button tappable again during the
-    /// `isPreparing` window above, which could fire a second, redundant
-    /// `enqueue` for the same item.
-    private var isBusy: Bool { isResolving || isPreparing || isDownloading }
+    /// actively downloading, or a `markedForDeletion` row still waiting on
+    /// its pending sync to actually go away (see `isPendingDeletion`'s own
+    /// doc comment — tapping through to a fresh download here would race a
+    /// row this button doesn't own the lifecycle of). `isResolving ||
+    /// isDownloading` alone (the original condition) left the button
+    /// tappable again during the `isPreparing` window above, which could
+    /// fire a second, redundant `enqueue` for the same item.
+    private var isBusy: Bool { isResolving || isPreparing || isDownloading || isPendingDeletion }
 
     /// Matches `PlayResumeButtonRow`'s "Restart" button exactly — same
     /// bordered-prominent/rounded-rect/large-control-size/light-tint shape,
@@ -150,6 +170,17 @@ struct DownloadButton: View {
                     }
                 }
             }
+            // Explicit, not relying on the system's own implicit dismiss —
+            // that dismiss flips `isShowingAudioPrompt` false but calls no
+            // handler at all, which is exactly the "overrides left
+            // dangling on an abandoned attempt" bug `presentError`'s own
+            // doc comment describes; this is the same reset, for the same
+            // reason, on this dialog's own cancel path.
+            Button("Cancel", role: .cancel) {
+                pendingResolution = nil
+                overrideResolution = nil
+                overridePreset = nil
+            }
         }
         .alert("Subtitle Track Unavailable Offline", isPresented: $isShowingSubtitleWarning) {
             Button("Download Anyway") {
@@ -157,7 +188,13 @@ struct DownloadButton: View {
                     Task { await enqueue(mediaSource: pendingResolution.mediaSource, audioTrack: pendingResolution.audioTracks.first, subtitleTracks: pendingResolution.subtitleTracks) }
                 }
             }
-            Button("Cancel", role: .cancel) { pendingResolution = nil }
+            // See the audio-track dialog's own Cancel button just above —
+            // same reset, same reason.
+            Button("Cancel", role: .cancel) {
+                pendingResolution = nil
+                overrideResolution = nil
+                overridePreset = nil
+            }
         } message: {
             Text("This title's default subtitle track can't be included in offline downloads. The download will have no subtitles unless you choose one manually later.")
         }
@@ -204,12 +241,16 @@ struct DownloadButton: View {
             Button(action: startResolving) {
                 if let progress {
                     badge { DownloadProgressRing(progress: progress, tint: iconColor) }
-                } else if isResolving || isPreparing {
+                } else if isResolving || isPreparing || isPendingDeletion {
                     // A plain spinner, not the progress ring — there's no
                     // determined byte progress yet to show as one (see
                     // `isPreparing`'s own doc comment), and an
                     // indeterminate ring at 0% reads as "stuck", not
-                    // "starting".
+                    // "starting". `isPendingDeletion` rides the same
+                    // spinner rather than the plain idle icon below — this
+                    // button is disabled either way (`isBusy`), but the
+                    // idle icon specifically reads as "ready to tap",
+                    // which a `markedForDeletion` row isn't yet.
                     badge { ProgressView().tint(iconColor) }
                 } else {
                     badge { Image(systemName: "arrow.down.circle").foregroundStyle(iconColor) }
@@ -300,7 +341,24 @@ struct DownloadButton: View {
         }
     }
 
+    /// Also resets `pendingResolution`/`overrideResolution`/`overridePreset`
+    /// — a real bug found live (2026-08-20): those two only ever got
+    /// cleared inside `enqueue(mediaSource:audioTrack:subtitleTracks:)`'s
+    /// own `defer`, so an advanced-options attempt that set them and then
+    /// aborted *before* reaching that point (this method being called from
+    /// `startResolving()`'s own failure paths, a subtitle-warning
+    /// dismissal, or an audio-track-picker dismissal — see those calls
+    /// sites' own comments) left them dangling on this view's `@State`
+    /// indefinitely. A *later*, unrelated plain tap on the same button
+    /// then silently reused that stale one-off override instead of the
+    /// live device-wide preference — confirmed live: a plain tap after an
+    /// earlier abandoned "480p / Data Saver" advanced attempt produced a
+    /// 480p / Data Saver download despite the device preference reading
+    /// 1080p / Normal.
     private func presentError(_ message: String) {
+        pendingResolution = nil
+        overrideResolution = nil
+        overridePreset = nil
         errorMessage = message
         isShowingError = true
     }

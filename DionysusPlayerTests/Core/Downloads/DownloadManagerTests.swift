@@ -111,6 +111,22 @@ final class DownloadManagerTests: XCTestCase {
         manager.delete(itemID: "does-not-exist") // must not crash
     }
 
+    // MARK: init sweeps orphaned files (the "13 GB with an empty Downloads
+    // list" bug, 2026-08-20) — see `DownloadFileStore
+    // .deleteOrphanedItemDirectories`'s own doc comment for the full story.
+
+    func test_init_sweepsOrphanedItemDirectoriesWithNoMatchingRow() throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        try writeFile(itemID: "orphan-1") // no row for this itemID at all
+        try writeFile(itemID: "item-1")
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1"))
+
+        _ = DownloadManager(store: store)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: DownloadFileStore.url(forRelativePath: DownloadFileStore.videoRelativePath(itemID: "orphan-1")).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: DownloadFileStore.url(forRelativePath: DownloadFileStore.videoRelativePath(itemID: "item-1")).path))
+    }
+
     // MARK: concurrency-limited queue
 
     private let concurrencyTestsSuiteName = "com.dionysusplayer.tests.DownloadManagerTests.concurrency"

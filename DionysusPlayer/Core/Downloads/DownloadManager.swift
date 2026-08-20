@@ -157,6 +157,11 @@ final class DownloadManager: NSObject {
                 self?.reattachBackgroundSession(identifier: identifier, completionHandler: box.handler)
             }
         }
+        // See `DownloadFileStore.deleteOrphanedItemDirectories`'s own doc
+        // comment for the bug this sweeps up after — cheap (unlinking
+        // directory entries, not proportional to file size) and safe to run
+        // unconditionally on every launch.
+        DownloadFileStore.deleteOrphanedItemDirectories(knownItemIDs: Set(store.allItems().map(\.itemID)))
         resumePendingQueue()
     }
 
@@ -188,6 +193,34 @@ final class DownloadManager: NSObject {
         userID: String
     ) async throws {
         guard let mediaSourceID = mediaSource.id else { throw DownloadError.missingMediaSource }
+        // A redownload of an item that already has a row (any status —
+        // `.completed`, `.failed`, or an abandoned `.queued`/`.downloading`
+        // one from an earlier attempt) must start from a clean slate rather
+        // than `store.insert(downloaded)` below relying on SwiftData's own
+        // `@Attribute(.unique)`-conflict merge to reconcile a brand-new
+        // `DownloadedItem` against whatever's already persisted for this
+        // `itemID` — a real bug found live (2026-08-20): redownloading
+        // Rushmore at a higher quality after an earlier lower-quality
+        // attempt showed the *new* quality in the stored metadata (the
+        // Details tab reads straight off the row) while actual playback
+        // still read the *old* video file untouched on disk — exactly the
+        // kind of split-brain state an implicit partial merge risks,
+        // rather than a clean insert. `delete(itemID:)` already knows how
+        // to tear an existing row/its files down correctly (cancelling an
+        // in-flight session, freeing files) — reuse it here instead of
+        // trusting `insert` alone to reconcile a duplicate key.
+        //
+        // Not fully bulletproof: a row with `pendingSync == true` survives
+        // `delete(itemID:)` as a `markedForDeletion` row purely to carry
+        // its unsynced watched/resume write (see that method's own doc
+        // comment), so `store.item(itemID:)` could still find *something*
+        // immediately afterward in that specific case — rare enough
+        // (redownloading the same item within the same short window as an
+        // unsynced pending delete) that it's a known follow-up rather than
+        // solved here.
+        if store.item(itemID: item.id) != nil {
+            delete(itemID: item.id)
+        }
         let streams = mediaSource.mediaStreams ?? []
         let videoStream = streams.first { $0.type == "Video" }
         let isSourceHDR = Self.isHDR(videoStream)
@@ -267,22 +300,31 @@ final class DownloadManager: NSObject {
             width: target.maxWidth,
             height: target.maxHeight,
             bitrate: target.videoBitrate,
-            // NOT `isSourceHDR` — confirmed live (2026-08-19, "Rushmore"):
-            // requesting `VideoProfile=main10` alone does not make
-            // Jellyfin's transcoder actually preserve HDR: the resulting
-            // downloaded file's own playback stats reported SDR despite
-            // the source being HDR. This app doesn't send a `DeviceProfile`
-            // at all on this path (see `JellyfinAPIClient`'s own doc
-            // comment on `PlaybackInfoResponse`/`DeviceProfile`-based
-            // negotiation not being implemented yet), so the server has no
-            // declared HDR-capable target to preserve HDR *for* and
-            // reasonably tone-maps to SDR by default. Claiming `isHDR:
-            // isSourceHDR` here was reporting what was *requested*, not
-            // what the transcode actually produced — misleading metadata
-            // is worse than an absent badge, so this stays `false` (no
-            // downloads currently produce verified HDR output) until real
-            // HDR-preserving negotiation is implemented and confirmed
-            // against an actual server + device.
+            // NOT `isSourceHDR` — permanently `false`, not a placeholder
+            // pending future work. Confirmed live and root-caused
+            // (2026-08-19 through 2026-08-20, "Rushmore"/"Ex Machina"/
+            // "Dunkirk"/others): a download always requests a transcode
+            // (resolution/bitrate capping), and Jellyfin's transcoder does
+            // not support HDR-to-HDR output at all — any source that needs
+            // re-encoding is tone-mapped to SDR unconditionally, regardless
+            // of `VideoProfile`/`hevc-*` query params, `DeviceProfile`
+            // negotiation, or server hardware/tone-mapping settings. Tried,
+            // in order: a plain `VideoProfile=main10` query param (didn't
+            // work) — a fully negotiated `/PlaybackInfo` request with a real
+            // `DeviceProfile` declaring HDR10/HDR10Plus/HLG support (server
+            // still tone-mapped, and using the negotiated URL live broke
+            // downloads outright via its `PlaySessionId` session-liveness
+            // requirement) — the exact `hevc-profile`/`hevc-videobitdepth`/
+            // `hevc-rangetype`/`hevc-level`/`RequireAvc` params Jellyfin's
+            // own negotiation suggested, copied faithfully onto the
+            // hand-built URL (still tone-mapped). Confirmed straight from
+            // Jellyfin's own docs: "the source video ... will need to be
+            // tone-mapped to SDR when transcoding, as Jellyfin currently
+            // doesn't support HDR to HDR tone-mapping, or passing through
+            // HDR metadata" (https://jellyfin.org/docs/general/post-install/transcoding/).
+            // The only way to actually preserve HDR would be a stream-copy
+            // (no re-encode) download path with no resolution/bitrate cap —
+            // a distinct, larger feature, not attempted here.
             isHDR: false,
             selectedAudioTrackIndex: audioTrack?.index,
             selectedAudioTrackTitle: audioTrack?.displayTitle,

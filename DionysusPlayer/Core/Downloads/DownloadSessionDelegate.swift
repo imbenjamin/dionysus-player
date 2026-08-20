@@ -1,5 +1,19 @@
 import Foundation
 
+/// A transcode/stream request that transferred (no transport-level error)
+/// but came back with a non-2xx HTTP status — see `DownloadSessionDelegate
+/// .urlSession(_:downloadTask:didFinishDownloadingTo:)`'s own doc comment
+/// for the bug this exists to catch instead of silently succeeding.
+enum DownloadTransferError: LocalizedError {
+    case badStatus(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .badStatus(let code): return String(localized: "The server returned an error (HTTP \(code)) instead of the video.")
+        }
+    }
+}
+
 /// Handles one background `URLSessionDownloadTask` for a video download —
 /// progress, completion (moves the temp file into place via
 /// `DownloadFileStore`), and failure. One instance per active download,
@@ -36,12 +50,26 @@ final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate {
         Task { @MainActor in onProgress(totalBytesWritten, totalBytesExpectedToWrite) }
     }
 
-    /// Fires (only on success) before `didCompleteWithError` — `location`
-    /// is a temp file the system deletes as soon as this method returns, so
-    /// the move into `DownloadFileStore` has to happen synchronously here,
-    /// not in a later `Task`.
+    /// Fires (only on success *of the transfer itself*) before
+    /// `didCompleteWithError` — `location` is a temp file the system
+    /// deletes as soon as this method returns, so the move into
+    /// `DownloadFileStore` has to happen synchronously here, not in a
+    /// later `Task`. A real bug, found live (2026-08-20): this used to
+    /// move whatever landed at `location` into place and report success
+    /// completely unconditionally — `URLSessionDownloadTask` calls this
+    /// method whenever the *transfer* completes, regardless of the HTTP
+    /// status code, so a server error response (a 4xx/5xx with an empty or
+    /// tiny error body, confirmed live: a mismatched-case transcode URL
+    /// returning a 0-byte response) got silently treated as a successful
+    /// download — a `.completed` row backed by a 0-byte, unplayable file,
+    /// worse than a visible failure would have been. Now checks the
+    /// response status first and reports a failure instead.
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         let onCompletion = onCompletion
+        if let http = downloadTask.response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            Task { @MainActor in onCompletion(.failure(DownloadTransferError.badStatus(http.statusCode))) }
+            return
+        }
         do {
             try DownloadFileStore.moveFile(from: location, toRelativePath: destinationRelativePath)
             Task { @MainActor in onCompletion(.success(())) }

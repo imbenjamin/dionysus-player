@@ -218,11 +218,14 @@ pattern, since ViewModels are constructed with an already-built client
   (`DownloadManagerTests.swift`, see the table above); what isn't is a real
   download actually landing bytes, surviving backgrounding, or resuming
   after the app relaunches mid-download. Verify this slice manually on a
-  physical device: download an HDR item, confirm HEVC+HDR decode and the
-  right audio track/subtitles work in Airplane Mode, confirm background
-  continuation when the app is backgrounded (not force-quit) mid-download,
-  and confirm reconnecting actually pushes local watched/resume state via
-  `DownloadSyncManager`.
+  physical device: download an item, confirm HEVC decode and the right
+  audio track/subtitles work in Airplane Mode (an HDR source downloads and
+  plays back fine here too, just tone-mapped to SDR — see the README's
+  Known limitations section, a confirmed permanent Jellyfin server
+  limitation, not something to chase further in this slice), confirm
+  background continuation when the app is backgrounded (not force-quit)
+  mid-download, and confirm reconnecting actually pushes local
+  watched/resume state via `DownloadSyncManager`.
 - **Mid-playback connectivity loss, on-device** (2026-08-18) — the
   `PlaybackState.reconnecting` bridge, `PlayerControlsOverlay`'s
   "Reconnecting…" label, and `PlayerView`'s offline-vs-generic-error overlay
