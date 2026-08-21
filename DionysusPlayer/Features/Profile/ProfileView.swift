@@ -16,13 +16,6 @@ struct ProfileView: View {
     /// own fallback for the same "both sides declare the same default"
     /// reason as `hero3DDepthEnabled` above.
     @AppStorage(nextUpCountdownStorageKey) private var nextUpCountdown: NextUpCountdownPreference = .seconds30
-    @AppStorage(downloadResolutionStorageKey) private var downloadResolution: DownloadResolution = .hd1080p
-    @AppStorage(downloadBitratePresetStorageKey) private var downloadBitratePreset: DownloadBitratePreset = .normal
-    @AppStorage(downloadWifiOnlyStorageKey) private var downloadWifiOnly = true
-    /// Raw slider value — `0` is its own "Unlimited" position, past `10`.
-    /// Default `5`, matching `downloadMaxConcurrentStorageKey`'s own
-    /// fallback (see its doc comment for why 5, not Unlimited).
-    @AppStorage(downloadMaxConcurrentStorageKey) private var downloadMaxConcurrentRaw = 5
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showSignOutConfirmation = false
     @State private var showChangeServerConfirmation = false
@@ -34,13 +27,6 @@ struct ProfileView: View {
     /// `@Observable` size tracker just for this one label.
     private var downloadsStorageUsedText: String {
         ByteCountFormatter.string(fromByteCount: DownloadFileStore.totalSizeOnDisk(), countStyle: .file)
-    }
-
-    /// "Unlimited" at the slider's `0` position, else the plain count —
-    /// mirrors `DownloadPreferencesStore.maxConcurrentDownloads`'s own
-    /// `0`-means-unlimited mapping.
-    private var downloadMaxConcurrentDisplayText: String {
-        downloadMaxConcurrentRaw == 0 ? String(localized: "Unlimited") : "\(downloadMaxConcurrentRaw)"
     }
 
     var body: some View {
@@ -90,37 +76,11 @@ struct ProfileView: View {
             }
 
             Section {
-                Picker("Resolution", selection: $downloadResolution) {
-                    ForEach(DownloadResolution.allCases) { resolution in
-                        Text(resolution.displayName).tag(resolution)
-                    }
+                NavigationLink {
+                    DownloadsSettingsView()
+                } label: {
+                    LabeledContent("Downloads", value: downloadsStorageUsedText)
                 }
-                Picker("Quality", selection: $downloadBitratePreset) {
-                    ForEach(DownloadBitratePreset.allCases) { preset in
-                        Text(preset.displayName(in: downloadResolution)).tag(preset)
-                    }
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    LabeledContent("Simultaneous Downloads", value: downloadMaxConcurrentDisplayText)
-                    // `0...10`, `0` doubling as "Unlimited" (see
-                    // `downloadMaxConcurrentDisplayText`) — a `Slider`
-                    // rather than a `Stepper`/segmented control per an
-                    // explicit ask for this specific shape, offering every
-                    // integer 1-10 plus Unlimited as one continuous control.
-                    Slider(
-                        value: Binding(
-                            get: { Double(downloadMaxConcurrentRaw) },
-                            set: { downloadMaxConcurrentRaw = Int($0.rounded()) }
-                        ),
-                        in: 0...10, step: 1
-                    )
-                }
-                Toggle("Wi-Fi Only", isOn: $downloadWifiOnly)
-                LabeledContent("Storage Used", value: downloadsStorageUsedText)
-            } header: {
-                Text("Downloads")
-            } footer: {
-                Text("Downloaded videos are transcoded to fit your chosen resolution and quality, and are never upscaled past the source.")
             }
 
             Section {
