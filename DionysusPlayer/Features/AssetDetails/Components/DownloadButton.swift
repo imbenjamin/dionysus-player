@@ -67,6 +67,12 @@ struct DownloadButton: View {
         var mediaSource: MediaSourceInfo
         var audioTracks: [MediaStream]
         var subtitleTracks: [MediaStream]
+        /// Set by `resolveAudioTrack(_:)` as soon as the audio track is
+        /// known (whether picked from the prompt or defaulted with only
+        /// one available) — the subtitle-warning alert's "Download Anyway"
+        /// button reads this rather than `audioTracks.first`, which would
+        /// otherwise silently discard whatever the user actually chose.
+        var chosenAudioTrack: MediaStream? = nil
     }
 
     /// `_ = downloadManager.store.changeCount` establishes a real,
@@ -204,7 +210,7 @@ struct DownloadButton: View {
         .alert("Subtitle Track Unavailable Offline", isPresented: $isShowingSubtitleWarning) {
             Button("Download Anyway") {
                 if let pendingResolution {
-                    Task { await enqueue(mediaSource: pendingResolution.mediaSource, audioTrack: pendingResolution.audioTracks.first, subtitleTracks: pendingResolution.subtitleTracks) }
+                    Task { await enqueue(mediaSource: pendingResolution.mediaSource, audioTrack: pendingResolution.chosenAudioTrack, subtitleTracks: pendingResolution.subtitleTracks) }
                 }
             }
             // See the audio-track dialog's own Cancel button just above —
@@ -371,6 +377,7 @@ struct DownloadButton: View {
     private func resolveAudioTrack(_ audioTrack: MediaStream?) {
         guard let pendingResolution else { return }
         isShowingAudioPrompt = false
+        self.pendingResolution?.chosenAudioTrack = audioTrack
 
         let defaultSubtitle = pendingResolution.subtitleTracks.first { $0.isDefault == true }
             ?? pendingResolution.subtitleTracks.first { $0.isForced == true }

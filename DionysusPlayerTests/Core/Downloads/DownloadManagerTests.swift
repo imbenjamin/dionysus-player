@@ -449,4 +449,25 @@ final class DownloadManagerTests: XCTestCase {
 
         XCTAssertTrue(cancelledItemIDs.isEmpty)
     }
+
+    // MARK: background session configuration (Wi-Fi Only enforcement)
+
+    /// `DownloadPreferencesStore.wifiOnly` used to be surfaced in Settings
+    /// but never actually consulted anywhere in the download path — a
+    /// background session's `allowsCellularAccess` silently defaulted to
+    /// `true` regardless. `makeBackgroundConfiguration` is a pure function
+    /// over its arguments, so this covers the wiring directly without a
+    /// real background `URLSession`.
+    func test_makeBackgroundConfiguration_wifiOnly_disallowsCellularAccess() {
+        let configuration = DownloadManager.makeBackgroundConfiguration(identifier: "test-identifier", allowsCellularAccess: false)
+
+        XCTAssertFalse(configuration.allowsCellularAccess)
+        XCTAssertTrue(configuration.waitsForConnectivity, "a Wi-Fi-only transfer should defer until Wi-Fi is available, not fail outright")
+    }
+
+    func test_makeBackgroundConfiguration_wifiOnlyDisabled_allowsCellularAccess() {
+        let configuration = DownloadManager.makeBackgroundConfiguration(identifier: "test-identifier", allowsCellularAccess: true)
+
+        XCTAssertTrue(configuration.allowsCellularAccess)
+    }
 }

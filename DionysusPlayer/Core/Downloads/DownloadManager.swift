@@ -89,6 +89,19 @@ final class DownloadManager: NSObject {
     /// transcode over the same connection.
     private static let maxConcurrentTrickplaySheetDownloads = 4
 
+    /// Used for the small ad-hoc fetches alongside a download (subtitles,
+    /// artwork, trickplay tiles) instead of `URLSession.shared` — those
+    /// went through `.shared` unconditionally before, which meant
+    /// `DownloadPreferencesStore.wifiOnly` only ever gated the video
+    /// transfer itself, not these. Rebuilt on each access (cheap — no
+    /// connection opens until first use) so a mid-session preference
+    /// change is always honored.
+    private var adHocFetchSession: URLSession {
+        let configuration = URLSessionConfiguration.default
+        configuration.allowsCellularAccess = !preferences.wifiOnly
+        return URLSession(configuration: configuration)
+    }
+
     /// Delegates keyed by itemID — kept alive here since `URLSession`
     /// doesn't retain its own delegate. Also doubles as the "how many
     /// video downloads are actually running" count
@@ -361,10 +374,11 @@ final class DownloadManager: NSObject {
         itemID: String, mediaSourceID: String, tracks: [MediaStream], client: JellyfinAPIClient
     ) async -> [DownloadedSubtitleFile] {
         var files: [DownloadedSubtitleFile] = []
+        let session = adHocFetchSession
         for stream in tracks where !JellyfinAPIClient.isImageBasedSubtitleCodec(stream.codec) {
             guard let url = await client.subtitleURL(itemID: itemID, mediaSourceID: mediaSourceID, streamIndex: stream.index, codec: stream.codec) else { continue }
             do {
-                let (data, _) = try await URLSession.shared.data(from: url)
+                let (data, _) = try await session.data(from: url)
                 let ext = JellyfinAPIClient.subtitleFileExtension(forCodec: stream.codec)
                 let relativePath = DownloadFileStore.subtitleRelativePath(itemID: itemID, index: stream.index, language: stream.language, fileExtension: ext)
                 try DownloadFileStore.write(data, toRelativePath: relativePath)
@@ -403,7 +417,7 @@ final class DownloadManager: NSObject {
         }
         guard let url = images.url(itemID: sourceItemID, imageType: imageType, tag: tag, maxWidth: maxWidth) else { return nil }
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await adHocFetchSession.data(from: url)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty else { return nil }
             try DownloadFileStore.write(data, toRelativePath: relativePath)
             return relativePath
@@ -455,6 +469,11 @@ final class DownloadManager: NSObject {
 
         let sheetCount = TrickplayMath.sheetCount(for: info)
         guard sheetCount > 0 else { return nil }
+        // Computed once, on this method's own actor context, and captured
+        // by value below — `URLSession` is `Sendable`, so this avoids any
+        // of `group.addTask`'s child-task closures needing to cross back
+        // to `self`'s actor isolation just to read `adHocFetchSession`.
+        let session = adHocFetchSession
         // Concurrent, bounded to `maxConcurrentTrickplaySheetDownloads` —
         // every sheet index is independent, so there's no reason to await
         // each one's full round-trip before starting the next.
@@ -466,7 +485,7 @@ final class DownloadManager: NSObject {
                 group.addTask {
                     guard let url = images.trickplayTileURL(itemID: itemID, width: info.width, sheetIndex: sheetIndex) else { return }
                     do {
-                        let (data, response) = try await URLSession.shared.data(from: url)
+                        let (data, response) = try await session.data(from: url)
                         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty else { return }
                         let relativePath = DownloadFileStore.trickplayTileRelativePath(itemID: itemID, width: info.width, sheetIndex: sheetIndex)
                         try DownloadFileStore.write(data, toRelativePath: relativePath)
@@ -623,7 +642,9 @@ final class DownloadManager: NSObject {
             // this method's own doc comment for the race this avoids.
             reattachmentPending.insert(itemID)
             let delegate = makeVideoDownloadDelegate(itemID: itemID, relativePath: row.videoFilePath)
-            let configuration = Self.makeBackgroundConfiguration(identifier: Self.backgroundSessionIdentifierPrefix + itemID)
+            let configuration = Self.makeBackgroundConfiguration(
+                identifier: Self.backgroundSessionIdentifierPrefix + itemID, allowsCellularAccess: !preferences.wifiOnly
+            )
             let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
             session.getTasksWithCompletionHandler { [weak self] _, _, downloadTasks in
                 Task { @MainActor in
@@ -666,17 +687,33 @@ final class DownloadManager: NSObject {
     /// `downloadRequestTimeout`/`downloadResourceTimeout` explicitly, since
     /// a bare `.background(withIdentifier:)` configuration silently falls
     /// back to the system default (measured in days) otherwise.
-    private static func makeBackgroundConfiguration(identifier: String) -> URLSessionConfiguration {
+    /// `allowsCellularAccess` is threaded through explicitly (rather than
+    /// this method reading `preferences` itself) so it's evaluated fresh
+    /// at each call site — `DownloadPreferencesStore.wifiOnly` gated
+    /// nothing here before, silently letting a Wi-Fi-Only download run
+    /// over cellular regardless of the setting. `waitsForConnectivity`
+    /// pairs with it so a Wi-Fi-only transfer started without Wi-Fi
+    /// available defers rather than failing outright.
+    /// Not `private` — `DownloadManagerTests` asserts on the returned
+    /// configuration directly (a pure function over its arguments, no real
+    /// network involved) to cover the `allowsCellularAccess`/
+    /// `waitsForConnectivity` wiring below without needing a real
+    /// background `URLSession`.
+    static func makeBackgroundConfiguration(identifier: String, allowsCellularAccess: Bool) -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.background(withIdentifier: identifier)
         configuration.timeoutIntervalForRequest = downloadRequestTimeout
         configuration.timeoutIntervalForResource = downloadResourceTimeout
+        configuration.allowsCellularAccess = allowsCellularAccess
+        configuration.waitsForConnectivity = true
         return configuration
     }
 
     private func startVideoDownload(itemID: String, url: URL, relativePath: String) {
         let delegate = makeVideoDownloadDelegate(itemID: itemID, relativePath: relativePath)
         delegates[itemID] = delegate
-        let configuration = Self.makeBackgroundConfiguration(identifier: Self.backgroundSessionIdentifierPrefix + itemID)
+        let configuration = Self.makeBackgroundConfiguration(
+            identifier: Self.backgroundSessionIdentifierPrefix + itemID, allowsCellularAccess: !preferences.wifiOnly
+        )
         let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
         sessions[itemID] = session
         session.downloadTask(with: url).resume()
@@ -698,7 +735,8 @@ final class DownloadManager: NSObject {
         guard delegates[itemID] == nil, !reattachmentPending.contains(itemID) else { return }
         let delegate = makeVideoDownloadDelegate(itemID: itemID, relativePath: DownloadFileStore.videoRelativePath(itemID: itemID))
         delegates[itemID] = delegate
-        sessions[itemID] = URLSession(configuration: Self.makeBackgroundConfiguration(identifier: identifier), delegate: delegate, delegateQueue: nil)
+        let configuration = Self.makeBackgroundConfiguration(identifier: identifier, allowsCellularAccess: !preferences.wifiOnly)
+        sessions[itemID] = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
     }
 
     private func makeVideoDownloadDelegate(itemID: String, relativePath: String) -> DownloadSessionDelegate {

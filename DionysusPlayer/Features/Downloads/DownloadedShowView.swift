@@ -116,17 +116,21 @@ struct DownloadedShowView: View {
             .foregroundStyle(isSelected ? Color.dionysusPrimary : Color.secondary)
     }
 
-    private struct SeasonRow { let seasonID: String; let title: String; let count: Int }
+    private struct SeasonRow { let seasonID: String; let seasonNumber: Int?; let title: String; let count: Int }
     private var seasonRows: [SeasonRow] {
         Dictionary(grouping: episodes) { $0.seasonID ?? "" }
             .map { seasonID, items in
                 SeasonRow(
                     seasonID: seasonID,
+                    seasonNumber: items.first?.seasonNumber,
                     title: items.first?.seasonNumber.map { String(localized: "Season \($0)") } ?? String(localized: "Season"),
                     count: items.count
                 )
             }
-            .sorted { ($0.title) < ($1.title) }
+            // By season number, not `title` — a plain string sort put
+            // "Season 10" before "Season 2" for any show with 10+
+            // downloaded seasons.
+            .sorted { ($0.seasonNumber ?? Int.max) < ($1.seasonNumber ?? Int.max) }
     }
 
     private func seasonRowContent(_ row: SeasonRow) -> some View {
