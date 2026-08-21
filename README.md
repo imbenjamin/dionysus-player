@@ -128,3 +128,12 @@ to get an XLIFF file, and returns a translated one to import back in.
 Adding a language later is a matter of adding it to the catalog's
 `localizations` in Xcode and importing the vendor's translations — no code
 changes.
+
+## License
+
+GPLv3 (see [LICENSE](LICENSE)), with an added App Store/DRM exception
+under GPLv3 §7 permitting distribution through the Apple App Store and
+similar platforms despite their code-signing and DRM restrictions —
+source obligations are otherwise unaffected. [AetherEngine](https://github.com/superuser404notfound/AetherEngine),
+the playback engine dependency, is separately licensed under
+LGPL-3.0 with its own equivalent App Store/DRM exception.
