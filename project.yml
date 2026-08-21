@@ -29,6 +29,14 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     CODE_SIGN_STYLE: Automatic
+    # Not sensitive — a Team ID is a plain organizational identifier, not a
+    # credential; it's already visible in any shipped build's code
+    # signature and in App Store Connect/TestFlight URLs. Safe to commit
+    # alongside the rest of this file so automatic signing survives
+    # `xcodegen generate` re-runs (the generated `.xcodeproj` is
+    # gitignored, so a team picked only in Xcode's Signing & Capabilities
+    # UI would be silently wiped on the next regenerate).
+    DEVELOPMENT_TEAM: Z27T535BXZ
     ENABLE_PREVIEWS: true
     # Two of Xcode's "Update to recommended settings" suggestions — applying
     # that dialog directly would edit the generated (gitignored) .xcodeproj,
@@ -84,7 +92,14 @@ targets:
         product: AetherEngine
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.ios
+        # No platform suffix (contrast the test target below) — this is the
+        # ID Apple's Universal Purchase mechanism needs shared identically
+        # across platforms if tvOS/macOS versions later join this same App
+        # Store Connect listing under one purchase. Changed from
+        # `com.imbenjamin.dionysusplayer.ios` before the first App Store
+        # Connect app record existed, since a primary bundle ID is
+        # effectively permanent once that record is created.
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer
         PRODUCT_NAME: Dionysus
         # Xcode's default for a Swift target already, but set explicitly
         # since it's what actually makes `Text("...")`/`Button("...")`/
@@ -117,6 +132,11 @@ targets:
         # under Entertainment, not Xcode's default (unset, which App Store
         # Connect would otherwise prompt for at submission time).
         LSApplicationCategoryType: public.app-category.entertainment
+        # Standard HTTPS/TLS only (talking to the user's Jellyfin server)
+        # qualifies for Apple's standard-encryption exemption — declaring
+        # it here skips the manual "Does your app use encryption?" prompt
+        # on every App Store Connect upload.
+        ITSAppUsesNonExemptEncryption: false
         # Static approximation of SplashView (App/SplashView.swift) for the
         # brief window before any app code runs — a system snapshot, not a
         # live view, so it can only offer a flat background colour + one
@@ -161,7 +181,7 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: true
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.ios.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.tests
         # DionysusPlayer's PRODUCT_NAME is "Dionysus" (not the target name),
         # so XcodeGen's auto-inferred host-application path is wrong —
         # override it explicitly to match.
