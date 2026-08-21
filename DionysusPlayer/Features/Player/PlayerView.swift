@@ -31,6 +31,12 @@ struct PlayerView: View {
     /// the same nil-then-non-nil path every ordinary Play/Resume tap
     /// already takes.
     var onRequestNextItem: ((String) -> Void)? = nil
+    /// Non-nil plays this local downloaded copy instead of fetching
+    /// `itemID` over the network — see `PlayerViewModel.downloadedItem`'s
+    /// doc comment and the offline-downloads plan's "Offline playback
+    /// wiring" section. `itemID` above should still be
+    /// `downloadedItem.itemID` in that case.
+    var downloadedItem: DownloadedItem? = nil
 
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -444,11 +450,18 @@ struct PlayerView: View {
     }
 
     private func setUpIfNeeded() async {
-        guard viewModel == nil, let client = appState.apiClient, let userID = appState.currentUser?.id else { return }
+        guard viewModel == nil, let client = appState.apiClient else { return }
+        // Falls back to the stored credentials' userID (not just
+        // `currentUser?.id`) so offline playback works from a cold launch
+        // that never completed a live sign-in this session — see
+        // `RootView`'s `.offline` "View Downloads" escape hatch, which
+        // reaches this view with no `currentUser` at all.
+        guard let userID = appState.currentUser?.id ?? appState.sessionStore.credentials?.userID else { return }
         guard let engine = try? AetherPlaybackEngine() else { return }
         let newViewModel = PlayerViewModel(
             client: client, userID: userID, itemID: itemID, engine: engine,
-            startFromBeginning: startFromBeginning, mediaSourceID: mediaSourceID
+            startFromBeginning: startFromBeginning, mediaSourceID: mediaSourceID,
+            downloadedItem: downloadedItem, downloadStore: downloadedItem != nil ? appState.downloadManager.store : nil
         )
         viewModel = newViewModel
         await newViewModel.start()

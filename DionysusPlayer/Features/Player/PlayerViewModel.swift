@@ -90,10 +90,29 @@ final class PlayerViewModel {
     private let userID: String
     private let trackPreferenceStore: TrackPreferenceStore
     private let nextUpPreferenceStore: NextUpPreferenceStore
+    /// Set only via `init`'s `downloadedItem:` parameter — when non-nil,
+    /// `start()`/`stop()`/progress reporting all route through the
+    /// local-only offline paths below instead of any network call. `itemID`
+    /// should still be `downloadedItem.itemID` in that case (the same
+    /// Jellyfin item id, just played from a local file); `client`/`userID`
+    /// are still required and valid to pass through even offline, so
+    /// callers don't need a separate offline-only initializer shape.
+    private let downloadedItem: DownloadedItem?
+    private let downloadStore: DownloadStore?
+    /// `true` for a session playing an offline download rather than
+    /// streaming live — `PlaybackStatsOverlay`'s Streaming section reads
+    /// this to show "Download" as the play method and skip the
+    /// network-only rows (server version, live transcode parameters) that
+    /// have nothing to report for a file already sitting on disk.
+    var isOfflinePlayback: Bool { downloadedItem != nil }
     private var progressReportTask: Task<Void, Never>?
-    /// Resolved in `start()` once `activeMediaSourceID` is known — see
-    /// `supportsScrubThumbnails`/`scrubThumbnail(atSeconds:)`.
-    private var trickplayProvider: TrickplayThumbnailProvider?
+    /// Resolved in `start()`/`startOffline()` once `activeMediaSourceID` is
+    /// known — see `supportsScrubThumbnails`/`scrubThumbnail(atSeconds:)`.
+    /// `any ScrubThumbnailProviding`, not the concrete `TrickplayThumbnailProvider`
+    /// — `startOffline()` installs `OfflineTrickplayThumbnailProvider`
+    /// instead, and everything downstream of this property only ever needs
+    /// the shared `thumbnail(atSeconds:)` shape, not which conformer.
+    private var trickplayProvider: (any ScrubThumbnailProviding)?
 
     var audioTracks: [PlaybackTrack] { engine.audioTracks }
     var subtitleTracks: [PlaybackTrack] { engine.subtitleTracks }
@@ -319,7 +338,11 @@ final class PlayerViewModel {
         client: JellyfinAPIClient, userID: String, itemID: String, engine: PlaybackEngine,
         startFromBeginning: Bool = false, mediaSourceID: String? = nil,
         trackPreferenceStore: TrackPreferenceStore = TrackPreferenceStore(),
-        nextUpPreferenceStore: NextUpPreferenceStore = NextUpPreferenceStore()
+        nextUpPreferenceStore: NextUpPreferenceStore = NextUpPreferenceStore(),
+        // Non-nil routes this whole session through the offline playback
+        // path — see the `downloadedItem` property's own doc comment.
+        downloadedItem: DownloadedItem? = nil,
+        downloadStore: DownloadStore? = nil
     ) {
         self.client = client
         self.userID = userID
@@ -329,6 +352,8 @@ final class PlayerViewModel {
         self.requestedMediaSourceID = mediaSourceID
         self.trackPreferenceStore = trackPreferenceStore
         self.nextUpPreferenceStore = nextUpPreferenceStore
+        self.downloadedItem = downloadedItem
+        self.downloadStore = downloadStore
 
         engine.onStateChange = { [weak self] state in
             guard let self else { return }
@@ -363,6 +388,10 @@ final class PlayerViewModel {
     ///   the caller already knows exactly where playback stopped.
     func start(resumeSeconds: TimeInterval? = nil) async {
         errorMessage = nil
+        if let downloadedItem {
+            await startOffline(downloadedItem, resumeSeconds: resumeSeconds)
+            return
+        }
         do {
             let images = await client.makeImageURLBuilder()
             // `detailFieldsWithTrickplay`, not the plain default — this is
@@ -429,6 +458,138 @@ final class PlayerViewModel {
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "Playback failed to start.")
         }
+    }
+
+    /// Offline counterpart to the network path above — see `downloadedItem`'s
+    /// doc comment and the offline-downloads plan's "Offline playback
+    /// wiring" section. Builds a `file://` playback URL and local
+    /// `ExternalSubtitleSource`s from `DownloadFileStore` instead of
+    /// `client.streamURL`/`subtitleURL`, and skips every network call
+    /// `start()` makes (item fetch, `playbackInfo`, `reportPlaybackStart`,
+    /// next-episode lookup — none of which have anything to fetch offline;
+    /// `nextEpisode` simply stays `nil`, same as any item whose lookup
+    /// fails today) in favor of the download's own stored snapshot
+    /// (`mediaSegments`, resume position). Progress/stop route to
+    /// `writeOfflineProgress(_:)` instead of `reportPlaybackProgress`/
+    /// `reportPlaybackStopped`.
+    ///
+    /// `item` is still populated — with a synthetic `MediaItem` built from
+    /// an otherwise-empty `BaseItemDto` carrying just the stored title/
+    /// episode info — purely so `PlayerControlsOverlay`'s existing title
+    /// row keeps working unmodified: no `imageTags` means
+    /// `logoImageURL`/`primaryImageURL` all resolve to `nil`, which that
+    /// view already renders as a plain title-text fallback (the same path
+    /// a live item with no logo takes) rather than attempting a network
+    /// image fetch against a placeholder URL.
+    private func startOffline(_ downloadedItem: DownloadedItem, resumeSeconds: TimeInterval?) async {
+        let dto = BaseItemDto(
+            id: downloadedItem.itemID,
+            name: downloadedItem.title,
+            type: downloadedItem.kind == .episode ? .episode : .movie,
+            runTimeTicks: downloadedItem.runtimeTicks,
+            seriesId: downloadedItem.seriesID,
+            seriesName: downloadedItem.seriesTitle,
+            indexNumber: downloadedItem.episodeNumber,
+            parentIndexNumber: downloadedItem.seasonNumber
+        )
+        // Any placeholder base URL works: with no `imageTags` on `dto`
+        // above, nothing this builder is capable of building ever actually
+        // gets requested — see this method's own doc comment.
+        let mediaItem = MediaItem(dto: dto, images: ImageURLBuilder(baseURL: URL(string: "https://offline.invalid")!))
+        item = mediaItem
+        engine.setNowPlayingInfo(title: mediaItem.railTitle, subtitle: mediaItem.railSubtitle, artwork: nil)
+
+        activeMediaSourceID = downloadedItem.mediaSourceID
+        mediaSegments = downloadedItem.segments.map(PlaybackSegment.init(downloaded:))
+        endCreditsSegment = mediaSegments.filter { $0.kind == .outro }.max { $0.startSeconds < $1.startSeconds }
+        // `nil` (no scrub thumbnails offline) when this download predates
+        // trickplay support, or its own best-effort fetch at enqueue time
+        // came up empty — see `DownloadedItem.trickplayInfo`'s own doc
+        // comment.
+        if let trickplayInfo = downloadedItem.trickplayInfo {
+            trickplayProvider = OfflineTrickplayThumbnailProvider(itemID: downloadedItem.itemID, info: trickplayInfo)
+        }
+
+        let videoURL = DownloadFileStore.url(forRelativePath: downloadedItem.videoFilePath)
+        let externalSubtitles = downloadedItem.subtitleFiles.map { file in
+            ExternalSubtitleSource(
+                url: DownloadFileStore.url(forRelativePath: file.relativePath),
+                name: file.displayTitle,
+                language: file.language,
+                isForced: file.isForced,
+                isHearingImpaired: file.isHearingImpaired,
+                isDefault: file.isDefault
+            )
+        }
+
+        do {
+            try await engine.load(url: videoURL, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: [])
+            applyStoredTrackSelection()
+            if let resumeSeconds, resumeSeconds > 0 {
+                await engine.seek(to: resumeSeconds)
+            } else if !startFromBeginning, downloadedItem.resumePositionTicks > 0 {
+                await engine.seek(to: Double(downloadedItem.resumePositionTicks) / 10_000_000)
+            }
+            engine.play()
+            startOfflineProgressReporting(downloadedItem)
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "Playback failed to start.")
+        }
+    }
+
+    /// Fraction of the item played at which offline playback considers it
+    /// "watched" — there's no server to make this judgement call the way
+    /// `reportPlaybackStopped` normally defers to (see that call's doc
+    /// comment elsewhere in this app), so this is a client-side stand-in.
+    /// 90% matches Jellyfin server's own common default resume/played
+    /// threshold.
+    private static let offlineWatchedThreshold = 0.9
+
+    private func startOfflineProgressReporting(_ downloadedItem: DownloadedItem) {
+        progressReportTask?.cancel()
+        progressReportTask = Task { [weak self] in
+            while true {
+                try? await Task.sleep(for: .seconds(10))
+                guard !Task.isCancelled, let self else { return }
+                self.writeOfflineProgress(downloadedItem)
+            }
+        }
+    }
+
+    /// Writes local resume/watched state directly onto the `DownloadedItem`
+    /// row and marks it `pendingSync` — the offline counterpart to
+    /// `reportPlaybackProgress`/`reportPlaybackStopped`, which this path
+    /// must never depend on network for. `DownloadSyncManager` is what
+    /// eventually pushes this to the server, once reconnected.
+    ///
+    /// `currentTime`/`duration` default to this view model's own live
+    /// properties (the periodic-reporting call site below wants exactly
+    /// that — the freshest value at the moment it's called, nothing has
+    /// stopped), but `stop()` passes pre-captured values explicitly instead
+    /// — see that call site's own comment for why relying on the implicit
+    /// read there specifically would be fragile.
+    private func writeOfflineProgress(_ downloadedItem: DownloadedItem, currentTime: TimeInterval? = nil, duration: TimeInterval? = nil) {
+        let currentTime = currentTime ?? self.currentTime
+        let duration = duration ?? self.duration
+        guard duration > 0 else { return }
+        let fraction = min(1, max(0, currentTime / duration))
+        if fraction >= Self.offlineWatchedThreshold {
+            downloadedItem.isPlayed = true
+            downloadedItem.resumePositionTicks = 0
+            downloadedItem.playedPercentage = 100
+        } else {
+            downloadedItem.resumePositionTicks = Int64(currentTime * 10_000_000)
+            downloadedItem.playedPercentage = fraction * 100
+        }
+        // The real, on-device moment this actually happened — see
+        // `DownloadedItem.lastPlayedAt`'s doc comment for why this has to
+        // be captured here (while it's genuinely happening, possibly
+        // fully offline) rather than left for the server to infer once
+        // `DownloadSyncManager` eventually reaches it, which could be
+        // hours or days later.
+        downloadedItem.lastPlayedAt = Date()
+        downloadedItem.pendingSync = true
+        downloadStore?.save()
     }
 
     /// Fire-and-forget: fetches the item's poster (if it has one) via
@@ -662,15 +823,22 @@ final class PlayerViewModel {
     /// `PlaybackStatsOverlay` poll tick since it short-circuits once already
     /// set, rather than re-fetching a value that can't change mid-session.
     func refreshServerVersion() async {
-        guard serverVersion == nil else { return }
+        // Offline playback has no live server to ask — `isOfflinePlayback`
+        // gates this before it ever dispatches a doomed request, same
+        // "route through local-only paths, no network call" contract every
+        // other offline-aware method here follows.
+        guard !isOfflinePlayback, serverVersion == nil else { return }
         serverVersion = try? await client.publicSystemInfo().version
     }
 
     /// Refreshes `streamingSession` from the server's own live view of this
     /// device's playback session — see that property's doc comment. Leaves
     /// the last known value on screen on failure rather than blanking the
-    /// overlay's Streaming section over one dropped request.
+    /// overlay's Streaming section over one dropped request. No-ops offline
+    /// for the same reason `refreshServerVersion()` does above — there's no
+    /// live session for the server to report on.
     func refreshStreamingSession() async {
+        guard !isOfflinePlayback else { return }
         if let session = try? await client.currentSession(deviceID: DeviceIdentity.deviceID) {
             streamingSession = session
         }
@@ -678,6 +846,25 @@ final class PlayerViewModel {
 
     func stop() async {
         progressReportTask?.cancel()
+        if let downloadedItem {
+            // Captured before `engine.stop()`, not left to
+            // `writeOfflineProgress`'s own implicit `self.currentTime`/
+            // `.duration` read afterward — matches the online path just
+            // below. `engine.stop()` synchronously zeroes AetherEngine's
+            // own internal clock/duration, and those changes only reach
+            // `self.currentTime`/`.duration` via `observeEngine()`'s
+            // Combine sinks, which defer to the next run-loop turn rather
+            // than firing synchronously. Reading them right after
+            // `engine.stop()` happens to still see the pre-stop values
+            // today, but only because of that scheduling detail — not
+            // something safe to rely on implicitly, hence capturing
+            // explicitly here instead.
+            let capturedTime = currentTime
+            let capturedDuration = duration
+            engine.stop()
+            writeOfflineProgress(downloadedItem, currentTime: capturedTime, duration: capturedDuration)
+            return
+        }
         let ticks = Int64(currentTime * 10_000_000)
         engine.stop()
         try? await client.reportPlaybackStopped(itemID: itemID, positionTicks: ticks, mediaSourceID: activeMediaSourceID)

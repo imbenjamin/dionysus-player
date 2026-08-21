@@ -42,6 +42,23 @@ final class TrickplayMathTests: XCTestCase {
         XCTAssertNil(TrickplayMath.frame(atSeconds: 0, info: degenerate))
     }
 
+    // MARK: sheetCount(for:)
+
+    func test_sheetCount_exactMultipleOfPerSheet_noPartialSheet() {
+        // 100 thumbnails/sheet (10x10), thumbnailCount 1017 -> ceil(1017/100) = 11.
+        XCTAssertEqual(TrickplayMath.sheetCount(for: info), 11)
+    }
+
+    func test_sheetCount_singleFullSheet() {
+        let single = TrickplayInfo(width: 320, height: 180, tileWidth: 10, tileHeight: 10, thumbnailCount: 100, interval: 10000, bandwidth: 1)
+        XCTAssertEqual(TrickplayMath.sheetCount(for: single), 1)
+    }
+
+    func test_sheetCount_degenerateInfo_isZero() {
+        let degenerate = TrickplayInfo(width: 320, height: 180, tileWidth: 10, tileHeight: 10, thumbnailCount: 0, interval: 10000, bandwidth: 0)
+        XCTAssertEqual(TrickplayMath.sheetCount(for: degenerate), 0)
+    }
+
     // MARK: bestInfo(from:mediaSourceID:preferredWidth:)
 
     func test_bestInfo_missingMediaSourceID_returnsNil() {

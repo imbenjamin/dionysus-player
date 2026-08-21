@@ -669,6 +669,18 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.stats, engine.stats)
     }
 
+    // MARK: isOfflinePlayback
+
+    /// The flip side of `PlayerViewModelOfflineTests
+    /// .test_isOfflinePlayback_trueForADownloadedItemSession` — a live
+    /// (non-downloaded) session must report `false`, or
+    /// `PlaybackStatsOverlay`'s Streaming section would wrongly show
+    /// "Download" for a real live stream.
+    func test_isOfflinePlayback_falseForALiveSession() {
+        let (viewModel, _) = makeViewModel()
+        XCTAssertFalse(viewModel.isOfflinePlayback)
+    }
+
     // MARK: refreshServerVersion() / refreshStreamingSession()
 
     func test_refreshServerVersion_fetchesOnceThenCaches() async {

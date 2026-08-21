@@ -20,6 +20,15 @@ struct ProfileView: View {
     @State private var showSignOutConfirmation = false
     @State private var showChangeServerConfirmation = false
 
+    /// Recomputed on every `body` evaluation — a plain `FileManager`
+    /// directory scan (`DownloadFileStore.totalSizeOnDisk()`), not cached
+    /// or reactively tied to `DownloadManager`. Fine for a settings row
+    /// visited occasionally, and simpler than wiring a dedicated
+    /// `@Observable` size tracker just for this one label.
+    private var downloadsStorageUsedText: String {
+        ByteCountFormatter.string(fromByteCount: DownloadFileStore.totalSizeOnDisk(), countStyle: .file)
+    }
+
     var body: some View {
         List {
             Section("Account") {
@@ -64,6 +73,14 @@ struct ProfileView: View {
                 Text("Playback")
             } footer: {
                 Text("How long before the end of an episode to countdown the next episode, if end credits are not detected.")
+            }
+
+            Section {
+                NavigationLink {
+                    DownloadsSettingsView()
+                } label: {
+                    LabeledContent("Downloads", value: downloadsStorageUsedText)
+                }
             }
 
             Section {

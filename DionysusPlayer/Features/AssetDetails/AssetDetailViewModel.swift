@@ -100,6 +100,14 @@ final class AssetDetailViewModel {
     private let userID: String
     private let versionPreferenceStore: MediaVersionPreferenceStore
 
+    /// Exposed read-only for `DownloadButton`'s call sites
+    /// (`MovieDetailView`/`ShowDetailView`), which otherwise only hold this
+    /// view model, not a `client`/`userID` of their own — see
+    /// `AssetDetailView.init`'s doc comment for why those aren't just read
+    /// from `@Environment(AppState.self)` at this layer instead.
+    var apiClient: JellyfinAPIClient { client }
+    var currentUserID: String { userID }
+
     /// `preloadedItem` — see `AppRoute.assetDetail`'s doc comment — seeds
     /// `item` immediately so the page has something to render (and a zoom
     /// transition something to land on) before `load()`'s network round

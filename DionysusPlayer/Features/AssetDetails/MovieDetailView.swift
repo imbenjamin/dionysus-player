@@ -4,6 +4,7 @@ import SwiftUI
 /// details, and related content/collections.
 struct MovieDetailView: View {
     let viewModel: AssetDetailViewModel
+    @Environment(AppState.self) private var appState
     @State private var playbackRequest: PlaybackRequest?
     /// Bumped from `fullScreenCover(onDismiss:)` — both immediately (to
     /// pick up `applyOptimisticPlaybackPosition(_:)`'s guess, already
@@ -41,7 +42,7 @@ struct MovieDetailView: View {
         ScrollView {
             if let item = viewModel.item {
                 VStack(alignment: .leading, spacing: 20) {
-                    HeroHeaderView(item: item)
+                    HeroHeaderView(backdropURL: item.backdropImageURL ?? item.primaryImageURL, logoURL: item.logoImageURL, title: item.name)
 
                     VStack(alignment: .leading, spacing: 16) {
                         // Keyed for the same reason as `DetailTabsView`
@@ -57,29 +58,33 @@ struct MovieDetailView: View {
                         InfoMetadataRow(item: item)
                             .id(item.technicalDetails == nil)
 
-                        PlayResumeButtonRow(
-                            item: item,
-                            onPlay: { versionID in
-                                if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: item.id) }
-                                playbackRequest = PlaybackRequest(itemID: item.id, mediaSourceID: versionID)
-                            },
-                            onResume: {
-                                playbackRequest = PlaybackRequest(
-                                    itemID: item.id, mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: item.id)
-                                )
-                            },
-                            onRestart: { versionID in
-                                if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: item.id) }
-                                playbackRequest = PlaybackRequest(itemID: item.id, startFromBeginning: true, mediaSourceID: versionID)
-                            }
-                        )
-                        // See `MediaItem.playbackProgressIdentity`'s doc
-                        // comment: without this, the progress bar/Play-vs-
-                        // Resume label can silently stop updating after
-                        // returning from playback, since this view owns its
-                        // own `@State` (the version-choice prompt) and takes
-                        // `item` as a plain, non-tracked `let`.
-                        .id(item.playbackProgressIdentity)
+                        HStack(spacing: 8) {
+                            PlayResumeButtonRow(
+                                item: item,
+                                onPlay: { versionID in
+                                    if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: item.id) }
+                                    playbackRequest = PlaybackRequest(itemID: item.id, mediaSourceID: versionID)
+                                },
+                                onResume: {
+                                    playbackRequest = PlaybackRequest(
+                                        itemID: item.id, mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: item.id)
+                                    )
+                                },
+                                onRestart: { versionID in
+                                    if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: item.id) }
+                                    playbackRequest = PlaybackRequest(itemID: item.id, startFromBeginning: true, mediaSourceID: versionID)
+                                }
+                            )
+                            // See `MediaItem.playbackProgressIdentity`'s doc
+                            // comment: without this, the progress bar/Play-vs-
+                            // Resume label can silently stop updating after
+                            // returning from playback, since this view owns its
+                            // own `@State` (the version-choice prompt) and takes
+                            // `item` as a plain, non-tracked `let`.
+                            .id(item.playbackProgressIdentity)
+
+                            DownloadButton(item: item, client: viewModel.apiClient, userID: viewModel.currentUserID, downloadManager: appState.downloadManager)
+                        }
 
                         // Keyed on whether a "Details" tab exists at all —
                         // see `DetailTabsView.availableTabs`'s doc comment

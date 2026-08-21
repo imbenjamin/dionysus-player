@@ -13,17 +13,105 @@ and plays media using [AetherEngine](https://github.com/superuser404notfound/Aet
 an FFmpeg + VideoToolbox based playback engine with HDR10, HDR10+ and Dolby
 Vision support.
 
+The thing Dionysus is trying to do differently from other Jellyfin clients is
+**offline downloads that actually feel like a commercial streaming app's** —
+not a bolted-on "save for later" checkbox, but per-title quality control,
+reliable background transfer, bulk season downloads, its own fully-offline
+browsing UI, and local watch-progress that syncs back once you're
+reconnected. See [Downloads](#downloads) below for what that covers today.
+
+## Features
+
+- **Browse & search** — home rails, library grids (Movies/Shows/Collections)
+  with cascading genre/studio/decade/watched/favorite filters, search,
+  cast & crew, "Up Next"/continue-watching.
+- **Playback** — direct-play via AetherEngine (FFmpeg + VideoToolbox),
+  HDR10/HDR10+/Dolby Vision on supported source+device combinations,
+  scrubbing with trickplay thumbnails, subtitle/audio track selection,
+  intro/outro skip segments, Picture in Picture (native AVPlayer route),
+  Now Playing/lock-screen/Control Center integration, a live "stats for
+  nerds" overlay (codec, bitrate, resolution, dropped frames, streaming
+  session info, offline-vs-live playback method).
+- **Downloads** — see below; this is the differentiator.
+- **Accounts** — Jellyfin sign-in with silent session restore, per-server
+  config, profile/settings screen.
+
+### Downloads
+
+- **Per-title and per-episode downloads**, plus bulk **season/whole-show**
+  download and delete, from the same detail screens as live content.
+- **Quality control**: a device-wide default (resolution tier × High/
+  Normal/Data Saver bitrate preset) in Settings, or a **long-press on any
+  download button** to override resolution/quality for that one download
+  only — never upscales past the source, and picks the actual achieved
+  bitrate rung rather than the requested one when a low-resolution source
+  caps the output below what was asked for.
+- **Reliable background transfer**: real `URLSessionDownloadTask` background
+  sessions (survive backgrounding, resume after relaunch), a configurable
+  simultaneous-downloads limit, and HTTP-status validation on completion so
+  a transcode error response can never masquerade as a successful download.
+- **A fully offline app**: the Downloads tab, its own show/season grouping,
+  and a local detail page work from a cold launch with zero network —
+  metadata, artwork, cast/crew, and (where available) skip-segment data are
+  all captured at download time, not fetched on demand.
+- **Local watch-progress sync**: resume position and watched state update
+  locally while offline and push back to the Jellyfin server automatically
+  once the app is foregrounded with connectivity again.
+- **Subtitle handling**: text-based subtitle tracks download alongside the
+  video; image-based tracks (PGS/VobSub/DVB — Jellyfin has no server-side
+  OCR to extract them as text, and MP4 can't embed bitmap subs) are skipped
+  with an explicit warning up front rather than silently dropped.
+- Storage lives under `Application Support` (not `Library/Caches`), so the
+  OS never silently reclaims a title you explicitly chose to keep offline.
+
+See `Core/Downloads`/`Features/Downloads` for the implementation, and
+[Known limitations](#known-limitations) below for what this doesn't cover
+yet.
+
 ## Status
 
 Navigation, screens, and the networking/playback plumbing are in place with
 placeholder content where noted. As of Xcode 26.5, the app builds clean end
 to end — package resolution (AetherEngine and its dependencies), compilation,
 and linking all succeed with no errors — and the unit test suite passes (see
-[Testing](#testing)). That confirms the code compiles against
-AetherEngine's real API and that the ViewModel/networking layer behaves as
-intended; it does **not** confirm playback actually works — no test here
-plays real media or exercises a real device's decoder, so treat runtime
-playback behavior as unverified until tried against a real Jellyfin server.
+[Testing](#testing)). Real device testing (see `TESTING.md`) has confirmed
+direct-play HDR/Dolby Vision video with passthrough audio, and the Downloads
+feature end-to-end (queueing, background transfer, resume, bulk season
+download, quality overrides, offline playback, sync-back) — both driven by
+extensive live iPhone testing, not just unit tests. Areas still resting on
+unit-test coverage alone rather than confirmed live: transcoded (non-direct-
+play) streaming, non-Dolby-Vision HDR formats on other devices, and some
+seeking/scrubbing edge cases.
+
+## Known limitations
+
+- **Offline downloads of HDR content always come out SDR.** This isn't a gap
+  in this app's own download request — it's a hard limitation of Jellyfin's
+  server-side transcoder, confirmed against a real Jellyfin server (an Apple
+  Silicon Mac Mini with VideoToolbox hardware transcoding, tone mapping
+  enabled) using multiple real HDR10 and Dolby Vision sources, and against
+  [Jellyfin's own documentation](https://jellyfin.org/docs/general/post-install/transcoding/):
+  "When the source video is in HDR, it will need to be tone-mapped to SDR
+  when transcoding, as Jellyfin currently doesn't support HDR to HDR
+  tone-mapping, or passing through HDR metadata." That applies to every
+  transcode unconditionally — there's no server setting or client-declared
+  device capability that changes it. Live playback (direct-play, not
+  transcoded) is unaffected and preserves HDR normally; only a *downloaded*
+  copy of an HDR title is forced to SDR. `DownloadedItem.isHDR` reflects
+  this honestly (always `false`) rather than mislabeling a tone-mapped
+  file. Revisit this only if Jellyfin's server ever adds real
+  HDR-preserving transcode support upstream.
+- **Downloaded audio is always AAC-LC stereo**, regardless of the source's
+  own audio (a deliberate v1 simplification) — no surround/lossless
+  passthrough for offline files yet. Live playback is unaffected.
+- **Live streaming is direct-play only** — there's no server-side transcode
+  negotiation for live playback (unlike downloads, which do transcode to a
+  chosen resolution/bitrate tier). A source your device truly can't decode
+  won't play back live yet.
+- **tvOS/macOS are not built yet** — iOS/iPadOS only for now, per the
+  Status section above.
+- Rail/grid curation logic (what shows up on Home, in what order) is an
+  explicit placeholder, not final UX.
 
 ## Requirements
 
@@ -48,11 +136,11 @@ the `DionysusPlayer` scheme.
 > **Note:** This scaffold was originally written in an environment without a
 > macOS/Xcode toolchain, with the expectation that `AetherPlaybackEngine.swift`
 > would need fixes once built against AetherEngine's real API. That's no
-> longer the case — the app has since been built successfully (Xcode 26.5)
-> with no compiler errors anywhere, `AetherPlaybackEngine.swift` included.
-> What *hasn't* been verified is playback at runtime (no test plays real
-> media), so treat that specifically as unconfirmed until tried against a
-> real server.
+> longer the case, and hasn't been for a while — the app builds clean
+> (Xcode 26.5) with no compiler errors anywhere, `AetherPlaybackEngine.swift`
+> included, and real playback has since been confirmed on physical hardware
+> too, not just compiled. See [Status](#status) for exactly what's been
+> verified live versus what's still resting on unit-test coverage alone.
 
 ## Testing
 
@@ -79,7 +167,9 @@ DionysusPlayer/
 │   ├── Models/          Server config, credentials, domain models
 │   ├── Networking/      Jellyfin REST API client & DTOs
 │   ├── Playback/        Playback engine protocol + AetherEngine adapter
-│   └── Persistence/     Keychain-backed session storage, on-device search history
+│   ├── Persistence/     Keychain-backed session storage, on-device search history
+│   └── Downloads/       Offline downloads — SwiftData model, file store,
+│                        download/sync managers (see below)
 ├── Features/
 │   ├── ServerSetup/     One-time server address entry
 │   ├── Login/           Jellyfin sign-in, remembers & auto-logs in
@@ -87,8 +177,10 @@ DionysusPlayer/
 │   ├── Collection/      Grid of a library/collection's items
 │   ├── AssetDetails/    Movie/Show detail — hero header, Play/Resume/Restart,
 │   │                    tabbed About/Cast & Crew/Details area
-│   ├── Player/          AetherEngine-backed playback UI
+│   ├── Player/          AetherEngine-backed playback UI (online and offline)
 │   ├── Search/          Jellyfin search, results list
+│   ├── Downloads/       Offline-downloaded content — list, per-show/season
+│   │                    grouping, and a fully local detail page
 │   └── Profile/         Server/account settings, build version footer
 └── Shared/         Reusable components (poster cards, async images, nav)
 ```

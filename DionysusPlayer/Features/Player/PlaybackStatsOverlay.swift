@@ -45,6 +45,10 @@ struct PlaybackStatsOverlay: View {
     /// engine, so they're polled here directly rather than routed through
     /// `PlaybackEngine`.
     @State private var audioOutputRoute: String?
+    /// How many channels the device's *current audio route* is actually
+    /// configured for — distinct from `stats.audioChannels` (the media's
+    /// own channel layout); see `audioSection`'s doc comment.
+    @State private var audioOutputChannelCount: Int?
     @State private var thermalState: ProcessInfo.ThermalState = .nominal
     /// How much extra brightness headroom the display currently has for
     /// HDR content above SDR white (1.0 = none, i.e. effectively SDR).
@@ -148,6 +152,7 @@ struct PlaybackStatsOverlay: View {
         while !Task.isCancelled {
             stats = viewModel.stats
             audioOutputRoute = Self.currentAudioOutputRoute()
+            audioOutputChannelCount = AVAudioSession.sharedInstance().outputNumberOfChannels
             thermalState = ProcessInfo.processInfo.thermalState
             edrHeadroom = UIScreen.main.currentEDRHeadroom
             if tick % Self.streamingSessionPollTicks == 0 {
@@ -204,11 +209,23 @@ struct PlaybackStatsOverlay: View {
         row("Backend", stats.backend)
     }
 
+    /// "Source Channels" (the media's own channel layout — "5.1", "Atmos",
+    /// ...) and "Output Channels" (how many channels the device's *current
+    /// route* is actually configured for — 2 for the built-in speakers no
+    /// matter the source, up to 8 over HDMI/AirPlay to a receiver) used to
+    /// be one combined "Output" row, reading the source's channel count as
+    /// if it were what's actually coming out of the speakers. They're
+    /// different questions — a 7.1 source plays out over built-in stereo
+    /// speakers just fine, downmixed, and this used to imply otherwise —
+    /// same "Source Color" vs. "Displayed Color" split `videoSection`/
+    /// `displaySection` already draw for video.
     @ViewBuilder
     private func audioSection(_ stats: PlaybackStats) -> some View {
         Text("Audio").bold().padding(.top, 4)
         row("Decoder", stats.audioDecoder ?? "—")
-        row("Output", Self.describeOutput(route: audioOutputRoute, channels: stats.audioChannels))
+        row("Source Channels", stats.audioChannels ?? "—")
+        row("Output Route", audioOutputRoute ?? "—")
+        row("Output Channels", Self.describeChannelCount(audioOutputChannelCount))
     }
 
     @ViewBuilder
@@ -235,22 +252,31 @@ struct PlaybackStatsOverlay: View {
     /// transcoding, the transcode's current parameters). See
     /// `PlayerViewModel.serverVersion`/`.streamingSession`'s doc comments
     /// for why these come from separate, slower-polled requests rather than
-    /// `PlaybackStats`.
+    /// `PlaybackStats`. For an offline download (`viewModel.isOfflinePlayback`),
+    /// none of that applies — there's no live server session to report on
+    /// (`refreshServerVersion()`/`refreshStreamingSession()` both no-op in
+    /// that case, so `serverVersion`/`streamingSession` would just sit
+    /// `nil` forever) — so this collapses to a single "Download" play
+    /// method instead of a Jellyfin Server row and a blank/"—" one.
     @ViewBuilder
     private func streamingSection() -> some View {
-        Text("Streaming").bold().padding(.top, 4)
-        row("Jellyfin Server", viewModel.serverVersion ?? "—")
-        row("Play Method", Self.describePlayMethod(viewModel.streamingSession?.playState?.playMethod))
-        if let transcoding = viewModel.streamingSession?.transcodingInfo {
-            row("Transcode Video", transcoding.videoCodec ?? "—")
-            row("Transcode Audio", transcoding.audioCodec ?? "—")
-            row("Transcode Bitrate", transcoding.bitrate.map(Self.formatMbps) ?? "—")
-            if let width = transcoding.width, let height = transcoding.height {
-                row("Transcode Size", "\(width)×\(height)")
-            }
-            row("Completion", transcoding.completionPercentage.map { String(format: "%.0f%%", $0) } ?? "—")
-            if let reasons = transcoding.transcodeReasons, !reasons.isEmpty {
-                row("Reasons", reasons.joined(separator: ", "))
+        Text(viewModel.isOfflinePlayback ? "Playback Source" : "Streaming").bold().padding(.top, 4)
+        if viewModel.isOfflinePlayback {
+            row("Play Method", "Download")
+        } else {
+            row("Jellyfin Server", viewModel.serverVersion ?? "—")
+            row("Play Method", Self.describePlayMethod(viewModel.streamingSession?.playState?.playMethod))
+            if let transcoding = viewModel.streamingSession?.transcodingInfo {
+                row("Transcode Video", transcoding.videoCodec ?? "—")
+                row("Transcode Audio", transcoding.audioCodec ?? "—")
+                row("Transcode Bitrate", transcoding.bitrate.map(Self.formatMbps) ?? "—")
+                if let width = transcoding.width, let height = transcoding.height {
+                    row("Transcode Size", "\(width)×\(height)")
+                }
+                row("Completion", transcoding.completionPercentage.map { String(format: "%.0f%%", $0) } ?? "—")
+                if let reasons = transcoding.transcodeReasons, !reasons.isEmpty {
+                    row("Reasons", reasons.joined(separator: ", "))
+                }
             }
         }
     }
@@ -279,15 +305,21 @@ struct PlaybackStatsOverlay: View {
         AVAudioSession.sharedInstance().currentRoute.outputs.first?.portName
     }
 
-    /// Route and channel layout are two different questions (where the
-    /// sound is going vs. how many channels are in it) but read as one
-    /// sentence — "Speaker (5.1)" — rather than two separate rows.
-    private static func describeOutput(route: String?, channels: String?) -> String {
-        switch (route, channels) {
-        case let (route?, channels?): return "\(route) (\(channels))"
-        case let (route?, nil): return route
-        case let (nil, channels?): return channels
-        case (nil, nil): return "—"
+    /// Same "1.0"/"2.0"/"5.1"/"7.1" labeling `AetherPlaybackEngine
+    /// .describeChannels` uses for the media's own channel count, applied
+    /// here to the device route's actual channel count instead — same
+    /// visual shape for both rows makes them easy to compare at a glance.
+    /// No Atmos case (unlike that one): `AVAudioSession
+    /// .outputNumberOfChannels` reports a plain channel count, with no way
+    /// to know whether an Atmos bed is riding along on it.
+    private static func describeChannelCount(_ count: Int?) -> String {
+        guard let count, count > 0 else { return "—" }
+        switch count {
+        case 1: return "1.0"
+        case 2: return "2.0"
+        case 6: return "5.1"
+        case 8: return "7.1"
+        default: return "\(count)ch"
         }
     }
 

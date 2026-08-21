@@ -25,6 +25,16 @@ struct AppRouteDestinationView: View {
                 // a hard crash if it somehow does.
                 ErrorStateView(message: String(localized: "You're not signed in."), retry: nil)
             }
+        // The three offline-downloads routes below need no live session at
+        // all (unlike `.assetDetail` above) — reachable both from
+        // `MainTabView`'s Downloads tab and from `RootView`'s `.offline`
+        // "View Downloads" escape hatch, which has no `currentUser` yet.
+        case .downloadedAsset(let itemID):
+            DownloadedAssetDetailView(itemID: itemID, downloadManager: appState.downloadManager, client: appState.apiClient)
+        case .downloadedShow(let seriesID):
+            DownloadedShowView(seriesID: seriesID, downloadManager: appState.downloadManager)
+        case .downloadedSeason(let seriesID, let seasonID):
+            DownloadedSeasonView(seriesID: seriesID, seasonID: seasonID, downloadManager: appState.downloadManager)
         }
     }
 }

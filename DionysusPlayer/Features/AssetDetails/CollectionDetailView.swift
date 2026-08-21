@@ -20,7 +20,7 @@ struct CollectionDetailView: View {
         ScrollView {
             if let item = viewModel.item {
                 VStack(alignment: .leading, spacing: 20) {
-                    HeroHeaderView(item: item)
+                    HeroHeaderView(backdropURL: item.backdropImageURL ?? item.primaryImageURL, logoURL: item.logoImageURL, title: item.name)
 
                     VStack(alignment: .leading, spacing: 16) {
                         InfoMetadataRow(item: item)

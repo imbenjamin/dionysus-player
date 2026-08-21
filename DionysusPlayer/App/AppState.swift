@@ -23,9 +23,25 @@ final class AppState {
     private(set) var apiClient: JellyfinAPIClient?
 
     let sessionStore: ServerSessionStore
+    /// Offline downloads are local-device storage, not tied to which
+    /// server is configured — unlike `apiClient`, this is created once
+    /// here and never recreated on sign-out/change-server, so an in-flight
+    /// download survives a session change untouched.
+    let downloadManager: DownloadManager
 
-    init(sessionStore: ServerSessionStore = ServerSessionStore()) {
+    init(sessionStore: ServerSessionStore = ServerSessionStore(), downloadManager: DownloadManager = DownloadManager()) {
         self.sessionStore = sessionStore
+        self.downloadManager = downloadManager
+        // See `DownloadManager.onRowMarkedForDeletion`'s own doc comment
+        // for the bug this fixes and why it's wired here (the one place
+        // that can resolve a *live* `apiClient`, read fresh through `self`
+        // each time this actually fires rather than captured once — it can
+        // be recreated or go `nil` across sign-in/sign-out/server changes
+        // over this same long-lived `downloadManager`'s lifetime).
+        downloadManager.onRowMarkedForDeletion = { [weak self] in
+            guard let self, let client = self.apiClient else { return }
+            Task { await DownloadSyncManager.syncIfNeeded(client: client, store: self.downloadManager.store) }
+        }
     }
 
     /// Call once at launch: restores the configured server and attempts to

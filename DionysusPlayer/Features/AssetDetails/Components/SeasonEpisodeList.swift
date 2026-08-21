@@ -34,21 +34,70 @@ struct SeasonEpisodeList: View {
     @State private var episodes: [MediaItem] = []
     @State private var isLoading = false
 
+    /// The season menu's own trigger label — falls back to the first
+    /// season's name if `selectedSeasonID` doesn't (yet) match any of
+    /// `seasons`, so the trigger never renders blank. Truncated here in
+    /// plain Swift, not left to `Text`'s own `.lineLimit`/`.truncationMode`
+    /// — see the `Menu` label below for why. `maxLength` is picked to
+    /// comfortably clear the 160pt trigger width at this font size.
+    private var selectedSeasonName: String {
+        let name = seasons.first { $0.id == selectedSeasonID }?.name ?? seasons.first?.name ?? ""
+        let maxLength = 16
+        guard name.count > maxLength else { return name }
+        return String(name.prefix(maxLength)) + "\u{2026}"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
+            HStack(spacing: 8) {
                 Text("Episodes")
                     .font(.title3.bold())
+                    // Never the one to give up space — a long season name
+                    // is what needs to shrink below, not this fixed title.
+                    .layoutPriority(1)
 
                 Spacer()
 
                 if seasons.count > 1 {
-                    Picker("Season", selection: $selectedSeasonID) {
+                    // A hand-built `Menu`, not `Picker(...).pickerStyle(.menu)`
+                    // — a menu-style `Picker`'s truncation/sizing is
+                    // unreliable for a long trigger label (`.lineLimit(1)`
+                    // doesn't reliably reach it), so this builds the
+                    // trigger's `Text` directly to guarantee `.lineLimit`/
+                    // `.truncationMode` actually apply. Pre-truncating the
+                    // string itself (`selectedSeasonName`, above) rather
+                    // than trusting `Text`'s own truncation, `.id()`-resetting
+                    // that `Text`'s identity per season, and using a fixed
+                    // (not `maxWidth`) frame below are all the same fix for
+                    // the same underlying quirk: this trigger's layout
+                    // doesn't reliably recompute in place when only its
+                    // string content changes.
+                    Menu {
                         ForEach(seasons) { season in
-                            Text(season.name).tag(Optional(season.id))
+                            Button(season.name) { selectedSeasonID = season.id }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(selectedSeasonName)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .id(selectedSeasonID)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.caption2)
                         }
                     }
-                    .pickerStyle(.menu)
+                    .frame(width: 160, alignment: .trailing)
+                }
+
+                // Next to the picker when there's one to show; in its place
+                // (still trailing the "Episodes" title) for a single-season
+                // show, where the picker itself is omitted above.
+                if let client = appState.apiClient, let userID = appState.currentUser?.id, let selectedSeasonID {
+                    SeasonDownloadButton(
+                        seriesID: seriesID, seasonID: selectedSeasonID, episodes: episodes,
+                        client: client, userID: userID, downloadManager: appState.downloadManager
+                    )
+                    .layoutPriority(1)
                 }
             }
             .padding(.horizontal)
@@ -62,7 +111,10 @@ struct SeasonEpisodeList: View {
                             episode: episode,
                             isCurrent: episode.id == currentEpisodeID,
                             onPlay: { onPlayEpisode(episode.id) },
-                            onSelect: { onSelectEpisode(episode.id) }
+                            onSelect: { onSelectEpisode(episode.id) },
+                            client: appState.apiClient,
+                            userID: appState.currentUser?.id,
+                            downloadManager: appState.downloadManager
                         )
                     }
                 }
@@ -113,6 +165,13 @@ private struct EpisodeRow: View {
     var isCurrent: Bool = false
     var onPlay: () -> Void
     var onSelect: () -> Void
+    /// `nil` (no live session — shouldn't happen in practice on a screen
+    /// that already requires one, but degrades gracefully) omits the
+    /// per-episode download button entirely rather than showing one that
+    /// can't actually resolve `playbackInfo`.
+    var client: JellyfinAPIClient?
+    var userID: String?
+    var downloadManager: DownloadManager?
 
     private static let thumbnailWidth: CGFloat = 160
     private static let thumbnailHeight: CGFloat = 90
@@ -126,37 +185,55 @@ private struct EpisodeRow: View {
                 .fill(isCurrent ? Color.dionysusPrimary : .clear)
                 .frame(width: 3)
 
-            Button(action: onPlay) {
-                ZStack {
-                    AsyncRemoteImage(url: episode.imageURL(type: "Primary", maxWidth: 300))
-                        .frame(width: Self.thumbnailWidth, height: Self.thumbnailHeight)
-                        // Same progress-bar treatment as `PosterCard`'s rail
-                        // thumbnails (`watchStatusOverlay`) — this can show
-                        // up alongside the main Play/Resume button's own
-                        // progress bar when this row's episode is also the
-                        // page's current content; a deliberate, harmless
-                        // overlap rather than something worth suppressing.
-                        .overlay(alignment: .bottom) {
-                            if let fraction = episode.playedFraction, fraction > 0, !episode.isPlayed {
-                                ProgressView(value: fraction)
-                                    .tint(.dionysusHighlight)
-                                    .padding(.horizontal, 4)
-                                    .padding(.bottom, 4)
+            // A `ZStack`, not the download button nested inside the Play
+            // `Button`'s own label — a button nested in another button's
+            // label risks having its taps swallowed by the outer one
+            // instead of reaching it (see this type's own doc comment on
+            // why the thumbnail/title-row split above already avoids
+            // that); this keeps the two as independent sibling tap targets
+            // layered on the same thumbnail instead.
+            ZStack(alignment: .topTrailing) {
+                Button(action: onPlay) {
+                    ZStack {
+                        AsyncRemoteImage(url: episode.imageURL(type: "Primary", maxWidth: 300))
+                            .frame(width: Self.thumbnailWidth, height: Self.thumbnailHeight)
+                            // Same progress-bar treatment as `PosterCard`'s rail
+                            // thumbnails (`watchStatusOverlay`) — this can show
+                            // up alongside the main Play/Resume button's own
+                            // progress bar when this row's episode is also the
+                            // page's current content; a deliberate, harmless
+                            // overlap rather than something worth suppressing.
+                            .overlay(alignment: .bottom) {
+                                if let fraction = episode.playedFraction, fraction > 0, !episode.isPlayed {
+                                    ProgressView(value: fraction)
+                                        .tint(.dionysusHighlight)
+                                        .padding(.horizontal, 4)
+                                        .padding(.bottom, 4)
+                                }
                             }
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
 
-                    Circle()
-                        .fill(.black.opacity(0.55))
-                        .frame(width: 36, height: 36)
-                        .overlay {
-                            Image(systemName: "play.fill")
-                                .font(.subheadline.bold())
-                                .foregroundStyle(.white)
-                        }
+                        Circle()
+                            .fill(.black.opacity(0.55))
+                            .frame(width: 36, height: 36)
+                            .overlay {
+                                Image(systemName: "play.fill")
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(.white)
+                            }
+                    }
+                }
+                .buttonStyle(.plain)
+
+                // Same component the detail page's own Play/Resume row
+                // uses — full parity (idle/preparing/downloading/
+                // downloaded states, audio-track prompt, subtitle
+                // warning), not a slimmed-down copy.
+                if let client, let userID, let downloadManager {
+                    DownloadButton(item: episode, client: client, userID: userID, downloadManager: downloadManager, style: .overlay)
+                        .padding(4)
                 }
             }
-            .buttonStyle(.plain)
 
             Button(action: onSelect) {
                 HStack(spacing: 8) {

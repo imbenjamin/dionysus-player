@@ -8,6 +8,7 @@ import UIKit
 private enum MainTab: Hashable {
     case home
     case search
+    case downloads
     case profile
 }
 
@@ -70,6 +71,19 @@ struct MainTabView: View {
             }
             .tabItem { Label("Search", systemImage: "magnifyingglass") }
             .tag(MainTab.search)
+
+            NavigationStack {
+                DownloadsView()
+                    .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
+            }
+            // Not "arrow.down.circle" — iOS's tab bar draws its own filled
+            // pill/circle behind the selected tab's icon, and a symbol
+            // with its own circular border merges visually with that into
+            // one solid disc rather than a distinct glyph inside a
+            // highlight. "square.and.arrow.down.on.square" is square, so
+            // it doesn't hit that issue.
+            .tabItem { Label("Downloads", systemImage: "square.and.arrow.down.on.square") }
+            .tag(MainTab.downloads)
 
             NavigationStack {
                 ProfileView()

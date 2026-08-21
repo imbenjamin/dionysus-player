@@ -74,7 +74,10 @@ struct TechnicalDetailsView: View {
     }
 }
 
-private struct SummaryRow: View {
+/// Not `private` — `DownloadedTechnicalDetailsView`'s Details tab reuses
+/// this exact label/value row presentation for a download's own technical
+/// summary.
+struct SummaryRow: View {
     let label: String
     let value: String
 
@@ -90,7 +93,9 @@ private struct SummaryRow: View {
     }
 }
 
-private struct TrackListSection: View {
+/// Not `private` — `DownloadedTechnicalDetailsView`'s Details tab reuses
+/// this exact audio/subtitle list presentation for a download's own tracks.
+struct TrackListSection: View {
     let title: String
     let tracks: [String]
 
