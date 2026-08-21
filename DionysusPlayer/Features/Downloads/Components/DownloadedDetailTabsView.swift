@@ -24,12 +24,21 @@ struct DownloadedDetailTabsView: View {
 
     /// `DownloadedPerson` has no id/headshot of its own (see the
     /// offline-downloads plan's "Metadata, artwork, and skip-segments"
-    /// section — deliberately name/role only, to bound storage) — the name
-    /// stands in as `CastMember.id` since it's unique enough within one
-    /// item's own credited people, and `imageURL` is always `nil`, which
-    /// `CastCrewGridView` already renders as a generic person glyph.
+    /// section — deliberately name/role only, to bound storage), and
+    /// `imageURL` is always `nil`, which `CastCrewGridView` already renders
+    /// as a generic person glyph. `id` is synthesized from the person's
+    /// name *and* their position in the list, not the name alone — same
+    /// fix as `MediaItem.cast`'s own `id`, and the same reason: the same
+    /// person can appear as more than one credit (e.g. an actor who also
+    /// directed), and a plain name-as-id let `CastCrewGridView`'s `ForEach`
+    /// see duplicate ids for that case, which is exactly what caused
+    /// intermittent gaps/repeated cells in the grid on the live page before
+    /// that fix — this offline counterpart had the same bug via its own,
+    /// separately-written mapping.
     private var castMembers: [CastMember] {
-        item.metadata.people.map { CastMember(id: $0.name, name: $0.name, role: $0.role, imageURL: nil) }
+        item.metadata.people.enumerated().map { index, person in
+            CastMember(id: "\(person.name)-\(index)", name: person.name, role: person.role, imageURL: nil)
+        }
     }
 
     /// "About" always shows, same as the live page. "Cast & Crew" only
@@ -199,12 +208,22 @@ private struct DownloadedTechnicalDetailsView: View {
     }
 
     /// Always AAC stereo audio (a deliberate v1 simplification, see the
-    /// offline-downloads plan) — this just reports whichever source track
-    /// was selected at download time alongside that fixed format.
+    /// offline-downloads plan) — entirely calculated from known facts about
+    /// the transcode itself (channel layout, codec, the requested preset's
+    /// own fixed audio bitrate), never from `item.selectedAudioTrackTitle`.
+    /// That field is the *source* track's server-computed `displayTitle`,
+    /// and per `MediaItem.trackLabel`'s own doc comment it already bakes
+    /// the source's original codec/channel layout into the string itself
+    /// (e.g. "English (TrueHD 7.1)") — showing any part of that next to
+    /// what was actually downloaded read as a contradiction (confirmed via
+    /// direct feedback even after a first attempt that kept just the
+    /// language/title prefix and dropped the parenthetical: the *rest* of
+    /// the source's own title text still doesn't describe the downloaded
+    /// file, so this drops the source title from this summary entirely
+    /// rather than trying to salvage part of it).
     private var audioTrackSummary: String {
-        var parts: [String] = []
-        if let title = item.selectedAudioTrackTitle { parts.append(title) }
-        if let codec = item.audioCodec { parts.append(codec.uppercased()) }
-        return parts.isEmpty ? String(localized: "Stereo") : parts.joined(separator: " \u{00B7} ")
+        let codec = (item.audioCodec ?? "aac").uppercased()
+        let kbps = item.requestedPreset.audioBitrate / 1000
+        return "\(String(localized: "Stereo")) \u{00B7} \(codec) \u{00B7} \(kbps) kbps"
     }
 }

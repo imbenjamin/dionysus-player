@@ -100,7 +100,7 @@ struct DownloadsView: View {
         if let viewModel {
             if viewModel.rows.isEmpty {
                 ErrorStateView(
-                    message: String(localized: "No downloads yet. Download something to watch offline from its detail page."),
+                    message: String(localized: "No downloads yet. Start downloading and they'll appear here."),
                     retry: nil,
                     icon: "square.and.arrow.down.on.square"
                 )
