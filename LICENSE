@@ -620,6 +620,37 @@ copy of the Program in return for a fee.
 
                      END OF TERMS AND CONDITIONS
 
+        Additional Permission: Application Store / DRM Exception
+
+  As an additional permission under Section 7 of the GNU General
+Public License v3, the copyright holder grants permission to
+distribute, install, and use this Program -- and any modified
+versions thereof -- through application stores and
+beta-distribution platforms operated by third parties (including
+but not limited to the Apple App Store and Apple TestFlight),
+even where the platform's terms impose restrictions on:
+
+  - signing or re-signing of the binary by anyone other than
+    the original developer or the platform operator;
+  - tamper protection, DRM, or similar integrity controls
+    applied to the binary by the platform;
+  - end-user redistribution of the installed binary outside
+    the platform's own channels;
+  - end-user re-linking of the installed binary against
+    modified versions of the Program,
+
+even where such restrictions would otherwise be incompatible
+with Sections 4-6 of this License.
+
+  This permission applies solely to the binary distribution path.
+It does not waive any obligation under this License regarding
+the source code: the complete corresponding source for the
+Program (including any modifications) remains publicly available,
+and recipients retain every right granted by this License with
+respect to that source -- they may obtain it, study it, modify it,
+build their own copy, and distribute their modified version under
+the same license, outside the constraints of any application store.
+
             How to Apply These Terms to Your New Programs
 
   If you develop a new program, and you want it to be of the greatest
@@ -631,8 +662,8 @@ to attach them to the start of each source file to most effectively
 state the exclusion of warranty; and each file should have at least
 the "copyright" line and a pointer to where the full notice is found.
 
-    <one line to give the program's name and a brief idea of what it does.>
-    Copyright (C) <year>  <name of author>
+    Dionysus Player
+    Copyright (C) 2026  Benjamin Hill
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -647,7 +678,7 @@ the "copyright" line and a pointer to where the full notice is found.
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-Also add information on how to contact you by electronic and paper mail.
+Contact: https://github.com/imbenjamin/dionysus-player
 
   If the program does terminal interaction, make it output a short
 notice like this when it starts in an interactive mode:
