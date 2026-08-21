@@ -30,7 +30,7 @@ struct AppRouteDestinationView: View {
         // `MainTabView`'s Downloads tab and from `RootView`'s `.offline`
         // "View Downloads" escape hatch, which has no `currentUser` yet.
         case .downloadedAsset(let itemID):
-            DownloadedAssetDetailView(itemID: itemID, downloadManager: appState.downloadManager)
+            DownloadedAssetDetailView(itemID: itemID, downloadManager: appState.downloadManager, client: appState.apiClient)
         case .downloadedShow(let seriesID):
             DownloadedShowView(seriesID: seriesID, downloadManager: appState.downloadManager)
         case .downloadedSeason(let seriesID, let seasonID):

@@ -32,6 +32,16 @@ final class AppState {
     init(sessionStore: ServerSessionStore = ServerSessionStore(), downloadManager: DownloadManager = DownloadManager()) {
         self.sessionStore = sessionStore
         self.downloadManager = downloadManager
+        // See `DownloadManager.onRowMarkedForDeletion`'s own doc comment
+        // for the bug this fixes and why it's wired here (the one place
+        // that can resolve a *live* `apiClient`, read fresh through `self`
+        // each time this actually fires rather than captured once — it can
+        // be recreated or go `nil` across sign-in/sign-out/server changes
+        // over this same long-lived `downloadManager`'s lifetime).
+        downloadManager.onRowMarkedForDeletion = { [weak self] in
+            guard let self, let client = self.apiClient else { return }
+            Task { await DownloadSyncManager.syncIfNeeded(client: client, store: self.downloadManager.store) }
+        }
     }
 
     /// Call once at launch: restores the configured server and attempts to

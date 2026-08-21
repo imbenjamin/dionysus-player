@@ -11,6 +11,12 @@ import SwiftUI
 /// sense for a download.
 struct DownloadedInfoMetadataRow: View {
     let item: DownloadedItem
+    /// Computed once by the caller (`DownloadedAssetDetailView`) and passed
+    /// in, rather than this view calling `DownloadFileStore
+    /// .fileSize(forRelativePath:)` (a filesystem stat) itself — see that
+    /// call site's own comment for why (`DownloadedDetailTabsView` needs
+    /// the exact same number).
+    let fileSizeBytes: Int64?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -53,8 +59,8 @@ struct DownloadedInfoMetadataRow: View {
         if let resolution = Self.resolutionLabel(height: item.height) { result.append(resolution) }
         if item.isHDR { result.append("HDR") }
         if !item.subtitleFiles.isEmpty { result.append("CC") }
-        if let fileSize = DownloadFileStore.fileSize(forRelativePath: item.videoFilePath) {
-            result.append(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))
+        if let fileSizeBytes {
+            result.append(ByteCountFormatter.string(fromByteCount: fileSizeBytes, countStyle: .file))
         }
         return result
     }

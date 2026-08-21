@@ -15,6 +15,11 @@ struct DownloadedDetailTabsView: View {
     }
 
     let item: DownloadedItem
+    /// Computed once by the caller (`DownloadedAssetDetailView`) and
+    /// threaded down to `DownloadedTechnicalDetailsView` — see that call
+    /// site's own comment for why (`DownloadedInfoMetadataRow` needs the
+    /// exact same number).
+    let fileSizeBytes: Int64?
     @State private var selectedTab: Tab = .about
 
     /// `DownloadedPerson` has no id/headshot of its own (see the
@@ -60,7 +65,7 @@ struct DownloadedDetailTabsView: View {
             case .cast:
                 CastCrewGridView(cast: castMembers)
             case .details:
-                DownloadedTechnicalDetailsView(item: item)
+                DownloadedTechnicalDetailsView(item: item, fileSizeBytes: fileSizeBytes)
             }
         }
     }
@@ -121,6 +126,7 @@ private struct DownloadedAboutTabContent: View {
 /// `subtitleSections`'s own doc comment).
 private struct DownloadedTechnicalDetailsView: View {
     let item: DownloadedItem
+    let fileSizeBytes: Int64?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -187,7 +193,7 @@ private struct DownloadedTechnicalDetailsView: View {
     }
 
     private var fileSizeText: String? {
-        DownloadFileStore.fileSize(forRelativePath: item.videoFilePath).map {
+        fileSizeBytes.map {
             ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)
         }
     }

@@ -16,7 +16,13 @@ final class DownloadManagerTests: XCTestCase {
     override func tearDown() {
         for path in touchedRelativePaths { try? FileManager.default.removeItem(at: DownloadFileStore.url(forRelativePath: path)) }
         touchedRelativePaths = []
+        MockURLProtocol.reset()
         super.tearDown()
+    }
+
+    private let baseURL = URL(string: "https://jellyfin.example.com")!
+    private func makeClient() -> JellyfinAPIClient {
+        JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
     }
 
     private func writeFile(itemID: String) throws {
@@ -54,6 +60,40 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(row?.markedForDeletion, true)
         XCTAssertEqual(row?.pendingSync, true)
         XCTAssertFalse(FileManager.default.fileExists(atPath: DownloadFileStore.url(forRelativePath: DownloadFileStore.videoRelativePath(itemID: "item-1")).path))
+    }
+
+    // MARK: onRowMarkedForDeletion (2026-08-20) — the "spinner stuck
+    // indefinitely" bug: a deleted-but-pending-sync row used to only ever
+    // clear on the next scenePhase foreground/reconnect trigger; this
+    // fires immediately instead so whoever's listening (`AppState`) can
+    // nudge `DownloadSyncManager` right away.
+
+    func test_delete_withPendingSync_firesOnRowMarkedForDeletionCallback() throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        try writeFile(itemID: "item-1")
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", pendingSync: true))
+        var callbackFired = false
+        manager.onRowMarkedForDeletion = { callbackFired = true }
+
+        manager.delete(itemID: "item-1")
+
+        XCTAssertTrue(callbackFired)
+    }
+
+    /// A row deleted outright (no unsynced state to carry) never becomes
+    /// `markedForDeletion` at all — nothing for the callback to fire for.
+    func test_delete_withoutPendingSync_doesNotFireOnRowMarkedForDeletionCallback() throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        try writeFile(itemID: "item-1")
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", pendingSync: false))
+        var callbackFired = false
+        manager.onRowMarkedForDeletion = { callbackFired = true }
+
+        manager.delete(itemID: "item-1")
+
+        XCTAssertFalse(callbackFired)
     }
 
     /// A `markedForDeletion` row must not reappear in the UI-facing list.
@@ -111,6 +151,73 @@ final class DownloadManagerTests: XCTestCase {
         manager.delete(itemID: "does-not-exist") // must not crash
     }
 
+    // MARK: retry(itemID:client:) — the one-tap "redownload a failed item"
+    // action (2026-08-20), added per direct feedback. Only the branches
+    // that don't require `enqueue()`'s own network-heavy internals
+    // (image/trickplay/subtitle side-fetches, all via `URLSession.shared`,
+    // not this test's mocked client session) to actually run to completion
+    // are covered here — same "don't unit-test the real download engine"
+    // boundary this file's own doc comment already documents for `enqueue`
+    // itself, which nothing here calls directly either.
+
+    func test_retry_rowNotFailed_isNoOpAndMakesNoRequest() async throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .downloading))
+        MockURLProtocol.requestHandler = { _ in XCTFail("must not hit the network for a non-failed row"); throw URLError(.badURL) }
+
+        try await manager.retry(itemID: "item-1", client: makeClient())
+    }
+
+    func test_retry_unknownItemID_isNoOp() async throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        MockURLProtocol.requestHandler = { _ in XCTFail("must not hit the network for a row that doesn't exist"); throw URLError(.badURL) }
+
+        try await manager.retry(itemID: "does-not-exist", client: makeClient())
+    }
+
+    /// The item itself is gone from the server (removed from the library
+    /// since the original download) — surfaced as a clear, specific error
+    /// rather than whatever generic failure the raw fetch produced.
+    func test_retry_itemNoLongerOnServer_throwsItemNoLongerAvailable() async throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .failed))
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 404, body: Data())
+        }
+
+        do {
+            try await manager.retry(itemID: "item-1", client: makeClient())
+            XCTFail("expected itemNoLongerAvailable")
+        } catch let error as DownloadError {
+            XCTAssertEqual(error.errorDescription, DownloadError.itemNoLongerAvailable.errorDescription)
+        }
+    }
+
+    /// The item still exists, but this specific negotiation came back with
+    /// no playable source at all.
+    func test_retry_noMediaSources_throwsMissingMediaSource() async throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .failed))
+        let dto = BaseItemDto(id: "item-1", name: "Test Movie", type: .movie)
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path == "/Items/item-1/PlaybackInfo" {
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaybackInfoResponse(mediaSources: []))
+            }
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: dto)
+        }
+
+        do {
+            try await manager.retry(itemID: "item-1", client: makeClient())
+            XCTFail("expected missingMediaSource")
+        } catch let error as DownloadError {
+            XCTAssertEqual(error.errorDescription, DownloadError.missingMediaSource.errorDescription)
+        }
+    }
+
     // MARK: init sweeps orphaned files (the "13 GB with an empty Downloads
     // list" bug, 2026-08-20) — see `DownloadFileStore
     // .deleteOrphanedItemDirectories`'s own doc comment for the full story.
@@ -125,6 +232,54 @@ final class DownloadManagerTests: XCTestCase {
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: DownloadFileStore.url(forRelativePath: DownloadFileStore.videoRelativePath(itemID: "orphan-1")).path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: DownloadFileStore.url(forRelativePath: DownloadFileStore.videoRelativePath(itemID: "item-1")).path))
+    }
+
+    // MARK: init reattaches in-flight downloads on a plain relaunch
+    // (2026-08-20 branch review) — see `DownloadManager
+    // .reattachInFlightDownloads`'s own doc comment for the bug this fixes:
+    // a `.downloading` row surviving an ordinary relaunch (not an
+    // OS-triggered background-events launch) never got a session recreated
+    // for it at all, leaving it stuck forever.
+
+    /// Verified indirectly, the same way `delegates.count` is already used
+    /// elsewhere in this manager as "how many video downloads are actually
+    /// transferring right now": a `.downloading` row reattached at `init`
+    /// must occupy a concurrency slot, so a freshly `.queued` item can't be
+    /// admitted past the limit until that slot frees.
+    func test_init_reattachesInFlightDownloadingRowsOccupyingAConcurrencySlot() {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        store.insert(DownloadTestHelpers.makeItem(itemID: "already-downloading", status: .downloading))
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-new", status: .queued, pendingDownloadURLString: "https://example.com/new"))
+        var reattachedItemIDs: [String] = []
+
+        let manager = DownloadManager(
+            store: store,
+            preferences: makePreferences(maxConcurrentDownloads: 1),
+            startVideoDownloadOverride: { _, _, _ in },
+            reattachVideoDownloadOverride: { reattachedItemIDs.append($0) }
+        )
+
+        XCTAssertEqual(reattachedItemIDs, ["already-downloading"])
+        manager.queueVideoDownload(itemID: "item-new")
+        XCTAssertEqual(store.item(itemID: "item-new")?.status, .queued, "the reattached row must already occupy the one available slot")
+    }
+
+    /// A row still `.completed`/`.failed`/`.queued` must not be reattached —
+    /// only a genuinely `.downloading` one has a background session left to
+    /// recover.
+    func test_init_doesNotReattachNonDownloadingRows() {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        store.insert(DownloadTestHelpers.makeItem(itemID: "completed-item", status: .completed))
+        store.insert(DownloadTestHelpers.makeItem(itemID: "failed-item", status: .failed))
+        var reattachedItemIDs: [String] = []
+
+        _ = DownloadManager(
+            store: store,
+            preferences: makePreferences(maxConcurrentDownloads: 1),
+            reattachVideoDownloadOverride: { reattachedItemIDs.append($0) }
+        )
+
+        XCTAssertTrue(reattachedItemIDs.isEmpty)
     }
 
     // MARK: concurrency-limited queue

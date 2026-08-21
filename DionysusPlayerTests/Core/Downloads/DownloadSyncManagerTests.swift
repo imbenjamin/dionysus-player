@@ -158,6 +158,53 @@ final class DownloadSyncManagerTests: XCTestCase {
         await DownloadSyncManager.syncIfNeeded(client: makeClient(), store: store)
     }
 
+    // MARK: overlapping-call guard (2026-08-20 branch review) — rapid
+    // foreground/background cycling used to fire overlapping calls, each
+    // independently re-sending the same pending row's `updateUserData`
+    // POST before an earlier in-flight call had a chance to clear it.
+
+    /// Both calls run truly concurrently via `async let`; MainActor's
+    /// serial execution means whichever starts first claims the in-flight
+    /// guard before the other's own guard check runs, since neither call
+    /// awaits anything before that check.
+    func test_syncIfNeeded_overlappingCalls_secondCallIsANoOp() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", pendingSync: true))
+        var requestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            requestCount += 1
+            return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+        let client = makeClient()
+
+        async let first: Void = DownloadSyncManager.syncIfNeeded(client: client, store: store)
+        async let second: Void = DownloadSyncManager.syncIfNeeded(client: client, store: store)
+        _ = await (first, second)
+
+        XCTAssertEqual(requestCount, 1, "the overlapping second call must not re-send the same sync")
+        XCTAssertEqual(store.item(itemID: "item-1")?.pendingSync, false)
+    }
+
+    /// The flip side: once the first call has actually finished (not just
+    /// started), a later call must run for real — the guard only blocks
+    /// truly *overlapping* calls, not sequential ones.
+    func test_syncIfNeeded_sequentialCalls_bothRun() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", pendingSync: true))
+        var requestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            requestCount += 1
+            return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+        let client = makeClient()
+
+        await DownloadSyncManager.syncIfNeeded(client: client, store: store)
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-2", pendingSync: true))
+        await DownloadSyncManager.syncIfNeeded(client: client, store: store)
+
+        XCTAssertEqual(requestCount, 2)
+    }
+
     func test_syncIfNeeded_multiplePendingRows_syncsEachIndependently() async {
         let store = DownloadTestHelpers.makeInMemoryStore()
         store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", pendingSync: true))

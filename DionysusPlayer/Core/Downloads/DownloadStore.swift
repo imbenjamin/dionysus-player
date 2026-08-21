@@ -1,13 +1,36 @@
 import Foundation
+import Observation
 import SwiftData
+import os
 
 /// Thin wrapper around a SwiftData `ModelContainer`/`ModelContext` for
 /// offline downloads — `init(modelContainer:)`-injectable for tests
 /// (an in-memory container), same DI spirit as `ServerSessionStore`.
 @MainActor
+@Observable
 final class DownloadStore {
+    private static let logger = Logger(subsystem: "com.dionysus.player", category: "DownloadStore")
+
     let modelContainer: ModelContainer
     private var context: ModelContext { modelContainer.mainContext }
+
+    /// Bumped on every successful `save()` — i.e. every mutation this store
+    /// makes, from anywhere (`DownloadManager.enqueue`/`.delete`/`.retry`,
+    /// `DownloadSyncManager`, etc.). A real bug, found live (2026-08-20): a
+    /// SwiftUI view computing `store.item(itemID:)`/`.allItems()` directly
+    /// in a plain `var` isn't itself Observation-tracked (it's a raw
+    /// SwiftData `context.fetch`, not a read of an `@Observable` stored
+    /// property), so that view could silently stop re-rendering when the
+    /// underlying row changed from somewhere else entirely — confirmed
+    /// live: a `DownloadButton` positioned outside an episode list (a peer
+    /// instance for the *same* item, inside the list, updated correctly)
+    /// stayed stuck showing a stale "pending deletion" spinner long after
+    /// the row had actually finished clearing, and a download's own detail
+    /// page didn't refresh after a successful retry re-queued it. Every
+    /// such computed property now also reads this, giving SwiftUI a real,
+    /// tracked dependency to invalidate on regardless of *why* or *where*
+    /// the underlying data changed.
+    private(set) var changeCount = 0
 
     init(modelContainer: ModelContainer) {
         self.modelContainer = modelContainer
@@ -39,14 +62,41 @@ final class DownloadStore {
         save()
     }
 
+    /// Every write path in `DownloadManager`/`DownloadSyncManager` relies on
+    /// this to actually persist status transitions
+    /// (`.queued`→`.downloading`→`.completed`/`.failed`, `pendingSync`
+    /// clears, deletes) — a failure here used to be swallowed with zero
+    /// diagnostic trail anywhere in the Downloads subsystem, which is a real
+    /// risk specifically for this feature: a multi-GB transcode download is
+    /// a realistic way to actually fill device storage and hit a genuine
+    /// save failure, silently leaving the in-memory model out of sync with
+    /// what's actually on disk. Still non-throwing (every call site treats
+    /// a save as fire-and-forget, and there's no better recovery to offer
+    /// mid-download than "keep going"), but now at least logged so a
+    /// failure is diagnosable after the fact.
     func save() {
-        try? context.save()
+        defer { changeCount += 1 }
+        do {
+            try context.save()
+        } catch {
+            Self.logger.error("DownloadStore.save() failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     func item(itemID: String) -> DownloadedItem? {
         var descriptor = FetchDescriptor<DownloadedItem>(predicate: #Predicate { $0.itemID == itemID })
         descriptor.fetchLimit = 1
         return (try? context.fetch(descriptor))?.first
+    }
+
+    /// Every row whose `itemID` is one of `itemIDs`, in a single query —
+    /// for a caller that already knows exactly which ids it cares about
+    /// (e.g. `SeasonDownloadButton`'s season-wide status/progress checks)
+    /// instead of calling `item(itemID:)` once per id in a loop, which
+    /// used to cost N individual predicate fetches for N episodes.
+    func items(itemIDs: Set<String>) -> [DownloadedItem] {
+        let descriptor = FetchDescriptor<DownloadedItem>(predicate: #Predicate { itemIDs.contains($0.itemID) })
+        return (try? context.fetch(descriptor)) ?? []
     }
 
     /// Every row, including ones kept alive purely to carry a not-yet-
@@ -80,7 +130,17 @@ final class DownloadStore {
     /// of status — a `markedForDeletion` row's own stored image path field
     /// still "counts" until that row itself is actually removed.
     func isImagePathReferenced(_ relativePath: String, excludingItemID: String) -> Bool {
-        allItems().contains { item in
+        isImagePathReferenced(relativePath, excludingItemID: excludingItemID, among: allItems())
+    }
+
+    /// Same check as above, against an already-fetched snapshot instead of
+    /// querying SwiftData again — for a caller checking several paths in a
+    /// row (`DownloadManager.delete(itemID:)`'s four image fields used to
+    /// call the single-path overload once per field, each doing its own
+    /// full-table `allItems()` fetch; fetching once and reusing the same
+    /// snapshot across all four checks avoids that).
+    func isImagePathReferenced(_ relativePath: String, excludingItemID: String, among items: [DownloadedItem]) -> Bool {
+        items.contains { item in
             guard item.itemID != excludingItemID else { return false }
             return [item.posterImagePath, item.backdropImagePath, item.logoImagePath, item.thumbImagePath]
                 .contains(relativePath)

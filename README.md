@@ -136,11 +136,11 @@ the `DionysusPlayer` scheme.
 > **Note:** This scaffold was originally written in an environment without a
 > macOS/Xcode toolchain, with the expectation that `AetherPlaybackEngine.swift`
 > would need fixes once built against AetherEngine's real API. That's no
-> longer the case — the app has since been built successfully (Xcode 26.5)
-> with no compiler errors anywhere, `AetherPlaybackEngine.swift` included.
-> What *hasn't* been verified is playback at runtime (no test plays real
-> media), so treat that specifically as unconfirmed until tried against a
-> real server.
+> longer the case, and hasn't been for a while — the app builds clean
+> (Xcode 26.5) with no compiler errors anywhere, `AetherPlaybackEngine.swift`
+> included, and real playback has since been confirmed on physical hardware
+> too, not just compiled. See [Status](#status) for exactly what's been
+> verified live versus what's still resting on unit-test coverage alone.
 
 ## Testing
 

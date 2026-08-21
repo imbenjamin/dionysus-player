@@ -563,7 +563,16 @@ final class PlayerViewModel {
     /// `reportPlaybackProgress`/`reportPlaybackStopped`, which this path
     /// must never depend on network for. `DownloadSyncManager` is what
     /// eventually pushes this to the server, once reconnected.
-    private func writeOfflineProgress(_ downloadedItem: DownloadedItem) {
+    ///
+    /// `currentTime`/`duration` default to this view model's own live
+    /// properties (the periodic-reporting call site below wants exactly
+    /// that — the freshest value at the moment it's called, nothing has
+    /// stopped), but `stop()` passes pre-captured values explicitly instead
+    /// — see that call site's own comment for why relying on the implicit
+    /// read there specifically would be fragile.
+    private func writeOfflineProgress(_ downloadedItem: DownloadedItem, currentTime: TimeInterval? = nil, duration: TimeInterval? = nil) {
+        let currentTime = currentTime ?? self.currentTime
+        let duration = duration ?? self.duration
         guard duration > 0 else { return }
         let fraction = min(1, max(0, currentTime / duration))
         if fraction >= Self.offlineWatchedThreshold {
@@ -840,8 +849,28 @@ final class PlayerViewModel {
     func stop() async {
         progressReportTask?.cancel()
         if let downloadedItem {
+            // Captured before `engine.stop()`, not left to `writeOfflineProgress`'s
+            // own implicit `self.currentTime`/`.duration` read afterward —
+            // matches the online path just below, which is careful to
+            // capture `ticks` before stopping for the same reason. A real
+            // (if not actively triggered) fragility, found in a 2026-08-20
+            // branch review: `engine.stop()` synchronously zeroes
+            // AetherEngine's own internal clock/duration, and those
+            // changes only reach `self.currentTime`/`.duration` via
+            // Combine's `.receive(on: .main)` sinks in `observeEngine()`,
+            // which currently defer to the next run-loop turn rather than
+            // firing synchronously — so reading them right after
+            // `engine.stop()` happened to still see the pre-stop values,
+            // but only because of that scheduling detail, not because it's
+            // actually safe to depend on. Any future change to that
+            // dispatch timing (or to AetherEngine's own `stop()`
+            // internals) would silently start writing `resumePositionTicks
+            // = 0` on every offline stop, discarding the user's real
+            // position.
+            let capturedTime = currentTime
+            let capturedDuration = duration
             engine.stop()
-            writeOfflineProgress(downloadedItem)
+            writeOfflineProgress(downloadedItem, currentTime: capturedTime, duration: capturedDuration)
             return
         }
         let ticks = Int64(currentTime * 10_000_000)

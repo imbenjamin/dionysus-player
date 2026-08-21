@@ -26,25 +26,47 @@ struct SeasonDownloadButton: View {
     @State private var isShowingError = false
     @State private var errorMessage = ""
 
+    /// One SwiftData fetch for every episode in this season, keyed by
+    /// itemID — `missingEpisodes`/`isAnyInProgress`/`isFullyDownloaded`/
+    /// `aggregateProgress` used to each independently call
+    /// `store.item(itemID:)` per episode (2-3 full passes over `episodes`,
+    /// each doing its own predicate fetch — up to ~2-3N SwiftData queries
+    /// for a single render), a real inefficiency found in a 2026-08-20
+    /// branch review. `body` below fetches this once via `DownloadStore
+    /// .items(itemIDs:)`'s single batched query and threads it through the
+    /// parameterized forms of those four properties instead — one query
+    /// per render, not up to 3N. The plain zero-arg `missingEpisodes`
+    /// survives for `startBulkDownload()`'s own use, which runs
+    /// asynchronously after the tap and wants a *fresh* re-fetch at that
+    /// later moment, not a stale render-time snapshot.
+    private var rowsByEpisodeID: [String: DownloadedItem] {
+        // `_ = downloadManager.store.changeCount` — see `DownloadStore
+        // .changeCount`'s own doc comment; `store.items(itemIDs:)` itself
+        // is a raw SwiftData fetch, not an Observation-tracked read.
+        _ = downloadManager.store.changeCount
+        return Dictionary(uniqueKeysWithValues: downloadManager.store.items(itemIDs: Set(episodes.map(\.id))).map { ($0.itemID, $0) })
+    }
+
     /// An episode with no row at all, or one whose previous attempt
     /// failed — both are worth (re-)downloading. An episode already
     /// `.queued`/`.downloading`/`.completed` is left alone.
-    private var missingEpisodes: [MediaItem] {
+    private func missingEpisodes(in rows: [String: DownloadedItem]) -> [MediaItem] {
         episodes.filter { episode in
-            let status = downloadManager.store.item(itemID: episode.id)?.status
+            let status = rows[episode.id]?.status
             return status == nil || status == .failed
         }
     }
+    private var missingEpisodes: [MediaItem] { missingEpisodes(in: rowsByEpisodeID) }
 
-    private var isAnyInProgress: Bool {
+    private func isAnyInProgress(in rows: [String: DownloadedItem]) -> Bool {
         episodes.contains {
-            let status = downloadManager.store.item(itemID: $0.id)?.status
+            let status = rows[$0.id]?.status
             return status == .downloading || status == .queued
         }
     }
 
-    private var isFullyDownloaded: Bool {
-        !episodes.isEmpty && missingEpisodes.isEmpty && !isAnyInProgress
+    private func isFullyDownloaded(in rows: [String: DownloadedItem]) -> Bool {
+        !episodes.isEmpty && missingEpisodes(in: rows).isEmpty && !isAnyInProgress(in: rows)
     }
 
     /// Combined byte progress across every episode of this season
@@ -56,11 +78,11 @@ struct SeasonDownloadButton: View {
     /// still contributes its own estimated total to the denominator —
     /// otherwise the ring would jump backward as each new episode's
     /// download actually starts and enlarges the season's overall total.
-    private var aggregateProgress: DownloadProgress? {
+    private func aggregateProgress(in rows: [String: DownloadedItem]) -> DownloadProgress? {
         var totalDownloaded: Int64 = 0
         var totalExpected: Int64 = 0
         for episode in episodes {
-            guard let row = downloadManager.store.item(itemID: episode.id),
+            guard let row = rows[episode.id],
                   row.status == .downloading || row.status == .queued else { continue }
             if let live = downloadManager.activeDownloads[episode.id] {
                 totalDownloaded += live.bytesDownloaded
@@ -74,6 +96,7 @@ struct SeasonDownloadButton: View {
     }
 
     var body: some View {
+        let rows = rowsByEpisodeID
         // Not `.borderedProminent` — `DownloadButton`'s own heavy
         // rectangular chip read as too heavy sitting directly beside the
         // season `Picker` (confirmed live, 2026-08-19). But a bare icon
@@ -88,9 +111,9 @@ struct SeasonDownloadButton: View {
         // this a larger, easier tap target than the bare-icon version had.
         Button(action: startBulkDownload) {
             Group {
-                if let aggregateProgress {
-                    DownloadProgressRing(progress: aggregateProgress)
-                } else if isQueuing || isAnyInProgress {
+                if let progress = aggregateProgress(in: rows) {
+                    DownloadProgressRing(progress: progress)
+                } else if isQueuing || isAnyInProgress(in: rows) {
                     // Nothing to show a ring for yet — either just tapped
                     // (no row exists for any episode yet) or every
                     // in-progress episode is still in its own "preparing"
@@ -98,7 +121,7 @@ struct SeasonDownloadButton: View {
                     // either (missing runtime/bitrate metadata).
                     ProgressView()
                         .tint(Color.dionysusPrimary)
-                } else if isFullyDownloaded {
+                } else if isFullyDownloaded(in: rows) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(Color.dionysusPrimary)
                 } else {
@@ -111,7 +134,7 @@ struct SeasonDownloadButton: View {
             .background(Circle().fill(Color.dionysusPrimaryLight))
         }
         .buttonStyle(.plain)
-        .disabled(isQueuing || isAnyInProgress || missingEpisodes.isEmpty)
+        .disabled(isQueuing || isAnyInProgress(in: rows) || missingEpisodes(in: rows).isEmpty)
         .alert("Couldn't Download Season", isPresented: $isShowingError) {
             Button("OK", role: .cancel) {}
         } message: {

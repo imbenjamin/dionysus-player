@@ -152,7 +152,11 @@ struct DownloadedShowView: View {
     }
 
     private func deleteSeason(_ row: SeasonRow) {
-        for episode in downloadManager.store.visibleItems() where episode.seriesID == seriesID && episode.seasonID == row.seasonID {
+        // `episodes` (already in-memory, already filtered to this
+        // `seriesID`, refreshed via `refresh()`) instead of re-fetching
+        // `store.visibleItems()` — this used to hit SwiftData again for
+        // data the view already had on hand.
+        for episode in episodes where episode.seasonID == row.seasonID {
             downloadManager.delete(itemID: episode.itemID)
         }
         refresh()
@@ -214,10 +218,13 @@ struct DownloadedShowView: View {
     /// selection mode.
     private func deleteSelected() {
         if isGroupedBySeason {
-            for seasonID in selectedRowIDs {
-                for episode in downloadManager.store.visibleItems() where episode.seriesID == seriesID && episode.seasonID == seasonID {
-                    downloadManager.delete(itemID: episode.itemID)
-                }
+            // One pass over the already-in-memory `episodes`, not one
+            // `store.visibleItems()` re-fetch per selected season — this
+            // used to cost one full SwiftData fetch per selected season
+            // rather than one total (or, as now, zero: `episodes` is
+            // already on hand).
+            for episode in episodes where selectedRowIDs.contains(episode.seasonID ?? "") {
+                downloadManager.delete(itemID: episode.itemID)
             }
         } else {
             for itemID in selectedRowIDs {
@@ -268,7 +275,10 @@ struct DownloadedEpisodeRow: View {
     @ViewBuilder
     private var rowContent: some View {
         HStack(spacing: 12) {
-            LocalFileImage(url: (episode.thumbImagePath ?? episode.posterImagePath).map(DownloadFileStore.url(forRelativePath:)))
+            LocalFileImage(
+                url: (episode.thumbImagePath ?? episode.posterImagePath).map(DownloadFileStore.url(forRelativePath:)),
+                targetSize: CGSize(width: 88, height: 50)
+            )
                 .frame(width: 88, height: 50)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
             VStack(alignment: .leading, spacing: 2) {

@@ -253,7 +253,7 @@ private struct DownloadsRowView: View {
     }
 
     private func thumbnail(relativePath: String?) -> some View {
-        LocalFileImage(url: relativePath.map(DownloadFileStore.url(forRelativePath:)))
+        LocalFileImage(url: relativePath.map(DownloadFileStore.url(forRelativePath:)), targetSize: CGSize(width: 44, height: 66))
             .frame(width: 44, height: 66)
             .clipShape(RoundedRectangle(cornerRadius: 4))
     }

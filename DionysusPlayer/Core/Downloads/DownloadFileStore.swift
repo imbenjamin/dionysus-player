@@ -141,8 +141,17 @@ enum DownloadFileStore {
     /// whose file is already gone.
     @MainActor
     static func deleteImageIfUnreferenced(relativePath: String?, excludingItemID: String, store: DownloadStore) {
+        deleteImageIfUnreferenced(relativePath: relativePath, excludingItemID: excludingItemID, store: store, among: store.allItems())
+    }
+
+    /// Same guard as above, against an already-fetched row snapshot instead
+    /// of letting `store` re-query SwiftData on every call — for a caller
+    /// checking several paths in a row (`DownloadManager.delete(itemID:)`'s
+    /// four image fields), so N checks cost one fetch instead of N.
+    @MainActor
+    static func deleteImageIfUnreferenced(relativePath: String?, excludingItemID: String, store: DownloadStore, among items: [DownloadedItem]) {
         guard let relativePath else { return }
-        guard !store.isImagePathReferenced(relativePath, excludingItemID: excludingItemID) else { return }
+        guard !store.isImagePathReferenced(relativePath, excludingItemID: excludingItemID, among: items) else { return }
         try? FileManager.default.removeItem(at: url(forRelativePath: relativePath))
     }
 

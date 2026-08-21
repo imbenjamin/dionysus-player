@@ -46,11 +46,16 @@ struct DownloadProgress: Equatable {
 enum DownloadError: LocalizedError {
     case missingMediaSource
     case invalidDownloadURL
+    /// `retry(itemID:client:)`-specific — the item was removed from the
+    /// server (or the library it was in) since it was originally
+    /// downloaded, so there's nothing left to re-fetch.
+    case itemNoLongerAvailable
 
     var errorDescription: String? {
         switch self {
         case .missingMediaSource: return String(localized: "This item has no downloadable media source.")
         case .invalidDownloadURL: return String(localized: "Couldn't build a download URL for this item.")
+        case .itemNoLongerAvailable: return String(localized: "This item is no longer available on the server.")
         }
     }
 }
@@ -63,6 +68,23 @@ enum DownloadError: LocalizedError {
 @Observable
 final class DownloadManager: NSObject {
     private(set) var activeDownloads: [String: DownloadProgress] = [:]
+
+    /// Fired from `delete(itemID:)` right after a row survives as
+    /// `markedForDeletion` — set once by `AppState` (the only place that
+    /// can safely resolve a *live* `JellyfinAPIClient` for it) to nudge
+    /// `DownloadSyncManager` immediately, rather than leaving that row to
+    /// wait for the next scenePhase foreground/reconnect trigger, which
+    /// might not come for a while (see `delete(itemID:)`'s own doc
+    /// comment for the real "spinner stuck indefinitely" bug this fixes).
+    /// A closure rather than a stored `client` property here specifically
+    /// because `DownloadManager` (unlike `AppState.apiClient`) is created
+    /// once and never recreated across sign-in/sign-out/server changes —
+    /// storing a client directly would go stale the moment the user
+    /// switches servers or signs out. `nil` is a safe, harmless no-op
+    /// (matches `DownloadManagerTests`' own construction, which never sets
+    /// this) — the row still clears on the next scenePhase trigger either
+    /// way, just not immediately.
+    var onRowMarkedForDeletion: (() -> Void)?
 
     /// Not `private` — the Downloads UI (`DownloadsViewModel`,
     /// `DownloadedAssetDetailView`, etc.) reads directly from this rather
@@ -84,6 +106,11 @@ final class DownloadManager: NSObject {
     /// whole resource fetch, not just the initial warm-up
     /// (`downloadRequestTimeout` above).
     private static let downloadResourceTimeout: TimeInterval = 60 * 60 * 6
+    /// How many trickplay tile-sheet JPEGs `downloadTrickplayTiles` fetches
+    /// at once — bounded rather than fully unbounded (all sheets at once)
+    /// to stay a well-behaved citizen of the same connection Jellyfin is
+    /// also serving the (much larger, more important) video transcode over.
+    private static let maxConcurrentTrickplaySheetDownloads = 4
 
     /// Delegates keyed by itemID — kept alive here for the download's
     /// lifetime since `URLSession` doesn't retain its own delegate. Also
@@ -112,6 +139,11 @@ final class DownloadManager: NSObject {
     /// as cancellable as one started this launch), cleared alongside
     /// `delegates` on completion or cancellation.
     private var sessions: [String: URLSession] = [:]
+    /// Item IDs `reattachInFlightDownloads`'s async liveness check has
+    /// claimed but not yet resolved for — see that method's own doc
+    /// comment for the real `-999` race this guards against between it and
+    /// `reattachBackgroundSession`.
+    private var reattachmentPending: Set<String> = []
     /// Injectable (same DI spirit as `store`) so `DownloadManagerTests` can
     /// drive `maxConcurrentDownloads` directly rather than mutating
     /// `UserDefaults.standard` for the duration of a test.
@@ -132,17 +164,26 @@ final class DownloadManager: NSObject {
     /// requested for a given itemID without a real background session to
     /// invalidate.
     private let cancelVideoDownloadOverride: ((String) -> Void)?
+    /// Test-only DI seam, same spirit as `startVideoDownloadOverride`/
+    /// `cancelVideoDownloadOverride`: when set, `reattachInFlightDownloads`
+    /// calls this instead of creating a real background `URLSession`, so
+    /// `DownloadManagerTests` can assert a `.downloading` row got reattached
+    /// at launch without needing a real background session (this codebase's
+    /// established "don't unit-test the real download engine" boundary).
+    private let reattachVideoDownloadOverride: ((String) -> Void)?
 
     init(
         store: DownloadStore,
         preferences: DownloadPreferencesStore = DownloadPreferencesStore(),
         startVideoDownloadOverride: ((String, URL, String) -> Void)? = nil,
-        cancelVideoDownloadOverride: ((String) -> Void)? = nil
+        cancelVideoDownloadOverride: ((String) -> Void)? = nil,
+        reattachVideoDownloadOverride: ((String) -> Void)? = nil
     ) {
         self.store = store
         self.preferences = preferences
         self.startVideoDownloadOverride = startVideoDownloadOverride
         self.cancelVideoDownloadOverride = cancelVideoDownloadOverride
+        self.reattachVideoDownloadOverride = reattachVideoDownloadOverride
         super.init()
         NotificationCenter.default.addObserver(
             forName: .dionysusHandleBackgroundURLSession, object: nil, queue: .main
@@ -162,6 +203,18 @@ final class DownloadManager: NSObject {
         // directory entries, not proportional to file size) and safe to run
         // unconditionally on every launch.
         DownloadFileStore.deleteOrphanedItemDirectories(knownItemIDs: Set(store.allItems().map(\.itemID)))
+        // `reattachInFlightDownloads` first, not after — for the test-seam
+        // path (`reattachVideoDownloadOverride`, still synchronous) this
+        // reserves a concurrency slot before `resumePendingQueue`'s own
+        // admission pass runs, so `canStartAnotherDownload` sees the
+        // correct count (a real bug, confirmed by a failing test while
+        // writing this fix: the reverse order let `resumePendingQueue`
+        // admit a fresh `.queued` row past the configured limit). The real
+        // (non-test-seam) path can't offer that same synchronous guarantee
+        // any more — see `reattachInFlightDownloads`'s own doc comment for
+        // why it now verifies liveness asynchronously, and the small,
+        // self-correcting slot-count overshoot that tradeoff accepts.
+        reattachInFlightDownloads()
         resumePendingQueue()
     }
 
@@ -236,38 +289,6 @@ final class DownloadManager: NSObject {
             sourceWidth: videoStream?.width, sourceHeight: videoStream?.height, sourceBitrate: mediaSource.bitrate
         )
 
-        let images = await client.makeImageURLBuilder()
-        let posterPath = await downloadImageIfNeeded(sourceItemID: item.id, imageType: "Primary", tag: item.dto.imageTags?["Primary"], maxWidth: 500, images: images)
-
-        // Backdrop/logo: own image if present, else the nearest ancestor's
-        // (same fallback `MediaItem.backdropImageURL`/`logoImageURL` apply
-        // live) — resolved to a concrete `(sourceItemID, tag)` pair up
-        // front so there's just one `downloadImageIfNeeded` call site each,
-        // rather than threading the fallback through an async-generic
-        // helper.
-        var backdropPath: String?
-        if let tag = item.dto.backdropImageTags?.first {
-            backdropPath = await downloadImageIfNeeded(sourceItemID: item.id, imageType: "Backdrop", tag: tag, maxWidth: 1600, images: images)
-        } else if let parentID = item.dto.parentBackdropItemId, let tag = item.dto.parentBackdropImageTags?.first {
-            backdropPath = await downloadImageIfNeeded(sourceItemID: parentID, imageType: "Backdrop", tag: tag, maxWidth: 1600, images: images)
-        }
-
-        var logoPath: String?
-        if let tag = item.dto.imageTags?["Logo"] {
-            logoPath = await downloadImageIfNeeded(sourceItemID: item.id, imageType: "Logo", tag: tag, maxWidth: 600, images: images)
-        } else if let parentID = item.dto.parentLogoItemId, let tag = item.dto.parentLogoImageTag {
-            logoPath = await downloadImageIfNeeded(sourceItemID: parentID, imageType: "Logo", tag: tag, maxWidth: 600, images: images)
-        }
-
-        let thumbPath = await downloadImageIfNeeded(sourceItemID: item.id, imageType: "Thumb", tag: item.dto.imageTags?["Thumb"], maxWidth: 500, images: images)
-
-        let segments: [DownloadedSegment] = ((try? await client.mediaSegments(itemID: item.id)) ?? []).compactMap { dto in
-            guard let kind = Self.downloadedSegmentKind(from: dto.type) else { return nil }
-            return DownloadedSegment(kind: kind, startSeconds: Double(dto.startTicks) / 10_000_000, endSeconds: Double(dto.endTicks) / 10_000_000)
-        }
-
-        let trickplayInfo = await downloadTrickplayTiles(itemID: item.id, mediaSourceID: mediaSourceID, client: client, userID: userID, images: images)
-
         let metadata = DownloadedItemMetadata(
             overview: item.dto.overview,
             taglines: (item.dto.taglines ?? []).filter { !$0.isEmpty },
@@ -340,22 +361,115 @@ final class DownloadManager: NSObject {
             // see `resumePendingQueue`) find its way back to this exact URL.
             status: .queued,
             pendingDownloadURLString: downloadURL.absoluteString,
-            metadata: metadata,
-            posterImagePath: posterPath,
-            backdropImagePath: backdropPath,
-            logoImagePath: logoPath,
-            thumbImagePath: thumbPath,
-            segments: segments,
-            trickplayInfo: trickplayInfo
+            metadata: metadata
+            // posterImagePath/backdropImagePath/logoImagePath/thumbImagePath/
+            // segments/trickplayInfo deliberately left at their `nil`/`[]`
+            // defaults here — see the fetch-and-backfill block just below
+            // for why.
         )
+        // Inserted *before* the poster/backdrop/logo/thumb/segments/trickplay
+        // fetches, not after — a real bug found live (2026-08-21): this used
+        // to build the full `downloaded` row (artwork included) only once
+        // all of those network calls had already finished, so no row
+        // existed yet for `DownloadButton`/`SeasonDownloadButton`'s
+        // `isPreparing`/`isBusy` checks to key off. Against a "cold" Jellyfin
+        // server (spun-down disks) those requests can each take several
+        // seconds, during which the button had nothing to show but its
+        // plain idle icon — reading exactly like the tap hadn't registered.
+        // Inserting the row immediately (with placeholder empty artwork)
+        // makes the button's spinner/progress state appear the instant this
+        // method starts working, regardless of how slow the artwork fetches
+        // below turn out to be; the row's artwork fields are backfilled
+        // in-place once they resolve.
         store.insert(downloaded)
 
+        let images = await client.makeImageURLBuilder()
+        // Poster/backdrop/logo/thumb/segments/trickplay are all mutually
+        // independent (none depends on another's result) — a real
+        // inefficiency, found in a 2026-08-20 branch review: these used to
+        // be awaited one after another, needlessly delaying the point at
+        // which the actual video transfer (the much larger, more important
+        // request) gets admitted to the download queue at all. Fetched
+        // concurrently instead.
+        async let posterPathTask = downloadImageIfNeeded(sourceItemID: item.id, imageType: "Primary", tag: item.dto.imageTags?["Primary"], maxWidth: 500, images: images)
+        // Backdrop/logo: own image if present, else the nearest ancestor's
+        // (same fallback `MediaItem.backdropImageURL`/`logoImageURL` apply
+        // live) — see `resolveBackdropPath`/`resolveLogoPath` below.
+        async let backdropPathTask = resolveBackdropPath(for: item, images: images)
+        async let logoPathTask = resolveLogoPath(for: item, images: images)
+        async let thumbPathTask = downloadImageIfNeeded(sourceItemID: item.id, imageType: "Thumb", tag: item.dto.imageTags?["Thumb"], maxWidth: 500, images: images)
+        async let segmentDTOsTask = (try? await client.mediaSegments(itemID: item.id)) ?? []
+        async let trickplayInfoTask = downloadTrickplayTiles(itemID: item.id, mediaSourceID: mediaSourceID, client: client, userID: userID, images: images)
+
+        let (posterPath, backdropPath, logoPath, thumbPath, segmentDTOs, trickplayInfo) = await (
+            posterPathTask, backdropPathTask, logoPathTask, thumbPathTask, segmentDTOsTask, trickplayInfoTask
+        )
+
+        downloaded.posterImagePath = posterPath
+        downloaded.backdropImagePath = backdropPath
+        downloaded.logoImagePath = logoPath
+        downloaded.thumbImagePath = thumbPath
+        downloaded.segments = segmentDTOs.compactMap { dto in
+            guard let kind = Self.downloadedSegmentKind(from: dto.type) else { return nil }
+            return DownloadedSegment(kind: kind, startSeconds: Double(dto.startTicks) / 10_000_000, endSeconds: Double(dto.endTicks) / 10_000_000)
+        }
+        downloaded.trickplayInfo = trickplayInfo
         downloaded.subtitleFiles = await downloadSubtitles(
             itemID: item.id, mediaSourceID: mediaSourceID, tracks: subtitleTracks, client: client
         )
         store.save()
 
         queueVideoDownload(itemID: item.id)
+    }
+
+    /// Re-attempts a `.failed` download using the exact same resolution/
+    /// quality/audio-track choice as the original attempt — no
+    /// re-prompting (unlike a fresh `DownloadButton` tap), since those
+    /// were already explicit user choices the first time around. Added
+    /// per direct feedback (2026-08-20): a failed download (most commonly
+    /// confirmed live from force-quitting the app mid-transfer — see
+    /// `friendlyDownloadFailureMessage`'s own doc comment) used to require
+    /// deleting the row and re-finding/re-downloading the item from its
+    /// live page from scratch; this lets the failed row's own detail page
+    /// do it in one tap instead.
+    ///
+    /// Needs a live `client` — the offline Downloads pages this is called
+    /// from are deliberately usable with no session at all (see
+    /// `AppRouteDestinationView`'s own doc comment), so retry itself has
+    /// to stay conditional on one actually being available; callers
+    /// should hide/disable whatever triggers this when there isn't one.
+    /// A no-op (not an error) if the row isn't actually `.failed` — a
+    /// stray double-tap racing the button's own disabled state shouldn't
+    /// re-enqueue a download that's already progressing.
+    func retry(itemID: String, client: JellyfinAPIClient) async throws {
+        guard let row = store.item(itemID: itemID), row.status == .failed else { return }
+        let images = await client.makeImageURLBuilder()
+        guard let dto = try? await client.item(userID: row.userID, itemID: itemID, fields: JellyfinAPIClient.detailFieldsWithTrickplay) else {
+            throw DownloadError.itemNoLongerAvailable
+        }
+        let item = MediaItem(dto: dto, images: images)
+
+        let info = try await client.playbackInfo(itemID: itemID, userID: row.userID, mediaSourceID: row.mediaSourceID)
+        guard let mediaSource = info.mediaSources?.first(where: { $0.id == row.mediaSourceID }) ?? info.mediaSources?.first else {
+            throw DownloadError.missingMediaSource
+        }
+        let streams = mediaSource.mediaStreams ?? []
+        let audioTracks = streams.filter { $0.type == "Audio" }
+        // Same track index the user originally picked, if it's still
+        // present in this fresh negotiation; falls back the same way a
+        // first-time download with no explicit choice would (default,
+        // else first) rather than failing the retry outright over a track
+        // list that shuffled slightly server-side.
+        let audioTrack = audioTracks.first { $0.index == row.selectedAudioTrackIndex }
+            ?? audioTracks.first { $0.isDefault == true }
+            ?? audioTracks.first
+        let subtitleTracks = streams.filter { $0.type == "Subtitle" }
+
+        try await enqueue(
+            item: item, mediaSource: mediaSource, audioTrack: audioTrack, subtitleTracks: subtitleTracks,
+            resolution: row.requestedResolution, preset: row.requestedPreset,
+            client: client, userID: row.userID
+        )
     }
 
     /// Downloads every text-based subtitle track inline via a plain shared
@@ -432,6 +546,31 @@ final class DownloadManager: NSObject {
         }
     }
 
+    /// `enqueue`'s backdrop resolution, split out into its own function
+    /// (rather than inlined `if`/`else if` statements) so it can be started
+    /// as one independent `async let` task alongside `enqueue`'s other
+    /// metadata/artwork fetches — own image if present, else the nearest
+    /// ancestor's (same fallback `MediaItem.backdropImageURL` applies live).
+    private func resolveBackdropPath(for item: MediaItem, images: ImageURLBuilder) async -> String? {
+        if let tag = item.dto.backdropImageTags?.first {
+            return await downloadImageIfNeeded(sourceItemID: item.id, imageType: "Backdrop", tag: tag, maxWidth: 1600, images: images)
+        } else if let parentID = item.dto.parentBackdropItemId, let tag = item.dto.parentBackdropImageTags?.first {
+            return await downloadImageIfNeeded(sourceItemID: parentID, imageType: "Backdrop", tag: tag, maxWidth: 1600, images: images)
+        }
+        return nil
+    }
+
+    /// Same shape as `resolveBackdropPath`, for the logo fallback
+    /// (`MediaItem.logoImageURL`'s own live equivalent).
+    private func resolveLogoPath(for item: MediaItem, images: ImageURLBuilder) async -> String? {
+        if let tag = item.dto.imageTags?["Logo"] {
+            return await downloadImageIfNeeded(sourceItemID: item.id, imageType: "Logo", tag: tag, maxWidth: 600, images: images)
+        } else if let parentID = item.dto.parentLogoItemId, let tag = item.dto.parentLogoImageTag {
+            return await downloadImageIfNeeded(sourceItemID: parentID, imageType: "Logo", tag: tag, maxWidth: 600, images: images)
+        }
+        return nil
+    }
+
     /// Fetches this item's trickplay track (if the server has scanned one)
     /// and every one of its tile-sheet JPEGs, so `OfflineTrickplayThumbnailProvider`
     /// has something to read during offline scrubbing — the offline
@@ -460,18 +599,52 @@ final class DownloadManager: NSObject {
 
         let sheetCount = TrickplayMath.sheetCount(for: info)
         guard sheetCount > 0 else { return nil }
-        for sheetIndex in 0..<sheetCount {
-            guard let url = images.trickplayTileURL(itemID: itemID, width: info.width, sheetIndex: sheetIndex) else { continue }
-            do {
-                let (data, response) = try await URLSession.shared.data(from: url)
-                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty else { continue }
-                let relativePath = DownloadFileStore.trickplayTileRelativePath(itemID: itemID, width: info.width, sheetIndex: sheetIndex)
-                try DownloadFileStore.write(data, toRelativePath: relativePath)
-            } catch {
-                continue
+        // Concurrent, bounded to `maxConcurrentTrickplaySheetDownloads` —
+        // every sheet index is independent (no shared state, no ordering
+        // requirement; `OfflineTrickplayThumbnailProvider` reads them back
+        // individually by index later), but this used to await each sheet's
+        // full network round-trip before starting the next, serializing a
+        // typical movie's several-to-a-dozen-plus sheets into `enqueue()`'s
+        // critical path for no reason.
+        await withTaskGroup(of: Void.self) { group in
+            for sheetIndex in 0..<sheetCount {
+                if sheetIndex >= Self.maxConcurrentTrickplaySheetDownloads {
+                    _ = await group.next()
+                }
+                group.addTask {
+                    guard let url = images.trickplayTileURL(itemID: itemID, width: info.width, sheetIndex: sheetIndex) else { return }
+                    do {
+                        let (data, response) = try await URLSession.shared.data(from: url)
+                        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty else { return }
+                        let relativePath = DownloadFileStore.trickplayTileRelativePath(itemID: itemID, width: info.width, sheetIndex: sheetIndex)
+                        try DownloadFileStore.write(data, toRelativePath: relativePath)
+                    } catch {
+                        return
+                    }
+                }
             }
+            await group.waitForAll()
         }
         return info
+    }
+
+    /// `error.localizedDescription` alone surfaces a raw system string for
+    /// the single most common real-world failure — "The operation couldn't
+    /// be completed. (NSURLErrorDomain error -999.)" — confirmed live
+    /// (2026-08-20): force-quitting the app via the App Switcher (swipe-up)
+    /// cancels its background `URLSession` transfers by design (documented
+    /// iOS behavior — a force-quit is treated as an explicit "kill
+    /// everything" signal, distinct from the OS suspending or killing a
+    /// backgrounded app under memory pressure, which *does* preserve
+    /// background transfers and *is* what `reattachInFlightDownloads`
+    /// recovers). `NSURLErrorCancelled` (-999) on reattachment reflects
+    /// that real, unrecoverable cancellation, not a bug to fix — but a raw
+    /// error code is still a bad thing to show the user for it.
+    private static func friendlyDownloadFailureMessage(for error: Error) -> String {
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return String(localized: "The download was interrupted and couldn't continue. Try downloading again.")
+        }
+        return error.localizedDescription
     }
 
     private static func isHDR(_ videoStream: MediaStream?) -> Bool {
@@ -513,15 +686,21 @@ final class DownloadManager: NSObject {
     /// is silently skipped rather than retried — nothing else would have
     /// left it in this list in that state.
     private func admitQueuedDownloadsIfPossible() {
+        // Saved once, after the loop, not once per admitted row — several
+        // slots can free up/admit at once (a full pending queue at launch,
+        // or several downloads finishing close together), and each row's
+        // `.downloading` transition doesn't need its own round-trip to
+        // SwiftData's context.
+        var admittedAny = false
         while canStartAnotherDownload {
-            guard !pendingQueue.isEmpty else { return }
+            guard !pendingQueue.isEmpty else { break }
             let itemID = pendingQueue.removeFirst()
             guard let row = store.item(itemID: itemID), row.status == .queued,
                   let urlString = row.pendingDownloadURLString, let url = URL(string: urlString)
             else { continue }
             row.status = .downloading
             row.pendingDownloadURLString = nil
-            store.save()
+            admittedAny = true
             // Reserve the slot up front, before either starter below runs
             // — `startVideoDownload` immediately overwrites this with the
             // real delegate; `startVideoDownloadOverride` (tests only)
@@ -538,6 +717,7 @@ final class DownloadManager: NSObject {
                 startVideoDownload(itemID: itemID, url: url, relativePath: row.videoFilePath)
             }
         }
+        if admittedAny { store.save() }
     }
 
     /// `delegates.count` is exactly "how many video downloads are actually
@@ -552,11 +732,15 @@ final class DownloadManager: NSObject {
     /// fresh launch — a row still waiting for a concurrency slot when the
     /// app was last backgrounded/terminated has no in-memory queue entry to
     /// resume from otherwise (unlike an already-*started* download, which
-    /// survives via `reattachBackgroundSession`'s background `URLSession`
-    /// reattachment): without this it would sit at `.queued` forever with
-    /// nothing left to ever admit it. Ordered by `createdAt` so a relaunch
-    /// preserves the same tap order the queue already promised within one
-    /// session. Called once, from `init`.
+    /// survives via `reattachBackgroundSession`/`reattachInFlightDownloads`'s
+    /// background `URLSession` reattachment): without this it would sit at
+    /// `.queued` forever with nothing left to ever admit it. Ordered by
+    /// `createdAt` so a relaunch preserves the same tap order the queue
+    /// already promised within one session. Called once, from `init`,
+    /// **after** `reattachInFlightDownloads` — see that method's own doc
+    /// comment for why the order matters (this method's own admission pass
+    /// needs already-`.downloading` rows' concurrency slots reserved
+    /// first).
     private func resumePendingQueue() {
         let queuedRows = store.allItems()
             .filter { $0.status == .queued && $0.pendingDownloadURLString != nil }
@@ -565,14 +749,146 @@ final class DownloadManager: NSObject {
         admitQueuedDownloadsIfPossible()
     }
 
+    /// Recreates a background `URLSession` for every row still
+    /// `.downloading` at launch — a real bug, found in a 2026-08-20 branch
+    /// review: `reattachBackgroundSession` below is the *only* place a
+    /// background session gets recreated, and it only ever runs from
+    /// `AppDelegate.application(_: handleEventsForBackgroundURLSession:
+    /// completionHandler:)` — which the OS calls exclusively when it
+    /// specifically relaunches the app in the background to deliver a
+    /// finished background session's queued events. A perfectly ordinary
+    /// relaunch (force-quit + reopen from the home screen while a download
+    /// was still transferring, or a jetsam kill under memory pressure
+    /// followed by a plain tap) never goes through that path at all — so
+    /// without this, a `.downloading` row surviving a plain relaunch had no
+    /// session ever recreated for it, leaving it stuck at "Downloading…"
+    /// forever with nothing actually transferring and no way to recover
+    /// short of manual delete.
+    ///
+    /// Doesn't register the reattached session as occupying a concurrency
+    /// slot (`delegates[itemID]`) until `finishReattaching` below confirms,
+    /// via `getTasksWithCompletionHandler`, that the identifier actually
+    /// still has a real download task behind it. A second real bug, found
+    /// live the same day right after the first shipped: the original
+    /// version registered *every* `.downloading` row unconditionally and
+    /// synchronously, with no way to distinguish a genuinely in-flight
+    /// transfer from a stale row left over from earlier testing (this
+    /// SwiftData store persists across relaunches/reinstalls, and this
+    /// feature has been iterated on live for days) — a stale row
+    /// permanently occupied a slot forever, since nothing would ever call
+    /// its delegate to free it, silently jamming the *entire* download
+    /// queue behind it; worse, redownloading that same item hit a
+    /// session-identifier-reuse race when `delete(itemID:)` invalidated
+    /// the phantom session and a fresh one was created under the identical
+    /// background identifier moments later — the same class of bug as the
+    /// original "-999" issue, just triggered at a different point.
+    ///
+    /// This does mean a genuinely-live reattached row's slot isn't
+    /// reserved by the time `resumePendingQueue()` (called right after, in
+    /// `init`) runs its own synchronous admission pass — a `.queued` row
+    /// could get admitted immediately without "seeing" this one's not-yet-
+    /// confirmed claim on a slot, which can transiently push the real
+    /// concurrent-transfer count one over the configured limit until
+    /// something finishes. A self-correcting, cosmetic overage — far
+    /// preferable to the alternative of a stale row jamming the queue
+    /// forever, which is what the synchronous version above risked to
+    /// avoid it.
+    private func reattachInFlightDownloads() {
+        for row in store.allItems() where row.status == .downloading {
+            let itemID = row.itemID
+            guard delegates[itemID] == nil, !reattachmentPending.contains(itemID) else { continue }
+            if let reattachVideoDownloadOverride {
+                // Test seam: no real `URLSession` to introspect, so this
+                // stays synchronous and unconditional — `DownloadManagerTests`
+                // drives the "is it actually live" question itself via
+                // whichever behavior the override simulates.
+                delegates[itemID] = makeVideoDownloadDelegate(itemID: itemID, relativePath: row.videoFilePath)
+                reattachVideoDownloadOverride(itemID)
+                continue
+            }
+            // Claimed *before* the async check below starts, not after it
+            // resolves — a real bug, confirmed live (2026-08-20, force-quit
+            // mid-download): the window between starting this check and it
+            // resolving is exactly when `reattachBackgroundSession` (fired
+            // by the OS's own `handleEventsForBackgroundURLSession`
+            // callback — which a force-quit-mid-download relaunch triggers
+            // almost immediately) could independently decide `delegates
+            // [itemID] == nil` still holds and create its *own* second
+            // `URLSession` for the identical background identifier. Two
+            // live `URLSession` objects for one identifier in the same
+            // process is exactly the kind of conflict the OS resolves by
+            // cancelling the underlying task out from under one of them —
+            // confirmed live as the source of an `NSURLErrorCancelled`
+            // (-999) on a download that should have resumed cleanly.
+            // `reattachBackgroundSession` below checks this same set before
+            // proceeding, so only one of the two paths ever actually
+            // creates a session for a given itemID.
+            reattachmentPending.insert(itemID)
+            let delegate = makeVideoDownloadDelegate(itemID: itemID, relativePath: row.videoFilePath)
+            let configuration = Self.makeBackgroundConfiguration(identifier: Self.backgroundSessionIdentifierPrefix + itemID)
+            let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+            session.getTasksWithCompletionHandler { [weak self] _, _, downloadTasks in
+                Task { @MainActor in
+                    self?.finishReattaching(itemID: itemID, session: session, delegate: delegate, hasLiveTask: !downloadTasks.isEmpty)
+                }
+            }
+        }
+    }
+
+    /// See `reattachInFlightDownloads`'s own doc comment for the bugs this
+    /// fixes. `hasLiveTask == false` means the identifier had nothing real
+    /// behind it — the row is marked `.failed` (not left at `.downloading`
+    /// with no path forward, and not silently reset to `.queued` either,
+    /// which would auto-retry a transcode the user may not still want)
+    /// rather than permanently claiming a slot no download will ever
+    /// actually use.
+    private func finishReattaching(itemID: String, session: URLSession, delegate: DownloadSessionDelegate, hasLiveTask: Bool) {
+        reattachmentPending.remove(itemID)
+        guard hasLiveTask else {
+            session.invalidateAndCancel()
+            if let row = store.item(itemID: itemID), row.status == .downloading {
+                row.status = .failed
+                row.errorMessage = String(localized: "The download was interrupted and couldn't be resumed. Try downloading again.")
+                store.save()
+            }
+            return
+        }
+        // Defensive, shouldn't actually trigger now that `reattachBackgroundSession`
+        // also honors `reattachmentPending` — but if something still raced
+        // in and claimed this itemID while the check above was in flight,
+        // don't clobber whatever it already registered.
+        guard delegates[itemID] == nil else {
+            session.invalidateAndCancel()
+            return
+        }
+        delegates[itemID] = delegate
+        sessions[itemID] = session
+    }
+
     // MARK: - Video download (background session)
+
+    /// Shared by `startVideoDownload` and every reattachment path
+    /// (`reattachBackgroundSession`, `reattachInFlightDownloads`) — a real
+    /// bug, found in the same 2026-08-20 review: `reattachBackgroundSession`
+    /// used to build a fresh, un-configured `URLSessionConfiguration
+    /// .background(withIdentifier:)` and never applied
+    /// `downloadRequestTimeout`/`downloadResourceTimeout`, silently
+    /// reverting to `URLSessionConfiguration`'s system default
+    /// (`timeoutIntervalForResource`'s default is measured in days) for any
+    /// download resumed via reattachment — exactly the long-running 4K
+    /// transcode case `downloadResourceTimeout`'s own doc comment exists to
+    /// bound.
+    private static func makeBackgroundConfiguration(identifier: String) -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.background(withIdentifier: identifier)
+        configuration.timeoutIntervalForRequest = downloadRequestTimeout
+        configuration.timeoutIntervalForResource = downloadResourceTimeout
+        return configuration
+    }
 
     private func startVideoDownload(itemID: String, url: URL, relativePath: String) {
         let delegate = makeVideoDownloadDelegate(itemID: itemID, relativePath: relativePath)
         delegates[itemID] = delegate
-        let configuration = URLSessionConfiguration.background(withIdentifier: Self.backgroundSessionIdentifierPrefix + itemID)
-        configuration.timeoutIntervalForRequest = Self.downloadRequestTimeout
-        configuration.timeoutIntervalForResource = Self.downloadResourceTimeout
+        let configuration = Self.makeBackgroundConfiguration(identifier: Self.backgroundSessionIdentifierPrefix + itemID)
         let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
         sessions[itemID] = session
         session.downloadTask(with: url).resume()
@@ -585,14 +901,25 @@ final class DownloadManager: NSObject {
     /// callbacks for tasks that finished while the app was suspended or
     /// terminated. Called from `AppDelegate.application(_:
     /// handleEventsForBackgroundURLSession:completionHandler:)` via
-    /// `NotificationCenter` — see `init`.
+    /// `NotificationCenter` — see `init`. Covers the OS-triggered
+    /// background-relaunch case specifically; `reattachInFlightDownloads`
+    /// above covers the plain-relaunch case this alone doesn't — and, since
+    /// a force-quit mid-download is exactly the scenario that triggers
+    /// *both* this OS callback and `reattachInFlightDownloads`'s own launch
+    /// sweep, this also has to back off (`reattachmentPending`) while that
+    /// one's own async liveness check for the same itemID is still in
+    /// flight, or both paths can end up creating independent `URLSession`s
+    /// for the identical background identifier — see
+    /// `reattachInFlightDownloads`'s own doc comment for the confirmed-live
+    /// `-999` this caused.
     private func reattachBackgroundSession(identifier: String, completionHandler: @escaping () -> Void) {
         guard identifier.hasPrefix(Self.backgroundSessionIdentifierPrefix) else { return }
         let itemID = String(identifier.dropFirst(Self.backgroundSessionIdentifierPrefix.count))
         backgroundCompletionHandlers[itemID] = completionHandler
+        guard delegates[itemID] == nil, !reattachmentPending.contains(itemID) else { return }
         let delegate = makeVideoDownloadDelegate(itemID: itemID, relativePath: DownloadFileStore.videoRelativePath(itemID: itemID))
         delegates[itemID] = delegate
-        sessions[itemID] = URLSession(configuration: .background(withIdentifier: identifier), delegate: delegate, delegateQueue: nil)
+        sessions[itemID] = URLSession(configuration: Self.makeBackgroundConfiguration(identifier: identifier), delegate: delegate, delegateQueue: nil)
     }
 
     private func makeVideoDownloadDelegate(itemID: String, relativePath: String) -> DownloadSessionDelegate {
@@ -615,6 +942,18 @@ final class DownloadManager: NSObject {
                 guard let self else { return }
                 self.activeDownloads[itemID] = nil
                 self.delegates[itemID] = nil
+                // A real leak, found in a 2026-08-20 branch review: a
+                // `URLSession` created with an explicit delegate (not
+                // `.shared`) retains itself *and* its delegate until
+                // explicitly invalidated — dropping this manager's own
+                // reference alone doesn't deallocate it. Every completed/
+                // failed download used to leak one `URLSession`, its
+                // delegate queue, and this `DownloadSessionDelegate`
+                // instance for the rest of the process's lifetime.
+                // `finishTasksAndInvalidate()`, not `invalidateAndCancel()`
+                // — the transfer already finished (success or failure), so
+                // there's nothing in flight left to cancel.
+                self.sessions[itemID]?.finishTasksAndInvalidate()
                 self.sessions[itemID] = nil
                 // A slot just freed up — try to admit whatever's next in
                 // line regardless of whether this row still exists below
@@ -627,7 +966,7 @@ final class DownloadManager: NSObject {
                     row.errorMessage = nil
                 case .failure(let error):
                     row.status = .failed
-                    row.errorMessage = error.localizedDescription
+                    row.errorMessage = Self.friendlyDownloadFailureMessage(for: error)
                 }
                 self.store.save()
             },
@@ -667,8 +1006,14 @@ final class DownloadManager: NSObject {
     func delete(itemID: String) {
         guard let downloaded = store.item(itemID: itemID) else { return }
         DownloadFileStore.deleteItemFiles(itemID: itemID)
+        // Fetched once and reused across all four checks below — each used
+        // to independently call `store.allItems()` (a full SwiftData
+        // deserialization of every row), so a single `delete(itemID:)`
+        // call did 4 full-table fetches; a bulk delete (a whole show/
+        // season, looping this once per episode) multiplied that further.
+        let allItems = store.allItems()
         for path in [downloaded.posterImagePath, downloaded.backdropImagePath, downloaded.logoImagePath, downloaded.thumbImagePath] {
-            DownloadFileStore.deleteImageIfUnreferenced(relativePath: path, excludingItemID: itemID, store: store)
+            DownloadFileStore.deleteImageIfUnreferenced(relativePath: path, excludingItemID: itemID, store: store, among: allItems)
         }
         // `delegates[itemID] != nil` is exactly "this item's background
         // session actually started" (see that property's own doc comment)
@@ -694,6 +1039,17 @@ final class DownloadManager: NSObject {
         if downloaded.pendingSync {
             downloaded.markedForDeletion = true
             store.save()
+            // A real bug, found live (2026-08-20): without this, the only
+            // trigger that ever clears a `markedForDeletion` row is the
+            // next scenePhase foreground/reconnect transition
+            // (`DownloadSyncManager`'s own doc comment) — delete while the
+            // app is already active and stays active, and the row (plus
+            // whatever `DownloadButton.isPendingDeletion` spinner still
+            // points at it on a live page) could sit stuck indefinitely
+            // with nothing left to prompt a sync. See `onRowMarkedForDeletion`'s
+            // own doc comment for why this is a closure rather than a
+            // stored `client` reference.
+            onRowMarkedForDeletion?()
         } else {
             store.delete(downloaded)
         }

@@ -41,17 +41,35 @@ import SwiftUI
 struct DownloadedAssetDetailView: View {
     let itemID: String
     let downloadManager: DownloadManager
+    /// `nil` when there's no live session — passed straight through to
+    /// `DownloadedPlayResumeButtonRow`'s own Retry button, see its `client`
+    /// property's own doc comment.
+    var client: JellyfinAPIClient?
 
     @Environment(\.dismiss) private var dismiss
     @State private var isPlayerPresented = false
     @State private var startFromBeginning = false
     @State private var showDeleteConfirmation = false
 
-    private var downloadedItem: DownloadedItem? { downloadManager.store.item(itemID: itemID) }
+    /// `_ = downloadManager.store.changeCount` establishes a real,
+    /// Observation-tracked dependency — see `DownloadStore.changeCount`'s
+    /// own doc comment for the real bug this fixes (this page not
+    /// refreshing after e.g. a successful retry re-queued its download).
+    private var downloadedItem: DownloadedItem? {
+        _ = downloadManager.store.changeCount
+        return downloadManager.store.item(itemID: itemID)
+    }
 
     var body: some View {
         Group {
             if let item = downloadedItem {
+                // Computed once per render and passed down to both
+                // `DownloadedInfoMetadataRow` and `DownloadedDetailTabsView`
+                // — a real inefficiency, found in a 2026-08-20 branch
+                // review: both used to independently call `DownloadFileStore
+                // .fileSize(forRelativePath:)` (a synchronous filesystem
+                // stat, not free) for the exact same file.
+                let fileSizeBytes = DownloadFileStore.fileSize(forRelativePath: item.videoFilePath)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         HeroHeaderView(
@@ -62,11 +80,12 @@ struct DownloadedAssetDetailView: View {
                         )
 
                         VStack(alignment: .leading, spacing: 16) {
-                            DownloadedInfoMetadataRow(item: item)
+                            DownloadedInfoMetadataRow(item: item, fileSizeBytes: fileSizeBytes)
 
                             DownloadedPlayResumeButtonRow(
                                 item: item,
                                 downloadManager: downloadManager,
+                                client: client,
                                 onPlay: {
                                     startFromBeginning = false
                                     isPlayerPresented = true
@@ -77,7 +96,7 @@ struct DownloadedAssetDetailView: View {
                                 }
                             )
 
-                            DownloadedDetailTabsView(item: item)
+                            DownloadedDetailTabsView(item: item, fileSizeBytes: fileSizeBytes)
                         }
                         .padding(.horizontal)
                     }

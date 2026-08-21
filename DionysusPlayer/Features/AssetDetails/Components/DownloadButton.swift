@@ -69,16 +69,44 @@ struct DownloadButton: View {
         var subtitleTracks: [MediaStream]
     }
 
-    private var downloadedRow: DownloadedItem? { downloadManager.store.item(itemID: item.id) }
+    /// `_ = downloadManager.store.changeCount` establishes a real,
+    /// Observation-tracked dependency — `store.item(itemID:)` itself is a
+    /// raw SwiftData fetch, not a tracked property read, so without this
+    /// this view could silently stop re-rendering when the row changed
+    /// from somewhere else entirely (a real bug, found live 2026-08-20 —
+    /// see `DownloadStore.changeCount`'s own doc comment).
+    private var downloadedRow: DownloadedItem? {
+        _ = downloadManager.store.changeCount
+        return downloadManager.store.item(itemID: item.id)
+    }
 
     /// Live byte progress while a download for this item is actually in
     /// flight — `nil` before/after, including while `isResolving`/
     /// `isPreparing` (both precede an actual download and have no byte
     /// count of their own to show).
-    private var progress: DownloadProgress? {
-        guard let row = downloadedRow, row.status == .downloading || row.status == .queued else { return nil }
+    ///
+    /// `progress`/`isPreparing`/`isPendingDeletion`/`isDownloaded`/`isBusy`
+    /// each take `row` as an explicit parameter, with a matching zero-arg
+    /// computed property that just calls the parameterized form against a
+    /// *fresh* `downloadedRow` fetch — a real inefficiency, found in a
+    /// 2026-08-20 branch review: `content` below used to call the zero-arg
+    /// properties directly, each independently re-querying
+    /// `downloadManager.store.item(itemID:)` (a real SwiftData fetch, not a
+    /// dictionary lookup) — up to ~5-7 redundant queries for the exact same
+    /// row within a single render pass. `content` now fetches `downloadedRow`
+    /// once and threads it through the parameterized forms instead; the
+    /// zero-arg properties survive only for the long-press gesture's
+    /// completion closure below, which fires well after the view was last
+    /// rendered and needs a *fresh* re-fetch at that later moment, not a
+    /// stale render-time snapshot (the same "closures should read live
+    /// state at call time" lesson this app's toolbar-button bug already
+    /// established elsewhere).
+    private func progress(for row: DownloadedItem?) -> DownloadProgress? {
+        guard let row, row.status == .downloading || row.status == .queued else { return nil }
         return downloadManager.activeDownloads[item.id]
     }
+    private var progress: DownloadProgress? { progress(for: downloadedRow) }
+
     /// The `DownloadedItem` row exists and is queued/downloading, but the
     /// background video task hasn't started reporting real byte progress
     /// yet — `DownloadManager.enqueue` spends real time up front (fetching
@@ -89,10 +117,12 @@ struct DownloadButton: View {
     /// the button fell through to its plain idle icon here — indistinguishable
     /// from "not downloading at all" — confirmed live (2026-08-19) as
     /// reading like the tap hadn't registered.
-    private var isPreparing: Bool {
-        guard let row = downloadedRow, row.status == .downloading || row.status == .queued else { return false }
+    private func isPreparing(for row: DownloadedItem?) -> Bool {
+        guard let row, row.status == .downloading || row.status == .queued else { return false }
         return downloadManager.activeDownloads[item.id] == nil
     }
+    private var isPreparing: Bool { isPreparing(for: downloadedRow) }
+
     private var isDownloading: Bool {
         downloadManager.activeDownloads[item.id] != nil
     }
@@ -110,12 +140,16 @@ struct DownloadButton: View {
     /// and let `DownloadManager.delete(itemID:)`'s next pass remove the row
     /// for real — which can take a while, since that sync is only
     /// triggered on app-foreground/reconnect, not on any fixed timer.
-    private var isPendingDeletion: Bool {
-        downloadedRow?.markedForDeletion == true
+    private func isPendingDeletion(for row: DownloadedItem?) -> Bool {
+        row?.markedForDeletion == true
     }
-    private var isDownloaded: Bool {
-        downloadedRow?.status == .completed && !isPendingDeletion
+    private var isPendingDeletion: Bool { isPendingDeletion(for: downloadedRow) }
+
+    private func isDownloaded(for row: DownloadedItem?) -> Bool {
+        row?.status == .completed && !isPendingDeletion(for: row)
     }
+    private var isDownloaded: Bool { isDownloaded(for: downloadedRow) }
+
     /// Everything that should block a second tap — resolving, preparing,
     /// actively downloading, or a `markedForDeletion` row still waiting on
     /// its pending sync to actually go away (see `isPendingDeletion`'s own
@@ -124,7 +158,10 @@ struct DownloadButton: View {
     /// isDownloading` alone (the original condition) left the button
     /// tappable again during the `isPreparing` window above, which could
     /// fire a second, redundant `enqueue` for the same item.
-    private var isBusy: Bool { isResolving || isPreparing || isDownloading || isPendingDeletion }
+    private func isBusy(for row: DownloadedItem?) -> Bool {
+        isResolving || isPreparing(for: row) || isDownloading || isPendingDeletion(for: row)
+    }
+    private var isBusy: Bool { isBusy(for: downloadedRow) }
 
     /// Matches `PlayResumeButtonRow`'s "Restart" button exactly — same
     /// bordered-prominent/rounded-rect/large-control-size/light-tint shape,
@@ -229,7 +266,13 @@ struct DownloadButton: View {
     /// differs.
     @ViewBuilder
     private var content: some View {
-        if isDownloaded {
+        // Fetched once per render and threaded through the parameterized
+        // forms below, rather than each of `isDownloaded`/`progress`/
+        // `isPreparing`/`isPendingDeletion`/`isBusy` independently
+        // re-querying SwiftData for the same row — see `downloadedRow`'s
+        // own doc comment above for the real cost this used to have.
+        let row = downloadedRow
+        if isDownloaded(for: row) {
             // Already downloaded — a second tap should open the
             // download's own page (to play it offline, check its size, or
             // delete it), not silently re-download the same item from
@@ -239,9 +282,9 @@ struct DownloadButton: View {
             }
         } else {
             Button(action: startResolving) {
-                if let progress {
+                if let progress = progress(for: row) {
                     badge { DownloadProgressRing(progress: progress, tint: iconColor) }
-                } else if isResolving || isPreparing || isPendingDeletion {
+                } else if isResolving || isPreparing(for: row) || isPendingDeletion(for: row) {
                     // A plain spinner, not the progress ring — there's no
                     // determined byte progress yet to show as one (see
                     // `isPreparing`'s own doc comment), and an
@@ -256,7 +299,7 @@ struct DownloadButton: View {
                     badge { Image(systemName: "arrow.down.circle").foregroundStyle(iconColor) }
                 }
             }
-            .disabled(isBusy)
+            .disabled(isBusy(for: row))
             // Hold instead of tap: same idle button, different entry point
             // into the same resolve/prompt/enqueue flow (`startResolving`)
             // — see `AdvancedDownloadOptionsView`'s own doc comment.
@@ -315,9 +358,9 @@ struct DownloadButton: View {
 
     private func startResolving() {
         guard !isResolving, !isDownloading else { return }
-        isResolving = true
+        withAnimation { isResolving = true }
         Task {
-            defer { isResolving = false }
+            defer { withAnimation { isResolving = false } }
             do {
                 let info = try await client.playbackInfo(itemID: item.id, userID: userID)
                 guard let mediaSource = info.mediaSources?.first else {

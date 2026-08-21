@@ -130,13 +130,19 @@ final class DownloadsViewModel {
 
     /// Deletes every asset the current selection covers — every episode of
     /// a selected show, not just its group row — then exits selection mode.
+    /// `allEpisodes` is fetched once, before the loop, and filtered in
+    /// memory per selected show — this used to call `store.visibleItems()`
+    /// (a full SwiftData fetch) fresh inside the loop for every selected
+    /// `.show` row, so selecting several shows at once cost one full-table
+    /// fetch per show rather than one total.
     func deleteSelected() {
+        let allEpisodes = downloadManager.store.visibleItems()
         for row in rows where selectedRowIDs.contains(row.id) {
             switch row {
             case .standalone(let item):
                 downloadManager.delete(itemID: item.itemID)
             case .show(let seriesID, _, _, _):
-                for episode in downloadManager.store.visibleItems() where episode.seriesID == seriesID {
+                for episode in allEpisodes where episode.seriesID == seriesID {
                     downloadManager.delete(itemID: episode.itemID)
                 }
             }
