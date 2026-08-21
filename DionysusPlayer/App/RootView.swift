@@ -17,9 +17,7 @@ struct RootView: View {
     /// "View Downloads" action — lets a genuinely cold, fully-offline
     /// launch (sign-in never completed this session, so `.main`/
     /// `MainTabView`'s own Downloads tab is unreachable) still reach
-    /// offline-downloaded content. `DownloadsView` and everything it can
-    /// push (`AppRoute.downloadedAsset`/`.downloadedShow`/`.downloadedSeason`,
-    /// including playback) needs no live session at all.
+    /// offline-downloaded content, which needs no live session at all.
     @State private var showingDownloadsWhileOffline = false
 
     var body: some View {

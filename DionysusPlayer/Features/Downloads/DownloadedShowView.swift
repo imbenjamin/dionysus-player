@@ -1,24 +1,19 @@
 import SwiftUI
 
 /// A show's downloaded episodes — grouped into season folders only if more
-/// than one season is actually downloaded (matching "grouped by season if
-/// necessary" literally); a show with episodes from just one season skips
-/// straight to a flat, episode-number-sorted list instead, same
-/// collapse-the-pointless-level reasoning `DownloadsView`'s own standalone-
-/// vs-group split uses. Self-cleans back to the previous screen once its
-/// last episode is deleted.
+/// than one season is actually downloaded; a show with episodes from just
+/// one season skips straight to a flat, episode-number-sorted list instead.
+/// Self-cleans back to the previous screen once its last episode is
+/// deleted.
 ///
 /// Bulk delete: same Cancel-top-left/Select-All-top-right/trash-icon shape
-/// as `DownloadsView`'s own bulk delete — see that view's doc comment for
-/// why (floating tab bar, top nav bar not `.bottomBar`). What one selected
-/// row actually deletes depends on which layout is showing: a season row
-/// (grouped case) represents every episode within that season, same as a
-/// show row does on the landing screen; an episode row (flat, single-season
-/// case) represents just itself. `selectedRowIDs` is reused as either a set
-/// of season IDs or episode IDs depending on which — safe because the two
-/// never mix mid-selection: `deleteSelected()`/`cancelSelecting()` both
-/// clear it, and grouped-vs-flat only changes as a `refresh()` follows one
-/// of those.
+/// as `DownloadsView`'s own bulk delete. What one selected row actually
+/// deletes depends on which layout is showing — a season row (grouped
+/// case) represents every episode within that season, an episode row
+/// (flat case) represents just itself. `selectedRowIDs` is safely reused
+/// as either a set of season IDs or episode IDs, since the two never mix
+/// mid-selection: `deleteSelected()`/`cancelSelecting()` both clear it,
+/// and grouped-vs-flat only changes as a `refresh()` follows one of those.
 struct DownloadedShowView: View {
     let seriesID: String
     let downloadManager: DownloadManager
@@ -152,10 +147,6 @@ struct DownloadedShowView: View {
     }
 
     private func deleteSeason(_ row: SeasonRow) {
-        // `episodes` (already in-memory, already filtered to this
-        // `seriesID`, refreshed via `refresh()`) instead of re-fetching
-        // `store.visibleItems()` — this used to hit SwiftData again for
-        // data the view already had on hand.
         for episode in episodes where episode.seasonID == row.seasonID {
             downloadManager.delete(itemID: episode.itemID)
         }
@@ -218,11 +209,8 @@ struct DownloadedShowView: View {
     /// selection mode.
     private func deleteSelected() {
         if isGroupedBySeason {
-            // One pass over the already-in-memory `episodes`, not one
-            // `store.visibleItems()` re-fetch per selected season — this
-            // used to cost one full SwiftData fetch per selected season
-            // rather than one total (or, as now, zero: `episodes` is
-            // already on hand).
+            // One pass over the already-in-memory `episodes`, not a
+            // `store.visibleItems()` re-fetch per selected season.
             for episode in episodes where selectedRowIDs.contains(episode.seasonID ?? "") {
                 downloadManager.delete(itemID: episode.itemID)
             }

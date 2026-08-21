@@ -104,27 +104,14 @@ enum DownloadFileStore {
     /// corresponding row in `knownItemIDs` — a defensive sweep against
     /// orphaned files a download could leave behind if its background
     /// session ever outlived the `DownloadedItem` row that should have
-    /// owned it. A real bug found live, 2026-08-20: `DownloadManager
-    /// .delete(itemID:)` used to only drop this app's own bookkeeping
-    /// without cancelling an actually in-flight background
-    /// `URLSessionDownloadTask` (see that method's own doc comment for the
-    /// full story) — `DownloadSessionDelegate.urlSession(_:downloadTask:
-    /// didFinishDownloadingTo:)` moves a completed download's file into
-    /// permanent storage *unconditionally*, only checking whether a row
-    /// still exists afterward, so an orphaned task that ran to completion
-    /// after its row was deleted left a permanent file nothing ever
-    /// referenced again — confirmed live: 13+ GB reported used
-    /// (`ProfileView`'s `DownloadFileStore.totalSizeOnDisk()` figure) with
-    /// zero rows in the Downloads list, all left over from testing that
-    /// predated the session-cancellation fix. That fix stops *new* orphans;
-    /// this sweep (called once per launch, from `DownloadManager.init`)
-    /// cleans up whatever's already accumulated on disk, and stays cheap
-    /// insurance against any future edge case that leaves one behind too.
-    /// Skips the shared, content-addressed `images/` pool entirely — those
-    /// files are reference-counted by `DownloadStore
-    /// .isImagePathReferenced(_:excludingItemID:)`, not by directory name,
-    /// and are already handled by `deleteImageIfUnreferenced` at normal
-    /// delete time.
+    /// owned it (`DownloadSessionDelegate` moves a completed download's
+    /// file into permanent storage unconditionally, only checking whether
+    /// a row still exists afterward). Called once per launch, from
+    /// `DownloadManager.init`. Skips the shared, content-addressed
+    /// `images/` pool entirely — those files are reference-counted by
+    /// `DownloadStore.isImagePathReferenced(_:excludingItemID:)`, not by
+    /// directory name, and are already handled by
+    /// `deleteImageIfUnreferenced` at normal delete time.
     static func deleteOrphanedItemDirectories(knownItemIDs: Set<String>) {
         guard let entries = try? FileManager.default.contentsOfDirectory(at: rootDirectory, includingPropertiesForKeys: nil) else { return }
         for entry in entries {

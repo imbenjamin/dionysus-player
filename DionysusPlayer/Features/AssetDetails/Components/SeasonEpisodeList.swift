@@ -37,19 +37,9 @@ struct SeasonEpisodeList: View {
     /// The season menu's own trigger label — falls back to the first
     /// season's name if `selectedSeasonID` doesn't (yet) match any of
     /// `seasons`, so the trigger never renders blank. Truncated here in
-    /// plain Swift, not left to `Text`'s own `.lineLimit`/`.truncationMode`:
-    /// confirmed live (2026-08-19), even with a fixed-width container *and*
-    /// a hard `.id()` identity reset on the `Text` (both already tried),
-    /// switching to a longer name still visibly rendered an incorrectly
-    /// short truncation ("Johto Journ…" instead of "The Johto Journ…") for
-    /// one frame before correcting itself — `Text`'s own glyph-level
-    /// truncation math has some one-frame lag recomputing against a new
-    /// string in this exact position (inside a `Menu` label) that neither
-    /// fix reached. Handing it an already-short string sidesteps the bug
-    /// entirely: there's no truncation decision left for `Text` to get
-    /// wrong, just a fixed string to draw. `maxLength` is picked to
-    /// comfortably clear the 160pt trigger width at this font size — see
-    /// that `.frame`'s own doc comment.
+    /// plain Swift, not left to `Text`'s own `.lineLimit`/`.truncationMode`
+    /// — see the `Menu` label below for why. `maxLength` is picked to
+    /// comfortably clear the 160pt trigger width at this font size.
     private var selectedSeasonName: String {
         let name = seasons.first { $0.id == selectedSeasonID }?.name ?? seasons.first?.name ?? ""
         let maxLength = 16
@@ -70,17 +60,18 @@ struct SeasonEpisodeList: View {
 
                 if seasons.count > 1 {
                     // A hand-built `Menu`, not `Picker(...).pickerStyle(.menu)`
-                    // — confirmed live (2026-08-19) that `.lineLimit(1)`
-                    // applied to a menu-style `Picker` doesn't reach its
-                    // trigger label at all (a long season name like "The
-                    // Johto Journeys" still wrapped to two lines even with
-                    // it set, just no longer tall enough to overlap the
-                    // episode list below once `.frame(maxWidth:)` capped
-                    // the width — an improvement over the original bug, but
-                    // not the single truncated line this needs). Building
-                    // the trigger's `Text` directly guarantees `.lineLimit`/
-                    // `.truncationMode` actually apply, since there's no
-                    // system-provided label in between to lose them.
+                    // — a menu-style `Picker`'s truncation/sizing is
+                    // unreliable for a long trigger label (`.lineLimit(1)`
+                    // doesn't reliably reach it), so this builds the
+                    // trigger's `Text` directly to guarantee `.lineLimit`/
+                    // `.truncationMode` actually apply. Pre-truncating the
+                    // string itself (`selectedSeasonName`, above) rather
+                    // than trusting `Text`'s own truncation, `.id()`-resetting
+                    // that `Text`'s identity per season, and using a fixed
+                    // (not `maxWidth`) frame below are all the same fix for
+                    // the same underlying quirk: this trigger's layout
+                    // doesn't reliably recompute in place when only its
+                    // string content changes.
                     Menu {
                         ForEach(seasons) { season in
                             Button(season.name) { selectedSeasonID = season.id }
@@ -90,37 +81,11 @@ struct SeasonEpisodeList: View {
                             Text(selectedSeasonName)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
-                                // A hard identity reset, not just a content
-                                // change — confirmed live (2026-08-19): even
-                                // with the fixed-width frame below (which
-                                // fixed the container popping to a different
-                                // *size*), switching to a longer name still
-                                // visibly rendered a wrong, truncated-too-early
-                                // string ("Johto Journ…" instead of "The
-                                // Johto Journ…") for a frame before
-                                // correcting — `Text`'s own truncation
-                                // recalculation lagged one render behind the
-                                // string it was handed. Forcing a fresh view
-                                // identity per season means there's no
-                                // existing `Text` instance left for that
-                                // stale truncation state to carry over on.
                                 .id(selectedSeasonID)
                             Image(systemName: "chevron.up.chevron.down")
                                 .font(.caption2)
                         }
                     }
-                    // A fixed `width`, not `maxWidth` — confirmed live
-                    // (2026-08-19): with `maxWidth`, this box's own laid-out
-                    // width tracked whichever season name was showing (a
-                    // short one like "Specials" narrower than a long one
-                    // like "The Johto Journeys"), so switching between them
-                    // visibly popped through the old, narrower width/position
-                    // for a frame before settling on the new one — the same
-                    // "no shared fixed frame across states" glitch class as
-                    // `DownloadButton`'s badge (see that view's own doc
-                    // comment). A fixed width means only this `Text`'s
-                    // *content* changes on selection, never this container's
-                    // size, so there's nothing left to visibly resize.
                     .frame(width: 160, alignment: .trailing)
                 }
 

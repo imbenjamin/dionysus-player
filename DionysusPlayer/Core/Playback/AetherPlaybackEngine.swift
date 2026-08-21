@@ -198,26 +198,10 @@ final class AetherPlaybackEngine: PlaybackEngine {
             .store(in: &cancellables)
 
         // `engine.duration` is `@Published` on AetherEngine and settles from
-        // its own dedicated sink inside AetherEngine's loading path,
-        // independent of `clock.$currentTime`'s ticks above — a fresh
-        // duration can land before, after, or well outside any clock tick
-        // (there is no tick at all while paused, since nothing is advancing
-        // to publish). Bridging `onTimeUpdate` only off `clock.$currentTime`
-        // — the first version of this — meant a duration that settled after
-        // the last tick a paused session would ever produce just never
-        // reached `PlayerViewModel`. Confirmed live (2026-08-20,
-        // screenshot): the background-teardown reload in
-        // `reloadIfBackgroundTeardownLeftSessionUnready()` re-pauses right
-        // after reloading, and its own reload can outlast the last real
-        // tick — `PlayerViewModel.currentTime` (correct, from that last
-        // tick) and `.duration` (stuck at 0) visibly disagreed, "19:09" next
-        // to a scrubber pinned at the left edge and a "-0:00" remaining-time
-        // label. A one-shot manual nudge right after that reload's `pause()`
-        // was tried first and wasn't enough — `engine.duration` itself can
-        // still read 0 at that exact instant if AetherEngine's own duration
-        // sink hasn't landed yet. Mirroring `$duration`'s own publisher here
-        // instead means whenever it actually lands, this fires — no guessing
-        // about timing.
+        // its own dedicated sink, independent of `clock.$currentTime`'s
+        // ticks above — there's no tick at all while paused, so a duration
+        // that settles after the last tick a paused session ever produces
+        // needs its own bridge to reach `PlayerViewModel` at all.
         engine.$duration
             .receive(on: DispatchQueue.main)
             .sink { [weak self] duration in
@@ -344,32 +328,20 @@ final class AetherPlaybackEngine: PlaybackEngine {
             .store(in: &cancellables)
     }
 
-    /// Repairs a real bug, confirmed live (2026-08-20): pause a session
-    /// (don't exit the player), lock the phone, wait past AetherEngine's
-    /// own `backgroundTeardownGraceSeconds` (15s default — a couple of
-    /// minutes locked is nowhere close) — its `#127` grace-window teardown
-    /// releases the decode session to stay suspension-safe (see
-    /// `AetherEngine`'s own doc comments on `teardownVideoForBackground`/
-    /// `reloadAtCurrentPosition`), leaving `state == .paused` but
-    /// `isSessionReady == false`: a session with nothing left to resume.
-    /// AetherEngine's own `play()` just forwards to the (now torn-down)
-    /// transport host and silently no-ops — tapping Play does nothing,
-    /// the exact symptom reported; only backing out and restarting playback
-    /// recovered. `reloadAtCurrentPosition()`'s own doc comment says
-    /// "Call after background return" — that call is this host's
-    /// responsibility, not something AetherEngine does for itself
-    /// (confirmed: its own `didBecomeActive` observer only cancels the
-    /// grace window, never reloads). Reloading proactively here, right on
-    /// foreground return, means the fix is invisible by the time the user
-    /// is actually looking at the screen — `play()`'s own `desiredState:
-    /// .play` call is a defensive fallback for whatever races past this.
-    /// A session that's still alive (a quick app switch inside the grace
-    /// window, or one AetherEngine itself kept playing through the
-    /// background) is untouched: `isSessionReady` only goes false for a
-    /// session AetherEngine actually tore down. See
-    /// `recoverSessionIfNeeded(desiredState:)`'s own doc comment for the
-    /// rest of this repair's history — three more real bugs, found live in
-    /// quick succession right after this one.
+    /// A session left paused for long enough in the background gets torn
+    /// down by AetherEngine's own grace-window teardown (releases the
+    /// decode session to stay suspension-safe) — it reports `state ==
+    /// .paused` but `isSessionReady == false`, and AetherEngine's own
+    /// `play()` just forwards to the now-torn-down transport host and
+    /// silently no-ops. `reloadAtCurrentPosition()` is documented as the
+    /// host's own responsibility to call on background return — AetherEngine
+    /// doesn't do it itself. Reloading proactively here, on foreground
+    /// return, means the repair is invisible by the time the user is
+    /// looking at the screen; `play()`'s own `desiredState: .play` call is
+    /// a defensive fallback for whatever races past this. A session that's
+    /// still alive (a quick app switch, or one AetherEngine kept playing
+    /// through the background) is untouched. See
+    /// `recoverSessionIfNeeded(desiredState:)` for the shared repair logic.
     private func observeAppLifecycle() {
         didBecomeActiveObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
@@ -435,77 +407,30 @@ final class AetherPlaybackEngine: PlaybackEngine {
     }
 
     /// Defensive fallback for `observeAppLifecycle()`'s proactive reload —
-    /// see that method's doc comment for the underlying bug (a paused
-    /// session torn down by AetherEngine's own background grace-window
-    /// teardown reports `state == .paused` but `isSessionReady == false`,
-    /// and AetherEngine's own `play()` has no pipeline left to act on).
-    /// Whatever race left that reload undone by the time the user actually
-    /// taps Play, this catches it here instead of a silently-dead button —
-    /// same "kick off the async step, then act" shape AetherEngine's own
-    /// `play()` already uses for its "rewind a VOD parked at its final
-    /// frame" case.
+    /// catches whatever race left that reload undone by the time the user
+    /// actually taps Play, instead of a silently-dead button.
     func play() {
         recoverSessionIfNeeded(desiredState: .play)
     }
 
     /// Shared by `observeAppLifecycle()`'s proactive foreground-return
     /// repair (`desiredState: .pause`) and `play()`'s own defensive
-    /// fallback (`desiredState: .play`) — both react to the identical
-    /// "paused session torn down by AetherEngine's background grace
-    /// window" condition `observeAppLifecycle()`'s own doc comment
-    /// describes. When the guard is already satisfied (the common case —
-    /// nothing to repair), applies `desiredState` immediately and
-    /// synchronously. Otherwise, records `desiredState` as the one this
-    /// single in-flight reload should apply once it resolves — a second
-    /// caller arriving mid-reload doesn't start a competing reload of its
-    /// own, it just overwrites which end-state wins, so the *last*
-    /// caller's intent always applies regardless of which caller happened
-    /// to start the reload in the first place.
-    ///
-    /// Three more real bugs, found live in quick succession right after
-    /// the original fix shipped (all 2026-08-20):
-    /// - `reloadAtCurrentPosition()` takes no parameters of its own — its
-    ///   autostart behavior is entirely inherited from `LoadOptions
-    ///   .autoplay` as captured at the *original* `load()` call, which
-    ///   `load(url:externalSubtitles:knownAtmosAudioTrackIndices:)` never
-    ///   overrides (`LoadOptions.autoplay` defaults to `true`). So a
-    ///   reload always resumes playback, even for `desiredState: .pause`
-    ///   — the case a genuinely-paused session hits every time. AetherEngine
-    ///   has no "reload but stay paused" entry point to ask for instead,
-    ///   so `desiredState` is applied explicitly right after the reload
-    ///   settles — same net effect (paused, pipeline alive, `isSessionReady`
-    ///   true, a later `play()` works) with at most a brief internal
-    ///   autostart the user was never looking at (`.pause`'s own caller,
-    ///   `observeAppLifecycle()`, runs on `didBecomeActive`, before the
-    ///   screen is realistically in view) rather than a
-    ///   perceptibly-sustained unwanted resume.
-    /// - Re-pausing right after the reload could land on the last
-    ///   `PlayerViewModel.currentTime`/`.duration` update this session
-    ///   would ever get while paused (nothing advancing = nothing left to
-    ///   tick), with `duration` not yet caught up — "19:09" next to a
-    ///   "-0:00" remaining-time label and a scrubber pinned at the left
-    ///   edge (screenshot confirmed). Fixed at the source, not here — see
-    ///   `observeEngine()`'s `engine.$duration` subscription, which now
-    ///   bridges independently of `clock.$currentTime`'s ticks, so
-    ///   whenever the real duration lands (paused or not) `onTimeUpdate`
-    ///   fires regardless.
-    /// - This method and `play()` used to each fire their own independent,
-    ///   untracked `Task { try? await engine.reloadAtCurrentPosition();
-    ///   engine.<x>() }` against the exact same guard condition — if a
-    ///   foreground-triggered reload was still in flight when the user
-    ///   tapped Play, `play()`'s own guard was still true (nothing had
-    ///   flipped `isSessionReady` yet), so it started a *second*,
-    ///   redundant reload; whichever task's trailing `.pause()`/`.play()`
-    ///   call landed last won the race, and since the foreground-triggered
-    ///   task runs first in practice (`didBecomeActive` fires before the
-    ///   user can realistically tap anything), its own `.pause()` could
-    ///   land *after* the user's `play()` task had already resolved —
-    ///   silently overwriting the user's own tap and reproducing, via a
-    ///   race between this fix's own two entry points, the exact "tap
-    ///   Play, nothing happens" symptom the original fix exists to solve.
-    ///   `sessionRecoveryDesiredState`/`sessionRecoveryTask` above are what
-    ///   fix this — a single shared in-flight reload, with the *last*
-    ///   caller's `desiredState` always winning once it resolves.
+    /// fallback (`desiredState: .play`) — both react to the same "paused
+    /// session torn down by AetherEngine's background grace window"
+    /// condition. When the guard is already satisfied, applies
+    /// `desiredState` immediately. Otherwise records `desiredState` as
+    /// what this single in-flight reload should apply once it resolves —
+    /// a second caller arriving mid-reload doesn't start a competing
+    /// reload, it just overwrites which end-state wins, so the *last*
+    /// caller's intent always applies. This matters because
+    /// `reloadAtCurrentPosition()` always resumes playback (its autostart
+    /// is inherited from the original `load()`'s `LoadOptions.autoplay`,
+    /// not overridable per-reload, and AetherEngine has no "reload but
+    /// stay paused" entry point) — so `desiredState` has to be reapplied
+    /// explicitly after every reload, and two independent reloads racing
+    /// each other over the same session's `.play()`/`.pause()` call is
+    /// exactly what silently re-paused a session the user just tapped Play
+    /// on before this shared-task guard existed.
     private func recoverSessionIfNeeded(desiredState: SessionRecoveryDesiredState) {
         guard engine.state == .paused, !engine.isSessionReady else {
             if desiredState == .play { engine.play() }
@@ -518,16 +443,11 @@ final class AetherPlaybackEngine: PlaybackEngine {
             do {
                 try await self.engine.reloadAtCurrentPosition()
             } catch {
-                // A real gap found alongside the race above: this used to
-                // be `try?`-swallowed with zero diagnostic trail — if the
-                // reload itself throws, proceeding to call `.play()`/
-                // `.pause()` on a session with (per this method's own doc
-                // comment) "no pipeline left to act on" would silently
-                // reproduce the original dead-Play-button bug, just with
-                // no way to tell why. Surfaced through the same
-                // `onStateChange` path `PlayerViewModel` already listens
-                // to for every other terminal engine failure, rather than
-                // introducing a second, bespoke error-reporting channel.
+                // Surfaced through the same `onStateChange` path
+                // `PlayerViewModel` already listens to for every other
+                // terminal engine failure — swallowing this would silently
+                // reproduce the dead-Play-button bug with no diagnostic
+                // trail.
                 self.onStateChange?(.failed(String(localized: "Playback couldn't resume after being paused in the background.")))
                 self.sessionRecoveryTask = nil
                 return

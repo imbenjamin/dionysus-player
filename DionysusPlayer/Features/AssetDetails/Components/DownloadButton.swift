@@ -27,8 +27,8 @@ struct DownloadButton: View {
         /// treatment as the video-thumbnail Play button it sits alongside
         /// in `EpisodeRow` — for when this is overlaid directly on artwork
         /// instead of sitting in a plain row next to other bordered
-        /// buttons. Confirmed live (2026-08-19) that reusing `.prominent`'s
-        /// heavy chip chrome there read as far too heavy against a thumbnail.
+        /// buttons; `.prominent`'s heavy chip chrome reads as too heavy
+        /// against a thumbnail.
         case overlay
     }
 
@@ -73,8 +73,8 @@ struct DownloadButton: View {
     /// Observation-tracked dependency — `store.item(itemID:)` itself is a
     /// raw SwiftData fetch, not a tracked property read, so without this
     /// this view could silently stop re-rendering when the row changed
-    /// from somewhere else entirely (a real bug, found live 2026-08-20 —
-    /// see `DownloadStore.changeCount`'s own doc comment).
+    /// from somewhere else entirely (see `DownloadStore.changeCount`'s own
+    /// doc comment).
     private var downloadedRow: DownloadedItem? {
         _ = downloadManager.store.changeCount
         return downloadManager.store.item(itemID: item.id)
@@ -88,19 +88,13 @@ struct DownloadButton: View {
     /// `progress`/`isPreparing`/`isPendingDeletion`/`isDownloaded`/`isBusy`
     /// each take `row` as an explicit parameter, with a matching zero-arg
     /// computed property that just calls the parameterized form against a
-    /// *fresh* `downloadedRow` fetch — a real inefficiency, found in a
-    /// 2026-08-20 branch review: `content` below used to call the zero-arg
-    /// properties directly, each independently re-querying
-    /// `downloadManager.store.item(itemID:)` (a real SwiftData fetch, not a
-    /// dictionary lookup) — up to ~5-7 redundant queries for the exact same
-    /// row within a single render pass. `content` now fetches `downloadedRow`
-    /// once and threads it through the parameterized forms instead; the
-    /// zero-arg properties survive only for the long-press gesture's
+    /// fresh `downloadedRow` fetch. `content` below fetches `downloadedRow`
+    /// once and threads it through the parameterized forms, rather than
+    /// each property independently re-querying SwiftData for the same row;
+    /// the zero-arg properties survive only for the long-press gesture's
     /// completion closure below, which fires well after the view was last
-    /// rendered and needs a *fresh* re-fetch at that later moment, not a
-    /// stale render-time snapshot (the same "closures should read live
-    /// state at call time" lesson this app's toolbar-button bug already
-    /// established elsewhere).
+    /// rendered and needs a fresh re-fetch, not a stale render-time
+    /// snapshot.
     private func progress(for row: DownloadedItem?) -> DownloadProgress? {
         guard let row, row.status == .downloading || row.status == .queued else { return nil }
         return downloadManager.activeDownloads[item.id]
@@ -111,12 +105,10 @@ struct DownloadButton: View {
     /// background video task hasn't started reporting real byte progress
     /// yet — `DownloadManager.enqueue` spends real time up front (fetching
     /// the metadata/artwork snapshot, subtitle sidecars) before the video
-    /// task itself starts, so this window is routinely a second or more,
-    /// not instantaneous. Without accounting for it separately from
-    /// `isResolving` (the *earlier* `playbackInfo`-fetch/prompt phase),
-    /// the button fell through to its plain idle icon here — indistinguishable
-    /// from "not downloading at all" — confirmed live (2026-08-19) as
-    /// reading like the tap hadn't registered.
+    /// task itself starts, so this window is routinely a second or more.
+    /// Distinct from `isResolving` (the earlier `playbackInfo`-fetch/prompt
+    /// phase) — without it, the button fell through to its plain idle icon
+    /// here, indistinguishable from "not downloading at all."
     private func isPreparing(for row: DownloadedItem?) -> Bool {
         guard let row, row.status == .downloading || row.status == .queued else { return false }
         return downloadManager.activeDownloads[item.id] == nil
@@ -127,19 +119,12 @@ struct DownloadButton: View {
         downloadManager.activeDownloads[item.id] != nil
     }
     /// A row that's been deleted but still has an unsynced watched/resume
-    /// write to carry (see the offline-downloads plan's "Delete semantics"
-    /// section) — its files are already gone, but `downloadedRow` above
-    /// still finds the row itself (a raw, unfiltered lookup), and the row's
-    /// own `status` is untouched by delete, still whatever it was before
-    /// (typically `.completed`). A real bug, found live (2026-08-20):
-    /// without accounting for this separately, `isDownloaded` below read
-    /// `true` for a `markedForDeletion` row, so this button kept showing
-    /// the "already downloaded" checkmark and navigating to a now-broken
-    /// `DownloadedAssetDetailView` (its video file already gone) until
-    /// `DownloadSyncManager` finally got a chance to push the pending sync
-    /// and let `DownloadManager.delete(itemID:)`'s next pass remove the row
-    /// for real — which can take a while, since that sync is only
-    /// triggered on app-foreground/reconnect, not on any fixed timer.
+    /// write to carry (see `DownloadManager.delete(itemID:)`'s doc comment)
+    /// — its files are already gone, but `downloadedRow` above still finds
+    /// the row itself, and its `status` is untouched by delete (typically
+    /// still `.completed`). Tracked separately from `isDownloaded` so this
+    /// button doesn't show the "already downloaded" checkmark and navigate
+    /// to a now-broken detail page for a row whose files are already gone.
     private func isPendingDeletion(for row: DownloadedItem?) -> Bool {
         row?.markedForDeletion == true
     }
@@ -152,12 +137,9 @@ struct DownloadButton: View {
 
     /// Everything that should block a second tap — resolving, preparing,
     /// actively downloading, or a `markedForDeletion` row still waiting on
-    /// its pending sync to actually go away (see `isPendingDeletion`'s own
-    /// doc comment — tapping through to a fresh download here would race a
-    /// row this button doesn't own the lifecycle of). `isResolving ||
-    /// isDownloading` alone (the original condition) left the button
-    /// tappable again during the `isPreparing` window above, which could
-    /// fire a second, redundant `enqueue` for the same item.
+    /// its pending sync (see `isPendingDeletion`) — tapping through to a
+    /// fresh download would race a row this button doesn't own the
+    /// lifecycle of.
     private func isBusy(for row: DownloadedItem?) -> Bool {
         isResolving || isPreparing(for: row) || isDownloading || isPendingDeletion(for: row)
     }
@@ -267,10 +249,7 @@ struct DownloadButton: View {
     @ViewBuilder
     private var content: some View {
         // Fetched once per render and threaded through the parameterized
-        // forms below, rather than each of `isDownloaded`/`progress`/
-        // `isPreparing`/`isPendingDeletion`/`isBusy` independently
-        // re-querying SwiftData for the same row — see `downloadedRow`'s
-        // own doc comment above for the real cost this used to have.
+        // forms below — see `downloadedRow`'s own doc comment.
         let row = downloadedRow
         if isDownloaded(for: row) {
             // Already downloaded — a second tap should open the
@@ -303,17 +282,9 @@ struct DownloadButton: View {
             // Hold instead of tap: same idle button, different entry point
             // into the same resolve/prompt/enqueue flow (`startResolving`)
             // — see `AdvancedDownloadOptionsView`'s own doc comment.
-            // `.highPriorityGesture`, not a plain `.onLongPressGesture` —
-            // confirmed live (2026-08-19, RocketSim + Simulator) that a
-            // bare `.onLongPressGesture` attached to a `Button` doesn't
-            // suppress the Button's own tap action once the hold completes;
-            // both fired, so a long-press opened the advanced sheet *and*
-            // immediately started a plain-preference download underneath
-            // it. `.highPriorityGesture` is the documented mechanism for a
-            // gesture that should win outright over a view's own built-in
-            // one, rather than compete alongside it — the Button's tap only
-            // fires when this one fails to recognize (a genuinely short
-            // tap), never both.
+            // `.highPriorityGesture`, not a plain `.onLongPressGesture` — a
+            // bare `.onLongPressGesture` on a `Button` doesn't suppress the
+            // Button's own tap once the hold completes, so both fired.
             .highPriorityGesture(
                 LongPressGesture(minimumDuration: 0.5).onEnded { _ in
                     guard !isBusy else { return }
@@ -332,13 +303,11 @@ struct DownloadButton: View {
     /// Wraps the state icon/spinner/ring in whatever fixed-size container
     /// `style` calls for. Always a fixed frame regardless of style — a
     /// plain `Image(systemName:)`, a bare `ProgressView()`, and
-    /// `DownloadProgressRing` each report a different natural size to
-    /// their parent when left unconstrained (`ProgressView()` in
-    /// particular renders noticeably larger than an SF Symbol glyph at
-    /// this control size), so without one the button's own footprint
-    /// visibly popped to a different size for a frame or two on every
-    /// state change — confirmed live (2026-08-19) — before settling back
-    /// once the new content re-laid-out.
+    /// `DownloadProgressRing` each report a different natural size when
+    /// left unconstrained (`ProgressView()` in particular renders larger
+    /// than an SF Symbol glyph at this control size), so without one the
+    /// button's footprint visibly popped between sizes on every state
+    /// change before settling back.
     @ViewBuilder
     private func badge<Content: View>(@ViewBuilder _ inner: () -> Content) -> some View {
         switch style {
@@ -385,19 +354,12 @@ struct DownloadButton: View {
     }
 
     /// Also resets `pendingResolution`/`overrideResolution`/`overridePreset`
-    /// — a real bug found live (2026-08-20): those two only ever got
-    /// cleared inside `enqueue(mediaSource:audioTrack:subtitleTracks:)`'s
-    /// own `defer`, so an advanced-options attempt that set them and then
-    /// aborted *before* reaching that point (this method being called from
-    /// `startResolving()`'s own failure paths, a subtitle-warning
-    /// dismissal, or an audio-track-picker dismissal — see those calls
-    /// sites' own comments) left them dangling on this view's `@State`
-    /// indefinitely. A *later*, unrelated plain tap on the same button
-    /// then silently reused that stale one-off override instead of the
-    /// live device-wide preference — confirmed live: a plain tap after an
-    /// earlier abandoned "480p / Data Saver" advanced attempt produced a
-    /// 480p / Data Saver download despite the device preference reading
-    /// 1080p / Normal.
+    /// — those two are otherwise only cleared inside
+    /// `enqueue(mediaSource:audioTrack:subtitleTracks:)`'s own `defer`, so
+    /// an advanced-options attempt that set them and then aborted before
+    /// reaching that point would leave them dangling on this view's
+    /// `@State`, and a later, unrelated plain tap would silently reuse that
+    /// stale one-off override instead of the live device-wide preference.
     private func presentError(_ message: String) {
         pendingResolution = nil
         overrideResolution = nil

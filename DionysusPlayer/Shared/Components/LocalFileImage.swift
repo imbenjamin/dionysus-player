@@ -5,16 +5,13 @@ import UIKit
 /// Renders an image from a local file — offline-downloaded artwork.
 /// Deliberately not `AsyncRemoteImage`/`RemoteImageLoader`: those are
 /// inherently network-shaped (retry-with-backoff, an `NSCache` +
-/// `URLCache`-backed session tuned for flaky/slow HTTP), and — the actual
-/// bug this exists to fix, confirmed live (2026-08-19) — `RemoteImageLoader
-/// .fetchWithRetry` casts the response to `HTTPURLResponse` to check its
-/// status code; a `file://` URL's response is a plain `URLResponse` with no
-/// HTTP status at all, so that cast fails unconditionally and every local
-/// image load through that path threw every time, regardless of whether
-/// the file existed and was perfectly valid. Local disk reads need none of
-/// that machinery anyway — no network flakiness to retry, no need for a
-/// second cache layer on top of the filesystem — so this just reads the
-/// file directly.
+/// `URLCache`-backed session tuned for flaky/slow HTTP) and, worse, broken
+/// for this case — `RemoteImageLoader.fetchWithRetry` casts the response
+/// to `HTTPURLResponse` to check its status code, but a `file://` URL's
+/// response is a plain `URLResponse` with no HTTP status at all, so that
+/// cast fails unconditionally regardless of whether the file is valid.
+/// Local disk reads need none of that machinery anyway, so this just reads
+/// the file directly.
 struct LocalFileImage: View {
     var url: URL?
     var contentMode: ContentMode = .fill
@@ -34,17 +31,12 @@ struct LocalFileImage: View {
     /// device's display scale) downsamples the decode to roughly that
     /// footprint via `ImageIO`'s thumbnail-generation API, instead of
     /// decoding the source at full resolution and only shrinking it for
-    /// display afterward. A real memory cost, found in a 2026-08-20 branch
-    /// review: every caller passing `nil` here displayed the result at a
-    /// small, fixed thumbnail size (44×66pt/88×50pt row thumbnails), yet
-    /// the cache held the *full* decoded poster/backdrop pixel data
-    /// regardless — several MB for a 1080p/4K source image — so memory
-    /// scaled with the source image's own resolution, not the actual
-    /// on-screen pixel count a scrolling list of these ever needed. `nil`
-    /// (the default) keeps the original full-resolution decode — the
-    /// right choice for the hero backdrop/logo call sites, which really do
-    /// need most of their frame's actual pixel budget, not a small fixed
-    /// thumbnail size.
+    /// display afterward — bounds the cache's memory to the actual
+    /// on-screen pixel count for a small, fixed-size row thumbnail rather
+    /// than the source image's own resolution. `nil` (the default) keeps
+    /// the original full-resolution decode — the right choice for the
+    /// hero backdrop/logo call sites, which need most of their frame's
+    /// actual pixel budget, not a small fixed thumbnail size.
     init(url: URL?, contentMode: ContentMode = .fill, targetSize: CGSize? = nil) {
         self.url = url
         self.contentMode = contentMode

@@ -7,14 +7,13 @@ import SwiftUI
 /// `.offline` "View Downloads" escape hatch — everything here reads
 /// straight from local storage.
 ///
-/// Bulk delete: the trash toolbar button enters selection mode (same
-/// Cancel-top-left/Select-All-top-right/destructive-action-in-a-bottom-bar
-/// shape Photos/Files use for their own selection mode, rather than a
-/// bespoke design) — each row (including a whole show group, selected as
-/// one unit) gets a checkbox in place of its usual navigation, and the
-/// bottom bar's Delete button confirms against the real total asset count
-/// first (a selected show's own episodes all count individually, not the
-/// one group row — see `DownloadsViewModel.selectedAssetCount`).
+/// Bulk delete: the trash toolbar button enters selection mode (Photos/
+/// Files-style Cancel-top-left/Select-All-top-right/destructive-action
+/// shape) — each row (including a whole show group, selected as one unit)
+/// gets a checkbox in place of its usual navigation. The confirmation
+/// dialog's asset count reflects the real total, not the row count — a
+/// selected show's own episodes all count individually (see
+/// `DownloadsViewModel.selectedAssetCount`).
 struct DownloadsView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel: DownloadsViewModel?
@@ -27,12 +26,10 @@ struct DownloadsView: View {
                 if viewModel == nil {
                     viewModel = DownloadsViewModel(downloadManager: appState.downloadManager)
                 } else {
-                    // A download that finished, or a delete from a pushed
-                    // detail page, since this last appeared — re-reads
-                    // local storage fresh rather than relying on any
-                    // automatic SwiftData observation (see
-                    // `DownloadsViewModel`'s own doc comment for why there
-                    // isn't one).
+                    // Re-reads local storage fresh (e.g. a download
+                    // finished, or a delete happened on a pushed detail
+                    // page) — see `DownloadsViewModel`'s own doc comment
+                    // for why there's no automatic observation instead.
                     viewModel?.refresh()
                 }
             }
@@ -62,14 +59,11 @@ struct DownloadsView: View {
                     Button("Cancel") { viewModel.cancelSelecting() }
                 }
                 // Both live in the top nav bar, not a `.bottomBar` item —
-                // confirmed live (2026-08-19): this app's tab bar floats
-                // as its own overlay (iOS 26's default style), which sits
-                // at a higher z-order than a `.bottomBar` toolbar and
-                // simply covers it rather than making room for it. The
-                // asset count still shows, just in the confirmation
-                // dialog's own title rather than on this button, keeping
-                // it icon-only so both fit comfortably alongside Cancel/
-                // Select All.
+                // this app's floating tab bar (iOS 26's default style) sits
+                // at a higher z-order than `.bottomBar` and simply covers
+                // it. The asset count shows in the confirmation dialog's
+                // title instead, keeping this button icon-only so both fit
+                // comfortably alongside Cancel/Select All.
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(viewModel.isAllSelected ? "Deselect All" : "Select All") {
                         viewModel.toggleSelectAll()
@@ -138,9 +132,9 @@ struct DownloadsView: View {
 /// in selection mode (`isSelecting`), a plain tappable row with a leading
 /// checkbox instead, toggling `onToggleSelection` rather than navigating.
 /// A plain `NavigationLink` as a `List`/`ForEach` row's content is fine
-/// here (unlike the known bare-`NavigationLink`-in-`LazyHStack`/
-/// `LazyVStack` freeze — see `LibraryRailView`'s history — `List` doesn't
-/// hit that bug class).
+/// here — unlike the known bare-`NavigationLink`-in-`LazyHStack`/
+/// `LazyVStack` freeze (see `LibraryRailView`'s history), `List` doesn't
+/// hit that bug class.
 private struct DownloadsRowView: View {
     let row: DownloadsRow
     let downloadManager: DownloadManager
@@ -182,12 +176,10 @@ private struct DownloadsRowView: View {
         case .standalone(let item):
             // A lone downloaded episode (its series has no other downloads
             // — otherwise it'd be a `.show` group instead) still needs the
-            // show name visible here, same as every rail elsewhere in the
-            // app: `MediaItem.railTitle`/`railSubtitle` show the series
-            // name as the primary line and "S1:E4 · Episode Name" as the
-            // secondary one for episode content — mirrored here since
-            // `DownloadedItem` has no `MediaItem` of its own to read that
-            // convention from directly.
+            // show name visible here, mirroring `MediaItem.railTitle`/
+            // `railSubtitle`'s series-name-then-"S1:E4 · Episode Name"
+            // convention, since `DownloadedItem` has no `MediaItem` of its
+            // own to read that from directly.
             HStack(spacing: 12) {
                 thumbnail(relativePath: item.kind == .episode ? (item.thumbImagePath ?? item.posterImagePath) : item.posterImagePath)
                 VStack(alignment: .leading, spacing: 2) {
@@ -199,11 +191,9 @@ private struct DownloadsRowView: View {
                     DownloadProgressRing(progress: progress)
                         .frame(width: 28, height: 28)
                 } else if item.status == .downloading || item.status == .queued {
-                    // No byte progress yet (still fetching the
-                    // metadata/artwork snapshot before the video task
-                    // starts — see `DownloadButton.isPreparing`'s doc
-                    // comment) — a plain spinner, not blank space, says
-                    // "this is happening" honestly.
+                    // See `DownloadButton.isPreparing`'s doc comment — no
+                    // byte progress yet, but a plain spinner beats blank
+                    // space.
                     ProgressView().controlSize(.small)
                 }
             }

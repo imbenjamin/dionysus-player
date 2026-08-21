@@ -5,10 +5,9 @@ import SwiftUI
 /// dot-separated badges line), sourced from `DownloadedItem`/`.metadata`
 /// rather than a live `MediaItem`. Badges differ slightly from the live
 /// page's own `MediaItem.metadataBadges`: no audio-format/accessibility
-/// badges (nothing here varies per download the way it does live — see
-/// the old `DownloadedAssetDetailView.metadataLine`'s doc comment this
-/// replaces), but adds the actual on-disk file size, which only makes
-/// sense for a download.
+/// badges (nothing here varies per download the way it does live), but
+/// adds the actual on-disk file size, which only makes sense for a
+/// download.
 struct DownloadedInfoMetadataRow: View {
     let item: DownloadedItem
     /// Computed once by the caller (`DownloadedAssetDetailView`) and passed

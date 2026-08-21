@@ -123,14 +123,10 @@ final class DownloadedItem: Identifiable {
     var bitrate: Int?
     /// Whether the *transcoded output* is actually HDR — currently always
     /// `false` (see `DownloadManager.enqueue`'s doc comment at its own
-    /// `isHDR:` argument): this app doesn't yet send a `DeviceProfile` on
-    /// the download path, so Jellyfin's transcoder has no declared
-    /// HDR-capable target to preserve HDR for and tone-maps to SDR by
-    /// default, regardless of the source's own dynamic range or the
-    /// `VideoProfile=main10` this still requests. Deliberately *not* just
-    /// mirroring the source's HDR-ness — confirmed live that doing so
-    /// produced a misleading "HDR" badge on a download that actually
-    /// played back as SDR.
+    /// `isHDR:` argument): Jellyfin's transcoder tone-maps to SDR
+    /// regardless of the source's own dynamic range. Deliberately *not*
+    /// just mirroring the source's HDR-ness — that produced a misleading
+    /// "HDR" badge on a download that actually played back as SDR.
     var isHDR: Bool
 
     var selectedAudioTrackIndex: Int?
@@ -148,18 +144,12 @@ final class DownloadedItem: Identifiable {
     var bytesDownloaded: Int64
     var errorMessage: String?
     /// The resolved transcode stream URL for this item's video, captured
-    /// once at enqueue time — needed to actually start the background
-    /// `URLSessionDownloadTask` whenever a concurrency slot frees up (see
-    /// `DownloadPreferencesStore.maxConcurrentDownloads`), which can happen
-    /// much later than the original `enqueue()` call: a `.queued` row can
-    /// easily outlive the app being foregrounded (e.g. a season's worth of
-    /// episodes waiting behind a low limit), so this can't just live in an
-    /// in-memory dictionary the way a same-session-only value could —
-    /// `DownloadManager` rebuilds its pending queue from whichever rows
-    /// still have one of these on a fresh launch. `nil` once the video task
-    /// has actually started (cleared by `DownloadManager
-    /// .admitQueuedDownloadsIfPossible`) — nothing needs it again after
-    /// that point.
+    /// once at enqueue time — needed to start the background
+    /// `URLSessionDownloadTask` whenever a concurrency slot frees up, which
+    /// can happen much later (even after a relaunch), so this is persisted
+    /// rather than kept in an in-memory dictionary; `DownloadManager`
+    /// rebuilds its pending queue from whichever rows still have one on a
+    /// fresh launch. `nil` once the video task has actually started.
     var pendingDownloadURLString: String?
 
     var createdAt: Date
@@ -168,15 +158,11 @@ final class DownloadedItem: Identifiable {
     var playedPercentage: Double
     /// The real, on-device moment this item was actually last played
     /// offline (`PlayerViewModel.writeOfflineProgress` sets this to
-    /// `Date()` at every progress tick and on stop, on the device, while
-    /// it happened) — distinct from `lastSyncedAt` below (when the pending
-    /// write finally reached the server, possibly hours/days later once
-    /// reconnected). `DownloadSyncManager` sends this as `LastPlayedDate`
-    /// so Jellyfin's own Continue Watching ordering reflects when the user
-    /// actually watched it, not when the app happened to reconnect —
-    /// without an explicit value here, the server stamps its own
-    /// `LastPlayedDate` as the moment of the sync POST, which is exactly
-    /// wrong for something watched well before that.
+    /// `Date()` at every progress tick and on stop) — distinct from
+    /// `lastSyncedAt` below (when the pending write finally reached the
+    /// server, possibly much later). See `DownloadSyncManager`'s own doc
+    /// comment for why this has to be sent explicitly as `LastPlayedDate`
+    /// rather than left for the server to infer.
     var lastPlayedAt: Date?
 
     /// True when local resume/watched state has changed since the last
@@ -229,19 +215,13 @@ final class DownloadedItem: Identifiable {
         set { requestedPresetRaw = newValue.rawValue }
     }
 
-    /// Estimated total download size in bytes, from data already fixed at
-    /// enqueue time — Jellyfin's live-transcode stream never reports a
-    /// `Content-Length` (see `DownloadProgress.totalBytesExpected`'s doc
-    /// comment), but the item's own known runtime and target video/audio
-    /// bitrates let this be estimated closely: `(videoBitrate +
-    /// audioBitrate) * durationSeconds / 8`. `DownloadManager` uses this as
-    /// a determinate progress total in place of the (permanently unknown)
-    /// server-reported one. An estimate, not a guarantee — real encoder
-    /// output varies around a target bitrate, so the actual file can land
-    /// a bit above or below this; `DownloadProgress.fractionCompleted`
-    /// clamps to 100% regardless. `nil` when there's nothing to estimate
-    /// from (missing runtime or bitrate — shouldn't happen in practice,
-    /// both are always set together at enqueue time).
+    /// Estimated total download size in bytes — Jellyfin's live-transcode
+    /// stream never reports a `Content-Length` (see `DownloadProgress
+    /// .totalBytesExpected`), so this derives one from the item's known
+    /// runtime and target bitrates instead: `(videoBitrate + audioBitrate)
+    /// * durationSeconds / 8`. `nil` when there's nothing to estimate from
+    /// (shouldn't happen in practice — runtime and bitrate are always set
+    /// together at enqueue time).
     var estimatedTotalBytes: Int64? {
         guard let runtimeTicks, runtimeTicks > 0, let bitrate else { return nil }
         let durationSeconds = Double(runtimeTicks) / 10_000_000

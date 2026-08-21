@@ -8,32 +8,21 @@ import SwiftUI
 /// network calls for similar items/collections — deliberately not offered
 /// here, since those only make sense against a live, browsable library).
 ///
-/// Deliberately laid out to match `MovieDetailView`/`ShowDetailView` as
-/// closely as this page's offline-only data allows (2026-08-19): the same
-/// tilt-effect hero (`HeroHeaderView`, generalized to take plain artwork
-/// URLs instead of a live `MediaItem` — see its own doc comment), the same
-/// two-line metadata row (`DownloadedInfoMetadataRow`, mirroring
-/// `InfoMetadataRow`), the same bordered-prominent Play/Resume/Restart row
-/// (`DownloadedPlayResumeButtonRow`, mirroring `PlayResumeButtonRow`), and
-/// the same segmented About/Cast & Crew/Details tabs (`DownloadedDetailTabsView`,
-/// mirroring `DetailTabsView`) — reusing several of the live page's own
-/// presentational pieces directly (`MetadataLine`, `SummaryRow`,
-/// `TrackListSection`, `CastCrewGridView`) where they had no real
-/// `MediaItem` coupling to begin with. The item's own title never appears
-/// as a separate text line — same as the live pages, which rely entirely
-/// on the hero for that, with no second copy anywhere else on the page
-/// (confirmed live, 2026-08-19, against a real Show page — an earlier
-/// version of this page did duplicate it). An episode's "SXX:EYY" likewise
-/// lives only in the Play/Resume button's own label
+/// Laid out to match `MovieDetailView`/`ShowDetailView` as closely as this
+/// page's offline-only data allows: the same tilt-effect hero
+/// (`HeroHeaderView`, generalized to take plain artwork URLs instead of a
+/// live `MediaItem`), the same two-line metadata row
+/// (`DownloadedInfoMetadataRow`, mirroring `InfoMetadataRow`), the same
+/// Play/Resume/Restart row (`DownloadedPlayResumeButtonRow`, mirroring
+/// `PlayResumeButtonRow`), and the same segmented About/Cast & Crew/Details
+/// tabs (`DownloadedDetailTabsView`, mirroring `DetailTabsView`) — reusing
+/// several of the live page's own presentational pieces directly where
+/// they had no real `MediaItem` coupling to begin with. The item's own
+/// title never appears as a separate text line, same as the live pages —
+/// it relies entirely on the hero (which carries both the series name and,
+/// for episode content, the episode's own name) — and an episode's
+/// "SXX:EYY" lives only in the Play/Resume button's own label
 /// (`DownloadedPlayResumeButtonRow.buttonTitle`), not a line of its own.
-/// The hero itself carries both the series name (`title:`) and, for
-/// episode content, the specific episode's own name (`episodeTitle:`) —
-/// see `HeroHeaderView`/`BackdropLogoOverlay`'s own doc comments for how
-/// those two combine depending on whether a logo is available. Before this
-/// (2026-08-19), the hero only ever showed the series' own logo/name, so a
-/// separate plain-text series-title line was kept here to at least name
-/// the show; that's redundant now that the hero conveys both names itself,
-/// and was removed.
 ///
 /// Its Play button starts the offline `PlayerViewModel` path; its
 /// destructive "Delete Download" toolbar button mirrors `ProfileView`'s
@@ -53,8 +42,8 @@ struct DownloadedAssetDetailView: View {
 
     /// `_ = downloadManager.store.changeCount` establishes a real,
     /// Observation-tracked dependency — see `DownloadStore.changeCount`'s
-    /// own doc comment for the real bug this fixes (this page not
-    /// refreshing after e.g. a successful retry re-queued its download).
+    /// own doc comment (without it, this page wouldn't refresh after e.g.
+    /// a successful retry re-queued its download).
     private var downloadedItem: DownloadedItem? {
         _ = downloadManager.store.changeCount
         return downloadManager.store.item(itemID: itemID)
@@ -63,12 +52,9 @@ struct DownloadedAssetDetailView: View {
     var body: some View {
         Group {
             if let item = downloadedItem {
-                // Computed once per render and passed down to both
+                // Computed once per render and shared by both
                 // `DownloadedInfoMetadataRow` and `DownloadedDetailTabsView`
-                // — a real inefficiency, found in a 2026-08-20 branch
-                // review: both used to independently call `DownloadFileStore
-                // .fileSize(forRelativePath:)` (a synchronous filesystem
-                // stat, not free) for the exact same file.
+                // — avoids two duplicate filesystem stats for the same file.
                 let fileSizeBytes = DownloadFileStore.fileSize(forRelativePath: item.videoFilePath)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {

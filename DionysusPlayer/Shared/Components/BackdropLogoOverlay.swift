@@ -31,14 +31,10 @@ struct BackdropLogoOverlay: View {
     /// The backdrop image to show — a live item's own network URL, or an
     /// offline download's local file URL (`DownloadFileStore
     /// .url(forRelativePath:)`); `AdaptiveArtworkImage` below picks the
-    /// right rendering path (`AsyncRemoteImage` vs `LocalFileImage`) from
-    /// `url.isFileURL` alone, so callers don't need to say which kind of
-    /// item they have. Plain values rather than a `MediaItem` — this used
-    /// to take `item: MediaItem` directly, tying the tuned 3D-tilt
-    /// composition below to a live, network-backed model; generalized
-    /// (2026-08-19) so `DownloadedAssetDetailView`'s offline hero header
-    /// can reuse the exact same effect from its own local artwork instead
-    /// of a separately-maintained copy.
+    /// right rendering path from `url.isFileURL` alone, so callers don't
+    /// need to say which kind of item they have. Plain values rather than
+    /// a `MediaItem`, so `DownloadedAssetDetailView`'s offline hero header
+    /// can reuse this same effect from its own local artwork.
     let backdropURL: URL?
     /// `nil` falls back to `titleText` — same as a live item with no logo
     /// image of its own.
@@ -48,19 +44,14 @@ struct BackdropLogoOverlay: View {
     let title: String
     /// Non-`nil` only for episode content — the specific episode's own
     /// title, shown as a second line under whichever of the logo/`title`
-    /// rendered above it (see `identityText`): under the logo image when
-    /// there is one, or under `title` as a second line when there isn't.
-    /// Added (2026-08-19) after confirming live that neither case
-    /// otherwise named the episode anywhere in the hero at all — only the
-    /// show's own logo/name.
+    /// rendered above it: under the logo image when there is one, or
+    /// under `title` as a second line when there isn't.
     var episodeTitle: String? = nil
     /// `.leading` (Disney+-style, unchanged) for `HeroRailCard`'s hero rail
     /// cards; `HeroHeaderView` (every detail-page hero) passes `.center`
-    /// instead — per direct feedback (2026-08-19): a left-aligned logo/
-    /// episode-title stack reads as lopsided whenever the two lines are
-    /// noticeably different widths (a narrow logo over a long episode
-    /// title, or vice versa), which centering fixes regardless of either
-    /// element's own width, without needing to know either one in advance.
+    /// instead — a left-aligned logo/episode-title stack reads as lopsided
+    /// whenever the two lines are noticeably different widths, which
+    /// centering fixes regardless of either element's own width.
     var alignment: HorizontalAlignment = .leading
     /// Whether to reserve the extra backdrop headroom (`backdropScale`)
     /// the effect needs to never uncover an image edge — kept as its own

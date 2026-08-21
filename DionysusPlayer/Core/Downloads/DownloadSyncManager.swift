@@ -10,20 +10,15 @@ import Foundation
 enum DownloadSyncManager {
     /// Guards against overlapping passes — every scenePhase-driven
     /// foreground transition in `DionysusPlayerApp` spawns its own
-    /// untracked call to `syncIfNeeded` below, with nothing coordinating
-    /// between separate calls. A real inefficiency, found in a 2026-08-20
-    /// branch review: rapid foreground/background cycling (switching to
-    /// Messages and back, Control Center — both routine) fires overlapping
-    /// passes, each re-reading `store.pendingSyncItems()` before an
-    /// earlier pass has had a chance to flip `pendingSync = false` for the
-    /// same rows, so the same `updateUserData` POST could go out
-    /// redundantly more than once for one watched/resume update. A second
-    /// call arriving while one's already running is now a no-op — the
-    /// in-flight pass already covers whatever was pending when it started,
-    /// and anything that becomes pending *during* that pass gets picked up
-    /// by the next trigger regardless, same "no retry backoff of its own"
-    /// reasoning `syncIfNeeded`'s own doc comment below already gives for
-    /// a failed row.
+    /// untracked call to `syncIfNeeded` below, with nothing else
+    /// coordinating between separate calls, so rapid foreground/background
+    /// cycling could otherwise fire overlapping passes that each re-read
+    /// `store.pendingSyncItems()` before an earlier pass clears them,
+    /// sending the same `updateUserData` POST redundantly. A second call
+    /// arriving while one's already running is a no-op — the in-flight
+    /// pass already covers whatever was pending when it started, and
+    /// anything that becomes pending during that pass gets picked up by
+    /// the next trigger.
     private static var isSyncing = false
 
     /// Queries `store` for `pendingSync` rows, calls `updateUserData(...)`

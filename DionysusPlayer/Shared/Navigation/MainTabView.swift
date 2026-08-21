@@ -76,15 +76,12 @@ struct MainTabView: View {
                 DownloadsView()
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
             }
-            // Not "arrow.down.circle" — iOS's tab bar already draws its own
-            // filled pill/circle behind the *selected* tab's icon (confirmed
-            // live, iOS 26), and a symbol that has its own circular border
-            // merges visually with that into what reads as one solid disc
-            // rather than a distinct glyph inside a highlight, unlike the
-            // other tabs here (Home's custom asset, Search's plain
-            // "magnifyingglass", Profile's circular photo) which don't have
-            // that same double-circle problem. "square.and.arrow.down.on.square"
-            // is square, not circular, so it doesn't hit that issue.
+            // Not "arrow.down.circle" — iOS's tab bar draws its own filled
+            // pill/circle behind the selected tab's icon, and a symbol
+            // with its own circular border merges visually with that into
+            // one solid disc rather than a distinct glyph inside a
+            // highlight. "square.and.arrow.down.on.square" is square, so
+            // it doesn't hit that issue.
             .tabItem { Label("Downloads", systemImage: "square.and.arrow.down.on.square") }
             .tag(MainTab.downloads)
 

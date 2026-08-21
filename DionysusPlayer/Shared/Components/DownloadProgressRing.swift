@@ -10,29 +10,24 @@ import SwiftUI
 /// (unlike watchOS, which does render a determinate ring for it), which is
 /// why the determinate case below is hand-rolled instead.
 ///
-/// Tried `Image(systemName: "arrow.down.circle", variableValue:)` instead
-/// of this hand-rolled shape (iOS 16's native "Variable Color" SF Symbol
-/// API) for visual consistency with the button's own idle/complete-state
-/// glyphs — reverted, confirmed live (2026-08-19): the API silently
-/// accepts a `variableValue` for *any* symbol without erroring, but only
-/// actually renders a graduated fill for symbols Apple specifically
-/// annotated with that capability in the system symbol data, and
-/// `"arrow.down.circle"` isn't one of them — the icon rendered essentially
-/// static regardless of the real percentage. Don't retry that approach for
-/// this specific glyph without first confirming in the SF Symbols app that
-/// *this exact symbol* (not a same-shaped one) has "Variable Color"
-/// annotated layers, not just that the app's UI lets a value be set.
+/// Don't switch this to `Image(systemName: "arrow.down.circle",
+/// variableValue:)` (iOS 16's "Variable Color" SF Symbol API) for visual
+/// consistency with the button's own idle/complete-state glyphs — tried
+/// once already: the API silently accepts a `variableValue` for any
+/// symbol without erroring, but only actually renders a graduated fill
+/// for symbols Apple specifically annotated with that capability, and
+/// `"arrow.down.circle"` isn't one of them, so the icon rendered
+/// essentially static regardless of the real percentage.
 ///
 /// Used by `DownloadButton` (detail pages) and the Downloads tab's list
 /// rows/detail page. Deliberately no percentage label (every call site
 /// already shows one as adjacent text) and no `.animation(...)` on the
-/// trim — an earlier version had both; the animation in particular caused
-/// a real, confirmed-live desync: with progress updates arriving several
-/// times a second, each one restarted a fresh animation toward the new
-/// target before the previous one finished, so the ring perpetually
-/// chased a moving target and visibly lagged behind the true value.
-/// Snapping straight to the exact current fraction, same as the adjacent
-/// percentage text, is what keeps the two in sync.
+/// trim — with progress updates arriving several times a second, animating
+/// the trim means each update restarts a fresh animation toward the new
+/// target before the previous one finishes, so the ring perpetually chases
+/// a moving target and visibly lags the true value. Snapping straight to
+/// the exact current fraction, same as the adjacent percentage text, is
+/// what keeps the two in sync.
 struct DownloadProgressRing: View {
     var progress: DownloadProgress
     var lineWidth: CGFloat = 3

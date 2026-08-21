@@ -3,18 +3,12 @@ import SwiftUI
 /// Downloads settings, split out from `ProfileView` into its own pushed
 /// screen once the section grew a storage graph alongside its existing
 /// quality/network pickers — matches iOS Settings' own pattern of a summary
-/// row on the parent screen (`ProfileView`'s "Downloads" row) pushing to a
-/// dedicated sub-screen rather than growing the parent list indefinitely.
+/// row on the parent screen pushing to a dedicated sub-screen.
 ///
-/// Reached only from `ProfileView`, in both places it's mounted (the
-/// signed-in Profile tab and `RootView`'s offline-mode embedding) — a plain
-/// `NavigationLink(destination:)` rather than a new `AppRoute` case,
-/// deliberately: `AppRoute` is for destinations pushed from more than one
-/// feature's navigation stack (asset detail, collections, ...), and wiring
-/// it here would mean also registering `navigationDestination(for:
-/// AppRoute.self)` on `RootView`'s offline `NavigationStack`, which doesn't
-/// have one today. A per-feature `NavigationLink` for a screen only ever
-/// reached from within that same feature stays simpler.
+/// Reached only from `ProfileView`, via a plain `NavigationLink(destination:)`
+/// rather than a new `AppRoute` case — `AppRoute` is for destinations
+/// pushed from more than one feature's navigation stack, and this is only
+/// ever reached from within `ProfileView`'s own.
 struct DownloadsSettingsView: View {
     @AppStorage(downloadResolutionStorageKey) private var downloadResolution: DownloadResolution = .hd1080p
     @AppStorage(downloadBitratePresetStorageKey) private var downloadBitratePreset: DownloadBitratePreset = .normal

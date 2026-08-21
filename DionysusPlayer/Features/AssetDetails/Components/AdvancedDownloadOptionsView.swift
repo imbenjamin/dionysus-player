@@ -32,18 +32,12 @@ struct AdvancedDownloadOptionsView: View {
         NavigationStack {
             List {
                 Section {
-                    // `.menu` style, not the default `List`-push style
-                    // `ProfileView`'s own Resolution/Quality pickers use —
-                    // confirmed live (2026-08-20): the default style renders
-                    // each row as a `NavigationLink`-shaped push into a full
-                    // picker screen, and that push gesture reliably loses a
-                    // hit-testing fight against this sheet's own pan/resize
-                    // gesture recognizer at a fixed `.medium` detent (most
-                    // taps registered a highlight but never completed the
-                    // push). `ProfileView`'s pickers don't hit this — they
-                    // live in a plain full-screen `NavigationStack`, not a
-                    // sheet pinned to one detent, so there's no competing
-                    // pan gesture there. `.menu` sidesteps the whole class of
+                    // `.menu` style, not the default `List`-push style —
+                    // the default style's `NavigationLink`-shaped push
+                    // reliably loses a hit-testing fight against this
+                    // sheet's own pan/resize gesture recognizer at a fixed
+                    // `.medium` detent (most taps registered a highlight
+                    // but never completed the push). `.menu` sidesteps the
                     // conflict by never pushing a destination at all.
                     Picker("Resolution", selection: $resolution) {
                         ForEach(DownloadResolution.allCases) { resolution in

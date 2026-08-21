@@ -69,19 +69,12 @@ enum TrickplayMath {
 /// on disk from an offline download) share identical seconds→sheet/tile
 /// math (`TrickplayMath`) and differ only in where the sheet bytes come
 /// from. `PlayerViewModel.trickplayProvider` is typed against this so
-/// `start()`/`startOffline()` can each install whichever conformer applies
-/// without the rest of the view model (`supportsScrubThumbnails`,
-/// `scrubThumbnail(atSeconds:)`) needing to branch on which. The
-/// requirement itself is `@MainActor` — both conformers' `thumbnail(
-/// atSeconds:)` is only ever called from `PlayerViewModel` (itself
-/// `@MainActor`), and isolating just this method keeps every call a
-/// same-actor hop rather than tripping Swift's "sending a non-`Sendable`
-/// existential" check on a bare, unisolated `async` requirement.
-/// Deliberately *not* `@MainActor` on the protocol itself — that would
-/// infer the same isolation onto every conformer's own initializer too
-/// (Swift's global-actor-inference-from-conformance rule), which would
-/// make `TrickplayThumbnailProvider.init` MainActor-only and break its
-/// existing off-actor test construction for no reason this actually needs.
+/// `start()`/`startOffline()` can each install whichever conformer applies.
+/// `@MainActor` is on the `thumbnail(atSeconds:)` requirement itself, not
+/// the protocol — putting it on the protocol would infer the same
+/// isolation onto every conformer's own initializer too (Swift's global-
+/// actor-inference-from-conformance rule), breaking off-actor test
+/// construction for no reason this actually needs.
 protocol ScrubThumbnailProviding {
     @MainActor func thumbnail(atSeconds seconds: Double) async -> CGImage?
 }

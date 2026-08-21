@@ -90,10 +90,13 @@ final class PlayerViewModel {
     private let userID: String
     private let trackPreferenceStore: TrackPreferenceStore
     private let nextUpPreferenceStore: NextUpPreferenceStore
-    /// Set only via `init(downloadedItem:downloadStore:...)` — when
-    /// non-nil, `start()`/`stop()`/progress reporting all route through the
-    /// local-only offline paths below instead of any network call. See the
-    /// offline-downloads plan's "Offline playback wiring" section.
+    /// Set only via `init`'s `downloadedItem:` parameter — when non-nil,
+    /// `start()`/`stop()`/progress reporting all route through the
+    /// local-only offline paths below instead of any network call. `itemID`
+    /// should still be `downloadedItem.itemID` in that case (the same
+    /// Jellyfin item id, just played from a local file); `client`/`userID`
+    /// are still required and valid to pass through even offline, so
+    /// callers don't need a separate offline-only initializer shape.
     private let downloadedItem: DownloadedItem?
     private let downloadStore: DownloadStore?
     /// `true` for a session playing an offline download rather than
@@ -336,13 +339,8 @@ final class PlayerViewModel {
         startFromBeginning: Bool = false, mediaSourceID: String? = nil,
         trackPreferenceStore: TrackPreferenceStore = TrackPreferenceStore(),
         nextUpPreferenceStore: NextUpPreferenceStore = NextUpPreferenceStore(),
-        /// Non-nil routes this whole session through the offline playback
-        /// path — see `downloadedItem`'s own doc comment. `itemID` should
-        /// still be `downloadedItem.itemID` in that case (the same
-        /// Jellyfin item id, just played from a local file); `client`/
-        /// `userID` are still required and still valid to pass through
-        /// even offline (nothing here calls them unless reconnected), so
-        /// callers don't need a separate offline-only initializer shape.
+        // Non-nil routes this whole session through the offline playback
+        // path — see the `downloadedItem` property's own doc comment.
         downloadedItem: DownloadedItem? = nil,
         downloadStore: DownloadStore? = nil
     ) {
@@ -849,24 +847,18 @@ final class PlayerViewModel {
     func stop() async {
         progressReportTask?.cancel()
         if let downloadedItem {
-            // Captured before `engine.stop()`, not left to `writeOfflineProgress`'s
-            // own implicit `self.currentTime`/`.duration` read afterward —
-            // matches the online path just below, which is careful to
-            // capture `ticks` before stopping for the same reason. A real
-            // (if not actively triggered) fragility, found in a 2026-08-20
-            // branch review: `engine.stop()` synchronously zeroes
-            // AetherEngine's own internal clock/duration, and those
-            // changes only reach `self.currentTime`/`.duration` via
-            // Combine's `.receive(on: .main)` sinks in `observeEngine()`,
-            // which currently defer to the next run-loop turn rather than
-            // firing synchronously — so reading them right after
-            // `engine.stop()` happened to still see the pre-stop values,
-            // but only because of that scheduling detail, not because it's
-            // actually safe to depend on. Any future change to that
-            // dispatch timing (or to AetherEngine's own `stop()`
-            // internals) would silently start writing `resumePositionTicks
-            // = 0` on every offline stop, discarding the user's real
-            // position.
+            // Captured before `engine.stop()`, not left to
+            // `writeOfflineProgress`'s own implicit `self.currentTime`/
+            // `.duration` read afterward — matches the online path just
+            // below. `engine.stop()` synchronously zeroes AetherEngine's
+            // own internal clock/duration, and those changes only reach
+            // `self.currentTime`/`.duration` via `observeEngine()`'s
+            // Combine sinks, which defer to the next run-loop turn rather
+            // than firing synchronously. Reading them right after
+            // `engine.stop()` happens to still see the pre-stop values
+            // today, but only because of that scheduling detail — not
+            // something safe to rely on implicitly, hence capturing
+            // explicitly here instead.
             let capturedTime = currentTime
             let capturedDuration = duration
             engine.stop()

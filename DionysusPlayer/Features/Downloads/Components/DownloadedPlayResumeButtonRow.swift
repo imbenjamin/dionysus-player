@@ -35,11 +35,9 @@ struct DownloadedPlayResumeButtonRow: View {
     /// "Play"/"Resume"/"Play Again", with an "SXX:EYY" suffix whenever
     /// `item.episodeLabel` is set — same idea as `PlayResumeButtonRow
     /// .buttonTitle`'s own suffix, and what carries the episode number for
-    /// this page instead of a separate on-screen label: see this type's
-    /// own doc comment on why the episode/series title no longer appears
-    /// as plain text elsewhere on `DownloadedAssetDetailView` — confirmed
-    /// live (2026-08-19) against a real Show page that this is exactly
-    /// where "S1:E4" belongs, not a standalone line of its own.
+    /// this page instead of a separate on-screen label (see
+    /// `DownloadedAssetDetailView`'s own doc comment on why the episode/
+    /// series title doesn't appear elsewhere as plain text).
     private var buttonTitle: String {
         guard let label = item.episodeLabel else {
             if item.isPlayed { return String(localized: "Play Again") }
@@ -139,12 +137,9 @@ struct DownloadedPlayResumeButtonRow: View {
         }
     }
 
-    /// Added per direct feedback (2026-08-20): a failed download used to
-    /// require deleting the row and re-finding/re-downloading the item
-    /// from its live page from scratch — this puts the fix one tap away,
-    /// right where the failure is already shown, reusing the exact
-    /// resolution/quality/audio choice the original attempt used (see
-    /// `DownloadManager.retry(itemID:client:)`'s own doc comment).
+    /// Retries right where the failure is already shown, reusing the exact
+    /// resolution/quality/audio choice the original attempt used — see
+    /// `DownloadManager.retry(itemID:client:)`'s own doc comment.
     private var failedRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
@@ -154,12 +149,9 @@ struct DownloadedPlayResumeButtonRow: View {
             .foregroundStyle(.secondary)
 
             // Hidden rather than shown-disabled when there's no live
-            // session — an explanatory "reconnect to retry" label would
-            // be more honest, but this page is reachable fully offline
-            // (see `client`'s own doc comment) and a failed download from
-            // that context is just as easily retried once actually back
-            // online and revisiting this same page, so a missing button
-            // reads as "nothing to do right now" clearly enough on its own.
+            // session — this page is reachable fully offline (see
+            // `client`'s own doc comment), and a missing button reads as
+            // "nothing to do right now" clearly enough on its own.
             if let client {
                 Button(action: { retry(client: client) }) {
                     Label {

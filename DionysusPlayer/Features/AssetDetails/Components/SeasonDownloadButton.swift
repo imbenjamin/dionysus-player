@@ -26,19 +26,14 @@ struct SeasonDownloadButton: View {
     @State private var isShowingError = false
     @State private var errorMessage = ""
 
-    /// One SwiftData fetch for every episode in this season, keyed by
-    /// itemID — `missingEpisodes`/`isAnyInProgress`/`isFullyDownloaded`/
-    /// `aggregateProgress` used to each independently call
-    /// `store.item(itemID:)` per episode (2-3 full passes over `episodes`,
-    /// each doing its own predicate fetch — up to ~2-3N SwiftData queries
-    /// for a single render), a real inefficiency found in a 2026-08-20
-    /// branch review. `body` below fetches this once via `DownloadStore
-    /// .items(itemIDs:)`'s single batched query and threads it through the
-    /// parameterized forms of those four properties instead — one query
-    /// per render, not up to 3N. The plain zero-arg `missingEpisodes`
-    /// survives for `startBulkDownload()`'s own use, which runs
-    /// asynchronously after the tap and wants a *fresh* re-fetch at that
-    /// later moment, not a stale render-time snapshot.
+    /// One batched SwiftData fetch for every episode in this season, keyed
+    /// by itemID — `body` fetches this once and threads it through the
+    /// parameterized forms of `missingEpisodes`/`isAnyInProgress`/
+    /// `isFullyDownloaded`/`aggregateProgress`, rather than each
+    /// independently querying per episode. The plain zero-arg
+    /// `missingEpisodes` survives for `startBulkDownload()`'s own use,
+    /// which runs asynchronously after the tap and wants a fresh re-fetch
+    /// at that later moment, not a stale render-time snapshot.
     private var rowsByEpisodeID: [String: DownloadedItem] {
         // `_ = downloadManager.store.changeCount` — see `DownloadStore
         // .changeCount`'s own doc comment; `store.items(itemIDs:)` itself
@@ -98,27 +93,21 @@ struct SeasonDownloadButton: View {
     var body: some View {
         let rows = rowsByEpisodeID
         // Not `.borderedProminent` — `DownloadButton`'s own heavy
-        // rectangular chip read as too heavy sitting directly beside the
-        // season `Picker` (confirmed live, 2026-08-19). But a bare icon
-        // with no chrome at all under-read as tappable in its own right —
-        // direct follow-up feedback the same day. This splits the
-        // difference: a filled circular badge using `dionysusPrimaryLight`,
-        // the same tint the Restart button already uses for "related to
-        // the primary action, but visibly secondary" — enough of a shape to
-        // read as a real button, still a step down from the full
-        // `DownloadButton` chip. The `.padding(8)` around the 20pt icon
-        // (rather than sizing the circle tight to it) is also what gives
-        // this a larger, easier tap target than the bare-icon version had.
+        // rectangular chip reads as too heavy beside the season `Picker`,
+        // but a bare icon with no chrome under-reads as tappable. This
+        // splits the difference: a filled circular badge using
+        // `dionysusPrimaryLight` (the same "related to the primary action,
+        // but visibly secondary" tint the Restart button uses), with
+        // `.padding(8)` around the icon rather than sizing the circle
+        // tight to it for a larger tap target.
         Button(action: startBulkDownload) {
             Group {
                 if let progress = aggregateProgress(in: rows) {
                     DownloadProgressRing(progress: progress)
                 } else if isQueuing || isAnyInProgress(in: rows) {
-                    // Nothing to show a ring for yet — either just tapped
-                    // (no row exists for any episode yet) or every
-                    // in-progress episode is still in its own "preparing"
-                    // window with no estimated total to fall back to
-                    // either (missing runtime/bitrate metadata).
+                    // Nothing to show a ring for yet — either just tapped,
+                    // or every in-progress episode is still in its own
+                    // "preparing" window with no estimated total yet.
                     ProgressView()
                         .tint(Color.dionysusPrimary)
                 } else if isFullyDownloaded(in: rows) {
