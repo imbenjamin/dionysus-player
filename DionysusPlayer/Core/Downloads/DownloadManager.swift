@@ -43,12 +43,16 @@ enum DownloadError: LocalizedError {
     /// server (or the library it was in) since it was originally
     /// downloaded, so there's nothing left to re-fetch.
     case itemNoLongerAvailable
+    /// AUDIO SUPPRESSION: see `enqueue(...)`'s guard. Delete this case once
+    /// Dionysus Player supports downloading audio/music content.
+    case audioContentNotSupported
 
     var errorDescription: String? {
         switch self {
         case .missingMediaSource: return String(localized: "This item has no downloadable media source.")
         case .invalidDownloadURL: return String(localized: "Couldn't build a download URL for this item.")
         case .itemNoLongerAvailable: return String(localized: "This item is no longer available on the server.")
+        case .audioContentNotSupported: return String(localized: "Audio and music items can't be downloaded.")
         }
     }
 }
@@ -196,6 +200,13 @@ final class DownloadManager: NSObject {
         client: JellyfinAPIClient,
         userID: String
     ) async throws {
+        // AUDIO SUPPRESSION: `DownloadButton` only appears inside
+        // `MovieDetailView`, which `AssetDetailView` already keeps an audio
+        // item from rendering — so this is currently unreachable, kept as a
+        // cheap first-line guard against a future bulk-/library-level
+        // download entry point reaching `enqueue(...)` directly. Delete
+        // once Dionysus Player supports downloading audio/music content.
+        guard !item.isAudioContent else { throw DownloadError.audioContentNotSupported }
         guard let mediaSourceID = mediaSource.id else { throw DownloadError.missingMediaSource }
         // A redownload of an item that already has a row must start from a
         // clean slate rather than relying on SwiftData's unique-key merge

@@ -209,6 +209,21 @@ final class AssetDetailViewModel {
                 preselectedSeasonID = nil
             }
 
+            // AUDIO SUPPRESSION: `item`/`displayedItemID` are already set
+            // above (the `default` branch handles audio types same as a
+            // Movie), so `AssetDetailView`'s `item.isAudioContent` check can
+            // render its "not supported" state — nothing below this point
+            // renders once it does, so skip firing the similar/collections/
+            // seasons/episode-resolution fetches entirely rather than
+            // wasting the round trips. Not required for correctness, purely
+            // an efficiency guard — delete once Dionysus Player supports
+            // audio/music playback and this content is meant to load
+            // normally.
+            guard !dto.isAudioContent else {
+                loadState = .loaded
+                return
+            }
+
             // Similar/collections are scoped to the Show for every
             // Series/Season/Episode case (an episode's own "similar items"
             // via the API is empty/meaningless) — falls back to `itemID`

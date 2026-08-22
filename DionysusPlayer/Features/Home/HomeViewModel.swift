@@ -129,8 +129,8 @@ final class HomeViewModel {
             let images = await client.makeImageURLBuilder()
 
             let views = try await client.userViews(userID: userID)
-            let moviesLibraryID = views.items.first { $0.collectionType == "movies" }?.id
-            let showsLibraryID = views.items.first { $0.collectionType == "tvshows" }?.id
+            let moviesLibraryID = views.items.first { $0.collectionType == JellyfinCollectionType.movies }?.id
+            let showsLibraryID = views.items.first { $0.collectionType == JellyfinCollectionType.tvShows }?.id
             self.moviesLibraryID = moviesLibraryID
             self.showsLibraryID = showsLibraryID
 
@@ -141,13 +141,24 @@ final class HomeViewModel {
                 filters: ["IsUnplayed"],
                 limit: 10
             )
-            async let resume = client.resumeItems(userID: userID)
+            // AUDIO SUPPRESSION: excludeItemTypes keeps audio/music out of
+            // Continue Watching server-side — see `JellyfinAPIClient
+            // .audioItemTypeExclusions`'s doc comment. Delete this argument
+            // once Dionysus Player supports audio/music playback.
+            async let resume = client.resumeItems(userID: userID, excludeItemTypes: JellyfinAPIClient.audioItemTypeExclusions)
             async let upNext = client.nextUp(userID: userID, limit: 16)
             async let latestMovies = client.latestItems(userID: userID, parentID: moviesLibraryID, limit: 16)
             async let latestShows = client.latestItems(userID: userID, parentID: showsLibraryID, limit: 16)
 
             heroItems = try await heroCandidates.items.map { MediaItem(dto: $0, images: images) }
-            libraries = views.items.map { MediaItem(dto: $0, images: images) }
+            // AUDIO SUPPRESSION: `/Users/{id}/Views` has no server-side type
+            // filter, so a Music library has to be dropped here instead —
+            // see `MediaItem.isAudioLibrary`'s doc comment. Delete this
+            // `.filter` once Dionysus Player supports browsing a Music
+            // library.
+            libraries = views.items
+                .map { MediaItem(dto: $0, images: images) }
+                .filter { !$0.isAudioLibrary }
 
             var newRails: [MediaCollectionRail] = []
             func appendRail(_ title: String, _ dtos: [BaseItemDto], seeAllQuery: CollectionQuery? = nil) {

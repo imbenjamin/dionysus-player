@@ -64,6 +64,33 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.seasons.isEmpty)
     }
 
+    /// AUDIO SUPPRESSION: `item`/`displayedItemID` still populate (so
+    /// `AssetDetailView`'s `item.isAudioContent` check can render its "not
+    /// supported" state), but nothing downstream of that fires — a pure
+    /// efficiency guard, not required for the suppression itself (which
+    /// lives in `AssetDetailView`).
+    func test_load_audioItem_populatesItemButSkipsSimilarCollectionsAndSeasons() async {
+        let itemDto = BaseItemDto(id: "track-1", name: "Bend", type: .audio, mediaType: "Audio")
+        let viewModel = makeViewModel(itemID: "track-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/track-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: itemDto)
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?") — an audio item shouldn't trigger similar/collections/seasons fetches")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(viewModel.item?.id, "track-1")
+        XCTAssertTrue(viewModel.similar.isEmpty)
+        XCTAssertTrue(viewModel.collections.isEmpty)
+        XCTAssertTrue(viewModel.seasons.isEmpty)
+    }
+
     func test_load_series_alsoFetchesSeasons() async {
         let itemDto = BaseItemDto(id: "series-1", name: "The Wire", type: .series)
         let seasonDto = BaseItemDto(id: "season-1", name: "Season 1", type: .season)

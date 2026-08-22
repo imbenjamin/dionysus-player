@@ -31,6 +31,10 @@ final class CollectionGridViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.items.map(\.id), ["movie-1"])
         XCTAssertEqual(captured["ParentId"], "lib-movies")
         XCTAssertEqual(captured["IncludeItemTypes"], "Movie")
+        // AUDIO SUPPRESSION: every grid load excludes audio/music
+        // server-side, regardless of how its `CollectionQuery` was scoped —
+        // see `JellyfinAPIClient.audioItemTypeExclusions`.
+        XCTAssertEqual(captured["ExcludeItemTypes"], "Audio,AudioBook,MusicAlbum,MusicArtist,MusicGenre")
     }
 
     func test_load_defaultsToTitleAscendingSort() async {

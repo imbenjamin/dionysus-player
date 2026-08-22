@@ -69,23 +69,40 @@ struct AssetDetailView: View {
         if ConnectivityMonitor.shared.isOffline, viewModel.loadState != .loaded {
             OfflineStateView(retry: { Task { await viewModel.load() } })
         } else if let item = viewModel.item {
-            switch item.kind {
-            case .series, .season, .episode:
-                // `.season`/`.episode` here covers the moment before
-                // `load()` resolves, when `item` is still whatever
-                // `preloadedItem` the tapped card handed in — a raw Season
-                // or Episode DTO, not yet swapped to the Show's own item for
-                // a Season tap (see `AssetDetailViewModel.load()`). Once
-                // loaded, a Season tap's `item.kind` is `.series` (the swap
-                // already happened) and only an Episode tap still reads
-                // `.episode` — both keep routing here either way, which is
-                // what actually matters: `ShowDetailView` renders correctly
-                // for all three by that point.
-                ShowDetailView(viewModel: viewModel)
-            case .boxSet:
-                CollectionDetailView(viewModel: viewModel)
-            default:
-                MovieDetailView(viewModel: viewModel)
+            // AUDIO SUPPRESSION: the structurally-required safety net —
+            // `/Items/{itemId}` (this screen's own fetch) and
+            // `/Items/{itemId}/Similar` have no server-side type filter, so
+            // an audio item can still reach here even with every list
+            // endpoint upstream excluding it (e.g. via a Similar/"More Like
+            // This" rail). Without this check it would fall to the
+            // `default` case below and render `MovieDetailView`'s full
+            // Play/Download UI for content that can't actually play. Once
+            // Dionysus Player supports audio/music playback, rewire this to
+            // a real audio detail view instead of deleting it.
+            if item.isAudioContent {
+                ErrorStateView(
+                    message: String(localized: "Audio and music playback aren't supported in Dionysus Player yet."),
+                    icon: "music.note"
+                )
+            } else {
+                switch item.kind {
+                case .series, .season, .episode:
+                    // `.season`/`.episode` here covers the moment before
+                    // `load()` resolves, when `item` is still whatever
+                    // `preloadedItem` the tapped card handed in — a raw Season
+                    // or Episode DTO, not yet swapped to the Show's own item for
+                    // a Season tap (see `AssetDetailViewModel.load()`). Once
+                    // loaded, a Season tap's `item.kind` is `.series` (the swap
+                    // already happened) and only an Episode tap still reads
+                    // `.episode` — both keep routing here either way, which is
+                    // what actually matters: `ShowDetailView` renders correctly
+                    // for all three by that point.
+                    ShowDetailView(viewModel: viewModel)
+                case .boxSet:
+                    CollectionDetailView(viewModel: viewModel)
+                default:
+                    MovieDetailView(viewModel: viewModel)
+                }
             }
         } else {
             switch viewModel.loadState {

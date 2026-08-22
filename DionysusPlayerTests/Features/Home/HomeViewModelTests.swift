@@ -80,6 +80,10 @@ final class HomeViewModelTests: XCTestCase {
                     for: request, value: BaseItemDtoQueryResult(items: [heroItem], totalRecordCount: 1)
                 )
             case "/Users/user-1/Items/Resume":
+                // AUDIO SUPPRESSION: Continue Watching is scoped server-side
+                // via `excludeItemTypes` — see `JellyfinAPIClient
+                // .audioItemTypeExclusions`.
+                XCTAssertEqual(request.queryDictionary["ExcludeItemTypes"], "Audio,AudioBook,MusicAlbum,MusicArtist,MusicGenre")
                 return try MockURLProtocol.encodedJSONResponse(
                     for: request, value: BaseItemDtoQueryResult(items: [resumeItem], totalRecordCount: 1)
                 )
@@ -127,6 +131,40 @@ final class HomeViewModelTests: XCTestCase {
             "Recently Added's See All should preset newest-first, not the grid's own Title default"
         )
         XCTAssertEqual(recentMovies.seeAllQuery?.initialSortOrder, .descending)
+    }
+
+    /// AUDIO SUPPRESSION: `/Users/{id}/Views` has no server-side type
+    /// filter, so a Music library has to be dropped client-side — see
+    /// `MediaItem.isAudioLibrary`.
+    func test_load_excludesMusicLibraryFromLibraries() async {
+        let moviesLibrary = BaseItemDto(id: "lib-movies", name: "Movies", type: .collectionFolder, collectionType: "movies")
+        let musicLibrary = BaseItemDto(id: "lib-music", name: "Music", type: .collectionFolder, collectionType: "music")
+
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Views":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [moviesLibrary, musicLibrary], totalRecordCount: 2)
+                )
+            case "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items/Resume":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Shows/NextUp":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items/Latest":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]())
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.libraries.map(\.id), ["lib-movies"], "Music library should be filtered out")
     }
 
     func test_load_serverError_setsFailedStateAndLeavesRailsEmpty() async {

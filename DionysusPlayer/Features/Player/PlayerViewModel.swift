@@ -400,6 +400,18 @@ final class PlayerViewModel {
             // parameter's own doc comment for why the shared default
             // doesn't carry it for every other caller too.
             let dto = try await client.item(userID: userID, itemID: itemID, fields: JellyfinAPIClient.detailFieldsWithTrickplay)
+            // AUDIO SUPPRESSION: the other structurally-required safety net
+            // (see `AssetDetailView`'s matching guard) — `/Items/{itemId}`
+            // has no server-side type filter, so if a `PlaybackRequest` for
+            // an audio item ever reaches this far (a raw request bypassing
+            // the detail screen, a future bug), stop before handing an
+            // audio stream to a playback engine built for video. Once
+            // Dionysus Player supports audio/music playback, rewire this to
+            // route to an audio-capable engine instead of bailing.
+            guard !dto.isAudioContent else {
+                errorMessage = String(localized: "Audio and music playback aren't supported.")
+                return
+            }
             let mediaItem = MediaItem(dto: dto, images: images)
             item = mediaItem
             // Title/subtitle land immediately so the lock screen/Control

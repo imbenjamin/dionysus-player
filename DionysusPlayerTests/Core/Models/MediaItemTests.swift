@@ -855,6 +855,43 @@ final class MediaItemTests: XCTestCase {
         XCTAssertEqual(makeMovie().libraryContentItemTypes, [], "Not a library at all — collectionType is nil")
     }
 
+    // MARK: isAudioContent / isAudioLibrary — AUDIO SUPPRESSION
+
+    private func makeItem(type: BaseItemKind, mediaType: String? = nil) -> MediaItem {
+        let dto = BaseItemDto(id: "item-1", name: "Some Item", type: type, mediaType: mediaType)
+        return MediaItem(dto: dto, images: images)
+    }
+
+    func test_isAudioContent_trueForEachAudioKind() {
+        for kind: BaseItemKind in [.audio, .audioBook, .musicAlbum, .musicArtist, .musicGenre] {
+            XCTAssertTrue(makeItem(type: kind).isAudioContent, "\(kind) should be audio content")
+        }
+    }
+
+    func test_isAudioContent_falseForVideoKinds() {
+        XCTAssertFalse(makeMovie().isAudioContent)
+        // `.unknown` stands in for `MusicVideo` — deliberately not its own
+        // `BaseItemKind` case, since it's real video Dionysus Player
+        // already plays correctly.
+        XCTAssertFalse(makeItem(type: .unknown).isAudioContent)
+    }
+
+    func test_isAudioContent_playlist_dependsOnMediaType() {
+        XCTAssertTrue(makeItem(type: .playlist, mediaType: "Audio").isAudioContent)
+        XCTAssertFalse(makeItem(type: .playlist, mediaType: "Video").isAudioContent)
+        // An empty playlist also defaults to `MediaType: "Audio"` on a real
+        // server — over-suppressing that edge case is the accepted
+        // trade-off (see `BaseItemDto.isAudioContent`'s doc comment).
+        XCTAssertFalse(makeItem(type: .playlist, mediaType: nil).isAudioContent)
+    }
+
+    func test_isAudioLibrary_trueOnlyForMusicCollectionType() {
+        XCTAssertTrue(makeLibrary(collectionType: "music").isAudioLibrary)
+        XCTAssertFalse(makeLibrary(collectionType: "musicvideos").isAudioLibrary, "real playable video, deliberately not treated as an audio library")
+        XCTAssertFalse(makeLibrary(collectionType: "movies").isAudioLibrary)
+        XCTAssertFalse(makeLibrary(collectionType: nil).isAudioLibrary)
+    }
+
     // MARK: studios / decade — CollectionGridView's Studios/Decade filters
 
     func test_studios_mapsNameGuidPairsToJustTheNames() {
