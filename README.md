@@ -110,6 +110,16 @@ seeking/scrubbing edge cases.
   won't play back live yet.
 - **tvOS/macOS are not built yet** — iOS/iPadOS only for now, per the
   Status section above.
+- **Audio/music libraries aren't supported yet** — browsing/playing music is
+  future scope (see tvOS/macOS above), so a server's Music library and its
+  contents (tracks, albums, artists, audio playlists) are suppressed
+  throughout the app: hidden from Home's library rail and excluded
+  server-side from Continue Watching/library grids, with a clear "not
+  supported" state on the rare path that still reaches one (e.g. a
+  "More Like This" rail, since Jellyfin's own `/Similar` endpoint can't be
+  scoped by type) rather than the broken video-player attempt this used to
+  cause. Every suppression site is marked `AUDIO SUPPRESSION:` in the code
+  for easy removal/rewiring once real audio support lands.
 - Rail/grid curation logic (what shows up on Home, in what order) is an
   explicit placeholder, not final UX.
 

@@ -362,6 +362,60 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(capturedQuery["PersonTypes"], "Actor")
     }
 
+    /// AUDIO SUPPRESSION: `excludeItemTypes`/`mediaTypes` back `JellyfinAPIClient
+    /// .audioItemTypeExclusions`'s use in `HomeViewModel`/`CollectionGridViewModel`.
+    func test_items_appliesExcludeItemTypesAndMediaTypesWhenProvided() async throws {
+        let client = makeClient()
+        var capturedQuery: [String: String] = [:]
+        MockURLProtocol.requestHandler = { request in
+            capturedQuery = request.queryDictionary
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        _ = try await client.items(userID: "user-1", excludeItemTypes: ["Audio", "MusicAlbum"], mediaTypes: ["Video"])
+        XCTAssertEqual(capturedQuery["ExcludeItemTypes"], "Audio,MusicAlbum")
+        XCTAssertEqual(capturedQuery["MediaTypes"], "Video")
+    }
+
+    func test_items_omitsExcludeItemTypesAndMediaTypesWhenEmpty() async throws {
+        let client = makeClient()
+        var capturedQuery: [String: String] = [:]
+        MockURLProtocol.requestHandler = { request in
+            capturedQuery = request.queryDictionary
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        _ = try await client.items(userID: "user-1")
+        XCTAssertNil(capturedQuery["ExcludeItemTypes"])
+        XCTAssertNil(capturedQuery["MediaTypes"])
+    }
+
+    // MARK: resumeItems
+
+    func test_resumeItems_appliesExcludeItemTypesWhenProvided() async throws {
+        let client = makeClient()
+        var capturedQuery: [String: String] = [:]
+        MockURLProtocol.requestHandler = { request in
+            capturedQuery = request.queryDictionary
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        _ = try await client.resumeItems(userID: "user-1", excludeItemTypes: JellyfinAPIClient.audioItemTypeExclusions)
+        XCTAssertEqual(capturedQuery["ExcludeItemTypes"], "Audio,AudioBook,MusicAlbum,MusicArtist,MusicGenre")
+    }
+
+    func test_resumeItems_omitsExcludeItemTypesWhenEmpty() async throws {
+        let client = makeClient()
+        var capturedQuery: [String: String] = [:]
+        MockURLProtocol.requestHandler = { request in
+            capturedQuery = request.queryDictionary
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        _ = try await client.resumeItems(userID: "user-1")
+        XCTAssertNil(capturedQuery["ExcludeItemTypes"])
+    }
+
     // MARK: searchHints
 
     func test_searchHints_hitsTheDedicatedEndpointWithExpectedQuery() async throws {

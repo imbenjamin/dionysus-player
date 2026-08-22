@@ -201,10 +201,16 @@ final class CollectionGridViewModel {
         loadState = .loading
         do {
             let images = await client.makeImageURLBuilder()
+            // AUDIO SUPPRESSION: excludeItemTypes keeps audio/music out of
+            // every grid this viewmodel loads, regardless of how its
+            // `CollectionQuery` was scoped — see `JellyfinAPIClient
+            // .audioItemTypeExclusions`'s doc comment. Delete this argument
+            // once Dionysus Player supports audio/music playback.
             let result = try await client.items(
                 userID: userID,
                 parentID: query.parentID,
                 includeItemTypes: query.includeItemTypes,
+                excludeItemTypes: JellyfinAPIClient.audioItemTypeExclusions,
                 sortBy: sortField.sortBy,
                 sortOrder: sortOrder.value
             )

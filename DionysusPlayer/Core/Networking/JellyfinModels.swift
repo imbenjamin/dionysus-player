@@ -44,6 +44,20 @@ enum BaseItemKind: String, Codable {
     case collectionFolder = "CollectionFolder"
     case folder = "Folder"
     case playlist = "Playlist"
+    // AUDIO SUPPRESSION: these five cases exist so audio/music types decode
+    // to something explicit instead of falling into `.unknown` (which used
+    // to route them straight into `MovieDetailView`'s default branch — see
+    // `BaseItemDto.isAudioContent` below). Worth *keeping* once Dionysus
+    // Player supports audio/music playback — at that point they'd route to
+    // a real audio detail/playback path instead of an "unsupported" state,
+    // not get deleted. `MusicVideo` is deliberately not a case here: it's a
+    // real video file (just music-tagged) that already plays fine via the
+    // `.unknown` → `MovieDetailView` fallback.
+    case audio = "Audio"
+    case audioBook = "AudioBook"
+    case musicAlbum = "MusicAlbum"
+    case musicArtist = "MusicArtist"
+    case musicGenre = "MusicGenre"
     case unknown
 
     init(from decoder: Decoder) throws {
@@ -117,6 +131,54 @@ struct BaseItemDto: Codable, Identifiable {
     /// Present on library "views" (e.g. `"movies"`, `"tvshows"`, `"boxsets"`)
     /// returned by `/Users/{id}/Views`; used to scope Home's rails.
     var collectionType: String?
+    /// Jellyfin's own coarse content classification — `"Video"`, `"Audio"`,
+    /// `"Photo"`, `"Book"`, or `"Unknown"` (its default, notably including
+    /// the `MusicAlbum`/`MusicArtist` folder-like types, which don't carry
+    /// a meaningful `MediaType` of their own — see
+    /// `BaseItemDto.isAudioContent`, which keys off `type` for those two
+    /// rather than this field). Reliable for leaf `Audio` items and for
+    /// `Playlist` items (a playlist's own `MediaType` reflects its content).
+    var mediaType: String?
+}
+
+/// `CollectionType` values `/Users/{id}/Views` can report for a library —
+/// shared constants so `"movies"`/`"tvshows"`/`"boxsets"`/`"music"` aren't
+/// repeated as raw string literals at each call site (`MediaItem
+/// .libraryContentItemTypes`, `HomeViewModel.load()`).
+enum JellyfinCollectionType {
+    static let movies = "movies"
+    static let tvShows = "tvshows"
+    static let boxSets = "boxsets"
+    // AUDIO SUPPRESSION: only referenced by `MediaItem.isAudioLibrary` to
+    // hide a Music library from Home. Delete once Dionysus Player supports
+    // browsing a Music library instead of hiding it.
+    static let music = "music"
+}
+
+/// AUDIO SUPPRESSION: the one reusable source of truth for "is this item
+/// audio/music content Dionysus Player can't play yet" — every suppression
+/// check in the app (Home rails, detail screen, playback, downloads) calls
+/// this rather than re-deriving the type/mediaType logic. Worth *keeping*
+/// once audio support lands, repurposed to route to an audio player instead
+/// of gating it out — see the doc comment on the new `BaseItemKind` cases
+/// above.
+extension BaseItemDto {
+    var isAudioContent: Bool {
+        switch type {
+        case .audio, .audioBook, .musicAlbum, .musicArtist, .musicGenre:
+            return true
+        case .playlist:
+            // Best-effort: an audio playlist reports `MediaType: "Audio"`,
+            // but so does an *empty* playlist (server default with no
+            // content to infer a type from) — over-suppressing an
+            // edge-case empty non-audio playlist is the safe failure
+            // direction here, unlike under-suppressing into a broken Play
+            // button.
+            return mediaType == "Audio"
+        default:
+            return false
+        }
+    }
 }
 
 /// A single cast/crew credit. Jellyfin's `Type` is as open-ended as
