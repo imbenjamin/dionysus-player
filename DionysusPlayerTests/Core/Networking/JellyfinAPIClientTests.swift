@@ -66,6 +66,175 @@ final class JellyfinAPIClientTests: XCTestCase {
         }
     }
 
+    // MARK: 401 auto re-authentication
+    //
+    // Confirmed live (2026-08-22) against a heavily-shared public demo
+    // server: a session token this client was issued can be invalidated
+    // server-side with no action by this app at all. `sendRaw`'s 401
+    // handling tries to recover from that transparently — see its own doc
+    // comment for the full reasoning; these tests pin the observable
+    // behavior. `authenticate(...)`'s own 401 (a wrong password at first
+    // sign-in) staying a raw `.http` error is covered separately by
+    // `test_authenticate_wrongCredentials_throwsHTTPError` above — that
+    // request never carries an `X-Emby-Token` header, so it never reaches
+    // any of this.
+
+    /// A single 401 recovers with no visible error and no artificial delay
+    /// (the first retry attempt, `attempt == 0`, skips the backoff sleep —
+    /// see `reauthenticate(using:attempt:)`) — the request that triggered
+    /// it just succeeds once retried with the fresh token.
+    func test_401_singleFailure_reauthenticatesAndRetriesTransparently() async throws {
+        let client = makeClient()
+        _ = try await authenticateSuccessfully(client, token: "token-1")
+
+        var viewsRequestCount = 0
+        var capturedRetryToken: String?
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Views":
+                viewsRequestCount += 1
+                if viewsRequestCount == 1 {
+                    return MockURLProtocol.jsonResponse(for: request, status: 401, body: Self.jellyfinHTML401Body)
+                }
+                capturedRetryToken = request.value(forHTTPHeaderField: "X-Emby-Token")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/AuthenticateByName":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: AuthenticationResult(user: UserDto(id: "user-1", name: "demo"), accessToken: "token-2")
+                )
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+        }
+
+        _ = try await client.userViews(userID: "user-1")
+
+        XCTAssertEqual(viewsRequestCount, 2)
+        XCTAssertEqual(capturedRetryToken, "token-2")
+        let tokenAfterRecovery = await client.accessToken
+        XCTAssertEqual(tokenAfterRecovery, "token-2")
+    }
+
+    /// Every attempt (the original request and every retry) keeps 401ing —
+    /// the backoff schedule eventually runs out and this surfaces as
+    /// `.notAuthenticated`, a clean "you need to sign in again" rather than
+    /// the raw HTML the server's own 401 page carries.
+    func test_401_reauthenticationExhausted_throwsNotAuthenticated() async throws {
+        let client = makeClient()
+        _ = try await authenticateSuccessfully(client, token: "token-1")
+
+        var viewsRequestCount = 0
+        var reauthRequestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Views":
+                viewsRequestCount += 1
+                return MockURLProtocol.jsonResponse(for: request, status: 401, body: Self.jellyfinHTML401Body)
+            case "/Users/AuthenticateByName":
+                reauthRequestCount += 1
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: AuthenticationResult(user: UserDto(id: "user-1", name: "demo"), accessToken: "token-\(reauthRequestCount + 1)")
+                )
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+        }
+
+        do {
+            _ = try await client.userViews(userID: "user-1")
+            XCTFail("Expected .notAuthenticated")
+        } catch JellyfinAPIError.notAuthenticated {
+            // expected
+        } catch {
+            XCTFail("Expected .notAuthenticated, got \(error)")
+        }
+
+        // One original attempt plus one retry per backoff-schedule entry.
+        XCTAssertEqual(viewsRequestCount, 5)
+        XCTAssertEqual(reauthRequestCount, 4)
+    }
+
+    /// No prior successful `authenticate(...)` call means nothing to retry
+    /// with — a 401 in that state (e.g. a token injected directly, as every
+    /// other test in this file does via `makeClient(accessToken:)`) fails
+    /// fast as `.notAuthenticated` rather than attempting to reauthenticate
+    /// with credentials it doesn't have.
+    func test_401_noRememberedCredentials_throwsNotAuthenticatedImmediately() async throws {
+        let client = makeClient(accessToken: "injected-token")
+        var requestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            requestCount += 1
+            return MockURLProtocol.jsonResponse(for: request, status: 401, body: Self.jellyfinHTML401Body)
+        }
+
+        do {
+            _ = try await client.userViews(userID: "user-1")
+            XCTFail("Expected .notAuthenticated")
+        } catch JellyfinAPIError.notAuthenticated {
+            // expected
+        } catch {
+            XCTFail("Expected .notAuthenticated, got \(error)")
+        }
+        XCTAssertEqual(requestCount, 1, "nothing to retry with, so this shouldn't have attempted a reauth/retry at all")
+    }
+
+    /// Several requests 401ing around the same moment (e.g. `HomeViewModel
+    /// .load()`'s multi-endpoint fan-out) must coalesce into a single
+    /// re-authentication rather than each racing to hit
+    /// `/Users/AuthenticateByName` independently.
+    func test_401_concurrentFailures_coalesceIntoASingleReauthentication() async throws {
+        let client = makeClient()
+        _ = try await authenticateSuccessfully(client, token: "token-1")
+
+        let viewsCounter = RequestCounter()
+        let reauthCounter = RequestCounter()
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Views":
+                let count = viewsCounter.increment()
+                if count <= 3 {
+                    return MockURLProtocol.jsonResponse(for: request, status: 401, body: Self.jellyfinHTML401Body)
+                }
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/AuthenticateByName":
+                reauthCounter.increment()
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: AuthenticationResult(user: UserDto(id: "user-1", name: "demo"), accessToken: "token-2")
+                )
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+        }
+
+        async let first = client.userViews(userID: "user-1")
+        async let second = client.userViews(userID: "user-1")
+        async let third = client.userViews(userID: "user-1")
+        _ = try await (first, second, third)
+
+        XCTAssertEqual(reauthCounter.count, 1, "three concurrent 401s should share one reauthentication, not each trigger their own")
+    }
+
+    private static let jellyfinHTML401Body = Data("""
+    <html><body>Unauthorized (HTTP 401): Request not authorized; please log in first.</body></html>
+    """.utf8)
+
+    @discardableResult
+    private func authenticateSuccessfully(_ client: JellyfinAPIClient, token: String) async throws -> AuthenticationResult {
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request,
+                value: AuthenticationResult(user: UserDto(id: "user-1", name: "demo"), accessToken: token)
+            )
+        }
+        return try await client.authenticate(username: "demo", password: "")
+    }
+
     // MARK: ConnectivityMonitor reporting
 
     func test_transportFailure_reportsOffline() async {
@@ -892,5 +1061,30 @@ final class JellyfinAPIClientTests: XCTestCase {
 
         let next = try await client.nextEpisode(currentEpisodeID: "ep-1", seriesID: "series-1", seasonID: "season-1", userID: "user-1")
         XCTAssertNil(next)
+    }
+}
+
+/// Thread-safe request counter — `MockURLProtocol.requestHandler` runs on
+/// whatever background queue the URL Loading System chooses, and the 401
+/// coalescing test above deliberately issues concurrent requests, so a
+/// plain `var` isn't safe here. Same shape as `RemoteImageLoaderTests`'
+/// own private `RequestCounter` — duplicated rather than shared since
+/// Swift's top-level `private` scopes it to that file.
+private final class RequestCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    @discardableResult
+    func increment() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        value += 1
+        return value
+    }
+
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
     }
 }

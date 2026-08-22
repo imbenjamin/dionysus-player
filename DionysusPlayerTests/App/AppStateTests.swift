@@ -164,6 +164,44 @@ final class AppStateTests: XCTestCase {
         XCTAssertNil(appState.sessionStore.credentials)
     }
 
+    /// `signOut()` also forgets whatever credentials the (reused)
+    /// `apiClient` remembered for 401 auto-retry — see `JellyfinAPIClient
+    /// .forgetReauthCredentials()`'s doc comment for why: otherwise a
+    /// request still in flight around sign-out could silently
+    /// re-authenticate as the just-signed-out user. That call is
+    /// fire-and-forget from `signOut()`'s side, so this gives it a moment
+    /// to land before checking.
+    func test_signOut_forgetsReauthCredentialsOnTheReusedClient() async throws {
+        let appState = makeAppState()
+        appState.completeServerSetup(exampleServer)
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request,
+                value: AuthenticationResult(user: UserDto(id: "user-1", name: "ben"), accessToken: "tok", serverId: nil)
+            )
+        }
+        _ = try await appState.signIn(username: "ben", password: "hunter2")
+        let client = try XCTUnwrap(appState.apiClient)
+
+        appState.signOut()
+        try await Task.sleep(for: .milliseconds(50))
+
+        var requestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            requestCount += 1
+            return MockURLProtocol.jsonResponse(for: request, status: 401, body: Data())
+        }
+        do {
+            _ = try await client.userViews(userID: "user-1")
+            XCTFail("Expected .notAuthenticated")
+        } catch JellyfinAPIError.notAuthenticated {
+            // expected
+        } catch {
+            XCTFail("Expected .notAuthenticated, got \(error)")
+        }
+        XCTAssertEqual(requestCount, 1, "no reauth credentials should remain after sign-out, so this shouldn't retry")
+    }
+
     func test_changeServer_clearsServerCredentialsAndClient() {
         let appState = makeAppState()
         appState.completeServerSetup(exampleServer)

@@ -158,6 +158,21 @@ REST API (no generated SDK), intentionally scoped to only what the app needs:
 server info, auth, browsing/search, playback info, progress reporting, and
 (diagnostics-only, for `PlaybackStatsOverlay`'s Streaming section) reading
 back the server's own live session/transcode state via `/Sessions`.
+
+`sendRaw` (every request funnels through it) auto-recovers from a 401 on any
+token-bearing request: it remembers whatever credentials last succeeded via
+`authenticate(...)` and, on a 401, silently re-authenticates and retries with
+backoff (`reauthBackoffSchedule`) before giving up as `.notAuthenticated` —
+confirmed live against a heavily-shared public demo server that a session
+token can be invalidated server-side for reasons entirely outside this app's
+control. Concurrent 401s coalesce into one re-authentication via an
+in-flight `Task` rather than each racing to sign in independently.
+`authenticate(...)`'s own 401 (a wrong password at first sign-in) is
+unaffected — it's sent with `requiresAuth: false`, so it never carries the
+token header this keys off. `AppState.signOut()` clears the remembered
+credentials on the client it reuses across a sign-out/sign-back-in, so a
+request still in flight around sign-out can't silently re-authenticate as
+the just-signed-out user.
 `ImageURLBuilder` is deliberately *not* actor-isolated — it's a plain struct
 snapshotted via `client.makeImageURLBuilder()` so SwiftUI views can build
 image URLs synchronously without hopping through the actor on every render.
