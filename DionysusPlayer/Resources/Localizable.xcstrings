@@ -7,13 +7,45 @@
     "-9:59:59" : {
 
     },
+    "%@ (%@)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ (%2$@)"
+          }
+        }
+      }
+    },
+    "%@ of %@ Used" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ of %2$@ Used"
+          }
+        }
+      }
+    },
     "%@:" : {
 
     },
     "%lld" : {
 
     },
+    "%lld Episodes" : {
+
+    },
+    "%lld episodes couldn't be downloaded." : {
+
+    },
+    "1 episode couldn't be downloaded." : {
+
+    },
     "3D Depth Effects" : {
+
+    },
+    "4K UHD" : {
 
     },
     "9:59:59" : {
@@ -32,6 +64,12 @@
 
     },
     "192.168.1.50:8096" : {
+
+    },
+    "480p SD" : {
+
+    },
+    "1080p HD" : {
 
     },
     "Account" : {
@@ -58,6 +96,9 @@
     "All Studios" : {
 
     },
+    "An estimate of this app's downloaded videos, artwork, and subtitles against total device storage." : {
+
+    },
     "Appearance" : {
 
     },
@@ -66,6 +107,16 @@
     },
     "Audio" : {
 
+    },
+    "Based on a %lld minute movie and %lld minute TV episode." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Based on a %1$lld minute movie and %2$lld minute TV episode."
+          }
+        }
+      }
     },
     "Build" : {
 
@@ -83,6 +134,9 @@
 
     },
     "Choose a Version" : {
+
+    },
+    "Choose an Audio Track" : {
 
     },
     "Clear All" : {
@@ -103,7 +157,16 @@
     "Continue Watching" : {
 
     },
+    "Couldn't build a download URL for this item." : {
+
+    },
     "Couldn't build a playback URL for this item." : {
+
+    },
+    "Couldn't Download Season" : {
+
+    },
+    "Couldn't fetch playback info for this item." : {
 
     },
     "Couldn't load this collection." : {
@@ -115,13 +178,28 @@
     "Couldn't reach a Jellyfin server at that address. Check it and try again." : {
 
     },
+    "Couldn't Retry Download" : {
+
+    },
+    "Couldn't retry this download." : {
+
+    },
     "Couldn't sign in. Check your username and password." : {
+
+    },
+    "Couldn't Start Download" : {
+
+    },
+    "Couldn't start the download." : {
 
     },
     "Couldn't understand the server's response." : {
 
     },
     "Dark" : {
+
+    },
+    "Data Saver" : {
 
     },
     "Date Added" : {
@@ -133,7 +211,22 @@
     "Default" : {
 
     },
+    "Delete" : {
+
+    },
+    "Delete %lld Downloads?" : {
+
+    },
+    "Delete 1 Download?" : {
+
+    },
+    "Delete this download?" : {
+
+    },
     "Descending" : {
+
+    },
+    "Deselect All" : {
 
     },
     "Dionysus needs the address of your Jellyfin server to get started." : {
@@ -143,6 +236,33 @@
 
     },
     "Done" : {
+
+    },
+    "Download" : {
+
+    },
+    "Download Anyway" : {
+
+    },
+    "Download Failed" : {
+
+    },
+    "Download failed." : {
+
+    },
+    "Download Paused" : {
+
+    },
+    "Downloaded videos are transcoded to fit your chosen resolution and quality, and are never upscaled past the source." : {
+
+    },
+    "Downloading… %@" : {
+
+    },
+    "Downloading… %lld%%" : {
+
+    },
+    "Downloads" : {
 
     },
     "Enter a valid server address, like 192.168.1.50:8096." : {
@@ -169,6 +289,19 @@
     "Forced" : {
 
     },
+    "Free" : {
+
+    },
+    "Free space for about %lld movies or %lld TV episodes at the current download settings." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Free space for about %1$lld movies or %2$lld TV episodes at the current download settings."
+          }
+        }
+      }
+    },
     "Gathering stats…" : {
 
     },
@@ -184,10 +317,16 @@
     "Hide playback stats" : {
 
     },
+    "High" : {
+
+    },
     "Home" : {
 
     },
     "How long before the end of an episode to countdown the next episode, if end credits are not detected." : {
+
+    },
+    "Image-based subtitle tracks can't be included in offline downloads." : {
 
     },
     "Included In" : {
@@ -223,6 +362,9 @@
     "No cast or crew information available." : {
 
     },
+    "No downloads yet. Start downloading and they'll appear here." : {
+
+    },
     "No items match these filters." : {
 
     },
@@ -235,10 +377,16 @@
     "Non-Favorites" : {
 
     },
+    "Normal" : {
+
+    },
     "Nothing here yet." : {
 
     },
     "Off" : {
+
+    },
+    "OK" : {
 
     },
     "Order" : {
@@ -247,7 +395,16 @@
     "Original" : {
 
     },
+    "Other" : {
+
+    },
+    "Overrides your default download settings for this item only." : {
+
+    },
     "Password (optional)" : {
+
+    },
+    "Paused" : {
 
     },
     "Picture in Picture" : {
@@ -259,10 +416,19 @@
     "Play %@" : {
 
     },
+    "Play Again" : {
+
+    },
+    "Play Again %@" : {
+
+    },
     "Play Now" : {
 
     },
     "Playback" : {
+
+    },
+    "Playback couldn't resume after being paused in the background." : {
 
     },
     "Playback failed to start." : {
@@ -271,10 +437,25 @@
     "Playback position" : {
 
     },
+    "Playback Source" : {
+
+    },
     "Playing in Picture in Picture" : {
 
     },
+    "Preparing download…" : {
+
+    },
     "Profile" : {
+
+    },
+    "Quality" : {
+
+    },
+    "Quality & Network" : {
+
+    },
+    "Queued…" : {
 
     },
     "Recent Searches" : {
@@ -298,10 +479,19 @@
     "Reset" : {
 
     },
+    "Resolution" : {
+
+    },
     "Resume" : {
 
     },
     "Resume %@" : {
+
+    },
+    "Retry Download" : {
+
+    },
+    "Retrying…" : {
 
     },
     "Search" : {
@@ -316,10 +506,16 @@
     "Season" : {
 
     },
+    "Season %lld" : {
+
+    },
     "Section" : {
 
     },
     "See All" : {
+
+    },
+    "Select All" : {
 
     },
     "Server" : {
@@ -338,6 +534,9 @@
         }
       }
     },
+    "Show" : {
+
+    },
     "Show playback stats" : {
 
     },
@@ -351,6 +550,9 @@
 
     },
     "Sign out of %@?" : {
+
+    },
+    "Simultaneous Downloads" : {
 
     },
     "Skip Commercial" : {
@@ -377,10 +579,19 @@
     "Stereo" : {
 
     },
+    "Storage" : {
+
+    },
+    "Storage Used" : {
+
+    },
     "Streaming" : {
 
     },
     "Studio" : {
+
+    },
+    "Subtitle Track Unavailable Offline" : {
 
     },
     "Subtitles" : {
@@ -392,13 +603,37 @@
     "That doesn't look like a valid server address." : {
 
     },
+    "The download was interrupted and couldn't be resumed. Try downloading again." : {
+
+    },
+    "The download was interrupted and couldn't continue. Try downloading again." : {
+
+    },
+    "The server returned an error (HTTP %lld) instead of the video." : {
+
+    },
     "The server sent an unexpected response." : {
 
     },
     "Theme" : {
 
     },
+    "This App" : {
+
+    },
+    "This download is no longer available." : {
+
+    },
+    "This item has no downloadable media source." : {
+
+    },
+    "This item is no longer available on the server." : {
+
+    },
     "This signs you out and forgets this server, returning to first-time setup." : {
+
+    },
+    "This title's default subtitle track can't be included in offline downloads. The download will have no subtitles unless you choose one manually later." : {
 
     },
     "Title" : {
@@ -408,6 +643,9 @@
 
     },
     "Try Again" : {
+
+    },
+    "Unlimited" : {
 
     },
     "Unlock rotation" : {
@@ -434,10 +672,16 @@
     "Video" : {
 
     },
+    "View Downloads" : {
+
+    },
     "Watched" : {
 
     },
     "Welcome Back" : {
+
+    },
+    "Wi-Fi Only" : {
 
     },
     "You need to sign in again." : {
