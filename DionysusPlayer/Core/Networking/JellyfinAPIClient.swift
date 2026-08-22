@@ -12,10 +12,45 @@ actor JellyfinAPIClient {
     private(set) var accessToken: String?
     private let session: URLSession
 
+    /// Whatever credentials most recently succeeded via `authenticate(...)`
+    /// — kept only so a request that comes back 401 mid-session (confirmed
+    /// live against a heavily-shared public demo server: the session token
+    /// this client was issued got invalidated server-side with no action
+    /// by this app at all) can silently re-authenticate and retry, rather
+    /// than surfacing a raw HTTP error for something the app can just
+    /// recover from. `nil` before any successful sign-in, and explicitly
+    /// cleared by `forgetReauthCredentials()` on sign-out — see `sendRaw`'s
+    /// 401 handling for where this is actually used.
+    private var reauthCredentials: (username: String, password: String)?
+    /// Coalesces concurrent re-authentication attempts into one in-flight
+    /// `Task` — several requests can 401 around the same moment (e.g.
+    /// `HomeViewModel.load()`'s multi-endpoint fan-out), and each
+    /// independently racing to re-authenticate would spam
+    /// `/Users/AuthenticateByName` for no benefit. Safe to check-then-set
+    /// without an explicit lock: this is actor-isolated state and neither
+    /// line suspends, so nothing else can interleave between them.
+    private var inFlightReauth: Task<Void, Error>?
+    /// Delays before each re-authentication attempt after a 401 (the first
+    /// attempt is immediate — index 0 is the delay *before the second*
+    /// attempt) — same array-of-delays convention as `AssetDetailViewModel
+    /// .userDataCommitPollSchedule`. Bounded rather than infinite: a
+    /// genuinely revoked/stale credential must still surface
+    /// `.notAuthenticated` and send the user back to the login screen
+    /// instead of retrying forever.
+    private static let reauthBackoffSchedule: [Double] = [0.5, 1.0, 2.0, 4.0]
+
     init(baseURL: URL, accessToken: String? = nil, session: URLSession = .shared) {
         self.baseURL = baseURL
         self.accessToken = accessToken
         self.session = session
+    }
+
+    /// Called on sign-out so this client (which `AppState` reuses across a
+    /// sign-out/sign-back-in on the same server rather than reconstructing)
+    /// doesn't keep the previous user's credentials around to silently
+    /// re-authenticate with if something still 401s in flight.
+    func forgetReauthCredentials() {
+        reauthCredentials = nil
     }
 
     // MARK: - System
@@ -44,6 +79,12 @@ actor JellyfinAPIClient {
         let body = AuthenticateByNameRequest(username: username, pw: password)
         let result: AuthenticationResult = try await post("/Users/AuthenticateByName", body: body, requiresAuth: false)
         accessToken = result.accessToken
+        // Remember these for `sendRaw`'s 401 auto-retry — see
+        // `reauthCredentials`'s doc comment. Only updated on success, so a
+        // failed sign-in (or a failed reauth attempt — see `reauthenticate
+        // (attempt:)`) never overwrites a still-good previous credential
+        // with a broken one.
+        reauthCredentials = (username, password)
         return result
     }
 
@@ -683,6 +724,14 @@ actor JellyfinAPIClient {
 
     @discardableResult
     private func sendRaw(_ request: URLRequest) async throws -> Data {
+        try await sendRaw(request, reauthAttempt: 0)
+    }
+
+    /// `reauthAttempt` counts how many re-authentication attempts this
+    /// specific logical request has already gone through (0 the first
+    /// time) — bounds the recursion against `reauthBackoffSchedule` rather
+    /// than retrying forever, and picks that attempt's backoff delay.
+    private func sendRaw(_ request: URLRequest, reauthAttempt: Int) async throws -> Data {
         let data: Data
         let response: URLResponse
         do {
@@ -696,8 +745,71 @@ actor JellyfinAPIClient {
         // the server was reachable, so this is what clears offline state.
         await ConnectivityMonitor.shared.reportSuccess()
         guard (200..<300).contains(http.statusCode) else {
-            throw JellyfinAPIError.http(status: http.statusCode, message: String(data: data, encoding: .utf8))
+            // Only a request built with `requiresAuth: true` carries this
+            // header (see `makeRequest`) — `authenticate(...)`'s own 401
+            // (a genuinely wrong password, at first sign-in) is sent with
+            // `requiresAuth: false`, so it never reaches either branch
+            // below and keeps throwing the raw `.http(401, ...)` as before.
+            let isTokenBearing401 = http.statusCode == 401 && request.value(forHTTPHeaderField: "X-Emby-Token") != nil
+            guard isTokenBearing401 else {
+                throw JellyfinAPIError.http(status: http.statusCode, message: String(data: data, encoding: .utf8))
+            }
+
+            // A token-bearing 401 doesn't necessarily mean these
+            // credentials are actually bad: confirmed live against a
+            // heavily-shared public demo server that a session token can
+            // be invalidated server-side for reasons entirely outside this
+            // app's control. Try to recover transparently — re-authenticate
+            // with whatever credentials last succeeded and retry this same
+            // request — before giving up.
+            if let reauthCredentials, reauthAttempt < Self.reauthBackoffSchedule.count {
+                do {
+                    try await reauthenticate(using: reauthCredentials, attempt: reauthAttempt)
+                } catch {
+                    // Re-authentication itself failed (offline, or the
+                    // credentials genuinely no longer work) — fall through
+                    // to .notAuthenticated below rather than surfacing this
+                    // secondary failure, which would just be confusing
+                    // ("couldn't reach the server" for what the user
+                    // experiences as "got logged out").
+                    throw JellyfinAPIError.notAuthenticated
+                }
+                var retried = request
+                retried.setValue(accessToken, forHTTPHeaderField: "X-Emby-Token")
+                retried.setValue(JellyfinAuthorization.headerValue(token: accessToken), forHTTPHeaderField: "X-Emby-Authorization")
+                return try await sendRaw(retried, reauthAttempt: reauthAttempt + 1)
+            }
+
+            // Nothing left to retry with (no remembered credentials, or the
+            // backoff schedule is exhausted). A raw `.http(401, ...)` here
+            // used to surface the server's own HTML error page verbatim
+            // (Jellyfin's default 401 response is a full branded HTML
+            // document, not JSON); `.notAuthenticated` gives a clean,
+            // actionable message instead.
+            throw JellyfinAPIError.notAuthenticated
         }
         return data
+    }
+
+    /// Coalesces concurrent re-authentication attempts into one in-flight
+    /// `Task` — see `inFlightReauth`'s doc comment for why. `attempt`
+    /// selects this call's backoff delay from `reauthBackoffSchedule`
+    /// (skipped on the very first retry, `attempt == 0`, so a one-off
+    /// transient 401 recovers immediately rather than waiting).
+    private func reauthenticate(using credentials: (username: String, password: String), attempt: Int) async throws {
+        if let inFlightReauth {
+            try await inFlightReauth.value
+            return
+        }
+        let task = Task<Void, Error> {
+            if attempt > 0 {
+                let delay = Self.reauthBackoffSchedule[min(attempt, Self.reauthBackoffSchedule.count) - 1]
+                try await Task.sleep(for: .seconds(delay))
+            }
+            try await self.authenticate(username: credentials.username, password: credentials.password)
+        }
+        inFlightReauth = task
+        defer { inFlightReauth = nil }
+        try await task.value
     }
 }

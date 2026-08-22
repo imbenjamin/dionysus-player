@@ -114,6 +114,15 @@ final class AppState {
         sessionStore.clearCredentials()
         currentUser = nil
         phase = .login
+        // `apiClient` itself is reused across a sign-out/sign-back-in on
+        // the same server (only `changeServer()` discards it) — without
+        // this, it would keep the just-signed-out user's credentials
+        // around to silently re-authenticate with if a request from
+        // before sign-out was still in flight. Fire-and-forget: nothing
+        // here needs to block the UI on this actor hop completing.
+        if let apiClient {
+            Task { await apiClient.forgetReauthCredentials() }
+        }
     }
 
     /// Forgets the server entirely and returns to first-run setup.
