@@ -63,10 +63,23 @@ actor JellyfinAPIClient {
         try await get("/Users/\(userID)/Views")
     }
 
+    // AUDIO SUPPRESSION: the audio/music `BaseItemKind` raw values Dionysus
+    // Player can't play yet, for callers to pass as `items(...)`'s or
+    // `resumeItems(...)`'s `excludeItemTypes:` — see `BaseItemDto
+    // .isAudioContent` (`JellyfinModels.swift`) for the reasoning behind
+    // this exact set (`Playlist` isn't included: an audio playlist can't be
+    // excluded by type alone, since Jellyfin also uses `Playlist` for
+    // mixed/video playlists — that case is instead caught client-side by
+    // `isAudioContent`). Delete this constant and its two call sites once
+    // Dionysus Player supports audio/music playback.
+    static let audioItemTypeExclusions = ["Audio", "AudioBook", "MusicAlbum", "MusicArtist", "MusicGenre"]
+
     func items(
         userID: String,
         parentID: String? = nil,
         includeItemTypes: [String] = [],
+        excludeItemTypes: [String] = [],
+        mediaTypes: [String] = [],
         recursive: Bool = true,
         sortBy: String = "SortName",
         sortOrder: String = "Ascending",
@@ -112,6 +125,12 @@ actor JellyfinAPIClient {
         if let parentID { query.append(.init(name: "ParentId", value: parentID)) }
         if !includeItemTypes.isEmpty {
             query.append(.init(name: "IncludeItemTypes", value: includeItemTypes.joined(separator: ",")))
+        }
+        if !excludeItemTypes.isEmpty {
+            query.append(.init(name: "ExcludeItemTypes", value: excludeItemTypes.joined(separator: ",")))
+        }
+        if !mediaTypes.isEmpty {
+            query.append(.init(name: "MediaTypes", value: mediaTypes.joined(separator: ",")))
         }
         if !filters.isEmpty { query.append(.init(name: "Filters", value: filters.joined(separator: ","))) }
         if !genres.isEmpty { query.append(.init(name: "Genres", value: genres.joined(separator: "|"))) }
@@ -186,11 +205,15 @@ actor JellyfinAPIClient {
         try await get("/Users/\(userID)/Items/\(itemID)", query: [.init(name: "Fields", value: fields)])
     }
 
-    func resumeItems(userID: String, limit: Int = 12) async throws -> BaseItemDtoQueryResult {
-        try await get("/Users/\(userID)/Items/Resume", query: [
-            .init(name: "Limit", value: String(limit)),
-            .init(name: "Fields", value: Self.defaultFields)
-        ])
+    func resumeItems(userID: String, limit: Int = 12, excludeItemTypes: [String] = []) async throws -> BaseItemDtoQueryResult {
+        var query = [
+            URLQueryItem(name: "Limit", value: String(limit)),
+            URLQueryItem(name: "Fields", value: Self.defaultFields)
+        ]
+        if !excludeItemTypes.isEmpty {
+            query.append(.init(name: "ExcludeItemTypes", value: excludeItemTypes.joined(separator: ",")))
+        }
+        return try await get("/Users/\(userID)/Items/Resume", query: query)
     }
 
     func latestItems(userID: String, parentID: String? = nil, limit: Int = 16) async throws -> [BaseItemDto] {

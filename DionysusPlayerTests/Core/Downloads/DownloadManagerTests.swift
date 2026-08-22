@@ -151,6 +151,33 @@ final class DownloadManagerTests: XCTestCase {
         manager.delete(itemID: "does-not-exist") // must not crash
     }
 
+    // MARK: enqueue(...) — AUDIO SUPPRESSION
+
+    /// The one line of `enqueue(...)` this file covers directly: the guard
+    /// fires before any of the network-heavy internals this file's own doc
+    /// comment says aren't unit-tested (image/trickplay/subtitle side
+    /// fetches) ever run.
+    func test_enqueue_audioItem_throwsAudioContentNotSupportedAndPerformsNoSideEffects() async throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        let audioDto = BaseItemDto(id: "track-1", name: "Bend", type: .audio, mediaType: "Audio")
+        let images = ImageURLBuilder(baseURL: baseURL, accessToken: "tok")
+        let item = MediaItem(dto: audioDto, images: images)
+        MockURLProtocol.requestHandler = { _ in XCTFail("must not hit the network for an audio item"); throw URLError(.badURL) }
+
+        do {
+            try await manager.enqueue(
+                item: item, mediaSource: MediaSourceInfo(id: "src-1"), audioTrack: nil, subtitleTracks: [],
+                resolution: .hd1080p, preset: .normal, client: makeClient(), userID: "user-1"
+            )
+            XCTFail("expected audioContentNotSupported")
+        } catch let error as DownloadError {
+            XCTAssertEqual(error.errorDescription, DownloadError.audioContentNotSupported.errorDescription)
+        }
+
+        XCTAssertNil(store.item(itemID: "track-1"))
+    }
+
     // MARK: retry(itemID:client:) — the one-tap "redownload a failed item"
     // action (2026-08-20), added per direct feedback. Only the branches
     // that don't require `enqueue()`'s own network-heavy internals

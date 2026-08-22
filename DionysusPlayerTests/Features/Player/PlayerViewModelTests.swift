@@ -377,6 +377,32 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(engine.playCallCount, 0)
     }
 
+    /// AUDIO SUPPRESSION: the last-resort guard — if a `PlaybackRequest` for
+    /// an audio item ever reaches `start()` (bypassing `AssetDetailView`'s
+    /// own check), it must bail before ever asking the engine to load a
+    /// stream, since `/Items/{itemId}` has no server-side type filter to
+    /// rely on instead.
+    func test_start_audioItem_setsErrorMessageAndNeverCallsEngineLoad() async {
+        let (viewModel, engine) = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/item-1":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDto(id: "item-1", name: "Bend", type: .audio, mediaType: "Audio")
+                )
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?") — an audio item should bail before playbackInfo/streamURL")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+        }
+
+        await viewModel.start()
+
+        XCTAssertNotNil(viewModel.errorMessage)
+        XCTAssertTrue(engine.loadedURLs.isEmpty)
+        XCTAssertEqual(engine.playCallCount, 0)
+    }
+
     // MARK: start() restores a remembered track preference
 
     /// A stored audio/subtitle choice (`TrackPreferenceStore`) should

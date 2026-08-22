@@ -61,6 +61,8 @@ struct MediaItem: Identifiable {
     /// tagline is never shown and not worth the extra payload).
     var tagline: String? { dto.taglines?.first { !$0.isEmpty } }
     var kind: BaseItemKind { dto.type }
+    /// AUDIO SUPPRESSION: see `BaseItemDto.isAudioContent`'s doc comment.
+    var isAudioContent: Bool { dto.isAudioContent }
     var genres: [String] { dto.genres ?? [] }
     var studios: [String] { dto.studios?.map(\.name) ?? [] }
     var ageRating: String? { dto.officialRating }
@@ -79,6 +81,13 @@ struct MediaItem: Identifiable {
     /// `"boxsets"`) returned by `/Users/{id}/Views` — see
     /// `libraryContentItemTypes` for what this is actually used for.
     var collectionType: String? { dto.collectionType }
+    /// AUDIO SUPPRESSION: true only for a Music library (`collectionType ==
+    /// "music"`) — deliberately not `"musicvideos"`, which holds real
+    /// playable video files. `HomeViewModel` filters this out of
+    /// `libraries` before publishing, since `/Users/{id}/Views` has no
+    /// server-side type filter to do it for us. Delete once Dionysus
+    /// Player supports browsing a Music library.
+    var isAudioLibrary: Bool { collectionType == JellyfinCollectionType.music }
 
     /// For a library item (one of `HomeViewModel.libraries`), the item
     /// type(s) a query scoped to it (`LibraryRailView`'s card tap) should
@@ -92,9 +101,9 @@ struct MediaItem: Identifiable {
     /// that isn't a library at all (`collectionType == nil`).
     var libraryContentItemTypes: [String] {
         switch collectionType {
-        case "movies": ["Movie"]
-        case "tvshows": ["Series"]
-        case "boxsets": ["BoxSet"]
+        case JellyfinCollectionType.movies: ["Movie"]
+        case JellyfinCollectionType.tvShows: ["Series"]
+        case JellyfinCollectionType.boxSets: ["BoxSet"]
         default: []
         }
     }
