@@ -1,13 +1,14 @@
 import SwiftUI
 
 /// The offline counterpart to `InfoMetadataRow` — same two-line
-/// composition (year/rating/duration/community-rating, then a
+/// composition (year-or-date/rating/duration/community-rating, then a
 /// dot-separated badges line), sourced from `DownloadedItem`/`.metadata`
 /// rather than a live `MediaItem`. Badges differ slightly from the live
 /// page's own `MediaItem.metadataBadges`: no audio-format/accessibility
 /// badges (nothing here varies per download the way it does live), but
 /// adds the actual on-disk file size, which only makes sense for a
-/// download.
+/// download. Like the live page, an episode download shows its exact air
+/// date here (`DownloadedItem.metadataDateText`) rather than just a year.
 struct DownloadedInfoMetadataRow: View {
     let item: DownloadedItem
     /// Computed once by the caller (`DownloadedAssetDetailView`) and passed
@@ -20,7 +21,7 @@ struct DownloadedInfoMetadataRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                if let year = item.metadata.productionYear { Text(String(year)) }
+                if let date = item.metadataDateText { Text(date) }
 
                 if let rating = item.metadata.officialRating {
                     Text(rating)
@@ -29,7 +30,7 @@ struct DownloadedInfoMetadataRow: View {
                         .overlay(RoundedRectangle(cornerRadius: 4).stroke(.secondary))
                 }
 
-                if let duration = Self.durationText(ticks: item.runtimeTicks) { Text(duration) }
+                if let duration = item.durationText { Text(duration) }
 
                 if let communityRating = item.metadata.communityRating {
                     HStack(spacing: 3) {
@@ -62,19 +63,6 @@ struct DownloadedInfoMetadataRow: View {
             result.append(ByteCountFormatter.string(fromByteCount: fileSizeBytes, countStyle: .file))
         }
         return result
-    }
-
-    /// Same "Xh Ym" formatting as `MediaItem.durationText` — duplicated
-    /// rather than shared since that one is `private` on a type built
-    /// around a live `BaseItemDto`, and this only needs the one line of
-    /// tick math.
-    private static func durationText(ticks: Int64?) -> String? {
-        guard let ticks, ticks > 0 else { return nil }
-        let totalMinutes = Int(ticks / 10_000_000 / 60)
-        let hours = totalMinutes / 60
-        let minutes = totalMinutes % 60
-        if hours > 0 { return "\(hours)h \(minutes)m" }
-        return "\(minutes)m"
     }
 
     /// Coarse SD/HD/4K buckets — matches this page's original, simpler

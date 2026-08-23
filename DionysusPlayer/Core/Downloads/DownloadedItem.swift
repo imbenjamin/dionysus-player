@@ -229,6 +229,40 @@ final class DownloadedItem: Identifiable {
         return Int64((totalBitsPerSecond * durationSeconds) / 8)
     }
 
+    /// Same "Xh Ym" formatting as `MediaItem.durationText` — duplicated
+    /// rather than shared since this type has no `BaseItemDto` of its own
+    /// to share that logic with, just the one line of tick math. Shared
+    /// across `DownloadedInfoMetadataRow` and `DownloadedEpisodeRow` so
+    /// neither duplicates it a second time.
+    var durationText: String? {
+        guard let runtimeTicks, runtimeTicks > 0 else { return nil }
+        let totalMinutes = Int(runtimeTicks / 10_000_000 / 60)
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        return "\(minutes)m"
+    }
+
+    /// An episode's exact release date, e.g. "1 Aug 2026" — the offline
+    /// counterpart to `MediaItem.episodeAirDateText`; see that property's
+    /// doc comment for why an individual episode shows its exact date
+    /// rather than just a year. `nil` for a movie download, or an episode
+    /// whose `metadata.premiereDate` wasn't captured at enqueue time.
+    var episodeAirDateText: String? {
+        guard kind == .episode, let date = metadata.premiereDate else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d MMM yyyy"
+        return formatter.string(from: date)
+    }
+
+    /// Whichever of `episodeAirDateText`/the plain production year is the
+    /// right level of detail for this download's kind — mirrors
+    /// `MediaItem.metadataDateText`, see its doc comment for why the
+    /// branching lives here rather than at each call site.
+    var metadataDateText: String? {
+        episodeAirDateText ?? metadata.productionYear.map(String.init)
+    }
+
     init(
         itemID: String,
         userID: String,
