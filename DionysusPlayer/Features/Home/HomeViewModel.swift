@@ -167,8 +167,17 @@ final class HomeViewModel {
                 newRails.append(MediaCollectionRail(title: title, items: items, seeAllQuery: seeAllQuery))
             }
 
-            appendRail(String(localized: "Continue Watching"), try await resume.items)
-            appendRail(String(localized: "Next Up"), try await upNext.items)
+            let resumeItems = try await resume.items
+            appendRail(String(localized: "Continue Watching"), resumeItems)
+            // Jellyfin's `/Shows/NextUp` isn't guaranteed disjoint from
+            // `/Users/{id}/Items/Resume` — a show can surface the same
+            // episode from both endpoints (e.g. right after resuming
+            // playback, before the server's own "next up" state has caught
+            // up) — so an item already shown in Continue Watching is
+            // filtered out here rather than shown a second time.
+            let resumeItemIDs = Set(resumeItems.map(\.id))
+            let nextUpItems = try await upNext.items.filter { !resumeItemIDs.contains($0.id) }
+            appendRail(String(localized: "Next Up"), nextUpItems)
             appendRail(
                 String(localized: "Recently Added Movies"), try await latestMovies,
                 // Preset newest-first — matches what "Recently Added"

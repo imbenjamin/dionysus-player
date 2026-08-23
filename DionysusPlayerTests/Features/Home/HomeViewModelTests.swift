@@ -133,6 +133,51 @@ final class HomeViewModelTests: XCTestCase {
         XCTAssertEqual(recentMovies.seeAllQuery?.initialSortOrder, .descending)
     }
 
+    /// `/Shows/NextUp` isn't guaranteed disjoint from `/Users/{id}/Items/Resume`
+    /// — an item already surfaced in Continue Watching should be filtered
+    /// out of Next Up rather than shown in both rails.
+    func test_load_nextUp_excludesItemsAlreadyInContinueWatching() async {
+        let resumeItem = BaseItemDto(id: "episode-1", name: "In Progress Episode", type: .episode)
+        let genuinelyNextItem = BaseItemDto(id: "episode-2", name: "Next Episode", type: .episode)
+
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Views":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items/Resume":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [resumeItem], totalRecordCount: 1)
+                )
+            case "/Shows/NextUp":
+                // The server itself hands back both the in-progress episode
+                // and the genuinely-next one.
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [resumeItem, genuinelyNextItem], totalRecordCount: 2)
+                )
+            case "/Users/user-1/Items/Latest":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]())
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        let continueWatching = viewModel.rails.first { $0.title == "Continue Watching" }
+        XCTAssertEqual(continueWatching?.items.map(\.id), ["episode-1"])
+
+        let nextUp = viewModel.rails.first { $0.title == "Next Up" }
+        XCTAssertEqual(
+            nextUp?.items.map(\.id), ["episode-2"],
+            "The item already in Continue Watching should be de-duplicated out of Next Up"
+        )
+    }
+
     /// AUDIO SUPPRESSION: `/Users/{id}/Views` has no server-side type
     /// filter, so a Music library has to be dropped client-side — see
     /// `MediaItem.isAudioLibrary`.
