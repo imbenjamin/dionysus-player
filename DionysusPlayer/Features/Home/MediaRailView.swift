@@ -13,21 +13,8 @@ struct MediaRailView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(rail.title)
-                    .font(.title3.bold())
-
-                Spacer()
-
-                if let query = rail.seeAllQuery {
-                    NavigationLink(value: AppRoute.collection(query)) {
-                        Text("See All")
-                            .font(.subheadline)
-                            .foregroundStyle(Color.dionysusPrimary)
-                    }
-                }
-            }
-            .padding(.horizontal)
+            header
+                .padding(.horizontal)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 // The whole rail uses one tile shape or the other — see
@@ -67,5 +54,52 @@ struct MediaRailView: View {
                 .padding(.horizontal)
             }
         }
+    }
+
+    /// The title/"See All" row — when there's a `seeAllQuery`, the whole
+    /// row is one tap target (title text included, not just the "See All"
+    /// label) rather than only the small trailing link, so tapping
+    /// anywhere across the header — not just the couple of words of
+    /// "See All" — pushes the full collection.
+    ///
+    /// Wrapped in a (single-child) `ZStack`, not a bare `NavigationLink` —
+    /// see `PosterCard`/`LandscapeMediaCard`/`LibraryCard`/`HeroRailCard`'s
+    /// identical wrap: a bare `NavigationLink` as a stack row's sole
+    /// content, rendered inside `HomeView`'s `LazyVStack` of rails, is a
+    /// confirmed real-device/Simulator freeze class in this codebase (100%
+    /// main-thread CPU inside `AttributeGraph`/`StackLayout`, no app frames
+    /// on the stack — see `library-rail-navigationlink-freeze` memory) —
+    /// this row has the exact same shape and was live-confirmed to
+    /// reproduce it on a plain scroll (no navigation needed) before this
+    /// wrap was added.
+    @ViewBuilder
+    private var header: some View {
+        if let query = rail.seeAllQuery {
+            ZStack {
+                NavigationLink(value: AppRoute.collection(query)) {
+                    headerLabel(showsSeeAll: true)
+                }
+                .buttonStyle(.plain)
+            }
+        } else {
+            headerLabel(showsSeeAll: false)
+        }
+    }
+
+    private func headerLabel(showsSeeAll: Bool) -> some View {
+        HStack {
+            Text(rail.title)
+                .font(.title3.bold())
+                .foregroundStyle(.primary)
+
+            Spacer()
+
+            if showsSeeAll {
+                Text("See All")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.dionysusPrimary)
+            }
+        }
+        .contentShape(Rectangle())
     }
 }
