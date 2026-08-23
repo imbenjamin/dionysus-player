@@ -571,7 +571,11 @@ struct MediaItem: Identifiable {
 
     // MARK: - Technical details formatting
 
-    private static func resolutionLabel(width: Int, height: Int) -> String {
+    /// Not `private` — `DownloadedTechnicalDetailsView`'s Details tab reuses
+    /// this exact "dimensions (common name)" formatting for a download's own
+    /// resolution, so the two Details tabs never drift into showing the
+    /// same resolution two different ways.
+    static func resolutionLabel(width: Int, height: Int) -> String {
         let dimensions = "\(width)\u{00D7}\(height)"
         return resolutionCommonName(width: width).map { "\(dimensions) (\($0))" } ?? dimensions
     }
