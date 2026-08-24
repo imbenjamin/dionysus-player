@@ -108,6 +108,15 @@
     "Audio" : {
 
     },
+    "Audio and music items can't be downloaded." : {
+
+    },
+    "Audio and music playback aren't supported in Dionysus Player yet." : {
+
+    },
+    "Audio and music playback aren't supported." : {
+
+    },
     "Based on a %lld minute movie and %lld minute TV episode." : {
       "localizations" : {
         "en" : {
@@ -140,6 +149,9 @@
 
     },
     "Clear All" : {
+
+    },
+    "Close" : {
 
     },
     "Collection" : {
@@ -191,6 +203,9 @@
 
     },
     "Couldn't start the download." : {
+
+    },
+    "Couldn't start the video player." : {
 
     },
     "Couldn't understand the server's response." : {
@@ -513,6 +528,9 @@
 
     },
     "See All" : {
+
+    },
+    "Seeking is taking longer than expected — playback may be stuck." : {
 
     },
     "Select All" : {
