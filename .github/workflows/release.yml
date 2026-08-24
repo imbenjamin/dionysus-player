@@ -89,6 +89,33 @@ jobs:
           file_to_build=`echo $file_to_build | awk '{$1=$1;print}'`
           xcodebuild test-without-building -scheme "$scheme" -"$filetype_parameter" "$file_to_build" -destination "platform=iOS Simulator,id=$udid"
 
+      - name: Regenerate AetherEngine version display
+        # Package.resolved only exists once something has actually resolved
+        # packages — the Build step above is the first thing in this job
+        # that does that, so this has to run after it, not alongside the
+        # version stamp earlier.
+        run: ./Scripts/update-aetherengine-version.sh
+
+      - name: Verify nothing was left uncommitted for this release
+        # By this point in the release flow (see VERSIONING.md), the
+        # commit this tag points at should already carry correct generated
+        # files — stamped on a release-prep branch and merged *before* the
+        # tag was cut, not fixed up after. A non-empty diff here means
+        # either that prep step was skipped, or a fresh package resolution
+        # picked up a newer AetherEngine release in the gap between prep
+        # and tagging. Failing loudly here catches that immediately,
+        # instead of shipping a stale "stats for nerds" version display and
+        # relying on someone noticing days later.
+        run: |
+          if ! git diff --exit-code -- \
+            Config/Version.xcconfig \
+            DionysusPlayer/Shared/AppVersion.swift \
+            DionysusPlayer/Core/Playback/AetherEngineVersion.swift
+          then
+            echo "::error::Generated version files don't match what's checked in for this tag. Run the release-prep flow in VERSIONING.md (stamp on a branch, PR it, merge, *then* tag) before re-cutting this release." >&2
+            exit 1
+          fi
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

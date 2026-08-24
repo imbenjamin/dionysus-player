@@ -38,7 +38,19 @@ Annotated tags, prefixed `v`: `v1.2.3`, `v1.2.3-alpha.4`, `v2.0.0-beta.1`.
 
 ## Day-to-day: cutting a tag
 
+Stamp the version *before* the tag exists, as a normal small PR, then tag
+the already-correct merge commit — this way the tag never needs a
+follow-up "stamp version"/"bump AetherEngine display" commit after the
+fact:
+
 ```sh
+git checkout develop && git pull
+git checkout -b release/v1.2.0-alpha.1
+./Scripts/update-version.sh v1.2.0-alpha.1
+./Scripts/update-aetherengine-version.sh   # only if this has drifted — see below
+git commit -am "Prepare release v1.2.0-alpha.1"
+gh pr create --base develop --title "Prepare release v1.2.0-alpha.1" --fill
+# merge once the required check passes, same as any other PR, then:
 git checkout develop && git pull
 git tag -a v1.2.0-alpha.1 -m "1.2.0-alpha.1"
 git push origin v1.2.0-alpha.1
@@ -46,10 +58,21 @@ git push origin v1.2.0-alpha.1
 
 Pushing the tag triggers `.github/workflows/release.yml`, which builds,
 tests, and publishes a GitHub Release for that exact commit — marked
-"prerelease" automatically when the tag contains `-alpha` or `-beta`.
-Successive builds at the same core version bump the trailing number:
+"prerelease" automatically when the tag contains `-alpha` or `-beta`. It
+also re-verifies the generated files (see "How the version gets into the
+app" below) and fails the build if they don't match what's checked in —
+catching a skipped prep step or a package resolution that drifted in the
+gap, rather than shipping a stale version display silently. Successive
+builds at the same core version bump the trailing number:
 `v1.2.0-alpha.2`, `v1.2.0-alpha.3`, ... then `v1.2.0-beta.1`, ... then,
-once approved and merged to `main`, `v1.2.0`.
+once approved and merged to `main`, `v1.2.0` — same prep-PR-then-tag flow,
+just based off `main` instead of `develop`.
+
+`./Scripts/update-aetherengine-version.sh` only needs running in the prep
+PR when `Package.resolved`'s `aetherengine` pin has actually moved since
+the last release (check with `git diff` after running it — it's a no-op
+otherwise); the release workflow's own verification step will catch it if
+you forget and a resolution drifted.
 
 ### Release notes
 
@@ -76,9 +99,13 @@ use those as the template.
 
 ## How the version gets into the app
 
-`Scripts/update-version.sh` is the single source of truth's consumer — it
-reads the latest reachable `v*` tag plus git's current commit
-count/hash, and regenerates two checked-in files:
+`Scripts/update-version.sh` is the single source of truth's consumer. Given
+an explicit tag argument (`./Scripts/update-version.sh v1.2.0-alpha.1`) —
+the normal path, run on a release-prep branch *before* that tag exists —
+it stamps exactly that version. With no argument, it instead derives the
+version from the latest reachable `v*` tag plus git's current commit
+count/hash — used only by CI (see below), where the tag already exists by
+the time the workflow runs. Either way it regenerates the same two checked-in files:
 
 - `Config/Version.xcconfig` — `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`
   (always the clean `X.Y.Z` + commit count, never a prerelease suffix).
@@ -89,17 +116,21 @@ count/hash, and regenerates two checked-in files:
   lying about being exactly the tagged version; a dirty working tree adds
   `.dirty` too.
 
-This is a **companion script you run explicitly** (locally after cutting a
-tag, or automatically in CI before an archive/build) — not a build-time
-hook. See `Scripts/update-version.sh`'s own header comment for why:
-an earlier attempt at the equivalent (stamping git branch/commit into the
-*built* Info.plist via a `postCompileScripts` phase) turned out to run at
-the wrong point in Xcode's build graph and silently never took effect. A
+This is a **companion script you run explicitly** (locally on a
+release-prep branch before cutting a tag, or automatically in CI right
+before a tagged build) — not a build-time hook. See
+`Scripts/update-version.sh`'s own header comment for why: an earlier
+attempt at the equivalent (stamping git branch/commit into the *built*
+Info.plist via a `postCompileScripts` phase) turned out to run at the
+wrong point in Xcode's build graph and silently never took effect. A
 checked-in generated file sidesteps that class of bug entirely, following
 the same pattern already used for `AetherEngineVersion.swift`
-(`Scripts/update-aetherengine-version.sh`) — the cost is needing to
-remember to run it, which is why CI does it automatically for the case
-that actually matters (tagged releases).
+(`Scripts/update-aetherengine-version.sh`). CI's own run (no argument, see
+above) exists only to make the tagged build's `MARKETING_VERSION` correct
+and is immediately followed by a verification step
+(`release.yml`'s "Verify nothing was left uncommitted for this release")
+that fails the build if it doesn't match what's already checked in — it's
+a safety net, not the mechanism by which the repo's files get updated.
 
 It's deliberately *not* wired into a prebuild script that runs on every
 local build, either — the output (build number, commit hash) would change
@@ -116,7 +147,9 @@ string isn't user-visible anyway.
 - **`.github/workflows/release.yml`** — runs on any `v*.*.*` tag push:
   regenerates the project, stamps the version from that tag via
   `Scripts/update-version.sh`, builds and tests the exact tagged commit,
-  then publishes a GitHub Release (`--prerelease` for `-alpha`/`-beta`
+  regenerates `AetherEngineVersion.swift` and verifies none of the three
+  generated files differ from what's checked in (failing the build if they
+  do), then publishes a GitHub Release (`--prerelease` for `-alpha`/`-beta`
   tags).
 
 Neither workflow does code signing, archiving, or TestFlight/App Store

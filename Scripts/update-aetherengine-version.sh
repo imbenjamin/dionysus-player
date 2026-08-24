@@ -22,6 +22,14 @@
 # in Xcode, or a `project.yml` `packages:` bump) so the checked-in Swift
 # constant stays truthful. `PlaybackStatsOverlay`'s "AetherEngine Version"
 # row reads it directly — nothing to remember to hand-edit there.
+#
+# This is also part of the release-prep flow in VERSIONING.md: run it on a
+# release-prep branch alongside `Scripts/update-version.sh` if
+# `Package.resolved` has drifted since the last release, so the tag being
+# cut is already correct. `.github/workflows/release.yml` re-runs it during
+# the tagged build too, purely as a safety net — it fails the release if
+# that turns up a diff against what's checked in, rather than committing
+# anything itself.
 set -e
 cd "$(dirname "$0")/.."
 
