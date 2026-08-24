@@ -38,6 +38,15 @@ struct SplashView: View {
     /// keeps this view's `acquire()`/`release()` pair balanced across
     /// `.onAppear`/`.onDisappear`/the preference `.onChange`.
     @State private var isObservingTilt = false
+    /// Gates the loading spinner below — session restore is typically
+    /// near-instant, so showing it immediately would mostly just flash
+    /// briefly on every launch rather than communicate anything useful.
+    /// Flipped `true` after `spinnerDelay` by the `.task` below, which
+    /// SwiftUI cancels automatically the moment this view disappears (i.e.
+    /// restoration finished before the delay elapsed) — nothing else needs
+    /// to guard against a late, spurious flip.
+    @State private var showsSpinner = false
+    private static let spinnerDelay: Duration = .seconds(3)
 
     private var tiltX: CGFloat { is3DDepthEnabled ? CGFloat(tiltObserver.x) : 0 }
     private var tiltY: CGFloat { is3DDepthEnabled ? CGFloat(tiltObserver.y) : 0 }
@@ -104,11 +113,26 @@ struct SplashView: View {
         // in-app spinner tint) — this sits directly on the brand gradient
         // itself rather than a system background, and needs to read against
         // both the magenta and burgundy ends of it regardless of light/dark
-        // mode, the same reason the glyph above is solid white too.
+        // mode, the same reason the glyph above is solid white too. Held
+        // back by `showsSpinner` — see that property's doc comment for why.
         .overlay(alignment: .bottom) {
-            ProgressView()
-                .tint(.white)
-                .padding(.bottom, 96)
+            if showsSpinner {
+                ProgressView()
+                    .tint(.white)
+                    .padding(.bottom, 96)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut, value: showsSpinner)
+        .task {
+            do {
+                try await Task.sleep(for: Self.spinnerDelay)
+                showsSpinner = true
+            } catch {
+                // Cancelled because this view disappeared (session restore
+                // finished) before the delay elapsed — nothing to show a
+                // spinner for by then.
+            }
         }
         // Not also calling `tiltObserver.warmUp()` here — `AppState.start()`
         // already fires it once, unconditionally, during exactly this
