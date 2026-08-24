@@ -299,3 +299,14 @@ by `xcodebuild` from the CLI — extraction-into-catalog is an IDE/source-editor
 feature, not part of the command-line build system. Don't take a build-time
 absence of new strings in `Localizable.xcstrings` as a sign something's
 wrong; open the project in Xcode and build once to sync it.
+
+**Sync the catalog in the same PR that adds the strings, not as a
+follow-up.** Because extraction is IDE-only, neither `ios.yml` nor
+`release.yml` (both CLI `xcodebuild`) can ever catch or commit this — it
+used to be deferred to a separate "Sync Localizable.xcstrings catalog" PR
+discovered well after the fact (e.g. #106, #119), which is exactly the kind
+of release-day cleanup this project is trying to eliminate (see
+`VERSIONING.md`'s release flow). If a PR adds or changes any
+`Text`/`String(localized:)` literal, open the project in Xcode.app and
+build once (Cmd+B) before opening the PR, and include the resulting
+`Localizable.xcstrings` diff in it.

@@ -26,10 +26,18 @@
 # entirely, at the cost of needing to remember to run it.
 #
 # Run this:
-#   - after creating/moving a version tag, to refresh the checked-in files
-#     locally;
-#   - automatically in CI (.github/workflows/release.yml) before archiving
-#     a tagged release, so MARKETING_VERSION matches the tag being built.
+#   - on a release-prep branch, with the intended tag name as an explicit
+#     argument (`./Scripts/update-version.sh v1.2.0-alpha.3`), *before* that
+#     tag exists — see VERSIONING.md's "Day-to-day: cutting a tag" section.
+#     This is the normal path now: stamp on a branch, PR it in like any
+#     other change, merge, *then* tag the already-correct merge commit — so
+#     nothing needs fixing up after the tag is pushed.
+#   - with no argument, to derive the version from the latest reachable
+#     `v*` tag instead — used automatically in CI
+#     (.github/workflows/release.yml) right before building a tagged
+#     release, purely to make that build's MARKETING_VERSION correct (the
+#     tag already exists by then, having been pushed to trigger the
+#     workflow).
 #
 # It's deliberately *not* wired into a build phase that runs on every local
 # build — the output would change (build number, commit hash) on nearly
@@ -46,7 +54,17 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   DIRTY=".dirty"
 fi
 
-LATEST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+EXPLICIT_TAG="${1:-}"
+if [ -n "$EXPLICIT_TAG" ]; then
+  # Release-prep mode: the caller is telling us what tag this commit is
+  # *about to become* (it doesn't exist yet, so `git describe` can't see
+  # it) — stamp as if already exactly on that tag, same as the "clean,
+  # zero commits since the tag" case below.
+  LATEST_TAG="$EXPLICIT_TAG"
+  SINCE_TAG="0"
+else
+  LATEST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+fi
 
 if [ -z "$LATEST_TAG" ]; then
   # No `v*` tag reachable yet (e.g. before the first release is cut) — fall
@@ -61,7 +79,12 @@ else
     *-*) PRERELEASE="${TAG_VERSION#*-}" ;;
     *) PRERELEASE="" ;;
   esac
-  SINCE_TAG=$(git rev-list "${LATEST_TAG}..HEAD" --count)
+  if [ -z "$EXPLICIT_TAG" ]; then
+    # Only recompute from git when LATEST_TAG came from `git describe` — an
+    # explicit tag argument doesn't exist as a ref yet, so `rev-list` can't
+    # resolve it, and SINCE_TAG is already "0" from the branch above.
+    SINCE_TAG=$(git rev-list "${LATEST_TAG}..HEAD" --count)
+  fi
 fi
 
 if [ -n "$LATEST_TAG" ] && [ "$SINCE_TAG" = "0" ] && [ -z "$DIRTY" ]; then
