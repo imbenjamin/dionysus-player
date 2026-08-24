@@ -140,6 +140,23 @@ struct HomeView: View {
 /// rendered child row's lifecycle, so it can't reproduce the second either
 /// — the scroll view's own `contentOffset` is authoritative and always
 /// up to date regardless of what `LazyVStack` has or hasn't materialized.
+///
+/// This design itself had one more real bug, found live on a physical
+/// device (2026-08-24): `attachIfNeeded()` only ever got (re-)called from
+/// `updateUIView`, and on that device every one of its early calls landed
+/// before this marker view actually had a window — so `nearestScrollViewAncestor()`
+/// found nothing every time, and `updateUIView` simply never fired again
+/// for the rest of that launch even though Home's own content kept
+/// changing on screen. The KVO observation never got set up at all, which
+/// silently broke scroll-triggered loading for the *entire session* —
+/// whatever rail count `load()`'s own first inline batch happened to
+/// produce was all that would ever show, no matter how much further the
+/// user scrolled (user-reported as "0 or 1 dynamic rail even after several
+/// relaunches" — a real, deterministic bug, not the batch-luck variance it
+/// first looked like). Fixed by also retrying `attachIfNeeded()` from
+/// `WindowAttachmentTrackingView.didMoveToWindow()` — UIKit's own reliable
+/// "this view's superview chain just became real" signal, not dependent on
+/// however many more times SwiftUI happens to call `updateUIView`.
 private struct ScrollBottomObserver: UIViewRepresentable {
     var onNearBottom: () -> Void
 
@@ -148,11 +165,28 @@ private struct ScrollBottomObserver: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> UIView {
-        let view = UIView()
+        let view = WindowAttachmentTrackingView()
         view.backgroundColor = .clear
         // Never itself part of hit-testing — exists only to give the
         // coordinator a starting point to walk up from.
         view.isUserInteractionEnabled = false
+        // Confirmed live (2026-08-24): relying on `updateUIView` alone to
+        // eventually retry `attachIfNeeded()` is not reliable — on a real
+        // device, all of its early calls landed before this view had a
+        // window (so `nearestScrollViewAncestor()` found nothing), and
+        // `updateUIView` was never called again for the rest of that
+        // launch even as Home's content clearly kept changing underneath
+        // it, permanently breaking scroll-triggered dynamic-rail loading
+        // for that whole session (the one rail count you got from `load()`'s
+        // own first batch was all you'd ever see, no matter how much you
+        // scrolled). `didMoveToWindow` is UIKit's own reliable signal for
+        // "this view (and therefore its now-settled superview chain) just
+        // became part of a live window" — retrying here as well closes
+        // that gap regardless of whatever SwiftUI's own re-render timing
+        // happens to do.
+        view.onDidMoveToWindow = { [weak coordinator = context.coordinator] in
+            coordinator?.attachIfNeeded()
+        }
         context.coordinator.hostView = view
         return view
     }
@@ -230,6 +264,20 @@ private struct ScrollBottomObserver: UIViewRepresentable {
             observation = nil
             scrollView = nil
         }
+    }
+}
+
+/// A plain, invisible `UIView` except for one thing: it calls back whenever
+/// UIKit actually inserts it into a live window — see `ScrollBottomObserver
+/// .makeUIView`'s doc comment for why that's the reliable retry signal
+/// `attachIfNeeded()` needs, rather than trusting `updateUIView` to get
+/// called again later.
+private final class WindowAttachmentTrackingView: UIView {
+    var onDidMoveToWindow: (() -> Void)?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        onDidMoveToWindow?()
     }
 }
 

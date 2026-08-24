@@ -18,18 +18,20 @@ final class HomeViewModelTests: XCTestCase {
         super.tearDown()
     }
 
-    /// `shuffle` defaults to identity (not `HomeViewModel`'s own default
-    /// real shuffle) — most tests here care about deterministic rail order,
-    /// and the handful that don't are unaffected by an identity "shuffle".
+    /// `shuffle`/`itemShuffle` both default to identity (not `HomeViewModel`'s
+    /// own default real shuffle) — most tests here care about deterministic
+    /// rail/item order, and the handful that don't are unaffected by an
+    /// identity "shuffle".
     private func makeViewModel(
-        shuffle: @escaping ([DynamicRailCandidate]) -> [DynamicRailCandidate] = { $0 }
+        shuffle: @escaping ([DynamicRailCandidate]) -> [DynamicRailCandidate] = { $0 },
+        itemShuffle: @escaping @Sendable ([BaseItemDto]) -> [BaseItemDto] = { $0 }
     ) -> HomeViewModel {
         let client = JellyfinAPIClient(
             baseURL: URL(string: "https://jellyfin.example.com")!,
             accessToken: "tok",
             session: MockURLProtocol.makeSession()
         )
-        return HomeViewModel(client: client, userID: "user-1", shuffle: shuffle)
+        return HomeViewModel(client: client, userID: "user-1", shuffle: shuffle, itemShuffle: itemShuffle)
     }
 
     /// Stubs `/Genres`, `/Studios`, and `/Persons` (every discovery call
@@ -342,7 +344,7 @@ final class HomeViewModelTests: XCTestCase {
                     : BaseItemDto(id: "person-nolan", name: "Christopher Nolan", type: .unknown)
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [person], totalRecordCount: 1))
             case "/Users/user-1/Items":
-                guard query["SortBy"] != "Random" else {
+                guard query["Filters"] != "IsUnplayed" else {
                     // The hero rail's own lookup — no candidates needed here.
                     return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
                 }
@@ -415,6 +417,51 @@ final class HomeViewModelTests: XCTestCase {
         XCTAssertEqual(personItemQueries["Christopher Nolan"]?["PersonTypes"], "Director")
     }
 
+    /// A dynamic rail's own items are shuffled client-side (`itemShuffle`),
+    /// not via the server's own `SortBy=Random` — see `loadMoreDynamicRails`'s
+    /// doc comment for why. Uses a reversing "shuffle" (not the identity
+    /// default every other test here relies on) specifically so this test
+    /// can tell the items were actually run through it, not merely returned
+    /// in whatever order the (stubbed, already-alphabetical) server
+    /// response used.
+    func test_loadMoreDynamicRails_shufflesItemsClientSide() async {
+        let viewModel = makeViewModel(itemShuffle: { Array($0.reversed()) })
+        let genreItems = Self.makeItems("action", count: 5)
+
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            let query = request.queryDictionary
+            switch request.url?.path {
+            case "/Genres":
+                guard query["IncludeItemTypes"] == "Movie" else {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                let genre = BaseItemDto(id: "genre-action", name: "Action", type: .unknown)
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [genre], totalRecordCount: 1))
+            case "/Studios", "/Persons":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items":
+                guard query["Filters"] != "IsUnplayed" else {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                guard query["Genres"] == "Action" else {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: genreItems, totalRecordCount: genreItems.count))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(
+            viewModel.rails.first { $0.title == "Action Movies" }?.items.map(\.id),
+            genreItems.reversed().map(\.id)
+        )
+    }
+
     /// The threshold this whole section is about: a candidate needs at
     /// least `minimumDynamicRailItemCount` (5) items to become a rail — 4 is
     /// still "some" results, not zero, but should be dropped the same as a
@@ -439,7 +486,7 @@ final class HomeViewModelTests: XCTestCase {
             case "/Studios", "/Persons":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             case "/Users/user-1/Items":
-                guard query["SortBy"] != "Random" else {
+                guard query["Filters"] != "IsUnplayed" else {
                     return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
                 }
                 let items: [BaseItemDto]
@@ -476,7 +523,7 @@ final class HomeViewModelTests: XCTestCase {
             case "/Studios", "/Persons":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             case "/Users/user-1/Items":
-                guard query["SortBy"] != "Random" else {
+                guard query["Filters"] != "IsUnplayed" else {
                     return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
                 }
                 let name = query["Genres"] ?? "?"
@@ -522,7 +569,7 @@ final class HomeViewModelTests: XCTestCase {
             case "/Studios", "/Persons":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             case "/Users/user-1/Items":
-                guard query["SortBy"] != "Random" else {
+                guard query["Filters"] != "IsUnplayed" else {
                     return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
                 }
                 guard query["Genres"] != "EmptyGenre" else {
@@ -598,7 +645,7 @@ final class HomeViewModelTests: XCTestCase {
             case "/Studios", "/Persons":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             case "/Users/user-1/Items":
-                guard query["SortBy"] != "Random" else {
+                guard query["Filters"] != "IsUnplayed" else {
                     return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
                 }
                 guard query["Genres"] == "Action" else {
@@ -667,7 +714,7 @@ final class HomeViewModelTests: XCTestCase {
             case "/Studios", "/Persons":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             case "/Users/user-1/Items":
-                guard query["SortBy"] != "Random" else {
+                guard query["Filters"] != "IsUnplayed" else {
                     return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
                 }
                 dynamicItemsRequestCount += 1

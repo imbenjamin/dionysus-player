@@ -100,14 +100,23 @@ final class HomeViewModel {
     /// shuffle for production use — every `load()` reshuffles, so the
     /// dynamic rails' order differs each time Home is freshly loaded.
     private let shuffle: ([DynamicRailCandidate]) -> [DynamicRailCandidate]
+    /// Same idea as `shuffle` above, but for a dynamic rail's own *items*
+    /// rather than which rails appear — see `loadMoreDynamicRails`'s doc
+    /// comment for why this is a client-side shuffle rather than the
+    /// server's own `SortBy=Random`. `@Sendable`, unlike `shuffle` above —
+    /// this one gets called from inside `loadMoreDynamicRails`'s
+    /// `withTaskGroup` child tasks, not straight from the actor.
+    private let itemShuffle: @Sendable ([BaseItemDto]) -> [BaseItemDto]
 
     init(
         client: JellyfinAPIClient,
         userID: String,
-        shuffle: @escaping ([DynamicRailCandidate]) -> [DynamicRailCandidate] = { $0.shuffled() }
+        shuffle: @escaping ([DynamicRailCandidate]) -> [DynamicRailCandidate] = { $0.shuffled() },
+        itemShuffle: @escaping @Sendable ([BaseItemDto]) -> [BaseItemDto] = { $0.shuffled() }
     ) {
         self.client = client
         self.userID = userID
+        self.itemShuffle = itemShuffle
         self.shuffle = shuffle
     }
 
@@ -217,6 +226,21 @@ final class HomeViewModel {
     /// separate pool), and loads the first batch immediately. Each
     /// discovery call is independently best-effort (`try?`) — e.g. a failed
     /// director lookup shouldn't also wipe out genre rails that succeeded.
+    ///
+    /// A brief detour (2026-08-23): tried tiering candidates by category
+    /// (genres, then studios, then actors/directors, instead of one flat
+    /// shuffle) after a user report of "often 0 or 1 dynamic rail" and
+    /// qualifying-rate numbers measured against this codebase's own small
+    /// LAN test server suggested studios/actors/directors rarely clear
+    /// `minimumDynamicRailItemCount`. Reverted the same day, user-confirmed
+    /// worse: on their real library, plenty of studio/actor/director
+    /// candidates *do* qualify, so gating them behind exhausting every
+    /// genre candidate first (up to ~40) just delayed real content that
+    /// used to show up quickly. The measured rates were an artifact of
+    /// testing against a small, unrepresentative library, not a real
+    /// property of "studios/actors/directors are rarely good candidates" —
+    /// don't reintroduce category tiering off that reasoning without fresh
+    /// numbers from the *reporting user's* own library.
     private func loadDynamicRailCandidates() async {
         async let movieGenres = client.genres(userID: userID, includeItemTypes: ["Movie"])
         async let showGenres = client.genres(userID: userID, includeItemTypes: ["Series"])
@@ -292,12 +316,13 @@ final class HomeViewModel {
         // the actor, then captured by value into each child task below.
         let moviesLibraryID = self.moviesLibraryID
         let showsLibraryID = self.showsLibraryID
+        let itemShuffle = self.itemShuffle
         // Tagged with its index in `batch` so results can be restored to
         // the batch's (already-shuffled) order afterward — task-group
         // completion order isn't otherwise guaranteed to match it.
         let fetched = await withTaskGroup(of: (Int, MediaCollectionRail?).self) { group in
             for (index, candidate) in batch.enumerated() {
-                group.addTask { [client, userID] in
+                group.addTask { [client, userID, itemShuffle] in
                     let dtos: [BaseItemDto]?
                     switch candidate {
                     case .genre(let kind, let name):
@@ -320,7 +345,21 @@ final class HomeViewModel {
                         ).items
                     }
                     guard let dtos, dtos.count >= minimumItemCount else { return (index, nil) }
-                    let items = dtos.map { MediaItem(dto: $0, images: images) }
+                    // Shuffled client-side, not via the server's own
+                    // `SortBy=Random` — that seemed like the obvious fix
+                    // (`client.items` otherwise defaults to `"SortName"`,
+                    // which made a dynamic rail's own items alphabetical and
+                    // thus identical on every Home load), but combining
+                    // `SortBy=Random` with a `Genres`/`Studios`/`Person`
+                    // filter was user-reported to reproduce as *zero*
+                    // dynamic rails against a real server/library (not
+                    // reproduced against this codebase's own LAN test
+                    // server — likely a version- or library-specific
+                    // server-side join+random-order interaction, root cause
+                    // not confirmed — see `home-dynamic-rails-random-sort-bug`
+                    // memory). Shuffling the already-fetched, already-known-
+                    // good `dtos` here instead can't fail the same way.
+                    let items = itemShuffle(dtos).map { MediaItem(dto: $0, images: images) }
                     let rail = MediaCollectionRail(
                         title: candidate.railTitle, items: items,
                         seeAllQuery: candidate.seeAllQuery(moviesLibraryID: moviesLibraryID, showsLibraryID: showsLibraryID)
