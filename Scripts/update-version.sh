@@ -46,7 +46,6 @@
 set -e
 cd "$(dirname "$0")/.."
 
-BUILD_NUMBER=$(git rev-list --count HEAD)
 COMMIT=$(git rev-parse --short HEAD)
 
 DIRTY=""
@@ -60,9 +59,24 @@ if [ -n "$EXPLICIT_TAG" ]; then
   # *about to become* (it doesn't exist yet, so `git describe` can't see
   # it) — stamp as if already exactly on that tag, same as the "clean,
   # zero commits since the tag" case below.
+  #
+  # BUILD_NUMBER (a plain count) is knowable in advance — the commit this
+  # script's output is about to be committed into will be one past HEAD's
+  # current count, so add 1 rather than using today's count. Skipping this
+  # would leave the checked-in build number permanently one behind the
+  # count CI computes once that commit and its tag actually exist (see
+  # release.yml's verification step, which caught exactly this).
+  #
+  # COMMIT's short SHA is *not* knowable in advance, though — a commit
+  # can't contain its own hash, only its parent's — so this stays whatever
+  # HEAD is right now (the commit this release was prepared from, one
+  # behind the eventual tag). release.yml's verification step knows to
+  # excuse exactly this field for exactly this reason.
+  BUILD_NUMBER=$(($(git rev-list --count HEAD) + 1))
   LATEST_TAG="$EXPLICIT_TAG"
   SINCE_TAG="0"
 else
+  BUILD_NUMBER=$(git rev-list --count HEAD)
   LATEST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
 fi
 
