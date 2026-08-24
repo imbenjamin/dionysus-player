@@ -29,7 +29,47 @@ enum PlaybackState: Equatable {
     /// `PlaybackPhase.stalled(reconnecting:)`.
     case reconnecting
     case ended
-    case failed(String)
+    case failed(PlaybackFailure)
+}
+
+/// A normalized playback failure — the app's own shape for whatever
+/// AetherEngine (or an HTTP/decode error surfaced before a load ever
+/// reaches the engine) reported, same role as `PlaybackTrack`/
+/// `SubtitleCueDisplay` keeping AetherEngine's own types off this
+/// protocol's boundary. `AetherPlaybackEngine` is the only conformer that
+/// classifies AetherEngine's `PlaybackErrorKind` into `category` — see
+/// `AetherPlaybackEngine.category(for:)`.
+struct PlaybackFailure: Equatable {
+    /// What kind of recovery, if any, makes sense — mirrors the one
+    /// distinction AetherEngine's own docs recommend branching on
+    /// (`PlaybackErrorKind.sourceRateLimited` vs `.sourceRefused`), plus a
+    /// catch-all for everything else Retry already handles today.
+    enum Category: Equatable {
+        /// An access/format/hardware problem retrying can't fix (e.g. the
+        /// source refused the request, or this device can't decode what
+        /// the source actually is) — `PlayerView` shows Close only, no
+        /// Retry.
+        case refused
+        /// The origin is metering us (HTTP 429/503/509) — expected to work
+        /// again later, so Retry stays offered with no Close.
+        case rateLimited
+        /// Engine-internal or otherwise recoverable-by-retry — today's
+        /// existing default behavior for every failure.
+        case transient
+    }
+
+    var message: String
+    var category: Category = .transient
+}
+
+/// Thrown by `AetherPlaybackEngine.load(...)` in place of the raw
+/// underlying `AetherEngine` error, so `PlayerViewModel`'s existing
+/// `(error as? LocalizedError)?.errorDescription ?? fallback` idiom keeps
+/// working unchanged for the message, while `category` rides alongside for
+/// the Retry-vs-Close choice.
+struct PlaybackLoadFailure: Error, LocalizedError, Equatable {
+    var failure: PlaybackFailure
+    var errorDescription: String? { failure.message }
 }
 
 /// How the video surface fills its available space — the landscape

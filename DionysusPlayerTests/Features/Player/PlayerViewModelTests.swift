@@ -21,6 +21,7 @@ final class PlayerViewModelTests: XCTestCase {
         super.setUp()
         defaults = UserDefaults(suiteName: suiteName)
         defaults.removePersistentDomain(forName: suiteName)
+        ConnectivityMonitor.shared.reset()
     }
 
     override func tearDown() {
@@ -204,7 +205,7 @@ final class PlayerViewModelTests: XCTestCase {
     /// `start()` succeeds again.
     func test_start_clearsAnyPreviousErrorMessage() async {
         let (viewModel, engine) = makeViewModel()
-        engine.onStateChange?(.failed("boom"))
+        engine.onStateChange?(.failed(PlaybackFailure(message: "boom")))
         XCTAssertNotNil(viewModel.errorMessage)
         let dto = BaseItemDto(id: "item-1", name: "Arrival", type: .movie)
         stubStart(itemDto: dto)
@@ -374,6 +375,41 @@ final class PlayerViewModelTests: XCTestCase {
         await viewModel.start()
 
         XCTAssertNotNil(viewModel.errorMessage)
+        XCTAssertEqual(engine.playCallCount, 0)
+    }
+
+    /// A `CancellationError` from `engine.load(...)` — a superseded load,
+    /// e.g. rapid next-episode navigation or backing out mid-load — is not
+    /// a playback failure and must not flash a spurious error. See
+    /// `AetherPlaybackEngine.load(...)`'s own doc comment for why this is
+    /// filtered in `start()`'s catch rather than at that throw site.
+    func test_start_engineLoadThrows_cancellationError_leavesErrorMessageNil() async {
+        let engine = FakePlaybackEngine()
+        engine.loadError = CancellationError()
+        let (viewModel, _) = makeViewModel(engine: engine)
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie))
+
+        await viewModel.start()
+
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertNil(viewModel.failureCategory)
+        XCTAssertEqual(engine.playCallCount, 0)
+    }
+
+    /// A `PlaybackLoadFailure` thrown from `engine.load(...)` (AetherEngine
+    /// classified the failure, e.g. a source refusal) must carry both its
+    /// message and its category through to the view model, not just fall
+    /// back to the generic "Playback failed to start." message.
+    func test_start_engineLoadThrows_playbackLoadFailure_setsErrorMessageAndFailureCategoryFromIt() async {
+        let engine = FakePlaybackEngine()
+        engine.loadError = PlaybackLoadFailure(failure: PlaybackFailure(message: "The server refused this stream.", category: .refused))
+        let (viewModel, _) = makeViewModel(engine: engine)
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie))
+
+        await viewModel.start()
+
+        XCTAssertEqual(viewModel.errorMessage, "The server refused this stream.")
+        XCTAssertEqual(viewModel.failureCategory, .refused)
         XCTAssertEqual(engine.playCallCount, 0)
     }
 
@@ -624,6 +660,26 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(reportedTicks, 75 * 10_000_000)
     }
 
+    /// A close affordance (the top bar's X, or the offline screen's own
+    /// Close button) must dismiss promptly even while offline — `stop()`
+    /// used to always attempt `reportPlaybackStopped` regardless, which
+    /// `sendRaw`'s own 20s timeout race turned into a real, user-visible
+    /// stall on every close path while genuinely offline (confirmed live,
+    /// 2026-08-24): tapping Close read as completely unresponsive. Fails
+    /// loudly (via a request handler that throws) rather than merely
+    /// asserting the field-of-interest, so a regression that reintroduces
+    /// the network call shows up as a hard failure here, not just a slow
+    /// test.
+    func test_stop_whileOffline_skipsNetworkCallAndStillStopsEngine() async {
+        let (viewModel, engine) = makeViewModel()
+        ConnectivityMonitor.shared.reportFailure()
+        MockURLProtocol.requestHandler = { _ in throw URLError(.notConnectedToInternet) }
+
+        await viewModel.stop()
+
+        XCTAssertEqual(engine.stopCallCount, 1)
+    }
+
     // MARK: engine → ViewModel callbacks
 
     func test_engineStateAndTimeCallbacks_updateViewModelState() {
@@ -650,11 +706,14 @@ final class PlayerViewModelTests: XCTestCase {
     func test_engineFailedState_setsErrorMessage() {
         let (viewModel, engine) = makeViewModel()
         XCTAssertNil(viewModel.errorMessage)
+        XCTAssertNil(viewModel.failureCategory)
 
-        engine.onStateChange?(.failed("Source read failed (code 5)"))
+        let failure = PlaybackFailure(message: "Source read failed (code 5)", category: .refused)
+        engine.onStateChange?(.failed(failure))
 
-        XCTAssertEqual(viewModel.state, .failed("Source read failed (code 5)"))
+        XCTAssertEqual(viewModel.state, .failed(failure))
         XCTAssertEqual(viewModel.errorMessage, "Source read failed (code 5)")
+        XCTAssertEqual(viewModel.failureCategory, .refused)
     }
 
     func test_pictureInPictureCallbacks_updateViewModelState() {

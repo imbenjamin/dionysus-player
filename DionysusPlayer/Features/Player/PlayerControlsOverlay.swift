@@ -819,11 +819,18 @@ struct PlayerControlsOverlay: View {
     /// while `isBuffering`, rather than leaving the play/pause button
     /// showing a state that isn't actually available yet (tapping play
     /// mid-buffer did nothing perceptible, which read as broken rather than
-    /// "in progress"). Covers the initial buffer on load/resume
-    /// (`.loading`), an in-progress scrub (`.seeking`), an ordinary
-    /// mid-playback rebuffer (`.buffering`), and a dropped/retrying source
-    /// connection (`.reconnecting` — labeled distinctly below, rather than
-    /// reading as an unexplained generic stall).
+    /// "in progress"). Covers `.idle` (still fetching the item/playback
+    /// info/stream URL over the network — `PlayerViewModel.state` stays
+    /// `.idle` for that entire window, since nothing updates it until
+    /// `engine.load(url:)` is actually reached; without this the transport
+    /// row showed a plain, tappable-looking Play button with no indication
+    /// anything was happening — confirmed live, 2026-08-24, most visibly
+    /// while offline, where that window can run long enough to be mistaken
+    /// for a dead screen), the initial buffer on load/resume (`.loading`),
+    /// an in-progress scrub (`.seeking`), an ordinary mid-playback rebuffer
+    /// (`.buffering`), and a dropped/retrying source connection
+    /// (`.reconnecting` — labeled distinctly below, rather than reading as
+    /// an unexplained generic stall).
     @ViewBuilder
     private var transportControls: some View {
         if isBuffering {
@@ -871,7 +878,7 @@ struct PlayerControlsOverlay: View {
     }
 
     private var isBuffering: Bool {
-        viewModel.state == .loading || viewModel.state == .seeking
+        viewModel.state == .idle || viewModel.state == .loading || viewModel.state == .seeking
             || viewModel.state == .buffering || viewModel.state == .reconnecting
     }
 

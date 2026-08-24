@@ -29,6 +29,14 @@ struct ErrorStateView: View {
     /// rather than a failure (e.g. `DownloadsView`'s "no downloads yet")
     /// can pass something more on-topic instead.
     var icon: String = "exclamationmark.triangle"
+    /// A second, non-destructive action alongside `retry` — e.g. a Close
+    /// button for a failure `retry` can't plausibly fix (the Player's
+    /// `.refused` playback failures, where it's shown with `retry: nil`).
+    /// `nil` (every existing call site before this was added) omits it
+    /// entirely — mirrors `OfflineStateView`'s existing `secondaryAction`
+    /// in this same file rather than inventing a new shape.
+    var secondaryActionTitle: String?
+    var secondaryAction: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 12) {
@@ -40,6 +48,10 @@ struct ErrorStateView: View {
                 .foregroundStyle(.secondary)
             if let retry {
                 Button("Try Again", action: retry)
+                    .buttonStyle(.bordered)
+            }
+            if let secondaryActionTitle, let secondaryAction {
+                Button(secondaryActionTitle, action: secondaryAction)
                     .buttonStyle(.bordered)
             }
         }

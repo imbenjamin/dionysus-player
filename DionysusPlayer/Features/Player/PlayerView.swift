@@ -1,9 +1,12 @@
 import SwiftUI
+import os
 
 /// Full-screen playback presented over whatever screen initiated it.
 /// Renders AetherEngine's video surface with a custom transport-controls
 /// overlay.
 struct PlayerView: View {
+    private static let logger = Logger(subsystem: "com.dionysus.player", category: "PlayerView")
+
     let itemID: String
     var startFromBeginning: Bool = false
     var mediaSourceID: String? = nil
@@ -41,6 +44,11 @@ struct PlayerView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: PlayerViewModel?
+    /// Set when `setUpIfNeeded()`'s `AetherPlaybackEngine()` construction
+    /// throws — previously swallowed with `try?`, which left this view
+    /// stuck on `LoadingView()` forever with no `viewModel` to ever hold an
+    /// `errorMessage`, and no indication anything had gone wrong at all.
+    @State private var setupError: String?
     @State private var showControls = true
     @State private var isScrubbing = false
     @State private var scrubTime: TimeInterval = 0
@@ -270,21 +278,139 @@ struct PlayerView: View {
                 PictureInPictureOverlay(isVisible: viewModel.isPictureInPictureActive)
 
                 if let errorMessage = viewModel.errorMessage {
-                    // A terminal failure that coincides with the app already
-                    // being offline (the common case for a LAN drop — the
-                    // same outage kills `reportPlaybackProgress` too, which
-                    // is what keeps `ConnectivityMonitor` current) gets the
-                    // shared offline screen with a retry that resumes in
-                    // place; anything else (codec/DRM/other) keeps the
-                    // existing generic error UI, restarting via `start()`.
-                    if ConnectivityMonitor.shared.isOffline {
-                        OfflineStateView(retry: {
-                            Task { await viewModel.start(resumeSeconds: viewModel.currentTime) }
-                        })
-                    } else {
-                        ErrorStateView(message: errorMessage) {
-                            Task { await viewModel.start() }
+                    // `ErrorStateView`/`OfflineStateView` have no opaque
+                    // background of their own — every other screen that uses
+                    // them replaces a plain content region with nothing else
+                    // behind it, so that's never mattered before. Here,
+                    // `PlayerControlsOverlay` (and the rest of the transport
+                    // chrome) is still fully mounted right underneath, and
+                    // was visibly bleeding through every gap around the
+                    // icon/text/buttons — confirmed live, 2026-08-24. A
+                    // dimming scrim (also blocks taps reaching whatever's
+                    // behind it, since a filled `Color` view hit-tests across
+                    // its whole frame) plus a bounded, opaque card gives the
+                    // error a real "topmost, obviously modal" presentation
+                    // instead — same panel language `PlayerControlsOverlay`'s
+                    // own track picker already uses (`trackPickerContent`),
+                    // rather than either component's default bare-floating
+                    // look. Deliberately a *light* dim (matching a standard
+                    // iOS modal scrim, not the near-opaque 0.85 first tried) —
+                    // the card's own opaque fill plus border/shadow is what
+                    // reads as "on top," not blacking out the always-present
+                    // top toolbar/title underneath, which stayed legible
+                    // before this whole fix existed and shouldn't get
+                    // crushed to near-invisibility now (confirmed live,
+                    // 2026-08-24).
+                    ZStack {
+                        Color.black.opacity(0.4)
+                            .ignoresSafeArea()
+
+                        // A terminal failure that coincides with the app
+                        // already being offline (the common case for a LAN
+                        // drop — the same outage kills
+                        // `reportPlaybackProgress` too, which is what keeps
+                        // `ConnectivityMonitor` current) gets the shared
+                        // offline screen with a retry that resumes in place.
+                        // Otherwise, branch on `failureCategory`: a
+                        // `.refused` failure (an access refusal, or content
+                        // this build/device can never play) gets Close
+                        // only — Retry can't fix it, and leaving only a
+                        // dead-end retry loop with no way out was a real
+                        // gap. `.rateLimited` and `.transient` keep the
+                        // existing Retry-only UI, since both are worth
+                        // retrying (a metered origin is expected to work
+                        // again later; everything else is today's existing
+                        // "just try again" default).
+                        Group {
+                            if ConnectivityMonitor.shared.isOffline {
+                                // No `.tint` override here — unlike
+                                // `ErrorStateView` below, `OfflineStateView`'s
+                                // primary action is `.buttonStyle
+                                // (.borderedProminent)`, which uses the tint
+                                // as its *fill*, not just its label/border
+                                // color. Forcing that to white produced a
+                                // white-on-white button with no visible
+                                // label (confirmed live, 2026-08-24) — the
+                                // app's own default accent already contrasts
+                                // fine as a prominent fill against this dark
+                                // card (it's the same button this component
+                                // already renders correctly everywhere else
+                                // in the app), so it needs no override at
+                                // all.
+                                OfflineStateView(
+                                    retry: {
+                                        Task { await viewModel.start(resumeSeconds: viewModel.currentTime) }
+                                    },
+                                    secondaryActionTitle: String(localized: "Close"),
+                                    secondaryAction: { Task { await close() } }
+                                )
+                            } else if viewModel.failureCategory == .refused {
+                                ErrorStateView(
+                                    message: errorMessage,
+                                    retry: nil,
+                                    secondaryActionTitle: String(localized: "Close"),
+                                    secondaryAction: { Task { await close() } }
+                                )
+                                // `.bordered`, not `.borderedProminent` —
+                                // tint here only colors the label/border, so
+                                // forcing it white is exactly the fix this
+                                // one needs (see the color-scheme comment
+                                // below for the matching icon/message fix).
+                                .tint(.white)
+                            } else {
+                                ErrorStateView(message: errorMessage) {
+                                    Task { await viewModel.start() }
+                                }
+                                .tint(.white)
+                            }
                         }
+                        // `ErrorStateView`/`OfflineStateView`'s icon/message
+                        // use `.secondary`, which correctly assumes it's
+                        // painting onto whatever the *system* light/dark
+                        // appearance actually is, since every other screen
+                        // that uses them sits on the ordinary system
+                        // background. This card's fill is always dark
+                        // regardless of the device's actual appearance
+                        // setting, so on a device in Light mode `.secondary`
+                        // resolved to a mid-gray meant for a *light*
+                        // background — nearly invisible here (confirmed
+                        // live, 2026-08-24). Forcing this subtree's color
+                        // scheme is what actually fixes it — `.secondary`
+                        // then resolves to its dark-appearance value
+                        // regardless of the system setting, matching what
+                        // this card always visually is. (The `.tint(.white)`
+                        // buttons need is applied per-branch above instead,
+                        // not here — `.borderedProminent`'s tint is its
+                        // *fill*, not just its label/border color, so a
+                        // blanket override here would white-out
+                        // `OfflineStateView`'s primary button the same way
+                        // it just did before this was split out; see that
+                        // branch's own comment.)
+                        .colorScheme(.dark)
+                        // Caps growth to a bounded card instead of the
+                        // full-screen fill each view's own body requests —
+                        // nested `.frame` proposals cap what the infinite
+                        // one inside can claim — and `.fixedSize` on the
+                        // vertical axis stops it from stretching to fill the
+                        // scrim's full height too, so the card hugs its
+                        // actual content instead of forming a tall column.
+                        .frame(maxWidth: 420)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .background(Color(white: 0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.12))
+                        }
+                        .shadow(color: .black.opacity(0.4), radius: 20, y: 8)
+                        .padding(32)
+                    }
+                }
+            } else if let setupError {
+                ErrorStateView(message: setupError) {
+                    Task {
+                        self.setupError = nil
+                        await setUpIfNeeded()
                     }
                 }
             } else {
@@ -457,7 +583,14 @@ struct PlayerView: View {
         // `RootView`'s `.offline` "View Downloads" escape hatch, which
         // reaches this view with no `currentUser` at all.
         guard let userID = appState.currentUser?.id ?? appState.sessionStore.credentials?.userID else { return }
-        guard let engine = try? AetherPlaybackEngine() else { return }
+        let engine: AetherPlaybackEngine
+        do {
+            engine = try AetherPlaybackEngine()
+        } catch {
+            Self.logger.error("AetherPlaybackEngine construction failed: \(error.localizedDescription, privacy: .public)")
+            setupError = String(localized: "Couldn't start the video player.")
+            return
+        }
         let newViewModel = PlayerViewModel(
             client: client, userID: userID, itemID: itemID, engine: engine,
             startFromBeginning: startFromBeginning, mediaSourceID: mediaSourceID,

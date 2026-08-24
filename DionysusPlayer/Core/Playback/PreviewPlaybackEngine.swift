@@ -24,6 +24,10 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     var videoFormatDescription: String? = "Dolby Vision P8.1"
     var videoNaturalSize: CGSize? = CGSize(width: 3840, height: 1600)
     var zoomMode: VideoZoomMode = .fit
+    /// Set before triggering a preview's `load(...)` to preview the error
+    /// UI (`ErrorStateView`'s Retry-vs-Close branch in `PlayerView`)
+    /// instead of the default always-succeeds behavior below.
+    var simulatedFailure: PlaybackFailure?
     var stats = PlaybackStats(
         videoSize: "3840×1600",
         frameRate: "23.976 fps",
@@ -41,6 +45,10 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     )
 
     func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws {
+        if let simulatedFailure {
+            onStateChange?(.failed(simulatedFailure))
+            return
+        }
         onStateChange?(.playing)
         onTimeUpdate?(0, 5400)
     }
