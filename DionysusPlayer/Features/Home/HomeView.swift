@@ -7,6 +7,14 @@ import UIKit
 struct HomeView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel: HomeViewModel?
+    /// Whether Home is currently the selected tab — passed down from
+    /// `MainTabView`, which tracks `selectedTab` explicitly. Threaded
+    /// straight through to `HeroRailView` so its auto-advance timer can
+    /// stop doing real work while Home isn't on screen; see that
+    /// property's doc comment on `HeroRailView` for why tab selection alone
+    /// isn't the whole story. Defaults to `true` so `#Preview` and any
+    /// future non-tab caller don't need to think about it.
+    var isActiveTab: Bool = true
 
     var body: some View {
         ScrollView {
@@ -80,7 +88,7 @@ struct HomeView: View {
                     // up front.
                     LazyVStack(alignment: .leading, spacing: 24) {
                         if !heroItems.isEmpty {
-                            HeroRailView(items: heroItems)
+                            HeroRailView(items: heroItems, isTabActive: isActiveTab)
                         }
                         if !libraries.isEmpty {
                             LibraryRailView(libraries: libraries)

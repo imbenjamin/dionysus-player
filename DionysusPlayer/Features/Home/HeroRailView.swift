@@ -14,6 +14,14 @@ import UIKit
 /// would have nothing to bleed into.
 struct HeroRailView: View {
     let items: [MediaItem]
+    /// Whether Home is the currently-selected tab — threaded down from
+    /// `MainTabView` via `HomeView`, refreshed on every re-render (a plain
+    /// stored property, not `@State`, so it always reflects the caller's
+    /// current value rather than latching the first one). Combined with
+    /// `isOnScreen` below into `isVisible`, which gates the auto-advance
+    /// timer's actual work — see that property's doc comment for why
+    /// neither signal alone covers every way Home can stop being visible.
+    let isTabActive: Bool
 
     /// Custom init so `scrollPosition`'s starting value can account for
     /// whether `loopedItems` actually pads `items` — with 0 or 1 items it
@@ -23,8 +31,9 @@ struct HeroRailView: View {
     /// where `loopedItems` itself gets computed — see that property's doc
     /// comment for why doing it here, once, rather than as a `body`-time
     /// computed property, actually matters.
-    init(items: [MediaItem]) {
+    init(items: [MediaItem], isTabActive: Bool) {
         self.items = items
+        self.isTabActive = isTabActive
         self.loopedItems = Self.loop(items)
         _scrollPosition = State(initialValue: items.count > 1 ? 1 : 0)
     }
@@ -124,6 +133,32 @@ struct HeroRailView: View {
     /// that type's doc comment for why, including two earlier, broader
     /// attachment points that each caused their own real bug).
     @State private var isInteracting = false
+
+    /// Tracks actual on-screen presence via SwiftUI's own appear/disappear
+    /// lifecycle — set from the same `.onAppear`/`.onDisappear` pair
+    /// `resyncScrollPosition(using:)` already uses below, which fires
+    /// reliably around the Player's `.fullScreenCover` covering Home (see
+    /// that function's doc comment). `isTabActive` alone can't catch that
+    /// case — Home stays the selected *tab* the whole time the Player is
+    /// open over it, so nothing about tab selection changes while covered.
+    @State private var isOnScreen = true
+
+    /// Whether the auto-advance timer's tick should actually do anything —
+    /// combines `isTabActive` (backgrounded-tab case) and `isOnScreen`
+    /// (fullScreenCover-covering case) since neither alone covers both ways
+    /// Home can stop being visible while still mounted. Read fresh by
+    /// `tick()` every second; while `false`, `tick()` is a complete no-op
+    /// (no state write at all, not even a cheap one), the same as it
+    /// already is while `isInteracting` — so a background tab or a covered
+    /// Home no longer drives a state write and re-render once a second for
+    /// as long as the app runs, the actual cost this was fixing (found
+    /// during the 2026-08-24 architecture review — see the doc comment atop
+    /// this file's `tickTimer` for the matching fix to a related issue,
+    /// recreating the Timer itself unnecessarily). `idleSeconds` is simply
+    /// held wherever it was, exactly like the existing `isInteracting`
+    /// pause, so there's nothing to resync on reappearance — nothing
+    /// drifted while invisible, since `tick()` never advanced it.
+    private var isVisible: Bool { isTabActive && isOnScreen }
 
     /// Seconds elapsed since the current item became current, ticked up by
     /// `tickTimer` but held steady (not reset) while `isInteracting` is
@@ -310,12 +345,26 @@ struct HeroRailView: View {
                     HeroPageIndicator(
                         count: items.count,
                         currentIndex: currentIndex,
-                        isInteracting: isInteracting
+                        // Not `isInteracting` alone — an invisible Home
+                        // (backgrounded tab, or covered by the Player)
+                        // should freeze the fill exactly like a held touch
+                        // does, or it keeps animating via Core Animation
+                        // (which doesn't care whether anything's on screen
+                        // to composite it) toward 100% while `tick()` itself
+                        // is gated off and `idleSeconds` isn't actually
+                        // advancing — a cosmetic desync on reappearance
+                        // otherwise. See `isPaused`'s doc comment on
+                        // `HeroPageIndicator`.
+                        isPaused: isInteracting || !isVisible
                     )
                     .padding(16)
                 }
             }
-            .onAppear { resyncScrollPosition(using: scrollProxy) }
+            .onAppear {
+                isOnScreen = true
+                resyncScrollPosition(using: scrollProxy)
+            }
+            .onDisappear { isOnScreen = false }
         }
     }
 
@@ -346,6 +395,15 @@ struct HeroRailView: View {
     /// `.fullScreenCover` dismissal and initial appearance alike) closes
     /// the gap without needing an actual touch. A no-op, invisible jump to
     /// the same spot on any appearance where no drift actually happened.
+    ///
+    /// Follow-up (2026-08-24): `tick()` is now directly gated on
+    /// `isVisible`, so it no longer advances `scrollPosition` at all while
+    /// covered or backgrounded — the drift this originally corrected for
+    /// can't happen anymore, making this call a genuine no-op in the normal
+    /// case rather than the primary fix. Left in place as a defensive
+    /// fallback regardless — cheap, and correct even if some future change
+    /// reintroduces another path that can move `scrollPosition` while this
+    /// view isn't visible.
     private func resyncScrollPosition(using proxy: ScrollViewProxy) {
         guard let scrollPosition else { return }
         var transaction = Transaction()
@@ -361,10 +419,17 @@ struct HeroRailView: View {
     /// case (see `loopedItems`'s doc comment). Simply skips the increment
     /// while `isInteracting` — not resetting `idleSeconds` — so a touch
     /// pauses the countdown in place rather than restarting it; `tick()`
-    /// picks back up from the same count once the finger lifts.
+    /// picks back up from the same count once the finger lifts. `isVisible`
+    /// gets the identical treatment, for the identical reason — see that
+    /// property's doc comment: this is what actually stops `tickTimer`'s
+    /// once-a-second firing from writing state and re-rendering this
+    /// subtree while nobody can see it (found during the 2026-08-24
+    /// architecture review, deliberately deferred past the rest of that
+    /// pass given how much live-repro tuning this file's timing behavior
+    /// has already needed).
     private func tick() {
         guard items.count > 1 else { return }
-        guard !isInteracting else { return }
+        guard !isInteracting, isVisible else { return }
         idleSeconds += 1
         guard idleSeconds >= Self.autoAdvanceInterval else { return }
         idleSeconds = 0
@@ -447,7 +512,7 @@ private struct HeroRailCard: View {
 /// next item's dot takes over. Prototyped as a standalone mockup and
 /// reviewed before landing here (tap-to-jump dots and a dedicated
 /// hold-to-pause region existed in that prototype but are deliberately not
-/// carried over — see `isInteracting`'s doc comment below).
+/// carried over — see `isPaused`'s doc comment below).
 ///
 /// The fill is driven by `withAnimation`, event-driven rather than ticking
 /// continuously — two earlier versions of this tried other approaches and
@@ -493,7 +558,15 @@ private struct HeroRailCard: View {
 private struct HeroPageIndicator: View {
     let count: Int
     let currentIndex: Int
-    let isInteracting: Bool
+    /// Freezes the fill exactly where it is, same treatment `HeroRailView
+    /// .tick()` gives `idleSeconds` itself — the caller passes `true` for
+    /// either a real held touch or (as of 2026-08-24) Home simply not being
+    /// visible (backgrounded tab or covered by the Player), so this fill
+    /// never keeps animating via Core Animation toward 100% while the real
+    /// countdown it's meant to represent isn't actually advancing. Named
+    /// for what it does here, not for either specific cause — see the call
+    /// site in `heroContent(pageWidth:)` for what feeds into it.
+    let isPaused: Bool
 
     /// The fill's current position, `0...1`. Only ever set via
     /// `snapInstantly(to:)` or as the target of a `withAnimation` block —
@@ -553,8 +626,8 @@ private struct HeroPageIndicator: View {
         .allowsHitTesting(false)
         .onAppear { startFresh() }
         .onChange(of: currentIndex) { _, _ in startFresh() }
-        .onChange(of: isInteracting) { _, interacting in
-            if interacting {
+        .onChange(of: isPaused) { _, paused in
+            if paused {
                 pause()
             } else {
                 resume()
@@ -563,13 +636,13 @@ private struct HeroPageIndicator: View {
     }
 
     /// A new item just became current (or this is the very first render) —
-    /// start counting from zero. If a touch is still down (a live swipe can
-    /// flip through several items while `isInteracting` stays continuously
-    /// true), stays paused at zero rather than starting to count —
-    /// `resume()` will pick it up once the finger actually lifts.
+    /// start counting from zero. If still paused (a live swipe can flip
+    /// through several items while a touch stays continuously down), stays
+    /// paused at zero rather than starting to count — `resume()` will pick
+    /// it up once `isPaused` goes back to `false`.
     private func startFresh() {
         accumulatedActiveTime = 0
-        if isInteracting {
+        if isPaused {
             resumedAt = nil
             snapInstantly(to: 0)
         } else {
@@ -879,5 +952,5 @@ private final class PassthroughTouchRecognizer: UIGestureRecognizer {
 }
 
 #Preview {
-    HeroRailView(items: [])
+    HeroRailView(items: [], isTabActive: true)
 }
