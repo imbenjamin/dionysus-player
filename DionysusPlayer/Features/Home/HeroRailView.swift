@@ -30,12 +30,12 @@ struct HeroRailView: View {
     }
 
     /// Tracked purely to force `body` to re-run on rotation, the same
-    /// reason `HeroHeaderView` reads `verticalSizeClass` — `screenHeight`/
-    /// `statusBarInset` below are plain UIKit reads, and SwiftUI has no way
-    /// to know `body` depends on them unless *something* here is a tracked
-    /// dependency. Page *width* doesn't need this — `heroContent(pageWidth:)`
-    /// gets that from a `GeometryReader` instead, which needs no such
-    /// prompting since it's itself part of the layout system.
+    /// reason `HeroHeaderView` reads `verticalSizeClass` — `heroHeight`
+    /// below is a plain UIKit read, and SwiftUI has no way to know `body`
+    /// depends on it unless *something* here is a tracked dependency. Page
+    /// *width* doesn't need this — `heroContent(pageWidth:)` gets that from
+    /// a `GeometryReader` instead, which needs no such prompting since it's
+    /// itself part of the layout system.
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     /// Same check `HeroHeaderView` uses, for the same reason (see that
@@ -43,10 +43,9 @@ struct HeroRailView: View {
     /// landscape signal.
     private var isLandscape: Bool { verticalSizeClass == .compact }
 
-    /// Shared by `screenHeight`/`statusBarInset` below — `heroHeight`'s
-    /// portrait branch reads both, so without this they'd independently
-    /// re-walk `UIApplication.shared.connectedScenes` to find the same key
-    /// window twice over on every `body` evaluation that needs it.
+    /// Deliberately the key window's own bounds, not `UIScreen.main` (soft
+    /// deprecated, and doesn't reflect a resized scene under iPadOS Stage
+    /// Manager) — same reasoning as `HeroHeaderView.statusBarInset`.
     private var keyWindow: UIWindow? {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
@@ -55,30 +54,29 @@ struct HeroRailView: View {
             .first(where: \.isKeyWindow)
     }
 
-    /// Deliberately the key window's own bounds, not `UIScreen.main` (soft
-    /// deprecated, and doesn't reflect a resized scene under iPadOS Stage
-    /// Manager) — same reasoning as `HeroHeaderView.statusBarInset`.
-    private var screenHeight: CGFloat { keyWindow?.bounds.height ?? 800 }
-
-    /// Same raw hardware inset `HeroHeaderView` uses (status bar/notch only,
-    /// not the nav bar) — see that view's doc comment for why it has to be
-    /// this rather than the ambient `safeAreaInsets`.
-    private var statusBarInset: CGFloat { keyWindow?.safeAreaInsets.top ?? 0 }
-
-    /// Portrait: a third of the screen, stretched 25% taller, *plus*
-    /// `statusBarInset` so bleeding up under the notch is pure upward
+    /// Portrait: a third of the screen, stretched 25% taller, *plus* the
+    /// status bar/notch inset (the window's own raw hardware inset, not the
+    /// ambient `safeAreaInsets` — same reasoning as `HeroHeaderView
+    /// .statusBarInset`) so bleeding up under the notch is pure upward
     /// growth rather than eating into that 1.25x budget — without the
     /// addition, reaching the notch and "25% taller" would fight over the
     /// same height instead of both actually happening. Landscape instead
     /// goes straight to 75% of the screen — a third-of-portrait-height
     /// formula would read as far too short once the screen itself is much
     /// shorter, so landscape gets its own, larger fraction rather than
-    /// reusing the portrait math. `screenHeight` already reflects whichever
-    /// orientation is current (the key window's `bounds` rotate with the
-    /// device), so no separate landscape screen-height read is needed.
+    /// reusing the portrait math; the key window's `bounds` already reflect
+    /// whichever orientation is current, so no separate landscape read is
+    /// needed. `keyWindow` is read once into a local here, not via two
+    /// separate computed properties (an earlier version had `screenHeight`/
+    /// `statusBarInset` as such) — the portrait branch needs both, and two
+    /// separate properties meant re-walking `UIApplication.shared
+    /// .connectedScenes` to find the same key window twice over on every
+    /// evaluation.
     private var heroHeight: CGFloat {
-        guard !isLandscape else { return screenHeight * 0.75 }
-        return statusBarInset + screenHeight / 3 * 1.25
+        let window = keyWindow
+        let height = window?.bounds.height ?? 800
+        guard !isLandscape else { return height * 0.75 }
+        return (window?.safeAreaInsets.top ?? 0) + height / 3 * 1.25
     }
 
     /// Indexes into `loopedItems`, not `items` — see that property's doc
@@ -149,8 +147,16 @@ struct HeroRailView: View {
     fileprivate static let autoAdvanceAnimationDuration: TimeInterval = 0.35
 
     /// Ticks once a second; `tick()` itself is what actually holds
-    /// `idleSeconds` steady while `isInteracting` is true.
-    private let tickTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    /// `idleSeconds` steady while `isInteracting` is true. `@State`, not a
+    /// plain `let` — a plain stored property is reinitialized (a fresh
+    /// `Timer`/Combine subscription torn down and recreated) every time
+    /// `HomeView.body` reruns and reconstructs this view (e.g. on every
+    /// dynamic-rail batch append while scrolling), since `HeroRailView` is a
+    /// value type recomputed from scratch on each such render. `@State`'s
+    /// initial-value expression only evaluates once per view identity, same
+    /// as `scrollPosition`/`idleSeconds`/`isInteracting` below, so this
+    /// keeps one real Timer alive for the view's actual lifetime instead.
+    @State private var tickTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     /// Wraps the whole rail so each page's width (below) can come from
     /// `proxy.size.width` — genuinely layout-driven, unlike an earlier
@@ -403,22 +409,13 @@ private struct HeroRailCard: View {
 
     var body: some View {
         // Wrapped in a (single-child) `ZStack`, not a bare `NavigationLink`
-        // — see `PosterCard.body`'s doc comment for the real-device bug
-        // this avoids: a bare `NavigationLink` as a horizontal rail's only
-        // per-page content sent SwiftUI's layout engine into a genuine
-        // infinite loop (confirmed via a CPU sample pegged at ~100%,
-        // entirely inside AttributeGraph/StackLayout internals — not a
-        // single frame of this app's own code on the stack), and a
-        // single-child `ZStack` was enough to restore whatever layout-
-        // negotiation role it was quietly playing between the
-        // `NavigationLink` and its parent stack. This card sat in a plain
-        // `HStack` rather than a `LazyHStack` (see `heroContent(pageWidth:)`
-        // above for why it's eager), so it was never covered by that fix or
-        // `LibraryCard`'s matching defensive one — applied here too
-        // (2026-08-13) after a live freeze on Home, mid-scroll, produced
-        // the identical signature (100% CPU, zero app frames, entirely
-        // AttributeGraph/StackLayout) with this the only remaining bare
-        // `NavigationLink` card left in the codebase.
+        // — same bare-NavigationLink-in-a-Lazy-stack freeze fix as
+        // `PosterCard.body`/`LibraryCard` (see `library-rail-navigationlink
+        // -freeze` memory). This card sat in a plain `HStack`, not a
+        // `LazyHStack` (see `heroContent(pageWidth:)` above for why it's
+        // eager), so it wasn't automatically covered by the earlier fixes —
+        // applied here too (2026-08-13) after its own live repro on Home,
+        // mid-scroll, produced the identical signature.
         ZStack {
             NavigationLink(value: AppRoute.assetDetail(itemID: item.id, preloadedItem: item)) {
                 BackdropLogoOverlay(backdropURL: item.backdropImageURL ?? item.primaryImageURL, logoURL: item.logoImageURL, title: item.name)
@@ -782,7 +779,7 @@ private struct RegionTouchObserver: UIViewRepresentable {
         /// wrapper views it inserts between them across versions.
         func attachToScrollViewIfNeeded() {
             guard let window = hostView?.window, window !== attachedWindow else { return }
-            guard let scrollView = nearestScrollViewAncestor() else { return }
+            guard let scrollView = hostView?.nearestScrollViewAncestor() else { return }
             detach()
             attachedWindow = window
             attachedHost = scrollView
@@ -831,15 +828,6 @@ private struct RegionTouchObserver: UIViewRepresentable {
             self.recognizer = recognizer
         }
 
-        private func nearestScrollViewAncestor() -> UIScrollView? {
-            var candidate = hostView?.superview
-            while let view = candidate {
-                if let scrollView = view as? UIScrollView { return scrollView }
-                candidate = view.superview
-            }
-            return nil
-        }
-
         func detach() {
             if let recognizer, let attachedHost {
                 attachedHost.removeGestureRecognizer(recognizer)
@@ -859,11 +847,14 @@ private struct RegionTouchObserver: UIViewRepresentable {
 }
 
 /// The actual `UIGestureRecognizer` `RegionTouchObserver` attaches to the
-/// app's root view — see that type's doc comment for the full reasoning. Reports
-/// raw touch-down/up via `onTouches` without ever transitioning its own
-/// `state`, which is what keeps it purely observational (a gesture
-/// recognizer that never leaves `.possible` never "wins," never fires an
-/// action, and never requires any other recognizer to fail).
+/// hero's own backing `UIScrollView` — see that type's doc comment for the
+/// full reasoning, including the two earlier, broader attachment points
+/// (the key window, then the app's root view) each abandoned after causing
+/// its own real bug. Reports raw touch-down/up via `onTouches` without ever
+/// transitioning its own `state`, which is what keeps it purely
+/// observational (a gesture recognizer that never leaves `.possible` never
+/// "wins," never fires an action, and never requires any other recognizer
+/// to fail).
 private final class PassthroughTouchRecognizer: UIGestureRecognizer {
     var onTouches: ((Set<UITouch>, Bool) -> Void)?
 

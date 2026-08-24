@@ -232,7 +232,7 @@ private struct ScrollBottomObserver: UIViewRepresentable {
         /// do, so this coexists with whatever SwiftUI itself is already
         /// observing.
         func attachIfNeeded() {
-            guard observation == nil, let scrollView = nearestScrollViewAncestor() else { return }
+            guard observation == nil, let scrollView = hostView?.nearestScrollViewAncestor() else { return }
             self.scrollView = scrollView
             observation = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] scrollView, _ in
                 self?.checkNearBottom(scrollView)
@@ -241,15 +241,6 @@ private struct ScrollBottomObserver: UIViewRepresentable {
             // screen (nothing to scroll at all) would otherwise never
             // trigger a `contentOffset` change to check from.
             checkNearBottom(scrollView)
-        }
-
-        private func nearestScrollViewAncestor() -> UIScrollView? {
-            var candidate = hostView?.superview
-            while let view = candidate {
-                if let scrollView = view as? UIScrollView { return scrollView }
-                candidate = view.superview
-            }
-            return nil
         }
 
         private func checkNearBottom(_ scrollView: UIScrollView) {

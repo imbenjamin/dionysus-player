@@ -63,15 +63,12 @@ struct MediaRailView: View {
     /// "See All" — pushes the full collection.
     ///
     /// Wrapped in a (single-child) `ZStack`, not a bare `NavigationLink` —
-    /// see `PosterCard`/`LandscapeMediaCard`/`LibraryCard`/`HeroRailCard`'s
-    /// identical wrap: a bare `NavigationLink` as a stack row's sole
-    /// content, rendered inside `HomeView`'s `LazyVStack` of rails, is a
-    /// confirmed real-device/Simulator freeze class in this codebase (100%
-    /// main-thread CPU inside `AttributeGraph`/`StackLayout`, no app frames
-    /// on the stack — see `library-rail-navigationlink-freeze` memory) —
-    /// this row has the exact same shape and was live-confirmed to
-    /// reproduce it on a plain scroll (no navigation needed) before this
-    /// wrap was added.
+    /// same bare-NavigationLink-in-a-Lazy-stack freeze fix as
+    /// `PosterCard`/`LandscapeMediaCard`/`LibraryCard`/`HeroRailCard` (see
+    /// `library-rail-navigationlink-freeze` memory). Rendered inside
+    /// `HomeView`'s `LazyVStack` of rails, this row was live-confirmed to
+    /// reproduce the freeze on a plain scroll (no navigation needed) before
+    /// this wrap was added.
     @ViewBuilder
     private var header: some View {
         if let query = rail.seeAllQuery {

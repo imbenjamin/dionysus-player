@@ -669,6 +669,68 @@ final class HomeViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.rails.map(\.title), ["Action Movies"])
     }
 
+    /// A partial failure (some of the six discovery calls succeed and
+    /// already turn into rails, one throws) followed by a fully-successful
+    /// retry must not re-append the rails that already loaded — the retry
+    /// re-runs *all six* discovery calls wholesale (no cheaper way to know
+    /// just which one failed last time), so without `loadDynamicRailCandidates`
+    /// filtering against `consumedDynamicRailCandidates`, the genre that
+    /// already succeeded the first time gets rediscovered, requeued, and
+    /// appended as a second "Action Movies" rail.
+    func test_retryDynamicRailCandidatesIfNeeded_afterPartialFailure_doesNotDuplicateAlreadyLoadedRails() async {
+        let viewModel = makeViewModel()
+        nonisolated(unsafe) var studiosShouldFail = true
+        let actionMovies = Self.makeItems("action", count: 5)
+
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            let query = request.queryDictionary
+            switch request.url?.path {
+            case "/Genres":
+                guard query["IncludeItemTypes"] == "Movie" else {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                let genre = BaseItemDto(id: "genre-action", name: "Action", type: .unknown)
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [genre], totalRecordCount: 1))
+            case "/Studios":
+                guard query["IncludeItemTypes"] == "Movie" else {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                if studiosShouldFail { throw URLError(.networkConnectionLost) }
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Persons":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items":
+                guard query["Filters"] != "IsUnplayed" else {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                guard query["Genres"] == "Action" else {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: actionMovies, totalRecordCount: actionMovies.count))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+        XCTAssertTrue(viewModel.dynamicRailCandidatesFailed)
+        XCTAssertEqual(
+            viewModel.rails.map(\.title), ["Action Movies"],
+            "The genre candidate that succeeded should already be a rail before the retry"
+        )
+
+        studiosShouldFail = false
+        await viewModel.retryDynamicRailCandidatesIfNeeded()
+
+        XCTAssertFalse(viewModel.dynamicRailCandidatesFailed)
+        XCTAssertEqual(
+            viewModel.rails.map(\.title), ["Action Movies"],
+            "Retrying after a partial failure should not re-append a rail that already loaded successfully"
+        )
+    }
+
     /// Guards against duplicate rails: an already-successful (or
     /// legitimately-empty) attempt must not be re-fetched just because
     /// connectivity happened to flip back online again later.

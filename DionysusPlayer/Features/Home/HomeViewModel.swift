@@ -53,6 +53,15 @@ final class HomeViewModel {
     /// online" transition is worth retrying at all; see
     /// `retryDynamicRailCandidatesIfNeeded()`.
     private(set) var dynamicRailCandidatesFailed = false
+    /// Every candidate that has already turned into a visible rail —
+    /// populated by `loadMoreDynamicRails()`, consulted by
+    /// `loadDynamicRailCandidates()` so a retry after a partial failure
+    /// (see `retryDynamicRailCandidatesIfNeeded()`) can't requeue and
+    /// re-append a rail that's already showing. Candidates that failed
+    /// `minimumDynamicRailItemCount` are deliberately *not* tracked here —
+    /// retrying those is harmless, they'll either fail the bar again or
+    /// (if the library changed in the meantime) correctly succeed.
+    private var consumedDynamicRailCandidates: Set<DynamicRailCandidate> = []
 
     /// Kept small — each batch fires `dynamicRailBatchSize` concurrent rail
     /// fetches and then appends all of them to `rails` in one state update,
@@ -226,6 +235,12 @@ final class HomeViewModel {
     /// separate pool), and loads the first batch immediately. Each
     /// discovery call is independently best-effort (`try?`) — e.g. a failed
     /// director lookup shouldn't also wipe out genre rails that succeeded.
+    /// Can be called more than once per `HomeViewModel` lifetime (a
+    /// connectivity-triggered retry re-runs it wholesale — see
+    /// `retryDynamicRailCandidatesIfNeeded()`), so candidates already
+    /// represented by a rail (`consumedDynamicRailCandidates`) are filtered
+    /// out before the fresh discovery results get queued, or a retry would
+    /// re-append rails that are already showing.
     ///
     /// A brief detour (2026-08-23): tried tiering candidates by category
     /// (genres, then studios, then actors/directors, instead of one flat
@@ -272,6 +287,7 @@ final class HomeViewModel {
             candidates += try await directors.items.map { DynamicRailCandidate.director(name: $0.name) }
         } catch { anyFetchFailed = true }
 
+        candidates.removeAll { consumedDynamicRailCandidates.contains($0) }
         pendingDynamicRailCandidates = shuffle(candidates)
         hasMoreDynamicRails = !pendingDynamicRailCandidates.isEmpty
         dynamicRailCandidatesFailed = anyFetchFailed
@@ -283,7 +299,12 @@ final class HomeViewModel {
     /// actually failed (typically because it landed in the brief window
     /// right after reconnecting), so a library that legitimately has no
     /// dynamic rails to offer, or an attempt that already succeeded,
-    /// doesn't get needlessly re-fetched or risk appending duplicate rails.
+    /// doesn't get needlessly re-fetched. The re-run itself still repeats
+    /// all six discovery calls (no cheaper way to know just from this
+    /// which ones failed last time), but `loadDynamicRailCandidates()`'s own
+    /// `consumedDynamicRailCandidates` filtering keeps that safe — whichever
+    /// candidates already became rails before the failure won't be
+    /// requeued or appended a second time.
     func retryDynamicRailCandidatesIfNeeded() async {
         guard dynamicRailCandidatesFailed else { return }
         dynamicRailCandidatesFailed = false
@@ -319,8 +340,11 @@ final class HomeViewModel {
         let itemShuffle = self.itemShuffle
         // Tagged with its index in `batch` so results can be restored to
         // the batch's (already-shuffled) order afterward — task-group
-        // completion order isn't otherwise guaranteed to match it.
-        let fetched = await withTaskGroup(of: (Int, MediaCollectionRail?).self) { group in
+        // completion order isn't otherwise guaranteed to match it. Also
+        // carries the candidate itself back out (not just its rail), so the
+        // ones that actually produced a rail can be recorded into
+        // `consumedDynamicRailCandidates` below.
+        let fetched = await withTaskGroup(of: (Int, DynamicRailCandidate, MediaCollectionRail?).self) { group in
             for (index, candidate) in batch.enumerated() {
                 group.addTask { [client, userID, itemShuffle] in
                     let dtos: [BaseItemDto]?
@@ -344,7 +368,7 @@ final class HomeViewModel {
                             person: name, personTypes: ["Director"], limit: 16
                         ).items
                     }
-                    guard let dtos, dtos.count >= minimumItemCount else { return (index, nil) }
+                    guard let dtos, dtos.count >= minimumItemCount else { return (index, candidate, nil) }
                     // Shuffled client-side, not via the server's own
                     // `SortBy=Random` — that seemed like the obvious fix
                     // (`client.items` otherwise defaults to `"SortName"`,
@@ -364,14 +388,18 @@ final class HomeViewModel {
                         title: candidate.railTitle, items: items,
                         seeAllQuery: candidate.seeAllQuery(moviesLibraryID: moviesLibraryID, showsLibraryID: showsLibraryID)
                     )
-                    return (index, rail)
+                    return (index, candidate, rail)
                 }
             }
-            var results: [(Int, MediaCollectionRail?)] = []
+            var results: [(Int, DynamicRailCandidate, MediaCollectionRail?)] = []
             for await result in group { results.append(result) }
-            return results.sorted { $0.0 < $1.0 }.compactMap(\.1)
+            return results.sorted { $0.0 < $1.0 }
         }
 
-        rails += fetched
+        for (_, candidate, rail) in fetched {
+            guard let rail else { continue }
+            rails.append(rail)
+            consumedDynamicRailCandidates.insert(candidate)
+        }
     }
 }
