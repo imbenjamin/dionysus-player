@@ -11,7 +11,7 @@
 /// mechanically derived from, but only this constant carries the full
 /// string. Read by `AppVersionInfo` for the Profile screen footer.
 enum AppVersion {
-    static let full = "0.4.0-alpha.1"
-    static let build = "193"
-    static let commit = "122360c"
+    static let full = "0.5.0-alpha.1"
+    static let build = "212"
+    static let commit = "77d2696"
 }
