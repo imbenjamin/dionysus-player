@@ -5,6 +5,7 @@ import MediaPlayer
 import SwiftUI
 import UIKit
 import AetherEngine
+import os
 
 /// `PlaybackEngine` implemented on top of AetherEngine.
 ///
@@ -14,6 +15,8 @@ import AetherEngine
 /// never touches AetherEngine's types directly.
 @MainActor
 final class AetherPlaybackEngine: PlaybackEngine {
+    private static let logger = Logger(subsystem: "com.dionysus.player", category: "AetherPlaybackEngine")
+
     private let engine: AetherEngine
     private var cancellables: Set<AnyCancellable> = []
     /// See `observeAppLifecycle()`'s doc comment — repairs a paused session
@@ -27,6 +30,23 @@ final class AetherPlaybackEngine: PlaybackEngine {
     private enum SessionRecoveryDesiredState { case play, pause }
     private var sessionRecoveryDesiredState: SessionRecoveryDesiredState = .pause
     private var sessionRecoveryTask: Task<Void, Never>?
+    /// Set right before `load(...)` re-throws a source-open/probe/route
+    /// failure as `PlaybackLoadFailure` — AetherEngine's own docs note that
+    /// failure *also* publishes a matching `.error` on `$playbackPhase`
+    /// ("counts as two failures, on purpose"), so without this the same
+    /// failure would reach `PlayerViewModel` twice. Consumed (and reset) by
+    /// the very next `.error` phase `observeEngine()`'s sink sees.
+    private var suppressNextErrorPhase = false
+    /// Guards the seek watchdog below — see `seek(to:)`.
+    private var seekWatchdogTask: Task<Void, Never>?
+    private var seekWatchdogGeneration = 0
+    /// How long a seek can sit in `.seeking`/`.rebuffering` with the
+    /// playhead stuck near the seek target before this is treated as a
+    /// wedge (the AetherEngine backward-seek freeze, upstream issue #93 —
+    /// mitigated but not eliminated as of the pinned 6.30.1) rather than
+    /// ordinary rebuffering. A starting value, not a measured one — tune
+    /// after on-device observation if it fires too eagerly/late.
+    private static let seekWatchdogTimeout: TimeInterval = 8
 
     var onStateChange: ((PlaybackState) -> Void)?
     var onTimeUpdate: ((TimeInterval, TimeInterval) -> Void)?
@@ -169,6 +189,14 @@ final class AetherPlaybackEngine: PlaybackEngine {
         engine.$playbackPhase
             .receive(on: DispatchQueue.main)
             .sink { [weak self] phase in
+                guard let self else { return }
+                // Genuine forward progress disarms the seek watchdog — see
+                // `seek(to:)`. Left armed only while stuck on `.seeking`/
+                // `.rebuffering`, which is exactly what a wedge looks like.
+                switch phase {
+                case .seeking, .rebuffering: break
+                default: self.seekWatchdogTask?.cancel()
+                }
                 let bridged: PlaybackState
                 switch phase {
                 case .idle:              bridged = .idle
@@ -179,10 +207,27 @@ final class AetherPlaybackEngine: PlaybackEngine {
                 case .rebuffering:       bridged = .buffering
                 case .stalled:           bridged = .reconnecting
                 case .ended:             bridged = .ended
-                case .error(let message): bridged = .failed(message)
+                case .error(let message):
+                    // `load(...)` already re-threw this exact failure as
+                    // `PlaybackLoadFailure` when it's a source-open/probe/
+                    // route failure — AetherEngine's own docs note that
+                    // case both throws *and* publishes `.error` for the
+                    // same failure, "on purpose". Skip re-bridging it here
+                    // so `PlayerViewModel` hears about it exactly once; any
+                    // other `.error` (a session dying *after* load already
+                    // returned — reload/track-switch failure — which never
+                    // throws) still needs bridging normally.
+                    if self.suppressNextErrorPhase {
+                        self.suppressNextErrorPhase = false
+                        return
+                    }
+                    bridged = .failed(PlaybackFailure(
+                        message: message,
+                        category: self.engine.errorInfo.map { Self.category(for: $0.kind) } ?? .transient
+                    ))
                 }
                 MainActor.assumeIsolated {
-                    self?.onStateChange?(bridged)
+                    self.onStateChange?(bridged)
                 }
             }
             .store(in: &cancellables)
@@ -361,8 +406,51 @@ final class AetherPlaybackEngine: PlaybackEngine {
             prepareNativeSubtitles: true,
             externalSubtitles: externalSubtitles.map(Self.makeExternalSubtitleTrack)
         )
-        _ = try await engine.load(url: url, options: options)
+        do {
+            _ = try await engine.load(url: url, options: options)
+        } catch is CancellationError {
+            // A superseded `load()`/`stop()` — AetherEngine's own docs are
+            // explicit this is not a playback failure. Untouched, so
+            // `PlayerViewModel`'s catch can filter it the same way.
+            throw CancellationError()
+        } catch {
+            // A source-open/probe/route failure both throws *and* publishes
+            // a matching `.error` on `$playbackPhase` — see
+            // `observeEngine()`'s own comment on `suppressNextErrorPhase`
+            // for why that duplicate bridge is skipped once this fires.
+            suppressNextErrorPhase = true
+            let fallbackMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            throw PlaybackLoadFailure(failure: PlaybackFailure(
+                message: engine.errorInfo?.message ?? fallbackMessage,
+                category: engine.errorInfo.map { Self.category(for: $0.kind) } ?? .transient
+            ))
+        }
         applyForcedSubtitleSelection()
+    }
+
+    /// Maps AetherEngine's own `PlaybackErrorKind` onto the recovery
+    /// category `PlayerView` acts on. `PlaybackErrorKind` is deliberately a
+    /// string-backed struct rather than an enum (per its own doc comment,
+    /// so a host's switch never breaks on a minor AetherEngine release) —
+    /// this mirrors that with a non-exhaustive `default:` rather than
+    /// listing every case, so an unrecognized future kind falls safely to
+    /// `.transient` (Retry, today's existing behavior for everything)
+    /// instead of a compile break. `internal`, not `private`, so unit tests
+    /// can call it directly against AetherEngine's plain public
+    /// `PlaybackErrorKind` values with no live engine instance needed.
+    static func category(for kind: PlaybackErrorKind) -> PlaybackFailure.Category {
+        switch kind {
+        case .sourceRateLimited:
+            // Origin is metering us (429/503/509) — expected to work again
+            // later, per AetherEngine's own docs. Retry, no Close.
+            return .rateLimited
+        case .sourceRefused, .dolbyVisionRequiresHardware, .hlsPlaylistOnRawLivePath, .demuxedAudioLiveUnsupported:
+            // An access refusal, or content this build/device can never
+            // play regardless of how many times it's retried.
+            return .refused
+        default:
+            return .transient
+        }
     }
 
     /// A "forced" subtitle track exists specifically to caption content the audio track doesn't
@@ -448,7 +536,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
                 // terminal engine failure — swallowing this would silently
                 // reproduce the dead-Play-button bug with no diagnostic
                 // trail.
-                self.onStateChange?(.failed(String(localized: "Playback couldn't resume after being paused in the background.")))
+                self.onStateChange?(.failed(PlaybackFailure(
+                    message: String(localized: "Playback couldn't resume after being paused in the background.")
+                )))
                 self.sessionRecoveryTask = nil
                 return
             }
@@ -463,8 +553,40 @@ final class AetherPlaybackEngine: PlaybackEngine {
     func togglePlayPause() { engine.togglePlayPause() }
     func stop() { engine.stop() }
 
+    /// Arms a watchdog after each seek that turns a stuck backward-seek —
+    /// the AetherEngine "wedge" (upstream issue #93; mitigated in the
+    /// currently-pinned 6.30.1 via byte-budgeted segment retention, but
+    /// still partially reproducible per the changelog's own documented
+    /// residual) — into a visible, actionable error instead of a silent
+    /// freeze with no spinner and no error. `engine.seek(to:)` itself never
+    /// throws and AetherEngine reports no dedicated failure state for this
+    /// case (the phase just never leaves `.seeking`/`.rebuffering`), so
+    /// detecting it is this host's own responsibility.
+    ///
+    /// `seekWatchdogGeneration` guards against a later seek's own watchdog
+    /// firing against a now-stale `time` after this one already landed —
+    /// only the *latest* call's watchdog is allowed to act.
     func seek(to time: TimeInterval) async {
+        seekWatchdogGeneration += 1
+        let generation = seekWatchdogGeneration
+        seekWatchdogTask?.cancel()
         await engine.seek(to: time)
+        seekWatchdogTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.seekWatchdogTimeout))
+            guard !Task.isCancelled, let self, generation == self.seekWatchdogGeneration else { return }
+            let phase = self.engine.playbackPhase
+            let stillSeeking: Bool
+            switch phase {
+            case .seeking, .rebuffering: stillSeeking = true
+            default: stillSeeking = false
+            }
+            guard stillSeeking, abs(self.engine.currentTime - time) < 1.0 else { return }
+            Self.logger.error("Seek watchdog fired: stuck at \(self.engine.currentTime, privacy: .public)s targeting \(time, privacy: .public)s after \(Self.seekWatchdogTimeout, privacy: .public)s")
+            self.onStateChange?(.failed(PlaybackFailure(
+                message: String(localized: "Seeking is taking longer than expected — playback may be stuck."),
+                category: .transient
+            )))
+        }
     }
 
     func selectAudioTrack(id: Int) {
@@ -559,7 +681,14 @@ final class AetherPlaybackEngine: PlaybackEngine {
         onPictureInPictureActiveChange?(false)
     }
 
-    fileprivate func handlePictureInPictureFailedToStart() {
+    /// No user-facing UI on purpose — PiP failing to start isn't fatal to
+    /// in-app playback, and the `onPictureInPictureActiveChange?(false)`
+    /// reset below is enough recovery (the button already self-disables via
+    /// `onPictureInPicturePossibleChange`). Just logged, where before this
+    /// the underlying `Error` was discarded entirely with no diagnostic
+    /// trail at all.
+    fileprivate func handlePictureInPictureFailedToStart(_ error: Error) {
+        Self.logger.error("Picture in Picture failed to start: \(error.localizedDescription, privacy: .public)")
         onPictureInPictureActiveChange?(false)
     }
 
@@ -948,7 +1077,7 @@ private final class PictureInPictureDelegateProxy: NSObject, @MainActor AVPictur
     func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error
     ) {
-        engine?.handlePictureInPictureFailedToStart()
+        engine?.handlePictureInPictureFailedToStart(error)
     }
 
     /// `PlayerView` is never dismissed to start PiP (the manual button just

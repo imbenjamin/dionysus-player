@@ -1,15 +1,22 @@
 import CoreGraphics
 import Foundation
 import Observation
+import os
 
 @MainActor
 @Observable
 final class PlayerViewModel {
+    private static let logger = Logger(subsystem: "com.dionysus.player", category: "PlayerViewModel")
+
     private(set) var state: PlaybackState = .idle
     private(set) var currentTime: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
     private(set) var item: MediaItem?
     private(set) var errorMessage: String?
+    /// What kind of recovery `errorMessage` allows, when it's set — `nil`
+    /// exactly when `errorMessage` is. See `PlaybackFailure.Category` and
+    /// `PlayerView`'s Retry-vs-Close branch on this.
+    private(set) var failureCategory: PlaybackFailure.Category?
     /// Decoded subtitle cues, unfiltered — covers a window ahead of the
     /// playhead, not just what's active now. `SubtitleOverlayView` filters
     /// this against `sourceTime` itself; see `SubtitleCueDisplay`'s doc
@@ -365,9 +372,10 @@ final class PlayerViewModel {
             // "stats for nerds" overlay. `PlayerView`'s error overlay reads
             // `errorMessage`, so it needs to actually be set here too, not
             // just from `start()`'s own `catch`.
-            if case .failed(let message) = state {
+            if case .failed(let failure) = state {
                 self.progressReportTask?.cancel()
-                self.errorMessage = message
+                self.errorMessage = failure.message
+                self.failureCategory = failure.category
             }
         }
         engine.onTimeUpdate = { [weak self] time, duration in
@@ -388,6 +396,7 @@ final class PlayerViewModel {
     ///   the caller already knows exactly where playback stopped.
     func start(resumeSeconds: TimeInterval? = nil) async {
         errorMessage = nil
+        failureCategory = nil
         if let downloadedItem {
             await startOffline(downloadedItem, resumeSeconds: resumeSeconds)
             return
@@ -467,8 +476,30 @@ final class PlayerViewModel {
 
             try? await client.reportPlaybackStart(itemID: itemID, mediaSourceID: activeMediaSourceID)
             startProgressReporting()
+        } catch is CancellationError {
+            // A superseded load (rapid next-episode navigation, backing out
+            // mid-load) — not a playback failure, see `AetherPlaybackEngine
+            // .load(...)`'s own doc comment on why this is filtered here
+            // rather than at that throw site.
+        } catch let loadFailure as PlaybackLoadFailure {
+            // `state` must move to `.failed` here too, not just
+            // `errorMessage`/`failureCategory` — `AetherPlaybackEngine
+            // .load(...)` deliberately suppresses the matching `.error`
+            // phase it would otherwise also bridge through `onStateChange`
+            // for this same failure (AetherEngine's own docs: a
+            // source-open/probe/route failure both throws *and* publishes
+            // `.error`, "on purpose"), so `onStateChange` — the only other
+            // place `state` gets set to `.failed` — never fires for this
+            // path. Without this, `state` stays stuck on whatever it was
+            // mid-load (`.loading`/`.buffering`/`.seeking`), which left
+            // `PlayerControlsOverlay`'s buffering spinner rendered on top of
+            // the error overlay (confirmed live, 2026-08-24).
+            state = .failed(loadFailure.failure)
+            errorMessage = loadFailure.failure.message
+            failureCategory = loadFailure.failure.category
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "Playback failed to start.")
+            failureCategory = .transient
         }
     }
 
@@ -544,8 +575,28 @@ final class PlayerViewModel {
             }
             engine.play()
             startOfflineProgressReporting(downloadedItem)
+        } catch is CancellationError {
+            // See `start()`'s matching catch — a superseded load, not a
+            // playback failure.
+        } catch let loadFailure as PlaybackLoadFailure {
+            // `state` must move to `.failed` here too, not just
+            // `errorMessage`/`failureCategory` — `AetherPlaybackEngine
+            // .load(...)` deliberately suppresses the matching `.error`
+            // phase it would otherwise also bridge through `onStateChange`
+            // for this same failure (AetherEngine's own docs: a
+            // source-open/probe/route failure both throws *and* publishes
+            // `.error`, "on purpose"), so `onStateChange` — the only other
+            // place `state` gets set to `.failed` — never fires for this
+            // path. Without this, `state` stays stuck on whatever it was
+            // mid-load (`.loading`/`.buffering`/`.seeking`), which left
+            // `PlayerControlsOverlay`'s buffering spinner rendered on top of
+            // the error overlay (confirmed live, 2026-08-24).
+            state = .failed(loadFailure.failure)
+            errorMessage = loadFailure.failure.message
+            failureCategory = loadFailure.failure.category
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "Playback failed to start.")
+            failureCategory = .transient
         }
     }
 
@@ -879,7 +930,25 @@ final class PlayerViewModel {
         }
         let ticks = Int64(currentTime * 10_000_000)
         engine.stop()
-        try? await client.reportPlaybackStopped(itemID: itemID, positionTicks: ticks, mediaSourceID: activeMediaSourceID)
+        // Skip the network call entirely while known-offline, rather than
+        // awaiting it anyway — `sendRaw`'s own 20s timeout race means a
+        // call that's guaranteed to fail (we already know there's no
+        // server to reach; that's the entire reason the offline screen is
+        // showing) would otherwise stall this method, and with it every
+        // caller of `stop()` including `PlayerView.tearDown()` — so tapping
+        // *any* close affordance (the top bar's X, or the offline screen's
+        // own new Close button) while offline used to just sit there doing
+        // nothing for up to 20 seconds before finally dismissing (confirmed
+        // live, 2026-08-24). Matches `refreshServerVersion()`/
+        // `refreshStreamingSession()`'s existing no-op-when-there's-no-live-
+        // server-to-ask reasoning, just keyed on live connectivity
+        // (`ConnectivityMonitor`) rather than `isOfflinePlayback` (a
+        // downloaded item has no server-reporting path here at all, see the
+        // branch above — this one only ever runs for a live session that
+        // might, mid-session, no longer have a reachable server).
+        if !ConnectivityMonitor.shared.isOffline {
+            try? await client.reportPlaybackStopped(itemID: itemID, positionTicks: ticks, mediaSourceID: activeMediaSourceID)
+        }
     }
 
     private func startProgressReporting() {
@@ -890,9 +959,19 @@ final class PlayerViewModel {
                 guard !Task.isCancelled, let self else { return }
                 let ticks = Int64(self.currentTime * 10_000_000)
                 let isPaused = self.state == .paused
-                try? await self.client.reportPlaybackProgress(
-                    itemID: self.itemID, positionTicks: ticks, isPaused: isPaused, mediaSourceID: self.activeMediaSourceID
-                )
+                // Best-effort and silent to the user by design: a real
+                // connectivity loss already surfaces through
+                // `ConnectivityMonitor`/the offline path on the next load,
+                // and one missed heartbeat is self-healing (the next tick
+                // retries, `stop()` still attempts a final save). Logged
+                // only so a repeated failure leaves a diagnostic trail.
+                do {
+                    try await self.client.reportPlaybackProgress(
+                        itemID: self.itemID, positionTicks: ticks, isPaused: isPaused, mediaSourceID: self.activeMediaSourceID
+                    )
+                } catch {
+                    Self.logger.debug("reportPlaybackProgress failed: \(error.localizedDescription, privacy: .public)")
+                }
             }
         }
     }

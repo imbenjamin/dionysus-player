@@ -188,6 +188,44 @@ final class PlayerViewModelOfflineTests: XCTestCase {
         XCTAssertFalse(requestMade)
     }
 
+    // MARK: error handling
+
+    /// Mirrors `PlayerViewModelTests
+    /// .test_start_engineLoadThrows_cancellationError_leavesErrorMessageNil`
+    /// for the offline (`startOffline`) path.
+    func test_startOffline_engineLoadThrows_cancellationError_leavesErrorMessageNil() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        store.insert(item)
+        let engine = FakePlaybackEngine()
+        engine.loadError = CancellationError()
+        let (viewModel, _) = makeOfflineViewModel(downloadedItem: item, store: store, engine: engine)
+
+        await viewModel.start()
+
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertNil(viewModel.failureCategory)
+        XCTAssertEqual(engine.playCallCount, 0)
+    }
+
+    /// Mirrors `PlayerViewModelTests
+    /// .test_start_engineLoadThrows_playbackLoadFailure_setsErrorMessageAndFailureCategoryFromIt`
+    /// for the offline (`startOffline`) path.
+    func test_startOffline_engineLoadThrows_playbackLoadFailure_setsErrorMessageAndFailureCategoryFromIt() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        store.insert(item)
+        let engine = FakePlaybackEngine()
+        engine.loadError = PlaybackLoadFailure(failure: PlaybackFailure(message: "The server refused this stream.", category: .refused))
+        let (viewModel, _) = makeOfflineViewModel(downloadedItem: item, store: store, engine: engine)
+
+        await viewModel.start()
+
+        XCTAssertEqual(viewModel.errorMessage, "The server refused this stream.")
+        XCTAssertEqual(viewModel.failureCategory, .refused)
+        XCTAssertEqual(engine.playCallCount, 0)
+    }
+
     // MARK: isOfflinePlayback / PlaybackStatsOverlay's Streaming section
 
     func test_isOfflinePlayback_trueForADownloadedItemSession() async {

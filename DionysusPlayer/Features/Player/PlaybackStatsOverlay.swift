@@ -386,7 +386,7 @@ struct PlaybackStatsOverlay: View {
         case .buffering: return "Buffering"
         case .reconnecting: return "Reconnecting"
         case .ended: return "Ended"
-        case .failed(let message): return "Failed (\(message))"
+        case .failed(let failure): return "Failed (\(failure.message))"
         }
     }
 
