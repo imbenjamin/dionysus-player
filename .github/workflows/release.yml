@@ -107,11 +107,28 @@ jobs:
         # instead of shipping a stale "stats for nerds" version display and
         # relying on someone noticing days later.
         run: |
+          fail=0
           if ! git diff --exit-code -- \
             Config/Version.xcconfig \
-            DionysusPlayer/Shared/AppVersion.swift \
             DionysusPlayer/Core/Playback/AetherEngineVersion.swift
           then
+            fail=1
+          fi
+          # AppVersion.swift's `commit` constant is excused from this
+          # comparison: a commit can't contain its own hash, only its
+          # parent's, so Scripts/update-version.sh's explicit-tag mode
+          # (used to stamp this on the release-prep branch) necessarily
+          # recorded the prep commit's parent SHA, one behind this tag's
+          # actual commit — expected, not drift. Everything else in the
+          # file (the version string, the build number) must still match
+          # exactly.
+          if ! diff \
+            <(git show "HEAD:DionysusPlayer/Shared/AppVersion.swift" | grep -v 'static let commit') \
+            <(grep -v 'static let commit' DionysusPlayer/Shared/AppVersion.swift)
+          then
+            fail=1
+          fi
+          if [ "$fail" = "1" ]; then
             echo "::error::Generated version files don't match what's checked in for this tag. Run the release-prep flow in VERSIONING.md (stamp on a branch, PR it, merge, *then* tag) before re-cutting this release." >&2
             exit 1
           fi
