@@ -127,8 +127,6 @@ private struct DownloadedTechnicalDetailsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
-                SummaryRow(label: "Container", value: "MP4")
-                if let codec = item.videoCodec { SummaryRow(label: "Video Codec", value: codec.uppercased()) }
                 if let resolution = resolutionText { SummaryRow(label: "Resolution", value: resolution) }
                 SummaryRow(label: "Dynamic Range", value: item.isHDR ? "HDR10" : "SDR")
                 SummaryRow(label: "Quality", value: qualityText)
@@ -166,9 +164,13 @@ private struct DownloadedTechnicalDetailsView: View {
         }
     }
 
+    /// Same "dimensions (common name)" formatting as the live Details tab
+    /// (`TechnicalDetailsView`/`MediaItem.resolutionLabel`), e.g.
+    /// "1920×1080 (1080p)" — shared rather than reimplemented so the two
+    /// pages can't drift into describing the same resolution differently.
     private var resolutionText: String? {
         guard let width = item.width, let height = item.height else { return nil }
-        return "\(width)\u{00D7}\(height)"
+        return MediaItem.resolutionLabel(width: width, height: height)
     }
 
     /// e.g. "Normal (1.2 Mbps)" — same whole-number-vs-fractional Mbps

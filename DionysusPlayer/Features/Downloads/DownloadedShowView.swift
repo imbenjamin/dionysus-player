@@ -264,6 +264,17 @@ struct DownloadedEpisodeRow: View {
         }
     }
 
+    /// Air date and runtime together, e.g. "1 Aug 2026 · 42m" — same
+    /// "next to the asset length" placement as the live
+    /// `SeasonEpisodeList.EpisodeRow`'s own `episodeMetaText` (see its doc
+    /// comment); this row didn't show a duration at all before, so this
+    /// adds both together rather than an orphan date with nothing to pair
+    /// it with.
+    private var metaText: String? {
+        let parts = [episode.episodeAirDateText, episode.durationText].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
+    }
+
     @ViewBuilder
     private var rowContent: some View {
         HStack(spacing: 12) {
@@ -278,6 +289,9 @@ struct DownloadedEpisodeRow: View {
                     Text(episodeLabel).font(.caption).foregroundStyle(.secondary)
                 }
                 Text(episode.title).lineLimit(1)
+                if let metaText {
+                    Text(metaText).font(.caption).foregroundStyle(.secondary)
+                }
                 statusLine
             }
             Spacer()

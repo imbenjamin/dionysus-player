@@ -1,17 +1,19 @@
 import SwiftUI
 
-/// Year (range), age rating, duration, and rating on the first line; a
-/// dot-separated line of resolution/dynamic-range/audio-format/
-/// accessibility badges on the second — the common metadata shown on every
-/// detail page. Genres moved to the "About" tab (`DetailTabsView`), above
-/// the synopsis; badges took their old spot on the second line.
+/// Year (range) — or, for an individual episode, its exact air date, e.g.
+/// "1 Aug 2026" (see `MediaItem.metadataDateText`) — age rating, duration,
+/// and rating on the first line; a dot-separated line of resolution/
+/// dynamic-range/audio-format/accessibility badges on the second — the
+/// common metadata shown on every detail page. Genres moved to the "About"
+/// tab (`DetailTabsView`), above the synopsis; badges took their old spot
+/// on the second line.
 struct InfoMetadataRow: View {
     let item: MediaItem
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                if let year = item.yearText { Text(year) }
+                if let date = item.metadataDateText { Text(date) }
 
                 if let rating = item.ageRating {
                     Text(rating)

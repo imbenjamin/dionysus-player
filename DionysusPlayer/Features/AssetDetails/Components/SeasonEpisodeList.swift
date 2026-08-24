@@ -176,6 +176,15 @@ private struct EpisodeRow: View {
     private static let thumbnailWidth: CGFloat = 160
     private static let thumbnailHeight: CGFloat = 90
 
+    /// Air date and runtime together, e.g. "1 Aug 2026 · 42m" — see
+    /// `MediaItem.episodeAirDateText`'s doc comment for why a row here
+    /// shows the exact date rather than just the coarser year `yearText`
+    /// gives a show or season.
+    private var episodeMetaText: String? {
+        let parts = [episode.episodeAirDateText, episode.durationText].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             // A thin accent bar rather than a full-row background/inset —
@@ -243,8 +252,8 @@ private struct EpisodeRow: View {
                             .foregroundStyle(isCurrent ? Color.dionysusPrimary : .primary)
                             .lineLimit(2)
 
-                        if let duration = episode.durationText {
-                            Text(duration)
+                        if let meta = episodeMetaText {
+                            Text(meta)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

@@ -122,6 +122,9 @@ struct MediaItem: Identifiable {
 
     /// e.g. "2019" for a movie, "2019–2021" or "2019–" (still airing, best
     /// guess since we don't yet read Jellyfin's `Status` field) for a series.
+    /// A season/series only ever has this coarser year-or-range to show —
+    /// see `episodeAirDateText`/`metadataDateText` for an individual
+    /// episode's exact date instead.
     var yearText: String? {
         guard let year = dto.productionYear else { return nil }
         guard dto.type == .series else { return String(year) }
@@ -131,6 +134,31 @@ struct MediaItem: Identifiable {
             return endYear == year ? String(year) : "\(year)\u{2013}\(endYear)"
         }
         return "\(year)\u{2013}"
+    }
+
+    /// An episode's exact release date, e.g. "1 Aug 2026" — unlike a show
+    /// or season, a single episode has one specific air date worth spelling
+    /// out in full rather than collapsing to just its year. `nil` for
+    /// anything that isn't an episode, or an episode with no
+    /// `premiereDate` (e.g. not yet aired). Used by `metadataDateText`
+    /// (the detail page's metadata row) and directly by
+    /// `SeasonEpisodeList`'s own per-episode row.
+    var episodeAirDateText: String? {
+        guard dto.type == .episode, let date = dto.premiereDate else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d MMM yyyy"
+        return formatter.string(from: date)
+    }
+
+    /// Whichever of `yearText`/`episodeAirDateText` is the right level of
+    /// detail for this item's kind — an episode's exact date, everything
+    /// else's coarser year/year-range. `InfoMetadataRow` is the one call
+    /// site (shared across every detail-page kind: Movie, Show/Season, and
+    /// Show-content-as-Episode — see `ShowDetailView`'s own doc comment),
+    /// so the branching lives here instead of being repeated at each of
+    /// them.
+    var metadataDateText: String? {
+        dto.type == .episode ? episodeAirDateText : yearText
     }
 
     var durationText: String? {
@@ -571,7 +599,11 @@ struct MediaItem: Identifiable {
 
     // MARK: - Technical details formatting
 
-    private static func resolutionLabel(width: Int, height: Int) -> String {
+    /// Not `private` — `DownloadedTechnicalDetailsView`'s Details tab reuses
+    /// this exact "dimensions (common name)" formatting for a download's own
+    /// resolution, so the two Details tabs never drift into showing the
+    /// same resolution two different ways.
+    static func resolutionLabel(width: Int, height: Int) -> String {
         let dimensions = "\(width)\u{00D7}\(height)"
         return resolutionCommonName(width: width).map { "\(dimensions) (\($0))" } ?? dimensions
     }

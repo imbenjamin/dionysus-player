@@ -59,7 +59,12 @@ struct MainTabView: View {
     var body: some View {
         TabView(selection: selectedTabBinding) {
             NavigationStack {
-                HomeView()
+                // `isActiveTab` lets `HeroRailView`'s auto-advance timer
+                // stop doing real work while another tab is showing,
+                // instead of ticking once a second for the app's entire
+                // lifetime regardless — see `HomeView.isActiveTab`'s doc
+                // comment.
+                HomeView(isActiveTab: selectedTab == .home)
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
             }
             .tabItem { Label("Home", image: "DionysusGlyph") }

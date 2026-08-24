@@ -14,6 +14,14 @@ import UIKit
 /// would have nothing to bleed into.
 struct HeroRailView: View {
     let items: [MediaItem]
+    /// Whether Home is the currently-selected tab — threaded down from
+    /// `MainTabView` via `HomeView`, refreshed on every re-render (a plain
+    /// stored property, not `@State`, so it always reflects the caller's
+    /// current value rather than latching the first one). Combined with
+    /// `isOnScreen` below into `isVisible`, which gates the auto-advance
+    /// timer's actual work — see that property's doc comment for why
+    /// neither signal alone covers every way Home can stop being visible.
+    let isTabActive: Bool
 
     /// Custom init so `scrollPosition`'s starting value can account for
     /// whether `loopedItems` actually pads `items` — with 0 or 1 items it
@@ -23,19 +31,20 @@ struct HeroRailView: View {
     /// where `loopedItems` itself gets computed — see that property's doc
     /// comment for why doing it here, once, rather than as a `body`-time
     /// computed property, actually matters.
-    init(items: [MediaItem]) {
+    init(items: [MediaItem], isTabActive: Bool) {
         self.items = items
+        self.isTabActive = isTabActive
         self.loopedItems = Self.loop(items)
         _scrollPosition = State(initialValue: items.count > 1 ? 1 : 0)
     }
 
     /// Tracked purely to force `body` to re-run on rotation, the same
-    /// reason `HeroHeaderView` reads `verticalSizeClass` — `screenHeight`/
-    /// `statusBarInset` below are plain UIKit reads, and SwiftUI has no way
-    /// to know `body` depends on them unless *something* here is a tracked
-    /// dependency. Page *width* doesn't need this — `heroContent(pageWidth:)`
-    /// gets that from a `GeometryReader` instead, which needs no such
-    /// prompting since it's itself part of the layout system.
+    /// reason `HeroHeaderView` reads `verticalSizeClass` — `heroHeight`
+    /// below is a plain UIKit read, and SwiftUI has no way to know `body`
+    /// depends on it unless *something* here is a tracked dependency. Page
+    /// *width* doesn't need this — `heroContent(pageWidth:)` gets that from
+    /// a `GeometryReader` instead, which needs no such prompting since it's
+    /// itself part of the layout system.
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     /// Same check `HeroHeaderView` uses, for the same reason (see that
@@ -43,10 +52,9 @@ struct HeroRailView: View {
     /// landscape signal.
     private var isLandscape: Bool { verticalSizeClass == .compact }
 
-    /// Shared by `screenHeight`/`statusBarInset` below — `heroHeight`'s
-    /// portrait branch reads both, so without this they'd independently
-    /// re-walk `UIApplication.shared.connectedScenes` to find the same key
-    /// window twice over on every `body` evaluation that needs it.
+    /// Deliberately the key window's own bounds, not `UIScreen.main` (soft
+    /// deprecated, and doesn't reflect a resized scene under iPadOS Stage
+    /// Manager) — same reasoning as `HeroHeaderView.statusBarInset`.
     private var keyWindow: UIWindow? {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
@@ -55,30 +63,29 @@ struct HeroRailView: View {
             .first(where: \.isKeyWindow)
     }
 
-    /// Deliberately the key window's own bounds, not `UIScreen.main` (soft
-    /// deprecated, and doesn't reflect a resized scene under iPadOS Stage
-    /// Manager) — same reasoning as `HeroHeaderView.statusBarInset`.
-    private var screenHeight: CGFloat { keyWindow?.bounds.height ?? 800 }
-
-    /// Same raw hardware inset `HeroHeaderView` uses (status bar/notch only,
-    /// not the nav bar) — see that view's doc comment for why it has to be
-    /// this rather than the ambient `safeAreaInsets`.
-    private var statusBarInset: CGFloat { keyWindow?.safeAreaInsets.top ?? 0 }
-
-    /// Portrait: a third of the screen, stretched 25% taller, *plus*
-    /// `statusBarInset` so bleeding up under the notch is pure upward
+    /// Portrait: a third of the screen, stretched 25% taller, *plus* the
+    /// status bar/notch inset (the window's own raw hardware inset, not the
+    /// ambient `safeAreaInsets` — same reasoning as `HeroHeaderView
+    /// .statusBarInset`) so bleeding up under the notch is pure upward
     /// growth rather than eating into that 1.25x budget — without the
     /// addition, reaching the notch and "25% taller" would fight over the
     /// same height instead of both actually happening. Landscape instead
     /// goes straight to 75% of the screen — a third-of-portrait-height
     /// formula would read as far too short once the screen itself is much
     /// shorter, so landscape gets its own, larger fraction rather than
-    /// reusing the portrait math. `screenHeight` already reflects whichever
-    /// orientation is current (the key window's `bounds` rotate with the
-    /// device), so no separate landscape screen-height read is needed.
+    /// reusing the portrait math; the key window's `bounds` already reflect
+    /// whichever orientation is current, so no separate landscape read is
+    /// needed. `keyWindow` is read once into a local here, not via two
+    /// separate computed properties (an earlier version had `screenHeight`/
+    /// `statusBarInset` as such) — the portrait branch needs both, and two
+    /// separate properties meant re-walking `UIApplication.shared
+    /// .connectedScenes` to find the same key window twice over on every
+    /// evaluation.
     private var heroHeight: CGFloat {
-        guard !isLandscape else { return screenHeight * 0.75 }
-        return statusBarInset + screenHeight / 3 * 1.25
+        let window = keyWindow
+        let height = window?.bounds.height ?? 800
+        guard !isLandscape else { return height * 0.75 }
+        return (window?.safeAreaInsets.top ?? 0) + height / 3 * 1.25
     }
 
     /// Indexes into `loopedItems`, not `items` — see that property's doc
@@ -127,6 +134,32 @@ struct HeroRailView: View {
     /// attachment points that each caused their own real bug).
     @State private var isInteracting = false
 
+    /// Tracks actual on-screen presence via SwiftUI's own appear/disappear
+    /// lifecycle — set from the same `.onAppear`/`.onDisappear` pair
+    /// `resyncScrollPosition(using:)` already uses below, which fires
+    /// reliably around the Player's `.fullScreenCover` covering Home (see
+    /// that function's doc comment). `isTabActive` alone can't catch that
+    /// case — Home stays the selected *tab* the whole time the Player is
+    /// open over it, so nothing about tab selection changes while covered.
+    @State private var isOnScreen = true
+
+    /// Whether the auto-advance timer's tick should actually do anything —
+    /// combines `isTabActive` (backgrounded-tab case) and `isOnScreen`
+    /// (fullScreenCover-covering case) since neither alone covers both ways
+    /// Home can stop being visible while still mounted. Read fresh by
+    /// `tick()` every second; while `false`, `tick()` is a complete no-op
+    /// (no state write at all, not even a cheap one), the same as it
+    /// already is while `isInteracting` — so a background tab or a covered
+    /// Home no longer drives a state write and re-render once a second for
+    /// as long as the app runs, the actual cost this was fixing (found
+    /// during the 2026-08-24 architecture review — see the doc comment atop
+    /// this file's `tickTimer` for the matching fix to a related issue,
+    /// recreating the Timer itself unnecessarily). `idleSeconds` is simply
+    /// held wherever it was, exactly like the existing `isInteracting`
+    /// pause, so there's nothing to resync on reappearance — nothing
+    /// drifted while invisible, since `tick()` never advanced it.
+    private var isVisible: Bool { isTabActive && isOnScreen }
+
     /// Seconds elapsed since the current item became current, ticked up by
     /// `tickTimer` but held steady (not reset) while `isInteracting` is
     /// true — touching the carousel pauses the countdown exactly where it
@@ -149,8 +182,16 @@ struct HeroRailView: View {
     fileprivate static let autoAdvanceAnimationDuration: TimeInterval = 0.35
 
     /// Ticks once a second; `tick()` itself is what actually holds
-    /// `idleSeconds` steady while `isInteracting` is true.
-    private let tickTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    /// `idleSeconds` steady while `isInteracting` is true. `@State`, not a
+    /// plain `let` — a plain stored property is reinitialized (a fresh
+    /// `Timer`/Combine subscription torn down and recreated) every time
+    /// `HomeView.body` reruns and reconstructs this view (e.g. on every
+    /// dynamic-rail batch append while scrolling), since `HeroRailView` is a
+    /// value type recomputed from scratch on each such render. `@State`'s
+    /// initial-value expression only evaluates once per view identity, same
+    /// as `scrollPosition`/`idleSeconds`/`isInteracting` below, so this
+    /// keeps one real Timer alive for the view's actual lifetime instead.
+    @State private var tickTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     /// Wraps the whole rail so each page's width (below) can come from
     /// `proxy.size.width` — genuinely layout-driven, unlike an earlier
@@ -304,12 +345,26 @@ struct HeroRailView: View {
                     HeroPageIndicator(
                         count: items.count,
                         currentIndex: currentIndex,
-                        isInteracting: isInteracting
+                        // Not `isInteracting` alone — an invisible Home
+                        // (backgrounded tab, or covered by the Player)
+                        // should freeze the fill exactly like a held touch
+                        // does, or it keeps animating via Core Animation
+                        // (which doesn't care whether anything's on screen
+                        // to composite it) toward 100% while `tick()` itself
+                        // is gated off and `idleSeconds` isn't actually
+                        // advancing — a cosmetic desync on reappearance
+                        // otherwise. See `isPaused`'s doc comment on
+                        // `HeroPageIndicator`.
+                        isPaused: isInteracting || !isVisible
                     )
                     .padding(16)
                 }
             }
-            .onAppear { resyncScrollPosition(using: scrollProxy) }
+            .onAppear {
+                isOnScreen = true
+                resyncScrollPosition(using: scrollProxy)
+            }
+            .onDisappear { isOnScreen = false }
         }
     }
 
@@ -340,6 +395,15 @@ struct HeroRailView: View {
     /// `.fullScreenCover` dismissal and initial appearance alike) closes
     /// the gap without needing an actual touch. A no-op, invisible jump to
     /// the same spot on any appearance where no drift actually happened.
+    ///
+    /// Follow-up (2026-08-24): `tick()` is now directly gated on
+    /// `isVisible`, so it no longer advances `scrollPosition` at all while
+    /// covered or backgrounded — the drift this originally corrected for
+    /// can't happen anymore, making this call a genuine no-op in the normal
+    /// case rather than the primary fix. Left in place as a defensive
+    /// fallback regardless — cheap, and correct even if some future change
+    /// reintroduces another path that can move `scrollPosition` while this
+    /// view isn't visible.
     private func resyncScrollPosition(using proxy: ScrollViewProxy) {
         guard let scrollPosition else { return }
         var transaction = Transaction()
@@ -355,10 +419,17 @@ struct HeroRailView: View {
     /// case (see `loopedItems`'s doc comment). Simply skips the increment
     /// while `isInteracting` — not resetting `idleSeconds` — so a touch
     /// pauses the countdown in place rather than restarting it; `tick()`
-    /// picks back up from the same count once the finger lifts.
+    /// picks back up from the same count once the finger lifts. `isVisible`
+    /// gets the identical treatment, for the identical reason — see that
+    /// property's doc comment: this is what actually stops `tickTimer`'s
+    /// once-a-second firing from writing state and re-rendering this
+    /// subtree while nobody can see it (found during the 2026-08-24
+    /// architecture review, deliberately deferred past the rest of that
+    /// pass given how much live-repro tuning this file's timing behavior
+    /// has already needed).
     private func tick() {
         guard items.count > 1 else { return }
-        guard !isInteracting else { return }
+        guard !isInteracting, isVisible else { return }
         idleSeconds += 1
         guard idleSeconds >= Self.autoAdvanceInterval else { return }
         idleSeconds = 0
@@ -403,22 +474,13 @@ private struct HeroRailCard: View {
 
     var body: some View {
         // Wrapped in a (single-child) `ZStack`, not a bare `NavigationLink`
-        // — see `PosterCard.body`'s doc comment for the real-device bug
-        // this avoids: a bare `NavigationLink` as a horizontal rail's only
-        // per-page content sent SwiftUI's layout engine into a genuine
-        // infinite loop (confirmed via a CPU sample pegged at ~100%,
-        // entirely inside AttributeGraph/StackLayout internals — not a
-        // single frame of this app's own code on the stack), and a
-        // single-child `ZStack` was enough to restore whatever layout-
-        // negotiation role it was quietly playing between the
-        // `NavigationLink` and its parent stack. This card sat in a plain
-        // `HStack` rather than a `LazyHStack` (see `heroContent(pageWidth:)`
-        // above for why it's eager), so it was never covered by that fix or
-        // `LibraryCard`'s matching defensive one — applied here too
-        // (2026-08-13) after a live freeze on Home, mid-scroll, produced
-        // the identical signature (100% CPU, zero app frames, entirely
-        // AttributeGraph/StackLayout) with this the only remaining bare
-        // `NavigationLink` card left in the codebase.
+        // — same bare-NavigationLink-in-a-Lazy-stack freeze fix as
+        // `PosterCard.body`/`LibraryCard` (see `library-rail-navigationlink
+        // -freeze` memory). This card sat in a plain `HStack`, not a
+        // `LazyHStack` (see `heroContent(pageWidth:)` above for why it's
+        // eager), so it wasn't automatically covered by the earlier fixes —
+        // applied here too (2026-08-13) after its own live repro on Home,
+        // mid-scroll, produced the identical signature.
         ZStack {
             NavigationLink(value: AppRoute.assetDetail(itemID: item.id, preloadedItem: item)) {
                 BackdropLogoOverlay(backdropURL: item.backdropImageURL ?? item.primaryImageURL, logoURL: item.logoImageURL, title: item.name)
@@ -450,7 +512,7 @@ private struct HeroRailCard: View {
 /// next item's dot takes over. Prototyped as a standalone mockup and
 /// reviewed before landing here (tap-to-jump dots and a dedicated
 /// hold-to-pause region existed in that prototype but are deliberately not
-/// carried over — see `isInteracting`'s doc comment below).
+/// carried over — see `isPaused`'s doc comment below).
 ///
 /// The fill is driven by `withAnimation`, event-driven rather than ticking
 /// continuously — two earlier versions of this tried other approaches and
@@ -496,7 +558,15 @@ private struct HeroRailCard: View {
 private struct HeroPageIndicator: View {
     let count: Int
     let currentIndex: Int
-    let isInteracting: Bool
+    /// Freezes the fill exactly where it is, same treatment `HeroRailView
+    /// .tick()` gives `idleSeconds` itself — the caller passes `true` for
+    /// either a real held touch or (as of 2026-08-24) Home simply not being
+    /// visible (backgrounded tab or covered by the Player), so this fill
+    /// never keeps animating via Core Animation toward 100% while the real
+    /// countdown it's meant to represent isn't actually advancing. Named
+    /// for what it does here, not for either specific cause — see the call
+    /// site in `heroContent(pageWidth:)` for what feeds into it.
+    let isPaused: Bool
 
     /// The fill's current position, `0...1`. Only ever set via
     /// `snapInstantly(to:)` or as the target of a `withAnimation` block —
@@ -556,8 +626,8 @@ private struct HeroPageIndicator: View {
         .allowsHitTesting(false)
         .onAppear { startFresh() }
         .onChange(of: currentIndex) { _, _ in startFresh() }
-        .onChange(of: isInteracting) { _, interacting in
-            if interacting {
+        .onChange(of: isPaused) { _, paused in
+            if paused {
                 pause()
             } else {
                 resume()
@@ -566,13 +636,13 @@ private struct HeroPageIndicator: View {
     }
 
     /// A new item just became current (or this is the very first render) —
-    /// start counting from zero. If a touch is still down (a live swipe can
-    /// flip through several items while `isInteracting` stays continuously
-    /// true), stays paused at zero rather than starting to count —
-    /// `resume()` will pick it up once the finger actually lifts.
+    /// start counting from zero. If still paused (a live swipe can flip
+    /// through several items while a touch stays continuously down), stays
+    /// paused at zero rather than starting to count — `resume()` will pick
+    /// it up once `isPaused` goes back to `false`.
     private func startFresh() {
         accumulatedActiveTime = 0
-        if isInteracting {
+        if isPaused {
             resumedAt = nil
             snapInstantly(to: 0)
         } else {
@@ -782,7 +852,7 @@ private struct RegionTouchObserver: UIViewRepresentable {
         /// wrapper views it inserts between them across versions.
         func attachToScrollViewIfNeeded() {
             guard let window = hostView?.window, window !== attachedWindow else { return }
-            guard let scrollView = nearestScrollViewAncestor() else { return }
+            guard let scrollView = hostView?.nearestScrollViewAncestor() else { return }
             detach()
             attachedWindow = window
             attachedHost = scrollView
@@ -831,15 +901,6 @@ private struct RegionTouchObserver: UIViewRepresentable {
             self.recognizer = recognizer
         }
 
-        private func nearestScrollViewAncestor() -> UIScrollView? {
-            var candidate = hostView?.superview
-            while let view = candidate {
-                if let scrollView = view as? UIScrollView { return scrollView }
-                candidate = view.superview
-            }
-            return nil
-        }
-
         func detach() {
             if let recognizer, let attachedHost {
                 attachedHost.removeGestureRecognizer(recognizer)
@@ -859,11 +920,14 @@ private struct RegionTouchObserver: UIViewRepresentable {
 }
 
 /// The actual `UIGestureRecognizer` `RegionTouchObserver` attaches to the
-/// app's root view — see that type's doc comment for the full reasoning. Reports
-/// raw touch-down/up via `onTouches` without ever transitioning its own
-/// `state`, which is what keeps it purely observational (a gesture
-/// recognizer that never leaves `.possible` never "wins," never fires an
-/// action, and never requires any other recognizer to fail).
+/// hero's own backing `UIScrollView` — see that type's doc comment for the
+/// full reasoning, including the two earlier, broader attachment points
+/// (the key window, then the app's root view) each abandoned after causing
+/// its own real bug. Reports raw touch-down/up via `onTouches` without ever
+/// transitioning its own `state`, which is what keeps it purely
+/// observational (a gesture recognizer that never leaves `.possible` never
+/// "wins," never fires an action, and never requires any other recognizer
+/// to fail).
 private final class PassthroughTouchRecognizer: UIGestureRecognizer {
     var onTouches: ((Set<UITouch>, Bool) -> Void)?
 
@@ -888,5 +952,5 @@ private final class PassthroughTouchRecognizer: UIGestureRecognizer {
 }
 
 #Preview {
-    HeroRailView(items: [])
+    HeroRailView(items: [], isTabActive: true)
 }
