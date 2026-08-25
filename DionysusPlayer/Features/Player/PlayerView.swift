@@ -504,7 +504,13 @@ struct PlayerView: View {
 
     /// The single-tap "show/hide controls" behavior this overlay always
     /// had, now reached only once a double tap has failed to materialize —
-    /// see the surface's `.gesture(...)` doc comment.
+    /// see the surface's `.gesture(...)` doc comment. In practice this only
+    /// ever *reveals* controls now: `PlayerControlsOverlay`'s own full-bounds
+    /// blank-space tap catcher (see its `body`) claims every tap on the
+    /// overlay's own bounds while `showControls` is true, so this surface
+    /// gesture stops receiving taps at all for as long as controls are
+    /// visible — hiding always goes through `dismissControls()` below
+    /// instead, not this toggle.
     private func handleSingleTap() {
         let isRevealing = !showControls
         withAnimation(isRevealing ? Self.fadeInAnimation : Self.fadeOutAnimation) {
