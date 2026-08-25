@@ -34,15 +34,39 @@ struct SeasonEpisodeList: View {
     @State private var episodes: [MediaItem] = []
     @State private var isLoading = false
 
+    /// Backs `pickerWidth` below — `@ScaledMetric` tracks Dynamic Type the
+    /// same way the trigger `Text`'s own (ambient, `.body`-style) font does,
+    /// so the frame grows/shrinks in step with the text it's sized for
+    /// instead of being tuned for one specific size.
+    @ScaledMetric(relativeTo: .body) private var scaledPickerWidth: CGFloat = 160
+
+    /// The season menu trigger's fixed frame width — see the `Menu` label
+    /// below for why this has to stay a fixed width, not `maxWidth`.
+    /// Capped rather than left to scale all the way to the largest
+    /// accessibility sizes unbounded: this trigger shares a row with the
+    /// "Episodes" title and `SeasonDownloadButton`, and an uncapped value at
+    /// the top accessibility sizes would exceed the width of the smallest
+    /// supported phone screen (SE, 375pt) on its own. Still meaningfully
+    /// wider than the old hardcoded 160pt below that ceiling — see
+    /// `selectedSeasonName`'s doc comment for the matching character-budget
+    /// scale this drives.
+    private var pickerWidth: CGFloat { min(scaledPickerWidth, 200) }
+
     /// The season menu's own trigger label — falls back to the first
     /// season's name if `selectedSeasonID` doesn't (yet) match any of
     /// `seasons`, so the trigger never renders blank. Truncated here in
     /// plain Swift, not left to `Text`'s own `.lineLimit`/`.truncationMode`
-    /// — see the `Menu` label below for why. `maxLength` is picked to
-    /// comfortably clear the 160pt trigger width at this font size.
+    /// — see the `Menu` label below for why. `maxLength` was a flat 16
+    /// before, tuned for one specific (160pt) frame width — at larger
+    /// Dynamic Type sizes that could still overflow the frame (each
+    /// character renders wider), and at smaller sizes it truncated more
+    /// than the frame actually needed. Scaling it by the same ratio
+    /// `pickerWidth` itself scales by keeps the two in step, however either
+    /// one changes, rather than two independently hand-tuned numbers
+    /// drifting apart.
     private var selectedSeasonName: String {
         let name = seasons.first { $0.id == selectedSeasonID }?.name ?? seasons.first?.name ?? ""
-        let maxLength = 16
+        let maxLength = max(4, Int((16 * pickerWidth / 160).rounded()))
         guard name.count > maxLength else { return name }
         return String(name.prefix(maxLength)) + "\u{2026}"
     }
@@ -86,7 +110,7 @@ struct SeasonEpisodeList: View {
                                 .font(.caption2)
                         }
                     }
-                    .frame(width: 160, alignment: .trailing)
+                    .frame(width: pickerWidth, alignment: .trailing)
                 }
 
                 // Next to the picker when there's one to show; in its place
