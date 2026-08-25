@@ -191,7 +191,16 @@ private struct GlassGlyph: View {
     /// closer to that scale now, though "the same size as the system
     /// default" isn't a fixed constant Apple documents anywhere; adjust
     /// further on more feedback rather than treating this as exact.
-    private static let size: CGFloat = 210
+    ///
+    /// Reduced from `210` to `179` when `DionysusGlyph.imageset`'s SVG had
+    /// its own internal margin trimmed to the artwork's tight bounding box
+    /// (was ~85% of its square viewBox, now ~100%) — this frame masks the
+    /// glyph via `.aspectRatio(.fit)`, so removing the asset's internal
+    /// padding made the glyph render visibly larger at the same frame size
+    /// here without this compensating reduction, even though the tab bar
+    /// icon (the other consumer of this asset) wanted exactly that full-bleed
+    /// change with no compensation.
+    private static let size: CGFloat = 179
 
     var body: some View {
         Rectangle()
