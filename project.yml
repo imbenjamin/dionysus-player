@@ -87,6 +87,12 @@ targets:
     sources:
       - path: DionysusPlayer
       - path: dionysus.icon
+      # Extensionless files (LICENSE, symlinked in from the repo root so
+      # there's a single source of truth) aren't auto-classified as a
+      # bundle resource by the `path: DionysusPlayer` folder reference
+      # above — force it into the Copy Bundle Resources phase explicitly.
+      - path: DionysusPlayer/Resources/LICENSE
+        buildPhase: resources
     dependencies:
       - package: AetherEngine
         product: AetherEngine
