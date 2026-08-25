@@ -46,10 +46,10 @@ struct PlayerControlsOverlay: View {
     /// button/scrubber/picker — while the controls are visible. `PlayerView`
     /// hides them immediately (with the same fade `scheduleAutoHide()`'s
     /// timer uses) rather than making the user wait out the full auto-hide
-    /// delay. See `body`'s own `.onTapGesture` for why a plain tap gesture
-    /// on the root `VStack` is enough to only catch *blank* taps — actual
-    /// buttons/the scrubber/the track picker's own backdrop all sit above it
-    /// and claim their own taps first.
+    /// delay. See `body`'s own full-overlay blank-space tap catcher for why
+    /// a plain tap gesture there is enough to only catch *blank* taps —
+    /// actual buttons/the scrubber/the track picker's own backdrop all sit
+    /// above it and claim their own taps first.
     var onDismissControls: () -> Void
 
     /// Whether the scrubber's trailing timestamp reads as a `-`-prefixed
@@ -125,100 +125,69 @@ struct PlayerControlsOverlay: View {
     private static let trackPickerNavigationAnimation: Animation = .easeInOut(duration: 0.3)
 
     var body: some View {
-        VStack {
-            topSection
+        ZStack {
+            // Purely decorative, drawn *behind* the blank-space tap catcher
+            // below — deliberately its own backmost `ZStack` sibling here,
+            // not attached to `content` via `.background()` the way it used
+            // to be. A `.background()`'s drawn content (this gradient is
+            // real pixels, not `Color.clear`) occludes hit-testing for
+            // whatever sits behind *it* — so with the gradient attached to
+            // `content` (the frontmost sibling), it silently blocked every
+            // tap meant for the catcher below across the *entire* overlay,
+            // not just where the gradient visually reads as opaque. Pulling
+            // it out to be the actual backmost layer removes that occluder
+            // entirely: nothing but the catcher and real controls sit in
+            // front of the screen from here on.
+            backgroundGradient
 
-            // Only this middle band — the two `Spacer()`s plus whatever
-            // blank gaps sit between `transportControls`' own buttons —
-            // dismisses on a blank tap; see `onDismissControls`'s doc
-            // comment. `topSection`'s and `scrubberBar`'s own rows are
-            // deliberately excluded (this container stops short of both),
-            // not just their buttons/scrubber — a tap that lands close to
-            // but just misses one of those is far more likely a mis-aimed
-            // attempt to use them than a request to dismiss, so the whole
-            // horizontal band they occupy stays "protected": a near-miss
-            // there does nothing, same as it did before this feature
-            // existed, rather than closing the controls out from under the
-            // user's thumb.
+            // Full-overlay, effectively-invisible blank-space tap
+            // catcher — sits between the decorative background above and
+            // `content` below, so every real control in `content` (drawn
+            // in front of it, next) claims its own tap first via ordinary
+            // SwiftUI front-to-back hit-test resolution; this only ever
+            // receives a tap that landed on space nothing else wanted.
+            // `onDismissControls` hides the controls immediately — see
+            // that closure's own doc comment.
             //
-            // Needs its own explicit `.contentShape`: a `VStack` otherwise
-            // only hit-tests its children's actual drawn content, not the
-            // `Spacer()` gaps. Placed before `.background`/the track-picker
-            // overlays below so those — the picker's own backdrop tap
-            // catcher included — still claim their own taps first.
-            VStack {
-                Spacer()
-                transportControls
-                Spacer()
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                onDismissControls()
-            }
+            // Replaces an earlier version of this idea that only armed
+            // the middle band (the `Spacer()`s around `transportControls`)
+            // and deliberately left `topSection`'s and `scrubberBar`'s own
+            // blank space uncaught. That left a real gap: a tap on truly
+            // blank space *within* those two rows fell straight through
+            // this overlay (neither row has its own `.contentShape`, and a
+            // plain `VStack` only hit-tests drawn content) to `PlayerView`'s
+            // video-surface gesture underneath, which only *toggles*
+            // `showControls` — not a reliable hide — and only after the
+            // system's double-tap disambiguation window elapses.
+            // `topSection`/`scrubberBar` are fixed-height regardless of
+            // orientation while the whole overlay is much shorter in
+            // landscape, so that fallthrough ate a proportionally much
+            // bigger share of the screen there — exactly why "tap blank
+            // space to dismiss" read as unreliable especially in
+            // landscape. Covering the *entire* overlay here removes that
+            // gap without any manual region bookkeeping: "isn't on an
+            // interactive element" now falls out for free from z-order
+            // plus every real control's own guaranteed ≥44×44pt
+            // `.contentShape` (see each button's doc comment) rather than
+            // a hand-carved "protected band."
+            //
+            // Needs its own opaque-enough-to-hit-test fill, not plain
+            // `.clear` — same reasoning as the track-picker backdrop below
+            // (SwiftUI won't hit-test a fully `.clear` shape).
+            Color.black.opacity(0.001)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    // Defensive: the track picker's own backdrop (below,
+                    // added via a later `.overlay` and therefore already
+                    // on top) should always claim a tap first while open,
+                    // but guard here too rather than rely solely on
+                    // z-order.
+                    guard !isShowingTrackPicker else { return }
+                    onDismissControls()
+                }
 
-            scrubberBar
+            content
         }
-        .background(
-            ZStack {
-                // Corner-anchored, sitting mainly under the logo — see
-                // `topSection`'s doc comment for why this lives here, on
-                // the *whole* overlay, rather than scoped to that section's
-                // own (much shorter) frame. A flat plateau out to 45% of
-                // the radius, rather than fading immediately from the
-                // corner, is deliberate: `.topLeading` is the *screen's*
-                // true corner (this background ignores the safe area — see
-                // below), which sits some distance above/left of the
-                // logo's own safe-area-respecting position. A simple
-                // 2-stop fade was already noticeably dimmer by the time it
-                // reached that far, undershooting exactly the area this is
-                // meant to cover; holding near-full opacity out past where
-                // the logo actually sits, before tapering off, fixes that
-                // without reintroducing a hard-edged cutoff — it still
-                // reaches `.clear` well within the endRadius.
-                //
-                // Stretched wider than tall via `.scaleEffect` — a logo
-                // wordmark is typically much wider than it is high (e.g.
-                // "Office Space"), so a plain circular `RadialGradient`
-                // left its right half sitting on unfaded video well before
-                // the gradient's own falloff caught up, confirmed against a
-                // real wide logo. Scaling from `.topLeading` keeps the
-                // anchor corner fixed and stretches the circle into an
-                // ellipse that reaches proportionally further right than
-                // down, matching a wordmark's own proportions instead of a
-                // uniform circle's.
-                RadialGradient(
-                    gradient: Gradient(stops: [
-                        .init(color: .black.opacity(0.85), location: 0),
-                        .init(color: .black.opacity(0.85), location: 0.45),
-                        .init(color: .clear, location: 1)
-                    ]),
-                    center: .topLeading,
-                    startRadius: 0,
-                    endRadius: 450
-                )
-                .scaleEffect(x: 1.8, y: 1, anchor: .topLeading)
-
-                // Bottom-only — the scrubber's own legibility now comes
-                // from `scrubberTrack`'s explicit track colors, not from
-                // darkening behind it further.
-                LinearGradient(
-                    colors: [.clear, .clear, .black.opacity(0.6)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
-            // Without this, the background is sized/positioned to this
-            // VStack's own safe-area-respecting frame, not the true screen
-            // bounds — same video-surface treatment `PlayerView` already
-            // gives the player's video layer. Left off, the gradient falls
-            // short of the physical edges (most visible in landscape, where
-            // the safe-area inset is on the corner side this gradient is
-            // meant to bleed into). The buttons/logo/scrubber themselves
-            // stay out of this — only the background ignores the safe
-            // area, so controls still avoid the sensor housing/home
-            // indicator the way they should.
-            .ignoresSafeArea()
-        )
         // Full-screen, effectively-invisible tap catcher — placed in its own
         // `.overlay` *before* the panel's below, so the panel (added after,
         // and therefore on top) still receives its own taps while any tap
@@ -226,8 +195,10 @@ struct PlayerControlsOverlay: View {
         // Needs its own opaque-enough-to-hit-test fill (SwiftUI won't
         // hit-test a fully `.clear` shape) but visually reads as nothing —
         // without it, a tap meant to dismiss the picker would instead reach
-        // `PlayerView`'s own single-tap gesture on the video surface
-        // underneath and toggle `showControls` on top of closing the picker.
+        // the blank-space catcher above (or, before this overlay ever
+        // mounted, `PlayerView`'s own single-tap gesture on the video
+        // surface underneath) and close the whole controls overlay on top
+        // of closing the picker.
         .overlay {
             if isShowingTrackPicker {
                 Color.black.opacity(0.001)
@@ -249,6 +220,104 @@ struct PlayerControlsOverlay: View {
                     .transition(.scale(scale: 0.92, anchor: .topTrailing).combined(with: .opacity))
             }
         }
+    }
+
+    /// `topSection`/`transportControls`/`scrubberBar` stacked as before —
+    /// pulled out of `body` only so the new blank-space tap catcher there
+    /// can sit behind it as a `ZStack` sibling. Deliberately carries no
+    /// `.background()` of its own anymore — see `backgroundGradient`'s doc
+    /// comment for why that moved out to its own layer — so this is purely
+    /// the real, interactive content: wherever it has nothing drawn (the
+    /// `Spacer()` gaps), a tap correctly falls straight through to the
+    /// catcher behind it, same as it always has for a bare `VStack`.
+    private var content: some View {
+        VStack {
+            topSection
+
+            VStack {
+                Spacer()
+                transportControls
+                Spacer()
+            }
+
+            scrubberBar
+        }
+    }
+
+    /// The corner-anchored logo gradient + bottom darkening, previously
+    /// attached to `content` via `.background()`. Moved out to be its own
+    /// backmost `ZStack` sibling in `body` rather than staying attached
+    /// there — see `body`'s own doc comment for why: a `.background()`'s
+    /// drawn content (this is real gradient pixels, not `Color.clear`)
+    /// occludes hit-testing for whatever's behind *it*, which silently
+    /// blocked the blank-space tap catcher across the whole overlay once
+    /// that catcher became a `ZStack` sibling rather than something inside
+    /// `content` itself. As its own backmost layer here, nothing sits
+    /// between the screen and this decoration, so it can no longer occlude
+    /// anything.
+    private var backgroundGradient: some View {
+        ZStack {
+            // Corner-anchored, sitting mainly under the logo — see
+            // `topSection`'s doc comment for why this lives here, on
+            // the *whole* overlay, rather than scoped to that section's
+            // own (much shorter) frame. A flat plateau out to 45% of
+            // the radius, rather than fading immediately from the
+            // corner, is deliberate: `.topLeading` is the *screen's*
+            // true corner (this background ignores the safe area — see
+            // below), which sits some distance above/left of the
+            // logo's own safe-area-respecting position. A simple
+            // 2-stop fade was already noticeably dimmer by the time it
+            // reached that far, undershooting exactly the area this is
+            // meant to cover; holding near-full opacity out past where
+            // the logo actually sits, before tapering off, fixes that
+            // without reintroducing a hard-edged cutoff — it still
+            // reaches `.clear` well within the endRadius.
+            //
+            // Stretched wider than tall via `.scaleEffect` — a logo
+            // wordmark is typically much wider than it is high (e.g.
+            // "Office Space"), so a plain circular `RadialGradient`
+            // left its right half sitting on unfaded video well before
+            // the gradient's own falloff caught up, confirmed against a
+            // real wide logo. Scaling from `.topLeading` keeps the
+            // anchor corner fixed and stretches the circle into an
+            // ellipse that reaches proportionally further right than
+            // down, matching a wordmark's own proportions instead of a
+            // uniform circle's.
+            RadialGradient(
+                gradient: Gradient(stops: [
+                    .init(color: .black.opacity(0.85), location: 0),
+                    .init(color: .black.opacity(0.85), location: 0.45),
+                    .init(color: .clear, location: 1)
+                ]),
+                center: .topLeading,
+                startRadius: 0,
+                endRadius: 450
+            )
+            .scaleEffect(x: 1.8, y: 1, anchor: .topLeading)
+
+            // Bottom-only — the scrubber's own legibility now comes
+            // from `scrubberTrack`'s explicit track colors, not from
+            // darkening behind it further.
+            LinearGradient(
+                colors: [.clear, .clear, .black.opacity(0.6)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        // Without this, the gradient is sized/positioned to this view's own
+        // safe-area-respecting frame, not the true screen bounds — same
+        // video-surface treatment `PlayerView` already gives the player's
+        // video layer. Left off, the gradient falls short of the physical
+        // edges (most visible in landscape, where the safe-area inset is on
+        // the corner side this gradient is meant to bleed into). The
+        // buttons/logo/scrubber themselves stay out of this — only this
+        // decorative layer ignores the safe area, so controls still avoid
+        // the sensor housing/home indicator the way they should.
+        .ignoresSafeArea()
+        // Purely decorative — explicitly not part of hit-testing (belt and
+        // braces alongside moving it behind the catcher above; harmless
+        // either way since nothing here has a gesture attached).
+        .allowsHitTesting(false)
     }
 
     /// Close/track-selection buttons and the logo/title row. The
@@ -273,6 +342,17 @@ struct PlayerControlsOverlay: View {
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.title2)
+                        // Pads the drawn glyph out to HIG's 44×44 minimum
+                        // touch target — see `body`'s blank-space tap
+                        // catcher doc comment for why every real control
+                        // here now needs an explicit, reliable tap target:
+                        // once blank space anywhere is tappable-to-dismiss,
+                        // a control with a smaller-than-drawn hit area is
+                        // easy to narrowly miss and misfire a dismiss
+                        // instead. Same pattern `ProfileView.swift`'s
+                        // GitHub link uses.
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
 
                 Spacer()
@@ -306,6 +386,12 @@ struct PlayerControlsOverlay: View {
                                     Circle().fill(Color.white)
                                 }
                             }
+                            // The visible badge stays 36×36 — only the tap
+                            // target grows, via an outer frame the badge is
+                            // centered in, to HIG's 44pt minimum. See the
+                            // close button above for why this matters now.
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel(isRotationLocked ? Text("Unlock rotation") : Text("Lock rotation"))
                     .animation(.easeInOut(duration: 0.15), value: isRotationLocked)
@@ -325,6 +411,8 @@ struct PlayerControlsOverlay: View {
                         } label: {
                             Image(systemName: "pip.enter")
                                 .font(.title2)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
                         .accessibilityLabel(Text("Picture in Picture"))
                     }
@@ -347,6 +435,10 @@ struct PlayerControlsOverlay: View {
                                     Circle().fill(Color.white)
                                 }
                             }
+                            // Same 36pt-badge-inside-a-44pt-target treatment
+                            // as the rotation lock button above.
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel(isPlaybackStatsVisible ? Text("Hide playback stats") : Text("Show playback stats"))
                     .animation(.easeInOut(duration: 0.15), value: isPlaybackStatsVisible)
@@ -493,6 +585,8 @@ struct PlayerControlsOverlay: View {
             Image(systemName: "captions.bubble")
                 .font(.title2)
                 .opacity(hasAnyChoice ? 1 : 0.4)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .disabled(!hasAnyChoice)
     }
@@ -855,7 +949,13 @@ struct PlayerControlsOverlay: View {
                     onInteract()
                     viewModel.seek(to: max(0, displayedTime - 15))
                 } label: {
-                    Image(systemName: "gobackward.15").font(.title)
+                    Image(systemName: "gobackward.15")
+                        .font(.title)
+                        // Same HIG-44pt tap-target padding as every other
+                        // icon button in this overlay — see the close
+                        // button's doc comment in `topSection`.
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
 
                 Button {
@@ -864,13 +964,18 @@ struct PlayerControlsOverlay: View {
                 } label: {
                     Image(systemName: viewModel.state == .playing ? "pause.fill" : "play.fill")
                         .font(.system(size: 44))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
 
                 Button {
                     onInteract()
                     viewModel.seek(to: min(viewModel.duration, displayedTime + 30))
                 } label: {
-                    Image(systemName: "goforward.30").font(.title)
+                    Image(systemName: "goforward.30")
+                        .font(.title)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
             }
             .foregroundStyle(.white)
