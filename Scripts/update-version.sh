@@ -60,19 +60,24 @@ if [ -n "$EXPLICIT_TAG" ]; then
   # it) — stamp as if already exactly on that tag, same as the "clean,
   # zero commits since the tag" case below.
   #
-  # BUILD_NUMBER (a plain count) is knowable in advance — the commit this
-  # script's output is about to be committed into will be one past HEAD's
-  # current count, so add 1 rather than using today's count. Skipping this
-  # would leave the checked-in build number permanently one behind the
-  # count CI computes once that commit and its tag actually exist (see
-  # release.yml's verification step, which caught exactly this).
+  # BUILD_NUMBER (a plain count) is knowable in advance — but by *two*,
+  # not one, past HEAD's current count: this script's own output becomes
+  # one commit (the prep commit itself), and merging that prep branch's PR
+  # adds a *second* — this repo merges PRs via "Create a merge commit"
+  # (`gh pr merge --merge`), which, unlike a local fast-forwarding `git
+  # merge`, always fabricates a distinct merge commit on top, even for an
+  # already-linear history. Skipping either +1 would leave the checked-in
+  # build number behind the count CI computes once that commit and its tag
+  # actually exist (see release.yml's verification step, which caught
+  # exactly this live — a real release run failed on a stale +1 guess
+  # before this comment existed).
   #
   # COMMIT's short SHA is *not* knowable in advance, though — a commit
   # can't contain its own hash, only its parent's — so this stays whatever
-  # HEAD is right now (the commit this release was prepared from, one
+  # HEAD is right now (the commit this release was prepared from, two
   # behind the eventual tag). release.yml's verification step knows to
   # excuse exactly this field for exactly this reason.
-  BUILD_NUMBER=$(($(git rev-list --count HEAD) + 1))
+  BUILD_NUMBER=$(($(git rev-list --count HEAD) + 2))
   LATEST_TAG="$EXPLICIT_TAG"
   SINCE_TAG="0"
 else
