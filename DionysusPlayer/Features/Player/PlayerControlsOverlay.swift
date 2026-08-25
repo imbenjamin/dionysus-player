@@ -802,6 +802,12 @@ struct PlayerControlsOverlay: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // `.ignore`, not `.combine` — the leading chevron is purely
+        // decorative wayfinding, not information VoiceOver should read on
+        // its own; the plain "Back" label already conveys what this button
+        // does regardless of which leaf it's read from.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(String(localized: "Back"))
     }
 
     private func leafTitleRow(for page: TrackPickerLeaf) -> some View {
@@ -846,6 +852,12 @@ struct PlayerControlsOverlay: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // `.ignore` — the leading icon and trailing chevron are decorative;
+        // `value` (the current selection, e.g. "Default"/"Off") is folded
+        // into the label since there's no separate `.accessibilityValue`
+        // reader for a row that navigates rather than adjusts in place.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(String(localized: "\(title), \(value)"))
     }
 
     /// A leaf-page row's list of tracks, dividers interleaved between
@@ -895,6 +907,14 @@ struct PlayerControlsOverlay: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // `.ignore` — the checkmark is purely visual state (`.opacity`, not
+        // an `if`, so it's always present in the tree either way); the
+        // *actual* selected state a VoiceOver user needs is exposed via
+        // `.isSelected` below instead, not left to a shape/opacity a screen
+        // reader can't perceive at all.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(metadata.map { String(localized: "\(title), \($0)") } ?? title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var divider: some View {
