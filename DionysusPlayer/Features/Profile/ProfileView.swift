@@ -90,6 +90,12 @@ struct ProfileView: View {
             }
 
             Section {
+                NavigationLink("Privacy Policy") {
+                    PrivacyPolicyView()
+                }
+            }
+
+            Section {
                 Button("Sign Out", role: .destructive) {
                     showSignOutConfirmation = true
                 }
