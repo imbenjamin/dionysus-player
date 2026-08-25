@@ -61,6 +61,7 @@ struct CollectionGridView: View {
             Image(systemName: "dice")
         }
         .disabled((viewModel?.filteredItems ?? []).isEmpty)
+        .accessibilityLabel(String(localized: "Random Item"))
     }
 
     /// Mirrors `AppRouteDestinationView`'s `.assetDetail` branch — kept as
@@ -94,6 +95,7 @@ struct CollectionGridView: View {
         } label: {
             Image(systemName: "arrow.up.arrow.down")
         }
+        .accessibilityLabel(String(localized: "Sort Options"))
     }
 
     private var sortFieldBinding: Binding<CollectionSortField> {

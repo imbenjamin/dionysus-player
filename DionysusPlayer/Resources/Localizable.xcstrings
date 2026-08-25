@@ -75,6 +75,9 @@
     "Account" : {
 
     },
+    "Add to Favorites" : {
+
+    },
     "Address" : {
 
     },
@@ -137,6 +140,9 @@
 
     },
     "Change Server" : {
+
+    },
+    "Change Server also signs you out and forgets this server, returning to first-time setup." : {
 
     },
     "Change server?" : {
@@ -235,6 +241,9 @@
     "Delete 1 Download?" : {
 
     },
+    "Delete Selected Downloads" : {
+
+    },
     "Delete this download?" : {
 
     },
@@ -268,7 +277,16 @@
     "Download Paused" : {
 
     },
+    "Download Season" : {
+
+    },
+    "Downloaded" : {
+
+    },
     "Downloaded videos are transcoded to fit your chosen resolution and quality, and are never upscaled past the source." : {
+
+    },
+    "Downloading Season" : {
 
     },
     "Downloading… %@" : {
@@ -290,6 +308,12 @@
 
     },
     "External" : {
+
+    },
+    "Fast Forward 30 Seconds" : {
+
+    },
+    "Favorite" : {
 
     },
     "Favorites" : {
@@ -347,10 +371,22 @@
     "Included In" : {
 
     },
+    "License" : {
+
+    },
+    "License text unavailable." : {
+
+    },
     "Light" : {
 
     },
     "Lock rotation" : {
+
+    },
+    "Mark as Unwatched" : {
+
+    },
+    "Mark as Watched" : {
 
     },
     "Mono" : {
@@ -419,6 +455,9 @@
     "Password (optional)" : {
 
     },
+    "Pause" : {
+
+    },
     "Paused" : {
 
     },
@@ -458,7 +497,16 @@
     "Playing in Picture in Picture" : {
 
     },
+    "Preparing Download" : {
+
+    },
     "Preparing download…" : {
+
+    },
+    "Privacy Policy" : {
+
+    },
+    "Privacy policy text unavailable." : {
 
     },
     "Profile" : {
@@ -471,6 +519,9 @@
 
     },
     "Queued…" : {
+
+    },
+    "Random Item" : {
 
     },
     "Recent Searches" : {
@@ -491,6 +542,9 @@
     "Remove" : {
 
     },
+    "Remove from Favorites" : {
+
+    },
     "Reset" : {
 
     },
@@ -509,6 +563,9 @@
     "Retrying…" : {
 
     },
+    "Rewind 15 Seconds" : {
+
+    },
     "Search" : {
 
     },
@@ -524,6 +581,9 @@
     "Season %lld" : {
 
     },
+    "Season Downloaded" : {
+
+    },
     "Section" : {
 
     },
@@ -534,6 +594,9 @@
 
     },
     "Select All" : {
+
+    },
+    "Select Downloads to Delete" : {
 
     },
     "Server" : {
@@ -594,6 +657,9 @@
     "Sort By" : {
 
     },
+    "Sort Options" : {
+
+    },
     "Stereo" : {
 
     },
@@ -646,9 +712,6 @@
 
     },
     "This item is no longer available on the server." : {
-
-    },
-    "This signs you out and forgets this server, returning to first-time setup." : {
 
     },
     "This title's default subtitle track can't be included in offline downloads. The download will have no subtitles unless you choose one manually later." : {
