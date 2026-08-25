@@ -81,6 +81,9 @@ struct ProfileView: View {
                 } label: {
                     LabeledContent("Downloads", value: downloadsStorageUsedText)
                 }
+            }
+
+            Section {
                 NavigationLink("License") {
                     LicenseView()
                 }
