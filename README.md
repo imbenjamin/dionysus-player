@@ -239,3 +239,6 @@ similar platforms despite their code-signing and DRM restrictions —
 source obligations are otherwise unaffected. [AetherEngine](https://github.com/superuser404notfound/AetherEngine),
 the playback engine dependency, is separately licensed under
 LGPL-3.0 with its own equivalent App Store/DRM exception.
+
+See [PRIVACY.md](PRIVACY.md) for the app's privacy policy — also reachable
+in-app from Profile.

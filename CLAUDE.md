@@ -310,3 +310,31 @@ of release-day cleanup this project is trying to eliminate (see
 `Text`/`String(localized:)` literal, open the project in Xcode.app and
 build once (Cmd+B) before opening the PR, and include the resulting
 `Localizable.xcstrings` diff in it.
+
+## Privacy policy maintenance
+
+`PRIVACY.md` (repo root) is the app's App Store-required privacy policy,
+also reachable in-app from Profile → Privacy Policy
+(`DionysusPlayer/Resources/PRIVACY.md` is a symlink to the root file, same
+single-source-of-truth pattern as `LICENSE`/`LicenseView`). It was written
+by auditing the app's actual data collection/storage/network behavior, not
+from a generic template — if that behavior changes, the document goes
+stale in a way nothing will catch automatically (no CI check compares them,
+the same gap `Localizable.xcstrings` used to have above).
+
+**Update `PRIVACY.md` in the same PR** as any change that adds a new stored
+identifier, a new `NS*UsageDescription`/permission, a new SDK or third-party
+dependency, or any network destination other than the user's configured
+Jellyfin server — rather than letting it drift and fixing it in a later
+cleanup PR.
+
+`PrivacyPolicyView` renders `PRIVACY.md` with a small hand-written
+line-by-line Markdown renderer (headers/bold/italic/links/bullets only)
+rather than a third-party library — a deliberate call while it's the only
+Markdown file bundled in-app (see the view's doc comment for why). **If a
+second Markdown file gets bundled into the app** (another legal doc, a
+changelog, release notes, etc.), revisit that call — a real Markdown
+library (e.g. MarkdownUI) is worth the added dependency once there's more
+than one document's worth of rendering to maintain, or once a document
+needs constructs the hand-written renderer doesn't handle (nested lists,
+code blocks, tables).

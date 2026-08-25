@@ -84,25 +84,54 @@ struct ProfileView: View {
             }
 
             Section {
-                Button("Sign Out", role: .destructive) {
-                    showSignOutConfirmation = true
+                NavigationLink("License") {
+                    LicenseView()
+                }
+                NavigationLink("Privacy Policy") {
+                    PrivacyPolicyView()
                 }
             }
 
             Section {
+                Button("Sign Out", role: .destructive) {
+                    showSignOutConfirmation = true
+                }
                 Button("Change Server", role: .destructive) {
                     showChangeServerConfirmation = true
                 }
             } footer: {
-                Text("This signs you out and forgets this server, returning to first-time setup.")
+                Text("Change Server also signs you out and forgets this server, returning to first-time setup.")
             }
 
             // Page-wide footer (not tied to the section above it): which
-            // branch/commit this build actually came from.
+            // branch/commit this build actually came from, plus a link to
+            // the GitHub repo just above it.
             Section {
             } footer: {
-                Text(AppVersionInfo.footerText())
-                    .frame(maxWidth: .infinity, alignment: .center)
+                // Tight spacing here because the Link's own frame (below)
+                // already pads the tappable area out to a 44pt touch
+                // target — that padding does double duty as the visual gap
+                // to the version text, so stacking more on top of it would
+                // separate the two too far.
+                VStack(spacing: 0) {
+                    Link(destination: URL(string: "https://github.com/imbenjamin/dionysus-player")!) {
+                        Image("GitHubGlyph")
+                            .renderingMode(.template)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 28, height: 28)
+                            // Glyph itself reads better at 28pt, but pad the
+                            // tappable area out to HIG's 44pt minimum touch
+                            // target rather than sizing the visible mark to
+                            // match — matching visually would look oversized
+                            // next to the caption-sized version text below.
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    Text(AppVersionInfo.footerText())
+                }
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .navigationTitle("Profile")
