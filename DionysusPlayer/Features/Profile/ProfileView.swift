@@ -87,9 +87,6 @@ struct ProfileView: View {
                 NavigationLink("License") {
                     LicenseView()
                 }
-            }
-
-            Section {
                 NavigationLink("Privacy Policy") {
                     PrivacyPolicyView()
                 }
@@ -99,14 +96,11 @@ struct ProfileView: View {
                 Button("Sign Out", role: .destructive) {
                     showSignOutConfirmation = true
                 }
-            }
-
-            Section {
                 Button("Change Server", role: .destructive) {
                     showChangeServerConfirmation = true
                 }
             } footer: {
-                Text("This signs you out and forgets this server, returning to first-time setup.")
+                Text("Change Server also signs you out and forgets this server, returning to first-time setup.")
             }
 
             // Page-wide footer (not tied to the section above it): which
