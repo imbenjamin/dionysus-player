@@ -9,42 +9,89 @@ extension Color {
     static let dionysusMagenta = Color(red: 0.84, green: 0.05, blue: 0.40)
     static let dionysusBurgundy = Color(red: 0.26, green: 0.00, blue: 0.12)
 
+    /// Increase Contrast variant of `dionysusMagenta` — brighter/more
+    /// luminant, not just more saturated. Computed via the standard WCAG
+    /// relative-luminance formula: plain `dionysusMagenta` measures ~4.1:1
+    /// against a near-black dark-mode background, just *under* the 4.5:1 AA
+    /// minimum for normal text/icons (`Design Guideline — Accessibility`:
+    /// "Text sizes up to 17pt... minimum contrast ratio 4.5:1"). This value
+    /// measures ~6.6:1 against the same background — comfortably clear of
+    /// the line, without leaving the magenta hue family.
+    static let dionysusMagentaHighContrast = Color(red: 0.95, green: 0.35, blue: 0.55)
+
+    /// Increase Contrast variant of `dionysusAmber`, same reasoning as
+    /// `dionysusMagentaHighContrast` above — plain `dionysusAmber` measures
+    /// only ~2.5:1 against a white light-mode background (well under 4.5:1);
+    /// this deeper/more saturated amber measures ~5.5:1.
+    static let dionysusAmberHighContrast = Color(red: 0.65, green: 0.32, blue: 0.00)
+
     /// Primary brand action colour. Burgundy on light backgrounds; magenta in
     /// dark (amber-in-dark reads as Plex-adjacent, so the palette leans on
     /// magenta + burgundy to stand out). Backed by a dynamic `UIColor` so any
     /// element rendered through UIKit adapts on trait changes too.
+    ///
+    /// `traits.accessibilityContrast == .high` (the system's Increase
+    /// Contrast setting) swaps in `dionysusMagentaHighContrast` for the dark
+    /// branch — see that constant's doc comment for the measured gap it
+    /// closes. The light branch (burgundy) is untouched: it already measures
+    /// ~16.8:1 against a white background, far past the minimum, so there's
+    /// nothing for Increase Contrast to improve there.
     static let dionysusPrimary = Color(UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(Color.dionysusMagenta)
-            : UIColor(Color.dionysusBurgundy)
+        guard traits.userInterfaceStyle == .dark else {
+            return UIColor(Color.dionysusBurgundy)
+        }
+        return UIColor(traits.accessibilityContrast == .high ? Color.dionysusMagentaHighContrast : Color.dionysusMagenta)
     })
 
     /// Inverse of `dionysusPrimary`: amber on light, burgundy on dark. Used
     /// for elements that need to contrast against a `dionysusPrimary` surface
-    /// (e.g. a progress bar sitting on top of the primary Play button).
+    /// (e.g. a progress bar sitting on top of the primary Play button) —
+    /// always composited on that surface, never bare against a plain system
+    /// background, which is why only the light (amber) branch gets its own
+    /// Increase Contrast swap below. The dark (burgundy) branch doesn't need
+    /// one: burgundy-on-`dionysusPrimary` already measures ~3.3:1, but
+    /// automatically becomes ~5.3:1 once `dionysusPrimary`'s own dark value
+    /// picks up its Increase Contrast bump above — nothing extra to do here.
     static let dionysusProgress = Color(UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(Color.dionysusBurgundy)
-            : UIColor(Color.dionysusAmber)
+        guard traits.userInterfaceStyle != .dark else {
+            return UIColor(Color.dionysusBurgundy)
+        }
+        return UIColor(traits.accessibilityContrast == .high ? Color.dionysusAmberHighContrast : Color.dionysusAmber)
     })
 
     /// Highlight colour for accents sitting over media artwork (e.g. the
     /// rail-item progress bar over a poster). Amber in light, magenta in
-    /// dark — the "no amber in dark" rule applies here too.
+    /// dark — the "no amber in dark" rule applies here too. Reuses the same
+    /// Increase Contrast swaps as `dionysusPrimary`/`dionysusProgress` above
+    /// (same underlying colours, just cross-wired by appearance) rather than
+    /// introducing a third pair of high-contrast constants for what's
+    /// already the same two colours.
     static let dionysusHighlight = Color(UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(Color.dionysusMagenta)
-            : UIColor(Color.dionysusAmber)
+        let highContrast = traits.accessibilityContrast == .high
+        if traits.userInterfaceStyle == .dark {
+            return UIColor(highContrast ? Color.dionysusMagentaHighContrast : Color.dionysusMagenta)
+        }
+        return UIColor(highContrast ? Color.dionysusAmberHighContrast : Color.dionysusAmber)
     })
 
-    /// 70% lighter version of `dionysusPrimary` — primary mixed with white
-    /// at 0.7. Used for the secondary "Restart" button so it reads as related
-    /// to the Play button but visibly subordinate.
+    /// Lighter version of `dionysusPrimary` — primary mixed with white, used
+    /// as a tinted "badge" background for the secondary "Restart" button,
+    /// with a `dionysusPrimary`-coloured icon on top (see
+    /// `PlayResumeButtonRow`'s own comment on why white was rejected as that
+    /// icon's colour: poor contrast against this tint). That icon-on-tint
+    /// pairing is a decorative same-hue-family composition, not body text —
+    /// the numeric WCAG minimums above don't cleanly apply to it the way
+    /// they do to `dionysusPrimary`/`dionysusHighlight`'s plain-background
+    /// uses, so rather than chasing a specific ratio, Increase Contrast just
+    /// mixes in less white (0.5 instead of the default 0.7), giving the
+    /// badge a real, visible increase in separation from both its icon and
+    /// from plain white/near-white surrounding chrome.
     static let dionysusPrimaryLight = Color(UIColor { traits in
         let base = traits.userInterfaceStyle == .dark
             ? UIColor(Color.dionysusMagenta)
             : UIColor(Color.dionysusBurgundy)
-        return base.mixed(with: .white, amount: 0.7)
+        let mixAmount: CGFloat = traits.accessibilityContrast == .high ? 0.5 : 0.7
+        return base.mixed(with: .white, amount: mixAmount)
     })
 }
 

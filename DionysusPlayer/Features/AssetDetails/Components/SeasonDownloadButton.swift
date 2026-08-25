@@ -124,10 +124,24 @@ struct SeasonDownloadButton: View {
         }
         .buttonStyle(.plain)
         .disabled(isQueuing || isAnyInProgress(in: rows) || missingEpisodes(in: rows).isEmpty)
+        .accessibilityLabel(accessibilityLabel(in: rows))
         .alert("Couldn't Download Season", isPresented: $isShowingError) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage)
+        }
+    }
+
+    /// Mirrors `body`'s own state icon selection above.
+    private func accessibilityLabel(in rows: [String: DownloadedItem]) -> String {
+        if let progress = aggregateProgress(in: rows) {
+            return progress.statusText
+        } else if isQueuing || isAnyInProgress(in: rows) {
+            return String(localized: "Downloading Season")
+        } else if isFullyDownloaded(in: rows) {
+            return String(localized: "Season Downloaded")
+        } else {
+            return String(localized: "Download Season")
         }
     }
 

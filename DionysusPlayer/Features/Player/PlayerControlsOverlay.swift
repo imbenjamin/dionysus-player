@@ -977,6 +977,7 @@ struct PlayerControlsOverlay: View {
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
+                .accessibilityLabel(String(localized: "Rewind 15 Seconds"))
 
                 Button {
                     onInteract()
@@ -987,6 +988,7 @@ struct PlayerControlsOverlay: View {
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
+                .accessibilityLabel(viewModel.state == .playing ? String(localized: "Pause") : String(localized: "Play"))
 
                 Button {
                     onInteract()
@@ -997,6 +999,7 @@ struct PlayerControlsOverlay: View {
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
+                .accessibilityLabel(String(localized: "Fast Forward 30 Seconds"))
             }
             .foregroundStyle(.white)
         }

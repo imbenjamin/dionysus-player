@@ -265,6 +265,7 @@ struct DownloadButton: View {
             NavigationLink(value: AppRoute.downloadedAsset(itemID: item.id)) {
                 badge { Image(systemName: "checkmark.circle.fill").foregroundStyle(iconColor) }
             }
+            .accessibilityLabel(String(localized: "Downloaded"))
         } else {
             Button(action: startResolving) {
                 if let progress = progress(for: row) {
@@ -285,6 +286,7 @@ struct DownloadButton: View {
                 }
             }
             .disabled(isBusy(for: row))
+            .accessibilityLabel(accessibilityLabel(for: row))
             // Hold instead of tap: same idle button, different entry point
             // into the same resolve/prompt/enqueue flow (`startResolving`)
             // — see `AdvancedDownloadOptionsView`'s own doc comment.
@@ -303,6 +305,21 @@ struct DownloadButton: View {
             // icon-jiggle entry) — matches the system feel rather than
             // inventing a bespoke one for this one gesture.
             .sensoryFeedback(.impact, trigger: advancedOptionsHapticTrigger)
+        }
+    }
+
+    /// Mirrors `content`'s own idle/preparing/downloading state icons — see
+    /// that view's doc comment for what each covers. `isDownloaded`'s own
+    /// `NavigationLink` branch has its own separate `"Downloaded"` label
+    /// set directly at its call site, since it's structurally a different
+    /// element from this one.
+    private func accessibilityLabel(for row: DownloadedItem?) -> String {
+        if let progress = progress(for: row) {
+            return progress.statusText
+        } else if isResolving || isPreparing(for: row) || isPendingDeletion(for: row) {
+            return String(localized: "Preparing Download")
+        } else {
+            return String(localized: "Download")
         }
     }
 
