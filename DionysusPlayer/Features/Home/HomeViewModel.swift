@@ -347,42 +347,69 @@ final class HomeViewModel {
         let fetched = await withTaskGroup(of: (Int, DynamicRailCandidate, MediaCollectionRail?).self) { group in
             for (index, candidate) in batch.enumerated() {
                 group.addTask { [client, userID, itemShuffle] in
-                    let dtos: [BaseItemDto]?
-                    switch candidate {
-                    case .genre(let kind, let name):
-                        dtos = try? await client.items(
-                            userID: userID, includeItemTypes: [kind.rawValue], genres: [name], limit: 16
-                        ).items
-                    case .studio(let kind, let name):
-                        dtos = try? await client.items(
-                            userID: userID, includeItemTypes: [kind.rawValue], studios: [name], limit: 16
-                        ).items
-                    case .actor(let name):
-                        dtos = try? await client.items(
-                            userID: userID, includeItemTypes: ["Movie", "Series"],
-                            person: name, personTypes: ["Actor"], limit: 16
-                        ).items
-                    case .director(let name):
-                        dtos = try? await client.items(
-                            userID: userID, includeItemTypes: ["Movie", "Series"],
-                            person: name, personTypes: ["Director"], limit: 16
-                        ).items
+                    // Try a genuine server-side random sample across the
+                    // candidate's *entire* matching set first — `limit: 16`
+                    // alone, with no `sortBy`, would otherwise default to
+                    // `SortBy=SortName` and cap every rail to the
+                    // alphabetically-first 16 items matching it forever (a
+                    // large genre like "Action" would only ever show
+                    // A-through-D titles, since the client-side shuffle
+                    // below can only reorder whichever 16 the server handed
+                    // back, not reach further into the catalog). A prior
+                    // attempt at this same `SortBy=Random` call was
+                    // abandoned after a user report of it reproducing as
+                    // *zero* dynamic rails on a real server/library — but
+                    // that report predates a separate, unrelated fix (the
+                    // `ScrollBottomObserver` attach-race in
+                    // `home-scrollbottomobserver-attach-race`) that was
+                    // found landing in the exact same investigation pass,
+                    // so it's plausible (though not provable in hindsight)
+                    // the two got conflated. Rather than re-trusting or
+                    // re-dismissing that report outright, fall back to
+                    // exactly the old safe behavior — default alphabetical
+                    // sort, same 16-item cap — whenever the random-sorted
+                    // attempt fails outright or comes back thin (fewer than
+                    // `minimumItemCount`, indistinguishable from "this
+                    // candidate genuinely doesn't have that many items"
+                    // without more signal, so retrying is the safe move).
+                    // See `home-dynamic-rails-random-sort-bug` memory.
+                    func fetchCandidateItems(sortBy: String) async -> [BaseItemDto]? {
+                        switch candidate {
+                        case .genre(let kind, let name):
+                            return try? await client.items(
+                                userID: userID, includeItemTypes: [kind.rawValue],
+                                sortBy: sortBy, genres: [name], limit: 16
+                            ).items
+                        case .studio(let kind, let name):
+                            return try? await client.items(
+                                userID: userID, includeItemTypes: [kind.rawValue],
+                                sortBy: sortBy, studios: [name], limit: 16
+                            ).items
+                        case .actor(let name):
+                            return try? await client.items(
+                                userID: userID, includeItemTypes: ["Movie", "Series"], sortBy: sortBy,
+                                person: name, personTypes: ["Actor"], limit: 16
+                            ).items
+                        case .director(let name):
+                            return try? await client.items(
+                                userID: userID, includeItemTypes: ["Movie", "Series"], sortBy: sortBy,
+                                person: name, personTypes: ["Director"], limit: 16
+                            ).items
+                        }
+                    }
+
+                    var dtos = await fetchCandidateItems(sortBy: "Random")
+                    if dtos == nil || dtos!.count < minimumItemCount {
+                        dtos = await fetchCandidateItems(sortBy: "SortName")
                     }
                     guard let dtos, dtos.count >= minimumItemCount else { return (index, candidate, nil) }
-                    // Shuffled client-side, not via the server's own
-                    // `SortBy=Random` — that seemed like the obvious fix
-                    // (`client.items` otherwise defaults to `"SortName"`,
-                    // which made a dynamic rail's own items alphabetical and
-                    // thus identical on every Home load), but combining
-                    // `SortBy=Random` with a `Genres`/`Studios`/`Person`
-                    // filter was user-reported to reproduce as *zero*
-                    // dynamic rails against a real server/library (not
-                    // reproduced against this codebase's own LAN test
-                    // server — likely a version- or library-specific
-                    // server-side join+random-order interaction, root cause
-                    // not confirmed — see `home-dynamic-rails-random-sort-bug`
-                    // memory). Shuffling the already-fetched, already-known-
-                    // good `dtos` here instead can't fail the same way.
+                    // Still shuffled client-side even though the random
+                    // fetch above should already be server-randomized —
+                    // cheap, harmless, and a hedge against the server's own
+                    // "random" turning out weak (e.g. session-cached) on
+                    // some Jellyfin versions; it's also what actually
+                    // reorders the fallback-path result when the random
+                    // fetch didn't pan out.
                     let items = itemShuffle(dtos).map { MediaItem(dto: $0, images: images) }
                     let rail = MediaCollectionRail(
                         title: candidate.railTitle, items: items,
