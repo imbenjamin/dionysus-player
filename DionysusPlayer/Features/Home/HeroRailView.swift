@@ -56,6 +56,14 @@ struct HeroRailView: View {
     /// something to remove).
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Gates `tick()`'s automatic advance off entirely (not just its
+    /// transition style, the way `reduceMotion` above does) — per direct
+    /// feedback, a VoiceOver user needs to be able to read one item fully
+    /// before it moves on, not race a fixed 5-second clock. `heroContent`
+    /// mounts explicit Previous/Next buttons in its place while this is
+    /// true, so the carousel stays navigable, just no longer on a timer.
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+
     /// Same check `HeroHeaderView` uses, for the same reason (see that
     /// view's `verticalSizeClass` doc comment) — `.compact` is iPhone's
     /// landscape signal.
@@ -388,11 +396,37 @@ struct HeroRailView: View {
                         // to composite it) toward 100% while `tick()` itself
                         // is gated off and `idleSeconds` isn't actually
                         // advancing — a cosmetic desync on reappearance
-                        // otherwise. See `isPaused`'s doc comment on
-                        // `HeroPageIndicator`.
-                        isPaused: isInteracting || !isVisible
+                        // otherwise. `voiceOverEnabled` gets the identical
+                        // treatment for the identical reason: `tick()` never
+                        // advances `idleSeconds` at all while it's true (see
+                        // that property's own doc comment), so there's no
+                        // real countdown left for this fill to represent.
+                        // See `isPaused`'s doc comment on `HeroPageIndicator`.
+                        isPaused: isInteracting || !isVisible || voiceOverEnabled
                     )
                     .padding(16)
+                }
+
+                // VoiceOver-only replacement for the automatic advance
+                // `tick()` no longer performs at all while this is true —
+                // see `voiceOverEnabled`'s own doc comment. Same
+                // vertically-centered, leading/trailing-edge placement
+                // idiom as the Player's own VoiceOver-only controls button,
+                // for the same reason: a fixed, predictable spot in
+                // VoiceOver's swipe order that nothing else on this page
+                // ever occupies.
+                if voiceOverEnabled, items.count > 1 {
+                    HStack {
+                        heroNavigationButton(systemImage: "chevron.left", label: String(localized: "Previous Item")) {
+                            advance(by: -1)
+                        }
+                        Spacer()
+                        heroNavigationButton(systemImage: "chevron.right", label: String(localized: "Next Item")) {
+                            advance(by: 1)
+                        }
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .onAppear {
@@ -401,6 +435,19 @@ struct HeroRailView: View {
             }
             .onDisappear { isOnScreen = false }
         }
+    }
+
+    @ViewBuilder
+    private func heroNavigationButton(systemImage: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.title2)
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(.black.opacity(0.55)))
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel(label)
     }
 
     /// Forces the real, backing `UIScrollView` to jump (no animation) to
@@ -464,19 +511,75 @@ struct HeroRailView: View {
     /// has already needed).
     private func tick() {
         guard items.count > 1 else { return }
-        guard !isInteracting, isVisible else { return }
+        guard !isInteracting, isVisible, !voiceOverEnabled else { return }
         idleSeconds += 1
         guard idleSeconds >= Self.autoAdvanceInterval else { return }
         idleSeconds = 0
-        let currentPosition = scrollPosition ?? 1
-        let nextPosition = currentPosition + 1
+        advance(by: 1)
+    }
+
+    /// Moves the carousel by `delta` pages (`+1`/`-1`) — the automatic
+    /// advance above and the explicit Previous/Next buttons `heroContent`
+    /// mounts in its place under VoiceOver (see `voiceOverEnabled`'s own
+    /// doc comment) both funnel through this, so a button tap gets the
+    /// exact same reduceMotion-aware fade/slide treatment `tick()`'s own
+    /// advance always has. `currentPosition` falls back to `1` the same
+    /// way `tick()`'s own read used to, for the same reason: a `nil`
+    /// `scrollPosition` (before the first layout pass resolves it) still
+    /// needs *some* valid page to advance from.
+    private func advance(by delta: Int) {
+        guard items.count > 1 else { return }
+        var currentPosition = scrollPosition ?? 1
+        // Defensive pre-snap: `tick()`'s once-per-`autoAdvanceInterval`
+        // cadence never raced this, but a rapid second Previous/Next tap
+        // can land here before `snapIfNeeded`'s own deferred correction
+        // (`autoAdvanceAnimationDuration` out) has actually run, leaving
+        // `scrollPosition` sitting on a padding index — normalize that to
+        // its real equivalent first, or `nextPosition` below could walk
+        // right off `loopedItems`' own bounds.
+        if currentPosition == 0 {
+            currentPosition = items.count
+        } else if currentPosition == loopedItems.count - 1 {
+            currentPosition = 1
+        }
+        let nextPosition = currentPosition + delta
         guard reduceMotion else {
             withAnimation(.easeInOut(duration: Self.autoAdvanceAnimationDuration)) {
                 scrollPosition = nextPosition
             }
+            announceIfNeeded(at: nextPosition)
             return
         }
         advanceWithFade(from: currentPosition, to: nextPosition)
+        announceIfNeeded(at: nextPosition)
+    }
+
+    /// VoiceOver-only: `advance(by:)` deliberately leaves focus on whichever
+    /// Previous/Next button was just pressed (see `heroNavigationButton`'s
+    /// call site) rather than jumping to the hero card itself — that's what
+    /// lets someone browsing quickly keep pressing the same button without
+    /// re-navigating back to it each time. Without this, that convenience
+    /// would cost them ever hearing what they actually landed on: pressing
+    /// Next only announces "Next Item, button," not the new item. Posting
+    /// an `.announcement` speaks it without moving focus, the same pattern
+    /// a "next track" media control uses. Reuses `MediaItem
+    /// .accessibilityDescription` — the exact label `HeroRailCard` itself
+    /// gives this same item — rather than a second description of what a
+    /// hero item is.
+    private func announceIfNeeded(at position: Int) {
+        guard voiceOverEnabled else { return }
+        let description = loopedItems[position].accessibilityDescription
+        // A `.post()` fired in the same run-loop turn as the button's own
+        // activation is a well-documented way for VoiceOver to silently
+        // drop it — it's still delivering the button's own "Next Item,
+        // button" activation feedback and has nowhere to queue a second
+        // announcement arriving that fast. Deferring past that (matching
+        // the slide/fade transition's own duration, so it also lands right
+        // as the new card visually settles rather than mid-motion) gives
+        // VoiceOver a clear turn to speak it instead.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.autoAdvanceAnimationDuration + 0.2) {
+            AccessibilityNotification.Announcement(description).post()
+        }
     }
 
     /// Reduce Motion's replacement for the plain `withAnimation` slide
@@ -491,10 +594,10 @@ struct HeroRailView: View {
     /// transitions in x-, y-, and z-axes with fades to avoid motion."
     ///
     /// `currentPosition` indexes `loopedItems`, same as `scrollPosition`
-    /// always does — safe to subscript directly since `tick()` only calls
-    /// this once `items.count > 1` is already confirmed, which is also what
-    /// guarantees `loopedItems` was actually padded (see its own doc
-    /// comment) rather than left equal to `items`.
+    /// always does — safe to subscript directly since `advance(by:)` only
+    /// calls this once `items.count > 1` is already confirmed, which is
+    /// also what guarantees `loopedItems` was actually padded (see its own
+    /// doc comment) rather than left equal to `items`.
     private func advanceWithFade(from currentPosition: Int, to nextPosition: Int) {
         fadeOutItem = loopedItems[currentPosition]
         fadeOutOpacity = 1
