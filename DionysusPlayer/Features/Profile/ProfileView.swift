@@ -12,6 +12,13 @@ struct ProfileView: View {
     /// actually flipped, so both call sites declaring the same default is
     /// what keeps them in agreement pre-first-launch-visit).
     @AppStorage(hero3DDepthEnabledStorageKey) private var hero3DDepthEnabled = true
+    /// Default `true` — matches `HeroRailView`'s own default for this key,
+    /// same pre-first-launch-visit reasoning as `hero3DDepthEnabled` above.
+    /// VoiceOver still forces manual navigation regardless of this value —
+    /// see `HeroRailView.manualCarouselModeEnabled`'s own doc comment; this
+    /// toggle only controls the *preference*, not VoiceOver's own
+    /// enforcement of the same behavior.
+    @AppStorage(heroAutoCarouselEnabledStorageKey) private var autoCarouselEnabled = true
     /// Default `.seconds30` — matches `NextUpPreferenceStore.countdownSeconds`'s
     /// own fallback for the same "both sides declare the same default"
     /// reason as `hero3DDepthEnabled` above.
@@ -43,6 +50,7 @@ struct ProfileView: View {
                         Text(preference.displayName).tag(preference)
                     }
                 }
+                Toggle("Auto Carousel on Home", isOn: $autoCarouselEnabled)
                 Toggle(isOn: $hero3DDepthEnabled) {
                     HStack {
                         Text("3D Depth Effects")

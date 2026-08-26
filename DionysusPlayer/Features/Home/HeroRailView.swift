@@ -62,7 +62,29 @@ struct HeroRailView: View {
     /// before it moves on, not race a fixed 5-second clock. `heroContent`
     /// mounts explicit Previous/Next buttons in its place while this is
     /// true, so the carousel stays navigable, just no longer on a timer.
+    /// Always true regardless of `autoCarouselEnabled` below — VoiceOver
+    /// enforces this outright, it isn't a preference. See
+    /// `manualCarouselModeEnabled` for the combined gate almost everything
+    /// else in this view actually reads.
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+
+    /// `ProfileView`'s "Auto Carousel on Home" toggle (Appearance section)
+    /// — the same manual-navigation behavior VoiceOver enforces above,
+    /// offered as a standing preference for anyone who prefers reading one
+    /// item at a time regardless of VoiceOver. Default `true` — matches
+    /// `ProfileView`'s own default for this key, for the same
+    /// pre-first-launch-visit reason `hero3DDepthEnabled` documents there.
+    @AppStorage(heroAutoCarouselEnabledStorageKey) private var autoCarouselEnabled = true
+
+    /// The actual gate `tick()`, the page-indicator's pause state, and the
+    /// Previous/Next buttons all read — true whenever the carousel should
+    /// behave as manually-navigated, whether because VoiceOver enforces it
+    /// or because `autoCarouselEnabled` has been turned off as a standing
+    /// preference. `voiceOverEnabled` itself stays reserved for the one
+    /// place that's still specifically about VoiceOver, not this
+    /// preference: `announceIfNeeded`'s spoken announcement, which a
+    /// sighted user who's merely turned auto-advance off has no use for.
+    private var manualCarouselModeEnabled: Bool { !autoCarouselEnabled || voiceOverEnabled }
 
     /// Same check `HeroHeaderView` uses, for the same reason (see that
     /// view's `verticalSizeClass` doc comment) — `.compact` is iPhone's
@@ -396,26 +418,28 @@ struct HeroRailView: View {
                         // to composite it) toward 100% while `tick()` itself
                         // is gated off and `idleSeconds` isn't actually
                         // advancing — a cosmetic desync on reappearance
-                        // otherwise. `voiceOverEnabled` gets the identical
-                        // treatment for the identical reason: `tick()` never
-                        // advances `idleSeconds` at all while it's true (see
-                        // that property's own doc comment), so there's no
-                        // real countdown left for this fill to represent.
-                        // See `isPaused`'s doc comment on `HeroPageIndicator`.
-                        isPaused: isInteracting || !isVisible || voiceOverEnabled
+                        // otherwise. `manualCarouselModeEnabled` gets the
+                        // identical treatment for the identical reason:
+                        // `tick()` never advances `idleSeconds` at all while
+                        // it's true (see that property's own doc comment),
+                        // so there's no real countdown left for this fill to
+                        // represent. See `isPaused`'s doc comment on
+                        // `HeroPageIndicator`.
+                        isPaused: isInteracting || !isVisible || manualCarouselModeEnabled
                     )
                     .padding(16)
                 }
 
-                // VoiceOver-only replacement for the automatic advance
-                // `tick()` no longer performs at all while this is true —
-                // see `voiceOverEnabled`'s own doc comment. Same
+                // Replacement for the automatic advance `tick()` no longer
+                // performs at all while this is true — see
+                // `manualCarouselModeEnabled`'s own doc comment (VoiceOver,
+                // the "Auto Carousel on Home" preference, or both). Same
                 // vertically-centered, leading/trailing-edge placement
                 // idiom as the Player's own VoiceOver-only controls button,
                 // for the same reason: a fixed, predictable spot in
                 // VoiceOver's swipe order that nothing else on this page
                 // ever occupies.
-                if voiceOverEnabled, items.count > 1 {
+                if manualCarouselModeEnabled, items.count > 1 {
                     HStack {
                         heroNavigationButton(systemImage: "chevron.left", label: String(localized: "Previous Item")) {
                             advance(by: -1)
@@ -511,7 +535,7 @@ struct HeroRailView: View {
     /// has already needed).
     private func tick() {
         guard items.count > 1 else { return }
-        guard !isInteracting, isVisible, !voiceOverEnabled else { return }
+        guard !isInteracting, isVisible, !manualCarouselModeEnabled else { return }
         idleSeconds += 1
         guard idleSeconds >= Self.autoAdvanceInterval else { return }
         idleSeconds = 0
@@ -1141,6 +1165,11 @@ private final class PassthroughTouchRecognizer: UIGestureRecognizer {
         onTouches?(touches, false)
     }
 }
+
+/// `UserDefaults` key for `ProfileView`'s "Auto Carousel on Home" toggle —
+/// shared so `HeroRailView`'s own `@AppStorage` reads the exact same value
+/// `ProfileView` writes, same pattern as `hero3DDepthEnabledStorageKey`.
+let heroAutoCarouselEnabledStorageKey = "heroAutoCarouselEnabled"
 
 #Preview {
     HeroRailView(items: [], isTabActive: true)
