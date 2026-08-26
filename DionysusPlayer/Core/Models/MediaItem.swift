@@ -19,7 +19,15 @@ struct TechnicalDetails: Equatable {
     var frameRate: String?
     var dynamicRange: String?
     var bitrate: String?
+    /// VoiceOver counterpart to `bitrate` — "X.X megabits per second"
+    /// instead of "X.X Mbps", which reads letter by letter ("M B P S")
+    /// rather than as a word. `nil` exactly when `bitrate` is.
+    var bitrateAccessibilityText: String?
     var fileSize: String?
+    /// VoiceOver counterpart to `fileSize` — see `bitrateAccessibilityText`'s
+    /// doc comment for the same reasoning, applied to "GB"/"MB"/etc.
+    /// instead of "Mbps". `nil` exactly when `fileSize` is.
+    var fileSizeAccessibilityText: String?
     var audioTracks: [String]
     var subtitleTracks: [String]
 
@@ -162,12 +170,50 @@ struct MediaItem: Identifiable {
     }
 
     var durationText: String? {
-        guard let ticks = dto.runTimeTicks, ticks > 0 else { return nil }
-        let totalMinutes = Int(ticks / 10_000_000 / 60)
+        guard let totalMinutes = durationTotalMinutes else { return nil }
         let hours = totalMinutes / 60
         let minutes = totalMinutes % 60
         if hours > 0 { return "\(hours)h \(minutes)m" }
         return "\(minutes)m"
+    }
+
+    /// Same duration as `durationText`, worded out for VoiceOver — confirmed
+    /// live (real device, VoiceOver on) that the compact "1h 32m" gets
+    /// misheard outright: VoiceOver reads "m" as the metric unit, producing
+    /// "One H Thirty Meters," not "one hour thirty minutes."
+    /// `DateComponentsFormatter`'s `.full` style spells the units out and
+    /// gets pluralization/localization right ("1 hour" vs. "2 hours") in a
+    /// way hand-rolled string interpolation wouldn't.
+    var durationAccessibilityText: String? {
+        guard let totalMinutes = durationTotalMinutes else { return nil }
+        return Self.spokenDuration(totalMinutes: totalMinutes)
+    }
+
+    private var durationTotalMinutes: Int? {
+        guard let ticks = dto.runTimeTicks, ticks > 0 else { return nil }
+        return Int(ticks / 10_000_000 / 60)
+    }
+
+    /// `resumePositionSeconds`, worded out for VoiceOver — same
+    /// `spokenDuration(totalMinutes:)` `durationAccessibilityText` uses,
+    /// just from a different source value (elapsed time into the item, not
+    /// its total runtime) — e.g. "Resume S19:E6 from 33 minutes" at an
+    /// episode-list row's own call site. `nil` whenever there's nothing to
+    /// resume from.
+    var resumePositionAccessibilityText: String? {
+        guard let resumePositionSeconds, resumePositionSeconds > 0 else { return nil }
+        return Self.spokenDuration(totalMinutes: Int(resumePositionSeconds / 60))
+    }
+
+    /// Shared by `durationAccessibilityText`/`resumePositionAccessibilityText`
+    /// — see the former's own doc comment for why this needs
+    /// `DateComponentsFormatter` rather than hand-rolled interpolation.
+    private static func spokenDuration(totalMinutes: Int) -> String? {
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .full
+        formatter.allowedUnits = totalMinutes >= 60 ? [.hour, .minute] : [.minute]
+        formatter.zeroFormattingBehavior = .dropAll
+        return formatter.string(from: TimeInterval(totalMinutes * 60))
     }
 
     /// e.g. "S1:E4" for an episode.
@@ -176,6 +222,18 @@ struct MediaItem: Identifiable {
             return nil
         }
         return "S\(season):E\(episode)"
+    }
+
+    /// `episodeLabel`, worded out for VoiceOver — "season 1 episode 4"
+    /// instead of letters/colon, which would either be spelled out
+    /// letter-by-letter or misread outright (same category of problem as
+    /// `durationAccessibilityText`'s "1h 32m"). `nil` under the same
+    /// conditions `episodeLabel` is.
+    var episodeLabelAccessibilityText: String? {
+        guard dto.type == .episode, let season = dto.parentIndexNumber, let episode = dto.indexNumber else {
+            return nil
+        }
+        return String(localized: "season \(season) episode \(episode)")
     }
 
     /// First line shown under a poster card. Episodes surface their series
@@ -220,8 +278,19 @@ struct MediaItem: Identifiable {
     /// via VoiceOver-style automation reading every one of them back as
     /// blank/"Unnamed".
     var accessibilityDescription: String {
-        guard let railSubtitle else { return railTitle }
-        return "\(railTitle), \(railSubtitle)"
+        guard let railSubtitleAccessibilityText else { return railTitle }
+        return "\(railTitle), \(railSubtitleAccessibilityText)"
+    }
+
+    /// Same composition as `railSubtitle`, but substituting
+    /// `durationAccessibilityText` for `durationText` — see that property's
+    /// own doc comment for why. Movies are the only `railSubtitle` case that
+    /// embeds a duration at all (episode/series never do), so this only
+    /// actually diverges from `railSubtitle` there.
+    private var railSubtitleAccessibilityText: String? {
+        guard dto.type == .movie else { return railSubtitle }
+        let parts = [yearText, durationAccessibilityText].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }
 
     var resumePositionSeconds: Double? {
@@ -315,7 +384,9 @@ struct MediaItem: Identifiable {
             frameRate: frameRate,
             dynamicRange: dynamicRange,
             bitrate: source.bitrate.map(Self.bitrateLabel),
+            bitrateAccessibilityText: source.bitrate.map(Self.bitrateAccessibilityLabel),
             fileSize: source.size.map(Self.fileSizeLabel),
+            fileSizeAccessibilityText: source.size.map(Self.fileSizeAccessibilityLabel),
             audioTracks: streams.filter { $0.type == "Audio" }.map(Self.trackLabel),
             subtitleTracks: streams.filter { $0.type == "Subtitle" }.map(Self.trackLabel)
         )
@@ -680,8 +751,44 @@ struct MediaItem: Identifiable {
         String(format: "%.1f Mbps", Double(bitsPerSecond) / 1_000_000)
     }
 
+    /// `bitrateLabel`'s VoiceOver counterpart — "Mbps" read letter by
+    /// letter ("M B P S") rather than as a word, same class of bug as
+    /// `fileSizeAccessibilityLabel` below.
+    private static func bitrateAccessibilityLabel(_ bitsPerSecond: Int) -> String {
+        let mbps = String(format: "%.1f", Double(bitsPerSecond) / 1_000_000)
+        return String(localized: "\(mbps) megabits per second")
+    }
+
     private static func fileSizeLabel(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    /// `fileSizeLabel`'s VoiceOver counterpart — visually "2.44 GB", but
+    /// read by VoiceOver as "two dot forty-four G B" letter by letter
+    /// rather than a real unit. Reuses `fileSizeLabel`'s own formatter
+    /// output rather than reimplementing its unit-selection/rounding, so
+    /// the two can never drift out of agreement — just spells out
+    /// whatever unit it landed on. Falls back to the original text
+    /// unchanged for a unit this doesn't recognize (shouldn't happen —
+    /// `ByteCountFormatter` only ever emits bytes/KB/MB/GB/TB/PB — but a
+    /// silently-wrong readout would be worse than an unexpanded one).
+    private static func fileSizeAccessibilityLabel(_ bytes: Int64) -> String {
+        let text = fileSizeLabel(bytes)
+        guard let spaceIndex = text.lastIndex(of: " ") else { return text }
+        let number = text[..<spaceIndex]
+        let unit = text[text.index(after: spaceIndex)...]
+        let spokenUnit: String?
+        switch unit {
+        case "byte", "bytes": spokenUnit = String(localized: "bytes")
+        case "KB": spokenUnit = String(localized: "kilobytes")
+        case "MB": spokenUnit = String(localized: "megabytes")
+        case "GB": spokenUnit = String(localized: "gigabytes")
+        case "TB": spokenUnit = String(localized: "terabytes")
+        case "PB": spokenUnit = String(localized: "petabytes")
+        default: spokenUnit = nil
+        }
+        guard let spokenUnit else { return text }
+        return "\(number) \(spokenUnit)"
     }
 
     func imageURL(type: String = "Primary", maxWidth: Int? = nil) -> URL? {

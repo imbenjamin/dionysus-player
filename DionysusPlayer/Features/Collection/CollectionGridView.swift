@@ -61,6 +61,7 @@ struct CollectionGridView: View {
             Image(systemName: "dice")
         }
         .disabled((viewModel?.filteredItems ?? []).isEmpty)
+        .accessibilityLabel(String(localized: "Random Item"))
     }
 
     /// Mirrors `AppRouteDestinationView`'s `.assetDetail` branch — kept as
@@ -94,6 +95,7 @@ struct CollectionGridView: View {
         } label: {
             Image(systemName: "arrow.up.arrow.down")
         }
+        .accessibilityLabel(String(localized: "Sort Options"))
     }
 
     private var sortFieldBinding: Binding<CollectionSortField> {
@@ -394,22 +396,33 @@ private struct FilterPill: View {
     var systemImage: String?
 
     var body: some View {
-        if #available(iOS 26.0, *) {
-            content
-                // Tinted glass signals "active" the same way the flat
-                // brand-color fill did below — plain `.regular` (no tint)
-                // for the default state lets the native frosted/refractive
-                // material show through instead. `.interactive()` on both
-                // gives the tap the native glass press feedback, matching
-                // that this pill really does open a menu.
-                .glassEffect(
-                    isActive ? .regular.tint(.dionysusPrimary).interactive() : .regular.interactive(), in: Capsule()
-                )
-        } else {
-            content
-                .background(isActive ? Color.dionysusPrimary : Color(.secondarySystemBackground))
-                .clipShape(Capsule())
+        Group {
+            if #available(iOS 26.0, *) {
+                content
+                    // Tinted glass signals "active" the same way the flat
+                    // brand-color fill did below — plain `.regular` (no tint)
+                    // for the default state lets the native frosted/refractive
+                    // material show through instead. `.interactive()` on both
+                    // gives the tap the native glass press feedback, matching
+                    // that this pill really does open a menu.
+                    .glassEffect(
+                        isActive ? .regular.tint(.dionysusPrimary).interactive() : .regular.interactive(), in: Capsule()
+                    )
+            } else {
+                content
+                    .background(isActive ? Color.dionysusPrimary : Color(.secondarySystemBackground))
+                    .clipShape(Capsule())
+            }
         }
+        // HIG mobile minimum control height is 44pt — this pill's own
+        // compact chrome (padding(.vertical, 6) in `content` below) reads
+        // as ~27pt tall, under even the 28pt floor. Padding the tap frame
+        // rather than the pill itself keeps the compact look in a
+        // horizontally-scrolling row while still meeting the minimum —
+        // same "visual size ≠ tap size" pattern as `PlayerControlsOverlay`'s
+        // rotation-lock/stats badges and `ProfileView`'s GitHub link.
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
     }
 
     private var content: some View {
@@ -443,13 +456,21 @@ private struct ResetFiltersButton: View {
 
     var body: some View {
         Button(action: action) {
-            if #available(iOS 26.0, *) {
-                icon.glassEffect(.regular.interactive(), in: Circle())
-            } else {
-                icon
-                    .background(Color(.secondarySystemBackground))
-                    .clipShape(Circle())
+            Group {
+                if #available(iOS 26.0, *) {
+                    icon.glassEffect(.regular.interactive(), in: Circle())
+                } else {
+                    icon
+                        .background(Color(.secondarySystemBackground))
+                        .clipShape(Circle())
+                }
             }
+            // Same HIG-44pt tap-target padding as `FilterPill` just above —
+            // the visible circle stays sized to `icon`'s own `.padding(9)`
+            // (~31pt), an invisible frame pads the actual tap area out to
+            // the minimum.
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

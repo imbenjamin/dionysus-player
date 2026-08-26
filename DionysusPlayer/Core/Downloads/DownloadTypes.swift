@@ -98,6 +98,16 @@ enum DownloadBitratePreset: String, Codable, CaseIterable, Identifiable {
         let mbpsText = mbps == mbps.rounded() ? String(format: "%.0f", mbps) : String(format: "%.1f", mbps)
         return "\(displayName) (\(mbpsText) Mbps)"
     }
+
+    /// `displayName(in:)`'s VoiceOver counterpart — "Mbps" read letter by
+    /// letter ("M B P S") rather than as a word. Same
+    /// whole-number-vs-fractional formatting as `displayName(in:)` itself,
+    /// so the two only ever differ in how the unit is spelled out.
+    func accessibilityDisplayName(in resolution: DownloadResolution) -> String {
+        let mbps = Double(resolution.videoBitrate(preset: self)) / 1_000_000
+        let mbpsText = mbps == mbps.rounded() ? String(format: "%.0f", mbps) : String(format: "%.1f", mbps)
+        return "\(displayName) (\(mbpsText) megabits per second)"
+    }
 }
 
 /// The concrete transcode parameters `JellyfinAPIClient.downloadStreamURL`

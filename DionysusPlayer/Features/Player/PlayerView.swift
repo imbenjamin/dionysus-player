@@ -43,6 +43,15 @@ struct PlayerView: View {
 
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
+    /// Gates `scheduleAutoHide()` below — confirmed live (VoiceOver on,
+    /// real device) that the 3-second auto-hide is actively hostile to
+    /// VoiceOver use: it doesn't give enough time to swipe to a control and
+    /// double-tap it before the whole row fades and goes
+    /// `.accessibilityHidden`. Controls simply never auto-hide while
+    /// VoiceOver is running — still dismissible via the existing explicit
+    /// blank-space-tap gesture (`dismissControls()`), just not on a timer
+    /// that can't outrun VoiceOver's own navigation speed.
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @State private var viewModel: PlayerViewModel?
     /// Set when `setUpIfNeeded()`'s `AetherPlaybackEngine()` construction
     /// throws — previously swallowed with `try?`, which left this view
@@ -217,6 +226,8 @@ struct PlayerView: View {
                     onToggleRotationLock: toggleRotationLock,
                     isPlaybackStatsVisible: showPlaybackStats,
                     onTogglePlaybackStats: { showPlaybackStats.toggle() },
+                    zoomMode: zoomMode,
+                    onToggleZoomMode: { setZoomMode(zoomMode.toggled) },
                     onEnterPictureInPicture: { viewModel.startPictureInPicture() },
                     onInteract: scheduleAutoHide,
                     onDismissControls: dismissControls
@@ -276,6 +287,49 @@ struct PlayerView: View {
                 // comment for why it (and the video surface above) stay
                 // mounted rather than being swapped in/out.
                 PictureInPictureOverlay(isVisible: viewModel.isPictureInPictureActive)
+
+                // VoiceOver-only: an explicit, always-reachable way back to
+                // the transport chrome once it's hidden — the video
+                // surface's own tap-to-reveal gesture (`handleSingleTap()`
+                // above) isn't a reliable path for VoiceOver, which
+                // navigates by swiping between focusable elements and
+                // double-tapping the focused one, not by exploring free-form
+                // screen coordinates; see `voiceOverEnabled`'s own doc
+                // comment for the full reasoning. Unmounted entirely (not
+                // just `.accessibilityHidden`) when VoiceOver is off — this
+                // is purely a VoiceOver affordance, not a general extra
+                // button — and, unlike `PlayerControlsOverlay`, never gated
+                // on `showControls` itself: that's the whole point, it has
+                // to stay reachable exactly when everything else is hidden.
+                // Vertically centered on the leading edge — the one spot
+                // clear of everything else in this ZStack in *either*
+                // `showControls` state: `topSection` occupies the top
+                // (close leading, rotation-lock/captions/PiP/stats
+                // trailing), `scrubberBar` spans the full width at the
+                // bottom (including its own leading timestamp — confirmed
+                // live this button's original bottom-leading placement sat
+                // directly on top of it once controls were visible), and
+                // the transport row sits horizontally centered in between.
+                // A left-edge vertical center misses all three, so it stays
+                // at a fixed, predictable point in VoiceOver's swipe order
+                // regardless of what else is visible.
+                if voiceOverEnabled {
+                    Button(action: handleSingleTap) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.title2)
+                            .foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
+                            .background(Circle().fill(.black.opacity(0.55)))
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel(
+                        showControls
+                            ? String(localized: "Hide Player Controls")
+                            : String(localized: "Show Player Controls")
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .padding()
+                }
 
                 if let errorMessage = viewModel.errorMessage {
                     // `ErrorStateView`/`OfflineStateView` have no opaque
@@ -562,7 +616,7 @@ struct PlayerView: View {
     /// decides whether a fade should happen at all.
     private func scheduleAutoHide() {
         autoHideTask?.cancel()
-        guard showControls, !isShowingTrackPicker, viewModel?.state == .playing else { return }
+        guard showControls, !isShowingTrackPicker, !voiceOverEnabled, viewModel?.state == .playing else { return }
         autoHideTask = Task {
             try? await Task.sleep(for: Self.autoHideDelay)
             guard !Task.isCancelled else { return }

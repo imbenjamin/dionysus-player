@@ -83,26 +83,29 @@ private struct DownloadedAboutTabContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if !item.metadata.genres.isEmpty {
-                MetadataLine(text: item.metadata.genres.joined(separator: " \u{00B7} "))
+                MetadataLine(items: item.metadata.genres, accessibilityPrefix: String(localized: "Genres"))
             }
 
             if !item.metadata.studios.isEmpty {
-                MetadataLine(text: item.metadata.studios.joined(separator: " \u{00B7} "))
+                MetadataLine(items: item.metadata.studios, accessibilityPrefix: String(localized: "Studios"))
             }
 
             if let tagline = item.metadata.taglines.first, !tagline.isEmpty {
                 Text(tagline)
                     .font(.title3.italic())
                     .foregroundStyle(.primary)
+                    .accessibilityLabel(String(localized: "Tagline: \(tagline)"))
             }
 
             if let overview = item.metadata.overview, !overview.isEmpty {
                 Text(overview)
                     .font(.body)
+                    .accessibilityLabel(String(localized: "Synopsis: \(overview)"))
             } else {
                 Text("No synopsis available.")
                     .font(.body)
                     .foregroundStyle(.secondary)
+                    .accessibilityLabel(String(localized: "Synopsis: No synopsis available."))
             }
         }
     }
@@ -129,8 +132,10 @@ private struct DownloadedTechnicalDetailsView: View {
             VStack(alignment: .leading, spacing: 6) {
                 if let resolution = resolutionText { SummaryRow(label: "Resolution", value: resolution) }
                 SummaryRow(label: "Dynamic Range", value: item.isHDR ? "HDR10" : "SDR")
-                SummaryRow(label: "Quality", value: qualityText)
-                if let fileSize = fileSizeText { SummaryRow(label: "File Size", value: fileSize) }
+                SummaryRow(label: "Quality", value: qualityText, accessibilityValue: qualityAccessibilityText)
+                if let fileSize = fileSizeText {
+                    SummaryRow(label: "File Size", value: fileSize, accessibilityValue: fileSizeAccessibilityText)
+                }
             }
 
             TrackListSection(title: "Audio", tracks: [audioTrackSummary])
@@ -187,10 +192,44 @@ private struct DownloadedTechnicalDetailsView: View {
         return "\(item.requestedPreset.displayName) (\(mbpsText) Mbps)"
     }
 
+    /// `qualityText`'s VoiceOver counterpart — "Mbps" read letter by
+    /// letter ("M B P S") rather than as a word. Same
+    /// whole-number-vs-fractional formatting as `qualityText` itself, so
+    /// the two only ever differ in how the unit is spelled out.
+    private var qualityAccessibilityText: String {
+        guard let bitrate = item.bitrate, bitrate > 0 else { return item.requestedPreset.displayName }
+        let mbps = Double(bitrate) / 1_000_000
+        let mbpsText = mbps == mbps.rounded() ? String(format: "%.0f", mbps) : String(format: "%.1f", mbps)
+        return "\(item.requestedPreset.displayName) (\(mbpsText) megabits per second)"
+    }
+
     private var fileSizeText: String? {
         fileSizeBytes.map {
             ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)
         }
+    }
+
+    /// `fileSizeText`'s VoiceOver counterpart — see
+    /// `DownloadedInfoMetadataRow.spokenFileSize(_:)`'s identical copy for
+    /// the full reasoning (parses `ByteCountFormatter`'s own output rather
+    /// than reimplementing its unit-selection/rounding).
+    private var fileSizeAccessibilityText: String? {
+        guard let fileSizeText else { return nil }
+        guard let spaceIndex = fileSizeText.lastIndex(of: " ") else { return fileSizeText }
+        let number = fileSizeText[..<spaceIndex]
+        let unit = fileSizeText[fileSizeText.index(after: spaceIndex)...]
+        let spokenUnit: String?
+        switch unit {
+        case "byte", "bytes": spokenUnit = String(localized: "bytes")
+        case "KB": spokenUnit = String(localized: "kilobytes")
+        case "MB": spokenUnit = String(localized: "megabytes")
+        case "GB": spokenUnit = String(localized: "gigabytes")
+        case "TB": spokenUnit = String(localized: "terabytes")
+        case "PB": spokenUnit = String(localized: "petabytes")
+        default: spokenUnit = nil
+        }
+        guard let spokenUnit else { return fileSizeText }
+        return "\(number) \(spokenUnit)"
     }
 
     /// Always AAC stereo audio (a deliberate v1 simplification) — entirely

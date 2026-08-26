@@ -28,6 +28,17 @@ struct PlayerControlsOverlay: View {
     /// ever reports a tap, `PlayerView` owns the actual toggle.
     var isPlaybackStatsVisible: Bool
     var onTogglePlaybackStats: () -> Void
+    /// Same "plain state in, closure out" shape as `isRotationLocked`/
+    /// `onToggleRotationLock` above. Originally added VoiceOver-only, to
+    /// make reachable what was otherwise only a double-tap/pinch gesture on
+    /// the video surface (`PlayerView.handleDoubleTap()`/
+    /// `pinchZoomGesture`) — kept for everyone per direct feedback once it
+    /// existed ("I like it as a control regardless of VoiceOver"). Still
+    /// landscape-gated the same way those gestures already are (see
+    /// `isLandscape` below) — zoom is a landscape-only affordance app-wide,
+    /// not something this button should expand the scope of.
+    var zoomMode: VideoZoomMode
+    var onToggleZoomMode: () -> Void
     /// A one-shot action, unlike the two toggle buttons above — there's no
     /// "currently in PiP" state to mirror here, `viewModel
     /// .isPictureInPicturePossible` alone decides whether the button is
@@ -57,6 +68,13 @@ struct PlayerControlsOverlay: View {
     /// flipped by tapping that timestamp. Local `@State`: nothing outside
     /// this overlay needs to know which mode is showing.
     @State private var showRemainingTime = true
+
+    /// Gates the zoom-mode button below — same check `PlayerView.isLandscape`
+    /// uses, duplicated here rather than threaded through as a parameter —
+    /// a plain `@Environment` read, no reason to route it through the same
+    /// "closure out" plumbing the actual zoom *state* needs.
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    private var isLandscape: Bool { verticalSizeClass == .compact }
 
     /// Whether a touch is actively down on the scrubber track, as opposed to
     /// `isScrubbing` (the binding), which now stays `true` a little longer —
@@ -442,6 +460,31 @@ struct PlayerControlsOverlay: View {
                     }
                     .accessibilityLabel(isPlaybackStatsVisible ? Text("Hide playback stats") : Text("Show playback stats"))
                     .animation(.easeInOut(duration: 0.15), value: isPlaybackStatsVisible)
+
+                    // Landscape-only — see `zoomMode`'s own doc comment. No
+                    // on-state badge the way rotation-lock/stats above get
+                    // one — unlike "locked"/"visible", the glyph itself
+                    // already swaps direction to show which state a tap
+                    // leads to, so a second, redundant indicator (per direct
+                    // feedback) wasn't needed here.
+                    if isLandscape {
+                        Button {
+                            onInteract()
+                            onToggleZoomMode()
+                        } label: {
+                            Image(systemName: zoomMode == .fill
+                                ? "arrow.down.right.and.arrow.up.left"
+                                : "arrow.up.left.and.arrow.down.right")
+                                .font(.title2)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel(
+                            zoomMode == .fill
+                                ? String(localized: "Zoom to Fit Screen")
+                                : String(localized: "Zoom to Fill Screen")
+                        )
+                    }
                 }
             }
             .foregroundStyle(.white)
@@ -802,6 +845,12 @@ struct PlayerControlsOverlay: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // `.ignore`, not `.combine` — the leading chevron is purely
+        // decorative wayfinding, not information VoiceOver should read on
+        // its own; the plain "Back" label already conveys what this button
+        // does regardless of which leaf it's read from.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(String(localized: "Back"))
     }
 
     private func leafTitleRow(for page: TrackPickerLeaf) -> some View {
@@ -846,6 +895,12 @@ struct PlayerControlsOverlay: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // `.ignore` — the leading icon and trailing chevron are decorative;
+        // `value` (the current selection, e.g. "Default"/"Off") is folded
+        // into the label since there's no separate `.accessibilityValue`
+        // reader for a row that navigates rather than adjusts in place.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(String(localized: "\(title), \(value)"))
     }
 
     /// A leaf-page row's list of tracks, dividers interleaved between
@@ -895,6 +950,14 @@ struct PlayerControlsOverlay: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // `.ignore` — the checkmark is purely visual state (`.opacity`, not
+        // an `if`, so it's always present in the tree either way); the
+        // *actual* selected state a VoiceOver user needs is exposed via
+        // `.isSelected` below instead, not left to a shape/opacity a screen
+        // reader can't perceive at all.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(metadata.map { String(localized: "\(title), \($0)") } ?? title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var divider: some View {
@@ -957,6 +1020,7 @@ struct PlayerControlsOverlay: View {
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
+                .accessibilityLabel(String(localized: "Rewind 15 Seconds"))
 
                 Button {
                     onInteract()
@@ -967,6 +1031,7 @@ struct PlayerControlsOverlay: View {
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
+                .accessibilityLabel(viewModel.state == .playing ? String(localized: "Pause") : String(localized: "Play"))
 
                 Button {
                     onInteract()
@@ -977,6 +1042,7 @@ struct PlayerControlsOverlay: View {
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
+                .accessibilityLabel(String(localized: "Fast Forward 30 Seconds"))
             }
             .foregroundStyle(.white)
         }
@@ -1084,6 +1150,16 @@ struct PlayerControlsOverlay: View {
                     Text("9:59:59").monospacedDigit().hidden()
                     Text(Self.formatTime(displayedTime)).monospacedDigit()
                 }
+                // Bare "1:23:45" reads as disconnected digits with no
+                // indication of what they mean — confirmed live (VoiceOver,
+                // real device) this needs a spoken-out "current position"
+                // lead-in, not just the value. `.updatesFrequently` stops
+                // VoiceOver from re-announcing this out loud on every one of
+                // `displayedTime`'s ~10-times-a-second ticks while it's the
+                // focused element — the standard trait for exactly this
+                // (a live-updating clock/timer), not something to leave off.
+                .accessibilityLabel(String(localized: "Current position: \(Self.spokenTime(displayedTime))"))
+                .accessibilityAddTraits(.updatesFrequently)
 
                 scrubberTrack
 
@@ -1095,6 +1171,9 @@ struct PlayerControlsOverlay: View {
                         Text(endTimeText).monospacedDigit()
                     }
                 }
+                .accessibilityLabel(endTimeAccessibilityLabel)
+                .accessibilityHint(String(localized: "Double tap to toggle between remaining time and total duration"))
+                .accessibilityAddTraits(.updatesFrequently)
             }
             .font(.caption)
             .foregroundStyle(.white.opacity(0.8))
@@ -1345,6 +1424,18 @@ struct PlayerControlsOverlay: View {
         return "-" + Self.formatTime(max(0, viewModel.duration - displayedTime))
     }
 
+    /// `endTimeText`'s spoken-out counterpart — same "needs a context
+    /// lead-in, not just digits" fix as `displayedTime`'s own label above,
+    /// with the lead-in itself switching between the button's two states
+    /// (remaining vs. total) rather than reading as the same phrase either
+    /// way.
+    private var endTimeAccessibilityLabel: String {
+        guard showRemainingTime else {
+            return String(localized: "Total duration: \(Self.spokenTime(viewModel.duration))")
+        }
+        return String(localized: "Remaining time: \(Self.spokenTime(max(0, viewModel.duration - displayedTime)))")
+    }
+
     /// The scrub-in-progress position while `isScrubbing`, otherwise live
     /// playback position. `isScrubbing` now covers more than the drag touch
     /// itself — it stays on through the just-issued seek landing too (see
@@ -1362,5 +1453,25 @@ struct PlayerControlsOverlay: View {
         let seconds = totalSeconds % 60
         if hours > 0 { return String(format: "%d:%02d:%02d", hours, minutes, seconds) }
         return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    /// `formatTime`'s spoken-out counterpart, e.g. "1 hour, 23 minutes, 45
+    /// seconds" instead of "1:23:45" — used only inside an
+    /// `.accessibilityLabel`, never on screen. Unlike a colon-separated
+    /// clock (which VoiceOver reads as digits reasonably well), this is
+    /// specifically for the two scrubber timestamps, which need a "current
+    /// position"/"remaining time"/"total duration" lead-in VoiceOver users
+    /// confirmed live they were missing — see `Design Guideline —
+    /// Accessibility`: values need to be perceivable, not just present.
+    private static func spokenTime(_ time: TimeInterval) -> String {
+        guard time.isFinite, time >= 0 else { return String(localized: "0 seconds") }
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .full
+        formatter.allowedUnits = [.hour, .minute, .second]
+        formatter.zeroFormattingBehavior = .dropAll
+        guard let result = formatter.string(from: time), !result.isEmpty else {
+            return String(localized: "0 seconds")
+        }
+        return result
     }
 }

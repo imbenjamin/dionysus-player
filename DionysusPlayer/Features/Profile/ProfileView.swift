@@ -12,6 +12,13 @@ struct ProfileView: View {
     /// actually flipped, so both call sites declaring the same default is
     /// what keeps them in agreement pre-first-launch-visit).
     @AppStorage(hero3DDepthEnabledStorageKey) private var hero3DDepthEnabled = true
+    /// Default `true` — matches `HeroRailView`'s own default for this key,
+    /// same pre-first-launch-visit reasoning as `hero3DDepthEnabled` above.
+    /// VoiceOver still forces manual navigation regardless of this value —
+    /// see `HeroRailView.manualCarouselModeEnabled`'s own doc comment; this
+    /// toggle only controls the *preference*, not VoiceOver's own
+    /// enforcement of the same behavior.
+    @AppStorage(heroAutoCarouselEnabledStorageKey) private var autoCarouselEnabled = true
     /// Default `.seconds30` — matches `NextUpPreferenceStore.countdownSeconds`'s
     /// own fallback for the same "both sides declare the same default"
     /// reason as `hero3DDepthEnabled` above.
@@ -29,6 +36,29 @@ struct ProfileView: View {
         ByteCountFormatter.string(fromByteCount: DownloadFileStore.totalSizeOnDisk(), countStyle: .file)
     }
 
+    /// See `DownloadedInfoMetadataRow.spokenFileSize(_:)` — identical copy,
+    /// not shared, for the same reason that one documents. Parses an
+    /// already-formatted `ByteCountFormatter` string rather than
+    /// reimplementing its unit-selection/rounding, so the two can never
+    /// drift out of agreement.
+    private static func spokenFileSize(_ text: String) -> String {
+        guard let spaceIndex = text.lastIndex(of: " ") else { return text }
+        let number = text[..<spaceIndex]
+        let unit = text[text.index(after: spaceIndex)...]
+        let spokenUnit: String?
+        switch unit {
+        case "byte", "bytes": spokenUnit = String(localized: "bytes")
+        case "KB": spokenUnit = String(localized: "kilobytes")
+        case "MB": spokenUnit = String(localized: "megabytes")
+        case "GB": spokenUnit = String(localized: "gigabytes")
+        case "TB": spokenUnit = String(localized: "terabytes")
+        case "PB": spokenUnit = String(localized: "petabytes")
+        default: spokenUnit = nil
+        }
+        guard let spokenUnit else { return text }
+        return "\(number) \(spokenUnit)"
+    }
+
     var body: some View {
         List {
             Section("Account") {
@@ -43,6 +73,7 @@ struct ProfileView: View {
                         Text(preference.displayName).tag(preference)
                     }
                 }
+                Toggle("Auto Carousel on Home", isOn: $autoCarouselEnabled)
                 Toggle(isOn: $hero3DDepthEnabled) {
                     HStack {
                         Text("3D Depth Effects")
@@ -66,7 +97,9 @@ struct ProfileView: View {
             Section {
                 Picker("Next Episode Countdown", selection: $nextUpCountdown) {
                     ForEach(NextUpCountdownPreference.allCases) { preference in
-                        Text(preference.displayName).tag(preference)
+                        Text(preference.displayName)
+                            .accessibilityLabel(preference.accessibilityLabel)
+                            .tag(preference)
                     }
                 }
             } header: {
@@ -80,6 +113,18 @@ struct ProfileView: View {
                     DownloadsSettingsView()
                 } label: {
                     LabeledContent("Downloads", value: downloadsStorageUsedText)
+                        // `LabeledContent` already folds its title and
+                        // value into one combined accessibility label by
+                        // default (not a separate label+value pair) —
+                        // `.accessibilityValue` alone just appended a
+                        // second, spoken-out reading on top of that
+                        // existing one ("Downloads. 2.44 GB. 2.44
+                        // gigabytes."), rather than replacing it.
+                        // `.accessibilityElement(children: .ignore)` first
+                        // suppresses that default combine so the explicit
+                        // label below is the only thing read.
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(String(localized: "Downloads, \(Self.spokenFileSize(downloadsStorageUsedText))"))
                 }
             }
 
@@ -128,13 +173,17 @@ struct ProfileView: View {
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
+                    // Without this, VoiceOver falls back to the image
+                    // asset's own name ("Github Glyph") rather than what
+                    // the link actually does.
+                    .accessibilityLabel(String(localized: "Open Dionysus Player on GitHub"))
                     Text(AppVersionInfo.footerText())
                 }
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)
             }
         }
-        .navigationTitle("Profile")
+        .navigationTitle("Profile & Settings")
         // Drives `DeviceTiltObserver.shared` directly from the toggle that
         // actually triggers it, rather than relying solely on whichever
         // `HeroHeaderView` (if any) happens to still be mounted in some

@@ -104,6 +104,13 @@ struct MainTabView: View {
                         Image(systemName: "person.crop.circle")
                     }
                 }
+                // The visible label is deliberately the signed-in user's
+                // own name (a personal touch, not a generic tab title —
+                // see this tab's own icon fetch above), but that reads as
+                // just a name to VoiceOver with no indication of what the
+                // tab actually is. Override with what the tab does, not
+                // who's using it.
+                .accessibilityLabel(String(localized: "Profile & Settings"))
             }
             .tag(MainTab.profile)
         }

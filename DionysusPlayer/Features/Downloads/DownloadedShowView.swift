@@ -275,6 +275,14 @@ struct DownloadedEpisodeRow: View {
         return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
     }
 
+    /// Same content as `metaText`, worded for VoiceOver — see
+    /// `MediaItem.durationAccessibilityText`'s doc comment for why the
+    /// duration half needs this.
+    private var metaAccessibilityText: String? {
+        let parts = [episode.episodeAirDateText, episode.durationAccessibilityText].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
     @ViewBuilder
     private var rowContent: some View {
         HStack(spacing: 12) {
@@ -291,6 +299,7 @@ struct DownloadedEpisodeRow: View {
                 Text(episode.title).lineLimit(1)
                 if let metaText {
                     Text(metaText).font(.caption).foregroundStyle(.secondary)
+                        .accessibilityLabel(metaAccessibilityText ?? metaText)
                 }
                 statusLine
             }

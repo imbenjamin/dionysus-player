@@ -95,6 +95,22 @@ struct PlayResumeButtonRow: View {
         }
     }
 
+    /// `buttonTitle`'s spoken counterpart for the Resume case specifically
+    /// — "Resume from 11 minutes" instead of repeating the "SXX:EYY" suffix
+    /// VoiceOver already gets from the hero above this row (see
+    /// `BackdropLogoOverlay.episodeNumberAccessibilityText`), swapped for
+    /// the resume position instead: a more actionable thing for this
+    /// specific button to say than an episode number it already announced.
+    /// Falls back to `buttonTitle` itself for Play, or if there's nothing
+    /// to resume from — unchanged from this button's behavior before this
+    /// existed.
+    private var accessibilityLabelText: String {
+        guard effectiveItem.isPartWatched, let resumeText = effectiveItem.resumePositionAccessibilityText else {
+            return buttonTitle
+        }
+        return String(localized: "Resume from \(resumeText)")
+    }
+
     /// Corner radius applied to both the button's border shape AND the outer
     /// clip. Matching the two is what makes the progress bar tuck in behind
     /// the button's curved edges instead of poking past them.
@@ -114,6 +130,7 @@ struct PlayResumeButtonRow: View {
             .buttonBorderShape(.roundedRectangle(radius: cornerRadius))
             .tint(.dionysusPrimary)
             .controlSize(.large)
+            .accessibilityLabel(accessibilityLabelText)
             .overlay(alignment: .bottom) {
                 if effectiveItem.isPartWatched, let fraction = effectiveItem.playedFraction {
                     GeometryReader { geo in
@@ -141,6 +158,10 @@ struct PlayResumeButtonRow: View {
                 .buttonBorderShape(.roundedRectangle(radius: cornerRadius))
                 .tint(.dionysusPrimaryLight)
                 .controlSize(.large)
+                // Without this, VoiceOver falls back to the SF Symbol's own
+                // name ("arrow counterclockwise") rather than what the
+                // button actually does.
+                .accessibilityLabel(String(localized: "Restart"))
             }
         }
         .confirmationDialog(

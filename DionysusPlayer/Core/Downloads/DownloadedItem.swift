@@ -235,12 +235,52 @@ final class DownloadedItem: Identifiable {
     /// across `DownloadedInfoMetadataRow` and `DownloadedEpisodeRow` so
     /// neither duplicates it a second time.
     var durationText: String? {
-        guard let runtimeTicks, runtimeTicks > 0 else { return nil }
-        let totalMinutes = Int(runtimeTicks / 10_000_000 / 60)
+        guard let totalMinutes = durationTotalMinutes else { return nil }
         let hours = totalMinutes / 60
         let minutes = totalMinutes % 60
         if hours > 0 { return "\(hours)h \(minutes)m" }
         return "\(minutes)m"
+    }
+
+    /// Same duration as `durationText`, worded out for VoiceOver — see
+    /// `MediaItem.durationAccessibilityText`'s doc comment for why "1h 32m"
+    /// needs this (VoiceOver mishears it as "One H Thirty Two Meters").
+    var durationAccessibilityText: String? {
+        guard let totalMinutes = durationTotalMinutes else { return nil }
+        return Self.spokenDuration(totalMinutes: totalMinutes)
+    }
+
+    private var durationTotalMinutes: Int? {
+        guard let runtimeTicks, runtimeTicks > 0 else { return nil }
+        return Int(runtimeTicks / 10_000_000 / 60)
+    }
+
+    /// `resumePositionTicks`, worded out for VoiceOver — same
+    /// `spokenDuration(totalMinutes:)` `durationAccessibilityText` uses,
+    /// just from a different source value (elapsed time into the item, not
+    /// its total runtime). `nil` whenever there's nothing to resume from.
+    var resumePositionAccessibilityText: String? {
+        guard resumePositionTicks > 0 else { return nil }
+        return Self.spokenDuration(totalMinutes: Int(resumePositionTicks / 10_000_000 / 60))
+    }
+
+    /// `episodeLabel`, worded out for VoiceOver — see `MediaItem
+    /// .episodeLabelAccessibilityText`'s doc comment for why "S1:E4" needs
+    /// this. `nil` under the same conditions `episodeLabel` is.
+    var episodeLabelAccessibilityText: String? {
+        guard let seasonNumber, let episodeNumber else { return nil }
+        return String(localized: "season \(seasonNumber) episode \(episodeNumber)")
+    }
+
+    /// Shared by `durationAccessibilityText`/`resumePositionAccessibilityText`
+    /// — see `MediaItem`'s identical helper for why this needs
+    /// `DateComponentsFormatter` rather than hand-rolled interpolation.
+    private static func spokenDuration(totalMinutes: Int) -> String? {
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .full
+        formatter.allowedUnits = totalMinutes >= 60 ? [.hour, .minute] : [.minute]
+        formatter.zeroFormattingBehavior = .dropAll
+        return formatter.string(from: TimeInterval(totalMinutes * 60))
     }
 
     /// An episode's exact release date, e.g. "1 Aug 2026" — the offline

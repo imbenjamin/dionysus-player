@@ -76,6 +76,7 @@ struct DownloadsView: View {
                         Image(systemName: "trash")
                     }
                     .disabled(viewModel.selectedRowIDs.isEmpty)
+                    .accessibilityLabel(String(localized: "Delete Selected Downloads"))
                 }
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -84,6 +85,7 @@ struct DownloadsView: View {
                     } label: {
                         Image(systemName: "trash")
                     }
+                    .accessibilityLabel(String(localized: "Select Downloads to Delete"))
                 }
             }
         }

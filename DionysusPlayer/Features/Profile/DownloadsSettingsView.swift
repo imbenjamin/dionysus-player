@@ -73,7 +73,9 @@ struct DownloadsSettingsView: View {
                 }
                 Picker("Quality", selection: $downloadBitratePreset) {
                     ForEach(DownloadBitratePreset.allCases) { preset in
-                        Text(preset.displayName(in: downloadResolution)).tag(preset)
+                        Text(preset.displayName(in: downloadResolution))
+                            .accessibilityLabel(preset.accessibilityDisplayName(in: downloadResolution))
+                            .tag(preset)
                     }
                 }
                 VStack(alignment: .leading, spacing: 4) {
@@ -90,6 +92,13 @@ struct DownloadsSettingsView: View {
                         ),
                         in: 0...10, step: 1
                     )
+                    // Without these, VoiceOver reads the slider's own raw
+                    // `0...10` position ("0") rather than what that
+                    // position actually means — the `LabeledContent` above
+                    // already shows "Unlimited" visually at that same
+                    // position, this is its spoken counterpart.
+                    .accessibilityLabel(String(localized: "Simultaneous Downloads"))
+                    .accessibilityValue(downloadMaxConcurrentDisplayText)
                 }
                 Toggle("Wi-Fi Only", isOn: $downloadWifiOnly)
             } header: {

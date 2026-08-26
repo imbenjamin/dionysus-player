@@ -17,6 +17,9 @@
         }
       }
     },
+    "%@ megabits per second" : {
+
+    },
     "%@ of %@ Used" : {
       "localizations" : {
         "en" : {
@@ -27,8 +30,28 @@
         }
       }
     },
+    "%@, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@"
+          }
+        }
+      }
+    },
     "%@:" : {
 
+    },
+    "%@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@: %2$@"
+          }
+        }
+      }
     },
     "%lld" : {
 
@@ -37,6 +60,9 @@
 
     },
     "%lld episodes couldn't be downloaded." : {
+
+    },
+    "0 seconds" : {
 
     },
     "1 episode couldn't be downloaded." : {
@@ -51,13 +77,25 @@
     "9:59:59" : {
 
     },
+    "15 seconds" : {
+
+    },
     "15s" : {
+
+    },
+    "30 seconds (Default)" : {
 
     },
     "30s (Default)" : {
 
     },
+    "45 seconds" : {
+
+    },
     "45s" : {
+
+    },
+    "60 seconds" : {
 
     },
     "60s" : {
@@ -75,7 +113,13 @@
     "Account" : {
 
     },
+    "Add to Favorites" : {
+
+    },
     "Address" : {
+
+    },
+    "Age Rating: %@" : {
 
     },
     "All" : {
@@ -117,6 +161,12 @@
     "Audio and music playback aren't supported." : {
 
     },
+    "Auto Carousel on Home" : {
+
+    },
+    "Back" : {
+
+    },
     "Based on a %lld minute movie and %lld minute TV episode." : {
       "localizations" : {
         "en" : {
@@ -130,6 +180,9 @@
     "Build" : {
 
     },
+    "bytes" : {
+
+    },
     "Can't reach your Jellyfin server. If it's on your local network, make sure you're connected to the same Wi-Fi." : {
 
     },
@@ -137,6 +190,9 @@
 
     },
     "Change Server" : {
+
+    },
+    "Change Server also signs you out and forgets this server, returning to first-time setup." : {
 
     },
     "Change server?" : {
@@ -152,6 +208,9 @@
 
     },
     "Close" : {
+
+    },
+    "Closed Captions" : {
 
     },
     "Collection" : {
@@ -211,6 +270,9 @@
     "Couldn't understand the server's response." : {
 
     },
+    "Current position: %@" : {
+
+    },
     "Dark" : {
 
     },
@@ -235,6 +297,12 @@
     "Delete 1 Download?" : {
 
     },
+    "Delete Download" : {
+
+    },
+    "Delete Selected Downloads" : {
+
+    },
     "Delete this download?" : {
 
     },
@@ -250,7 +318,16 @@
     "Display" : {
 
     },
+    "Dolby Digital" : {
+
+    },
+    "Dolby Digital Plus" : {
+
+    },
     "Done" : {
+
+    },
+    "Double tap to toggle between remaining time and total duration" : {
 
     },
     "Download" : {
@@ -268,7 +345,16 @@
     "Download Paused" : {
 
     },
+    "Download Season" : {
+
+    },
+    "Downloaded" : {
+
+    },
     "Downloaded videos are transcoded to fit your chosen resolution and quality, and are never upscaled past the source." : {
+
+    },
+    "Downloading Season" : {
 
     },
     "Downloading… %@" : {
@@ -278,6 +364,12 @@
 
     },
     "Downloads" : {
+
+    },
+    "Downloads, %@" : {
+
+    },
+    "Duration: %@" : {
 
     },
     "Enter a valid server address, like 192.168.1.50:8096." : {
@@ -292,6 +384,12 @@
     "External" : {
 
     },
+    "Fast Forward 30 Seconds" : {
+
+    },
+    "Favorite" : {
+
+    },
     "Favorites" : {
 
     },
@@ -302,6 +400,9 @@
 
     },
     "Forced" : {
+
+    },
+    "Formats: %@" : {
 
     },
     "Free" : {
@@ -317,10 +418,19 @@
         }
       }
     },
+    "Free space: %@" : {
+
+    },
     "Gathering stats…" : {
 
     },
     "Genre" : {
+
+    },
+    "Genres" : {
+
+    },
+    "gigabytes" : {
 
     },
     "Go to Settings" : {
@@ -330,6 +440,9 @@
 
     },
     "Hide playback stats" : {
+
+    },
+    "Hide Player Controls" : {
 
     },
     "High" : {
@@ -347,10 +460,28 @@
     "Included In" : {
 
     },
+    "kilobytes" : {
+
+    },
+    "License" : {
+
+    },
+    "License text unavailable." : {
+
+    },
     "Light" : {
 
     },
     "Lock rotation" : {
+
+    },
+    "Mark as Unwatched" : {
+
+    },
+    "Mark as Watched" : {
+
+    },
+    "megabytes" : {
 
     },
     "Mono" : {
@@ -369,6 +500,9 @@
 
     },
     "Next Episode Countdown" : {
+
+    },
+    "Next Item" : {
 
     },
     "Next Up" : {
@@ -404,6 +538,9 @@
     "OK" : {
 
     },
+    "Open Dionysus Player on GitHub" : {
+
+    },
     "Order" : {
 
     },
@@ -413,13 +550,22 @@
     "Other" : {
 
     },
+    "Other: %@" : {
+
+    },
     "Overrides your default download settings for this item only." : {
 
     },
     "Password (optional)" : {
 
     },
+    "Pause" : {
+
+    },
     "Paused" : {
+
+    },
+    "petabytes" : {
 
     },
     "Picture in Picture" : {
@@ -458,10 +604,25 @@
     "Playing in Picture in Picture" : {
 
     },
+    "Preparing Download" : {
+
+    },
     "Preparing download…" : {
 
     },
+    "Previous Item" : {
+
+    },
+    "Privacy Policy" : {
+
+    },
+    "Privacy policy text unavailable." : {
+
+    },
     "Profile" : {
+
+    },
+    "Profile & Settings" : {
 
     },
     "Quality" : {
@@ -471,6 +632,12 @@
 
     },
     "Queued…" : {
+
+    },
+    "Random Item" : {
+
+    },
+    "Rated: %@ stars" : {
 
     },
     "Recent Searches" : {
@@ -488,7 +655,16 @@
     "Release Date" : {
 
     },
+    "Released: %@" : {
+
+    },
+    "Remaining time: %@" : {
+
+    },
     "Remove" : {
+
+    },
+    "Remove from Favorites" : {
 
     },
     "Reset" : {
@@ -497,16 +673,35 @@
     "Resolution" : {
 
     },
+    "Restart" : {
+
+    },
     "Resume" : {
 
     },
     "Resume %@" : {
 
     },
+    "Resume %@ from %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Resume %1$@ from %2$@"
+          }
+        }
+      }
+    },
+    "Resume from %@" : {
+
+    },
     "Retry Download" : {
 
     },
     "Retrying…" : {
+
+    },
+    "Rewind 15 Seconds" : {
 
     },
     "Search" : {
@@ -524,6 +719,19 @@
     "Season %lld" : {
 
     },
+    "season %lld episode %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "season %1$lld episode %2$lld"
+          }
+        }
+      }
+    },
+    "Season Downloaded" : {
+
+    },
     "Section" : {
 
     },
@@ -534,6 +742,9 @@
 
     },
     "Select All" : {
+
+    },
+    "Select Downloads to Delete" : {
 
     },
     "Server" : {
@@ -556,6 +767,9 @@
 
     },
     "Show playback stats" : {
+
+    },
+    "Show Player Controls" : {
 
     },
     "Shows" : {
@@ -594,6 +808,9 @@
     "Sort By" : {
 
     },
+    "Sort Options" : {
+
+    },
     "Stereo" : {
 
     },
@@ -609,13 +826,28 @@
     "Studio" : {
 
     },
+    "Studios" : {
+
+    },
     "Subtitle Track Unavailable Offline" : {
 
     },
     "Subtitles" : {
 
     },
+    "Synopsis: %@" : {
+
+    },
+    "Synopsis: No synopsis available." : {
+
+    },
     "System" : {
+
+    },
+    "Tagline: %@" : {
+
+    },
+    "terabytes" : {
 
     },
     "That doesn't look like a valid server address." : {
@@ -639,6 +871,9 @@
     "This App" : {
 
     },
+    "This App: %@" : {
+
+    },
     "This download is no longer available." : {
 
     },
@@ -648,13 +883,13 @@
     "This item is no longer available on the server." : {
 
     },
-    "This signs you out and forgets this server, returning to first-time setup." : {
-
-    },
     "This title's default subtitle track can't be included in offline downloads. The download will have no subtitles unless you choose one manually later." : {
 
     },
     "Title" : {
+
+    },
+    "Total duration: %@" : {
 
     },
     "Track %lld" : {
@@ -712,6 +947,12 @@
 
     },
     "Your Server" : {
+
+    },
+    "Zoom to Fill Screen" : {
+
+    },
+    "Zoom to Fit Screen" : {
 
     }
   },

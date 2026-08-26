@@ -154,12 +154,14 @@ struct HeroActionButtons: View {
             } label: {
                 icon(item.isFavorite ? "star.fill" : "star", isPending: isPending)
             }
+            .accessibilityLabel(String(localized: "Favorite"))
         } else {
             Button(action: { toggleFavorite(item) }) {
                 icon(item.isFavorite ? "star.fill" : "star", isPending: isPending)
             }
             .buttonStyle(.plain)
             .disabled(isPending)
+            .accessibilityLabel(item.isFavorite ? String(localized: "Remove from Favorites") : String(localized: "Add to Favorites"))
         }
     }
 
@@ -178,12 +180,14 @@ struct HeroActionButtons: View {
             } label: {
                 icon(item.isPlayed ? "eye.fill" : "eye", isPending: isPending)
             }
+            .accessibilityLabel(String(localized: "Watched"))
         } else {
             Button(action: { toggleWatched(item) }) {
                 icon(item.isPlayed ? "eye.fill" : "eye", isPending: isPending)
             }
             .buttonStyle(.plain)
             .disabled(isPending)
+            .accessibilityLabel(item.isPlayed ? String(localized: "Mark as Unwatched") : String(localized: "Mark as Watched"))
         }
     }
 

@@ -47,6 +47,45 @@ struct HeroRailView: View {
     /// itself part of the layout system.
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
+    /// Gates `tick()`'s own transition (see `advanceWithFade(from:to:)`) and
+    /// `HeroPageIndicator`'s two animations (its countdown fill and its
+    /// current-dot width swap) — see each's own doc comment. Manual swipes
+    /// are deliberately untouched by this: HIG's own guidance is to reduce
+    /// *automatic* motion, not gesture-tracked motion ("Tracking animations
+    /// directly with people's gestures" is listed as a best practice, not
+    /// something to remove).
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Gates `tick()`'s automatic advance off entirely (not just its
+    /// transition style, the way `reduceMotion` above does) — per direct
+    /// feedback, a VoiceOver user needs to be able to read one item fully
+    /// before it moves on, not race a fixed 5-second clock. `heroContent`
+    /// mounts explicit Previous/Next buttons in its place while this is
+    /// true, so the carousel stays navigable, just no longer on a timer.
+    /// Always true regardless of `autoCarouselEnabled` below — VoiceOver
+    /// enforces this outright, it isn't a preference. See
+    /// `manualCarouselModeEnabled` for the combined gate almost everything
+    /// else in this view actually reads.
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+
+    /// `ProfileView`'s "Auto Carousel on Home" toggle (Appearance section)
+    /// — the same manual-navigation behavior VoiceOver enforces above,
+    /// offered as a standing preference for anyone who prefers reading one
+    /// item at a time regardless of VoiceOver. Default `true` — matches
+    /// `ProfileView`'s own default for this key, for the same
+    /// pre-first-launch-visit reason `hero3DDepthEnabled` documents there.
+    @AppStorage(heroAutoCarouselEnabledStorageKey) private var autoCarouselEnabled = true
+
+    /// The actual gate `tick()`, the page-indicator's pause state, and the
+    /// Previous/Next buttons all read — true whenever the carousel should
+    /// behave as manually-navigated, whether because VoiceOver enforces it
+    /// or because `autoCarouselEnabled` has been turned off as a standing
+    /// preference. `voiceOverEnabled` itself stays reserved for the one
+    /// place that's still specifically about VoiceOver, not this
+    /// preference: `announceIfNeeded`'s spoken announcement, which a
+    /// sighted user who's merely turned auto-advance off has no use for.
+    private var manualCarouselModeEnabled: Bool { !autoCarouselEnabled || voiceOverEnabled }
+
     /// Same check `HeroHeaderView` uses, for the same reason (see that
     /// view's `verticalSizeClass` doc comment) — `.compact` is iPhone's
     /// landscape signal.
@@ -192,6 +231,15 @@ struct HeroRailView: View {
     /// as `scrollPosition`/`idleSeconds`/`isInteracting` below, so this
     /// keeps one real Timer alive for the view's actual lifetime instead.
     @State private var tickTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    /// Reduce Motion's stand-in for the outgoing item during an
+    /// auto-advance — `nil` the rest of the time. See
+    /// `advanceWithFade(from:to:)`.
+    @State private var fadeOutItem: MediaItem?
+    /// `1` the instant an auto-advance begins (under Reduce Motion),
+    /// animated down to `0` over `autoAdvanceAnimationDuration` — see
+    /// `advanceWithFade(from:to:)`.
+    @State private var fadeOutOpacity: Double = 0
 
     /// Wraps the whole rail so each page's width (below) can come from
     /// `proxy.size.width` — genuinely layout-driven, unlike an earlier
@@ -341,6 +389,23 @@ struct HeroRailView: View {
                 .onChange(of: currentIndex) { _, _ in idleSeconds = 0 }
                 .onReceive(tickTimer) { _ in tick() }
 
+                // Reduce Motion only — see `advanceWithFade(from:to:)`.
+                // Sits directly above the ScrollView, matching one page's
+                // exact frame, standing in for whichever item was current a
+                // moment ago while the ScrollView itself jumps underneath
+                // it with no animation of its own to be seen.
+                if let fadeOutItem {
+                    BackdropLogoOverlay(
+                        backdropURL: fadeOutItem.backdropImageURL ?? fadeOutItem.primaryImageURL,
+                        logoURL: fadeOutItem.logoImageURL,
+                        title: fadeOutItem.name
+                    )
+                    .frame(width: pageWidth, height: heroHeight)
+                    .opacity(fadeOutOpacity)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+
                 if items.count > 1 {
                     HeroPageIndicator(
                         count: items.count,
@@ -353,11 +418,39 @@ struct HeroRailView: View {
                         // to composite it) toward 100% while `tick()` itself
                         // is gated off and `idleSeconds` isn't actually
                         // advancing — a cosmetic desync on reappearance
-                        // otherwise. See `isPaused`'s doc comment on
+                        // otherwise. `manualCarouselModeEnabled` gets the
+                        // identical treatment for the identical reason:
+                        // `tick()` never advances `idleSeconds` at all while
+                        // it's true (see that property's own doc comment),
+                        // so there's no real countdown left for this fill to
+                        // represent. See `isPaused`'s doc comment on
                         // `HeroPageIndicator`.
-                        isPaused: isInteracting || !isVisible
+                        isPaused: isInteracting || !isVisible || manualCarouselModeEnabled
                     )
                     .padding(16)
+                }
+
+                // Replacement for the automatic advance `tick()` no longer
+                // performs at all while this is true — see
+                // `manualCarouselModeEnabled`'s own doc comment (VoiceOver,
+                // the "Auto Carousel on Home" preference, or both). Same
+                // vertically-centered, leading/trailing-edge placement
+                // idiom as the Player's own VoiceOver-only controls button,
+                // for the same reason: a fixed, predictable spot in
+                // VoiceOver's swipe order that nothing else on this page
+                // ever occupies.
+                if manualCarouselModeEnabled, items.count > 1 {
+                    HStack {
+                        heroNavigationButton(systemImage: "chevron.left", label: String(localized: "Previous Item")) {
+                            advance(by: -1)
+                        }
+                        Spacer()
+                        heroNavigationButton(systemImage: "chevron.right", label: String(localized: "Next Item")) {
+                            advance(by: 1)
+                        }
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .onAppear {
@@ -366,6 +459,19 @@ struct HeroRailView: View {
             }
             .onDisappear { isOnScreen = false }
         }
+    }
+
+    @ViewBuilder
+    private func heroNavigationButton(systemImage: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.title2)
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(.black.opacity(0.55)))
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel(label)
     }
 
     /// Forces the real, backing `UIScrollView` to jump (no animation) to
@@ -429,12 +535,109 @@ struct HeroRailView: View {
     /// has already needed).
     private func tick() {
         guard items.count > 1 else { return }
-        guard !isInteracting, isVisible else { return }
+        guard !isInteracting, isVisible, !manualCarouselModeEnabled else { return }
         idleSeconds += 1
         guard idleSeconds >= Self.autoAdvanceInterval else { return }
         idleSeconds = 0
+        advance(by: 1)
+    }
+
+    /// Moves the carousel by `delta` pages (`+1`/`-1`) — the automatic
+    /// advance above and the explicit Previous/Next buttons `heroContent`
+    /// mounts in its place under VoiceOver (see `voiceOverEnabled`'s own
+    /// doc comment) both funnel through this, so a button tap gets the
+    /// exact same reduceMotion-aware fade/slide treatment `tick()`'s own
+    /// advance always has. `currentPosition` falls back to `1` the same
+    /// way `tick()`'s own read used to, for the same reason: a `nil`
+    /// `scrollPosition` (before the first layout pass resolves it) still
+    /// needs *some* valid page to advance from.
+    private func advance(by delta: Int) {
+        guard items.count > 1 else { return }
+        var currentPosition = scrollPosition ?? 1
+        // Defensive pre-snap: `tick()`'s once-per-`autoAdvanceInterval`
+        // cadence never raced this, but a rapid second Previous/Next tap
+        // can land here before `snapIfNeeded`'s own deferred correction
+        // (`autoAdvanceAnimationDuration` out) has actually run, leaving
+        // `scrollPosition` sitting on a padding index — normalize that to
+        // its real equivalent first, or `nextPosition` below could walk
+        // right off `loopedItems`' own bounds.
+        if currentPosition == 0 {
+            currentPosition = items.count
+        } else if currentPosition == loopedItems.count - 1 {
+            currentPosition = 1
+        }
+        let nextPosition = currentPosition + delta
+        guard reduceMotion else {
+            withAnimation(.easeInOut(duration: Self.autoAdvanceAnimationDuration)) {
+                scrollPosition = nextPosition
+            }
+            announceIfNeeded(at: nextPosition)
+            return
+        }
+        advanceWithFade(from: currentPosition, to: nextPosition)
+        announceIfNeeded(at: nextPosition)
+    }
+
+    /// VoiceOver-only: `advance(by:)` deliberately leaves focus on whichever
+    /// Previous/Next button was just pressed (see `heroNavigationButton`'s
+    /// call site) rather than jumping to the hero card itself — that's what
+    /// lets someone browsing quickly keep pressing the same button without
+    /// re-navigating back to it each time. Without this, that convenience
+    /// would cost them ever hearing what they actually landed on: pressing
+    /// Next only announces "Next Item, button," not the new item. Posting
+    /// an `.announcement` speaks it without moving focus, the same pattern
+    /// a "next track" media control uses. Reuses `MediaItem
+    /// .accessibilityDescription` — the exact label `HeroRailCard` itself
+    /// gives this same item — rather than a second description of what a
+    /// hero item is.
+    private func announceIfNeeded(at position: Int) {
+        guard voiceOverEnabled else { return }
+        let description = loopedItems[position].accessibilityDescription
+        // A `.post()` fired in the same run-loop turn as the button's own
+        // activation is a well-documented way for VoiceOver to silently
+        // drop it — it's still delivering the button's own "Next Item,
+        // button" activation feedback and has nowhere to queue a second
+        // announcement arriving that fast. Deferring past that (matching
+        // the slide/fade transition's own duration, so it also lands right
+        // as the new card visually settles rather than mid-motion) gives
+        // VoiceOver a clear turn to speak it instead.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.autoAdvanceAnimationDuration + 0.2) {
+            AccessibilityNotification.Announcement(description).post()
+        }
+    }
+
+    /// Reduce Motion's replacement for the plain `withAnimation` slide
+    /// above — same page-index change, but with no x-axis motion for the
+    /// ScrollView to visibly perform: the position jump itself is instant/
+    /// unanimated (a `disablesAnimations` transaction, same pattern
+    /// `resyncScrollPosition`/`snapIfNeeded` already use elsewhere in this
+    /// file), and a crossfade of the *outgoing* item's own content — held in
+    /// `fadeOutItem`, rendered in an overlay directly above the ScrollView
+    /// in `heroContent(pageWidth:)` — stands in for the slide instead. See
+    /// `Design Guideline — Accessibility > Cognitive`: "Replacing
+    /// transitions in x-, y-, and z-axes with fades to avoid motion."
+    ///
+    /// `currentPosition` indexes `loopedItems`, same as `scrollPosition`
+    /// always does — safe to subscript directly since `advance(by:)` only
+    /// calls this once `items.count > 1` is already confirmed, which is
+    /// also what guarantees `loopedItems` was actually padded (see its own
+    /// doc comment) rather than left equal to `items`.
+    private func advanceWithFade(from currentPosition: Int, to nextPosition: Int) {
+        fadeOutItem = loopedItems[currentPosition]
+        fadeOutOpacity = 1
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            scrollPosition = nextPosition
+        }
         withAnimation(.easeInOut(duration: Self.autoAdvanceAnimationDuration)) {
-            scrollPosition = (scrollPosition ?? 1) + 1
+            fadeOutOpacity = 0
+        }
+        // Matches `snapIfNeeded`'s own deferred-by-the-animation's-own-
+        // duration pattern just below — clears the overlay once its fade
+        // has actually finished playing, not the instant it's kicked off.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.autoAdvanceAnimationDuration) {
+            fadeOutItem = nil
         }
     }
 
@@ -568,6 +771,18 @@ private struct HeroPageIndicator: View {
     /// site in `heroContent(pageWidth:)` for what feeds into it.
     let isPaused: Bool
 
+    /// Gates both animations below — the countdown fill (omitted from
+    /// rendering entirely, not just frozen) and the current-dot width swap
+    /// (`.animation(value: currentIndex)` in `body`, disabled outright) —
+    /// see `HeroRailView.reduceMotion`'s doc comment for why: both are
+    /// "scaling"/"peripheral motion" HIG names explicitly for reduction.
+    /// The underlying elapsed-time bookkeeping (`accumulatedActiveTime`/
+    /// `resumedAt`, and `animate(from:duration:)`'s own `withAnimation`
+    /// calls) keeps running either way — harmless, since nothing renders it
+    /// while this is `true`, and simpler than threading a second condition
+    /// through that state machine too.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     /// The fill's current position, `0...1`. Only ever set via
     /// `snapInstantly(to:)` or as the target of a `withAnimation` block —
     /// never both for the same `fillGeneration`, so there's exactly one
@@ -599,7 +814,7 @@ private struct HeroPageIndicator: View {
                         height: Self.dotDiameter
                     )
                     .overlay(alignment: .leading) {
-                        if index == currentIndex {
+                        if index == currentIndex, !reduceMotion {
                             // Same colour used for media (e.g. poster/rail
                             // tile) progress bars, in both Light and Dark —
                             // `dionysusHighlight` is already a dynamic
@@ -622,7 +837,7 @@ private struct HeroPageIndicator: View {
                     }
             }
         }
-        .animation(.easeInOut(duration: HeroRailView.autoAdvanceAnimationDuration), value: currentIndex)
+        .animation(reduceMotion ? nil : .easeInOut(duration: HeroRailView.autoAdvanceAnimationDuration), value: currentIndex)
         .allowsHitTesting(false)
         .onAppear { startFresh() }
         .onChange(of: currentIndex) { _, _ in startFresh() }
@@ -950,6 +1165,11 @@ private final class PassthroughTouchRecognizer: UIGestureRecognizer {
         onTouches?(touches, false)
     }
 }
+
+/// `UserDefaults` key for `ProfileView`'s "Auto Carousel on Home" toggle —
+/// shared so `HeroRailView`'s own `@AppStorage` reads the exact same value
+/// `ProfileView` writes, same pattern as `hero3DDepthEnabledStorageKey`.
+let heroAutoCarouselEnabledStorageKey = "heroAutoCarouselEnabled"
 
 #Preview {
     HeroRailView(items: [], isTabActive: true)

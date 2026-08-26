@@ -33,6 +33,9 @@ struct HeroHeaderView: View {
     /// Forwarded straight to `BackdropLogoOverlay` — see its own doc
     /// comment.
     var episodeTitle: String? = nil
+    /// Forwarded straight to `BackdropLogoOverlay` — see its own doc
+    /// comment.
+    var episodeNumberAccessibilityText: String? = nil
 
     /// `.shared`, not a per-view instance — see `DeviceTiltObserver`'s own
     /// doc comment for why (one physical sensor, and `ProfileView`'s toggle
@@ -42,15 +45,23 @@ struct HeroHeaderView: View {
     /// that view for why — so either call site's idea of "is it running"
     /// stays in sync regardless of which one triggered it.
     private var tiltObserver: DeviceTiltObserver { .shared }
-    /// Two independent opt-outs, both meaning "don't run the effect": the
-    /// system-level Reduce Motion setting, and `ProfileView`'s own "3D Depth
+    /// Three independent opt-outs, all meaning "don't run the effect": the
+    /// system-level Reduce Motion setting, `ProfileView`'s own "3D Depth
     /// Effects" toggle (`hero3DDepthEnabledStorageKey`, default on) for
     /// someone who doesn't mind motion in general but just doesn't want
-    /// this one effect. Either being true is enough to disable it — see
-    /// `is3DDepthEnabled` below.
+    /// this one effect, and VoiceOver — added while chasing a real VoiceOver
+    /// bug on this exact view (see `BackdropLogoOverlay.body`'s doc comment
+    /// for the actual root cause and fix, an unrelated accessibility-frame/
+    /// status-bar overlap, confirmed live and unaffected by this effect
+    /// either way). Kept anyway on its own merits, not reverted: a screen
+    /// reader user gets no visual benefit from a parallax effect they can't
+    /// perceive, so there's no reason to keep the tilt sensor running (and
+    /// `body` re-rendering on every sample) for them. Any of the three being
+    /// true is enough to disable it — see `is3DDepthEnabled` below.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @AppStorage(hero3DDepthEnabledStorageKey) private var depthEffectPreference = true
-    private var is3DDepthEnabled: Bool { depthEffectPreference && !reduceMotion }
+    private var is3DDepthEnabled: Bool { depthEffectPreference && !reduceMotion && !voiceOverEnabled }
     /// Whether *this* view instance currently has an outstanding
     /// `tiltObserver.acquire()` — i.e. whether it owes a matching
     /// `release()`. Needed because `.onAppear`/`.onDisappear`/the
@@ -115,13 +126,19 @@ struct HeroHeaderView: View {
             logoURL: logoURL,
             title: title,
             episodeTitle: episodeTitle,
+            episodeNumberAccessibilityText: episodeNumberAccessibilityText,
             // Every detail-page hero centers, unlike `HeroRailCard`'s own
             // left-aligned default — see `BackdropLogoOverlay.alignment`'s
             // own doc comment for why.
             alignment: .center,
             enable3DDepth: is3DDepthEnabled,
             tiltX: is3DDepthEnabled ? CGFloat(tiltObserver.x) : 0,
-            tiltY: is3DDepthEnabled ? CGFloat(tiltObserver.y) : 0
+            tiltY: is3DDepthEnabled ? CGFloat(tiltObserver.y) : 0,
+            // Keeps this hero's *accessibility* frame from ever reaching
+            // the status bar it visually bleeds under — see
+            // `BackdropLogoOverlay.body`'s own doc comment for the bug this
+            // fixes.
+            accessibilityTopInset: statusBarInset
         )
         .frame(height: heroHeight)
         .onAppear { acquireTiltObserverIfNeeded() }

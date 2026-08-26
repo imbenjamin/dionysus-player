@@ -76,6 +76,37 @@ final class MediaItemTests: XCTestCase {
         XCTAssertNil(makeMovie(runTimeTicks: 0).durationText)
     }
 
+    // MARK: durationAccessibilityText — see its own doc comment: "1h 30m"
+    // gets misheard by VoiceOver as "one h thirty meters" (confirmed live),
+    // so this spells the units out instead.
+
+    func test_durationAccessibilityText_underAnHour() {
+        XCTAssertEqual(makeMovie(runTimeTicks: 45 * 60 * 10_000_000).durationAccessibilityText, "45 minutes")
+    }
+
+    func test_durationAccessibilityText_hoursAndMinutes() {
+        XCTAssertEqual(
+            makeMovie(runTimeTicks: (2 * 60 + 15) * 60 * 10_000_000).durationAccessibilityText, "2 hours, 15 minutes"
+        )
+    }
+
+    /// Exact-hour runtimes shouldn't announce "0 minutes" alongside the
+    /// hour count.
+    func test_durationAccessibilityText_exactHour_omitsZeroMinutes() {
+        XCTAssertEqual(makeMovie(runTimeTicks: 2 * 60 * 60 * 10_000_000).durationAccessibilityText, "2 hours")
+    }
+
+    func test_durationAccessibilityText_singularHourAndMinute() {
+        XCTAssertEqual(
+            makeMovie(runTimeTicks: (60 + 1) * 60 * 10_000_000).durationAccessibilityText, "1 hour, 1 minute"
+        )
+    }
+
+    func test_durationAccessibilityText_nilWhenMissingOrZero() {
+        XCTAssertNil(makeMovie(runTimeTicks: nil).durationAccessibilityText)
+        XCTAssertNil(makeMovie(runTimeTicks: 0).durationAccessibilityText)
+    }
+
     // MARK: episodeLabel
 
     func test_episodeLabel_formatsSeasonAndEpisode() {
@@ -141,7 +172,10 @@ final class MediaItemTests: XCTestCase {
 
     func test_accessibilityDescription_joinsTitleAndSubtitleWithComma() {
         let item = makeMovie(productionYear: 2019, runTimeTicks: 90 * 60 * 10_000_000)
-        XCTAssertEqual(item.accessibilityDescription, "Arrival, 2019 \u{00B7} 1h 30m")
+        // Spelled-out duration ("1 hour, 30 minutes"), not the visible
+        // "1h 30m" — VoiceOver mishears "m" as the metric unit otherwise
+        // (confirmed live). See `MediaItem.durationAccessibilityText`.
+        XCTAssertEqual(item.accessibilityDescription, "Arrival, 2019, 1 hour, 30 minutes")
     }
 
     func test_accessibilityDescription_isJustTheTitleWhenNoSubtitle() {

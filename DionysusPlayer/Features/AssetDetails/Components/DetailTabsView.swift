@@ -105,26 +105,29 @@ private struct AboutTabContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if !item.genres.isEmpty {
-                MetadataLine(text: item.genres.joined(separator: " \u{00B7} "))
+                MetadataLine(items: item.genres, accessibilityPrefix: String(localized: "Genres"))
             }
 
             if !item.studios.isEmpty {
-                MetadataLine(text: item.studios.joined(separator: " \u{00B7} "))
+                MetadataLine(items: item.studios, accessibilityPrefix: String(localized: "Studios"))
             }
 
             if let tagline = item.tagline, !tagline.isEmpty {
                 Text(tagline)
                     .font(.title3.italic())
                     .foregroundStyle(.primary)
+                    .accessibilityLabel(String(localized: "Tagline: \(tagline)"))
             }
 
             if let overview = item.overview, !overview.isEmpty {
                 Text(overview)
                     .font(.body)
+                    .accessibilityLabel(String(localized: "Synopsis: \(overview)"))
             } else {
                 Text("No synopsis available.")
                     .font(.body)
                     .foregroundStyle(.secondary)
+                    .accessibilityLabel(String(localized: "Synopsis: No synopsis available."))
             }
         }
     }
@@ -144,7 +147,16 @@ private struct AboutTabContent: View {
 /// exact presentation for the same genre/studio lines, sourced from
 /// `DownloadedItemMetadata` instead of a live `MediaItem`.
 struct MetadataLine: View {
-    let text: String
+    let items: [String]
+    /// Read by VoiceOver as "<accessibilityPrefix>: <item>, <item>, ..." —
+    /// e.g. "Genres: Horror, Comedy" — rather than the bare, unlabeled
+    /// \u{00B7}-joined visible text. Confirmed live this line otherwise reads
+    /// as an ambiguous list with no indication of what kind of list it is.
+    /// A middle dot isn't natural spoken punctuation, so the accessibility
+    /// join uses a plain comma instead of `text`'s own separator.
+    let accessibilityPrefix: String
+
+    private var text: String { items.joined(separator: " \u{00B7} ") }
 
     /// Width of the trailing fade below — see `body`'s comment.
     private let fadeWidth: CGFloat = 20
@@ -156,6 +168,8 @@ struct MetadataLine: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: true, vertical: false)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(String(localized: "\(accessibilityPrefix): \(items.joined(separator: ", "))"))
         // A small fixed-width fade at the trailing edge, hinting there's
         // more to scroll to rather than letting a long line just look cut
         // off. Deliberately not conditioned on whether `text` actually
