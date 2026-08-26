@@ -26,7 +26,21 @@ struct HomeView: View {
                 // with each of the first two.
                 .background {
                     ScrollBottomObserver {
-                        guard viewModel?.hasMoreDynamicRails == true else { return }
+                        // Both guards checked here, synchronously, before
+                        // spawning anything — not just left to
+                        // `loadMoreDynamicRails()`'s own internal guard.
+                        // `checkNearBottom` (the caller of this closure)
+                        // fires on every `contentOffset` KVO tick while
+                        // within one screen height of the bottom, i.e. many
+                        // times a second during a continuous scroll; without
+                        // the `isLoadingMoreDynamicRails` check here too,
+                        // every one of those ticks spawned a fresh `Task`
+                        // that only found out it had nothing to do once it
+                        // actually ran, piling up avoidable work on the main
+                        // actor for the whole scroll instead of skipping it
+                        // up front.
+                        guard viewModel?.hasMoreDynamicRails == true,
+                              viewModel?.isLoadingMoreDynamicRails == false else { return }
                         Task { await viewModel?.loadMoreDynamicRails() }
                     }
                 }
