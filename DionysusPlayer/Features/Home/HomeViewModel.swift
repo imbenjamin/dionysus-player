@@ -423,9 +423,22 @@ final class HomeViewModel {
             return results.sorted { $0.0 < $1.0 }
         }
 
-        for (_, candidate, rail) in fetched {
-            guard let rail else { continue }
-            rails.append(rail)
+        // Collected into a local array and appended once, rather than
+        // calling `rails.append(rail)` inside the loop — `rails` is an
+        // `@Observable` property that `HomeView` reads to build its
+        // `LazyVStack` of rails, so each separate append used to fire its
+        // own SwiftUI transaction/layout flush over the whole rail list.
+        // Landing up to `dynamicRailBatchSize` (5) of those back-to-back,
+        // right as `HomeView`'s scroll-triggered sentinel fires (i.e. while
+        // the user is actively scrolling), was a plausible contributor to
+        // an intermittently-reported real-device freeze in this exact
+        // region — see `home-collection-nav-freeze-unconfirmed` memory,
+        // occurrence 3. One append means one flush instead of up to five.
+        let newRails = fetched.compactMap { _, candidate, rail in
+            rail.map { (candidate, $0) }
+        }
+        rails.append(contentsOf: newRails.map(\.1))
+        for (candidate, _) in newRails {
             consumedDynamicRailCandidates.insert(candidate)
         }
     }
