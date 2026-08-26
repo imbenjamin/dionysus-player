@@ -61,6 +61,14 @@ struct BackdropLogoOverlay: View {
     var enable3DDepth: Bool = false
     var tiltX: CGFloat = 0
     var tiltY: CGFloat = 0
+    /// How far the *accessibility* frame should be inset from the top,
+    /// separately from the *visual* content, which keeps bleeding all the
+    /// way to the physical top edge regardless of this value — see `body`'s
+    /// own doc comment on why the two need to differ at all. `0` (the
+    /// default) matches this view's behavior before that fix existed;
+    /// `HeroHeaderView` is the one caller that passes its own
+    /// `statusBarInset` instead.
+    var accessibilityTopInset: CGFloat = 0
 
     /// The backdrop's rotation at full tilt, and how far behind the screen
     /// plane it pivots (`anchorZ`, in points — negative pushes it away from
@@ -117,7 +125,49 @@ struct BackdropLogoOverlay: View {
     /// casts a shadow.
     private static let logoShadowRange: CGFloat = 7
 
+    /// Two layers, not one: `visualContent`'s own frame bleeds all the way
+    /// to the physical top edge (see `HeroHeaderView`'s doc comment on
+    /// `.ignoresSafeArea(edges: .top)`), which is purely a rendering choice
+    /// for the full-bleed look — but an *accessibility* element sharing that
+    /// same frame turned out to matter too: confirmed live (VoiceOver, real
+    /// device) that whenever this element's frame overlapped the status
+    /// bar's own screen region, VoiceOver's reading of it pulled in
+    /// unrelated content alongside the real label — a clock-shaped number
+    /// and a varying system-icon-shaped word, framed by an iOS "content
+    /// changed" tone, regardless of exactly where within the (single,
+    /// confirmed-via-VoiceOver's-own-focus-outline) element you tapped.
+    /// Reproduced regardless of Screen Recognition/Image Descriptions (both
+    /// off), artwork content (plain, non-stylized posters included), and
+    /// load timing (still happened well after the page had fully settled)
+    /// — ruling out image-content OCR, load-timing races, and anything this
+    /// view's own label/traits control directly, before landing on the
+    /// status-bar-overlap explanation below. Splitting the accessibility
+    /// element out into its own layer, inset from the top by
+    /// `accessibilityTopInset` so its frame never reaches the status bar at
+    /// all, is the fix — confirmed live. `visualContent` keeps bleeding to
+    /// the edge exactly as before; only the *accessible* element's bounds
+    /// change.
     var body: some View {
+        ZStack {
+            visualContent
+                .accessibilityHidden(true)
+
+            // Purely for accessibility — no visual content of its own, and
+            // no `.contentShape` needed either: `Color`'s own hit region
+            // already matches its laid-out frame, unlike the aspect-filled
+            // image `visualContent` needs one for (see that property's own
+            // comment). `accessibilityTopInset` is what keeps this from
+            // ever overlapping the status bar; see this type's own doc
+            // comment.
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.top, accessibilityTopInset)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(accessibilityLabelText)
+        }
+    }
+
+    private var visualContent: some View {
         // The backdrop drives its own width via `.aspectRatio(.fill)` and
         // would otherwise blow out the layout — a `VStack` sizes itself to
         // its widest child, so an unconstrained image here would make the
@@ -224,6 +274,14 @@ struct BackdropLogoOverlay: View {
             // actually visible, regardless of what the backdrop image
             // underneath does.
             .contentShape(Rectangle())
+    }
+
+    /// `title`, plus `episodeTitle` when present — see `body`'s own doc
+    /// comment for why this view needs an explicit label on a dedicated
+    /// accessibility layer, rather than leaning on its (image-heavy)
+    /// visual content's own auto-derived accessibility content.
+    private var accessibilityLabelText: String {
+        episodeTitle.map { "\(title), \($0)" } ?? title
     }
 
     private var tiltRotation: (angle: Angle, axis: (x: CGFloat, y: CGFloat, z: CGFloat)) {
