@@ -217,6 +217,24 @@ private struct EpisodeRow: View {
         return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }
 
+    /// The thumbnail's own play/resume button — bare SF Symbols otherwise
+    /// leave VoiceOver nothing to read but "Progress 20%, button" (the
+    /// progress bar's own default value) for a part-watched episode, or
+    /// "Play, button" (the `play.fill` symbol's own default name) for an
+    /// unwatched one — neither says *which* episode. Mirrors
+    /// `PlayResumeButtonRow.buttonTitle`'s own Play/Resume wording, plus
+    /// the resume position for a part-watched episode specifically, since
+    /// this row has no separate progress-bar label of its own the way the
+    /// main detail page's row does.
+    private var thumbnailAccessibilityLabel: String {
+        let label = episode.episodeLabel ?? episode.name
+        if let fraction = episode.playedFraction, fraction > 0, !episode.isPlayed,
+           let resumeText = episode.resumePositionAccessibilityText {
+            return String(localized: "Resume \(label) from \(resumeText)")
+        }
+        return String(localized: "Play \(label)")
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             // A thin accent bar rather than a full-row background/inset —
@@ -265,13 +283,17 @@ private struct EpisodeRow: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(thumbnailAccessibilityLabel)
 
                 // Same component the detail page's own Play/Resume row
                 // uses — full parity (idle/preparing/downloading/
                 // downloaded states, audio-track prompt, subtitle
                 // warning), not a slimmed-down copy.
                 if let client, let userID, let downloadManager {
-                    DownloadButton(item: episode, client: client, userID: userID, downloadManager: downloadManager, style: .overlay)
+                    DownloadButton(
+                        item: episode, client: client, userID: userID, downloadManager: downloadManager, style: .overlay,
+                        accessibilityContext: episode.episodeLabel
+                    )
                         .padding(4)
                 }
             }

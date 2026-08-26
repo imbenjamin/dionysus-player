@@ -178,16 +178,34 @@ struct MediaItem: Identifiable {
     /// way hand-rolled string interpolation wouldn't.
     var durationAccessibilityText: String? {
         guard let totalMinutes = durationTotalMinutes else { return nil }
-        let formatter = DateComponentsFormatter()
-        formatter.unitsStyle = .full
-        formatter.allowedUnits = totalMinutes >= 60 ? [.hour, .minute] : [.minute]
-        formatter.zeroFormattingBehavior = .dropAll
-        return formatter.string(from: TimeInterval(totalMinutes * 60))
+        return Self.spokenDuration(totalMinutes: totalMinutes)
     }
 
     private var durationTotalMinutes: Int? {
         guard let ticks = dto.runTimeTicks, ticks > 0 else { return nil }
         return Int(ticks / 10_000_000 / 60)
+    }
+
+    /// `resumePositionSeconds`, worded out for VoiceOver — same
+    /// `spokenDuration(totalMinutes:)` `durationAccessibilityText` uses,
+    /// just from a different source value (elapsed time into the item, not
+    /// its total runtime) — e.g. "Resume S19:E6 from 33 minutes" at an
+    /// episode-list row's own call site. `nil` whenever there's nothing to
+    /// resume from.
+    var resumePositionAccessibilityText: String? {
+        guard let resumePositionSeconds, resumePositionSeconds > 0 else { return nil }
+        return Self.spokenDuration(totalMinutes: Int(resumePositionSeconds / 60))
+    }
+
+    /// Shared by `durationAccessibilityText`/`resumePositionAccessibilityText`
+    /// — see the former's own doc comment for why this needs
+    /// `DateComponentsFormatter` rather than hand-rolled interpolation.
+    private static func spokenDuration(totalMinutes: Int) -> String? {
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .full
+        formatter.allowedUnits = totalMinutes >= 60 ? [.hour, .minute] : [.minute]
+        formatter.zeroFormattingBehavior = .dropAll
+        return formatter.string(from: TimeInterval(totalMinutes * 60))
     }
 
     /// e.g. "S1:E4" for an episode.
@@ -196,6 +214,18 @@ struct MediaItem: Identifiable {
             return nil
         }
         return "S\(season):E\(episode)"
+    }
+
+    /// `episodeLabel`, worded out for VoiceOver — "season 1 episode 4"
+    /// instead of letters/colon, which would either be spelled out
+    /// letter-by-letter or misread outright (same category of problem as
+    /// `durationAccessibilityText`'s "1h 32m"). `nil` under the same
+    /// conditions `episodeLabel` is.
+    var episodeLabelAccessibilityText: String? {
+        guard dto.type == .episode, let season = dto.parentIndexNumber, let episode = dto.indexNumber else {
+            return nil
+        }
+        return String(localized: "season \(season) episode \(episode)")
     }
 
     /// First line shown under a poster card. Episodes surface their series

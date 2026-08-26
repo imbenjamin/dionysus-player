@@ -62,7 +62,8 @@ struct DownloadedAssetDetailView: View {
                             backdropURL: heroBackdropURL(item),
                             logoURL: item.logoImagePath.map(DownloadFileStore.url(forRelativePath:)),
                             title: item.seriesTitle ?? item.title,
-                            episodeTitle: item.kind == .episode ? item.title : nil
+                            episodeTitle: item.kind == .episode ? item.title : nil,
+                            episodeNumberAccessibilityText: item.kind == .episode ? item.episodeLabelAccessibilityText : nil
                         )
 
                         VStack(alignment: .leading, spacing: 16) {

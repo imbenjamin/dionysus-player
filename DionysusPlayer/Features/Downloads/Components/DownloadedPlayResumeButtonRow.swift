@@ -47,6 +47,14 @@ struct DownloadedPlayResumeButtonRow: View {
         return isPartWatched ? String(localized: "Resume \(label)") : String(localized: "Play \(label)")
     }
 
+    /// See `PlayResumeButtonRow.accessibilityLabelText`'s identical
+    /// reasoning — "Resume from 11 minutes" instead of repeating the
+    /// episode number the hero above this row already announced.
+    private var accessibilityLabelText: String {
+        guard isPartWatched, let resumeText = item.resumePositionAccessibilityText else { return buttonTitle }
+        return String(localized: "Resume from \(resumeText)")
+    }
+
     /// Same corner radius on both the button's border shape and the outer
     /// clip as `PlayResumeButtonRow` — what tucks the progress bar in
     /// behind the button's curved edges instead of poking past them.
@@ -67,6 +75,7 @@ struct DownloadedPlayResumeButtonRow: View {
                 .buttonBorderShape(.roundedRectangle(radius: cornerRadius))
                 .tint(.dionysusPrimary)
                 .controlSize(.large)
+                .accessibilityLabel(accessibilityLabelText)
                 .overlay(alignment: .bottom) {
                     if isPartWatched {
                         GeometryReader { geo in
@@ -88,6 +97,9 @@ struct DownloadedPlayResumeButtonRow: View {
                     .buttonBorderShape(.roundedRectangle(radius: cornerRadius))
                     .tint(.dionysusPrimaryLight)
                     .controlSize(.large)
+                    // See `PlayResumeButtonRow`'s identical fix — without
+                    // this, VoiceOver falls back to the SF Symbol's own name.
+                    .accessibilityLabel(String(localized: "Restart"))
                 }
             }
         } else {

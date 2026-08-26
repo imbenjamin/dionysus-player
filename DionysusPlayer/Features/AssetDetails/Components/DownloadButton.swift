@@ -37,6 +37,15 @@ struct DownloadButton: View {
     let userID: String
     let downloadManager: DownloadManager
     var style: Style = .prominent
+    /// Appended to this button's own state label — e.g. "Download, S19:E6"
+    /// instead of a bare "Download" — for call sites where several of these
+    /// appear together and the state word alone wouldn't say which item
+    /// it's for (`SeasonEpisodeList`'s per-episode `.overlay` buttons).
+    /// `nil` (the default) leaves the label as just the state word, correct
+    /// for the single page-level `.prominent` button next to Play/Resume,
+    /// where which item it's for is already unambiguous from the page
+    /// itself.
+    var accessibilityContext: String? = nil
 
     private let preferences = DownloadPreferencesStore()
 
@@ -265,7 +274,7 @@ struct DownloadButton: View {
             NavigationLink(value: AppRoute.downloadedAsset(itemID: item.id)) {
                 badge { Image(systemName: "checkmark.circle.fill").foregroundStyle(iconColor) }
             }
-            .accessibilityLabel(String(localized: "Downloaded"))
+            .accessibilityLabel(withContext(String(localized: "Downloaded")))
         } else {
             Button(action: startResolving) {
                 if let progress = progress(for: row) {
@@ -314,13 +323,21 @@ struct DownloadButton: View {
     /// set directly at its call site, since it's structurally a different
     /// element from this one.
     private func accessibilityLabel(for row: DownloadedItem?) -> String {
+        let state: String
         if let progress = progress(for: row) {
-            return progress.statusText
+            state = progress.statusText
         } else if isResolving || isPreparing(for: row) || isPendingDeletion(for: row) {
-            return String(localized: "Preparing Download")
+            state = String(localized: "Preparing Download")
         } else {
-            return String(localized: "Download")
+            state = String(localized: "Download")
         }
+        return withContext(state)
+    }
+
+    /// See `accessibilityContext`'s own doc comment.
+    private func withContext(_ state: String) -> String {
+        guard let accessibilityContext else { return state }
+        return String(localized: "\(state), \(accessibilityContext)")
     }
 
     /// Wraps the state icon/spinner/ring in whatever fixed-size container

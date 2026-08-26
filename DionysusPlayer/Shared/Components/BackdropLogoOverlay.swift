@@ -47,6 +47,14 @@ struct BackdropLogoOverlay: View {
     /// rendered above it: under the logo image when there is one, or
     /// under `title` as a second line when there isn't.
     var episodeTitle: String? = nil
+    /// Spoken-only season/episode marker ("season 19 episode 6"), inserted
+    /// into the accessibility label between `title` and `episodeTitle` —
+    /// see `accessibilityLabelText`. Confirmed via direct feedback that
+    /// VoiceOver reading "Top Gear, Africa Special" alone (the visual
+    /// content — a show title, then an episode title, no number between
+    /// them) didn't make clear *which* episode; never shown visually, the
+    /// hero's own on-screen content is unchanged.
+    var episodeNumberAccessibilityText: String? = nil
     /// `.leading` (Disney+-style, unchanged) for `HeroRailCard`'s hero rail
     /// cards; `HeroHeaderView` (every detail-page hero) passes `.center`
     /// instead — a left-aligned logo/episode-title stack reads as lopsided
@@ -276,12 +284,16 @@ struct BackdropLogoOverlay: View {
             .contentShape(Rectangle())
     }
 
-    /// `title`, plus `episodeTitle` when present — see `body`'s own doc
-    /// comment for why this view needs an explicit label on a dedicated
-    /// accessibility layer, rather than leaning on its (image-heavy)
-    /// visual content's own auto-derived accessibility content.
+    /// `title`, plus `episodeNumberAccessibilityText` and `episodeTitle`
+    /// when present — e.g. "Top Gear, season 19 episode 6, Africa Special"
+    /// — see `body`'s own doc comment for why this view needs an explicit
+    /// label on a dedicated accessibility layer, rather than leaning on its
+    /// (image-heavy) visual content's own auto-derived accessibility
+    /// content.
     private var accessibilityLabelText: String {
-        episodeTitle.map { "\(title), \($0)" } ?? title
+        guard let episodeTitle else { return title }
+        guard let episodeNumberAccessibilityText else { return "\(title), \(episodeTitle)" }
+        return "\(title), \(episodeNumberAccessibilityText), \(episodeTitle)"
     }
 
     private var tiltRotation: (angle: Angle, axis: (x: CGFloat, y: CGFloat, z: CGFloat)) {

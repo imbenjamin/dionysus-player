@@ -33,6 +33,9 @@ struct HeroHeaderView: View {
     /// Forwarded straight to `BackdropLogoOverlay` — see its own doc
     /// comment.
     var episodeTitle: String? = nil
+    /// Forwarded straight to `BackdropLogoOverlay` — see its own doc
+    /// comment.
+    var episodeNumberAccessibilityText: String? = nil
 
     /// `.shared`, not a per-view instance — see `DeviceTiltObserver`'s own
     /// doc comment for why (one physical sensor, and `ProfileView`'s toggle
@@ -123,6 +126,7 @@ struct HeroHeaderView: View {
             logoURL: logoURL,
             title: title,
             episodeTitle: episodeTitle,
+            episodeNumberAccessibilityText: episodeNumberAccessibilityText,
             // Every detail-page hero centers, unlike `HeroRailCard`'s own
             // left-aligned default — see `BackdropLogoOverlay.alignment`'s
             // own doc comment for why.
