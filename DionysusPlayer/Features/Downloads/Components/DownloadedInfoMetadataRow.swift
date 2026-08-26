@@ -21,20 +21,24 @@ struct DownloadedInfoMetadataRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                if let date = item.metadataDateText { Text(date) }
+                if let date = item.metadataDateText {
+                    Text(date).accessibilityLabel(String(localized: "Released: \(date)"))
+                }
 
                 if let rating = item.metadata.officialRating {
                     Text(rating)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .overlay(RoundedRectangle(cornerRadius: 4).stroke(.secondary))
+                        .accessibilityLabel(String(localized: "Age Rating: \(rating)"))
                 }
 
                 if let duration = item.durationText {
                     // "1h 32m" gets misheard by VoiceOver as "One H Thirty
                     // Two Meters" — see `DownloadedItem
                     // .durationAccessibilityText`'s doc comment.
-                    Text(duration).accessibilityLabel(item.durationAccessibilityText ?? duration)
+                    Text(duration)
+                        .accessibilityLabel(String(localized: "Duration: \(item.durationAccessibilityText ?? duration)"))
                 }
 
                 if let communityRating = item.metadata.communityRating {
@@ -42,6 +46,13 @@ struct DownloadedInfoMetadataRow: View {
                         Image(systemName: "star.fill")
                         Text(String(format: "%.1f", communityRating))
                     }
+                    // See `InfoMetadataRow`'s identical treatment — one
+                    // combined "Rated: 7.9 stars" instead of the star glyph
+                    // and number reading as two separate VoiceOver stops.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(
+                        String(localized: "Rated: \(String(format: "%.1f", communityRating)) stars")
+                    )
                 }
             }
             .font(.subheadline)
@@ -51,6 +62,9 @@ struct DownloadedInfoMetadataRow: View {
                 Text(badges.joined(separator: " \u{00B7} "))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .accessibilityLabel(
+                        String(localized: "Formats: \(badges.map(Self.accessibilityBadge).joined(separator: ", "))")
+                    )
             }
         }
     }
@@ -80,5 +94,19 @@ struct DownloadedInfoMetadataRow: View {
         if height >= 2160 { return "4K" }
         if height >= 720 { return "HD" }
         return "SD"
+    }
+
+    /// See `InfoMetadataRow.accessibilityBadge(_:)` — identical copy, not
+    /// shared, for the same reason that one documents. Only `CC` actually
+    /// appears in this view's own `badges` (no DD/DD+ here — every download
+    /// is transcoded to a fixed audio format), but kept as the same switch
+    /// rather than a one-off special case in case that ever changes.
+    fileprivate static func accessibilityBadge(_ badge: String) -> String {
+        switch badge {
+        case "CC": String(localized: "Closed Captions")
+        case "DD+": String(localized: "Dolby Digital Plus")
+        case "DD": String(localized: "Dolby Digital")
+        default: badge
+        }
     }
 }

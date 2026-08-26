@@ -83,26 +83,29 @@ private struct DownloadedAboutTabContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if !item.metadata.genres.isEmpty {
-                MetadataLine(text: item.metadata.genres.joined(separator: " \u{00B7} "))
+                MetadataLine(items: item.metadata.genres, accessibilityPrefix: String(localized: "Genres"))
             }
 
             if !item.metadata.studios.isEmpty {
-                MetadataLine(text: item.metadata.studios.joined(separator: " \u{00B7} "))
+                MetadataLine(items: item.metadata.studios, accessibilityPrefix: String(localized: "Studios"))
             }
 
             if let tagline = item.metadata.taglines.first, !tagline.isEmpty {
                 Text(tagline)
                     .font(.title3.italic())
                     .foregroundStyle(.primary)
+                    .accessibilityLabel(String(localized: "Tagline: \(tagline)"))
             }
 
             if let overview = item.metadata.overview, !overview.isEmpty {
                 Text(overview)
                     .font(.body)
+                    .accessibilityLabel(String(localized: "Synopsis: \(overview)"))
             } else {
                 Text("No synopsis available.")
                     .font(.body)
                     .foregroundStyle(.secondary)
+                    .accessibilityLabel(String(localized: "Synopsis: No synopsis available."))
             }
         }
     }
