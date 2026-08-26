@@ -31,6 +31,20 @@ enum NextUpCountdownPreference: Int, CaseIterable, Identifiable, Codable {
     }
 
     var seconds: Int? { self == .off ? nil : rawValue }
+
+    /// `displayName`'s spoken counterpart — VoiceOver reads a bare
+    /// digit+"s" like "60s" as a shorthand decade ("Sixties"), not a
+    /// duration, since that's a real, more common abbreviation pattern.
+    /// Spells the unit out in full instead.
+    var accessibilityLabel: String {
+        switch self {
+        case .off:        String(localized: "Off")
+        case .seconds15:  String(localized: "15 seconds")
+        case .seconds30:  String(localized: "30 seconds (Default)")
+        case .seconds45:  String(localized: "45 seconds")
+        case .seconds60:  String(localized: "60 seconds")
+        }
+    }
 }
 
 /// Persisted via `@AppStorage(nextUpCountdownStorageKey)` on `ProfileView`'s

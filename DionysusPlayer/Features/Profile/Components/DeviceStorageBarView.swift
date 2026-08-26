@@ -53,9 +53,21 @@ struct DeviceStorageBarView: View {
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
 
             HStack(spacing: 20) {
-                legendItem(color: Color(.systemGray3), label: String(localized: "Other"), value: nil)
-                legendItem(color: .accentColor, label: String(localized: "This App"), value: appUsedText)
-                legendItem(color: Color(.systemGray5), label: String(localized: "Free"), value: nil)
+                legendItem(
+                    color: Color(.systemGray3), label: String(localized: "Other"), value: nil,
+                    accessibilityLabel: String(localized: "Other: \(spokenFileSize(breakdown.otherUsed))")
+                )
+                legendItem(
+                    color: .accentColor, label: String(localized: "This App"), value: appUsedText,
+                    accessibilityLabel: String(localized: "This App: \(spokenFileSize(breakdown.appUsed))")
+                )
+                legendItem(
+                    color: Color(.systemGray5), label: String(localized: "Free"), value: nil,
+                    // "Free space", not the bare "Free" the visual label
+                    // uses — "Free: 50 gigabytes" on its own reads
+                    // ambiguously out of context, per direct feedback.
+                    accessibilityLabel: String(localized: "Free space: \(spokenFileSize(breakdown.free))")
+                )
             }
             .font(.caption)
 
@@ -76,7 +88,7 @@ struct DeviceStorageBarView: View {
         color.frame(width: max(0, totalWidth * fraction))
     }
 
-    private func legendItem(color: Color, label: String, value: String?) -> some View {
+    private func legendItem(color: Color, label: String, value: String?, accessibilityLabel: String) -> some View {
         HStack(spacing: 4) {
             Circle()
                 .fill(color)
@@ -88,6 +100,37 @@ struct DeviceStorageBarView: View {
             }
         }
         .foregroundStyle(.secondary)
+        // Other/Free show no visual value at all today (`value: nil` —
+        // only "This App" has one, in the parenthetical), so without this
+        // VoiceOver read just the bare "Other"/"Free" with no size at all;
+        // "This App" already had a value but it was still the same raw
+        // "GB"-reads-as-letters problem every other size in this app had.
+        // One explicit grouped label fixes both at once, for all three.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    /// See `DownloadedInfoMetadataRow.spokenFileSize(_:)` — identical parse-
+    /// and-replace idea, adapted to work from raw bytes directly (this view
+    /// already owns `byteFormatter`, so there's a formatted string to
+    /// parse without a caller needing to produce one first).
+    private func spokenFileSize(_ bytes: Int64) -> String {
+        let text = Self.byteFormatter.string(fromByteCount: bytes)
+        guard let spaceIndex = text.lastIndex(of: " ") else { return text }
+        let number = text[..<spaceIndex]
+        let unit = text[text.index(after: spaceIndex)...]
+        let spokenUnit: String?
+        switch unit {
+        case "byte", "bytes": spokenUnit = String(localized: "bytes")
+        case "KB": spokenUnit = String(localized: "kilobytes")
+        case "MB": spokenUnit = String(localized: "megabytes")
+        case "GB": spokenUnit = String(localized: "gigabytes")
+        case "TB": spokenUnit = String(localized: "terabytes")
+        case "PB": spokenUnit = String(localized: "petabytes")
+        default: spokenUnit = nil
+        }
+        guard let spokenUnit else { return text }
+        return "\(number) \(spokenUnit)"
     }
 }
 
