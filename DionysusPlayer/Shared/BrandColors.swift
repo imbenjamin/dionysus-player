@@ -74,6 +74,40 @@ extension Color {
         return UIColor(highContrast ? Color.dionysusAmberHighContrast : Color.dionysusAmber)
     })
 
+    /// Favorite (star) icon colour — deliberately amber in *both*
+    /// appearances, breaking from `dionysusHighlight`'s "no amber in dark"
+    /// rule on purpose: confirmed live (2026-08-26) that a favorite star
+    /// reads better staying the same gold/amber a user already associates
+    /// with "favorited" everywhere else (Mail, Podcasts, Files, ...) than it
+    /// does swapping to magenta in dark mode along with every other accent.
+    /// Used for the star badge on rail items (`PosterCard
+    /// .watchStatusOverlay`) and the favorite toolbar button on asset detail
+    /// pages (`HeroActionButtons`) — anywhere else that wants an adaptive
+    /// (non-amber-in-dark) accent should keep using `dionysusHighlight`
+    /// instead. Still respects Increase Contrast via the same
+    /// `dionysusAmberHighContrast` swap `dionysusHighlight`'s light branch
+    /// uses.
+    static let dionysusFavorite = Color(UIColor { traits in
+        UIColor(traits.accessibilityContrast == .high ? Color.dionysusAmberHighContrast : Color.dionysusAmber)
+    })
+
+    /// Watched (eye) icon colour — deliberately magenta in *both*
+    /// appearances, the mirror-image deviation of `dionysusFavorite` above:
+    /// confirmed live (2026-08-26) on a physical device that the watched eye
+    /// (toolbar button on `HeroActionButtons` and the badge on rail items,
+    /// `PosterCard.watchStatusOverlay`) read as inconsistent between the two
+    /// once `dionysusPrimary`'s usual light/dark swap put it at burgundy in
+    /// light mode — dark mode's magenta (already what `dionysusPrimary`
+    /// resolves to there) is the one that reads correctly, so this pins that
+    /// same magenta for light mode too instead of letting it swap. Anywhere
+    /// else that wants the app's general adaptive accent (the Play button,
+    /// tab bar tint, active filter pills, ...) should keep using
+    /// `dionysusPrimary` — this is scoped to the watched glyph specifically,
+    /// not a replacement for it.
+    static let dionysusWatched = Color(UIColor { traits in
+        UIColor(traits.accessibilityContrast == .high ? Color.dionysusMagentaHighContrast : Color.dionysusMagenta)
+    })
+
     /// Lighter version of `dionysusPrimary` — primary mixed with white, used
     /// as a tinted "badge" background for the secondary "Restart" button,
     /// with a `dionysusPrimary`-coloured icon on top (see
