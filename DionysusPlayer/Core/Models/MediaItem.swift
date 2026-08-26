@@ -162,12 +162,32 @@ struct MediaItem: Identifiable {
     }
 
     var durationText: String? {
-        guard let ticks = dto.runTimeTicks, ticks > 0 else { return nil }
-        let totalMinutes = Int(ticks / 10_000_000 / 60)
+        guard let totalMinutes = durationTotalMinutes else { return nil }
         let hours = totalMinutes / 60
         let minutes = totalMinutes % 60
         if hours > 0 { return "\(hours)h \(minutes)m" }
         return "\(minutes)m"
+    }
+
+    /// Same duration as `durationText`, worded out for VoiceOver — confirmed
+    /// live (real device, VoiceOver on) that the compact "1h 32m" gets
+    /// misheard outright: VoiceOver reads "m" as the metric unit, producing
+    /// "One H Thirty Meters," not "one hour thirty minutes."
+    /// `DateComponentsFormatter`'s `.full` style spells the units out and
+    /// gets pluralization/localization right ("1 hour" vs. "2 hours") in a
+    /// way hand-rolled string interpolation wouldn't.
+    var durationAccessibilityText: String? {
+        guard let totalMinutes = durationTotalMinutes else { return nil }
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .full
+        formatter.allowedUnits = totalMinutes >= 60 ? [.hour, .minute] : [.minute]
+        formatter.zeroFormattingBehavior = .dropAll
+        return formatter.string(from: TimeInterval(totalMinutes * 60))
+    }
+
+    private var durationTotalMinutes: Int? {
+        guard let ticks = dto.runTimeTicks, ticks > 0 else { return nil }
+        return Int(ticks / 10_000_000 / 60)
     }
 
     /// e.g. "S1:E4" for an episode.
@@ -220,8 +240,19 @@ struct MediaItem: Identifiable {
     /// via VoiceOver-style automation reading every one of them back as
     /// blank/"Unnamed".
     var accessibilityDescription: String {
-        guard let railSubtitle else { return railTitle }
-        return "\(railTitle), \(railSubtitle)"
+        guard let railSubtitleAccessibilityText else { return railTitle }
+        return "\(railTitle), \(railSubtitleAccessibilityText)"
+    }
+
+    /// Same composition as `railSubtitle`, but substituting
+    /// `durationAccessibilityText` for `durationText` — see that property's
+    /// own doc comment for why. Movies are the only `railSubtitle` case that
+    /// embeds a duration at all (episode/series never do), so this only
+    /// actually diverges from `railSubtitle` there.
+    private var railSubtitleAccessibilityText: String? {
+        guard dto.type == .movie else { return railSubtitle }
+        let parts = [yearText, durationAccessibilityText].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }
 
     var resumePositionSeconds: Double? {

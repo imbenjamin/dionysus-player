@@ -22,7 +22,12 @@ struct InfoMetadataRow: View {
                         .overlay(RoundedRectangle(cornerRadius: 4).stroke(.secondary))
                 }
 
-                if let duration = item.durationText { Text(duration) }
+                if let duration = item.durationText {
+                    // "1h 32m" gets misheard by VoiceOver as "One H Thirty
+                    // Two Meters" — see `MediaItem.durationAccessibilityText`'s
+                    // doc comment.
+                    Text(duration).accessibilityLabel(item.durationAccessibilityText ?? duration)
+                }
 
                 if let communityRating = item.communityRating {
                     // `Label`'s default icon/title spacing reads as too wide

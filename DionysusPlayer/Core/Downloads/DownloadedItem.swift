@@ -235,12 +235,28 @@ final class DownloadedItem: Identifiable {
     /// across `DownloadedInfoMetadataRow` and `DownloadedEpisodeRow` so
     /// neither duplicates it a second time.
     var durationText: String? {
-        guard let runtimeTicks, runtimeTicks > 0 else { return nil }
-        let totalMinutes = Int(runtimeTicks / 10_000_000 / 60)
+        guard let totalMinutes = durationTotalMinutes else { return nil }
         let hours = totalMinutes / 60
         let minutes = totalMinutes % 60
         if hours > 0 { return "\(hours)h \(minutes)m" }
         return "\(minutes)m"
+    }
+
+    /// Same duration as `durationText`, worded out for VoiceOver — see
+    /// `MediaItem.durationAccessibilityText`'s doc comment for why "1h 32m"
+    /// needs this (VoiceOver mishears it as "One H Thirty Two Meters").
+    var durationAccessibilityText: String? {
+        guard let totalMinutes = durationTotalMinutes else { return nil }
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .full
+        formatter.allowedUnits = totalMinutes >= 60 ? [.hour, .minute] : [.minute]
+        formatter.zeroFormattingBehavior = .dropAll
+        return formatter.string(from: TimeInterval(totalMinutes * 60))
+    }
+
+    private var durationTotalMinutes: Int? {
+        guard let runtimeTicks, runtimeTicks > 0 else { return nil }
+        return Int(runtimeTicks / 10_000_000 / 60)
     }
 
     /// An episode's exact release date, e.g. "1 Aug 2026" — the offline

@@ -209,6 +209,14 @@ private struct EpisodeRow: View {
         return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
     }
 
+    /// Same content as `episodeMetaText`, worded for VoiceOver — see
+    /// `MediaItem.durationAccessibilityText`'s doc comment for why the
+    /// duration half needs this.
+    private var episodeMetaAccessibilityText: String? {
+        let parts = [episode.episodeAirDateText, episode.durationAccessibilityText].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             // A thin accent bar rather than a full-row background/inset —
@@ -280,6 +288,7 @@ private struct EpisodeRow: View {
                             Text(meta)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                                .accessibilityLabel(episodeMetaAccessibilityText ?? meta)
                         }
 
                         if let overview = episode.overview {
