@@ -99,6 +99,11 @@ struct DownloadedAssetDetailView: View {
                         Button(role: .destructive) { showDeleteConfirmation = true } label: {
                             Image(systemName: "trash")
                         }
+                        // Without this, VoiceOver falls back to the SF
+                        // Symbol's own name ("bin"), same class of fix as
+                        // the Restart button's own `.accessibilityLabel` —
+                        // see `PlayResumeButtonRow`'s doc comment.
+                        .accessibilityLabel(String(localized: "Delete Download"))
                     }
                 }
                 .confirmationDialog(

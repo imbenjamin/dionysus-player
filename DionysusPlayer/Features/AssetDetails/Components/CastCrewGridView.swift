@@ -26,6 +26,16 @@ struct CastCrewGridView: View {
 private struct CastMemberCard: View {
     let person: CastMember
 
+    /// "Tom Holland, Ian Lightfoot (voice)" — a single grouped read rather
+    /// than VoiceOver stopping on the headshot, name, and role as three
+    /// separate elements (the headshot itself carries no information of
+    /// its own beyond what the name/role already say, and the default
+    /// per-`Text` splitting made a full card three swipes instead of one).
+    private var accessibilityText: String {
+        guard let role = person.role else { return person.name }
+        return "\(person.name), \(role)"
+    }
+
     var body: some View {
         VStack(spacing: 6) {
             ZStack {
@@ -51,5 +61,7 @@ private struct CastMemberCard: View {
                     .lineLimit(1)
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText)
     }
 }

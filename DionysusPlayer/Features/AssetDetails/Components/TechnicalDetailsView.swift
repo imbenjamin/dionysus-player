@@ -54,8 +54,12 @@ struct TechnicalDetailsView: View {
                     if let resolution = details.resolution { SummaryRow(label: "Resolution", value: resolution) }
                     if let frameRate = details.frameRate { SummaryRow(label: "Frame Rate", value: frameRate) }
                     if let dynamicRange = details.dynamicRange { SummaryRow(label: "Dynamic Range", value: dynamicRange) }
-                    if let bitrate = details.bitrate { SummaryRow(label: "Bitrate", value: bitrate) }
-                    if let fileSize = details.fileSize { SummaryRow(label: "File Size", value: fileSize) }
+                    if let bitrate = details.bitrate {
+                        SummaryRow(label: "Bitrate", value: bitrate, accessibilityValue: details.bitrateAccessibilityText)
+                    }
+                    if let fileSize = details.fileSize {
+                        SummaryRow(label: "File Size", value: fileSize, accessibilityValue: details.fileSizeAccessibilityText)
+                    }
                 }
 
                 if !details.audioTracks.isEmpty {
@@ -80,6 +84,14 @@ struct TechnicalDetailsView: View {
 struct SummaryRow: View {
     let label: String
     let value: String
+    /// Overrides what VoiceOver reads for `value` alone — e.g. spelling out
+    /// "GB"/"Mbps" as real words ("gigabytes"/"megabits per second")
+    /// instead of reading them letter by letter, which is what VoiceOver
+    /// does with an abbreviation it doesn't recognize as a word. `nil`
+    /// (every call site but Bitrate/File Size, and `DownloadedTechnicalDetailsView`'s
+    /// Quality/File Size) leaves `value` read exactly as VoiceOver would
+    /// unprompted.
+    var accessibilityValue: String? = nil
 
     var body: some View {
         HStack {
@@ -88,6 +100,7 @@ struct SummaryRow: View {
             Spacer()
             Text(value)
                 .multilineTextAlignment(.trailing)
+                .accessibilityLabel(accessibilityValue ?? value)
         }
         .font(.subheadline)
     }

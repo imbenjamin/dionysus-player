@@ -100,13 +100,42 @@ struct DownloadedInfoMetadataRow: View {
     /// shared, for the same reason that one documents. Only `CC` actually
     /// appears in this view's own `badges` (no DD/DD+ here — every download
     /// is transcoded to a fixed audio format), but kept as the same switch
-    /// rather than a one-off special case in case that ever changes.
+    /// rather than a one-off special case in case that ever changes. The
+    /// `default` case additionally spells out the file-size badge's unit
+    /// (see `spokenFileSize(_:)`) — every other badge value falls through
+    /// unchanged.
     fileprivate static func accessibilityBadge(_ badge: String) -> String {
         switch badge {
         case "CC": String(localized: "Closed Captions")
         case "DD+": String(localized: "Dolby Digital Plus")
         case "DD": String(localized: "Dolby Digital")
-        default: badge
+        default: spokenFileSize(badge)
         }
+    }
+
+    /// Visually "2.44 GB" (this view's own `badges` already formatted it via
+    /// `ByteCountFormatter`), but VoiceOver reads that as "two dot
+    /// forty-four G B" letter by letter rather than a real unit. Parses the
+    /// already-formatted string rather than reimplementing
+    /// `ByteCountFormatter`'s own unit-selection/rounding, so the two can
+    /// never drift out of agreement. Returns `badge` unchanged for anything
+    /// that isn't actually a byte-size string (resolution/HDR/CC all reach
+    /// here too, via `accessibilityBadge`'s `default` case).
+    private static func spokenFileSize(_ badge: String) -> String {
+        guard let spaceIndex = badge.lastIndex(of: " ") else { return badge }
+        let number = badge[..<spaceIndex]
+        let unit = badge[badge.index(after: spaceIndex)...]
+        let spokenUnit: String?
+        switch unit {
+        case "byte", "bytes": spokenUnit = String(localized: "bytes")
+        case "KB": spokenUnit = String(localized: "kilobytes")
+        case "MB": spokenUnit = String(localized: "megabytes")
+        case "GB": spokenUnit = String(localized: "gigabytes")
+        case "TB": spokenUnit = String(localized: "terabytes")
+        case "PB": spokenUnit = String(localized: "petabytes")
+        default: spokenUnit = nil
+        }
+        guard let spokenUnit else { return badge }
+        return "\(number) \(spokenUnit)"
     }
 }
