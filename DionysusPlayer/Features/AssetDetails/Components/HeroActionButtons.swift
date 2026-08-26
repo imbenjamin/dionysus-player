@@ -58,20 +58,35 @@ struct FavoriteWatchedShowScope {
 /// in the meantime.
 ///
 /// The collapsed button itself uses plain `star`/`star.fill` and
-/// `eye`/`eye.fill` — not the `.circle` variants `PosterCard
+/// `eye.slash`/`eye.fill` — not the `.circle` variants `PosterCard
 /// .watchStatusOverlay`'s badges use — deliberately: this button already
-/// draws its own circular chrome (`icon(_:)` below), and stacking the SF
-/// Symbol's *own* built-in circle inside that would draw two concentric
-/// circles, with the glyph's own circle getting clipped by the 44pt frame
-/// rather than reading as an intentional layered look (confirmed live —
-/// visibly cut off). The expanded `Menu`'s list rows
+/// draws its own circular chrome (`icon(_:tint:isPending:)` below), and
+/// stacking the SF Symbol's *own* built-in circle inside that would draw two
+/// concentric circles, with the glyph's own circle getting clipped by the
+/// 44pt frame rather than reading as an intentional layered look (confirmed
+/// live — visibly cut off). The expanded `Menu`'s list rows
 /// (`favoriteMenuRow`/`watchedMenuRow` below) don't have that problem —
 /// they're plain `Label`s in a system list, not squeezed into a fixed-size
 /// circular container — so those keep the `.circle` variants, matching
 /// `watchStatusOverlay`'s badges the way the collapsed button used to.
-/// State is communicated by the glyph itself (outline vs. filled), not by
-/// tinting the circle behind it. On a Movie/Episode-content page
-/// (`favoriteWatchedShowScope` `nil`) each is a plain toggle on `item`
+///
+/// The unwatched state uses `eye.slash` rather than a plain `eye` — the
+/// bare outline eye read as too close to the watched `eye.fill` glyph at a
+/// glance (confirmed via direct feedback), where the slash reliably reads
+/// as "off" the way it does for `CollectionGridView`'s own Unwatched filter
+/// pill (`watchStatusSystemImage`), which this matches on purpose. State is
+/// primarily communicated by the glyph itself (outline vs. filled/slashed),
+/// with colour as a second signal once a state is actually active — the
+/// filled star and the (non-slashed) eye pick up the same brand colours
+/// `PosterCard.watchStatusOverlay` badges rail items with
+/// (`.dionysusFavorite`/`.dionysusWatched` — both deliberately pinned to one
+/// hue across light/dark rather than deferring to `dionysusHighlight`/
+/// `dionysusPrimary`'s usual swap; see those two constants' doc comments for
+/// why each direction was picked), rather than each screen having its own
+/// idea of what "favorited"/"watched" looks like; the *inactive*
+/// glyph (`star`, `eye.slash`) stays uncoloured either way, so colour never
+/// appears without the glyph shape also agreeing. On a Movie/Episode-content
+/// page (`favoriteWatchedShowScope` `nil`) each is a plain toggle on `item`
 /// itself; on a Show-content page each becomes a `Menu` offering the
 /// Show/Season/Episode independently, each row showing its own current
 /// status — see `FavoriteWatchedShowScope`.
@@ -152,12 +167,12 @@ struct HeroActionButtons: View {
                     favoriteMenuRow(for: episode, label: episode.episodeLabel.map { "\($0)  \(episode.name)" } ?? episode.name)
                 }
             } label: {
-                icon(item.isFavorite ? "star.fill" : "star", isPending: isPending)
+                icon(item.isFavorite ? "star.fill" : "star", tint: item.isFavorite ? .dionysusFavorite : nil, isPending: isPending)
             }
             .accessibilityLabel(String(localized: "Favorite"))
         } else {
             Button(action: { toggleFavorite(item) }) {
-                icon(item.isFavorite ? "star.fill" : "star", isPending: isPending)
+                icon(item.isFavorite ? "star.fill" : "star", tint: item.isFavorite ? .dionysusFavorite : nil, isPending: isPending)
             }
             .buttonStyle(.plain)
             .disabled(isPending)
@@ -178,12 +193,12 @@ struct HeroActionButtons: View {
                     watchedMenuRow(for: episode, label: episode.episodeLabel.map { "\($0)  \(episode.name)" } ?? episode.name)
                 }
             } label: {
-                icon(item.isPlayed ? "eye.fill" : "eye", isPending: isPending)
+                icon(item.isPlayed ? "eye.fill" : "eye.slash", tint: item.isPlayed ? .dionysusWatched : nil, isPending: isPending)
             }
             .accessibilityLabel(String(localized: "Watched"))
         } else {
             Button(action: { toggleWatched(item) }) {
-                icon(item.isPlayed ? "eye.fill" : "eye", isPending: isPending)
+                icon(item.isPlayed ? "eye.fill" : "eye.slash", tint: item.isPlayed ? .dionysusWatched : nil, isPending: isPending)
             }
             .buttonStyle(.plain)
             .disabled(isPending)
@@ -195,7 +210,12 @@ struct HeroActionButtons: View {
         Button {
             toggleFavorite(target)
         } label: {
-            Label(label, systemImage: target.isFavorite ? "star.circle.fill" : "star.circle")
+            Label {
+                Text(label)
+            } icon: {
+                Image(systemName: target.isFavorite ? "star.circle.fill" : "star.circle")
+                    .foregroundStyle(target.isFavorite ? Color.dionysusFavorite : Color.primary)
+            }
         }
         // Same guard as the collapsed (non-Menu) button's `.disabled(isPending)`
         // — without it, re-opening the menu and tapping the same row again
@@ -208,7 +228,14 @@ struct HeroActionButtons: View {
         Button {
             toggleWatched(target)
         } label: {
-            Label(label, systemImage: target.isPlayed ? "eye.circle.fill" : "eye.circle")
+            // `eye.slash.circle`, not plain `eye.circle` — see this file's
+            // top-level doc comment on why unwatched uses the slashed glyph.
+            Label {
+                Text(label)
+            } icon: {
+                Image(systemName: target.isPlayed ? "eye.circle.fill" : "eye.slash.circle")
+                    .foregroundStyle(target.isPlayed ? Color.dionysusWatched : Color.primary)
+            }
         }
         // See `favoriteMenuRow`'s matching guard above.
         .disabled(viewModel.pendingWatchedIDs.contains(target.id))
@@ -242,10 +269,18 @@ struct HeroActionButtons: View {
     /// `isPending` swaps the glyph for a spinner, same size, without
     /// changing the surrounding chrome — see this type's doc comment for why.
     ///
-    /// Deliberately no explicit `.foregroundStyle`/`.tint` on the glyph
-    /// (iOS 26 branch only) — a hardcoded black glyph was tried first, on
-    /// the assumption it'd match the back button's chevron, but that button
-    /// doesn't set an explicit color either, and confirmed live
+    /// `tint`, when non-`nil`, is the one exception to "no explicit
+    /// `.foregroundStyle`" below — see the caller sites (`favoriteButton`/
+    /// `watchedButton`) for when that is: only once the glyph itself is
+    /// already in its active/filled shape (`star.fill`, watched `eye.fill`),
+    /// mirroring the same brand colours `PosterCard.watchStatusOverlay`
+    /// badges rail items with. `nil` (the inactive glyph) falls through to
+    /// the no-tint behaviour below, unchanged.
+    ///
+    /// Otherwise deliberately no explicit `.foregroundStyle`/`.tint` on the
+    /// glyph (iOS 26 branch only) — a hardcoded black glyph was tried first,
+    /// on the assumption it'd match the back button's chevron, but that
+    /// button doesn't set an explicit color either, and confirmed live
     /// (2026-08-11) that's exactly why it — unlike this button once it *did*
     /// hardcode black — stays legible over both a light and a dark patch of
     /// the scrolling hero image: real `.glassEffect` content is
@@ -255,8 +290,9 @@ struct HeroActionButtons: View {
     /// pins the glyph to one color regardless of what's under it. The pre-26
     /// fallback below has no such live-contrast mechanism to defer to —
     /// `.primary` there just tracks light/dark *mode*, not the image behind
-    /// it — so it keeps an explicit color, chosen to read clearly against
-    /// its own opaque background fill instead.
+    /// it — so it keeps an explicit color (overridden by `tint` when set)
+    /// chosen to read clearly against its own opaque background fill
+    /// instead.
     ///
     /// `.body`/`.medium` — not the `20pt`/`.semibold` this started at —
     /// after direct feedback that the original read as too thick/heavy to
@@ -267,11 +303,15 @@ struct HeroActionButtons: View {
     /// The 44pt frame stays fixed either way — shrinking the glyph doesn't
     /// shrink the tap target, just how much of the circle it visually fills.
     @ViewBuilder
-    private func icon(_ systemName: String, isPending: Bool) -> some View {
+    private func icon(_ systemName: String, tint: Color? = nil, isPending: Bool) -> some View {
         if #available(iOS 26.0, *) {
             Group {
                 if isPending {
                     ProgressView()
+                } else if let tint {
+                    Image(systemName: systemName)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(tint)
                 } else {
                     Image(systemName: systemName)
                         .font(.body.weight(.medium))
@@ -290,7 +330,7 @@ struct HeroActionButtons: View {
                 } else {
                     Image(systemName: systemName)
                         .font(.body.weight(.medium))
-                        .foregroundStyle(.black)
+                        .foregroundStyle(tint ?? .black)
                 }
             }
             .frame(width: 44, height: 44)

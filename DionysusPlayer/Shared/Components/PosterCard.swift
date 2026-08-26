@@ -204,8 +204,12 @@ extension View {
                     // what makes the two-color `.foregroundStyle` below
                     // actually paint two different colors instead of the
                     // second one going unused on a single-layer glyph.
+                    // `.dionysusFavorite`, not `.dionysusHighlight` — see
+                    // that constant's doc comment: the favorite star stays
+                    // amber in dark mode too, rather than following
+                    // `dionysusHighlight`'s usual light/dark swap.
                     Image(systemName: "star.circle.fill")
-                        .foregroundStyle(Color.white, Color.dionysusHighlight)
+                        .foregroundStyle(Color.white, Color.dionysusFavorite)
                         .padding(4)
                 }
             }
@@ -215,9 +219,12 @@ extension View {
                     // also uses an eye (see `CollectionGridView
                     // .watchStatusSystemImage`) rather than a checkmark, so
                     // "watched" reads as the same concept/glyph everywhere
-                    // in the app.
+                    // in the app. `.dionysusWatched`, not `.dionysusPrimary`
+                    // — see that constant's doc comment: the watched eye
+                    // stays magenta in light mode too, rather than following
+                    // `dionysusPrimary`'s usual light/dark swap.
                     Image(systemName: "eye.circle.fill")
-                        .foregroundStyle(Color.white, Color.dionysusPrimary)
+                        .foregroundStyle(Color.white, Color.dionysusWatched)
                         .padding(4)
                 }
             }
