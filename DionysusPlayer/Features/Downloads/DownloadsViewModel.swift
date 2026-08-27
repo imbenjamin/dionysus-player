@@ -105,6 +105,36 @@ final class DownloadsViewModel {
         refresh()
     }
 
+    // MARK: Retry
+
+    /// Item IDs with a retry currently in flight — a `Set`, not a single
+    /// value, since nothing stops a user retrying more than one failed row
+    /// before the first finishes. `DownloadsRowView` reads membership to
+    /// show a spinner and disable its own retry button per-row.
+    private(set) var retryingItemIDs: Set<String> = []
+    var retryErrorMessage: String?
+
+    /// Re-attempts a `.failed` download with its original resolution/
+    /// quality/audio choice — see `DownloadManager.retry(itemID:client:)`'s
+    /// own doc comment. Always `refresh()`es afterward regardless of
+    /// outcome: `rows` holds `DownloadedItem` references directly, and a
+    /// successful retry deletes-and-recreates the row under the hood
+    /// (`DownloadManager.enqueue`'s own "clean slate" behavior), so the
+    /// reference this view model is holding is stale either way.
+    func retry(itemID: String, client: JellyfinAPIClient) async {
+        guard !retryingItemIDs.contains(itemID) else { return }
+        retryingItemIDs.insert(itemID)
+        defer {
+            retryingItemIDs.remove(itemID)
+            refresh()
+        }
+        do {
+            try await downloadManager.retry(itemID: itemID, client: client)
+        } catch {
+            retryErrorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "Couldn't retry this download.")
+        }
+    }
+
     // MARK: Bulk selection
 
     var isSelecting = false

@@ -497,4 +497,71 @@ final class DownloadManagerTests: XCTestCase {
 
         XCTAssertTrue(configuration.allowsCellularAccess)
     }
+
+    // MARK: durationValidationFailureReason — the Captain Phillips fix
+    // (2026-08-27): a transcode's chunked HTTP response closes the same way
+    // whether ffmpeg finished normally or crashed partway through, so
+    // `URLSessionDownloadTask` alone can't tell a truncated transfer from a
+    // complete one. `validationFailureReason(relativePath:expectedRuntimeTicks:)`
+    // itself isn't covered here — loading a real `AVURLAsset` is exactly the
+    // "real download engine" IO this file's own doc comment excludes — but
+    // its actual decision logic is split into this pure function precisely
+    // so it can be.
+
+    func test_durationValidationFailureReason_actualMatchesExpected_isNil() {
+        let reason = DownloadManager.durationValidationFailureReason(actualSeconds: 7200, expectedSeconds: 7200)
+        XCTAssertNil(reason)
+    }
+
+    /// A transcode's real output can legitimately land a hair short of the
+    /// source's own runtime (mux/keyframe rounding) — must not fail a
+    /// genuinely complete download over that.
+    func test_durationValidationFailureReason_justUnderExpected_stillPasses() {
+        // 99% of 7200s — comfortably inside the 95% floor.
+        let reason = DownloadManager.durationValidationFailureReason(actualSeconds: 7128, expectedSeconds: 7200)
+        XCTAssertNil(reason)
+    }
+
+    func test_durationValidationFailureReason_exactlyAtThreshold_passes() {
+        let expected = 7200.0
+        let atThreshold = expected * DownloadManager.durationValidationMinimumFraction
+        let reason = DownloadManager.durationValidationFailureReason(actualSeconds: atThreshold, expectedSeconds: expected)
+        XCTAssertNil(reason)
+    }
+
+    func test_durationValidationFailureReason_justBelowThreshold_fails() {
+        let expected = 7200.0
+        let justBelow = expected * DownloadManager.durationValidationMinimumFraction - 1
+        let reason = DownloadManager.durationValidationFailureReason(actualSeconds: justBelow, expectedSeconds: expected)
+        XCTAssertNotNil(reason)
+    }
+
+    /// The Captain Phillips case itself: ~4 minutes actually saved of a
+    /// ~134-minute film (~3% complete) — must fail, loudly, with the
+    /// specific "stopped early" wording rather than the generic
+    /// couldn't-be-verified one.
+    func test_durationValidationFailureReason_massivelyShort_failsWithStoppedEarlyMessage() {
+        let reason = DownloadManager.durationValidationFailureReason(actualSeconds: 231, expectedSeconds: 134 * 60)
+        XCTAssertEqual(reason, "The download stopped early (only 3 of 134 minutes were saved). Try downloading again.")
+    }
+
+    func test_durationValidationFailureReason_zeroDuration_failsWithCouldNotBeVerifiedMessage() {
+        let reason = DownloadManager.durationValidationFailureReason(actualSeconds: 0, expectedSeconds: 7200)
+        XCTAssertEqual(reason, "The downloaded video couldn't be verified. Try downloading again.")
+    }
+
+    /// `AVURLAsset.duration.seconds` reports `.nan` for an asset with no
+    /// readable duration at all (not just zero) — must be treated the same
+    /// as zero, not accidentally pass a `>= expected * 0.95` comparison
+    /// against NaN (which is always `false`, but worth pinning explicitly
+    /// since NaN comparisons are a classic footgun).
+    func test_durationValidationFailureReason_nanDuration_failsWithCouldNotBeVerifiedMessage() {
+        let reason = DownloadManager.durationValidationFailureReason(actualSeconds: .nan, expectedSeconds: 7200)
+        XCTAssertEqual(reason, "The downloaded video couldn't be verified. Try downloading again.")
+    }
+
+    func test_durationValidationFailureReason_negativeDuration_failsWithCouldNotBeVerifiedMessage() {
+        let reason = DownloadManager.durationValidationFailureReason(actualSeconds: -1, expectedSeconds: 7200)
+        XCTAssertEqual(reason, "The downloaded video couldn't be verified. Try downloading again.")
+    }
 }

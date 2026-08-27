@@ -3,6 +3,16 @@ import XCTest
 
 @MainActor
 final class DownloadsViewModelTests: XCTestCase {
+    private let baseURL = URL(string: "https://jellyfin.example.com")!
+    private func makeClient() -> JellyfinAPIClient {
+        JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
+    }
+
+    override func tearDown() {
+        MockURLProtocol.reset()
+        super.tearDown()
+    }
+
     private func makeEpisode(itemID: String, seriesID: String, seriesTitle: String, episodeNumber: Int) -> DownloadedItem {
         let item = DownloadTestHelpers.makeItem(itemID: itemID)
         item.kind = .episode
@@ -257,6 +267,42 @@ final class DownloadsViewModelTests: XCTestCase {
         viewModel.toggleSelectAll()
 
         XCTAssertNil(viewModel.selectedTotalSizeText)
+    }
+
+    // MARK: retry(itemID:client:) — the Downloads-list row's own retry
+    // button (2026-08-27), wired to `DownloadManager.retry(itemID:client:)`.
+    // As with `DownloadManagerTests`' own `retry` coverage, only the
+    // branches that don't require `enqueue()`'s network-heavy internals to
+    // run to completion are covered here.
+
+    func test_retry_rowNotFailed_isNoOpAndMakesNoRequest() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .downloading))
+        let viewModel = DownloadsViewModel(downloadManager: manager)
+        MockURLProtocol.requestHandler = { _ in XCTFail("must not hit the network for a non-failed row"); throw URLError(.badURL) }
+
+        await viewModel.retry(itemID: "item-1", client: makeClient())
+
+        XCTAssertNil(viewModel.retryErrorMessage)
+        XCTAssertTrue(viewModel.retryingItemIDs.isEmpty)
+    }
+
+    /// A network failure during retry surfaces through `retryErrorMessage`
+    /// (what `DownloadsView`'s alert reads) rather than being swallowed —
+    /// and `retryingItemIDs` still ends up empty afterward either way, so
+    /// the row's retry button doesn't stay stuck disabled/spinning.
+    func test_retry_networkFailure_setsRetryErrorMessageAndClearsRetryingState() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .failed))
+        let viewModel = DownloadsViewModel(downloadManager: manager)
+        MockURLProtocol.requestHandler = { _ in throw URLError(.notConnectedToInternet) }
+
+        await viewModel.retry(itemID: "item-1", client: makeClient())
+
+        XCTAssertNotNil(viewModel.retryErrorMessage)
+        XCTAssertTrue(viewModel.retryingItemIDs.isEmpty)
     }
 
     func test_deleteSelected_selectAll_removesEverything() {

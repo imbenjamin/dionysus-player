@@ -42,6 +42,39 @@ struct DownloadsView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             }
+            .alert("Couldn't Retry Download", isPresented: isShowingRetryError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(viewModel?.retryErrorMessage ?? "")
+            }
+    }
+
+    /// Presented exactly while `viewModel.retryErrorMessage` is non-`nil`;
+    /// dismissing (either button, or a swipe/tap-away) clears it back to
+    /// `nil` so the same message can't reappear stale on the next failure.
+    private var isShowingRetryError: Binding<Bool> {
+        Binding(
+            get: { viewModel?.retryErrorMessage != nil },
+            set: { isPresented in if !isPresented { viewModel?.retryErrorMessage = nil } }
+        )
+    }
+
+    private func isRetrying(_ row: DownloadsRow) -> Bool {
+        guard case .standalone(let item) = row else { return false }
+        return viewModel?.retryingItemIDs.contains(item.itemID) ?? false
+    }
+
+    /// `nil` — which hides `DownloadsRowView`'s retry button entirely,
+    /// rather than showing it disabled — for anything that isn't a failed
+    /// standalone item, or when there's no live session to retry with
+    /// (`DownloadManager.retry(itemID:client:)` needs one; same gating
+    /// `DownloadedPlayResumeButtonRow`'s own Retry button uses).
+    private func retryAction(_ row: DownloadsRow) -> (() -> Void)? {
+        guard case .standalone(let item) = row, item.status == .failed, let client = appState.apiClient else { return nil }
+        return {
+            guard let viewModel else { return }
+            Task { await viewModel.retry(itemID: item.itemID, client: client) }
+        }
     }
 
     /// e.g. "Delete 3 Downloads (1.24 GB)?" — falls back to the plain
@@ -118,7 +151,9 @@ struct DownloadsView: View {
                             isSelecting: viewModel.isSelecting,
                             isSelected: viewModel.selectedRowIDs.contains(row.id),
                             sizeBytes: viewModel.rowSizes[row.id],
-                            onToggleSelection: { viewModel.toggleSelection(row.id) }
+                            isRetrying: isRetrying(row),
+                            onToggleSelection: { viewModel.toggleSelection(row.id) },
+                            onRetry: retryAction(row)
                         )
                         .swipeActions {
                             // Only the ordinary single-item delete — bulk
@@ -157,7 +192,12 @@ private struct DownloadsRowView: View {
     /// comment. `nil`/`0` (nothing completed to size yet) simply shows no
     /// size text rather than "0 B".
     var sizeBytes: Int64? = nil
+    var isRetrying: Bool = false
     var onToggleSelection: () -> Void = {}
+    /// `nil` hides the retry button entirely rather than showing it
+    /// disabled — see `DownloadsView.retryAction(_:)`'s own doc comment for
+    /// when that is.
+    var onRetry: (() -> Void)? = nil
 
     var body: some View {
         if isSelecting {
@@ -219,6 +259,8 @@ private struct DownloadsRowView: View {
                     // byte progress yet, but a plain spinner beats blank
                     // space.
                     ProgressView().controlSize(.small)
+                } else if !isSelecting, let onRetry {
+                    retryButton(action: onRetry)
                 }
             }
         case .show(_, let seriesTitle, let posterImagePath, let episodeCount):
@@ -245,6 +287,29 @@ private struct DownloadsRowView: View {
         return FileSizeText.text(bytes: sizeBytes)
     }
 
+    /// `.buttonStyle(.borderless)`, not `.plain` — this sits inside a row
+    /// that's itself a `NavigationLink`'s label (outside selection mode),
+    /// and `.borderless` is what lets it act as its own independent tap
+    /// target instead of the surrounding `NavigationLink` swallowing the
+    /// tap, the documented SwiftUI pattern for a secondary `List` row
+    /// action. Icon-only, unlike `DownloadedPlayResumeButtonRow.failedRow`'s
+    /// full-width labeled Retry button — this is a compact list row, not a
+    /// detail page, but the same spinner-replaces-icon-while-retrying
+    /// treatment and brand tint.
+    private func retryButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            if isRetrying {
+                ProgressView().controlSize(.small)
+            } else {
+                Image(systemName: "arrow.clockwise")
+            }
+        }
+        .buttonStyle(.borderless)
+        .tint(.dionysusPrimary)
+        .disabled(isRetrying)
+        .accessibilityLabel(String(localized: "Retry Download"))
+    }
+
     /// Live byte progress for a standalone row still mid-download —
     /// `nil` once completed (or if it somehow failed, see `subtitleLine`).
     private func progress(for item: DownloadedItem) -> DownloadProgress? {
@@ -266,7 +331,13 @@ private struct DownloadsRowView: View {
             // .downloadStatusRow`'s doc comment on the same distinction.
             Text("Queued…").font(.caption).foregroundStyle(.secondary)
         case .failed:
-            Text("Download Failed").font(.caption).foregroundStyle(.red)
+            // The specific reason when there is one (e.g. `DownloadManager`'s
+            // duration-validation message) — same `errorMessage ??` fallback
+            // `DownloadedPlayResumeButtonRow.failedRow` already uses, so the
+            // two don't disagree about what a failed download's row says.
+            Text(item.errorMessage ?? String(localized: "Download Failed"))
+                .font(.caption).foregroundStyle(.red)
+                .lineLimit(2)
         case .paused:
             Text("Paused").font(.caption).foregroundStyle(.secondary)
         case .completed:

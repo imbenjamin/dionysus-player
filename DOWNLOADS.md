@@ -446,6 +446,23 @@ change them together.
   is chunked, so the real output size isn't known until the transfer finishes.
   Progress is computed against `(videoBitrate + audioBitrate) × runtime`, which
   is why a download can sit at 100% briefly while the last bytes arrive.
+
+  This has a sharper consequence than a cosmetic progress bar: a chunked
+  response with no length also means `URLSessionDownloadTask` has no way to
+  tell a *complete* transfer from one that stopped early — confirmed live
+  (2026-08-27, "Captain Phillips"): a server-side VideoToolbox filter crash
+  killed ffmpeg 3:50 into a 134-minute film, and Jellyfin closed the HTTP
+  stream the same way it would have on success. The download reported as a
+  normal completion — a playable, HTTP-200, four-minute file with no error of
+  any kind. `DownloadManager` now guards against exactly this:
+  `finalizeCompletedDownload` loads the moved file's real duration
+  (`AVURLAsset`) and compares it against the item's own `runtimeTicks` before
+  trusting a `.success` result — anything under 95% of the expected runtime is
+  routed to `.failed` instead, the truncated file is deleted, and the specific
+  reason ("stopped early — only 4 of 134 minutes were saved") surfaces on the
+  Downloads list row and via the Retry button there. 95%, not 100%: real
+  transcode output can land a fraction of a second short of the source's own
+  metadata (keyframe/mux rounding) without anything being wrong.
 - **No `DeviceProfile` is sent.** The app hand-builds the stream URL rather than
   negotiating through `PlaybackInfo`, which bypasses Jellyfin's own stream
   selection entirely. That's what makes the ladder fully deterministic, but it

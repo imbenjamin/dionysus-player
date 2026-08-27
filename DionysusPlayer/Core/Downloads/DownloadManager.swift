@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Observation
 
@@ -791,22 +792,110 @@ final class DownloadManager: NSObject {
                 // line regardless of whether this row still exists below
                 // (it may have been deleted mid-download).
                 self.admitQueuedDownloadsIfPossible()
-                guard let row = self.store.item(itemID: itemID) else { return }
                 switch result {
                 case .success:
-                    row.status = .completed
-                    row.errorMessage = nil
+                    // Split into its own `Task` — validating needs to
+                    // `await` an `AVURLAsset` duration load, which this
+                    // closure (a synchronous callback) can't do directly.
+                    // The session/queue cleanup above already ran
+                    // unconditionally, so freeing this concurrency slot for
+                    // the next queued download doesn't wait on it.
+                    Task { @MainActor in
+                        await self.finalizeCompletedDownload(itemID: itemID, relativePath: relativePath)
+                    }
                 case .failure(let error):
+                    guard let row = self.store.item(itemID: itemID) else { return }
                     row.status = .failed
                     row.errorMessage = Self.friendlyDownloadFailureMessage(for: error)
+                    self.store.save()
                 }
-                self.store.save()
             },
             onFinishedEvents: { [weak self] in
                 self?.backgroundCompletionHandlers.removeValue(forKey: itemID)?()
             }
         )
     }
+
+    /// Runs once the transfer itself succeeded (a good HTTP status, the file
+    /// already moved into place by `DownloadSessionDelegate`) but before
+    /// trusting that as a genuinely complete download — see
+    /// `validationFailureReason(relativePath:expectedRuntimeTicks:)`'s own
+    /// doc comment for why that isn't automatic. A row deleted mid-transfer
+    /// (`store.item(itemID:)` returns `nil`) has nothing left to update.
+    private func finalizeCompletedDownload(itemID: String, relativePath: String) async {
+        guard let row = store.item(itemID: itemID) else { return }
+        if let failureReason = await Self.validationFailureReason(relativePath: relativePath, expectedRuntimeTicks: row.runtimeTicks) {
+            // Otherwise a `.failed` row would still point at a real,
+            // playable-up-to-where-it-stopped file — confirmed live
+            // (2026-08-27): exactly what made the underlying bug this
+            // guards against invisible in the first place.
+            try? FileManager.default.removeItem(at: DownloadFileStore.url(forRelativePath: relativePath))
+            row.status = .failed
+            row.errorMessage = failureReason
+        } else {
+            row.status = .completed
+            row.errorMessage = nil
+        }
+        store.save()
+    }
+
+    /// `nil` when the downloaded file's own actual duration is close enough
+    /// to what `expectedRuntimeTicks` (the item's known runtime, set at
+    /// enqueue time) says it should be; a user-facing reason otherwise.
+    ///
+    /// This exists because a transcode's HTTP response has no
+    /// `Content-Length` (chunked, per `DOWNLOADS.md`) and, empirically,
+    /// closes the same way whether ffmpeg finished normally or crashed
+    /// partway through — confirmed live (2026-08-27): a VideoToolbox
+    /// `scale_vt` crash on a Dolby Vision source under concurrent transcode
+    /// load produced a perfectly valid, HTTP-200, *playable* four-minute
+    /// MP4 for a 134-minute film, and `URLSessionDownloadTask` reported it
+    /// as a completed transfer. `DownloadSessionDelegate`'s existing
+    /// HTTP-status check only catches an outright error response, not a
+    /// stream that ends early while still claiming success — this is the
+    /// second check that closes that gap.
+    private static func validationFailureReason(relativePath: String, expectedRuntimeTicks: Int64?) async -> String? {
+        guard let expectedRuntimeTicks, expectedRuntimeTicks > 0 else { return nil }
+        let expectedSeconds = Double(expectedRuntimeTicks) / 10_000_000
+        let asset = AVURLAsset(url: DownloadFileStore.url(forRelativePath: relativePath))
+        let actualSeconds: Double
+        do {
+            actualSeconds = try await asset.load(.duration).seconds
+        } catch {
+            return String(localized: "The downloaded video couldn't be verified. Try downloading again.")
+        }
+        return durationValidationFailureReason(actualSeconds: actualSeconds, expectedSeconds: expectedSeconds)
+    }
+
+    /// The actual decision logic behind `validationFailureReason(relativePath:
+    /// expectedRuntimeTicks:)`, split out as a pure function so it's directly
+    /// unit-testable without touching `AVFoundation`/real files — this
+    /// codebase's own convention for the download engine (`DownloadManagerTests`'
+    /// own doc comment: the real background `URLSessionDownloadTask`/delegate
+    /// machinery isn't unit-tested; the logic that decides what it means is).
+    /// Not `private` for the same reason `isHDR` isn't — a test target needs
+    /// to call it directly.
+    static func durationValidationFailureReason(actualSeconds: Double, expectedSeconds: Double) -> String? {
+        guard actualSeconds.isFinite, actualSeconds > 0 else {
+            return String(localized: "The downloaded video couldn't be verified. Try downloading again.")
+        }
+        guard actualSeconds >= expectedSeconds * durationValidationMinimumFraction else {
+            let actualMinutes = Int(actualSeconds / 60)
+            let expectedMinutes = Int(expectedSeconds / 60)
+            return String(localized: "The download stopped early (only \(actualMinutes) of \(expectedMinutes) minutes were saved). Try downloading again.")
+        }
+        return nil
+    }
+
+    /// How much of the expected runtime a downloaded file must actually
+    /// contain to count as complete. Not exactly 100% — a real transcode's
+    /// output can legitimately land a fraction of a second short of the
+    /// source's own `RunTimeTicks` (keyframe/mux rounding at the very end),
+    /// so a hard equality check would produce false failures on perfectly
+    /// good downloads. 95% comfortably clears that noise floor while still
+    /// catching a catastrophically short file by a wide margin — Captain
+    /// Phillips' truncated download was ~3% of its expected runtime.
+    static let durationValidationMinimumFraction = 0.95
 
     // MARK: - Delete
 
