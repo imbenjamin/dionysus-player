@@ -564,4 +564,47 @@ final class DownloadManagerTests: XCTestCase {
         let reason = DownloadManager.durationValidationFailureReason(actualSeconds: -1, expectedSeconds: 7200)
         XCTAssertEqual(reason, "The downloaded video couldn't be verified. Try downloading again.")
     }
+
+    // MARK: DownloadProgress — live transcode-completion percentage (2026-08-27)
+
+    func test_downloadProgress_noTranscodePercentage_usesByteFraction() {
+        let progress = DownloadProgress(bytesDownloaded: 50, totalBytesExpected: 100)
+        XCTAssertEqual(progress.fractionCompleted, 0.5, accuracy: 0.0001)
+        XCTAssertTrue(progress.isDeterminate)
+    }
+
+    func test_downloadProgress_transcodePercentagePresent_takesPriorityOverByteFraction() {
+        // The Greatest Showman case: bytes alone would read ~55%, but the
+        // server's own transcode timeline knows it's actually done.
+        var progress = DownloadProgress(bytesDownloaded: 55, totalBytesExpected: 100)
+        progress.transcodeCompletionPercentage = 99.5
+        XCTAssertEqual(progress.fractionCompleted, 0.99, accuracy: 0.0001)
+    }
+
+    func test_downloadProgress_fractionCompleted_neverReachesFullBeforeRealCompletion() {
+        var byOverBudget = DownloadProgress(bytesDownloaded: 120, totalBytesExpected: 100)
+        XCTAssertEqual(byOverBudget.fractionCompleted, 0.99, accuracy: 0.0001)
+
+        byOverBudget.transcodeCompletionPercentage = 100
+        XCTAssertEqual(byOverBudget.fractionCompleted, 0.99, accuracy: 0.0001)
+    }
+
+    func test_downloadProgress_noTotalAndNoTranscodePercentage_isIndeterminate() {
+        let progress = DownloadProgress(bytesDownloaded: 50, totalBytesExpected: 0)
+        XCTAssertFalse(progress.isDeterminate)
+        XCTAssertEqual(progress.fractionCompleted, 0)
+    }
+
+    func test_downloadProgress_transcodePercentageWithNoKnownTotal_isDeterminate() {
+        var progress = DownloadProgress(bytesDownloaded: 50, totalBytesExpected: 0)
+        progress.transcodeCompletionPercentage = 20
+        XCTAssertTrue(progress.isDeterminate)
+        XCTAssertEqual(progress.fractionCompleted, 0.2, accuracy: 0.0001)
+    }
+
+    func test_downloadProgress_statusText_prefersTranscodePercentageOverByteCount() {
+        var progress = DownloadProgress(bytesDownloaded: 50, totalBytesExpected: 0)
+        progress.transcodeCompletionPercentage = 33
+        XCTAssertEqual(progress.statusText, "Downloading… 33%")
+    }
 }

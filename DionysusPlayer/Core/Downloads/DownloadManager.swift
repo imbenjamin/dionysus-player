@@ -15,21 +15,53 @@ struct DownloadProgress: Equatable {
     /// itself reported. `<= 0` only when even that estimate couldn't be
     /// computed.
     var totalBytesExpected: Int64
+    /// Jellyfin's own live `TranscodingInfo.CompletionPercentage` (0...100)
+    /// for this item's active transcode job, polled separately by
+    /// `DownloadManager.startTranscodeProgressPolling` — real encode-timeline
+    /// progress (ffmpeg's own position against the source's total duration),
+    /// immune to the content-adaptive-bitrate variance that makes
+    /// `bytesDownloaded`/`totalBytesExpected` alone run anywhere from ~46%
+    /// to ~95% "full" by the time a transcode actually finishes (see
+    /// DOWNLOADS.md's "Content-adaptive spread, in the wild"). `nil` for a
+    /// stream-copy download (no transcode job exists to report on), before
+    /// the first poll response arrives, or for a download reattached after
+    /// a relaunch (polling needs a live signed-in client, which isn't
+    /// available that early — see that method's doc comment).
+    var transcodeCompletionPercentage: Double? = nil
 
     var isTotalKnown: Bool { totalBytesExpected > 0 }
 
-    /// `0` when `!isTotalKnown`. Clamped to `1` — `totalBytesExpected` is an
-    /// estimate, and real encoder output can land slightly above it.
+    /// Whether `fractionCompleted` reflects a real number rather than a
+    /// hardcoded `0` — either source counts.
+    var isDeterminate: Bool { transcodeCompletionPercentage != nil || isTotalKnown }
+
+    /// The fraction actually shown, from whichever source is available —
+    /// `transcodeCompletionPercentage` preferred over the byte estimate when
+    /// present (see its own doc comment) — and, either way, capped just
+    /// short of full: real completion is only ever signalled by the
+    /// transfer's own completion callback, never by this number, so it must
+    /// not visually read "done" a tick before that actually fires (a real
+    /// transcode's output can be smaller than predicted and finish while
+    /// the byte estimate is still well under 100%, or the completion
+    /// percentage can round to 100 slightly before the last bytes actually
+    /// land).
     var fractionCompleted: Double {
-        guard isTotalKnown else { return 0 }
-        return min(1, Double(bytesDownloaded) / Double(totalBytesExpected))
+        let raw: Double
+        if let transcodeCompletionPercentage {
+            raw = transcodeCompletionPercentage / 100
+        } else if isTotalKnown {
+            raw = Double(bytesDownloaded) / Double(totalBytesExpected)
+        } else {
+            return 0
+        }
+        return min(0.99, max(0, raw))
     }
 
-    /// "Downloading… 42%" when the server reported a total size,
-    /// "Downloading… 128 MB" (bytes transferred so far, the only number
-    /// there is to show) when it didn't.
+    /// "Downloading… 42%" whenever there's a number to show (byte estimate
+    /// or live transcode percentage), "Downloading… 128 MB" (bytes
+    /// transferred so far, the only number there is) when there isn't.
     var statusText: String {
-        if isTotalKnown {
+        if isDeterminate {
             return String(localized: "Downloading… \(Int((fractionCompleted * 100).rounded()))%")
         }
         let downloaded = ByteCountFormatter.string(fromByteCount: bytesDownloaded, countStyle: .file)
@@ -84,8 +116,19 @@ final class DownloadManager: NSObject {
     /// reattachment recover which item a bare identifier belongs to with
     /// no extra state to keep in sync.
     private static let backgroundSessionIdentifierPrefix = "com.dionysus.downloads."
-    /// Jellyfin transcode jobs need to warm up before streaming bytes back.
-    private static let downloadRequestTimeout: TimeInterval = 60
+    /// Applies both to the initial warm-up (Jellyfin transcode jobs need a
+    /// moment before streaming bytes back) and to any later gap in the
+    /// stream — `URLSessionConfiguration.timeoutIntervalForRequest` resets
+    /// on every received chunk, it isn't a one-shot connect timeout. Raised
+    /// from 60s (2026-08-27): a real, transient stall under
+    /// concurrent-download CPU contention could exceed 60s on its own,
+    /// which tore down this client's own connection well before it had any
+    /// chance to matter — see `startTranscodeProgressPolling`'s doc comment
+    /// for the fuller, confirmed-live chain this was one link in. Deliberately
+    /// still finite, not `.infinity`: a genuinely dead connection (server
+    /// down, network gone) should still fail within a bounded time rather
+    /// than hang until `downloadResourceTimeout`.
+    private static let downloadRequestTimeout: TimeInterval = 120
     /// Bounds the whole resource fetch, not just the warm-up above — a 4K
     /// transcode can run for a long time.
     private static let downloadResourceTimeout: TimeInterval = 60 * 60 * 6
@@ -124,6 +167,17 @@ final class DownloadManager: NSObject {
     /// `delete(itemID:)` can actually cancel an in-flight transfer, not
     /// just drop this manager's delegate reference to it.
     private var sessions: [String: URLSession] = [:]
+    /// Live-transcode-progress poll loops, keyed by itemID — see
+    /// `startTranscodeProgressPolling`. Cancelled (and removed) whenever a
+    /// download finishes, fails, or is deleted.
+    private var transcodeProgressPollTasks: [String: Task<Void, Never>] = [:]
+    /// How often `startTranscodeProgressPolling` both re-checks `/Sessions`
+    /// and sends its keep-alive ping — frequent enough that the on-screen
+    /// percentage moves visibly and comfortably inside Jellyfin's 10-second
+    /// kill-timer window (see that method's doc comment), infrequent enough
+    /// not to compete meaningfully with the transcode itself over the
+    /// connection.
+    private static let transcodeProgressPollInterval: Duration = .seconds(2)
     /// Item IDs `reattachInFlightDownloads`'s async liveness check has
     /// claimed but not yet resolved for — guards against it and
     /// `reattachBackgroundSession` both creating a session for the same
@@ -234,12 +288,18 @@ final class DownloadManager: NSObject {
         // negligible. Falls back to the container figure only when the
         // server didn't report a per-stream one.
         let sourceVideoBitrate = videoStream?.bitRate ?? mediaSource.bitrate
+        // One per download, threaded through both the stream request itself
+        // and the keep-alive ping loop below — see
+        // `JellyfinAPIClient.pingDownloadTranscode`'s doc comment for why a
+        // download needs a real `PlaySessionId` at all.
+        let playSessionId = UUID().uuidString
 
         guard let downloadURL = await client.downloadStreamURL(
             itemID: item.id, mediaSourceID: mediaSourceID, audioStreamIndex: audioTrack?.index,
             resolution: resolution, preset: preset, isSourceHDR: isSourceHDR,
             sourceWidth: videoStream?.width, sourceHeight: videoStream?.height,
-            sourceBitrate: sourceVideoBitrate, sourceVideoCodec: videoStream?.codec
+            sourceBitrate: sourceVideoBitrate, sourceVideoCodec: videoStream?.codec,
+            playSessionId: playSessionId
         ) else { throw DownloadError.invalidDownloadURL }
 
         let target = DownloadTranscodeCalculator.target(
@@ -346,6 +406,14 @@ final class DownloadManager: NSObject {
         store.save()
 
         queueVideoDownload(itemID: item.id)
+        // Started for every download, not just a real re-encode — the
+        // keep-alive ping this loop also sends matters for a stream-copy
+        // job too (still a `Progressive`-type job on the server, subject to
+        // the same kill-timer). `videoStreamCopyEligible` only affects
+        // whether a completion percentage ever shows up to read, which
+        // `startTranscodeProgressPolling` already handles by simply finding
+        // nothing to apply.
+        startTranscodeProgressPolling(itemID: item.id, mediaSourceID: mediaSourceID, playSessionId: playSessionId, client: client)
     }
 
     /// Re-attempts a `.failed` download using the same resolution/quality/
@@ -774,12 +842,21 @@ final class DownloadManager: NSObject {
             destinationRelativePath: relativePath,
             onProgress: { [weak self] downloaded, expected in
                 let total = expected > 0 ? expected : estimatedTotalBytes
-                self?.activeDownloads[itemID] = DownloadProgress(bytesDownloaded: downloaded, totalBytesExpected: total)
+                // Merged into whatever's already there, not overwritten —
+                // a fresh `DownloadProgress()` here would blow away
+                // `transcodeCompletionPercentage` set by the independent
+                // polling loop (`startTranscodeProgressPolling`) every time
+                // a new byte chunk arrives.
+                var progress = self?.activeDownloads[itemID] ?? DownloadProgress(bytesDownloaded: 0, totalBytesExpected: 0)
+                progress.bytesDownloaded = downloaded
+                progress.totalBytesExpected = total
+                self?.activeDownloads[itemID] = progress
             },
             onCompletion: { [weak self] result in
                 guard let self else { return }
                 self.activeDownloads[itemID] = nil
                 self.delegates[itemID] = nil
+                self.stopTranscodeProgressPolling(itemID: itemID)
                 // A `URLSession` created with an explicit delegate retains
                 // itself and its delegate until explicitly invalidated —
                 // dropping this manager's own reference alone doesn't
@@ -897,6 +974,110 @@ final class DownloadManager: NSObject {
     /// Phillips' truncated download was ~3% of its expected runtime.
     static let durationValidationMinimumFraction = 0.95
 
+    // MARK: - Live transcode-progress polling
+
+    /// Runs two independent jobs every `transcodeProgressPollInterval` for
+    /// the life of one download's video transfer:
+    ///
+    /// 1. **Keep-alive ping** (`JellyfinAPIClient.pingDownloadTranscode`) —
+    ///    unconditional, for every download including a stream-copy one
+    ///    (still a `Progressive`-type job server-side, still subject to the
+    ///    same kill timer). Confirmed live (2026-08-27): a real, transient
+    ///    connection stall under concurrent-download CPU contention gets
+    ///    read by Jellyfin as the client disconnecting, which arms a
+    ///    10-second kill timer on the still-wanted transcode job — and
+    ///    without a ping on the same `PlaySessionId`, nothing refreshes it,
+    ///    so the job dies and a later automatic reconnect has to start an
+    ///    entirely new transcode from byte zero (confirmed via the actual
+    ///    server logs: three full independent re-encodes of the same
+    ///    12-minute stretch of one episode, each ended by exactly this kill
+    ///    timer). Pinging every two seconds — well inside that 10-second
+    ///    window — keeps the job alive through a stall so a reconnect just
+    ///    reattaches to the same in-progress job instead.
+    /// 2. **Live completion percentage** — see
+    ///    `DownloadProgress.transcodeCompletionPercentage`'s doc comment for
+    ///    why this exists. Uses `currentSession(deviceID:)` directly rather
+    ///    than matching a specific item/session out of a list — confirmed
+    ///    live that Jellyfin never populates `NowPlayingItem`/
+    ///    `PlayState.MediaSourceId` for a plain transcode-stream request the
+    ///    way it does for a real playback session, so an item-matching
+    ///    filter here would silently match nothing, every time. This
+    ///    device only ever has one session row regardless (matches
+    ///    `currentSession(deviceID:)`'s own doc comment), so using it
+    ///    directly is both correct and simpler — but it also means two
+    ///    *concurrent* downloads (`DownloadPreferencesStore
+    ///    .maxConcurrentDownloads` defaults to 5, so this is common, not
+    ///    rare) share that one `TranscodingInfo`, clobbered by whichever job
+    ///    reported last — confirmed live by running two transcodes at once
+    ///    from the same `DeviceId`. Applying that value to *this* item's
+    ///    progress when another transcoding download is also active would
+    ///    be actively wrong, not just imprecise, so it's only trusted while
+    ///    `transcodeProgressPollTasks.count == 1`; every download falls back
+    ///    to its own (per-item, always-correct) byte estimate whenever more
+    ///    than one transcode is active.
+    ///
+    /// Uses `client` as handed to `enqueue`/`retry` at call time rather
+    /// than a client stored on this manager — `DownloadManager` is
+    /// deliberately never given a long-lived client reference (see
+    /// `onRowMarkedForDeletion`'s doc comment: unlike `AppState.apiClient`,
+    /// this manager outlives sign-in/sign-out/server changes, so a stored
+    /// client would go stale). The trade-off: a download reattached after a
+    /// relaunch (`reattachInFlightDownloads`/`reattachBackgroundSession`,
+    /// both of which run before any client exists) never gets this loop at
+    /// all — no ping, no live percentage — and falls back to whatever the
+    /// background `URLSessionDownloadTask` itself can recover on its own.
+    /// That's a real gap specifically for the kill-timer problem (a
+    /// relaunch-reattached download has no protection against it), not just
+    /// the display-only limitation it was before this ping existed.
+    ///
+    /// A failed ping or poll (network hiccup, sign-out mid-download) is
+    /// silently skipped rather than treated as an error — both are
+    /// best-effort, and a single missed tick two seconds before the next
+    /// one is immaterial either way.
+    private func startTranscodeProgressPolling(itemID: String, mediaSourceID: String, playSessionId: String, client: JellyfinAPIClient) {
+        transcodeProgressPollTasks[itemID]?.cancel()
+        transcodeProgressPollTasks[itemID] = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.transcodeProgressPollInterval)
+                guard !Task.isCancelled, let self else { return }
+                try? await client.pingDownloadTranscode(itemID: itemID, mediaSourceID: mediaSourceID, playSessionId: playSessionId)
+                guard var progress = self.activeDownloads[itemID] else { continue }
+
+                // See the doc comment above: only trust the shared session's
+                // percentage while this is the only transcoding download in
+                // flight — otherwise it may belong to a different item.
+                guard self.transcodeProgressPollTasks.count == 1 else {
+                    // Confirmed live (2026-08-27): without this, a value set
+                    // while this WAS the only transcoding download (e.g.
+                    // ~50%) simply froze there the instant a second download
+                    // started — `fractionCompleted` always prefers this
+                    // field over the byte estimate, and nothing was clearing
+                    // it just because it could no longer be trusted, so the
+                    // ring sat pinned to a stale number while the real byte
+                    // count kept climbing underneath, right up until the
+                    // item actually finished. Clearing it here lets display
+                    // fall back to the byte estimate — imprecise, but never
+                    // frozen or wrong — for as long as the ambiguity lasts.
+                    if progress.transcodeCompletionPercentage != nil {
+                        progress.transcodeCompletionPercentage = nil
+                        self.activeDownloads[itemID] = progress
+                    }
+                    continue
+                }
+                guard let session = try? await client.currentSession(deviceID: DeviceIdentity.deviceID),
+                      let percentage = session.transcodingInfo?.completionPercentage
+                else { continue }
+                progress.transcodeCompletionPercentage = percentage
+                self.activeDownloads[itemID] = progress
+            }
+        }
+    }
+
+    private func stopTranscodeProgressPolling(itemID: String) {
+        transcodeProgressPollTasks[itemID]?.cancel()
+        transcodeProgressPollTasks[itemID] = nil
+    }
+
     // MARK: - Delete
 
     /// Always frees the on-disk video/subtitle files, and each of the four
@@ -934,6 +1115,7 @@ final class DownloadManager: NSObject {
         let wasActivelyDownloading = delegates[itemID] != nil
         activeDownloads[itemID] = nil
         delegates[itemID] = nil
+        stopTranscodeProgressPolling(itemID: itemID)
         if wasActivelyDownloading {
             if let cancelVideoDownloadOverride {
                 cancelVideoDownloadOverride(itemID)

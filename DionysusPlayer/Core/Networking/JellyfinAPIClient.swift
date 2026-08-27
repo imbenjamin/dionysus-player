@@ -528,6 +528,11 @@ actor JellyfinAPIClient {
     /// `streamURL`/`subtitleURL` do: this URL is handed to a plain
     /// `URLSessionDownloadTask` outside this actor's own request pipeline.
     ///
+    /// `playSessionId`, when supplied, is what lets `DownloadManager`'s
+    /// keep-alive ping (`JellyfinAPIClient.pingDownloadTranscode`) find this
+    /// exact transcode job again later — see that method's doc comment for
+    /// why a download needs one at all, unlike a plain `streamURL` request.
+    ///
     /// See `DOWNLOADS.md` for how the tiers and bitrates were chosen.
     func downloadStreamURL(
         itemID: String,
@@ -539,7 +544,8 @@ actor JellyfinAPIClient {
         sourceWidth: Int?,
         sourceHeight: Int?,
         sourceBitrate: Int?,
-        sourceVideoCodec: String? = nil
+        sourceVideoCodec: String? = nil,
+        playSessionId: String? = nil
     ) -> URL? {
         guard var components = URLComponents(
             url: baseURL.appendingPathComponent("Videos/\(itemID)/stream.mp4"),
@@ -580,6 +586,7 @@ actor JellyfinAPIClient {
         }
         if let mediaSourceID { query.append(.init(name: "MediaSourceId", value: mediaSourceID)) }
         if let audioStreamIndex { query.append(.init(name: "AudioStreamIndex", value: String(audioStreamIndex))) }
+        if let playSessionId { query.append(.init(name: "PlaySessionId", value: playSessionId)) }
         if let accessToken { query.append(.init(name: "ApiKey", value: accessToken)) }
         query.append(.init(name: "DeviceId", value: DeviceIdentity.deviceID))
         components.queryItems = query
@@ -592,6 +599,16 @@ actor JellyfinAPIClient {
     /// applicable). Filtered by `DeviceId`, which every request already
     /// identifies itself with via `X-Emby-Authorization` (see
     /// `JellyfinAuthorization`), so this is normally exactly one entry.
+    /// The one live session Jellyfin tracks for this device — used both for
+    /// `PlaybackStatsOverlay`'s "Streaming" section and for
+    /// `DownloadManager`'s live transcode-progress polling. Confirmed live
+    /// (2026-08-27): a device keeps exactly one session row no matter how
+    /// many concurrent transcode requests it's actually driving — Jellyfin
+    /// doesn't expose per-request granularity here, so a caller juggling
+    /// more than one active transcode from this device can't disambiguate
+    /// which job `transcodingInfo` currently reflects (see
+    /// `DownloadManager.startTranscodeProgressPolling`'s doc comment for how
+    /// it handles that).
     func currentSession(deviceID: String) async throws -> SessionInfoDto? {
         let sessions: [SessionInfoDto] = try await get("/Sessions", query: [.init(name: "DeviceId", value: deviceID)])
         return sessions.first
@@ -623,6 +640,29 @@ actor JellyfinAPIClient {
         try await postNoContent(
             "/Sessions/Playing/Stopped",
             body: PlaybackProgressRequest(itemId: itemID, positionTicks: positionTicks, mediaSourceId: mediaSourceID)
+        )
+    }
+
+    /// Keeps a download's server-side transcode job alive — confirmed live
+    /// (2026-08-27): Jellyfin arms a 10-second kill timer on a progressive
+    /// (non-HLS) transcode job the moment it thinks the client disconnected
+    /// (`ActiveRequestCount` reaching zero — which a real, transient stall
+    /// under concurrent-download CPU contention can trigger even though the
+    /// download is still very much wanted), and nothing refreshes that timer
+    /// unless a ping arrives on the *same* `PlaySessionId` the stream was
+    /// requested with. A `streamURL`/plain playback request never needed
+    /// this — only a download's long-lived, unattended transfer does. Hits
+    /// the same `/Sessions/Playing/Progress` endpoint `reportPlaybackProgress`
+    /// does; `positionTicks: 0` is deliberate (there's no real "playback
+    /// position" for an in-progress transcode file, and Jellyfin's kill-timer
+    /// logic only cares that a ping with this `PlaySessionId` arrived at
+    /// all, not what position it reports).
+    func pingDownloadTranscode(itemID: String, mediaSourceID: String?, playSessionId: String) async throws {
+        try await postNoContent(
+            "/Sessions/Playing/Progress",
+            body: PlaybackProgressRequest(
+                itemId: itemID, positionTicks: 0, mediaSourceId: mediaSourceID, playSessionId: playSessionId
+            )
         )
     }
 

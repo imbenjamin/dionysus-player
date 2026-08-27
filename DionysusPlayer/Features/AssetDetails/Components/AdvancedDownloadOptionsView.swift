@@ -60,8 +60,18 @@ struct AdvancedDownloadOptionsView: View {
     /// `@State` read right here), so this — and the `Text` displaying it —
     /// stay in sync with the pickers above with no extra wiring. Routes
     /// through the same `DownloadTranscodeCalculator` capping logic the real
-    /// download will use, so this is a real prediction, not a rough
-    /// per-setting lookup — see that method's own doc comment.
+    /// download will use — but that logic computes the *bitrate ceiling*
+    /// Jellyfin is allowed to spend, not what it actually will. Confirmed
+    /// live (2026-08-27, see DOWNLOADS.md's "Content-adaptive spread, in the
+    /// wild"): the same server, same settings, landed anywhere from 46% to
+    /// 93% of this figure depending on the title, and which end of that
+    /// range a *different* reader's server lands on depends on their own
+    /// transcoder configuration (content-adaptive CRF software encoding vs.
+    /// CBR-like hardware encoding) — something this app has no way to
+    /// detect. `estimatedSizeText` presents this honestly as an upper bound
+    /// ("Up to …") rather than a point prediction; still worth showing,
+    /// since the *ordering* between picker choices is always correct even
+    /// when the absolute number isn't.
     private var estimatedTotalBytes: Int64? {
         DownloadTranscodeCalculator.estimatedTotalBytes(
             resolution: resolution, preset: preset, isSourceHDR: isSourceHDR,
@@ -70,8 +80,13 @@ struct AdvancedDownloadOptionsView: View {
         )
     }
 
-    private var estimatedSizeText: String? { estimatedTotalBytes.map(FileSizeText.text) }
-    private var estimatedSizeAccessibilityText: String? { estimatedTotalBytes.map(FileSizeText.accessibilityText) }
+    private var estimatedSizeText: String? {
+        estimatedTotalBytes.map { String(localized: "Up to \(FileSizeText.text(bytes: $0))") }
+    }
+
+    private var estimatedSizeAccessibilityText: String? {
+        estimatedTotalBytes.map { String(localized: "Up to \(FileSizeText.accessibilityText(bytes: $0))") }
+    }
 
     var body: some View {
         NavigationStack {
@@ -109,7 +124,12 @@ struct AdvancedDownloadOptionsView: View {
                         )
                     }
                 } footer: {
-                    Text("Overrides your default download settings for this item only.")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Overrides your default download settings for this item only.")
+                        if estimatedSizeText != nil {
+                            Text("Actual size depends on your server's transcoder and the video itself — often smaller.")
+                        }
+                    }
                 }
             }
             .navigationTitle(itemTitle)

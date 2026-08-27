@@ -39,7 +39,7 @@ struct DownloadProgressRing: View {
 
     var body: some View {
         ZStack {
-            if progress.isTotalKnown {
+            if progress.isDeterminate {
                 Circle()
                     .stroke(tint.opacity(0.2), lineWidth: lineWidth)
                 Circle()

@@ -248,6 +248,33 @@ It also illustrates how much a download discards on a title like this: a 22.5 GB
 SDR file with a 128 Kbps stereo track — a 94% reduction, almost all of it before
 the ladder is even involved.
 
+### Content-adaptive spread, in the wild
+
+Elemental sits near the top of the 720p/Normal cap (~1.5 Mbps of a 1.5 Mbps
+ceiling) because animation is genuinely hard to compress — lots of fine detail,
+little redundancy for the encoder to exploit. Live-action content with static,
+well-lit scenes lands far lower, confirmed against two more real downloads
+(2026-08-27) once the server-side encoder fix above was in place:
+
+| Title | Runtime | Size | Effective rate | % of the 1.628 Mbps cap |
+|---|---|---|---|---|
+| Elemental (animation) | 101.5 min | 1.15 GB | 1.51 Mbps | 93% |
+| Captain Phillips (live action) | ~4 min¹ | 20.2 MB | — | — |
+| The Greatest Showman (live action) | 104 min | 585.4 MB | 0.75 Mbps | 46% |
+| Apollo 13 (live action) | 140 min | 921.3 MB | 0.88 Mbps | 54% |
+
+¹ A truncated, failed download — see
+[The encoder matters more than the bitrate](#the-encoder-matters-more-than-the-bitrate)
+and the duration-validation fix below; included here only to show it isn't
+being counted as a real data point.
+
+The spread — 46% to 93% of the same nominal cap, on the same server, same
+settings — is the direct, expected consequence of CRF-governed encoding: the
+cap is a ceiling the encoder is *allowed* to spend, not a target it spends
+unconditionally. It is also exactly what makes the download's own progress
+estimate unreliable in the way described below — the estimate has no way to
+know in advance which end of that spread a given title will land on.
+
 Full predicted sizes at 101.5 minutes:
 
 | Tier | High | Normal | Data Saver |
@@ -442,10 +469,136 @@ change them together.
 - **Image-based subtitles are dropped.** PGS, VobSub and DVB tracks are bitmap
   formats with no text to extract; they're skipped and recorded on the download
   row so the UI can say so.
-- **No `Content-Length`, so progress is an estimate.** A `Static=false` response
-  is chunked, so the real output size isn't known until the transfer finishes.
-  Progress is computed against `(videoBitrate + audioBitrate) × runtime`, which
-  is why a download can sit at 100% briefly while the last bytes arrive.
+- **No `Content-Length`, so progress is an estimate — and, for downloads that
+  actually transcode, a live server-reported percentage now backs it instead.**
+  A `Static=false` response is chunked, so the real output size isn't known
+  until the transfer finishes. The byte-based fallback is computed against
+  `(videoBitrate + audioBitrate) × runtime` — the *requested ceiling*, not what
+  the encoder actually spends — and the ["Content-adaptive spread, in the
+  wild"](#content-adaptive-spread-in-the-wild) table above shows that ceiling
+  landing anywhere from ~46% to ~93% of the cap depending on content. That's
+  why a download's progress could sit around 55% and then simply finish: the
+  byte estimate was honestly reporting bytes against an optimistic total the
+  whole time, and the completion callback fires independently of it.
+
+  Confirmed (2026-08-27): Jellyfin's own `/Sessions` endpoint reports a live
+  `TranscodingInfo.CompletionPercentage` for an active transcode job — real
+  encode-timeline progress (ffmpeg's own position against the source's total
+  duration), completely decoupled from how large the output ends up. This is
+  the same field Jellyfin Web's own playback-info overlay already polls, now
+  also read for downloads: `DownloadManager` polls `/Sessions` every two
+  seconds for the duration of a transcoding download (skipped for a
+  stream-copy download — no ffmpeg job exists to report on there, and its
+  byte estimate is already accurate since it's copying near the source's own
+  bitrate) and prefers that percentage over the byte estimate whenever it's
+  present. Either way, the displayed fraction is capped at 99% — real
+  completion is only ever signalled by the transfer's own completion
+  callback, never by a live estimate, so the bar must never visually read
+  "done" a tick before that actually fires.
+
+  Getting this right took two live-tested attempts. The first tried to match
+  a specific download back to Jellyfin's session list via `NowPlayingItem.Id`
+  + `PlayState.MediaSourceId` — confirmed live (2026-08-27) that Jellyfin
+  never populates either field for a plain transcode-stream request the way
+  it does for a real playback session (those only get set via
+  `/Sessions/Playing`, which downloads never call), so the filter silently
+  matched nothing, every poll, and the whole feature quietly no-opped back to
+  the byte estimate. Confirmed via a direct test transcode against the
+  server that `CompletionPercentage` itself is real and updates live (watched
+  it climb 1.0% → 1.6% over a few seconds) — the bug was entirely in how the
+  session was being picked out, not the underlying signal.
+
+  The fix: a device only ever has one session row, full stop — also
+  confirmed live, by firing two concurrent transcodes from the same
+  `DeviceId` and seeing exactly one `TranscodingInfo`, clobbered by
+  whichever job most recently logged a progress line. `maxConcurrentDownloads`
+  defaults to 5, so two-or-more transcoding downloads at once is the common
+  case, not an edge case — using the shared session's percentage
+  unconditionally would have shown one download's progress on another's row,
+  which is actively wrong, not just imprecise. `DownloadManager` now only
+  applies the live percentage while it's the *only* transcoding download in
+  flight; every download falls back to its own (always-correct, per-item)
+  byte estimate whenever more than one transcode is active. Two known gaps
+  remain, both failing soft to the byte estimate: a download resumed after a
+  force-quit/relaunch (`reattachInFlightDownloads`/`reattachBackgroundSession`)
+  has no live signed-in client available that early, so it never gets this
+  polling loop; and this has not been separately tested against a
+  simultaneous *download + live playback* on the same device (playback here
+  is direct-play only today, so it would rarely have `TranscodingInfo` of
+  its own to collide with — but that's inference, not a live-tested claim).
+
+### Concurrent downloads could silently restart from scratch
+
+  Testing two concurrent downloads surfaced a much bigger problem than the
+  progress bar: one download visibly froze mid-transfer, then restarted from
+  0% and re-transcoded from the beginning — confirmed live (2026-08-27) via
+  the server's own logs, not inferred. The same episode produced **three
+  separate, complete ffmpeg invocations** within four minutes, each targeting
+  the same output file, each independently cut off after encoding only
+  ~58% of the episode — matching what was visible on-screen. Sandwiched
+  between each restart, the Jellyfin log read:
+
+  ```
+  Transcoding kill timer stopped for JobId ... PlaySessionId null. Killing transcoding
+  ```
+
+  The mechanism: Jellyfin arms a **10-second kill timer** on a progressive
+  (non-HLS) transcode job the moment it thinks the client disconnected
+  (`ActiveRequestCount` reaching zero). A download never sent a
+  `PlaySessionId` or called `/Sessions/Playing/Progress`, so nothing was ever
+  available to refresh that timer — the concept only exists for real
+  playback clients. Under concurrent-download CPU contention (this server
+  runs software `libx265` for quality, per the section above — genuinely
+  expensive, and several running at once can start it), a transient stall
+  long enough to trip this app's own `timeoutIntervalForRequest` (60s at the
+  time) reads to Jellyfin as a real disconnect. Ten seconds later the
+  still-wanted job is killed outright. The background `URLSession`'s own
+  automatic reconnect (no app code involved) arrived roughly 40 seconds after
+  that — by then the job was long dead, so Jellyfin could only start an
+  entirely fresh transcode, wasting everything already encoded.
+
+  The fix, both parts confirmed against Jellyfin's own source rather than
+  guessed:
+  - **A real `PlaySessionId`** (a UUID generated once per download) is now
+    sent on the download's stream URL, the same as a real playback client
+    would.
+  - **A keep-alive ping** — `DownloadManager`'s existing progress-poll loop
+    (every 2 seconds, well inside the 10-second window) now also posts to
+    `/Sessions/Playing/Progress` with that `PlaySessionId` and a fixed
+    `PositionTicks: 0` (there's no meaningful "position" for an in-progress
+    transcode file — the kill-timer logic only cares that *a* ping with the
+    right `PlaySessionId` arrived, not what position it reports). This
+    applies to every download, including a stream-copied one — still a
+    `Progressive`-type job server-side, still subject to the same timer.
+  - `downloadRequestTimeout` was also raised 60s → 120s as a secondary
+    margin, so a transient stall doesn't trip this app's *own* side of the
+    connection as readily either.
+
+  This closes the gap for any download the app is actively polling for —
+  which, per the two known gaps above, means everything **except** a
+  download reattached after a force-quit/relaunch (no live client that
+  early, so no ping either). That specific case is now measurably more
+  exposed to this failure mode than before the ping existed, not just stuck
+  with a less-accurate progress bar — worth revisiting if it turns out to
+  matter in practice.
+
+  **A side effect fixed a second, previously-unsolved bug for free.** Before
+  this change, retrying a failed/interrupted download could silently re-serve
+  the same broken cached file instead of re-transcoding — Jellyfin computes
+  its progressive-stream cache filename as
+  `MD5(MediaPath + UserAgent + DeviceId + PlaySessionId)`
+  (`Jellyfin.Api/Helpers/StreamingHelpers.cs`), and every prior request from
+  this app used the same `DeviceId` and no `PlaySessionId` at all — so an
+  identical retry hashed to the identical filename Jellyfin had already
+  cached, truncated file and all. The only fix at the time was manually
+  deleting the stale cache file on the server. Confirmed resolved live via
+  the server's own transcode log for repeated "Captain Phillips" attempts on
+  2026-08-27: two attempts *before* this fix (13:05, 13:28) landed on the
+  identical output hash `d9628106…`; three attempts *after* (15:42, 15:45,
+  16:55) each landed on a distinct hash. Since `enqueue(...)` mints a fresh
+  UUID `PlaySessionId` on every call — first attempt or retry alike — every
+  download now gets its own cache entry and can never collide with a
+  previous attempt's leftover file. No separate code change was needed.
 
   This has a sharper consequence than a cosmetic progress bar: a chunked
   response with no length also means `URLSessionDownloadTask` has no way to

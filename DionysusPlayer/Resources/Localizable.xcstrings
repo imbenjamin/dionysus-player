@@ -59,6 +59,9 @@
     "%lld" : {
 
     },
+    "%lld Downloads" : {
+
+    },
     "%lld Episodes" : {
 
     },
@@ -66,6 +69,9 @@
 
     },
     "0 seconds" : {
+
+    },
+    "1 Download" : {
 
     },
     "1 episode couldn't be downloaded." : {
@@ -117,6 +123,9 @@
 
     },
     "Account" : {
+
+    },
+    "Actual size depends on your server's transcoder and the video itself — often smaller." : {
 
     },
     "Add to Favorites" : {
@@ -297,6 +306,19 @@
     "Delete" : {
 
     },
+    "Delete %@ (%@)?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Delete %1$@ (%2$@)?"
+          }
+        }
+      }
+    },
+    "Delete %@?" : {
+
+    },
     "Delete %lld Downloads?" : {
 
     },
@@ -385,6 +407,9 @@
 
     },
     "Episodes" : {
+
+    },
+    "Estimated Size" : {
 
     },
     "External" : {
@@ -859,10 +884,23 @@
     "That doesn't look like a valid server address." : {
 
     },
+    "The download stopped early (only %lld of %lld minutes were saved). Try downloading again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "The download stopped early (only %1$lld of %2$lld minutes were saved). Try downloading again."
+          }
+        }
+      }
+    },
     "The download was interrupted and couldn't be resumed. Try downloading again." : {
 
     },
     "The download was interrupted and couldn't continue. Try downloading again." : {
+
+    },
+    "The downloaded video couldn't be verified. Try downloading again." : {
 
     },
     "The server returned an error (HTTP %lld) instead of the video." : {
@@ -911,6 +949,9 @@
 
     },
     "Unwatched" : {
+
+    },
+    "Up to %@" : {
 
     },
     "Use a Different Server" : {

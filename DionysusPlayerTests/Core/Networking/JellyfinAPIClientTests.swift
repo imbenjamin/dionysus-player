@@ -566,6 +566,29 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertNotNil(query["DeviceId"])
     }
 
+    func test_downloadStreamURL_omitsPlaySessionIdWhenNotProvided() async {
+        let client = makeClient()
+        let url = await client.downloadStreamURL(
+            itemID: "item-1", mediaSourceID: nil, audioStreamIndex: nil,
+            resolution: .hd1080p, preset: .normal, isSourceHDR: false,
+            sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil
+        )
+        let query = URLRequest(url: url!).queryDictionary
+        XCTAssertNil(query["PlaySessionId"])
+    }
+
+    func test_downloadStreamURL_includesPlaySessionIdWhenProvided() async {
+        let client = makeClient()
+        let url = await client.downloadStreamURL(
+            itemID: "item-1", mediaSourceID: nil, audioStreamIndex: nil,
+            resolution: .hd1080p, preset: .normal, isSourceHDR: false,
+            sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil,
+            playSessionId: "session-123"
+        )
+        let query = URLRequest(url: url!).queryDictionary
+        XCTAssertEqual(query["PlaySessionId"], "session-123")
+    }
+
     func test_downloadStreamURL_capsResolutionAndBitrateToTierWhenSourceIsLarger() async {
         let client = makeClient()
         let url = await client.downloadStreamURL(
@@ -841,6 +864,43 @@ final class JellyfinAPIClientTests: XCTestCase {
         let session = try await client.currentSession(deviceID: "device-1")
 
         XCTAssertNil(session)
+    }
+
+    func test_currentSession_populatesTranscodingInfoCompletionPercentage() async throws {
+        // Confirmed live (2026-08-27) that `TranscodingInfo.CompletionPercentage`
+        // populates for a plain download transcode stream, not just real
+        // playback — this just pins the decode of that field so a schema
+        // regression doesn't silently break `DownloadManager`'s polling.
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            let session = SessionInfoDto(
+                id: "sess-1", deviceId: "device-1",
+                transcodingInfo: TranscodingInfoDto(videoCodec: "hevc", completionPercentage: 42.5)
+            )
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: [session])
+        }
+
+        let session = try await client.currentSession(deviceID: "device-1")
+
+        XCTAssertEqual(session?.transcodingInfo?.completionPercentage, 42.5)
+    }
+
+    func test_pingDownloadTranscode_postsPlaySessionIdAndZeroPosition() async throws {
+        let client = makeClient(accessToken: "tok")
+        struct DecodedBody: Decodable { let ItemId: String; let PositionTicks: Int64; let MediaSourceId: String?; let PlaySessionId: String? }
+        var decoded: DecodedBody?
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/Sessions/Playing/Progress")
+            decoded = try JSONDecoder().decode(DecodedBody.self, from: request.capturedHTTPBody ?? Data())
+            return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+        }
+
+        try await client.pingDownloadTranscode(itemID: "item-1", mediaSourceID: "src-1", playSessionId: "session-123")
+
+        XCTAssertEqual(decoded?.ItemId, "item-1")
+        XCTAssertEqual(decoded?.PositionTicks, 0)
+        XCTAssertEqual(decoded?.MediaSourceId, "src-1")
+        XCTAssertEqual(decoded?.PlaySessionId, "session-123")
     }
 
     func test_reportPlaybackProgress_serverError_throwsHTTPError() async {
