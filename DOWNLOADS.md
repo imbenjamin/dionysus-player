@@ -290,6 +290,17 @@ correct — but it means fewer pixels than the tier nominally implies, and sligh
 *more* bits per pixel than the ladder targets. Letterboxed content gets a small
 free quality bonus.
 
+This same spread is why the pre-download size shown in the "Advanced Download"
+options sheet (`AdvancedDownloadOptionsView`) is worded as **"Up to 1.24 GB,"**
+not a plain "1.24 GB" — it's computed from the tier's own ceiling
+(`DownloadTranscodeCalculator.estimatedTotalBytes`, the same formula behind the
+table above), and a CRF-governed encode can spend anywhere from ~46% to ~93% of
+that ceiling depending on content. Presenting it as a point prediction would be
+right for Elemental and wrong by more than 2× for The Greatest Showman. A footer
+line under the estimate makes the direction of the error explicit ("Actual size
+depends on your server's transcoder and the video itself — often smaller"), so
+the number reads as a bound to plan around, not a promise.
+
 ### Cross-check: Jellyfin's own resolution logic
 
 Jellyfin ships a `ResolutionNormalizer` that picks an output resolution from a
@@ -518,11 +529,21 @@ change them together.
   which is actively wrong, not just imprecise. `DownloadManager` now only
   applies the live percentage while it's the *only* transcoding download in
   flight; every download falls back to its own (always-correct, per-item)
-  byte estimate whenever more than one transcode is active. Two known gaps
-  remain, both failing soft to the byte estimate: a download resumed after a
-  force-quit/relaunch (`reattachInFlightDownloads`/`reattachBackgroundSession`)
-  has no live signed-in client available that early, so it never gets this
-  polling loop; and this has not been separately tested against a
+  byte estimate whenever more than one transcode is active. This isn't just
+  "stop updating it" — confirmed live (2026-08-27) that a naive version of
+  the guard left a *previously shown* percentage frozen in place the instant
+  a second download started (one asset visibly stuck at ~50% while its own
+  byte count kept climbing underneath), because nothing was clearing the
+  now-untrustworthy value, and `fractionCompleted` always prefers it over
+  the byte estimate when present. The poll loop explicitly clears
+  `transcodeCompletionPercentage` back to `nil` the moment ambiguity begins,
+  not just while it lasts, so display always falls through to the
+  (imprecise but live) byte estimate rather than sitting on a stale number.
+  Two known gaps remain, both failing soft to the byte estimate: a download
+  resumed after a force-quit/relaunch
+  (`reattachInFlightDownloads`/`reattachBackgroundSession`) has no live
+  signed-in client available that early, so it never gets this polling loop;
+  and this has not been separately tested against a
   simultaneous *download + live playback* on the same device (playback here
   is direct-play only today, so it would rarely have `TranscodingInfo` of
   its own to collide with — but that's inference, not a live-tested claim).
