@@ -164,6 +164,101 @@ final class DownloadsViewModelTests: XCTestCase {
         XCTAssertNotNil(store.item(itemID: "movie-1"))
     }
 
+    // MARK: rowSizes / selectedTotalBytes — bulk-delete's per-row and total size readouts
+
+    func test_rowSizes_standaloneCompletedItem_matchesOnDiskFileSize() throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1", status: .completed)
+        store.insert(item)
+        try DownloadFileStore.write(Data(repeating: 0, count: 1_000), toRelativePath: item.videoFilePath)
+        defer { DownloadFileStore.deleteItemFiles(itemID: "item-1") }
+
+        let viewModel = DownloadsViewModel(downloadManager: manager)
+
+        XCTAssertEqual(viewModel.rowSizes["standalone-item-1"], 1_000)
+    }
+
+    /// A row still mid-download has no stable file size to show — excluded
+    /// entirely (`0`, not whatever partial bytes happen to be on disk right
+    /// now) rather than showing a number that's about to change.
+    func test_rowSizes_downloadingItem_isZero() throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1", status: .downloading)
+        store.insert(item)
+        try DownloadFileStore.write(Data(repeating: 0, count: 1_000), toRelativePath: item.videoFilePath)
+        defer { DownloadFileStore.deleteItemFiles(itemID: "item-1") }
+
+        let viewModel = DownloadsViewModel(downloadManager: manager)
+
+        XCTAssertEqual(viewModel.rowSizes["standalone-item-1"], 0)
+    }
+
+    /// A `.show` row sums every one of its completed episodes' own video
+    /// files — the same total the group represents once selected for bulk
+    /// delete.
+    func test_rowSizes_showRow_sumsCompletedEpisodesOnly() throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        let ep1 = makeEpisode(itemID: "ep-1", seriesID: "series-1", seriesTitle: "A Show", episodeNumber: 1)
+        ep1.status = .completed
+        let ep2 = makeEpisode(itemID: "ep-2", seriesID: "series-1", seriesTitle: "A Show", episodeNumber: 2)
+        ep2.status = .completed
+        let ep3 = makeEpisode(itemID: "ep-3", seriesID: "series-1", seriesTitle: "A Show", episodeNumber: 3)
+        ep3.status = .downloading // still in flight — excluded from the sum
+        store.insert(ep1)
+        store.insert(ep2)
+        store.insert(ep3)
+        try DownloadFileStore.write(Data(repeating: 0, count: 1_000), toRelativePath: ep1.videoFilePath)
+        try DownloadFileStore.write(Data(repeating: 0, count: 2_000), toRelativePath: ep2.videoFilePath)
+        try DownloadFileStore.write(Data(repeating: 0, count: 4_000), toRelativePath: ep3.videoFilePath)
+        defer {
+            DownloadFileStore.deleteItemFiles(itemID: "ep-1")
+            DownloadFileStore.deleteItemFiles(itemID: "ep-2")
+            DownloadFileStore.deleteItemFiles(itemID: "ep-3")
+        }
+
+        let viewModel = DownloadsViewModel(downloadManager: manager)
+
+        XCTAssertEqual(viewModel.rowSizes["show-series-1"], 3_000, "1,000 + 2,000 from the two completed episodes; ep-3 excluded")
+    }
+
+    func test_selectedTotalBytes_sumsAcrossSelection() throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        let item1 = DownloadTestHelpers.makeItem(itemID: "item-1", status: .completed)
+        let item2 = DownloadTestHelpers.makeItem(itemID: "item-2", status: .completed)
+        store.insert(item1)
+        store.insert(item2)
+        try DownloadFileStore.write(Data(repeating: 0, count: 1_000), toRelativePath: item1.videoFilePath)
+        try DownloadFileStore.write(Data(repeating: 0, count: 2_000), toRelativePath: item2.videoFilePath)
+        defer {
+            DownloadFileStore.deleteItemFiles(itemID: "item-1")
+            DownloadFileStore.deleteItemFiles(itemID: "item-2")
+        }
+        let viewModel = DownloadsViewModel(downloadManager: manager)
+
+        viewModel.toggleSelectAll()
+
+        XCTAssertEqual(viewModel.selectedTotalBytes, 3_000)
+        XCTAssertEqual(viewModel.selectedTotalSizeText, FileSizeText.text(bytes: 3_000))
+    }
+
+    /// Nothing selected with a real completed size yet — the confirmation
+    /// dialog should fall back to its plain count-only wording rather than
+    /// claim a "0 bytes" deletion.
+    func test_selectedTotalSizeText_nilWhenSelectionHasNoCompletedSize() {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .downloading))
+        let viewModel = DownloadsViewModel(downloadManager: manager)
+
+        viewModel.toggleSelectAll()
+
+        XCTAssertNil(viewModel.selectedTotalSizeText)
+    }
+
     func test_deleteSelected_selectAll_removesEverything() {
         let store = DownloadTestHelpers.makeInMemoryStore()
         let manager = DownloadManager(store: store)

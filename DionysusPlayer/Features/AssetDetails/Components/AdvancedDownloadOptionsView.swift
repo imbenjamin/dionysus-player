@@ -17,16 +17,61 @@ struct AdvancedDownloadOptionsView: View {
     let itemTitle: String
     let onDownload: (DownloadResolution, DownloadBitratePreset) -> Void
 
+    /// Raw source specs `DownloadTranscodeCalculator.estimatedTotalBytes`
+    /// needs — the same fields `DownloadManager.enqueue` reads off the
+    /// item's own `mediaSources`, passed down from `DownloadButton` rather
+    /// than fetched here (this sheet has no network access of its own, and
+    /// none is needed: a detail page's `MediaItem` already carries this from
+    /// its own load). All independently optional/defaulted so an item
+    /// missing some piece of metadata just quietly loses the estimate
+    /// (`estimatedSizeText` returns `nil`) rather than this view needing a
+    /// non-optional contract it can't always satisfy.
+    var sourceWidth: Int? = nil
+    var sourceHeight: Int? = nil
+    var sourceBitrate: Int? = nil
+    var isSourceHDR: Bool = false
+    var sourceVideoCodec: String? = nil
+    var runtimeTicks: Int64? = nil
+
     @State private var resolution: DownloadResolution
     @State private var preset: DownloadBitratePreset
     @Environment(\.dismiss) private var dismiss
 
-    init(itemTitle: String, initialResolution: DownloadResolution, initialPreset: DownloadBitratePreset, onDownload: @escaping (DownloadResolution, DownloadBitratePreset) -> Void) {
+    init(
+        itemTitle: String, initialResolution: DownloadResolution, initialPreset: DownloadBitratePreset,
+        sourceWidth: Int? = nil, sourceHeight: Int? = nil, sourceBitrate: Int? = nil,
+        isSourceHDR: Bool = false, sourceVideoCodec: String? = nil, runtimeTicks: Int64? = nil,
+        onDownload: @escaping (DownloadResolution, DownloadBitratePreset) -> Void
+    ) {
         self.itemTitle = itemTitle
+        self.sourceWidth = sourceWidth
+        self.sourceHeight = sourceHeight
+        self.sourceBitrate = sourceBitrate
+        self.isSourceHDR = isSourceHDR
+        self.sourceVideoCodec = sourceVideoCodec
+        self.runtimeTicks = runtimeTicks
         self.onDownload = onDownload
         _resolution = State(initialValue: initialResolution)
         _preset = State(initialValue: initialPreset)
     }
+
+    /// Recomputed on every access, which is what makes it live: SwiftUI
+    /// re-evaluates `body` whenever `resolution`/`preset` change (they're
+    /// `@State` read right here), so this — and the `Text` displaying it —
+    /// stay in sync with the pickers above with no extra wiring. Routes
+    /// through the same `DownloadTranscodeCalculator` capping logic the real
+    /// download will use, so this is a real prediction, not a rough
+    /// per-setting lookup — see that method's own doc comment.
+    private var estimatedTotalBytes: Int64? {
+        DownloadTranscodeCalculator.estimatedTotalBytes(
+            resolution: resolution, preset: preset, isSourceHDR: isSourceHDR,
+            sourceWidth: sourceWidth, sourceHeight: sourceHeight, sourceBitrate: sourceBitrate,
+            sourceVideoCodec: sourceVideoCodec, runtimeTicks: runtimeTicks
+        )
+    }
+
+    private var estimatedSizeText: String? { estimatedTotalBytes.map(FileSizeText.text) }
+    private var estimatedSizeAccessibilityText: String? { estimatedTotalBytes.map(FileSizeText.accessibilityText) }
 
     var body: some View {
         NavigationStack {
@@ -51,6 +96,18 @@ struct AdvancedDownloadOptionsView: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    // Omitted entirely, not shown as "—", when there's
+                    // nothing to estimate from (see `estimatedTotalBytes`'s
+                    // own doc comment) — a dash reads as a loading state
+                    // that's never going to resolve, which is worse than no
+                    // row at all.
+                    if let estimatedSizeText {
+                        SummaryRow(
+                            label: String(localized: "Estimated Size"),
+                            value: estimatedSizeText,
+                            accessibilityValue: estimatedSizeAccessibilityText
+                        )
+                    }
                 } footer: {
                     Text("Overrides your default download settings for this item only.")
                 }

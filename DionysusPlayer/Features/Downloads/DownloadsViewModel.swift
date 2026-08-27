@@ -36,6 +36,20 @@ enum DownloadsRow: Identifiable {
 @Observable
 final class DownloadsViewModel {
     private(set) var rows: [DownloadsRow] = []
+    /// On-disk size in bytes for each row, keyed by `DownloadsRow.id` —
+    /// precomputed alongside `rows` in `refresh()` rather than read live
+    /// from `DownloadsRowView`'s body: each figure is a real filesystem
+    /// `stat` call (`DownloadFileStore.fileSize(forRelativePath:)`), and
+    /// selection mode re-renders the whole list on every single row tap, so
+    /// doing this per-row-per-render would repeat those stats far more than
+    /// necessary. A `.show` row sums every one of its **completed**
+    /// episodes' video files — an in-progress episode's file size isn't
+    /// stable yet, so it's excluded rather than counted mid-write. Missing/
+    /// unreadable files count as `0` so one bad file doesn't blank out an
+    /// otherwise-real total. Video files only, matching the one existing
+    /// per-item size readout (`DownloadedAssetDetailView`'s file-size row) —
+    /// subtitle sidecars and artwork aren't included there either.
+    private(set) var rowSizes: [String: Int64] = [:]
     private let downloadManager: DownloadManager
 
     init(downloadManager: DownloadManager) {
@@ -69,6 +83,21 @@ final class DownloadsViewModel {
             }
         }
         rows = result.sorted { $0.sortTitle.localizedCaseInsensitiveCompare($1.sortTitle) == .orderedAscending }
+        rowSizes = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, sizeOnDisk(for: $0, allItems: items)) })
+    }
+
+    private func sizeOnDisk(for row: DownloadsRow, allItems: [DownloadedItem]) -> Int64 {
+        switch row {
+        case .standalone(let item):
+            guard item.status == .completed else { return 0 }
+            return DownloadFileStore.fileSize(forRelativePath: item.videoFilePath) ?? 0
+        case .show(let seriesID, _, _, _):
+            var total: Int64 = 0
+            for episode in allItems where episode.seriesID == seriesID && episode.status == .completed {
+                total += DownloadFileStore.fileSize(forRelativePath: episode.videoFilePath) ?? 0
+            }
+            return total
+        }
     }
 
     func delete(itemID: String) {
@@ -126,6 +155,30 @@ final class DownloadsViewModel {
                 case .show(_, _, _, let episodeCount): return total + episodeCount
                 }
             }
+    }
+
+    /// Sum of `rowSizes` across the current selection — the Delete
+    /// confirmation's own total, and the same figure `deleteSelected()`
+    /// below is about to reclaim from disk. A row not yet present in
+    /// `rowSizes` (shouldn't happen — both are rebuilt together in
+    /// `refresh()`) contributes `0` rather than crashing.
+    var selectedTotalBytes: Int64 {
+        var total: Int64 = 0
+        for rowID in selectedRowIDs {
+            total += rowSizes[rowID] ?? 0
+        }
+        return total
+    }
+
+    /// `selectedTotalBytes`, formatted — `nil` rather than "0 B" when the
+    /// selection has nothing with a real size yet (e.g. only in-progress
+    /// downloads selected, which `rowSizes` deliberately excludes), so the
+    /// confirmation dialog falls back to its plain count-only title instead
+    /// of claiming an implausible zero-byte deletion.
+    var selectedTotalSizeText: String? {
+        let total = selectedTotalBytes
+        guard total > 0 else { return nil }
+        return FileSizeText.text(bytes: total)
     }
 
     /// Deletes every asset the current selection covers — every episode of

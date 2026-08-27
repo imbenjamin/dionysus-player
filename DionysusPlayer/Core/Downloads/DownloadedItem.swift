@@ -303,6 +303,29 @@ final class DownloadedItem: Identifiable {
         episodeAirDateText ?? metadata.productionYear.map(String.init)
     }
 
+    /// "2019 · 1h 32m" — a completed movie download's second line in
+    /// `DownloadsView`'s list, mirroring `MediaItem.railSubtitle`'s own
+    /// movie case exactly (same year/duration parts, same middle-dot
+    /// separator) so the offline list reads identically to the live
+    /// browsing experience it stands in for. `nil` when both halves are
+    /// missing; either alone renders on its own rather than disappearing.
+    /// Episode downloads use `episodeLabel`/`item.title` for their second
+    /// line instead — this is movie-only, same as `railSubtitle`'s.
+    var yearAndDurationText: String? {
+        let parts = [metadata.productionYear.map(String.init), durationText].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
+    }
+
+    /// `yearAndDurationText`'s VoiceOver counterpart — same
+    /// comma-vs-middle-dot swap `MediaItem.railSubtitleAccessibilityText`
+    /// uses, and substitutes `durationAccessibilityText` for `durationText`
+    /// so "1h 32m" doesn't get misheard as "one h thirty two meters" (see
+    /// that property's own doc comment).
+    var yearAndDurationAccessibilityText: String? {
+        let parts = [metadata.productionYear.map(String.init), durationAccessibilityText].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
     init(
         itemID: String,
         userID: String,

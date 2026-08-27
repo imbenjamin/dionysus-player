@@ -44,4 +44,43 @@ final class DownloadedItemTests: XCTestCase {
         item.bitrate = 3_000_000
         XCTAssertNil(item.estimatedTotalBytes)
     }
+
+    // MARK: yearAndDurationText — Downloads list's second line for a completed movie
+
+    func test_yearAndDurationText_bothPresent_joinedByMiddleDot() {
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        item.metadata.productionYear = 2019
+        item.runtimeTicks = 92 * 60 * 10_000_000 // 1h 32m
+        XCTAssertEqual(item.yearAndDurationText, "2019 \u{00B7} 1h 32m")
+    }
+
+    func test_yearAndDurationText_yearOnly_omitsSeparator() {
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        item.metadata.productionYear = 2019
+        item.runtimeTicks = nil
+        XCTAssertEqual(item.yearAndDurationText, "2019")
+    }
+
+    func test_yearAndDurationText_durationOnly_omitsSeparator() {
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        item.metadata.productionYear = nil
+        item.runtimeTicks = 92 * 60 * 10_000_000
+        XCTAssertEqual(item.yearAndDurationText, "1h 32m")
+    }
+
+    func test_yearAndDurationText_neitherPresent_isNil() {
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        item.metadata.productionYear = nil
+        item.runtimeTicks = nil
+        XCTAssertNil(item.yearAndDurationText)
+    }
+
+    /// "1h 32m" gets misheard by VoiceOver as "one h thirty two meters" —
+    /// the accessibility text must substitute the spelled-out duration.
+    func test_yearAndDurationAccessibilityText_usesSpokenDuration() {
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        item.metadata.productionYear = 2019
+        item.runtimeTicks = 92 * 60 * 10_000_000
+        XCTAssertEqual(item.yearAndDurationAccessibilityText, "2019, 1 hour, 32 minutes")
+    }
 }

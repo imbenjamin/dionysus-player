@@ -371,6 +371,40 @@ enum DownloadTranscodeCalculator {
         return true
     }
 
+    /// The predicted download size in bytes for a not-yet-started
+    /// download — same `(videoBitrate + audioBitrate) * durationSeconds / 8`
+    /// formula `DownloadedItem.estimatedTotalBytes` uses once a download
+    /// already exists, computed here ahead of time from a source's own
+    /// metadata instead. Routing both through `target(...)` for the video
+    /// bitrate keeps the two in lockstep — the number
+    /// `AdvancedDownloadOptionsView` shows before tapping Download can never
+    /// drift from what the real enqueued row settles on afterward, because
+    /// there's only one place the capping logic lives.
+    ///
+    /// `nil` when there's no runtime to estimate from — happens for a live
+    /// item whose `BaseItemDto.runTimeTicks` hasn't loaded, and the caller
+    /// should simply omit the estimate rather than show a nonsensical `0 B`.
+    static func estimatedTotalBytes(
+        resolution: DownloadResolution,
+        preset: DownloadBitratePreset,
+        isSourceHDR: Bool,
+        sourceWidth: Int?,
+        sourceHeight: Int?,
+        sourceBitrate: Int?,
+        sourceVideoCodec: String? = nil,
+        runtimeTicks: Int64?
+    ) -> Int64? {
+        guard let runtimeTicks, runtimeTicks > 0 else { return nil }
+        let resolvedTarget = target(
+            resolution: resolution, preset: preset, isSourceHDR: isSourceHDR,
+            sourceWidth: sourceWidth, sourceHeight: sourceHeight, sourceBitrate: sourceBitrate,
+            sourceVideoCodec: sourceVideoCodec
+        )
+        let durationSeconds = Double(runtimeTicks) / 10_000_000
+        let totalBitsPerSecond = Double(resolvedTarget.videoBitrate) + Double(preset.audioBitrate)
+        return Int64((totalBitsPerSecond * durationSeconds) / 8)
+    }
+
     /// The four resolution tiers, smallest-to-largest by `maxHeight` — the
     /// order `effectiveTier(forAchievedHeight:notExceeding:)` scans in to
     /// find the ladder rung that actually matches an achieved resolution,

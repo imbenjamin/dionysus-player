@@ -44,11 +44,20 @@ struct DownloadsView: View {
             }
     }
 
+    /// e.g. "Delete 3 Downloads (1.24 GB)?" — falls back to the plain
+    /// count-only wording when there's no size to show (see
+    /// `DownloadsViewModel.selectedTotalSizeText`'s own doc comment). Two
+    /// fully separate localized strings per branch, not one spliced
+    /// together with the size inserted before a trailing "?" — that would
+    /// bake in an English-specific punctuation position no other language
+    /// is guaranteed to share.
     private var deleteConfirmationTitle: String {
         let count = viewModel?.selectedAssetCount ?? 0
-        return count == 1
-            ? String(localized: "Delete 1 Download?")
-            : String(localized: "Delete \(count) Downloads?")
+        let countText = count == 1 ? String(localized: "1 Download") : String(localized: "\(count) Downloads")
+        guard let sizeText = viewModel?.selectedTotalSizeText else {
+            return String(localized: "Delete \(countText)?")
+        }
+        return String(localized: "Delete \(countText) (\(sizeText))?")
     }
 
     @ToolbarContentBuilder
@@ -108,6 +117,7 @@ struct DownloadsView: View {
                             downloadManager: appState.downloadManager,
                             isSelecting: viewModel.isSelecting,
                             isSelected: viewModel.selectedRowIDs.contains(row.id),
+                            sizeBytes: viewModel.rowSizes[row.id],
                             onToggleSelection: { viewModel.toggleSelection(row.id) }
                         )
                         .swipeActions {
@@ -142,6 +152,11 @@ private struct DownloadsRowView: View {
     let downloadManager: DownloadManager
     var isSelecting: Bool = false
     var isSelected: Bool = false
+    /// `DownloadsViewModel.rowSizes[row.id]` — precomputed there rather
+    /// than stat'd here on every render, see that property's own doc
+    /// comment. `nil`/`0` (nothing completed to size yet) simply shows no
+    /// size text rather than "0 B".
+    var sizeBytes: Int64? = nil
     var onToggleSelection: () -> Void = {}
 
     var body: some View {
@@ -189,7 +204,14 @@ private struct DownloadsRowView: View {
                     subtitleLine(for: item)
                 }
                 Spacer()
-                if let progress = progress(for: item) {
+                // Selection mode's own trailing element takes priority over
+                // the in-progress indicators below — see `sizeText`'s doc
+                // comment for why it's `nil` for anything but a completed
+                // row, which is what keeps this from ever fighting the
+                // progress ring/spinner for the same spot in practice.
+                if isSelecting, let sizeText {
+                    Text(sizeText).font(.caption).foregroundStyle(.secondary)
+                } else if let progress = progress(for: item) {
                     DownloadProgressRing(progress: progress)
                         .frame(width: 28, height: 28)
                 } else if item.status == .downloading || item.status == .queued {
@@ -206,8 +228,21 @@ private struct DownloadsRowView: View {
                     Text(seriesTitle).lineLimit(1)
                     Text("\(episodeCount) Episodes").font(.caption).foregroundStyle(.secondary)
                 }
+                if isSelecting, let sizeText {
+                    Spacer()
+                    Text(sizeText).font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
+    }
+
+    /// `sizeBytes`, formatted — `nil` when there's nothing to show yet
+    /// (`sizeBytes` is `nil`/`0` for a row with no completed content, e.g.
+    /// still downloading), so callers can `if let` around it rather than
+    /// each independently guarding against a meaningless "0 B"/blank label.
+    private var sizeText: String? {
+        guard let sizeBytes, sizeBytes > 0 else { return nil }
+        return FileSizeText.text(bytes: sizeBytes)
     }
 
     /// Live byte progress for a standalone row still mid-download —
@@ -240,6 +275,13 @@ private struct DownloadsRowView: View {
                 // `MediaItem.railSubtitle`'s episode case.
                 Text(item.episodeLabel.map { "\($0) \u{00B7} \(item.title)" } ?? item.title)
                     .font(.caption).foregroundStyle(.secondary)
+            } else if let yearAndDuration = item.yearAndDurationText {
+                // "2019 · 1h 32m" — same pattern as `MediaItem.railSubtitle`'s
+                // movie case, so a completed download reads the same as its
+                // live counterpart instead of showing just a bare title.
+                Text(yearAndDuration)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .accessibilityLabel(item.yearAndDurationAccessibilityText ?? yearAndDuration)
             }
         }
     }

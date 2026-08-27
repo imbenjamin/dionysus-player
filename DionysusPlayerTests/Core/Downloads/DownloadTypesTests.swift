@@ -286,6 +286,73 @@ final class DownloadTypesTests: XCTestCase {
         XCTAssertFalse(target.videoStreamCopyEligible)
     }
 
+    // MARK: DownloadTranscodeCalculator.estimatedTotalBytes — Advanced Options' live pre-download estimate
+
+    /// Must match `DownloadedItem.estimatedTotalBytes`'s own formula exactly
+    /// — this is the pre-download estimate the post-download figure is
+    /// promising to agree with, so a real mismatch here would mean the
+    /// number shown in Advanced Options lied about what the user was about
+    /// to get.
+    func test_estimatedTotalBytes_matchesTheSameFormulaAsDownloadedItems() {
+        let bytes = DownloadTranscodeCalculator.estimatedTotalBytes(
+            resolution: .hd1080p, preset: .high, isSourceHDR: false,
+            sourceWidth: 1920, sourceHeight: 1080, sourceBitrate: 50_000_000,
+            runtimeTicks: 3600 * 10_000_000 // 1 hour
+        )
+        let videoBitrate = DownloadResolution.hd1080p.videoBitrate(preset: .high)
+        let expected = Int64((Double(videoBitrate) + Double(DownloadBitratePreset.high.audioBitrate)) * 3600 / 8)
+        XCTAssertEqual(bytes, expected)
+    }
+
+    /// A source too small/low-bitrate for the requested tier still routes
+    /// through `target(...)`'s own achieved-tier lookup — same "must use the
+    /// achieved rung, not the requested one" behavior as `target(...)`
+    /// itself, just reflected in the byte estimate.
+    func test_estimatedTotalBytes_reflectsSourceCapping() {
+        let cappedBytes = DownloadTranscodeCalculator.estimatedTotalBytes(
+            resolution: .hd1080p, preset: .normal, isSourceHDR: false,
+            sourceWidth: 720, sourceHeight: 480, sourceBitrate: 5_000_000,
+            runtimeTicks: 3600 * 10_000_000
+        )
+        let uncappedBytes = DownloadTranscodeCalculator.estimatedTotalBytes(
+            resolution: .hd1080p, preset: .normal, isSourceHDR: false,
+            sourceWidth: 1920, sourceHeight: 1080, sourceBitrate: 50_000_000,
+            runtimeTicks: 3600 * 10_000_000
+        )
+        XCTAssertLessThan(cappedBytes!, uncappedBytes!, "a 480p source must estimate smaller than a genuine 1080p one, even at the same requested tier")
+    }
+
+    func test_estimatedTotalBytes_nilWithoutRuntime() {
+        let bytes = DownloadTranscodeCalculator.estimatedTotalBytes(
+            resolution: .hd1080p, preset: .normal, isSourceHDR: false,
+            sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil, runtimeTicks: nil
+        )
+        XCTAssertNil(bytes)
+    }
+
+    func test_estimatedTotalBytes_nilForZeroRuntime() {
+        let bytes = DownloadTranscodeCalculator.estimatedTotalBytes(
+            resolution: .hd1080p, preset: .normal, isSourceHDR: false,
+            sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil, runtimeTicks: 0
+        )
+        XCTAssertNil(bytes)
+    }
+
+    /// Missing source dimensions/bitrate don't block the estimate — same
+    /// "skip that cap, use the tier's own max" fallback `target(...)` itself
+    /// documents.
+    func test_estimatedTotalBytes_missingSourceMetadata_stillEstimatesFromTierMax() {
+        let bytes = DownloadTranscodeCalculator.estimatedTotalBytes(
+            resolution: .hd720p, preset: .normal, isSourceHDR: false,
+            sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil,
+            runtimeTicks: 3600 * 10_000_000
+        )
+        let expected = Int64(
+            (Double(DownloadResolution.hd720p.videoBitrate(preset: .normal)) + Double(DownloadBitratePreset.normal.audioBitrate)) * 3600 / 8
+        )
+        XCTAssertEqual(bytes, expected)
+    }
+
     // MARK: DownloadBitratePreset.displayName(in:)
 
     func test_displayNameInResolution_showsWholeNumberMbpsWithoutDecimal() {

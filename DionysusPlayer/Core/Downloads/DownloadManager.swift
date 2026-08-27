@@ -534,7 +534,11 @@ final class DownloadManager: NSObject {
         return error.localizedDescription
     }
 
-    private static func isHDR(_ videoStream: MediaStream?) -> Bool {
+    /// Not `private` — `DownloadButton`'s Advanced Options size estimate
+    /// needs the identical classification against a source it hasn't
+    /// downloaded yet, and duplicating this four-line check would be the
+    /// kind of drift-prone copy this codebase otherwise avoids.
+    static func isHDR(_ videoStream: MediaStream?) -> Bool {
         guard let type = videoStream?.videoRangeType ?? videoStream?.videoRange else { return false }
         return type.hasPrefix("DOVI") || type == "HDR10" || type == "HDR10Plus" || type == "HLG"
     }
