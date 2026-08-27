@@ -161,23 +161,38 @@ struct DownloadedShowView: View {
     /// (see its doc comment): rows now never hold a live model reference in
     /// the first place, so there's nothing left to trap on regardless of
     /// how long the transition runs.
+    ///
+    /// `dismiss()` — when this was the last episode — happens **inside**
+    /// this same deferred block, after the real deletion, not right away.
+    /// Confirmed live (2026-08-27): dismissing immediately let `DownloadsView`'s
+    /// `onAppear`-triggered `refresh()` (which re-reads the SwiftData store
+    /// from scratch) run *before* the deferred delete above had actually
+    /// landed, so it rebuilt its row list from a store that still had this
+    /// episode — leaving a stale "Preparing download…" row visible on the
+    /// main Downloads list until an unrelated navigation elsewhere (and
+    /// back) happened to trigger another `refresh()` late enough to see the
+    /// real state. Deferring the pop past the deletion closes that window.
     private func delete(itemID: String) {
         episodes.removeAll { $0.itemID == itemID }
-        if episodes.isEmpty { dismiss() }
+        let shouldDismiss = episodes.isEmpty
         DispatchQueue.main.async {
             downloadManager.delete(itemID: itemID)
+            if shouldDismiss { dismiss() }
         }
     }
 
-    /// Same ordering as `delete(_:)` — see its doc comment.
+    /// Same ordering as `delete(itemID:)` — see its doc comment, including
+    /// for why `dismiss()` waits inside the deferred block. All of this
+    /// season's deletions land in the *same* deferred closure (not one per
+    /// item) specifically so `dismiss()` can't fire after only some of them
+    /// have actually run.
     private func deleteSeason(_ row: SeasonRow) {
         let itemIDs = episodes.filter { $0.seasonID == row.seasonID }.map(\.itemID)
         episodes.removeAll { $0.seasonID == row.seasonID }
-        if episodes.isEmpty { dismiss() }
-        for itemID in itemIDs {
-            DispatchQueue.main.async {
-                downloadManager.delete(itemID: itemID)
-            }
+        let shouldDismiss = episodes.isEmpty
+        DispatchQueue.main.async {
+            for itemID in itemIDs { downloadManager.delete(itemID: itemID) }
+            if shouldDismiss { dismiss() }
         }
     }
 
@@ -235,9 +250,12 @@ struct DownloadedShowView: View {
     /// Deletes everything the current selection covers — every episode of a
     /// selected season, not just that one row, when grouped — then exits
     /// selection mode. Same "remove from `episodes` first, delete the real
-    /// objects after" order as `delete(_:)` — see its doc comment for the
-    /// crash this avoids, which a multi-item bulk delete hits even more
-    /// easily (more simultaneous row-removal transitions to race).
+    /// objects after, `dismiss()` only once they actually have" order as
+    /// `delete(itemID:)` — see its doc comment for both the crash and the
+    /// stale-row bug this avoids, either of which a multi-item bulk delete
+    /// hits even more easily (more simultaneous row-removal transitions to
+    /// race, and a full-season delete is exactly the "several episodes at
+    /// once" case that surfaced the stale-row bug live).
     private func deleteSelected() {
         let itemIDs: [String]
         if isGroupedBySeason {
@@ -249,13 +267,12 @@ struct DownloadedShowView: View {
         }
         let idSet = Set(itemIDs)
         episodes.removeAll { idSet.contains($0.itemID) }
-        if episodes.isEmpty { dismiss() }
+        let shouldDismiss = episodes.isEmpty
         selectedRowIDs = []
         isSelecting = false
-        for itemID in itemIDs {
-            DispatchQueue.main.async {
-                downloadManager.delete(itemID: itemID)
-            }
+        DispatchQueue.main.async {
+            for itemID in itemIDs { downloadManager.delete(itemID: itemID) }
+            if shouldDismiss { dismiss() }
         }
     }
 }

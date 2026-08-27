@@ -90,14 +90,19 @@ struct DownloadedSeasonView: View {
     /// schedules the real `DownloadManager.delete(itemID:)` (which deletes
     /// the underlying SwiftData object) for the next run-loop turn — see
     /// `DownloadedShowView.delete(itemID:)`'s doc comment for the
-    /// confirmed-live crash this avoids, and `DownloadedEpisodeSummary`'s
-    /// doc comment for the actual fix (rows never hold a live model
-    /// reference in the first place).
+    /// confirmed-live crash this avoids, `DownloadedEpisodeSummary`'s doc
+    /// comment for the actual fix (rows never hold a live model reference
+    /// in the first place), and that same `delete(itemID:)`'s doc comment
+    /// again for why `dismiss()` — when this was the last episode — has to
+    /// wait inside this same deferred block rather than firing immediately
+    /// (otherwise `DownloadedShowView`'s own `refresh()`, triggered by the
+    /// pop, can race ahead of the real deletion and show a stale row).
     private func delete(itemID: String) {
         episodes.removeAll { $0.itemID == itemID }
-        if episodes.isEmpty { dismiss() }
+        let shouldDismiss = episodes.isEmpty
         DispatchQueue.main.async {
             downloadManager.delete(itemID: itemID)
+            if shouldDismiss { dismiss() }
         }
     }
 
@@ -135,17 +140,19 @@ struct DownloadedSeasonView: View {
             : String(localized: "Delete \(selectedEpisodeIDs.count) Downloads?")
     }
 
-    /// Same ordering as `delete(_:)` — see its doc comment.
+    /// Same ordering as `delete(itemID:)` — see its doc comment. All of
+    /// this selection's deletions land in the *same* deferred closure (not
+    /// one per item), same reasoning as `DownloadedShowView.deleteSeason(_:)`:
+    /// `dismiss()` can't fire after only some of them have actually run.
     private func deleteSelected() {
         let itemIDs = Array(selectedEpisodeIDs)
         episodes.removeAll { selectedEpisodeIDs.contains($0.itemID) }
-        if episodes.isEmpty { dismiss() }
+        let shouldDismiss = episodes.isEmpty
         selectedEpisodeIDs = []
         isSelecting = false
-        for itemID in itemIDs {
-            DispatchQueue.main.async {
-                downloadManager.delete(itemID: itemID)
-            }
+        DispatchQueue.main.async {
+            for itemID in itemIDs { downloadManager.delete(itemID: itemID) }
+            if shouldDismiss { dismiss() }
         }
     }
 }
