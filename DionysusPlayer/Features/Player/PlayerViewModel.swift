@@ -12,6 +12,14 @@ final class PlayerViewModel {
     private(set) var currentTime: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
     private(set) var item: MediaItem?
+    /// The offline path's own local-file logo image, set only by
+    /// `startOffline` — `item.logoImageURL` is structurally `nil` there (the
+    /// synthetic `BaseItemDto` it's built from carries no `imageTags`), so
+    /// this is a second source `PlayerControlsOverlay.titleRow` checks
+    /// first. `nil` on the live path, and for an offline item that was
+    /// never downloaded a Logo image for in the first place (falls back to
+    /// title text, same as a live item with no logo).
+    private(set) var offlineLogoURL: URL?
     private(set) var errorMessage: String?
     /// What kind of recovery `errorMessage` allows, when it's set — `nil`
     /// exactly when `errorMessage` is. See `PlaybackFailure.Category` and
@@ -520,10 +528,12 @@ final class PlayerViewModel {
     /// an otherwise-empty `BaseItemDto` carrying just the stored title/
     /// episode info — purely so `PlayerControlsOverlay`'s existing title
     /// row keeps working unmodified: no `imageTags` means
-    /// `logoImageURL`/`primaryImageURL` all resolve to `nil`, which that
-    /// view already renders as a plain title-text fallback (the same path
-    /// a live item with no logo takes) rather than attempting a network
-    /// image fetch against a placeholder URL.
+    /// `logoImageURL`/`primaryImageURL` all resolve to `nil` on `item`
+    /// itself, which is why the logo comes from `offlineLogoURL` (below)
+    /// instead — a real, already-downloaded local file, not a network fetch
+    /// against a placeholder URL. Without it, `titleRow` fell back to plain
+    /// title text for every downloaded item, even ones with a perfectly
+    /// good cached logo sitting on disk (confirmed live, 2026-08-27).
     private func startOffline(_ downloadedItem: DownloadedItem, resumeSeconds: TimeInterval?) async {
         let dto = BaseItemDto(
             id: downloadedItem.itemID,
@@ -540,6 +550,10 @@ final class PlayerViewModel {
         // gets requested — see this method's own doc comment.
         let mediaItem = MediaItem(dto: dto, images: ImageURLBuilder(baseURL: URL(string: "https://offline.invalid")!))
         item = mediaItem
+        // Same `logoImagePath` → local-file-URL resolution
+        // `DownloadedAssetDetailView` uses for its own offline hero header —
+        // `nil` when this download predates logo caching or never had one.
+        offlineLogoURL = downloadedItem.logoImagePath.map(DownloadFileStore.url(forRelativePath:))
         engine.setNowPlayingInfo(title: mediaItem.railTitle, subtitle: mediaItem.railSubtitle, artwork: nil)
 
         activeMediaSourceID = downloadedItem.mediaSourceID

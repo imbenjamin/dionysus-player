@@ -566,6 +566,29 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertNotNil(query["DeviceId"])
     }
 
+    func test_downloadStreamURL_omitsPlaySessionIdWhenNotProvided() async {
+        let client = makeClient()
+        let url = await client.downloadStreamURL(
+            itemID: "item-1", mediaSourceID: nil, audioStreamIndex: nil,
+            resolution: .hd1080p, preset: .normal, isSourceHDR: false,
+            sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil
+        )
+        let query = URLRequest(url: url!).queryDictionary
+        XCTAssertNil(query["PlaySessionId"])
+    }
+
+    func test_downloadStreamURL_includesPlaySessionIdWhenProvided() async {
+        let client = makeClient()
+        let url = await client.downloadStreamURL(
+            itemID: "item-1", mediaSourceID: nil, audioStreamIndex: nil,
+            resolution: .hd1080p, preset: .normal, isSourceHDR: false,
+            sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil,
+            playSessionId: "session-123"
+        )
+        let query = URLRequest(url: url!).queryDictionary
+        XCTAssertEqual(query["PlaySessionId"], "session-123")
+    }
+
     func test_downloadStreamURL_capsResolutionAndBitrateToTierWhenSourceIsLarger() async {
         let client = makeClient()
         let url = await client.downloadStreamURL(
@@ -576,8 +599,8 @@ final class JellyfinAPIClientTests: XCTestCase {
         let query = URLRequest(url: url!).queryDictionary
         XCTAssertEqual(query["MaxWidth"], "1920")
         XCTAssertEqual(query["MaxHeight"], "1080")
-        XCTAssertEqual(query["VideoBitrate"], "6000000")
-        XCTAssertEqual(query["AudioBitrate"], "192000")
+        XCTAssertEqual(query["VideoBitrate"], "4500000")
+        XCTAssertEqual(query["AudioBitrate"], "160000")
         XCTAssertEqual(query["MediaSourceId"], "src-1")
         XCTAssertEqual(query["AudioStreamIndex"], "2")
     }
@@ -598,21 +621,110 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(query["VideoBitrate"], "2000000")
     }
 
-    func test_downloadStreamURL_setsMain10ProfileOnlyForHDRSource() async {
+    /// `main10` for SDR sources too, not just HDR ones — 10-bit HEVC is
+    /// more efficient at any source bit depth.
+    func test_downloadStreamURL_alwaysRequestsMain10Profile() async {
         let client = makeClient()
-        let hdrURL = await client.downloadStreamURL(
+        for isSourceHDR in [true, false] {
+            let url = await client.downloadStreamURL(
+                itemID: "item-1", mediaSourceID: nil, audioStreamIndex: nil,
+                resolution: .hd1080p, preset: .normal, isSourceHDR: isSourceHDR,
+                sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil
+            )
+            XCTAssertEqual(URLRequest(url: url!).queryDictionary["VideoProfile"], "main10")
+        }
+    }
+
+    /// Only Data Saver sends a frame-rate cap; the other presets omit the
+    /// param entirely rather than sending a permissive value.
+    func test_downloadStreamURL_sendsMaxFramerateOnlyForDataSaver() async {
+        let client = makeClient()
+        let dataSaverURL = await client.downloadStreamURL(
             itemID: "item-1", mediaSourceID: nil, audioStreamIndex: nil,
-            resolution: .hd1080p, preset: .normal, isSourceHDR: true,
+            resolution: .hd720p, preset: .dataSaver, isSourceHDR: false,
             sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil
         )
-        XCTAssertEqual(URLRequest(url: hdrURL!).queryDictionary["VideoProfile"], "main10")
+        XCTAssertEqual(URLRequest(url: dataSaverURL!).queryDictionary["MaxFramerate"], "30")
 
-        let sdrURL = await client.downloadStreamURL(
+        let normalURL = await client.downloadStreamURL(
+            itemID: "item-1", mediaSourceID: nil, audioStreamIndex: nil,
+            resolution: .hd720p, preset: .normal, isSourceHDR: false,
+            sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil
+        )
+        XCTAssertNil(URLRequest(url: normalURL!).queryDictionary["MaxFramerate"])
+    }
+
+    /// A source already inside the tier asks Jellyfin to copy the video
+    /// track rather than re-encode it. Two things this pins, both learned
+    /// from probing a real server:
+    ///
+    /// - `VideoCodec` must *include the source's own codec*, or Jellyfin
+    ///   silently declines the copy.
+    /// - The resolution/bitrate caps are still sent. Jellyfin ignores them
+    ///   when it copies, and they're the only bound on the fallback if it
+    ///   doesn't — dropping them turned a 1280×720 source into a 416×234,
+    ///   343 Kbps file in live testing.
+    func test_downloadStreamURL_streamCopiesVideoWhenSourceAlreadyFitsTier() async {
+        let client = makeClient()
+        let url = await client.downloadStreamURL(
+            itemID: "item-1", mediaSourceID: nil, audioStreamIndex: nil,
+            resolution: .hd720p, preset: .normal, isSourceHDR: false,
+            sourceWidth: 1280, sourceHeight: 720, sourceBitrate: 1_200_000,
+            sourceVideoCodec: "h264"
+        )
+        let query = URLRequest(url: url!).queryDictionary
+        XCTAssertEqual(query["AllowVideoStreamCopy"], "true")
+        XCTAssertEqual(query["VideoCodec"], "hevc,h264", "source codec must be offered or the copy is declined")
+        XCTAssertEqual(query["MaxWidth"], "1280", "caps stay as a bound on a declined-copy fallback")
+        XCTAssertEqual(query["MaxHeight"], "720")
+        XCTAssertEqual(query["VideoBitrate"], "1200000")
+        // Audio is still transcoded either way, so the output keeps the
+        // MP4/AAC-stereo shape the offline path assumes.
+        XCTAssertEqual(query["AudioCodec"], "aac")
+        XCTAssertEqual(query["MaxAudioChannels"], "2")
+        XCTAssertEqual(query["AudioBitrate"], "128000")
+    }
+
+    /// An HEVC source doesn't get a redundant second entry in `VideoCodec`.
+    func test_downloadStreamURL_streamCopyOfHevcSource_doesNotDuplicateCodec() async {
+        let client = makeClient()
+        let url = await client.downloadStreamURL(
             itemID: "item-1", mediaSourceID: nil, audioStreamIndex: nil,
             resolution: .hd1080p, preset: .normal, isSourceHDR: false,
-            sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil
+            sourceWidth: 1920, sourceHeight: 1080, sourceBitrate: 2_500_000,
+            sourceVideoCodec: "hevc"
         )
-        XCTAssertEqual(URLRequest(url: sdrURL!).queryDictionary["VideoProfile"], "main")
+        XCTAssertEqual(URLRequest(url: url!).queryDictionary["VideoCodec"], "hevc")
+    }
+
+    /// The ordinary transcode path asks for HEVC and nothing else.
+    func test_downloadStreamURL_requestsHevcOnlyWhenNotStreamCopying() async {
+        let client = makeClient()
+        let url = await client.downloadStreamURL(
+            itemID: "item-1", mediaSourceID: nil, audioStreamIndex: nil,
+            resolution: .hd720p, preset: .normal, isSourceHDR: false,
+            sourceWidth: 3840, sourceHeight: 2160, sourceBitrate: 30_000_000,
+            sourceVideoCodec: "h264"
+        )
+        let query = URLRequest(url: url!).queryDictionary
+        XCTAssertEqual(query["VideoCodec"], "hevc")
+        XCTAssertNil(query["AllowVideoStreamCopy"])
+    }
+
+    /// An HDR source is never stream-copied, even when it otherwise fits:
+    /// a copy would preserve HDR that `DownloadedItem.isHDR` reports as
+    /// tone-mapped away.
+    func test_downloadStreamURL_doesNotStreamCopyHDRSource() async {
+        let client = makeClient()
+        let url = await client.downloadStreamURL(
+            itemID: "item-1", mediaSourceID: nil, audioStreamIndex: nil,
+            resolution: .hd720p, preset: .normal, isSourceHDR: true,
+            sourceWidth: 1280, sourceHeight: 720, sourceBitrate: 1_200_000,
+            sourceVideoCodec: "hevc"
+        )
+        let query = URLRequest(url: url!).queryDictionary
+        XCTAssertNil(query["AllowVideoStreamCopy"])
+        XCTAssertEqual(query["VideoBitrate"], "1200000")
     }
 
     func test_downloadStreamURL_includesApiKeyWhenSignedIn() async {
@@ -752,6 +864,43 @@ final class JellyfinAPIClientTests: XCTestCase {
         let session = try await client.currentSession(deviceID: "device-1")
 
         XCTAssertNil(session)
+    }
+
+    func test_currentSession_populatesTranscodingInfoCompletionPercentage() async throws {
+        // Confirmed live (2026-08-27) that `TranscodingInfo.CompletionPercentage`
+        // populates for a plain download transcode stream, not just real
+        // playback — this just pins the decode of that field so a schema
+        // regression doesn't silently break `DownloadManager`'s polling.
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            let session = SessionInfoDto(
+                id: "sess-1", deviceId: "device-1",
+                transcodingInfo: TranscodingInfoDto(videoCodec: "hevc", completionPercentage: 42.5)
+            )
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: [session])
+        }
+
+        let session = try await client.currentSession(deviceID: "device-1")
+
+        XCTAssertEqual(session?.transcodingInfo?.completionPercentage, 42.5)
+    }
+
+    func test_pingDownloadTranscode_postsPlaySessionIdAndZeroPosition() async throws {
+        let client = makeClient(accessToken: "tok")
+        struct DecodedBody: Decodable { let ItemId: String; let PositionTicks: Int64; let MediaSourceId: String?; let PlaySessionId: String? }
+        var decoded: DecodedBody?
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/Sessions/Playing/Progress")
+            decoded = try JSONDecoder().decode(DecodedBody.self, from: request.capturedHTTPBody ?? Data())
+            return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+        }
+
+        try await client.pingDownloadTranscode(itemID: "item-1", mediaSourceID: "src-1", playSessionId: "session-123")
+
+        XCTAssertEqual(decoded?.ItemId, "item-1")
+        XCTAssertEqual(decoded?.PositionTicks, 0)
+        XCTAssertEqual(decoded?.MediaSourceId, "src-1")
+        XCTAssertEqual(decoded?.PlaySessionId, "session-123")
     }
 
     func test_reportPlaybackProgress_serverError_throwsHTTPError() async {
@@ -1061,6 +1210,43 @@ final class JellyfinAPIClientTests: XCTestCase {
 
         let next = try await client.nextEpisode(currentEpisodeID: "ep-1", seriesID: "series-1", seasonID: "season-1", userID: "user-1")
         XCTAssertNil(next)
+    }
+
+    // MARK: episodes(seriesID:seasonID:userID:fields:)
+
+    /// No `fields:` argument falls back to the same lighter `Fields` value
+    /// every other unqualified browsing call uses — `AssetDetailViewModel`'s
+    /// own two callers only need a quick episode lookup, not `People`.
+    func test_episodes_omittedFields_usesDefaultFieldsValue() async throws {
+        let client = makeClient(accessToken: "tok")
+        var capturedFields: String?
+        MockURLProtocol.requestHandler = { request in
+            capturedFields = request.queryDictionary["Fields"]
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        _ = try await client.episodes(seriesID: "series-1", seasonID: "season-1", userID: "user-1")
+
+        XCTAssertEqual(capturedFields, "Overview,Genres,Studios,PrimaryImageAspectRatio,BasicSyncInfo")
+    }
+
+    /// `SeasonEpisodeList` passes `JellyfinAPIClient.detailFields` explicitly
+    /// — the fix for episode downloads' offline Cast & Crew tab silently
+    /// having nothing to show (see that call site's doc comment): without
+    /// `People` in this request, `DownloadManager.enqueue`'s
+    /// `metadata.people` had nothing to read.
+    func test_episodes_explicitFields_sendsThemVerbatim() async throws {
+        let client = makeClient(accessToken: "tok")
+        var capturedFields: String?
+        MockURLProtocol.requestHandler = { request in
+            capturedFields = request.queryDictionary["Fields"]
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        _ = try await client.episodes(seriesID: "series-1", seasonID: "season-1", userID: "user-1", fields: JellyfinAPIClient.detailFields)
+
+        XCTAssertEqual(capturedFields, JellyfinAPIClient.detailFields)
+        XCTAssertTrue(capturedFields?.contains("People") ?? false)
     }
 }
 

@@ -165,7 +165,12 @@ struct SeasonEpisodeList: View {
         defer { isLoading = false }
         do {
             let images = await client.makeImageURLBuilder()
-            let result = try await client.episodes(seriesID: seriesID, seasonID: seasonID, userID: userID)
+            // `detailFields`, not the plain default — this array is also
+            // what `DownloadButton`/`SeasonDownloadButton` enqueue directly
+            // (see `JellyfinAPIClient.episodes(...)`'s own doc comment):
+            // without `People` here, an episode download's offline Cast &
+            // Crew tab silently had nothing to show, unlike a movie's.
+            let result = try await client.episodes(seriesID: seriesID, seasonID: seasonID, userID: userID, fields: JellyfinAPIClient.detailFields)
             episodes = result.items.map { MediaItem(dto: $0, images: images) }
         } catch {
             episodes = []

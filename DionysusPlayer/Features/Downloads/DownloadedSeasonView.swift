@@ -27,7 +27,7 @@ struct DownloadedSeasonView: View {
 
     var body: some View {
         List {
-            ForEach(sortedEpisodes) { episode in
+            ForEach(sortedEpisodes.map(DownloadedEpisodeSummary.init)) { episode in
                 DownloadedEpisodeRow(
                     episode: episode, downloadManager: downloadManager,
                     isSelecting: isSelecting, isSelected: selectedEpisodeIDs.contains(episode.itemID),
@@ -35,7 +35,7 @@ struct DownloadedSeasonView: View {
                 )
                 .swipeActions {
                     if !isSelecting {
-                        Button("Delete", role: .destructive) { delete(episode) }
+                        Button("Delete", role: .destructive) { delete(itemID: episode.itemID) }
                     }
                 }
             }
@@ -86,9 +86,24 @@ struct DownloadedSeasonView: View {
         if episodes.isEmpty { dismiss() }
     }
 
-    private func delete(_ episode: DownloadedItem) {
-        downloadManager.delete(itemID: episode.itemID)
-        refresh()
+    /// Removes from `episodes` first, synchronously, and only *then*
+    /// schedules the real `DownloadManager.delete(itemID:)` (which deletes
+    /// the underlying SwiftData object) for the next run-loop turn — see
+    /// `DownloadedShowView.delete(itemID:)`'s doc comment for the
+    /// confirmed-live crash this avoids, `DownloadedEpisodeSummary`'s doc
+    /// comment for the actual fix (rows never hold a live model reference
+    /// in the first place), and that same `delete(itemID:)`'s doc comment
+    /// again for why `dismiss()` — when this was the last episode — has to
+    /// wait inside this same deferred block rather than firing immediately
+    /// (otherwise `DownloadedShowView`'s own `refresh()`, triggered by the
+    /// pop, can race ahead of the real deletion and show a stale row).
+    private func delete(itemID: String) {
+        episodes.removeAll { $0.itemID == itemID }
+        let shouldDismiss = episodes.isEmpty
+        DispatchQueue.main.async {
+            downloadManager.delete(itemID: itemID)
+            if shouldDismiss { dismiss() }
+        }
     }
 
     // MARK: Bulk selection
@@ -125,12 +140,19 @@ struct DownloadedSeasonView: View {
             : String(localized: "Delete \(selectedEpisodeIDs.count) Downloads?")
     }
 
+    /// Same ordering as `delete(itemID:)` — see its doc comment. All of
+    /// this selection's deletions land in the *same* deferred closure (not
+    /// one per item), same reasoning as `DownloadedShowView.deleteSeason(_:)`:
+    /// `dismiss()` can't fire after only some of them have actually run.
     private func deleteSelected() {
-        for itemID in selectedEpisodeIDs {
-            downloadManager.delete(itemID: itemID)
-        }
+        let itemIDs = Array(selectedEpisodeIDs)
+        episodes.removeAll { selectedEpisodeIDs.contains($0.itemID) }
+        let shouldDismiss = episodes.isEmpty
         selectedEpisodeIDs = []
         isSelecting = false
-        refresh()
+        DispatchQueue.main.async {
+            for itemID in itemIDs { downloadManager.delete(itemID: itemID) }
+            if shouldDismiss { dismiss() }
+        }
     }
 }

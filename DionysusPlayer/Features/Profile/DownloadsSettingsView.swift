@@ -10,7 +10,9 @@ import SwiftUI
 /// pushed from more than one feature's navigation stack, and this is only
 /// ever reached from within `ProfileView`'s own.
 struct DownloadsSettingsView: View {
-    @AppStorage(downloadResolutionStorageKey) private var downloadResolution: DownloadResolution = .hd1080p
+    /// Default must stay in lockstep with `DownloadPreferencesStore.resolution`'s
+    /// own fallback — see that type's doc comment.
+    @AppStorage(downloadResolutionStorageKey) private var downloadResolution: DownloadResolution = .deviceClassDefault
     @AppStorage(downloadBitratePresetStorageKey) private var downloadBitratePreset: DownloadBitratePreset = .normal
     @AppStorage(downloadWifiOnlyStorageKey) private var downloadWifiOnly = true
     /// Raw slider value — `0` is its own "Unlimited" position, past `10`.
@@ -68,7 +70,7 @@ struct DownloadsSettingsView: View {
             Section {
                 Picker("Resolution", selection: $downloadResolution) {
                     ForEach(DownloadResolution.allCases) { resolution in
-                        Text(resolution.displayName).tag(resolution)
+                        Text(resolution.pickerDisplayName).tag(resolution)
                     }
                 }
                 Picker("Quality", selection: $downloadBitratePreset) {

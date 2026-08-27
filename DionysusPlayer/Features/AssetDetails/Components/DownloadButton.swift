@@ -241,7 +241,13 @@ struct DownloadButton: View {
             AdvancedDownloadOptionsView(
                 itemTitle: advancedOptionsTitle,
                 initialResolution: preferences.resolution,
-                initialPreset: preferences.bitratePreset
+                initialPreset: preferences.bitratePreset,
+                sourceWidth: sourceVideoStream?.width,
+                sourceHeight: sourceVideoStream?.height,
+                sourceBitrate: sourceVideoStream?.bitRate ?? sourceMediaSource?.bitrate,
+                isSourceHDR: DownloadManager.isHDR(sourceVideoStream),
+                sourceVideoCodec: sourceVideoStream?.codec,
+                runtimeTicks: item.dto.runTimeTicks
             ) { resolution, preset in
                 overrideResolution = resolution
                 overridePreset = preset
@@ -249,6 +255,20 @@ struct DownloadButton: View {
             }
         }
     }
+
+    /// The item's own detail-page media source, reused for the Advanced
+    /// Options size estimate. `item.dto.mediaSources` is already populated
+    /// by whatever `detailFields`/`detailFieldsWithTrickplay` fetch loaded
+    /// this page in the first place — a real network round trip, just one
+    /// that already happened before this button ever renders — so this
+    /// needs no fetch of its own, unlike `startResolving()`'s live
+    /// `playbackInfo` call (which exists for the item's *audio/subtitle*
+    /// tracks specifically, not available on the dto). The two can
+    /// disagree only in the same rare way `startResolving()`'s own fresh
+    /// fetch could: a source that's changed server-side since this page
+    /// loaded — acceptable for an estimate.
+    private var sourceMediaSource: MediaSourceInfo? { item.dto.mediaSources?.first }
+    private var sourceVideoStream: MediaStream? { sourceMediaSource?.mediaStreams?.first { $0.type == "Video" } }
 
     /// e.g. "S1:E4 · Pilot" for an episode, the plain title otherwise —
     /// same per-type formatting `MediaItem.railSubtitle` already uses, so

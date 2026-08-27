@@ -94,7 +94,10 @@ actor JellyfinAPIClient {
     // in `Fields`, the server omits `BaseItemDto.studios` entirely (same
     // reason `Genres` is already listed here rather than assumed default).
     private static let defaultFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,BasicSyncInfo"
-    private static let detailFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,MediaSources,People,Taglines,BasicSyncInfo"
+    /// Not `private` — `episodes(seriesID:seasonID:userID:fields:)` needs an
+    /// external caller able to opt into this heavier field list (see that
+    /// method's own doc comment for why `SeasonEpisodeList` does).
+    static let detailFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,MediaSources,People,Taglines,BasicSyncInfo"
     /// `detailFields` plus `Trickplay` — `PlayerViewModel.start()`'s own
     /// item fetch passes this explicitly (see `item(userID:itemID:fields:)`'s
     /// doc comment for why `detailFields` itself doesn't carry this).
@@ -272,11 +275,21 @@ actor JellyfinAPIClient {
         try await get("/Shows/\(seriesID)/Seasons", query: [.init(name: "userId", value: userID)])
     }
 
-    func episodes(seriesID: String, seasonID: String, userID: String) async throws -> BaseItemDtoQueryResult {
+    /// `fields:` defaults to `defaultFields`, same as `item(userID:itemID:fields:)`
+    /// — `AssetDetailViewModel`'s own two callers (a quick "does this show
+    /// have episodes at all" lookup) don't need anything heavier. Pass
+    /// `detailFields` explicitly when the caller actually needs `People`:
+    /// `SeasonEpisodeList` does, since its `episodes` array is also what
+    /// backs `DownloadButton`/`SeasonDownloadButton`'s `enqueue(item:...)`
+    /// calls — episode downloads' `metadata.people` (offline Cast & Crew)
+    /// comes straight from `item.dto.people`, and it was silently always
+    /// empty for episodes before this, unlike a movie's own detail fetch
+    /// (`item(userID:itemID:)`), which already defaults to `detailFields`.
+    func episodes(seriesID: String, seasonID: String, userID: String, fields: String = defaultFields) async throws -> BaseItemDtoQueryResult {
         try await get("/Shows/\(seriesID)/Episodes", query: [
             .init(name: "seasonId", value: seasonID),
             .init(name: "userId", value: userID),
-            .init(name: "Fields", value: Self.defaultFields)
+            .init(name: "Fields", value: fields)
         ])
     }
 
@@ -491,17 +504,49 @@ actor JellyfinAPIClient {
     /// H.265/HEVC MP4, resolution/bitrate capped to `resolution`/`preset`
     /// and never exceeding the source's own values (see
     /// `DownloadTranscodeCalculator.target`, which computes the actual
-    /// `MaxWidth`/`MaxHeight`/`VideoBitrate`/`VideoProfile` sent below).
-    /// Unlike `streamURL` (`Static=true`, direct play), this always
-    /// transcodes (`Static=false`): the whole point of a download is a
-    /// device-friendly capped copy, so even a source already within the
-    /// tier's bounds still gets re-muxed to MP4/AAC, which `Static=true`
-    /// wouldn't do. Audio is always transcoded to AAC-LC stereo
-    /// (`MaxAudioChannels=2`) regardless of the source's channel layout —
-    /// a deliberate v1 simplification (see the offline-downloads plan).
+    /// `MaxWidth`/`MaxHeight`/`VideoBitrate`/`VideoProfile`/`MaxFramerate`
+    /// sent below). Unlike `streamURL` (`Static=true`, direct play), this is
+    /// never a plain file copy (`Static=false`): the whole point of a
+    /// download is a device-friendly capped copy, so even a source already
+    /// within the tier's bounds still gets re-muxed to MP4/AAC, which
+    /// `Static=true` wouldn't do. Audio is always transcoded to AAC-LC
+    /// stereo (`MaxAudioChannels=2`) regardless of the source's channel
+    /// layout — a deliberate v1 simplification (see the offline-downloads
+    /// plan).
+    ///
+    /// The *video* track, though, is only re-encoded when it actually needs
+    /// to be. When the source already satisfies the requested tier
+    /// (`DownloadTranscodeTarget.videoStreamCopyEligible` — see its
+    /// conditions), this asks Jellyfin to copy the video stream into the
+    /// output MP4 untouched via `AllowVideoStreamCopy`, rather than paying
+    /// for a pointless second generation of lossy encoding. Audio is still
+    /// transcoded either way, so the output shape is unchanged.
+    ///
+    /// Two non-obvious details, both established by testing against a real
+    /// server rather than from the API docs:
+    ///
+    /// 1. **`VideoCodec` must list the source's own codec**, which is why
+    ///    `requestedVideoCodecs` can be `"hevc,h264"`. Jellyfin only copies
+    ///    a stream whose codec is among those the client said it wants; ask
+    ///    for `hevc` alone against an H.264 source and the copy is silently
+    ///    declined.
+    /// 2. **The resolution/bitrate caps are still sent** on the copy path.
+    ///    Jellyfin ignores them when it does copy, and they are the only
+    ///    thing standing between a declined copy and a completely
+    ///    unconstrained transcode. Omitting them (the first version of this)
+    ///    turned a 1280×720 source into a **416×234, 343 Kbps** file, because
+    ///    the copy was refused and nothing was left to bound the fallback.
+    ///
     /// `ApiKey` travels as a query param, not a header, for the same reason
     /// `streamURL`/`subtitleURL` do: this URL is handed to a plain
     /// `URLSessionDownloadTask` outside this actor's own request pipeline.
+    ///
+    /// `playSessionId`, when supplied, is what lets `DownloadManager`'s
+    /// keep-alive ping (`JellyfinAPIClient.pingDownloadTranscode`) find this
+    /// exact transcode job again later — see that method's doc comment for
+    /// why a download needs one at all, unlike a plain `streamURL` request.
+    ///
+    /// See `DOWNLOADS.md` for how the tiers and bitrates were chosen.
     func downloadStreamURL(
         itemID: String,
         mediaSourceID: String?,
@@ -511,7 +556,9 @@ actor JellyfinAPIClient {
         isSourceHDR: Bool,
         sourceWidth: Int?,
         sourceHeight: Int?,
-        sourceBitrate: Int?
+        sourceBitrate: Int?,
+        sourceVideoCodec: String? = nil,
+        playSessionId: String? = nil
     ) -> URL? {
         guard var components = URLComponents(
             url: baseURL.appendingPathComponent("Videos/\(itemID)/stream.mp4"),
@@ -524,23 +571,35 @@ actor JellyfinAPIClient {
             isSourceHDR: isSourceHDR,
             sourceWidth: sourceWidth,
             sourceHeight: sourceHeight,
-            sourceBitrate: sourceBitrate
+            sourceBitrate: sourceBitrate,
+            sourceVideoCodec: sourceVideoCodec
         )
 
         var query: [URLQueryItem] = [
             .init(name: "Static", value: "false"),
             .init(name: "Container", value: "mp4"),
-            .init(name: "VideoCodec", value: "hevc"),
+            .init(name: "VideoCodec", value: target.requestedVideoCodecs.joined(separator: ",")),
             .init(name: "AudioCodec", value: "aac"),
+            .init(name: "AudioBitrate", value: String(preset.audioBitrate)),
+            .init(name: "MaxAudioChannels", value: "2"),
+            // Sent even when a stream copy is expected. Jellyfin ignores
+            // these on the copy path, and if it decides to transcode after
+            // all they're the difference between a correctly-capped file and
+            // an unconstrained one — see the doc comment above.
             .init(name: "MaxWidth", value: String(target.maxWidth)),
             .init(name: "MaxHeight", value: String(target.maxHeight)),
             .init(name: "VideoBitrate", value: String(target.videoBitrate)),
-            .init(name: "AudioBitrate", value: String(preset.audioBitrate)),
-            .init(name: "MaxAudioChannels", value: "2"),
             .init(name: "VideoProfile", value: target.videoProfile)
         ]
+        if target.videoStreamCopyEligible {
+            query.append(.init(name: "AllowVideoStreamCopy", value: "true"))
+        }
+        if let maxFramerate = target.maxFramerate {
+            query.append(.init(name: "MaxFramerate", value: String(maxFramerate)))
+        }
         if let mediaSourceID { query.append(.init(name: "MediaSourceId", value: mediaSourceID)) }
         if let audioStreamIndex { query.append(.init(name: "AudioStreamIndex", value: String(audioStreamIndex))) }
+        if let playSessionId { query.append(.init(name: "PlaySessionId", value: playSessionId)) }
         if let accessToken { query.append(.init(name: "ApiKey", value: accessToken)) }
         query.append(.init(name: "DeviceId", value: DeviceIdentity.deviceID))
         components.queryItems = query
@@ -553,6 +612,16 @@ actor JellyfinAPIClient {
     /// applicable). Filtered by `DeviceId`, which every request already
     /// identifies itself with via `X-Emby-Authorization` (see
     /// `JellyfinAuthorization`), so this is normally exactly one entry.
+    /// The one live session Jellyfin tracks for this device — used both for
+    /// `PlaybackStatsOverlay`'s "Streaming" section and for
+    /// `DownloadManager`'s live transcode-progress polling. Confirmed live
+    /// (2026-08-27): a device keeps exactly one session row no matter how
+    /// many concurrent transcode requests it's actually driving — Jellyfin
+    /// doesn't expose per-request granularity here, so a caller juggling
+    /// more than one active transcode from this device can't disambiguate
+    /// which job `transcodingInfo` currently reflects (see
+    /// `DownloadManager.startTranscodeProgressPolling`'s doc comment for how
+    /// it handles that).
     func currentSession(deviceID: String) async throws -> SessionInfoDto? {
         let sessions: [SessionInfoDto] = try await get("/Sessions", query: [.init(name: "DeviceId", value: deviceID)])
         return sessions.first
@@ -584,6 +653,29 @@ actor JellyfinAPIClient {
         try await postNoContent(
             "/Sessions/Playing/Stopped",
             body: PlaybackProgressRequest(itemId: itemID, positionTicks: positionTicks, mediaSourceId: mediaSourceID)
+        )
+    }
+
+    /// Keeps a download's server-side transcode job alive — confirmed live
+    /// (2026-08-27): Jellyfin arms a 10-second kill timer on a progressive
+    /// (non-HLS) transcode job the moment it thinks the client disconnected
+    /// (`ActiveRequestCount` reaching zero — which a real, transient stall
+    /// under concurrent-download CPU contention can trigger even though the
+    /// download is still very much wanted), and nothing refreshes that timer
+    /// unless a ping arrives on the *same* `PlaySessionId` the stream was
+    /// requested with. A `streamURL`/plain playback request never needed
+    /// this — only a download's long-lived, unattended transfer does. Hits
+    /// the same `/Sessions/Playing/Progress` endpoint `reportPlaybackProgress`
+    /// does; `positionTicks: 0` is deliberate (there's no real "playback
+    /// position" for an in-progress transcode file, and Jellyfin's kill-timer
+    /// logic only cares that a ping with this `PlaySessionId` arrived at
+    /// all, not what position it reports).
+    func pingDownloadTranscode(itemID: String, mediaSourceID: String?, playSessionId: String) async throws {
+        try await postNoContent(
+            "/Sessions/Playing/Progress",
+            body: PlaybackProgressRequest(
+                itemId: itemID, positionTicks: 0, mediaSourceId: mediaSourceID, playSessionId: playSessionId
+            )
         )
     }
 

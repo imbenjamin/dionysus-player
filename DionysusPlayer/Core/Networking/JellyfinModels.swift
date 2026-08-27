@@ -343,6 +343,13 @@ struct MediaStream: Codable, Identifiable, Hashable {
     /// the file was probed server-side.
     var realFrameRate: Double?
     var averageFrameRate: Double?
+    /// This stream's own bitrate in bits/sec, as opposed to
+    /// `MediaSource.bitrate`, which covers the whole container. Used by the
+    /// download path to cap a transcode against the source's *video*
+    /// bitrate rather than one inflated by however many audio tracks the
+    /// file carries. Not always populated — an older library item or a
+    /// container the server couldn't fully probe can leave it `nil`.
+    var bitRate: Int?
 
     // Audio-specific.
     var channelLayout: String?
@@ -364,6 +371,13 @@ struct PlaybackProgressRequest: Encodable {
     /// server's active-session bookkeeping reflect the real file being
     /// streamed.
     var mediaSourceId: String?
+    /// Set only by `DownloadManager`'s transcode keep-alive ping — see
+    /// `JellyfinAPIClient.pingDownloadTranscode`'s doc comment. Live
+    /// playback never sets this: `reportPlaybackStart`/`reportPlaybackProgress`/
+    /// `reportPlaybackStopped` all leave it `nil`, which is fine since those
+    /// calls aren't targeting a specific server-side transcode job the way
+    /// a download's keep-alive ping needs to.
+    var playSessionId: String?
 }
 
 /// Body for `JellyfinAPIClient.updateUserData` (`POST
@@ -400,7 +414,14 @@ struct SessionInfoDto: Codable {
     var id: String?
     var deviceId: String?
     var playState: PlayStateInfoDto?
-    /// Present only while `playState.playMethod == "Transcode"`.
+    /// Present only while `playState.playMethod == "Transcode"`. Confirmed
+    /// live (2026-08-27): this populates for a download's plain transcode
+    /// stream too, not just real playback — but `PlayState`'s own fields
+    /// (`mediaSourceId`, `playMethod`) do NOT, since those are only set via
+    /// `/Sessions/Playing`, which downloads never call. Don't try to key
+    /// off `PlayState` to identify a download's session — see
+    /// `JellyfinAPIClient.currentSession(deviceID:)`'s doc comment for what
+    /// actually works instead.
     var transcodingInfo: TranscodingInfoDto?
 }
 

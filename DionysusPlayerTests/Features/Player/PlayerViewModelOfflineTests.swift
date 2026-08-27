@@ -110,6 +110,42 @@ final class PlayerViewModelOfflineTests: XCTestCase {
         XCTAssertEqual(viewModel.mediaSegments.first?.endSeconds, 30)
     }
 
+    // MARK: offlineLogoURL — see PlayerViewModel.startOffline's doc comment
+
+    /// A downloaded item's synthetic `BaseItemDto` carries no `imageTags`,
+    /// so `item.logoImageURL` alone can never resolve for offline playback
+    /// — `offlineLogoURL` is the separate local-file path
+    /// `PlayerControlsOverlay.titleRow` checks first. This was a real bug,
+    /// confirmed live (2026-08-27): before `offlineLogoURL` existed, every
+    /// downloaded item's Player screen fell back to plain title text, even
+    /// when a Logo image had been downloaded and cached at enqueue time.
+    func test_startOffline_logoImagePathStored_setsOfflineLogoURLToLocalFile() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        item.logoImagePath = "item-1/logo.png"
+        store.insert(item)
+        let (viewModel, _) = makeOfflineViewModel(downloadedItem: item, store: store)
+
+        await viewModel.start()
+
+        XCTAssertEqual(viewModel.offlineLogoURL, DownloadFileStore.url(forRelativePath: "item-1/logo.png"))
+        XCTAssertTrue(viewModel.offlineLogoURL?.isFileURL == true)
+    }
+
+    /// A download that predates logo caching, or never had a Logo image on
+    /// the server, leaves `offlineLogoURL` `nil` — `titleRow` falls back to
+    /// plain title text, same as a live item with no logo.
+    func test_startOffline_noStoredLogoPath_offlineLogoURLIsNil() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        store.insert(item)
+        let (viewModel, _) = makeOfflineViewModel(downloadedItem: item, store: store)
+
+        await viewModel.start()
+
+        XCTAssertNil(viewModel.offlineLogoURL)
+    }
+
     // MARK: trickplay
 
     func test_startOffline_noStoredTrickplayInfo_scrubThumbnailsUnsupported() async {

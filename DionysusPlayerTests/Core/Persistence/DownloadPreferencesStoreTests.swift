@@ -18,10 +18,25 @@ final class DownloadPreferencesStoreTests: XCTestCase {
 
     func test_freshStore_fallsBackToDocumentedDefaults() {
         let store = DownloadPreferencesStore(defaults: defaults)
-        XCTAssertEqual(store.resolution, .hd1080p)
         XCTAssertEqual(store.bitratePreset, .normal)
         XCTAssertEqual(store.wifiOnly, true)
         XCTAssertEqual(store.maxConcurrentDownloads, 5)
+    }
+
+    /// Resolution's own default is device-class-dependent
+    /// (`DownloadResolution.deviceClassDefault` — 720p on phone, 1080p on
+    /// tablet), so it's asserted through the injectable override rather than
+    /// against a fixed tier; otherwise this test would pass or fail
+    /// depending on which simulator the suite happened to run on.
+    func test_freshStore_resolutionUsesInjectedFallback() {
+        let store = DownloadPreferencesStore(defaults: defaults, fallbackResolution: .sd480p)
+        XCTAssertEqual(store.resolution, .sd480p)
+    }
+
+    /// With nothing injected, the fresh-store default is whatever this
+    /// device class calls for.
+    func test_freshStore_resolutionDefaultsToDeviceClassDefault() {
+        XCTAssertEqual(DownloadPreferencesStore(defaults: defaults).resolution, .deviceClassDefault)
     }
 
     /// Same key `ProfileView`'s slider writes to.
@@ -59,6 +74,9 @@ final class DownloadPreferencesStoreTests: XCTestCase {
     /// rather than crashing or returning something nonsensical.
     func test_resolution_unrecognizedStoredValue_fallsBackToDefault() {
         defaults.set("not-a-real-resolution", forKey: downloadResolutionStorageKey)
-        XCTAssertEqual(DownloadPreferencesStore(defaults: defaults).resolution, .hd1080p)
+        XCTAssertEqual(
+            DownloadPreferencesStore(defaults: defaults, fallbackResolution: .hd1080p).resolution,
+            .hd1080p
+        )
     }
 }

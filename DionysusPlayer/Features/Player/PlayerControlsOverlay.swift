@@ -1062,6 +1062,15 @@ struct PlayerControlsOverlay: View {
     /// gradient (see `topSection`'s doc comment), not from anything owned
     /// here.
     ///
+    /// `viewModel.offlineLogoURL ?? item.logoImageURL`: for a downloaded
+    /// item `item.logoImageURL` is always `nil` (its synthetic `BaseItemDto`
+    /// carries no `imageTags` — see `PlayerViewModel.startOffline`'s doc
+    /// comment), so the offline logo travels separately as a local file URL
+    /// instead. Same `isFileURL` branch to `LocalFileImage` vs.
+    /// `LogoImageView` that `BackdropLogoOverlay` uses, for the same reason:
+    /// a local read is synchronous and already cached, so there's no load
+    /// latency for `LogoImageView`'s fade-in to hide.
+    ///
     /// For episodes, an "S1:E4 · Episode Name" line (`MediaItem.railSubtitle`
     /// — falls back to just the episode name if the numbering isn't present)
     /// always appears below whatever's on the first line, so the episode
@@ -1076,9 +1085,14 @@ struct PlayerControlsOverlay: View {
         if let item = viewModel.item {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    if let logoURL = item.logoImageURL {
-                        LogoImageView(url: logoURL, fallback: titleText(item.railTitle))
-                            .frame(maxWidth: 240, maxHeight: 60, alignment: .leading)
+                    if let logoURL = viewModel.offlineLogoURL ?? item.logoImageURL {
+                        if logoURL.isFileURL {
+                            LocalFileImage(url: logoURL, contentMode: .fit)
+                                .frame(maxWidth: 240, maxHeight: 60, alignment: .leading)
+                        } else {
+                            LogoImageView(url: logoURL, fallback: titleText(item.railTitle))
+                                .frame(maxWidth: 240, maxHeight: 60, alignment: .leading)
+                        }
                     } else if item.kind == .episode {
                         titleText(item.railTitle)
                     } else {

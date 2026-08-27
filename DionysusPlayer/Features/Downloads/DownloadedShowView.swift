@@ -55,7 +55,7 @@ struct DownloadedShowView: View {
                     }
                 }
             } else {
-                ForEach(sortedEpisodes) { episode in
+                ForEach(sortedEpisodes.map(DownloadedEpisodeSummary.init)) { episode in
                     DownloadedEpisodeRow(
                         episode: episode, downloadManager: downloadManager,
                         isSelecting: isSelecting, isSelected: selectedRowIDs.contains(episode.itemID),
@@ -63,7 +63,7 @@ struct DownloadedShowView: View {
                     )
                     .swipeActions {
                         if !isSelecting {
-                            Button("Delete", role: .destructive) { delete(episode) }
+                            Button("Delete", role: .destructive) { delete(itemID: episode.itemID) }
                         }
                     }
                 }
@@ -145,16 +145,55 @@ struct DownloadedShowView: View {
         if episodes.isEmpty { dismiss() }
     }
 
-    private func delete(_ episode: DownloadedItem) {
-        downloadManager.delete(itemID: episode.itemID)
-        refresh()
+    /// Removes from `episodes` first, synchronously, and only *then*
+    /// schedules the real `DownloadManager.delete(itemID:)` (which deletes
+    /// the underlying SwiftData object) for the next run-loop turn — not
+    /// inline, and not via an immediate `refresh()`. Confirmed live
+    /// (2026-08-27): deleting a download crashed inside SwiftData's own
+    /// generated `DownloadedItem` property accessors, reached from a `List`
+    /// row still mid-removal-transition. A one-run-loop-turn defer alone
+    /// turned out **not** to be enough on its own — `List`'s default
+    /// row-removal animation comfortably outlasts a single `DispatchQueue
+    /// .main.async` hop, so the transitioning-out row's `body` (still
+    /// holding the model reference it was built with) got a chance to touch
+    /// it again before the animation finished. The defer here is kept as
+    /// cheap insurance, but the actual fix is `DownloadedEpisodeSummary`
+    /// (see its doc comment): rows now never hold a live model reference in
+    /// the first place, so there's nothing left to trap on regardless of
+    /// how long the transition runs.
+    ///
+    /// `dismiss()` — when this was the last episode — happens **inside**
+    /// this same deferred block, after the real deletion, not right away.
+    /// Confirmed live (2026-08-27): dismissing immediately let `DownloadsView`'s
+    /// `onAppear`-triggered `refresh()` (which re-reads the SwiftData store
+    /// from scratch) run *before* the deferred delete above had actually
+    /// landed, so it rebuilt its row list from a store that still had this
+    /// episode — leaving a stale "Preparing download…" row visible on the
+    /// main Downloads list until an unrelated navigation elsewhere (and
+    /// back) happened to trigger another `refresh()` late enough to see the
+    /// real state. Deferring the pop past the deletion closes that window.
+    private func delete(itemID: String) {
+        episodes.removeAll { $0.itemID == itemID }
+        let shouldDismiss = episodes.isEmpty
+        DispatchQueue.main.async {
+            downloadManager.delete(itemID: itemID)
+            if shouldDismiss { dismiss() }
+        }
     }
 
+    /// Same ordering as `delete(itemID:)` — see its doc comment, including
+    /// for why `dismiss()` waits inside the deferred block. All of this
+    /// season's deletions land in the *same* deferred closure (not one per
+    /// item) specifically so `dismiss()` can't fire after only some of them
+    /// have actually run.
     private func deleteSeason(_ row: SeasonRow) {
-        for episode in episodes where episode.seasonID == row.seasonID {
-            downloadManager.delete(itemID: episode.itemID)
+        let itemIDs = episodes.filter { $0.seasonID == row.seasonID }.map(\.itemID)
+        episodes.removeAll { $0.seasonID == row.seasonID }
+        let shouldDismiss = episodes.isEmpty
+        DispatchQueue.main.async {
+            for itemID in itemIDs { downloadManager.delete(itemID: itemID) }
+            if shouldDismiss { dismiss() }
         }
-        refresh()
     }
 
     // MARK: Bulk selection
@@ -210,22 +249,72 @@ struct DownloadedShowView: View {
 
     /// Deletes everything the current selection covers — every episode of a
     /// selected season, not just that one row, when grouped — then exits
-    /// selection mode.
+    /// selection mode. Same "remove from `episodes` first, delete the real
+    /// objects after, `dismiss()` only once they actually have" order as
+    /// `delete(itemID:)` — see its doc comment for both the crash and the
+    /// stale-row bug this avoids, either of which a multi-item bulk delete
+    /// hits even more easily (more simultaneous row-removal transitions to
+    /// race, and a full-season delete is exactly the "several episodes at
+    /// once" case that surfaced the stale-row bug live).
     private func deleteSelected() {
+        let itemIDs: [String]
         if isGroupedBySeason {
             // One pass over the already-in-memory `episodes`, not a
             // `store.visibleItems()` re-fetch per selected season.
-            for episode in episodes where selectedRowIDs.contains(episode.seasonID ?? "") {
-                downloadManager.delete(itemID: episode.itemID)
-            }
+            itemIDs = episodes.filter { selectedRowIDs.contains($0.seasonID ?? "") }.map(\.itemID)
         } else {
-            for itemID in selectedRowIDs {
-                downloadManager.delete(itemID: itemID)
-            }
+            itemIDs = Array(selectedRowIDs)
         }
+        let idSet = Set(itemIDs)
+        episodes.removeAll { idSet.contains($0.itemID) }
+        let shouldDismiss = episodes.isEmpty
         selectedRowIDs = []
         isSelecting = false
-        refresh()
+        DispatchQueue.main.async {
+            for itemID in itemIDs { downloadManager.delete(itemID: itemID) }
+            if shouldDismiss { dismiss() }
+        }
+    }
+}
+
+/// A plain-value snapshot of the display data `DownloadedEpisodeRow` needs,
+/// captured once from a live `DownloadedItem` at the moment the row is
+/// built. Deliberately holds **no** reference to the model itself. Confirmed
+/// live (2026-08-27): a `List` row's `body` can still be re-invoked while
+/// its own removal transition is animating out, even after the item has
+/// been dropped from the source array and even with the real SwiftData
+/// delete deferred a run-loop turn — a `DownloadedEpisodeRow` that captured
+/// the live `@Model` reference directly would touch it again during that
+/// window and trap the instant the backing row was actually gone (SwiftData
+/// has no supported "is this still valid" check — any property access on a
+/// deleted model instance, stored or computed, crashes). A value-type
+/// snapshot has nothing left to touch, so the row survives its own
+/// animation regardless of exactly when the real deletion lands.
+struct DownloadedEpisodeSummary: Identifiable {
+    var id: String { itemID }
+    var itemID: String
+    var episodeLabel: String?
+    var title: String
+    var thumbImagePath: String?
+    var posterImagePath: String?
+    var status: DownloadStatus
+    /// Precomputed here rather than left as a computed property read from
+    /// the row's `body` — see this type's own doc comment for why that
+    /// distinction is the whole point.
+    var metaText: String?
+    var metaAccessibilityText: String?
+
+    init(_ item: DownloadedItem) {
+        itemID = item.itemID
+        episodeLabel = item.episodeLabel
+        title = item.title
+        thumbImagePath = item.thumbImagePath
+        posterImagePath = item.posterImagePath
+        status = item.status
+        let parts = [item.episodeAirDateText, item.durationText].compactMap { $0 }
+        metaText = parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
+        let accessibilityParts = [item.episodeAirDateText, item.durationAccessibilityText].compactMap { $0 }
+        metaAccessibilityText = accessibilityParts.isEmpty ? nil : accessibilityParts.joined(separator: ", ")
     }
 }
 
@@ -233,9 +322,11 @@ struct DownloadedShowView: View {
 /// single-season flat list and `DownloadedSeasonView`. In selection mode
 /// (`isSelecting`), a plain tappable row with a leading checkbox instead of
 /// its usual `NavigationLink`, toggling `onToggleSelection` rather than
-/// navigating — same branch shape as `DownloadsView`'s own row.
+/// navigating — same branch shape as `DownloadsView`'s own row. Takes a
+/// `DownloadedEpisodeSummary`, not a `DownloadedItem` — see that type's doc
+/// comment for why holding the live model directly is unsafe here.
 struct DownloadedEpisodeRow: View {
-    let episode: DownloadedItem
+    let episode: DownloadedEpisodeSummary
     let downloadManager: DownloadManager
     var isSelecting: Bool = false
     var isSelected: Bool = false
@@ -264,25 +355,6 @@ struct DownloadedEpisodeRow: View {
         }
     }
 
-    /// Air date and runtime together, e.g. "1 Aug 2026 · 42m" — same
-    /// "next to the asset length" placement as the live
-    /// `SeasonEpisodeList.EpisodeRow`'s own `episodeMetaText` (see its doc
-    /// comment); this row didn't show a duration at all before, so this
-    /// adds both together rather than an orphan date with nothing to pair
-    /// it with.
-    private var metaText: String? {
-        let parts = [episode.episodeAirDateText, episode.durationText].compactMap { $0 }
-        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
-    }
-
-    /// Same content as `metaText`, worded for VoiceOver — see
-    /// `MediaItem.durationAccessibilityText`'s doc comment for why the
-    /// duration half needs this.
-    private var metaAccessibilityText: String? {
-        let parts = [episode.episodeAirDateText, episode.durationAccessibilityText].compactMap { $0 }
-        return parts.isEmpty ? nil : parts.joined(separator: ", ")
-    }
-
     @ViewBuilder
     private var rowContent: some View {
         HStack(spacing: 12) {
@@ -297,9 +369,9 @@ struct DownloadedEpisodeRow: View {
                     Text(episodeLabel).font(.caption).foregroundStyle(.secondary)
                 }
                 Text(episode.title).lineLimit(1)
-                if let metaText {
+                if let metaText = episode.metaText {
                     Text(metaText).font(.caption).foregroundStyle(.secondary)
-                        .accessibilityLabel(metaAccessibilityText ?? metaText)
+                        .accessibilityLabel(episode.metaAccessibilityText ?? metaText)
                 }
                 statusLine
             }

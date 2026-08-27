@@ -177,10 +177,22 @@ the just-signed-out user.
 snapshotted via `client.makeImageURLBuilder()` so SwiftUI views can build
 image URLs synchronously without hopping through the actor on every render.
 
-Playback today is direct-play only: `streamURL(itemID:mediaSourceID:container:)`
-builds a static stream URL. `PlaybackInfoResponse`/`DeviceProfile`-based
-transcode negotiation is not implemented yet — if asked to add transcoding,
+**Live playback** is direct-play only: `streamURL(itemID:mediaSourceID:container:)`
+builds a static stream URL (`Static=true`) and AetherEngine decodes whatever
+comes back. `PlaybackInfoResponse`/`DeviceProfile`-based transcode negotiation
+is not implemented for playback — if asked to add transcoding *to playback*,
 this is the file to extend.
+
+**Downloads are a separate path that always transcodes** —
+`downloadStreamURL(...)` (`Static=false`, HEVC/MP4, resolution + bitrate capped
+to the user's chosen tier). Don't read the playback paragraph above as a
+whole-app statement: the app both direct-plays and transcodes, just in
+different places. The tiers, the bitrate ladder behind them, and why the
+default differs between iPhone and iPad are documented in `DOWNLOADS.md` —
+**read it before changing any number in `DownloadTypes.swift`**, since the
+ladder is derived from a single bits-per-pixel rule rather than chosen
+per-rung, and a locally-sensible tweak breaks that. `DownloadTypesTests`
+asserts the rule directly.
 
 ### Playback (`Core/Playback/`)
 
