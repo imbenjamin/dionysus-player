@@ -51,9 +51,22 @@ final class DownloadsViewModel {
     /// subtitle sidecars and artwork aren't included there either.
     private(set) var rowSizes: [String: Int64] = [:]
     private let downloadManager: DownloadManager
+    /// How `delete(itemID:)`/`deleteSelected()` schedule the *real*
+    /// `DownloadManager.delete(itemID:)` call, after `rows` has already
+    /// been updated synchronously — see `delete(itemID:)`'s doc comment for
+    /// why this needs to happen on a later run-loop turn, not inline.
+    /// Defaults to the real `DispatchQueue.main.async`; test-only DI seam
+    /// (matching `DownloadManager`'s own `...Override` seams) lets
+    /// `DownloadsViewModelTests` run it synchronously instead of needing to
+    /// pump the run loop to observe the deferred deletion.
+    private let deferredDeleteScheduler: (@escaping () -> Void) -> Void
 
-    init(downloadManager: DownloadManager) {
+    init(
+        downloadManager: DownloadManager,
+        deferredDeleteScheduler: @escaping (@escaping () -> Void) -> Void = { DispatchQueue.main.async(execute: $0) }
+    ) {
         self.downloadManager = downloadManager
+        self.deferredDeleteScheduler = deferredDeleteScheduler
         refresh()
     }
 
@@ -100,9 +113,31 @@ final class DownloadsViewModel {
         }
     }
 
+    /// Removes the row from `rows` first, synchronously, and only *then*
+    /// schedules the real `DownloadManager.delete(itemID:)` (which deletes
+    /// the underlying SwiftData object) for the next run-loop turn — not
+    /// inline. Confirmed live (2026-08-27): deleting two downloads back to
+    /// back crashed inside SwiftData's own generated `DownloadedItem`
+    /// property accessors — a still-in-flight `List` row-removal transition
+    /// for the *first* delete read a property on a `DownloadedItem` whose
+    /// backing row a *second*, immediately-following delete had already
+    /// removed from the model context. SwiftData traps on any property
+    /// access to a model instance once its store row is gone; there's no
+    /// supported way to check "is this instance still valid" before
+    /// touching it. Removing from `rows` up front lets SwiftUI's own
+    /// diffing/animation finish against a plain value-type array with
+    /// nothing left pointing at the row's live model object, so the actual
+    /// deletion — deferred past that — can never race a transition that's
+    /// still reading it.
     func delete(itemID: String) {
-        downloadManager.delete(itemID: itemID)
-        refresh()
+        rows.removeAll { row in
+            if case .standalone(let item) = row { return item.itemID == itemID }
+            return false
+        }
+        rowSizes.removeValue(forKey: itemID)
+        deferredDeleteScheduler { [downloadManager] in
+            downloadManager.delete(itemID: itemID)
+        }
     }
 
     // MARK: Retry
@@ -216,20 +251,30 @@ final class DownloadsViewModel {
     /// `allEpisodes` is fetched once, before the loop, and filtered in
     /// memory per selected show rather than each `.show` row re-fetching
     /// `store.visibleItems()` inside the loop.
+    ///
+    /// Same "remove from `rows` first, delete the real objects after" order
+    /// as `delete(itemID:)` — see its doc comment for the crash this
+    /// avoids, which a multi-item bulk delete hits even more easily (more
+    /// simultaneous row-removal transitions to race).
     func deleteSelected() {
         let allEpisodes = downloadManager.store.visibleItems()
+        var itemIDsToDelete: [String] = []
         for row in rows where selectedRowIDs.contains(row.id) {
             switch row {
             case .standalone(let item):
-                downloadManager.delete(itemID: item.itemID)
+                itemIDsToDelete.append(item.itemID)
             case .show(let seriesID, _, _, _):
-                for episode in allEpisodes where episode.seriesID == seriesID {
-                    downloadManager.delete(itemID: episode.itemID)
-                }
+                itemIDsToDelete.append(contentsOf: allEpisodes.filter { $0.seriesID == seriesID }.map(\.itemID))
             }
         }
+        rows.removeAll { selectedRowIDs.contains($0.id) }
+        for itemID in itemIDsToDelete { rowSizes.removeValue(forKey: itemID) }
         selectedRowIDs = []
         isSelecting = false
-        refresh()
+        for itemID in itemIDsToDelete {
+            deferredDeleteScheduler { [downloadManager] in
+                downloadManager.delete(itemID: itemID)
+            }
+        }
     }
 }

@@ -27,7 +27,7 @@ struct DownloadedSeasonView: View {
 
     var body: some View {
         List {
-            ForEach(sortedEpisodes) { episode in
+            ForEach(sortedEpisodes.map(DownloadedEpisodeSummary.init)) { episode in
                 DownloadedEpisodeRow(
                     episode: episode, downloadManager: downloadManager,
                     isSelecting: isSelecting, isSelected: selectedEpisodeIDs.contains(episode.itemID),
@@ -35,7 +35,7 @@ struct DownloadedSeasonView: View {
                 )
                 .swipeActions {
                     if !isSelecting {
-                        Button("Delete", role: .destructive) { delete(episode) }
+                        Button("Delete", role: .destructive) { delete(itemID: episode.itemID) }
                     }
                 }
             }
@@ -86,9 +86,19 @@ struct DownloadedSeasonView: View {
         if episodes.isEmpty { dismiss() }
     }
 
-    private func delete(_ episode: DownloadedItem) {
-        downloadManager.delete(itemID: episode.itemID)
-        refresh()
+    /// Removes from `episodes` first, synchronously, and only *then*
+    /// schedules the real `DownloadManager.delete(itemID:)` (which deletes
+    /// the underlying SwiftData object) for the next run-loop turn — see
+    /// `DownloadedShowView.delete(itemID:)`'s doc comment for the
+    /// confirmed-live crash this avoids, and `DownloadedEpisodeSummary`'s
+    /// doc comment for the actual fix (rows never hold a live model
+    /// reference in the first place).
+    private func delete(itemID: String) {
+        episodes.removeAll { $0.itemID == itemID }
+        if episodes.isEmpty { dismiss() }
+        DispatchQueue.main.async {
+            downloadManager.delete(itemID: itemID)
+        }
     }
 
     // MARK: Bulk selection
@@ -125,12 +135,17 @@ struct DownloadedSeasonView: View {
             : String(localized: "Delete \(selectedEpisodeIDs.count) Downloads?")
     }
 
+    /// Same ordering as `delete(_:)` — see its doc comment.
     private func deleteSelected() {
-        for itemID in selectedEpisodeIDs {
-            downloadManager.delete(itemID: itemID)
-        }
+        let itemIDs = Array(selectedEpisodeIDs)
+        episodes.removeAll { selectedEpisodeIDs.contains($0.itemID) }
+        if episodes.isEmpty { dismiss() }
         selectedEpisodeIDs = []
         isSelecting = false
-        refresh()
+        for itemID in itemIDs {
+            DispatchQueue.main.async {
+                downloadManager.delete(itemID: itemID)
+            }
+        }
     }
 }

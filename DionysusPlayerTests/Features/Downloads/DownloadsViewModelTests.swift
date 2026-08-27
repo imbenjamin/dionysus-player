@@ -31,7 +31,7 @@ final class DownloadsViewModelTests: XCTestCase {
         store.insert(makeEpisode(itemID: "ep-1", seriesID: "series-1", seriesTitle: "A Show", episodeNumber: 1))
         store.insert(makeEpisode(itemID: "ep-2", seriesID: "series-1", seriesTitle: "A Show", episodeNumber: 2))
 
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
 
         XCTAssertEqual(viewModel.rows.count, 1)
         guard case .show(_, let title, _, let count) = viewModel.rows.first else {
@@ -47,7 +47,7 @@ final class DownloadsViewModelTests: XCTestCase {
         let store = DownloadTestHelpers.makeInMemoryStore()
         let manager = DownloadManager(store: store)
         store.insert(DownloadTestHelpers.makeItem(itemID: "item-1"))
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
 
         viewModel.beginSelecting()
 
@@ -59,7 +59,7 @@ final class DownloadsViewModelTests: XCTestCase {
         let store = DownloadTestHelpers.makeInMemoryStore()
         let manager = DownloadManager(store: store)
         store.insert(DownloadTestHelpers.makeItem(itemID: "item-1"))
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
         viewModel.beginSelecting()
         viewModel.toggleSelection(viewModel.rows[0].id)
 
@@ -73,7 +73,7 @@ final class DownloadsViewModelTests: XCTestCase {
         let store = DownloadTestHelpers.makeInMemoryStore()
         let manager = DownloadManager(store: store)
         store.insert(DownloadTestHelpers.makeItem(itemID: "item-1"))
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
         let rowID = viewModel.rows[0].id
 
         viewModel.toggleSelection(rowID)
@@ -88,7 +88,7 @@ final class DownloadsViewModelTests: XCTestCase {
         let manager = DownloadManager(store: store)
         store.insert(DownloadTestHelpers.makeItem(itemID: "item-1"))
         store.insert(DownloadTestHelpers.makeItem(itemID: "item-2"))
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
 
         viewModel.toggleSelectAll()
         XCTAssertTrue(viewModel.isAllSelected)
@@ -104,7 +104,7 @@ final class DownloadsViewModelTests: XCTestCase {
         let manager = DownloadManager(store: store)
         store.insert(DownloadTestHelpers.makeItem(itemID: "item-1"))
         store.insert(DownloadTestHelpers.makeItem(itemID: "item-2"))
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
 
         viewModel.toggleSelection(viewModel.rows[0].id)
 
@@ -121,7 +121,7 @@ final class DownloadsViewModelTests: XCTestCase {
         store.insert(makeEpisode(itemID: "ep-2", seriesID: "series-1", seriesTitle: "A Show", episodeNumber: 2))
         store.insert(makeEpisode(itemID: "ep-3", seriesID: "series-1", seriesTitle: "A Show", episodeNumber: 3))
         store.insert(DownloadTestHelpers.makeItem(itemID: "movie-1"))
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
 
         viewModel.toggleSelectAll()
 
@@ -132,7 +132,7 @@ final class DownloadsViewModelTests: XCTestCase {
         let store = DownloadTestHelpers.makeInMemoryStore()
         let manager = DownloadManager(store: store)
         store.insert(DownloadTestHelpers.makeItem(itemID: "item-1"))
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
 
         XCTAssertEqual(viewModel.selectedAssetCount, 0)
     }
@@ -142,7 +142,7 @@ final class DownloadsViewModelTests: XCTestCase {
         let manager = DownloadManager(store: store)
         store.insert(DownloadTestHelpers.makeItem(itemID: "item-1"))
         store.insert(DownloadTestHelpers.makeItem(itemID: "item-2"))
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
         viewModel.beginSelecting()
         viewModel.toggleSelection("standalone-item-1")
 
@@ -163,7 +163,7 @@ final class DownloadsViewModelTests: XCTestCase {
         store.insert(makeEpisode(itemID: "ep-1", seriesID: "series-1", seriesTitle: "A Show", episodeNumber: 1))
         store.insert(makeEpisode(itemID: "ep-2", seriesID: "series-1", seriesTitle: "A Show", episodeNumber: 2))
         store.insert(DownloadTestHelpers.makeItem(itemID: "movie-1"))
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
         viewModel.beginSelecting()
         viewModel.toggleSelection("show-series-1")
 
@@ -184,7 +184,7 @@ final class DownloadsViewModelTests: XCTestCase {
         try DownloadFileStore.write(Data(repeating: 0, count: 1_000), toRelativePath: item.videoFilePath)
         defer { DownloadFileStore.deleteItemFiles(itemID: "item-1") }
 
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
 
         XCTAssertEqual(viewModel.rowSizes["standalone-item-1"], 1_000)
     }
@@ -200,7 +200,7 @@ final class DownloadsViewModelTests: XCTestCase {
         try DownloadFileStore.write(Data(repeating: 0, count: 1_000), toRelativePath: item.videoFilePath)
         defer { DownloadFileStore.deleteItemFiles(itemID: "item-1") }
 
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
 
         XCTAssertEqual(viewModel.rowSizes["standalone-item-1"], 0)
     }
@@ -229,7 +229,7 @@ final class DownloadsViewModelTests: XCTestCase {
             DownloadFileStore.deleteItemFiles(itemID: "ep-3")
         }
 
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
 
         XCTAssertEqual(viewModel.rowSizes["show-series-1"], 3_000, "1,000 + 2,000 from the two completed episodes; ep-3 excluded")
     }
@@ -247,7 +247,7 @@ final class DownloadsViewModelTests: XCTestCase {
             DownloadFileStore.deleteItemFiles(itemID: "item-1")
             DownloadFileStore.deleteItemFiles(itemID: "item-2")
         }
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
 
         viewModel.toggleSelectAll()
 
@@ -262,7 +262,7 @@ final class DownloadsViewModelTests: XCTestCase {
         let store = DownloadTestHelpers.makeInMemoryStore()
         let manager = DownloadManager(store: store)
         store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .downloading))
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
 
         viewModel.toggleSelectAll()
 
@@ -279,7 +279,7 @@ final class DownloadsViewModelTests: XCTestCase {
         let store = DownloadTestHelpers.makeInMemoryStore()
         let manager = DownloadManager(store: store)
         store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .downloading))
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
         MockURLProtocol.requestHandler = { _ in XCTFail("must not hit the network for a non-failed row"); throw URLError(.badURL) }
 
         await viewModel.retry(itemID: "item-1", client: makeClient())
@@ -296,7 +296,7 @@ final class DownloadsViewModelTests: XCTestCase {
         let store = DownloadTestHelpers.makeInMemoryStore()
         let manager = DownloadManager(store: store)
         store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .failed))
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
         MockURLProtocol.requestHandler = { _ in throw URLError(.notConnectedToInternet) }
 
         await viewModel.retry(itemID: "item-1", client: makeClient())
@@ -311,7 +311,7 @@ final class DownloadsViewModelTests: XCTestCase {
         store.insert(makeEpisode(itemID: "ep-1", seriesID: "series-1", seriesTitle: "A Show", episodeNumber: 1))
         store.insert(makeEpisode(itemID: "ep-2", seriesID: "series-1", seriesTitle: "A Show", episodeNumber: 2))
         store.insert(DownloadTestHelpers.makeItem(itemID: "movie-1"))
-        let viewModel = DownloadsViewModel(downloadManager: manager)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
         viewModel.beginSelecting()
         viewModel.toggleSelectAll()
 
