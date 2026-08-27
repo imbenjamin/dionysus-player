@@ -277,6 +277,14 @@ struct PlayerView: View {
                             guard generation == skipSegmentGeneration else { return }
                             isSkippingSegment = false
                         }
+                    },
+                    // No `isSkippingSegment`/buffering dance here, unlike
+                    // `onSkip` above — dismissing never seeks (see
+                    // `PlayerViewModel.dismissSkipSegment(_:)`'s doc
+                    // comment), so there's nothing for the engine to
+                    // buffer through.
+                    onDismiss: { segment in
+                        viewModel.dismissSkipSegment(segment)
                     }
                 )
 

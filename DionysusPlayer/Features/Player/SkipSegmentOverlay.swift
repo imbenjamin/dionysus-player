@@ -20,10 +20,39 @@ import SwiftUI
 /// end-credits segment specifically whenever `NextUpOverlay` is covering
 /// that window instead — so sharing a slot never means picking a winner
 /// between two visible cards.
+///
+/// Dismissible two ways, both routed through `onDismiss` rather than
+/// `onSkip` — see `PlayerViewModel.dismissSkipSegment(_:)`'s doc comment for
+/// why dismissing deliberately doesn't seek: swipe the button itself away to
+/// the right, or (VoiceOver-only, since a raw `DragGesture` isn't a reliable
+/// path for VoiceOver — same reasoning as `PlayerView`'s own persistent
+/// Show/Hide Controls button) tap the small close button that appears
+/// attached to its trailing edge.
 struct SkipSegmentOverlay: View {
     let segment: PlaybackSegment?
     let isBuffering: Bool
     let onSkip: (PlaybackSegment) -> Void
+    let onDismiss: (PlaybackSegment) -> Void
+
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    /// Horizontal offset the swipe-to-dismiss gesture drives — lives here
+    /// rather than tracked per-segment because this view is never rebuilt
+    /// (see this type's own doc comment on why it stays mounted), so it has
+    /// to be reset by hand whenever a *different* segment starts occupying
+    /// this slot, or the next one would render pre-shifted from whatever
+    /// gesture last touched this button. See the `onChange` below.
+    @State private var dragOffset: CGFloat = 0
+
+    /// How far right a drag has to travel before it counts as a dismiss
+    /// rather than springing back — generous enough that an incidental
+    /// touch/small correction while reaching for the button doesn't
+    /// dismiss it by accident.
+    private static let dismissSwipeThreshold: CGFloat = 60
+    /// Where the button animates to once a swipe crosses the threshold —
+    /// comfortably clear of any device width so it visibly exits rather
+    /// than just fading in place, before `onDismiss` flips `segment` to
+    /// `nil` and the whole slot's own opacity fade (below) takes over.
+    private static let dismissSlideDistance: CGFloat = 400
 
     private var isVisible: Bool { segment != nil || isBuffering }
 
@@ -45,6 +74,7 @@ struct SkipSegmentOverlay: View {
         .allowsHitTesting(isVisible)
         .accessibilityHidden(!isVisible)
         .animation(.easeInOut(duration: 0.25), value: isVisible)
+        .onChange(of: segment?.id) { _, _ in dragOffset = 0 }
     }
 
     @ViewBuilder
@@ -63,17 +93,80 @@ struct SkipSegmentOverlay: View {
                 .padding(14)
                 .background(Color.black.opacity(0.55), in: Circle())
         } else if let segment {
-            Button {
-                onSkip(segment)
-            } label: {
+            HStack(spacing: 10) {
+                // Deliberately *not* a `Button` — a plain view with
+                // `.onTapGesture` for the tap and `.highPriorityGesture` for
+                // the swipe. Confirmed live (2026-08-27): a `Button` with a
+                // plain `.gesture(DragGesture(...))` attached doesn't work —
+                // the button's own built-in tap recognizer wins before the
+                // drag ever gets a chance to activate, so every swipe just
+                // registered as a tap (skip fired instead of dismiss), and
+                // mixing a raw gesture onto a `Button` also seemed to
+                // confuse VoiceOver's accessibility tree for the *sibling*
+                // close button below, whose activation kept resolving back
+                // to this one instead. `.highPriorityGesture` is Apple's own
+                // documented pattern for "this view needs both a tap and a
+                // competing gesture" — it explicitly wins recognition over
+                // the view's own tap once the drag passes `minimumDistance`,
+                // falling through to the tap otherwise. `.accessibilityLabel`/
+                // `.accessibilityAddTraits(.isButton)` restore what a real
+                // `Button` would have given this for free, since it's no
+                // longer one.
                 Text(segment.kind.skipButtonTitle)
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
+                    .foregroundStyle(.white)
+                    .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+                    .contentShape(Rectangle())
+                    .offset(x: dragOffset)
+                    .onTapGesture { onSkip(segment) }
+                    .highPriorityGesture(
+                        DragGesture(minimumDistance: 12)
+                            .onChanged { value in
+                                // Clamped to the right only — "swipe away to
+                                // the right" is the whole ask; a leftward
+                                // drag isn't a dismiss gesture here.
+                                dragOffset = max(0, value.translation.width)
+                            }
+                            .onEnded { value in
+                                if value.translation.width > Self.dismissSwipeThreshold {
+                                    withAnimation(.easeIn(duration: 0.2)) {
+                                        dragOffset = Self.dismissSlideDistance
+                                    }
+                                    onDismiss(segment)
+                                } else {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                                        dragOffset = 0
+                                    }
+                                }
+                            }
+                    )
+                    .accessibilityLabel(segment.kind.skipButtonTitle)
+                    .accessibilityAddTraits(.isButton)
+
+                // VoiceOver-only — see this type's own doc comment for why
+                // the swipe gesture above isn't a reliable substitute for
+                // VoiceOver users, who need an explicit, always-reachable
+                // way to dismiss without depending on a raw drag. A real
+                // `Button`, untouched by any gesture modifier of its own —
+                // isolating it from the skip element above is exactly what
+                // fixed its VoiceOver activation, per this view's own doc
+                // comment.
+                if voiceOverEnabled {
+                    Button {
+                        onDismiss(segment)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 32, height: 32)
+                            .background(Color.black.opacity(0.55), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(String(localized: "Dismiss \(segment.kind.skipButtonTitle)"))
+                }
             }
-            .buttonStyle(.plain)
-            .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
-            .foregroundStyle(.white)
         }
     }
 }

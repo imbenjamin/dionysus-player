@@ -1239,4 +1239,38 @@ final class PlayerViewModelTests: XCTestCase {
 
         try await waitUntil { engine.seekedTimes.contains(60) }
     }
+
+    /// `SkipSegmentOverlay`'s swipe/close-button dismiss — same "hide the
+    /// button immediately" contract as `skipSegment(_:)`'s own test above,
+    /// via the same `skippedSegmentIDs` mechanism.
+    func test_dismissSkipSegment_hidesCurrentSkipSegmentImmediately() async {
+        let (viewModel, engine) = makeViewModel()
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")],
+            mediaSegments: [
+                MediaSegmentDto(id: "seg-intro", itemId: "item-1", type: .intro, startTicks: 0, endTicks: 60 * 10_000_000)
+            ]
+        )
+        await viewModel.start()
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+        engine.onTimeUpdate?(30, 300)
+        let segment = viewModel.currentSkipSegment!
+
+        viewModel.dismissSkipSegment(segment)
+
+        XCTAssertNil(viewModel.currentSkipSegment)
+    }
+
+    /// Dismissing is not skipping — unlike `skipSegment(_:)`, it must never
+    /// seek. Playback stays exactly where it was; only the button's own
+    /// offer to skip goes away.
+    func test_dismissSkipSegment_doesNotSeek() async {
+        let (viewModel, engine) = makeViewModel()
+        let segment = PlaybackSegment(dto: MediaSegmentDto(id: "seg-1", itemId: "item-1", type: .intro, startTicks: 0, endTicks: 60 * 10_000_000))!
+
+        viewModel.dismissSkipSegment(segment)
+
+        XCTAssertTrue(engine.seekedTimes.isEmpty)
+    }
 }
