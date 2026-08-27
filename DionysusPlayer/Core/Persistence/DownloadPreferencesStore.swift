@@ -1,12 +1,14 @@
 import Foundation
 
 /// Persisted via `@AppStorage(downloadResolutionStorageKey)` on
-/// `DownloadsSettingsView`'s pickers — `.hd1080p` is both that picker's own
-/// default and the default this store falls back to when nothing's been
-/// saved yet, since an `@AppStorage` property's default doesn't write
-/// anything to `UserDefaults` until the picker is actually changed; both
-/// sides declaring the same default keeps them in agreement pre-first-visit
-/// (same reasoning as `NextUpPreferenceStore`'s own keys).
+/// `DownloadsSettingsView`'s pickers — `DownloadResolution.deviceClassDefault`
+/// is both that picker's own default and the default this store falls back
+/// to when nothing's been saved yet, since an `@AppStorage` property's
+/// default doesn't write anything to `UserDefaults` until the picker is
+/// actually changed; both sides declaring the same default keeps them in
+/// agreement pre-first-visit (same reasoning as `NextUpPreferenceStore`'s
+/// own keys). **Both sides must be changed together** — they're declared
+/// separately and nothing catches the drift.
 let downloadResolutionStorageKey = "downloadResolutionPreference"
 let downloadBitratePresetStorageKey = "downloadBitratePresetPreference"
 /// Default `true` — an informed addition beyond what was originally asked
@@ -36,13 +38,22 @@ let downloadMaxConcurrentStorageKey = "downloadMaxConcurrentPreference"
 /// environment of their own.
 struct DownloadPreferencesStore {
     private let defaults: UserDefaults
+    private let fallbackResolution: DownloadResolution?
 
-    init(defaults: UserDefaults = .standard) {
+    /// `fallbackResolution` overrides `DownloadResolution.deviceClassDefault`
+    /// for the pre-first-visit case. Production never passes it; it exists so
+    /// tests can assert a fixed default instead of one that changes depending
+    /// on whether the suite happens to be running on an iPhone or iPad
+    /// simulator.
+    init(defaults: UserDefaults = .standard, fallbackResolution: DownloadResolution? = nil) {
         self.defaults = defaults
+        self.fallbackResolution = fallbackResolution
     }
 
     var resolution: DownloadResolution {
-        defaults.string(forKey: downloadResolutionStorageKey).flatMap(DownloadResolution.init(rawValue:)) ?? .hd1080p
+        defaults.string(forKey: downloadResolutionStorageKey).flatMap(DownloadResolution.init(rawValue:))
+            ?? fallbackResolution
+            ?? .deviceClassDefault
     }
 
     var bitratePreset: DownloadBitratePreset {

@@ -491,17 +491,44 @@ actor JellyfinAPIClient {
     /// H.265/HEVC MP4, resolution/bitrate capped to `resolution`/`preset`
     /// and never exceeding the source's own values (see
     /// `DownloadTranscodeCalculator.target`, which computes the actual
-    /// `MaxWidth`/`MaxHeight`/`VideoBitrate`/`VideoProfile` sent below).
-    /// Unlike `streamURL` (`Static=true`, direct play), this always
-    /// transcodes (`Static=false`): the whole point of a download is a
-    /// device-friendly capped copy, so even a source already within the
-    /// tier's bounds still gets re-muxed to MP4/AAC, which `Static=true`
-    /// wouldn't do. Audio is always transcoded to AAC-LC stereo
-    /// (`MaxAudioChannels=2`) regardless of the source's channel layout —
-    /// a deliberate v1 simplification (see the offline-downloads plan).
+    /// `MaxWidth`/`MaxHeight`/`VideoBitrate`/`VideoProfile`/`MaxFramerate`
+    /// sent below). Unlike `streamURL` (`Static=true`, direct play), this is
+    /// never a plain file copy (`Static=false`): the whole point of a
+    /// download is a device-friendly capped copy, so even a source already
+    /// within the tier's bounds still gets re-muxed to MP4/AAC, which
+    /// `Static=true` wouldn't do. Audio is always transcoded to AAC-LC
+    /// stereo (`MaxAudioChannels=2`) regardless of the source's channel
+    /// layout — a deliberate v1 simplification (see the offline-downloads
+    /// plan).
+    ///
+    /// The *video* track, though, is only re-encoded when it actually needs
+    /// to be. When the source already satisfies the requested tier
+    /// (`DownloadTranscodeTarget.videoStreamCopyEligible` — see its
+    /// conditions), this asks Jellyfin to copy the video stream into the
+    /// output MP4 untouched via `AllowVideoStreamCopy`, rather than paying
+    /// for a pointless second generation of lossy encoding. Audio is still
+    /// transcoded either way, so the output shape is unchanged.
+    ///
+    /// Two non-obvious details, both established by testing against a real
+    /// server rather than from the API docs:
+    ///
+    /// 1. **`VideoCodec` must list the source's own codec**, which is why
+    ///    `requestedVideoCodecs` can be `"hevc,h264"`. Jellyfin only copies
+    ///    a stream whose codec is among those the client said it wants; ask
+    ///    for `hevc` alone against an H.264 source and the copy is silently
+    ///    declined.
+    /// 2. **The resolution/bitrate caps are still sent** on the copy path.
+    ///    Jellyfin ignores them when it does copy, and they are the only
+    ///    thing standing between a declined copy and a completely
+    ///    unconstrained transcode. Omitting them (the first version of this)
+    ///    turned a 1280×720 source into a **416×234, 343 Kbps** file, because
+    ///    the copy was refused and nothing was left to bound the fallback.
+    ///
     /// `ApiKey` travels as a query param, not a header, for the same reason
     /// `streamURL`/`subtitleURL` do: this URL is handed to a plain
     /// `URLSessionDownloadTask` outside this actor's own request pipeline.
+    ///
+    /// See `DOWNLOADS.md` for how the tiers and bitrates were chosen.
     func downloadStreamURL(
         itemID: String,
         mediaSourceID: String?,
@@ -511,7 +538,8 @@ actor JellyfinAPIClient {
         isSourceHDR: Bool,
         sourceWidth: Int?,
         sourceHeight: Int?,
-        sourceBitrate: Int?
+        sourceBitrate: Int?,
+        sourceVideoCodec: String? = nil
     ) -> URL? {
         guard var components = URLComponents(
             url: baseURL.appendingPathComponent("Videos/\(itemID)/stream.mp4"),
@@ -524,21 +552,32 @@ actor JellyfinAPIClient {
             isSourceHDR: isSourceHDR,
             sourceWidth: sourceWidth,
             sourceHeight: sourceHeight,
-            sourceBitrate: sourceBitrate
+            sourceBitrate: sourceBitrate,
+            sourceVideoCodec: sourceVideoCodec
         )
 
         var query: [URLQueryItem] = [
             .init(name: "Static", value: "false"),
             .init(name: "Container", value: "mp4"),
-            .init(name: "VideoCodec", value: "hevc"),
+            .init(name: "VideoCodec", value: target.requestedVideoCodecs.joined(separator: ",")),
             .init(name: "AudioCodec", value: "aac"),
+            .init(name: "AudioBitrate", value: String(preset.audioBitrate)),
+            .init(name: "MaxAudioChannels", value: "2"),
+            // Sent even when a stream copy is expected. Jellyfin ignores
+            // these on the copy path, and if it decides to transcode after
+            // all they're the difference between a correctly-capped file and
+            // an unconstrained one — see the doc comment above.
             .init(name: "MaxWidth", value: String(target.maxWidth)),
             .init(name: "MaxHeight", value: String(target.maxHeight)),
             .init(name: "VideoBitrate", value: String(target.videoBitrate)),
-            .init(name: "AudioBitrate", value: String(preset.audioBitrate)),
-            .init(name: "MaxAudioChannels", value: "2"),
             .init(name: "VideoProfile", value: target.videoProfile)
         ]
+        if target.videoStreamCopyEligible {
+            query.append(.init(name: "AllowVideoStreamCopy", value: "true"))
+        }
+        if let maxFramerate = target.maxFramerate {
+            query.append(.init(name: "MaxFramerate", value: String(maxFramerate)))
+        }
         if let mediaSourceID { query.append(.init(name: "MediaSourceId", value: mediaSourceID)) }
         if let audioStreamIndex { query.append(.init(name: "AudioStreamIndex", value: String(audioStreamIndex))) }
         if let accessToken { query.append(.init(name: "ApiKey", value: accessToken)) }

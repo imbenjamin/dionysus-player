@@ -10,7 +10,9 @@ import SwiftUI
 /// pushed from more than one feature's navigation stack, and this is only
 /// ever reached from within `ProfileView`'s own.
 struct DownloadsSettingsView: View {
-    @AppStorage(downloadResolutionStorageKey) private var downloadResolution: DownloadResolution = .hd1080p
+    /// Default must stay in lockstep with `DownloadPreferencesStore.resolution`'s
+    /// own fallback — see that type's doc comment.
+    @AppStorage(downloadResolutionStorageKey) private var downloadResolution: DownloadResolution = .deviceClassDefault
     @AppStorage(downloadBitratePresetStorageKey) private var downloadBitratePreset: DownloadBitratePreset = .normal
     @AppStorage(downloadWifiOnlyStorageKey) private var downloadWifiOnly = true
     /// Raw slider value — `0` is its own "Unlimited" position, past `10`.
@@ -57,6 +59,23 @@ struct DownloadsSettingsView: View {
         return Int(Double(freeBytes) / bytesPerItem)
     }
 
+    /// The Resolution picker's row label, marking whichever tier is this
+    /// device class's default (`DownloadResolution.deviceClassDefault` —
+    /// 720p on iPhone, 1080p on iPad). Worth surfacing precisely because
+    /// that one varies by device and so isn't guessable from the list
+    /// itself; the Quality picker gets no equivalent, since "Normal" being
+    /// the middle default is self-evident from the name.
+    ///
+    /// Deliberately *not* folded into `DownloadResolution.displayName` —
+    /// that same label also appears in the per-download override sheet and
+    /// on a downloaded item's own detail page, where "(Default)" would be
+    /// meaningless or, on an item downloaded at some other tier, actively
+    /// misleading.
+    private func resolutionPickerLabel(_ resolution: DownloadResolution) -> String {
+        guard resolution == DownloadResolution.deviceClassDefault else { return resolution.displayName }
+        return String(localized: "\(resolution.displayName) (Default)")
+    }
+
     private func freeSpaceEstimateText(freeBytes: Int64) -> String {
         let movieCount = estimatedCount(minutes: Self.averageMovieMinutes, freeBytes: freeBytes)
         let episodeCount = estimatedCount(minutes: Self.averageEpisodeMinutes, freeBytes: freeBytes)
@@ -68,7 +87,7 @@ struct DownloadsSettingsView: View {
             Section {
                 Picker("Resolution", selection: $downloadResolution) {
                     ForEach(DownloadResolution.allCases) { resolution in
-                        Text(resolution.displayName).tag(resolution)
+                        Text(resolutionPickerLabel(resolution)).tag(resolution)
                     }
                 }
                 Picker("Quality", selection: $downloadBitratePreset) {

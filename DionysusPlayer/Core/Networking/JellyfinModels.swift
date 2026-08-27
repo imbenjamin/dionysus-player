@@ -343,6 +343,13 @@ struct MediaStream: Codable, Identifiable, Hashable {
     /// the file was probed server-side.
     var realFrameRate: Double?
     var averageFrameRate: Double?
+    /// This stream's own bitrate in bits/sec, as opposed to
+    /// `MediaSource.bitrate`, which covers the whole container. Used by the
+    /// download path to cap a transcode against the source's *video*
+    /// bitrate rather than one inflated by however many audio tracks the
+    /// file carries. Not always populated — an older library item or a
+    /// container the server couldn't fully probe can leave it `nil`.
+    var bitRate: Int?
 
     // Audio-specific.
     var channelLayout: String?

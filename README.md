@@ -40,12 +40,19 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
 
 - **Per-title and per-episode downloads**, plus bulk **season/whole-show**
   download and delete, from the same detail screens as live content.
-- **Quality control**: a device-wide default (resolution tier × High/
-  Normal/Data Saver bitrate preset) in Settings, or a **long-press on any
+- **Quality control**: a device-wide default (4K/1080p/720p/480p tier ×
+  High/Normal/Data Saver preset) in Settings, or a **long-press on any
   download button** to override resolution/quality for that one download
   only — never upscales past the source, and picks the actual achieved
   bitrate rung rather than the requested one when a low-resolution source
-  caps the output below what was asked for.
+  caps the output below what was asked for. The bitrate ladder is
+  calibrated against what Disney+, Prime Video and Netflix actually ship,
+  and the default tier is chosen per device class (720p on iPhone, 1080p on
+  iPad) from the angular resolution each can actually resolve — see
+  [DOWNLOADS.md](DOWNLOADS.md).
+- **No pointless re-encoding**: a source that already fits the requested
+  tier has its video track copied into the download untouched rather than
+  re-encoded, avoiding a second generation of lossy compression.
 - **Reliable background transfer**: real `URLSessionDownloadTask` background
   sessions (survive backgrounding, resume after relaunch), a configurable
   simultaneous-downloads limit, and HTTP-status validation on completion so

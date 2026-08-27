@@ -17,6 +17,9 @@
         }
       }
     },
+    "%@ (Default)" : {
+
+    },
     "%@ megabits per second" : {
 
     },
@@ -107,7 +110,10 @@
     "480p SD" : {
 
     },
-    "1080p HD" : {
+    "720p HD" : {
+
+    },
+    "1080p Full HD" : {
 
     },
     "Account" : {

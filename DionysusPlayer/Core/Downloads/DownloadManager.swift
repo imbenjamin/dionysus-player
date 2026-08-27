@@ -225,16 +225,26 @@ final class DownloadManager: NSObject {
         let streams = mediaSource.mediaStreams ?? []
         let videoStream = streams.first { $0.type == "Video" }
         let isSourceHDR = Self.isHDR(videoStream)
+        // The video track's *own* bitrate, not `mediaSource.bitrate` — that
+        // one is the whole container (video + every audio and subtitle
+        // track), and feeding it to a video-only cap made the cap too
+        // generous by however much the audio tracks weighed, which on a
+        // source with a couple of lossless surround tracks is far from
+        // negligible. Falls back to the container figure only when the
+        // server didn't report a per-stream one.
+        let sourceVideoBitrate = videoStream?.bitRate ?? mediaSource.bitrate
 
         guard let downloadURL = await client.downloadStreamURL(
             itemID: item.id, mediaSourceID: mediaSourceID, audioStreamIndex: audioTrack?.index,
             resolution: resolution, preset: preset, isSourceHDR: isSourceHDR,
-            sourceWidth: videoStream?.width, sourceHeight: videoStream?.height, sourceBitrate: mediaSource.bitrate
+            sourceWidth: videoStream?.width, sourceHeight: videoStream?.height,
+            sourceBitrate: sourceVideoBitrate, sourceVideoCodec: videoStream?.codec
         ) else { throw DownloadError.invalidDownloadURL }
 
         let target = DownloadTranscodeCalculator.target(
             resolution: resolution, preset: preset, isSourceHDR: isSourceHDR,
-            sourceWidth: videoStream?.width, sourceHeight: videoStream?.height, sourceBitrate: mediaSource.bitrate
+            sourceWidth: videoStream?.width, sourceHeight: videoStream?.height,
+            sourceBitrate: sourceVideoBitrate, sourceVideoCodec: videoStream?.codec
         )
 
         let metadata = DownloadedItemMetadata(
