@@ -1211,6 +1211,43 @@ final class JellyfinAPIClientTests: XCTestCase {
         let next = try await client.nextEpisode(currentEpisodeID: "ep-1", seriesID: "series-1", seasonID: "season-1", userID: "user-1")
         XCTAssertNil(next)
     }
+
+    // MARK: episodes(seriesID:seasonID:userID:fields:)
+
+    /// No `fields:` argument falls back to the same lighter `Fields` value
+    /// every other unqualified browsing call uses — `AssetDetailViewModel`'s
+    /// own two callers only need a quick episode lookup, not `People`.
+    func test_episodes_omittedFields_usesDefaultFieldsValue() async throws {
+        let client = makeClient(accessToken: "tok")
+        var capturedFields: String?
+        MockURLProtocol.requestHandler = { request in
+            capturedFields = request.queryDictionary["Fields"]
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        _ = try await client.episodes(seriesID: "series-1", seasonID: "season-1", userID: "user-1")
+
+        XCTAssertEqual(capturedFields, "Overview,Genres,Studios,PrimaryImageAspectRatio,BasicSyncInfo")
+    }
+
+    /// `SeasonEpisodeList` passes `JellyfinAPIClient.detailFields` explicitly
+    /// — the fix for episode downloads' offline Cast & Crew tab silently
+    /// having nothing to show (see that call site's doc comment): without
+    /// `People` in this request, `DownloadManager.enqueue`'s
+    /// `metadata.people` had nothing to read.
+    func test_episodes_explicitFields_sendsThemVerbatim() async throws {
+        let client = makeClient(accessToken: "tok")
+        var capturedFields: String?
+        MockURLProtocol.requestHandler = { request in
+            capturedFields = request.queryDictionary["Fields"]
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        _ = try await client.episodes(seriesID: "series-1", seasonID: "season-1", userID: "user-1", fields: JellyfinAPIClient.detailFields)
+
+        XCTAssertEqual(capturedFields, JellyfinAPIClient.detailFields)
+        XCTAssertTrue(capturedFields?.contains("People") ?? false)
+    }
 }
 
 /// Thread-safe request counter — `MockURLProtocol.requestHandler` runs on

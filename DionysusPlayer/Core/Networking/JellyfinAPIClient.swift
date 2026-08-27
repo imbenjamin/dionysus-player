@@ -94,7 +94,10 @@ actor JellyfinAPIClient {
     // in `Fields`, the server omits `BaseItemDto.studios` entirely (same
     // reason `Genres` is already listed here rather than assumed default).
     private static let defaultFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,BasicSyncInfo"
-    private static let detailFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,MediaSources,People,Taglines,BasicSyncInfo"
+    /// Not `private` — `episodes(seriesID:seasonID:userID:fields:)` needs an
+    /// external caller able to opt into this heavier field list (see that
+    /// method's own doc comment for why `SeasonEpisodeList` does).
+    static let detailFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,MediaSources,People,Taglines,BasicSyncInfo"
     /// `detailFields` plus `Trickplay` — `PlayerViewModel.start()`'s own
     /// item fetch passes this explicitly (see `item(userID:itemID:fields:)`'s
     /// doc comment for why `detailFields` itself doesn't carry this).
@@ -272,11 +275,21 @@ actor JellyfinAPIClient {
         try await get("/Shows/\(seriesID)/Seasons", query: [.init(name: "userId", value: userID)])
     }
 
-    func episodes(seriesID: String, seasonID: String, userID: String) async throws -> BaseItemDtoQueryResult {
+    /// `fields:` defaults to `defaultFields`, same as `item(userID:itemID:fields:)`
+    /// — `AssetDetailViewModel`'s own two callers (a quick "does this show
+    /// have episodes at all" lookup) don't need anything heavier. Pass
+    /// `detailFields` explicitly when the caller actually needs `People`:
+    /// `SeasonEpisodeList` does, since its `episodes` array is also what
+    /// backs `DownloadButton`/`SeasonDownloadButton`'s `enqueue(item:...)`
+    /// calls — episode downloads' `metadata.people` (offline Cast & Crew)
+    /// comes straight from `item.dto.people`, and it was silently always
+    /// empty for episodes before this, unlike a movie's own detail fetch
+    /// (`item(userID:itemID:)`), which already defaults to `detailFields`.
+    func episodes(seriesID: String, seasonID: String, userID: String, fields: String = defaultFields) async throws -> BaseItemDtoQueryResult {
         try await get("/Shows/\(seriesID)/Episodes", query: [
             .init(name: "seasonId", value: seasonID),
             .init(name: "userId", value: userID),
-            .init(name: "Fields", value: Self.defaultFields)
+            .init(name: "Fields", value: fields)
         ])
     }
 
