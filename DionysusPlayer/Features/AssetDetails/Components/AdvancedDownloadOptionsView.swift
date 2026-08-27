@@ -41,7 +41,7 @@ struct AdvancedDownloadOptionsView: View {
                     // conflict by never pushing a destination at all.
                     Picker("Resolution", selection: $resolution) {
                         ForEach(DownloadResolution.allCases) { resolution in
-                            Text(resolution.displayName).tag(resolution)
+                            Text(resolution.pickerDisplayName).tag(resolution)
                         }
                     }
                     .pickerStyle(.menu)

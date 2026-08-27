@@ -335,6 +335,15 @@ Two things that look like they should help, and don't:
   under those fields. VideoToolbox has no constant-quality mode at all — it takes a
   target bitrate and spends it.
 
+One question this investigation raised but didn't resolve: the ffmpeg command
+Jellyfin generates (`scale_vt=...color_transfer=bt709`) has no separately visible
+tone-map filter despite "Enable VideoToolbox Tone mapping" being on, which left
+open whether `scale_vt` was doing a real tone-map or a naive BT.2020→BT.709 matrix
+conversion that would flatten HDR highlights independently of the blockiness
+above. **Confirmed on device after the encoder fix (2026-08-27): no washed-out or
+flattened look** — the HDR→SDR tone-mapping is working correctly. That rules the
+second failure mode out; the encoder was the whole story.
+
 ### Measuring your own server
 
 Rather than copying the settings below, spend twenty minutes getting the number

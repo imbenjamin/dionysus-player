@@ -84,6 +84,26 @@ final class DownloadTypesTests: XCTestCase {
         XCTAssertTrue([.hd720p, .hd1080p].contains(DownloadResolution.deviceClassDefault))
     }
 
+    // MARK: DownloadResolution.pickerDisplayName
+
+    /// Marks whichever tier the device would default to, not whatever the
+    /// caller happens to be looking at — the "(Default)" suffix lands on
+    /// exactly one tier regardless of which one is passed in.
+    func test_pickerDisplayName_marksOnlyTheDeviceClassDefault() {
+        let marked = DownloadResolution.allCases.filter { $0.pickerDisplayName != $0.displayName }
+        XCTAssertEqual(marked, [.deviceClassDefault])
+        XCTAssertEqual(
+            DownloadResolution.deviceClassDefault.pickerDisplayName,
+            "\(DownloadResolution.deviceClassDefault.displayName) (Default)"
+        )
+    }
+
+    func test_pickerDisplayName_nonDefaultTiersAreUnsuffixed() {
+        for resolution in DownloadResolution.allCases where resolution != .deviceClassDefault {
+            XCTAssertEqual(resolution.pickerDisplayName, resolution.displayName)
+        }
+    }
+
     // MARK: DownloadTranscodeCalculator.target
 
     func test_target_capsToTierWhenSourceIsLargerOrUnknown() {

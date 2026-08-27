@@ -112,6 +112,24 @@ enum DownloadResolution: String, Codable, CaseIterable, Identifiable {
         return .hd1080p
         #endif
     }
+
+    /// `displayName`, with "(Default)" appended when this tier is
+    /// `deviceClassDefault` — shared by every Resolution *picker*
+    /// (`DownloadsSettingsView`'s device-wide picker and
+    /// `AdvancedDownloadOptionsView`'s per-download override sheet), so the
+    /// two stay visually consistent rather than drifting into separately
+    /// hand-written label logic. Marks whichever tier the app would choose,
+    /// not whatever is currently selected — pick a different tier in either
+    /// picker and "(Default)" stays put on 720p/1080p.
+    ///
+    /// Deliberately not folded into `displayName` itself — that same label
+    /// also appears on a downloaded item's own detail page, where
+    /// "(Default)" would be meaningless, or, for an item downloaded at some
+    /// other tier, actively misleading.
+    var pickerDisplayName: String {
+        guard self == Self.deviceClassDefault else { return displayName }
+        return String(localized: "\(displayName) (Default)")
+    }
 }
 
 /// Quality preset within a `DownloadResolution` tier. Audio is always

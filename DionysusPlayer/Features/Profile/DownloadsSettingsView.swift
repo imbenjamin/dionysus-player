@@ -59,23 +59,6 @@ struct DownloadsSettingsView: View {
         return Int(Double(freeBytes) / bytesPerItem)
     }
 
-    /// The Resolution picker's row label, marking whichever tier is this
-    /// device class's default (`DownloadResolution.deviceClassDefault` —
-    /// 720p on iPhone, 1080p on iPad). Worth surfacing precisely because
-    /// that one varies by device and so isn't guessable from the list
-    /// itself; the Quality picker gets no equivalent, since "Normal" being
-    /// the middle default is self-evident from the name.
-    ///
-    /// Deliberately *not* folded into `DownloadResolution.displayName` —
-    /// that same label also appears in the per-download override sheet and
-    /// on a downloaded item's own detail page, where "(Default)" would be
-    /// meaningless or, on an item downloaded at some other tier, actively
-    /// misleading.
-    private func resolutionPickerLabel(_ resolution: DownloadResolution) -> String {
-        guard resolution == DownloadResolution.deviceClassDefault else { return resolution.displayName }
-        return String(localized: "\(resolution.displayName) (Default)")
-    }
-
     private func freeSpaceEstimateText(freeBytes: Int64) -> String {
         let movieCount = estimatedCount(minutes: Self.averageMovieMinutes, freeBytes: freeBytes)
         let episodeCount = estimatedCount(minutes: Self.averageEpisodeMinutes, freeBytes: freeBytes)
@@ -87,7 +70,7 @@ struct DownloadsSettingsView: View {
             Section {
                 Picker("Resolution", selection: $downloadResolution) {
                     ForEach(DownloadResolution.allCases) { resolution in
-                        Text(resolutionPickerLabel(resolution)).tag(resolution)
+                        Text(resolution.pickerDisplayName).tag(resolution)
                     }
                 }
                 Picker("Quality", selection: $downloadBitratePreset) {
