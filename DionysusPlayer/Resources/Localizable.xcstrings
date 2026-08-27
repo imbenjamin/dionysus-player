@@ -343,6 +343,9 @@
     "Dionysus needs the address of your Jellyfin server to get started." : {
 
     },
+    "Dismiss %@" : {
+
+    },
     "Display" : {
 
     },

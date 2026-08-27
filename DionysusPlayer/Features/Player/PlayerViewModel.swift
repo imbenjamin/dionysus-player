@@ -320,10 +320,13 @@ final class PlayerViewModel {
         return max(0, Int(remaining))
     }
 
-    /// Segment ids `skipSegment(_:)` has already been called for — see that
-    /// method's doc comment. Sticks for the rest of this item's playback,
-    /// same "once acted on, don't resurrect it" treatment `isNextUpDismissed`
-    /// gives the Up Next card's Cancel button.
+    /// Segment ids `skipSegment(_:)` or `dismissSkipSegment(_:)` has already
+    /// been called for — see those methods' doc comments. Sticks for the
+    /// rest of this item's playback, same "once acted on, don't resurrect
+    /// it" treatment `isNextUpDismissed` gives the Up Next card's Cancel
+    /// button. Shared by both actions rather than a second set, since
+    /// either one means the same thing to `currentSkipSegment`: don't show
+    /// this segment's button again.
     private var skippedSegmentIDs: Set<String> = []
 
     /// The segment (any kind) containing `currentTime` right now, if any —
@@ -738,6 +741,16 @@ final class PlayerViewModel {
     func skipSegment(_ segment: PlaybackSegment) {
         skippedSegmentIDs.insert(segment.id)
         seek(to: segment.endSeconds)
+    }
+
+    /// `SkipSegmentOverlay`'s swipe-to-dismiss gesture and its VoiceOver-only
+    /// close button — records the segment the same way `skipSegment(_:)`
+    /// does, so the button disappears for the rest of this segment's window
+    /// and `currentSkipSegment` never resurrects it, but deliberately does
+    /// **not** seek: dismissing just means "stop offering to skip this," not
+    /// "skip it anyway." Playback continues exactly where it already was.
+    func dismissSkipSegment(_ segment: PlaybackSegment) {
+        skippedSegmentIDs.insert(segment.id)
     }
 
     /// Maps the `isExternal == true` subtitle `MediaStream`s off a resolved
