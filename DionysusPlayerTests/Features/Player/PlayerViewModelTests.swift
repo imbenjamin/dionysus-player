@@ -114,12 +114,57 @@ final class PlayerViewModelTests: XCTestCase {
 
     // MARK: start() — streaming mode (Direct Play Always vs. Allow Transcoding)
 
-    /// The default `StreamDecisionMode` — pins that the resulting
-    /// `/PlaybackInfo` request is byte-for-byte identical to before this
-    /// setting existed (no `DeviceProfile`/`MaxStreamingBitrate` keys at
-    /// all), and that the engine load always takes the plain direct-play
-    /// path.
-    func test_start_directPlayAlways_default_sendsNoDeviceProfileAndLoadsWithIsRemoteHLSFalse() async {
+    /// The default `StreamDecisionMode` (Allow Transcoding, since
+    /// 2026-08-28 — see `StreamPreferenceStore.decisionMode`'s doc comment
+    /// for why) — pins that a real `DeviceProfile` goes out on
+    /// `/PlaybackInfo` with no Settings change needed, and that a response
+    /// with no `transcodingUrl` (this stub's) still falls back to the plain
+    /// direct-play path exactly as Direct Play Always would. The top-level
+    /// `MaxStreamingBitrate` field stays absent here — it only appears once
+    /// `StreamingMaxBitrate` isn't `.unlimited` (also the default) — but
+    /// `DeviceProfile.MaxStreamingBitrate` is still present inside the
+    /// nested profile regardless, since Jellyfin defaults an absent value
+    /// there to a restrictive 8 Mbps server-side (see
+    /// `DeviceProfileBuilder`'s own doc comment).
+    func test_start_allowTranscoding_default_sendsDeviceProfileAndFallsBackToDirectPlayURL() async {
+        let (viewModel, engine) = makeViewModel()
+        var playbackInfoBody: [String: Any]?
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/item-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "item-1", name: "Arrival", type: .movie))
+            case "/Items/item-1/PlaybackInfo":
+                playbackInfoBody = try JSONSerialization.jsonObject(with: request.capturedHTTPBody ?? Data()) as? [String: Any]
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: PlaybackInfoResponse(mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")], playSessionId: "sess-1")
+                )
+            case "/Sessions/Playing":
+                return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+            case "/MediaSegments/item-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: MediaSegmentDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+        }
+
+        await viewModel.start()
+
+        let deviceProfile = playbackInfoBody?["DeviceProfile"] as? [String: Any]
+        XCTAssertNotNil(deviceProfile)
+        XCTAssertEqual(deviceProfile?["MaxStreamingBitrate"] as? Int, 120_000_000)
+        XCTAssertNil(playbackInfoBody?["MaxStreamingBitrate"])
+        XCTAssertEqual(engine.loadedIsRemoteHLS, [false])
+        XCTAssertTrue(engine.loadedURLs[0].absoluteString.contains("Static=true"))
+    }
+
+    /// Direct Play Always must still be explicitly selectable — the
+    /// resulting `/PlaybackInfo` request should be byte-for-byte identical
+    /// to before server-side negotiation existed at all (no `DeviceProfile`/
+    /// `MaxStreamingBitrate` keys), and the engine load always takes the
+    /// plain direct-play path.
+    func test_start_directPlayAlways_explicitlySelected_sendsNoDeviceProfileAndLoadsWithIsRemoteHLSFalse() async {
+        defaults.set(StreamDecisionMode.directPlayAlways.rawValue, forKey: streamDecisionModeStorageKey)
         let (viewModel, engine) = makeViewModel()
         var playbackInfoBody: [String: Any]?
         MockURLProtocol.requestHandler = { request in

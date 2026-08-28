@@ -23,10 +23,10 @@ struct ProfileView: View {
     /// own fallback for the same "both sides declare the same default"
     /// reason as `hero3DDepthEnabled` above.
     @AppStorage(nextUpCountdownStorageKey) private var nextUpCountdown: NextUpCountdownPreference = .seconds30
-    /// Default `.directPlayAlways` — matches `StreamPreferenceStore
+    /// Default `.allowTranscoding` — matches `StreamPreferenceStore
     /// .decisionMode`'s own fallback for the same "both sides declare the
     /// same default" reason as `hero3DDepthEnabled` above.
-    @AppStorage(streamDecisionModeStorageKey) private var streamDecisionMode: StreamDecisionMode = .directPlayAlways
+    @AppStorage(streamDecisionModeStorageKey) private var streamDecisionMode: StreamDecisionMode = .allowTranscoding
     /// Default `.unlimited` — matches `StreamPreferenceStore
     /// .streamingMaxBitrate`'s own fallback, same reasoning.
     @AppStorage(streamingMaxBitrateStorageKey) private var streamingMaxBitrate: StreamingMaxBitrate = .unlimited

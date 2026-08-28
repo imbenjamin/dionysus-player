@@ -31,16 +31,18 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
   intro/outro skip segments, Picture in Picture (native AVPlayer route),
   Now Playing/lock-screen/Control Center integration, a live "stats for
   nerds" overlay (codec, bitrate, resolution, dropped frames, streaming
-  session info, offline-vs-live playback method). An opt-in **Allow
-  Transcoding** mode (Settings → Playback) is also available: it negotiates
-  with the server via a real `DeviceProfile` and falls back to a
-  server-chosen HLS transcode when direct play isn't possible, with a
-  configurable max-bitrate cap. Off by default — Direct Play Always is
-  unchanged. Any server-chosen transcode is requested as fragmented MP4
-  (fMP4) HLS rather than MPEG-TS, since that's what AVPlayer requires to
-  decode a transcoded HEVC target at all (MPEG-TS carriage is H.264-only on
-  Apple platforms) — both AVC and HEVC transcode targets are supported as a
-  result.
+  session info, offline-vs-live playback method). Streaming defaults to
+  **Allow Transcoding** (Settings → Playback): it negotiates with the
+  server via a real `DeviceProfile` and falls back to a server-chosen HLS
+  transcode when direct play isn't possible, with a configurable
+  max-bitrate cap — the more reliable choice for most users, since a
+  source your device can't decode still plays instead of failing outright.
+  Any server-chosen transcode is requested as fragmented MP4 (fMP4) HLS
+  rather than MPEG-TS, since that's what AVPlayer requires to decode a
+  transcoded HEVC target at all (MPEG-TS carriage is H.264-only on Apple
+  platforms) — both AVC and HEVC transcode targets are supported as a
+  result. **Direct Play Always** (send the original file untouched, no
+  negotiation) is still available for anyone who'd rather force it.
 - **Downloads** — see below; this is the differentiator.
 - **Accounts** — Jellyfin sign-in with silent session restore, per-server
   config, profile/settings screen.
@@ -121,12 +123,12 @@ seeking/scrubbing edge cases.
 - **Downloaded audio is always AAC-LC stereo**, regardless of the source's
   own audio (a deliberate v1 simplification) — no surround/lossless
   passthrough for offline files yet. Live playback is unaffected.
-- **Live streaming is direct-play only by default** — server-side transcode
-  negotiation for live playback is available as an opt-in **Allow
-  Transcoding** setting (Settings → Playback; downloads have always
-  transcoded to a chosen resolution/bitrate tier, unaffected either way).
-  With the default (Direct Play Always), a source your device truly can't
-  decode won't play back live.
+- **Direct Play Always, if selected, is direct-play only** — the Streaming
+  setting (Settings → Playback) defaults to **Allow Transcoding**, but
+  forcing **Direct Play Always** opts out of server-side negotiation
+  entirely: a source your device truly can't decode won't play back live
+  in that mode (downloads have always transcoded to a chosen
+  resolution/bitrate tier regardless of this setting).
 - **tvOS/macOS are not built yet** — iOS/iPadOS only for now, per the
   Status section above.
 - **Audio/music libraries aren't supported yet** — browsing/playing music is

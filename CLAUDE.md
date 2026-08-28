@@ -177,16 +177,18 @@ the just-signed-out user.
 snapshotted via `client.makeImageURLBuilder()` so SwiftUI views can build
 image URLs synchronously without hopping through the actor on every render.
 
-**Live playback** direct-plays by default, with an opt-in server-negotiated
-mode: a `StreamPreferenceStore.decisionMode` setting (Profile → Streaming)
-switches between **Direct Play Always** (`streamURL(itemID:mediaSourceID:
-container:)` builds a static stream URL — `Static=true` — and AetherEngine
-decodes whatever comes back; no `DeviceProfile` sent, unchanged from the
-app's original behavior) and **Allow Transcoding** (`DeviceProfileBuilder
-.build(maxStreamingBitrate:)` — `Core/Networking/DeviceProfile.swift` —
-builds a real `DeviceProfile`, sent on `/PlaybackInfo` so Jellyfin can
-choose direct play or a transcode; `PlayerViewModel.start()` branches on
-whether the response carries a `MediaSourceInfo.transcodingUrl`). A
+**Live playback** negotiates with the server by default, via a
+`StreamPreferenceStore.decisionMode` setting (Profile → Streaming) that
+switches between **Allow Transcoding** (default since 2026-08-28 —
+`DeviceProfileBuilder.build(maxStreamingBitrate:)` —
+`Core/Networking/DeviceProfile.swift` — builds a real `DeviceProfile`, sent
+on `/PlaybackInfo` so Jellyfin can choose direct play or a transcode;
+`PlayerViewModel.start()` branches on whether the response carries a
+`MediaSourceInfo.transcodingUrl`) and **Direct Play Always**
+(`streamURL(itemID:mediaSourceID:container:)` builds a static stream URL —
+`Static=true` — and AetherEngine decodes whatever comes back; no
+`DeviceProfile` sent, the app's original, non-negotiated behavior — still
+available for anyone who wants to force it). A
 server-chosen transcode is consumed via AetherEngine's `nativeRemoteHLS`
 bypass (`AetherPlaybackEngine.load(..., isRemoteHLS: true)` — the playlist
 goes straight to AVPlayer, no local FFmpeg demux) rather than downloaded

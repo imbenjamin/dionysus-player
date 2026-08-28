@@ -6,11 +6,17 @@ import Foundation
 let streamDecisionModeStorageKey = "streamDecisionModePreference"
 let streamingMaxBitrateStorageKey = "streamingMaxBitratePreference"
 
-/// Direct Play Always (default, unchanged app behavior — no `/PlaybackInfo`
-/// negotiation, always a `Static=true` stream URL) vs. Allow Transcoding
-/// (sends a real `DeviceProfile`, per `DeviceProfileBuilder`, and lets the
-/// server fall back to an HLS transcode when it decides direct play isn't
-/// possible).
+/// Allow Transcoding (default — sends a real `DeviceProfile`, per
+/// `DeviceProfileBuilder`, and lets the server fall back to an HLS
+/// transcode when it decides direct play isn't possible) vs. Direct Play
+/// Always (no `/PlaybackInfo` negotiation, always a `Static=true` stream
+/// URL — the app's original, more fragile behavior before Allow
+/// Transcoding existed; still available for anyone who wants to force it).
+/// Allow Transcoding became the default on 2026-08-28 once the transcode
+/// target itself moved to fMP4 (see `DeviceProfile.swift`'s `hlsTranscode`
+/// doc comment) — the earlier MPEG-TS/H.264-only target's HEVC black-screen
+/// bug was the reason Direct Play Always had been the safer default before
+/// that fix.
 enum StreamDecisionMode: String, Codable, CaseIterable, Identifiable {
     case directPlayAlways
     case allowTranscoding
@@ -109,7 +115,7 @@ struct StreamPreferenceStore {
     }
 
     var decisionMode: StreamDecisionMode {
-        defaults.string(forKey: streamDecisionModeStorageKey).flatMap(StreamDecisionMode.init(rawValue:)) ?? .directPlayAlways
+        defaults.string(forKey: streamDecisionModeStorageKey).flatMap(StreamDecisionMode.init(rawValue:)) ?? .allowTranscoding
     }
 
     var streamingMaxBitrate: StreamingMaxBitrate {

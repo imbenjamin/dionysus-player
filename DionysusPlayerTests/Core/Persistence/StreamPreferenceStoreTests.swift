@@ -18,7 +18,7 @@ final class StreamPreferenceStoreTests: XCTestCase {
 
     func test_freshStore_fallsBackToDocumentedDefaults() {
         let store = StreamPreferenceStore(defaults: defaults)
-        XCTAssertEqual(store.decisionMode, .directPlayAlways)
+        XCTAssertEqual(store.decisionMode, .allowTranscoding)
         XCTAssertEqual(store.streamingMaxBitrate, .unlimited)
     }
 
@@ -39,7 +39,7 @@ final class StreamPreferenceStoreTests: XCTestCase {
     /// rather than crashing or returning something nonsensical.
     func test_decisionMode_unrecognizedStoredValue_fallsBackToDefault() {
         defaults.set("not-a-real-mode", forKey: streamDecisionModeStorageKey)
-        XCTAssertEqual(StreamPreferenceStore(defaults: defaults).decisionMode, .directPlayAlways)
+        XCTAssertEqual(StreamPreferenceStore(defaults: defaults).decisionMode, .allowTranscoding)
     }
 
     func test_streamingMaxBitrate_unrecognizedStoredValue_fallsBackToDefault() {
