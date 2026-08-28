@@ -28,14 +28,18 @@ import AVFAudio
 /// `AVPlayerLayer`/`AVSampleBufferDisplayLayer` briefly re-lays-out along
 /// with it.
 ///
-/// All six sections no longer render at once (they used to, split into two
-/// columns in landscape) — a transcode session's Streaming section alone
-/// can push the combined content taller than an iPhone's landscape height,
-/// running the panel off the bottom of the screen and, since it sits below
-/// `PlayerControlsOverlay` in this same `ZStack`, visually colliding with
-/// the transport row too (confirmed live, 2026-08-28). Content is now
-/// paginated (`currentPage`/`Self.pageCount`) — only one page's worth of
-/// sections mounts at a time, cutting the tallest case roughly in half.
+/// All six sections no longer render as one screenful (they used to, split
+/// into two columns in landscape) — a transcode session's Streaming
+/// section alone can push the combined content taller than an iPhone's
+/// landscape height, running the panel off the bottom of the screen and,
+/// since it sits below `PlayerControlsOverlay` in this same `ZStack`,
+/// visually colliding with the transport row too (confirmed live,
+/// 2026-08-28). Content is now paginated (`currentPage`/`Self.pageCount`)
+/// — only one page's worth of sections is *visible* at a time, cutting
+/// the tallest case roughly in half. Every page still mounts, though (see
+/// `content`'s own doc comment) — that's what keeps the box a constant
+/// size across a page tap instead of resizing to match whichever page's
+/// content happens to be showing.
 /// Only the panel's own visible box is tappable to page through (see
 /// `body`'s `.contentShape`/`.onTapGesture` on it): unlike the rest of this
 /// view, that box deliberately does *not* stay `.allowsHitTesting(false)`,

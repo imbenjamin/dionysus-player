@@ -33,16 +33,15 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
   nerds" overlay (codec, bitrate, resolution, dropped frames, streaming
   session info, offline-vs-live playback method). Streaming defaults to
   **Allow Transcoding** (Settings → Playback): it negotiates with the
-  server via a real `DeviceProfile` and falls back to a server-chosen HLS
-  transcode when direct play isn't possible, with a configurable
-  max-bitrate cap — the more reliable choice for most users, since a
-  source your device can't decode still plays instead of failing outright.
-  Any server-chosen transcode is requested as fragmented MP4 (fMP4) HLS
-  rather than MPEG-TS, since that's what AVPlayer requires to decode a
-  transcoded HEVC target at all (MPEG-TS carriage is H.264-only on Apple
-  platforms) — both AVC and HEVC transcode targets are supported as a
-  result. **Direct Play Always** (send the original file untouched, no
-  negotiation) is still available for anyone who'd rather force it.
+  server via a real `DeviceProfile` and falls back to a server-chosen
+  transcode — fragmented MP4 over HLS, not MPEG-TS, the container AVPlayer
+  actually requires to decode a transcoded HEVC target at all — when
+  direct play isn't possible, with a configurable max-bitrate cap — the
+  more reliable choice for most users, since a source your device can't
+  decode still plays instead of failing outright. Both AVC and HEVC
+  transcode targets are supported as a result. **Direct Play Always**
+  (send the original file untouched, no negotiation) is still available
+  for anyone who'd rather force it.
 - **Downloads** — see below; this is the differentiator.
 - **Accounts** — Jellyfin sign-in with silent session restore, per-server
   config, profile/settings screen.
