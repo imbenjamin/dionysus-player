@@ -68,6 +68,16 @@
     "%lld episodes couldn't be downloaded." : {
 
     },
+    "%lld/%lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld/%2$lld"
+          }
+        }
+      }
+    },
     "0 seconds" : {
 
     },
@@ -576,6 +586,9 @@
 
     },
     "Next Item" : {
+
+    },
+    "Next Page" : {
 
     },
     "Next Up" : {
