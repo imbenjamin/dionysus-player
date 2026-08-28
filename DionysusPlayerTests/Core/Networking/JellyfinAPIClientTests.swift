@@ -32,7 +32,7 @@ final class JellyfinAPIClientTests: XCTestCase {
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(request.url?.path, "/Users/AuthenticateByName")
             // Not yet signed in, so no token should be on the auth header.
-            XCTAssertFalse((request.value(forHTTPHeaderField: "X-Emby-Authorization") ?? "").contains("Token="))
+            XCTAssertFalse((request.value(forHTTPHeaderField: "Authorization") ?? "").contains("Token="))
 
             let body = try JSONDecoder().decode([String: String].self, from: request.capturedHTTPBody ?? Data())
             XCTAssertEqual(body["Username"], "ben")
@@ -76,8 +76,8 @@ final class JellyfinAPIClientTests: XCTestCase {
     // behavior. `authenticate(...)`'s own 401 (a wrong password at first
     // sign-in) staying a raw `.http` error is covered separately by
     // `test_authenticate_wrongCredentials_throwsHTTPError` above — that
-    // request never carries an `X-Emby-Token` header, so it never reaches
-    // any of this.
+    // request's `Authorization` header never carries a `Token="…"` clause,
+    // so it never reaches any of this.
 
     /// A single 401 recovers with no visible error and no artificial delay
     /// (the first retry attempt, `attempt == 0`, skips the backoff sleep —
@@ -88,7 +88,7 @@ final class JellyfinAPIClientTests: XCTestCase {
         _ = try await authenticateSuccessfully(client, token: "token-1")
 
         var viewsRequestCount = 0
-        var capturedRetryToken: String?
+        var capturedRetryAuthHeader: String?
         MockURLProtocol.requestHandler = { request in
             switch request.url?.path {
             case "/Users/user-1/Views":
@@ -96,7 +96,7 @@ final class JellyfinAPIClientTests: XCTestCase {
                 if viewsRequestCount == 1 {
                     return MockURLProtocol.jsonResponse(for: request, status: 401, body: Self.jellyfinHTML401Body)
                 }
-                capturedRetryToken = request.value(forHTTPHeaderField: "X-Emby-Token")
+                capturedRetryAuthHeader = request.value(forHTTPHeaderField: "Authorization")
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             case "/Users/AuthenticateByName":
                 return try MockURLProtocol.encodedJSONResponse(
@@ -112,7 +112,7 @@ final class JellyfinAPIClientTests: XCTestCase {
         _ = try await client.userViews(userID: "user-1")
 
         XCTAssertEqual(viewsRequestCount, 2)
-        XCTAssertEqual(capturedRetryToken, "token-2")
+        XCTAssertEqual(capturedRetryAuthHeader, JellyfinAuthorization.headerValue(token: "token-2"))
         let tokenAfterRecovery = await client.accessToken
         XCTAssertEqual(tokenAfterRecovery, "token-2")
     }
@@ -301,7 +301,7 @@ final class JellyfinAPIClientTests: XCTestCase {
         var capturedQuery: [String: String] = [:]
         MockURLProtocol.requestHandler = { request in
             capturedQuery = request.queryDictionary
-            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Emby-Token"), "tok")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), JellyfinAuthorization.headerValue(token: "tok"))
             return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
         }
 
