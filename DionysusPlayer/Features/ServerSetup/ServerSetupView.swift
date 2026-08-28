@@ -23,6 +23,9 @@ struct ServerSetupView: View {
                         .autocorrectionDisabled()
                         .focused($addressFieldFocused)
                         .onSubmit { Task { await connect() } }
+                        .onChange(of: viewModel.address) { _, newAddress in
+                            viewModel.syncHTTPSToggle(withAddress: newAddress)
+                        }
 
                     Toggle("Use HTTPS", isOn: $viewModel.useHTTPS)
 

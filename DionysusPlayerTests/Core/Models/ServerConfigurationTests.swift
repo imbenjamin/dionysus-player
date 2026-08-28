@@ -44,4 +44,46 @@ final class ServerConfigurationTests: XCTestCase {
         let config = ServerConfiguration.parse(rawAddress: "jellyfin.example.com", preferHTTPS: true)!
         XCTAssertEqual(config.id, config.baseURL.absoluteString)
     }
+
+    // MARK: explicitScheme
+
+    func test_explicitScheme_bareHostOrHostAndPort_isNil() {
+        XCTAssertNil(ServerConfiguration.explicitScheme(in: "jellyfin.example.com"))
+        XCTAssertNil(ServerConfiguration.explicitScheme(in: "192.168.1.50:8096"))
+    }
+
+    func test_explicitScheme_fullyQualifiedURL_isLowercasedScheme() {
+        XCTAssertEqual(ServerConfiguration.explicitScheme(in: "http://jellyfin.example.com"), "http")
+        XCTAssertEqual(ServerConfiguration.explicitScheme(in: "https://jellyfin.example.com"), "https")
+        XCTAssertEqual(ServerConfiguration.explicitScheme(in: "HTTPS://jellyfin.example.com"), "https")
+    }
+
+    func test_explicitScheme_trimsWhitespaceAndEmpty() {
+        XCTAssertEqual(ServerConfiguration.explicitScheme(in: "  https://jellyfin.example.com  "), "https")
+        XCTAssertNil(ServerConfiguration.explicitScheme(in: ""))
+    }
+
+    // MARK: correctingScheme
+
+    func test_correctingScheme_landedOnDifferentScheme_rewritesSchemeOnly() {
+        let config = ServerConfiguration.parse(rawAddress: "http://jellyfin.example.com:8096/path", preferHTTPS: false)!
+
+        let corrected = config.correctingScheme(usingLandedURL: URL(string: "https://jellyfin.example.com:8096/path/System/Info/Public"))
+
+        XCTAssertEqual(corrected.baseURL.absoluteString, "https://jellyfin.example.com:8096/path")
+    }
+
+    func test_correctingScheme_landedOnSameScheme_isUnchanged() {
+        let config = ServerConfiguration.parse(rawAddress: "https://jellyfin.example.com", preferHTTPS: true)!
+
+        let corrected = config.correctingScheme(usingLandedURL: URL(string: "https://jellyfin.example.com/System/Info/Public"))
+
+        XCTAssertEqual(corrected, config)
+    }
+
+    func test_correctingScheme_nilLandedURL_isUnchanged() {
+        let config = ServerConfiguration.parse(rawAddress: "jellyfin.example.com", preferHTTPS: true)!
+
+        XCTAssertEqual(config.correctingScheme(usingLandedURL: nil), config)
+    }
 }

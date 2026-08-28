@@ -12,6 +12,17 @@ actor JellyfinAPIClient {
     private(set) var accessToken: String?
     private let session: URLSession
 
+    /// The URL the most recent response actually came back from — `URLSession`
+    /// follows HTTP redirects transparently, so this can differ from the
+    /// request's own URL (and therefore from `baseURL`) without callers ever
+    /// seeing an explicit redirect. `ServerSetupViewModel.testConnection()`
+    /// reads this to self-correct a server's configured scheme (e.g. a
+    /// public server 302-redirecting a plain-HTTP ping to HTTPS) rather than
+    /// silently recording the wrong one — see its doc comment for why that
+    /// matters (a `POST` sent later on the wrong scheme isn't itself
+    /// redirect-safe the way this GET-based ping is).
+    private(set) var lastResponseURL: URL?
+
     /// Whatever credentials most recently succeeded via `authenticate(...)`
     /// — kept only so a request that comes back 401 mid-session (confirmed
     /// live against a heavily-shared public demo server: the session token
@@ -451,7 +462,7 @@ actor JellyfinAPIClient {
     /// Subtitles/{streamIndex}/Stream.{format}`), same as `streamURL`
     /// builds the video route by hand. AetherEngine's side-demuxer fetches
     /// this directly over HTTP itself — outside this actor, with no
-    /// `X-Emby-Authorization` header — so the token has to travel as the
+    /// `Authorization` header — so the token has to travel as the
     /// same `ApiKey` query item `streamURL` uses.
     func subtitleURL(itemID: String, mediaSourceID: String, streamIndex: Int, codec: String?) -> URL? {
         let ext = Self.subtitleFileExtension(forCodec: codec)
@@ -610,7 +621,7 @@ actor JellyfinAPIClient {
     /// diagnostics-only, for `PlaybackStatsOverlay`'s "Streaming" section
     /// (server-reported play method, and live transcode parameters when
     /// applicable). Filtered by `DeviceId`, which every request already
-    /// identifies itself with via `X-Emby-Authorization` (see
+    /// identifies itself with via the `Authorization` header (see
     /// `JellyfinAuthorization`), so this is normally exactly one entry.
     /// The one live session Jellyfin tracks for this device — used both for
     /// `PlaybackStatsOverlay`'s "Streaming" section and for
@@ -789,13 +800,18 @@ actor JellyfinAPIClient {
         // `timeoutIntervalForRequest` — see `requestTimeout`'s doc comment.
         request.timeoutInterval = Self.requestTimeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // Jellyfin 12.0 disables the legacy `X-Emby-Authorization`/
+        // `X-Emby-Token` headers by default (`EnableLegacyAuthorization`) —
+        // confirmed live that a request carrying only those headers gets a
+        // hard 400 there. `Authorization` with the `MediaBrowser` scheme is
+        // the non-deprecated form, and isn't 12.0-specific — it's accepted
+        // by 10.x servers too (confirmed live against demo.jellyfin.org's
+        // stable 10.11.11 and the LAN test server, same version), so this
+        // is sent unconditionally rather than branching on server version.
         request.setValue(
             JellyfinAuthorization.headerValue(token: requiresAuth ? accessToken : nil),
-            forHTTPHeaderField: "X-Emby-Authorization"
+            forHTTPHeaderField: "Authorization"
         )
-        if requiresAuth, let accessToken {
-            request.setValue(accessToken, forHTTPHeaderField: "X-Emby-Token")
-        }
 
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -856,16 +872,20 @@ actor JellyfinAPIClient {
             throw urlError
         }
         guard let http = response as? HTTPURLResponse else { throw JellyfinAPIError.invalidResponse }
+        lastResponseURL = response.url
         // Reaching a real HTTP response — success or an error status — means
         // the server was reachable, so this is what clears offline state.
         await ConnectivityMonitor.shared.reportSuccess()
         guard (200..<300).contains(http.statusCode) else {
-            // Only a request built with `requiresAuth: true` carries this
-            // header (see `makeRequest`) — `authenticate(...)`'s own 401
-            // (a genuinely wrong password, at first sign-in) is sent with
-            // `requiresAuth: false`, so it never reaches either branch
-            // below and keeps throwing the raw `.http(401, ...)` as before.
-            let isTokenBearing401 = http.statusCode == 401 && request.value(forHTTPHeaderField: "X-Emby-Token") != nil
+            // Only a request built with `requiresAuth: true` *and* an
+            // existing `accessToken` puts a `Token="…"` clause in its
+            // `Authorization` header (see `makeRequest`/`JellyfinAuthorization
+            // .headerValue`) — `authenticate(...)`'s own 401 (a genuinely
+            // wrong password, at first sign-in) is sent with `requiresAuth:
+            // false`, so its header never has one and this never reaches
+            // either branch below, keeping the raw `.http(401, ...)` as before.
+            let isTokenBearing401 = http.statusCode == 401
+                && (request.value(forHTTPHeaderField: "Authorization")?.contains("Token=\"") ?? false)
             guard isTokenBearing401 else {
                 throw JellyfinAPIError.http(status: http.statusCode, message: String(data: data, encoding: .utf8))
             }
@@ -890,8 +910,7 @@ actor JellyfinAPIClient {
                     throw JellyfinAPIError.notAuthenticated
                 }
                 var retried = request
-                retried.setValue(accessToken, forHTTPHeaderField: "X-Emby-Token")
-                retried.setValue(JellyfinAuthorization.headerValue(token: accessToken), forHTTPHeaderField: "X-Emby-Authorization")
+                retried.setValue(JellyfinAuthorization.headerValue(token: accessToken), forHTTPHeaderField: "Authorization")
                 return try await sendRaw(retried, reauthAttempt: reauthAttempt + 1)
             }
 

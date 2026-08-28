@@ -4,7 +4,7 @@ import UIKit
 #endif
 
 /// A stable device identifier and human-readable name, used to identify this
-/// installation to Jellyfin (the `X-Emby-Authorization` header). Generated
+/// installation to Jellyfin (the `Authorization` header). Generated
 /// once and cached in `UserDefaults` — it isn't a secret, just needs to be
 /// stable across launches.
 enum DeviceIdentity {
