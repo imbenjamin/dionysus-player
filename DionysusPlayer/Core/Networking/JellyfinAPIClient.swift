@@ -428,13 +428,29 @@ actor JellyfinAPIClient {
 
     // MARK: - Playback
 
-    func playbackInfo(itemID: String, userID: String, mediaSourceID: String? = nil) async throws -> PlaybackInfoResponse {
-        try await post("/Items/\(itemID)/PlaybackInfo", body: PlaybackInfoRequest(userId: userID, mediaSourceId: mediaSourceID))
+    /// `deviceProfile`/`maxStreamingBitrate`/`startTimeTicks` are all `nil`
+    /// by default, which reproduces the app's original, non-negotiated
+    /// request body exactly — `PlayerViewModel` only passes them when the
+    /// user's `StreamDecisionMode` is `.allowTranscoding` (see
+    /// `DeviceProfileBuilder`). `DownloadManager`'s own call never passes
+    /// them at all; downloads negotiate nothing and always transcode via
+    /// the separate `downloadStreamURL` path.
+    func playbackInfo(
+        itemID: String, userID: String, mediaSourceID: String? = nil,
+        deviceProfile: DeviceProfile? = nil, maxStreamingBitrate: Int? = nil, startTimeTicks: Int64? = nil
+    ) async throws -> PlaybackInfoResponse {
+        try await post("/Items/\(itemID)/PlaybackInfo", body: PlaybackInfoRequest(
+            userId: userID, mediaSourceId: mediaSourceID,
+            deviceProfile: deviceProfile, maxStreamingBitrate: maxStreamingBitrate, startTimeTicks: startTimeTicks,
+            allowVideoStreamCopy: deviceProfile != nil ? true : nil,
+            allowAudioStreamCopy: deviceProfile != nil ? true : nil
+        ))
     }
 
     /// Builds a direct-play stream URL. Sufficient for content the device
-    /// can decode natively; real transcode negotiation via `PlaybackInfo`'s
-    /// `DeviceProfile` is a follow-up.
+    /// can decode natively — the fallback `PlayerViewModel` uses whenever
+    /// `MediaSourceInfo.transcodingUrl` is absent, in both streaming modes.
+    /// See `resolveTranscodingURL(_:)` for the other branch.
     func streamURL(itemID: String, mediaSourceID: String?, container: String?) -> URL? {
         guard var components = URLComponents(
             url: baseURL.appendingPathComponent("Videos/\(itemID)/stream"),
@@ -447,6 +463,34 @@ actor JellyfinAPIClient {
         if let accessToken { query.append(.init(name: "ApiKey", value: accessToken)) }
         query.append(.init(name: "DeviceId", value: DeviceIdentity.deviceID))
         components.queryItems = query
+        return components.url
+    }
+
+    /// Resolves `MediaSourceInfo.transcodingUrl` (a relative path + query
+    /// string the server hands back already query-complete — DeviceId/
+    /// api_key/PlaySessionId baked in) against this client's own
+    /// `baseURL`. Only used in "Allow Transcoding" mode, when the server
+    /// decided direct play isn't possible.
+    ///
+    /// Deliberately NOT `URL(string:relativeTo:)` — confirmed live
+    /// (2026-08-28) against a server reverse-proxied under a subpath (e.g.
+    /// `https://host/flix`): RFC 3986 resolution treats a path starting
+    /// with `/` (which `transcodingUrl` always does — Jellyfin returns
+    /// server-root-relative paths with no awareness of any subpath a
+    /// deployment's reverse proxy adds) as replacing the base URL's entire
+    /// path, silently dropping `/flix` and producing a 404 the base server
+    /// has no route for. `streamURL` above never hit this because
+    /// `appendingPathComponent` always appends rather than replaces —
+    /// mirror that here: split `transcodingPath` into its path/query,
+    /// append the path (leading slash stripped) onto `baseURL`, and keep
+    /// the query string as-is.
+    func resolveTranscodingURL(_ transcodingPath: String) -> URL? {
+        guard let parsed = URLComponents(string: transcodingPath) else { return nil }
+        let relativePathComponent = parsed.path.hasPrefix("/") ? String(parsed.path.dropFirst()) : parsed.path
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent(relativePathComponent), resolvingAgainstBaseURL: false
+        ) else { return nil }
+        components.percentEncodedQuery = parsed.percentEncodedQuery
         return components.url
     }
 
@@ -646,24 +690,31 @@ actor JellyfinAPIClient {
 
     // MARK: - Playback progress reporting
 
-    func reportPlaybackStart(itemID: String, mediaSourceID: String? = nil) async throws {
+    /// `playSessionID` is only non-nil in "Allow Transcoding" mode, sourced
+    /// from `PlaybackInfoResponse.playSessionId` — see
+    /// `PlaybackProgressRequest.playSessionId`'s doc comment.
+    func reportPlaybackStart(itemID: String, mediaSourceID: String? = nil, playSessionID: String? = nil) async throws {
         try await postNoContent(
             "/Sessions/Playing",
-            body: PlaybackProgressRequest(itemId: itemID, positionTicks: 0, mediaSourceId: mediaSourceID)
+            body: PlaybackProgressRequest(itemId: itemID, positionTicks: 0, mediaSourceId: mediaSourceID, playSessionId: playSessionID)
         )
     }
 
-    func reportPlaybackProgress(itemID: String, positionTicks: Int64, isPaused: Bool, mediaSourceID: String? = nil) async throws {
+    func reportPlaybackProgress(
+        itemID: String, positionTicks: Int64, isPaused: Bool, mediaSourceID: String? = nil, playSessionID: String? = nil
+    ) async throws {
         try await postNoContent(
             "/Sessions/Playing/Progress",
-            body: PlaybackProgressRequest(itemId: itemID, positionTicks: positionTicks, isPaused: isPaused, mediaSourceId: mediaSourceID)
+            body: PlaybackProgressRequest(
+                itemId: itemID, positionTicks: positionTicks, isPaused: isPaused, mediaSourceId: mediaSourceID, playSessionId: playSessionID
+            )
         )
     }
 
-    func reportPlaybackStopped(itemID: String, positionTicks: Int64, mediaSourceID: String? = nil) async throws {
+    func reportPlaybackStopped(itemID: String, positionTicks: Int64, mediaSourceID: String? = nil, playSessionID: String? = nil) async throws {
         try await postNoContent(
             "/Sessions/Playing/Stopped",
-            body: PlaybackProgressRequest(itemId: itemID, positionTicks: positionTicks, mediaSourceId: mediaSourceID)
+            body: PlaybackProgressRequest(itemId: itemID, positionTicks: positionTicks, mediaSourceId: mediaSourceID, playSessionId: playSessionID)
         )
     }
 

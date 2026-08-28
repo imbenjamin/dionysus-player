@@ -503,6 +503,33 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(query["ApiKey"], "tok")
     }
 
+    // MARK: resolveTranscodingURL (pure, no network)
+
+    func test_resolveTranscodingURL_resolvesRelativePathAgainstBaseURL() async {
+        let client = makeClient()
+        let url = await client.resolveTranscodingURL("/videos/item-1/master.m3u8?PlaySessionId=sess-1")
+        XCTAssertEqual(url?.scheme, "https")
+        XCTAssertEqual(url?.host, "jellyfin.example.com")
+        XCTAssertEqual(url?.path, "/videos/item-1/master.m3u8")
+        XCTAssertEqual(URLRequest(url: url!).queryDictionary["PlaySessionId"], "sess-1")
+    }
+
+    /// Confirmed live (2026-08-28) against a server reverse-proxied under a
+    /// subpath: `transcodingUrl` always comes back server-root-relative
+    /// (Jellyfin has no awareness of a reverse proxy's own subpath), so a
+    /// naive `URL(string:relativeTo:)` resolution — which treats a
+    /// leading-`/` path as replacing the base URL's entire path per RFC
+    /// 3986 — silently dropped the subpath and 404'd. Must append instead,
+    /// same as `streamURL`'s `appendingPathComponent`.
+    func test_resolveTranscodingURL_preservesBaseURLSubpath() async {
+        let client = JellyfinAPIClient(
+            baseURL: URL(string: "http://jellyfin.example.com/flix")!, accessToken: nil, session: MockURLProtocol.makeSession()
+        )
+        let url = await client.resolveTranscodingURL("/videos/item-1/master.m3u8?PlaySessionId=sess-1")
+        XCTAssertEqual(url?.path, "/flix/videos/item-1/master.m3u8")
+        XCTAssertEqual(URLRequest(url: url!).queryDictionary["PlaySessionId"], "sess-1")
+    }
+
     // MARK: subtitleURL (pure, no network)
 
     func test_subtitleURL_buildsWellKnownRouteWithNoApiKeyWhenSignedOut() async {
@@ -786,6 +813,39 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(decoded?.MediaSourceId, "src-1080p")
     }
 
+    /// `nil` by default (Direct Play Always never negotiates a session);
+    /// only "Allow Transcoding" mode has a real `PlaySessionId` to pass —
+    /// see `PlaybackProgressRequest.playSessionId`'s doc comment. Checked
+    /// once here, same "shares the exact same encoding" reasoning as the
+    /// `MediaSourceId` test above.
+    func test_reportPlaybackStopped_omitsPlaySessionIdWhenNotProvided() async throws {
+        let client = makeClient(accessToken: "tok")
+        struct DecodedBodyWithSession: Decodable { let PlaySessionId: String? }
+        var decoded: DecodedBodyWithSession?
+        MockURLProtocol.requestHandler = { request in
+            decoded = try JSONDecoder().decode(DecodedBodyWithSession.self, from: request.capturedHTTPBody ?? Data())
+            return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+
+        try await client.reportPlaybackStopped(itemID: "item-1", positionTicks: 12_345)
+
+        XCTAssertNil(decoded?.PlaySessionId)
+    }
+
+    func test_reportPlaybackStopped_includesPlaySessionIdWhenProvided() async throws {
+        let client = makeClient(accessToken: "tok")
+        struct DecodedBodyWithSession: Decodable { let PlaySessionId: String? }
+        var decoded: DecodedBodyWithSession?
+        MockURLProtocol.requestHandler = { request in
+            decoded = try JSONDecoder().decode(DecodedBodyWithSession.self, from: request.capturedHTTPBody ?? Data())
+            return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+
+        try await client.reportPlaybackStopped(itemID: "item-1", positionTicks: 12_345, playSessionID: "sess-1")
+
+        XCTAssertEqual(decoded?.PlaySessionId, "sess-1")
+    }
+
     // MARK: updateUserData (offline sync — no active-session requirement)
 
     func test_updateUserData_sendsPositionPlayedAndPercentage() async throws {
@@ -834,6 +894,58 @@ final class JellyfinAPIClientTests: XCTestCase {
         _ = try await client.playbackInfo(itemID: "item-1", userID: "user-1")
 
         XCTAssertNil(decoded?.MediaSourceId)
+    }
+
+    /// Direct Play Always never passes `deviceProfile`/`maxStreamingBitrate`
+    /// — this pins that the resulting request body is byte-for-byte
+    /// identical to the app's original, non-negotiated shape (no
+    /// `DeviceProfile`/`MaxStreamingBitrate` keys at all, not even `null`).
+    func test_playbackInfo_directPlayAlways_omitsDeviceProfileAndMaxStreamingBitrate() async throws {
+        let client = makeClient(accessToken: "tok")
+        var rawBody: [String: Any]?
+        MockURLProtocol.requestHandler = { request in
+            rawBody = try JSONSerialization.jsonObject(with: request.capturedHTTPBody ?? Data()) as? [String: Any]
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaybackInfoResponse())
+        }
+
+        _ = try await client.playbackInfo(itemID: "item-1", userID: "user-1")
+
+        XCTAssertNil(rawBody?["DeviceProfile"])
+        XCTAssertNil(rawBody?["MaxStreamingBitrate"])
+    }
+
+    /// "Allow Transcoding" mode sends a real `DeviceProfile` (built by
+    /// `DeviceProfileBuilder`) plus the user's bitrate cap — round-trips
+    /// both through the wire encoding to confirm PascalCase keys and
+    /// nested-array structure survive.
+    func test_playbackInfo_allowTranscoding_sendsDeviceProfileAndMaxStreamingBitrate() async throws {
+        let client = makeClient(accessToken: "tok")
+        // Property names are camelCase, not PascalCase like this file's
+        // other `Decoded...Body` structs — those decode with a plain
+        // `JSONDecoder()` (no key transform, so PascalCase JSON matches
+        // PascalCase properties directly), but `DeviceProfile` and its
+        // nested types are only `Codable` correctly through
+        // `JellyfinJSON.decoder`'s custom PascalCase-to-camelCase key
+        // strategy, which this wrapper needs too so its own two fields
+        // decode alongside the nested type in one pass.
+        struct DecodedProfileBody: Decodable {
+            let maxStreamingBitrate: Int?
+            let deviceProfile: DeviceProfile
+        }
+        var decoded: DecodedProfileBody?
+        MockURLProtocol.requestHandler = { request in
+            decoded = try JellyfinJSON.decoder.decode(DecodedProfileBody.self, from: request.capturedHTTPBody ?? Data())
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaybackInfoResponse())
+        }
+
+        _ = try await client.playbackInfo(
+            itemID: "item-1", userID: "user-1",
+            deviceProfile: DeviceProfileBuilder.build(maxStreamingBitrate: 10_000_000), maxStreamingBitrate: 10_000_000
+        )
+
+        XCTAssertEqual(decoded?.maxStreamingBitrate, 10_000_000)
+        XCTAssertFalse(decoded?.deviceProfile.directPlayProfiles.isEmpty ?? true)
+        XCTAssertFalse(decoded?.deviceProfile.transcodingProfiles.isEmpty ?? true)
     }
 
     func test_currentSession_filtersByDeviceIdAndReturnsFirstMatch() async throws {

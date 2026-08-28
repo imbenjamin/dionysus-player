@@ -36,14 +36,16 @@ final class PlayerViewModelTests: XCTestCase {
         mediaSourceID: String? = nil,
         engine: FakePlaybackEngine = FakePlaybackEngine(),
         trackPreferenceStore: TrackPreferenceStore? = nil,
-        nextUpPreferenceStore: NextUpPreferenceStore? = nil
+        nextUpPreferenceStore: NextUpPreferenceStore? = nil,
+        streamPreferenceStore: StreamPreferenceStore? = nil
     ) -> (PlayerViewModel, FakePlaybackEngine) {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
         let viewModel = PlayerViewModel(
             client: client, userID: "user-1", itemID: itemID, engine: engine,
             startFromBeginning: startFromBeginning, mediaSourceID: mediaSourceID,
             trackPreferenceStore: trackPreferenceStore ?? TrackPreferenceStore(defaults: defaults),
-            nextUpPreferenceStore: nextUpPreferenceStore ?? NextUpPreferenceStore(defaults: defaults)
+            nextUpPreferenceStore: nextUpPreferenceStore ?? NextUpPreferenceStore(defaults: defaults),
+            streamPreferenceStore: streamPreferenceStore ?? StreamPreferenceStore(defaults: defaults)
         )
         return (viewModel, engine)
     }
@@ -108,6 +110,112 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertTrue(loadedURL.contains("Container=mp4"))
         XCTAssertTrue(engine.seekedTimes.isEmpty, "Nothing to resume, so it shouldn't seek")
         XCTAssertEqual(engine.playCallCount, 1)
+    }
+
+    // MARK: start() — streaming mode (Direct Play Always vs. Allow Transcoding)
+
+    /// The default `StreamDecisionMode` — pins that the resulting
+    /// `/PlaybackInfo` request is byte-for-byte identical to before this
+    /// setting existed (no `DeviceProfile`/`MaxStreamingBitrate` keys at
+    /// all), and that the engine load always takes the plain direct-play
+    /// path.
+    func test_start_directPlayAlways_default_sendsNoDeviceProfileAndLoadsWithIsRemoteHLSFalse() async {
+        let (viewModel, engine) = makeViewModel()
+        var playbackInfoBody: [String: Any]?
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/item-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "item-1", name: "Arrival", type: .movie))
+            case "/Items/item-1/PlaybackInfo":
+                playbackInfoBody = try JSONSerialization.jsonObject(with: request.capturedHTTPBody ?? Data()) as? [String: Any]
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: PlaybackInfoResponse(mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")], playSessionId: "sess-1")
+                )
+            case "/Sessions/Playing":
+                return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+            case "/MediaSegments/item-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: MediaSegmentDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+        }
+
+        await viewModel.start()
+
+        XCTAssertNil(playbackInfoBody?["DeviceProfile"])
+        XCTAssertNil(playbackInfoBody?["MaxStreamingBitrate"])
+        XCTAssertEqual(engine.loadedIsRemoteHLS, [false])
+        XCTAssertTrue(engine.loadedURLs[0].absoluteString.contains("Static=true"))
+    }
+
+    /// "Allow Transcoding" mode, server response with no `transcodingUrl` —
+    /// falls back to the exact same direct-play `streamURL` path as Direct
+    /// Play Always.
+    func test_start_allowTranscoding_withoutTranscodingUrl_fallsBackToDirectPlayURL() async {
+        defaults.set(StreamDecisionMode.allowTranscoding.rawValue, forKey: streamDecisionModeStorageKey)
+        let (viewModel, engine) = makeViewModel()
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie), mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")])
+
+        await viewModel.start()
+
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertEqual(engine.loadedIsRemoteHLS, [false])
+        XCTAssertTrue(engine.loadedURLs[0].absoluteString.contains("Static=true"))
+    }
+
+    /// "Allow Transcoding" mode, server response with a `transcodingUrl` —
+    /// the server decided direct play wasn't possible; the engine should
+    /// load the resolved HLS URL via the `nativeRemoteHLS` bypass rather
+    /// than the direct-play `streamURL`.
+    func test_start_allowTranscoding_withTranscodingUrl_usesRemoteHLSLoadPath() async {
+        defaults.set(StreamDecisionMode.allowTranscoding.rawValue, forKey: streamDecisionModeStorageKey)
+        let (viewModel, engine) = makeViewModel()
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mkv", transcodingUrl: "/videos/item-1/master.m3u8?PlaySessionId=sess-1")]
+        )
+
+        await viewModel.start()
+
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertEqual(engine.loadedIsRemoteHLS, [true])
+        XCTAssertEqual(engine.loadedURLs.first?.absoluteString, "https://jellyfin.example.com/videos/item-1/master.m3u8?PlaySessionId=sess-1")
+    }
+
+    /// `PlaybackInfoResponse.playSessionId` should flow into
+    /// `activePlaySessionID` and from there into `/Sessions/Playing`'s
+    /// request body — the server needs it to track/kill the right
+    /// transcode job. `stubStart` always returns `"sess-1"`, matching real
+    /// Jellyfin servers issuing a session id on every `/PlaybackInfo` call
+    /// regardless of negotiation.
+    func test_start_populatesActivePlaySessionID_andThreadsIntoReportPlaybackStart() async {
+        let (viewModel, _) = makeViewModel()
+        var reportedPlaySessionId: String?
+        struct DecodedProgressBody: Decodable { let PlaySessionId: String? }
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/item-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "item-1", name: "Arrival", type: .movie))
+            case "/Items/item-1/PlaybackInfo":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: PlaybackInfoResponse(mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")], playSessionId: "sess-1")
+                )
+            case "/Sessions/Playing":
+                reportedPlaySessionId = try JSONDecoder().decode(DecodedProgressBody.self, from: request.capturedHTTPBody ?? Data()).PlaySessionId
+                return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+            case "/MediaSegments/item-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: MediaSegmentDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+        }
+
+        await viewModel.start()
+
+        XCTAssertEqual(viewModel.activePlaySessionID, "sess-1")
+        XCTAssertEqual(reportedPlaySessionId, "sess-1")
     }
 
     /// A requested version (the version-choice prompt's answer, or a
@@ -245,6 +353,41 @@ final class PlayerViewModelTests: XCTestCase {
         await viewModel.start()
 
         XCTAssertEqual(viewModel.sourceVideoStream?.videoRangeType, "DOVIWithHDR10")
+    }
+
+    /// `sourceAudioStream` is `PlaybackStatsOverlay`'s fallback source for
+    /// "Source Channels" on a `nativeRemoteHLS` session, where AetherEngine
+    /// never probes the source itself — should prefer the stream marked
+    /// `isDefault`, not just the first audio stream on the source.
+    func test_start_setsSourceAudioStreamToDefaultTrackNotFirst() async {
+        let (viewModel, _) = makeViewModel()
+        let firstAudio = MediaStream(index: 1, type: "Audio", isDefault: false, channelLayout: "stereo")
+        let defaultAudio = MediaStream(index: 2, type: "Audio", isDefault: true, channelLayout: "5.1")
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4", mediaStreams: [firstAudio, defaultAudio])]
+        )
+
+        await viewModel.start()
+
+        XCTAssertEqual(viewModel.sourceAudioStream?.index, 2)
+        XCTAssertEqual(viewModel.sourceAudioStream?.channelLayout, "5.1")
+    }
+
+    /// No stream is marked `isDefault` — falls back to the first audio
+    /// stream rather than leaving `sourceAudioStream` `nil`.
+    func test_start_setsSourceAudioStreamToFirstWhenNoneIsDefault() async {
+        let (viewModel, _) = makeViewModel()
+        let firstAudio = MediaStream(index: 1, type: "Audio", channelLayout: "stereo")
+        let secondAudio = MediaStream(index: 2, type: "Audio", channelLayout: "5.1")
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4", mediaStreams: [firstAudio, secondAudio])]
+        )
+
+        await viewModel.start()
+
+        XCTAssertEqual(viewModel.sourceAudioStream?.index, 1)
     }
 
     /// The lock screen/Control Center Now Playing card should be populated

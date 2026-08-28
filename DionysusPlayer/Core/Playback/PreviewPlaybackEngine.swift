@@ -44,7 +44,7 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         duration: 5400
     )
 
-    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws {
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool) async throws {
         if let simulatedFailure {
             onStateChange?(.failed(simulatedFailure))
             return

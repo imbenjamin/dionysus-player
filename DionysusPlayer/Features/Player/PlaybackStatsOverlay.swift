@@ -198,13 +198,29 @@ struct PlaybackStatsOverlay: View {
     @ViewBuilder
     private func videoSection(_ stats: PlaybackStats) -> some View {
         Text("Video").bold()
-        row("Resolution", stats.videoSize ?? "—")
-        row("Frame Rate", stats.frameRate ?? "—")
-        row("Bitrate", stats.bitrate ?? "—")
+        // `stats.videoSize`/`.frameRate`/`.bitrate` come from AetherEngine's
+        // own source probe — confirmed live, 2026-08-28, that probe never
+        // runs on the `nativeRemoteHLS` bypass route (a server-chosen
+        // "Allow Transcoding" session with no direct play), so all three
+        // sit `nil` for the life of such a session, not just briefly at
+        // startup. Falling back to `viewModel.sourceVideoStream` — Jellyfin's
+        // own probe of the same file — keeps this row informative instead
+        // of a permanent "—"; it describes the *source*, same as the
+        // Streaming section's "Transcode Video"/"Transcode Bitrate" rows
+        // already describe the transcode target, so the two together still
+        // tell the full story.
+        row("Resolution", stats.videoSize ?? Self.sourceResolutionText(viewModel.sourceVideoStream) ?? "—")
+        row("Frame Rate", stats.frameRate ?? Self.sourceFrameRateText(viewModel.sourceVideoStream) ?? "—")
+        row("Bitrate", stats.bitrate ?? Self.sourceBitrateText(viewModel.sourceVideoStream) ?? "—")
         row("Source Color", stats.sourceColorFormat)
         if stats.sourceColorFormat.hasPrefix("Dolby Vision") {
             row("Enhancement Layer", Self.describeEnhancementLayer(viewModel.sourceVideoStream?.videoRangeType))
         }
+        // No fallback here, unlike the three rows above: which decoder
+        // AVPlayer picked for a `nativeRemoteHLS` session isn't something
+        // Jellyfin's probe (or anything else this app has) can answer —
+        // AetherEngine itself doesn't expose it for this route, so this
+        // stays "—" for the life of such a session.
         row("Decoder", stats.videoDecoder ?? "—")
         row("Backend", stats.backend)
     }
@@ -222,8 +238,13 @@ struct PlaybackStatsOverlay: View {
     @ViewBuilder
     private func audioSection(_ stats: PlaybackStats) -> some View {
         Text("Audio").bold().padding(.top, 4)
+        // Same "—" for the life of the session, same reasoning as the
+        // video Decoder row above.
         row("Decoder", stats.audioDecoder ?? "—")
-        row("Source Channels", stats.audioChannels ?? "—")
+        // Same probe-never-runs gap as the video section above — falls
+        // back to `viewModel.sourceAudioStream` (Jellyfin's own probe of
+        // the default/first audio track) rather than staying blank.
+        row("Source Channels", stats.audioChannels ?? Self.sourceChannelsText(viewModel.sourceAudioStream) ?? "—")
         row("Output Route", audioOutputRoute ?? "—")
         row("Output Channels", Self.describeChannelCount(audioOutputChannelCount))
     }
@@ -374,6 +395,46 @@ struct PlaybackStatsOverlay: View {
 
     private static func formatMbps(_ bitsPerSecond: Int) -> String {
         String(format: "%.1f Mbps", Double(bitsPerSecond) / 1_000_000)
+    }
+
+    /// See `videoSection`'s doc comment — the source-probe fallback for
+    /// "Resolution" when AetherEngine's own value is unavailable.
+    private static func sourceResolutionText(_ stream: MediaStream?) -> String? {
+        guard let stream, let width = stream.width, let height = stream.height, width > 0, height > 0 else { return nil }
+        return "\(width)×\(height)"
+    }
+
+    /// Same fallback role as `sourceResolutionText` above, for "Frame
+    /// Rate" — `realFrameRate` (measured from the file) preferred over
+    /// `averageFrameRate` (a coarser, container-level figure), same
+    /// preference `MediaItem`'s own technical-details formatting uses.
+    /// `"%.3g fps"` matches `AetherPlaybackEngine.stats`'s own formatting
+    /// for the same field, so the row reads identically regardless of
+    /// which source populated it.
+    private static func sourceFrameRateText(_ stream: MediaStream?) -> String? {
+        guard let rate = stream?.realFrameRate ?? stream?.averageFrameRate, rate > 0 else { return nil }
+        return String(format: "%.3g fps", rate)
+    }
+
+    /// Same fallback role, for "Bitrate" — the stream's own bit rate
+    /// (`MediaStream.bitRate`), not `MediaSourceInfo.bitrate` (covers the
+    /// whole container, inflated by however many audio tracks the file
+    /// carries).
+    private static func sourceBitrateText(_ stream: MediaStream?) -> String? {
+        guard let bitRate = stream?.bitRate, bitRate > 0 else { return nil }
+        return formatMbps(bitRate)
+    }
+
+    /// Same fallback role, for "Source Channels" — Jellyfin's own
+    /// `audioSpatialFormat`/`channelLayout` rather than a numeric channel
+    /// count (unlike `AetherPlaybackEngine.describeChannels`, which has one
+    /// to work with), so this doesn't attempt the same "1.0"/"5.1"/"7.1"
+    /// normalization — Jellyfin's own layout string ("Stereo", "5.1", ...)
+    /// is informative as-is.
+    private static func sourceChannelsText(_ stream: MediaStream?) -> String? {
+        guard let stream else { return nil }
+        if stream.audioSpatialFormat == "DolbyAtmos" { return "Atmos" }
+        return stream.channelLayout?.capitalized
     }
 
     private static func describe(_ state: PlaybackState) -> String {

@@ -128,8 +128,24 @@ final class AetherPlaybackEngine: PlaybackEngine {
             // playhead by definition rather than any real read-ahead, so
             // diffing it (against either `currentTime` or `sourceTime` —
             // both were tried) can only ever read ~0.
+            //
+            // Prefer reading `engine.currentAVPlayerItem.loadedTimeRanges`
+            // directly when available — confirmed live, 2026-08-28:
+            // `engine.bufferedPosition` sat permanently at (or barely
+            // above) `sourceTime` on the `nativeRemoteHLS` route, reading
+            // as a constant "Buffered: 0.0s" for the whole session.
+            // Matches `LoadOptions.forwardBufferSegments`'s own doc
+            // comment ("Ignored on nativeRemoteHLS") — that route has no
+            // local segment cache for `bufferedPosition`'s clock to
+            // measure at all; AVPlayer manages its own buffering directly
+            // against the origin instead, which `loadedTimeRanges` reads
+            // regardless of route. Falls back to the original
+            // `bufferedPosition` diff when no AVPlayerItem is available
+            // (shouldn't happen on `.native`, but avoids ever returning
+            // nothing where the old calculation still would have).
             bufferedSeconds: engine.playbackBackend == .native
-                ? max(0, engine.bufferedPosition - engine.sourceTime)
+                ? (engine.currentAVPlayerItem.flatMap { Self.bufferedAheadSeconds(item: $0, currentTime: engine.sourceTime) }
+                    ?? max(0, engine.bufferedPosition - engine.sourceTime))
                 : nil,
             // `liveTelemetry`'s 1 Hz sampler runs for every session despite
             // the "live" name (started unconditionally alongside the memory
@@ -397,9 +413,23 @@ final class AetherPlaybackEngine: PlaybackEngine {
         }
     }
 
-    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws {
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool) async throws {
         self.knownAtmosAudioTrackIndices = knownAtmosAudioTrackIndices
+        // Order matters here beyond just readability: `LoadOptions`' own
+        // memberwise init takes ~30 named, defaulted parameters, but Swift
+        // still requires whichever ones a call site does supply to appear
+        // in the init's own declared order, even with keyword syntax —
+        // `isLive` before `nativeRemoteHLS` before `prepareNativeSubtitles`
+        // before `externalSubtitles`.
         let options = LoadOptions(
+            // A Jellyfin VOD transcode is not a live source, even when
+            // consumed via the nativeRemoteHLS bypass below.
+            isLive: false,
+            // `true` only for a server-chosen HLS transcode
+            // (`MediaSourceInfo.transcodingUrl`, "Allow Transcoding" mode)
+            // — hands the playlist straight to AVPlayer instead of
+            // AetherEngine's own FFmpeg demuxer/loopback path.
+            nativeRemoteHLS: isRemoteHLS,
             // Needed for `setNativeSubtitleRendering(_:)` (called on PiP
             // entry/exit below) to have a native WebVTT rendition to select
             // at all — see that method's doc comment in AetherEngine.
@@ -826,6 +856,26 @@ final class AetherPlaybackEngine: PlaybackEngine {
 
     private static func formatBitrate(_ bitsPerSecond: Int64) -> String {
         String(format: "%.1f Mbps", Double(bitsPerSecond) / 1_000_000)
+    }
+
+    /// `stats.bufferedSeconds`'s route-agnostic path — see that doc
+    /// comment for why this exists alongside `bufferedPosition`. Finds
+    /// whichever loaded range currently contains the playhead (the common
+    /// case) and reports how far its far edge sits ahead of it; falls back
+    /// to the last loaded range if none contains the playhead exactly
+    /// (e.g. a range boundary lines up with the playhead down to
+    /// floating-point precision) rather than reporting nothing.
+    private static func bufferedAheadSeconds(item: AVPlayerItem, currentTime: Double) -> Double? {
+        let ranges = item.loadedTimeRanges.map(\.timeRangeValue)
+        let range = ranges.first { range in
+            let start = range.start.seconds
+            let end = (range.start + range.duration).seconds
+            return currentTime >= start && currentTime <= end
+        } ?? ranges.last
+        guard let range else { return nil }
+        let end = (range.start + range.duration).seconds
+        guard end.isFinite else { return nil }
+        return max(0, end - currentTime)
     }
 
     /// `TrackInfo.channels` is a plain count (2/6/8/...) meant, per its own
