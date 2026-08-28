@@ -80,6 +80,30 @@ picking up a newer `6.x` release still needs an explicit refresh — Xcode's
 `File > Packages > Update to Latest Package Versions`, or deleting
 DerivedData's SPM state — followed by the script above.
 
+**Check this before opening a PR, not just when you know you touched
+packages.** `Package.resolved` is gitignored (the whole `.xcodeproj` is,
+per the generated-not-committed policy above), so every CI run does an
+uncached resolve and can pick up a newly-released AetherEngine version
+with zero local trigger — no `project.yml` change, no manual Xcode
+action, nothing about the PR's own diff. `ios.yml`/`release.yml`'s
+"Verify AetherEngine version display is up to date" step exists to catch
+that drift, but discovering it there costs a red CI check and a
+follow-up commit (confirmed live, PR #147, 2026-08-28: CI resolved
+`6.54.0` against a checked-in `6.52.0` pin with no other
+AetherEngine-related change on the branch at all). A plain `xcodebuild
+-resolvePackageDependencies` isn't enough to check for this locally
+either — it silently reuses whatever's cached and won't reproduce what
+CI's uncached resolve sees. To actually check before pushing:
+
+```sh
+rm -rf ~/Library/Caches/org.swift.swiftpm
+rm -rf ~/Library/Developer/Xcode/DerivedData/DionysusPlayer-*/SourcePackages
+xcodebuild -resolvePackageDependencies -project DionysusPlayer.xcodeproj -scheme DionysusPlayer
+```
+
+then run `./Scripts/update-aetherengine-version.sh` if the resolved
+version moved.
+
 ### App version (SemVer)
 
 The app's own version — shown on the Profile screen's footer via
@@ -177,11 +201,27 @@ the just-signed-out user.
 snapshotted via `client.makeImageURLBuilder()` so SwiftUI views can build
 image URLs synchronously without hopping through the actor on every render.
 
-**Live playback** is direct-play only: `streamURL(itemID:mediaSourceID:container:)`
-builds a static stream URL (`Static=true`) and AetherEngine decodes whatever
-comes back. `PlaybackInfoResponse`/`DeviceProfile`-based transcode negotiation
-is not implemented for playback — if asked to add transcoding *to playback*,
-this is the file to extend.
+**Live playback** negotiates with the server by default, via a
+`StreamPreferenceStore.decisionMode` setting (Profile → Streaming) that
+switches between **Allow Transcoding** (default since 2026-08-28 —
+`DeviceProfileBuilder.build(maxStreamingBitrate:)` —
+`Core/Networking/DeviceProfile.swift` — builds a real `DeviceProfile`, sent
+on `/PlaybackInfo` so Jellyfin can choose direct play or a transcode;
+`PlayerViewModel.start()` branches on whether the response carries a
+`MediaSourceInfo.transcodingUrl`) and **Direct Play Always**
+(`streamURL(itemID:mediaSourceID:container:)` builds a static stream URL —
+`Static=true` — and AetherEngine decodes whatever comes back; no
+`DeviceProfile` sent, the app's original, non-negotiated behavior — still
+available for anyone who wants to force it). A
+server-chosen transcode is consumed via AetherEngine's `nativeRemoteHLS`
+bypass (`AetherPlaybackEngine.load(..., isRemoteHLS: true)` — the playlist
+goes straight to AVPlayer, no local FFmpeg demux) rather than downloaded
+and re-muxed; the HLS transcode target itself is fragmented MP4 (H.264 or
+HEVC), never MPEG-TS — see that file's `hlsTranscode` doc comment for why
+(Apple's HLS Authoring Spec doesn't support HEVC-in-MPEG-TS on AVPlayer at
+all). `PlaybackStats.route` in the "stats for nerds" overlay shows which
+AetherEngine pipeline (`.remoteBypass`/`.loopback`/...) actually ended up
+serving a session — `playbackBackend` alone can't distinguish them.
 
 **Downloads are a separate path that always transcodes** —
 `downloadStreamURL(...)` (`Static=false`, HEVC/MP4, resolution + bitrate capped

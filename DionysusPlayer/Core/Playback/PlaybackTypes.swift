@@ -117,6 +117,20 @@ struct PlaybackStats: Equatable {
     /// "Native", "Software", "Audio", or "None" — AetherEngine's internal
     /// rendering backend, surfaced read-only for diagnostics like this.
     var backend: String
+    /// "Remote Bypass", "Loopback", "Software", "Audio", or "None" —
+    /// `AetherEngine.videoRoute`, which pipeline is *actually* serving the
+    /// session right now. Deliberately separate from `backend` above:
+    /// AetherEngine's own docs are explicit that `playbackBackend` cannot
+    /// tell `.remoteBypass` (AVPlayer on the origin URL, e.g. a Jellyfin
+    /// transcode's HLS playlist handed straight over) apart from
+    /// `.loopback` (AetherEngine's own local demux/remux, the default) —
+    /// both collapse to the same `.native` backend value. This field is
+    /// what answers that question honestly, including the reroutes
+    /// AetherEngine can make on its own findings mid-session (a
+    /// misdeclared HLS carriage, a doomed native mount) — see
+    /// `DeviceProfile.swift`'s `hlsTranscode` doc comment for why this
+    /// distinction mattered enough to add a dedicated row for it.
+    var route: String
     /// Seconds of video already fetched/decoded ahead of the playhead —
     /// the safety margin before playback would need to pause and
     /// rebuffer. `nil` when the backend isn't `.native`: AetherEngine's

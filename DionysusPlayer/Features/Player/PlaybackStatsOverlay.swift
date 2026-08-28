@@ -14,10 +14,7 @@ import AVFAudio
 /// Anchored top-trailing rather than top-leading: the logo/title
 /// (`PlayerControlsOverlay.titleRow`) and close button own the top-leading
 /// corner, so top-trailing is the corner least likely to visually collide
-/// with them while controls are showing. In landscape, content splits into
-/// two columns rather than one tall list — a single column ran tall enough
-/// to reach down into the scrubber's own row on a phone's limited
-/// landscape height.
+/// with them while controls are showing.
 ///
 /// Always mounted by `PlayerView`, with `isVisible` driving `.opacity`
 /// rather than the view being conditionally inserted/removed — this view's
@@ -30,6 +27,27 @@ import AVFAudio
 /// through a fresh layout pass, and `AetherPlayerSurface`'s bridged
 /// `AVPlayerLayer`/`AVSampleBufferDisplayLayer` briefly re-lays-out along
 /// with it.
+///
+/// All six sections no longer render as one screenful (they used to, split
+/// into two columns in landscape) — a transcode session's Streaming
+/// section alone can push the combined content taller than an iPhone's
+/// landscape height, running the panel off the bottom of the screen and,
+/// since it sits below `PlayerControlsOverlay` in this same `ZStack`,
+/// visually colliding with the transport row too (confirmed live,
+/// 2026-08-28). Content is now paginated (`currentPage`/`Self.pageCount`)
+/// — only one page's worth of sections is *visible* at a time, cutting
+/// the tallest case roughly in half. Every page still mounts, though (see
+/// `content`'s own doc comment) — that's what keeps the box a constant
+/// size across a page tap instead of resizing to match whichever page's
+/// content happens to be showing.
+/// Only the panel's own visible box is tappable to page through (see
+/// `body`'s `.contentShape`/`.onTapGesture` on it): unlike the rest of this
+/// view, that box deliberately does *not* stay `.allowsHitTesting(false)`,
+/// so it needs its own explicit tap-target treatment rather than inheriting
+/// this view's usual passthrough — a tap anywhere outside that box (on the
+/// surrounding transparent frame, i.e. the actual video layer) still falls
+/// straight through to `PlayerView`'s own show/hide-controls gesture on the
+/// video surface underneath, same as before this existed.
 struct PlaybackStatsOverlay: View {
     let viewModel: PlayerViewModel
     /// `PlayerView`'s own zoom-mode state — passed in rather than read off
@@ -57,10 +75,24 @@ struct PlaybackStatsOverlay: View {
     /// getting any HDR boost right now, whatever the format label says.
     @State private var edrHeadroom: CGFloat = 1
 
-    /// `.compact` is iPhone's landscape signal — same check/caveat as
-    /// `PlayerView.isLandscape` (see that property's doc comment).
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-    private var isLandscape: Bool { verticalSizeClass == .compact }
+    /// Which of `Self.pageCount` pages is currently showing — advanced by
+    /// tapping the panel itself (see `advancePage()`), looping back to `0`
+    /// past the last one. Reset to `0` whenever the panel is hidden (see
+    /// `body`'s `.onChange(of: isVisible)`) so reopening it always starts
+    /// from the beginning rather than wherever it was last left.
+    @State private var currentPage = 0
+    /// Two fixed pages — "what's playing" (Video/Audio/Playback) and
+    /// "device/server" (Display/Streaming/Build) — rather than anything
+    /// that measures available height at runtime. A `GeometryReader`-based
+    /// approach was deliberately avoided here for the same reason
+    /// `PlayerControlsOverlay.estimatedHeight(for:)` avoids one for the
+    /// track picker: every attempt there ended with the measured view
+    /// rendering at zero size (see that function's own doc comment) —  a
+    /// static split sidesteps that failure mode entirely, at the cost of
+    /// not adapting to how much of each page's content is actually present
+    /// (e.g. a direct-play session with a short Streaming section still
+    /// pays for a full second page).
+    private static let pageCount = 2
 
     /// Slow relative to the ~10 Hz playback clock — none of these numbers
     /// (bitrate, decoder, buffer depth, thermal state) meaningfully change
@@ -112,38 +144,76 @@ struct PlaybackStatsOverlay: View {
     private static let iOSVersion = UIDevice.current.systemVersion
 
     var body: some View {
-        content
-            .font(.system(size: 12, design: .monospaced))
-            .foregroundStyle(.white)
-            .padding(10)
-            .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
-            .padding(.top, 56)
-            .padding(.trailing, 16)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            // Deliberately *not* `.ignoresSafeArea()` — unlike the video
-            // surface/gradients elsewhere in the player, this panel needs
-            // to stay clear of whichever edge the notch/Dynamic
-            // Island/sensor housing lands on, and that edge moves between
-            // Landscape Left and Landscape Right. Laying out inside the
-            // safe area (same as `PlayerControlsOverlay`'s own button row)
-            // is what keeps it clear automatically across every
-            // orientation, rather than a fixed inset guessed for one
-            // orientation that then cuts into the notch in the other.
-            .opacity(isVisible ? 1 : 0)
-            .allowsHitTesting(false)
-            // `.task(id: isVisible)`, not a bare `.task` — a bare `.task`
-            // only ever starts once for this view's whole (now permanent,
-            // per the type's doc comment) lifetime, capturing whatever
-            // `isVisible` was at that first launch, which is `false` the
-            // very first time this ever renders. A loop built around
-            // checking `isVisible` inside that closure was checking that
-            // one frozen `false` forever — never actually re-reading the
-            // live value on later toggles — which is what left the panel
-            // stuck on "Gathering stats…" no matter how many times it was
-            // switched on. Keying on `isVisible` makes SwiftUI cancel and
-            // restart the task fresh every time it flips, so each run
-            // starts with the current value rather than a stale one.
-            .task(id: isVisible) { await pollWhileVisible() }
+        VStack(alignment: .trailing, spacing: 4) {
+            content
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(.white)
+            if stats != nil, Self.pageCount > 1 {
+                pageIndicator
+            }
+        }
+        .padding(10)
+        .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+        // The box's own tap target — everything *outside* it (the
+        // surrounding padding/frame below) has no fill/contentShape of its
+        // own, so SwiftUI never hit-tests that space at all (same "a
+        // transparent area doesn't hit-test unless it's deliberately given
+        // one" rule `PlayerControlsOverlay`'s blank-space catcher relies
+        // on) — no explicit `.allowsHitTesting(false)` is needed there to
+        // keep it passing taps through to the video surface underneath.
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .onTapGesture { advancePage() }
+        // VoiceOver users get the same page-advance as a named custom
+        // action rather than losing the panel's individual rows to a
+        // combined single label — `children: .contain` (the default) keeps
+        // every row independently readable, this just adds one more way to
+        // reach `advancePage()` alongside the physical tap.
+        .accessibilityAction(named: Text("Next Page")) { advancePage() }
+        // Only while actually showing something to page through — matches
+        // `pageIndicator`'s own `stats != nil` gate above.
+        .allowsHitTesting(isVisible && stats != nil && Self.pageCount > 1)
+        .padding(.top, 56)
+        .padding(.trailing, 16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        // Deliberately *not* `.ignoresSafeArea()` — unlike the video
+        // surface/gradients elsewhere in the player, this panel needs
+        // to stay clear of whichever edge the notch/Dynamic
+        // Island/sensor housing lands on, and that edge moves between
+        // Landscape Left and Landscape Right. Laying out inside the
+        // safe area (same as `PlayerControlsOverlay`'s own button row)
+        // is what keeps it clear automatically across every
+        // orientation, rather than a fixed inset guessed for one
+        // orientation that then cuts into the notch in the other.
+        .opacity(isVisible ? 1 : 0)
+        // `.task(id: isVisible)`, not a bare `.task` — a bare `.task`
+        // only ever starts once for this view's whole (now permanent,
+        // per the type's doc comment) lifetime, capturing whatever
+        // `isVisible` was at that first launch, which is `false` the
+        // very first time this ever renders. A loop built around
+        // checking `isVisible` inside that closure was checking that
+        // one frozen `false` forever — never actually re-reading the
+        // live value on later toggles — which is what left the panel
+        // stuck on "Gathering stats…" no matter how many times it was
+        // switched on. Keying on `isVisible` makes SwiftUI cancel and
+        // restart the task fresh every time it flips, so each run
+        // starts with the current value rather than a stale one.
+        .task(id: isVisible) { await pollWhileVisible() }
+        // Starts the next reopen back on page 1 rather than wherever it
+        // was left — the same "fresh state on reopen" treatment as the
+        // task above.
+        .onChange(of: isVisible) { _, visible in
+            if !visible { currentPage = 0 }
+        }
+    }
+
+    private var pageIndicator: some View {
+        Text("\(currentPage + 1)/\(Self.pageCount)")
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.5))
+    }
+
+    private func advancePage() {
+        currentPage = (currentPage + 1) % Self.pageCount
     }
 
     private func pollWhileVisible() async {
@@ -164,31 +234,39 @@ struct PlaybackStatsOverlay: View {
         }
     }
 
+    /// Page 1: "what's playing" — the media itself and where it's up to.
+    /// Page 2: "device/server" — the display/host and diagnostics that
+    /// don't change moment to moment. Same grouping the two landscape
+    /// columns used before pagination replaced them (see this type's own
+    /// doc comment), just one page at a time now instead of side by side.
+    ///
+    /// Every other page mounts too, at `.opacity(0)` — a `ZStack` always
+    /// sizes itself to its *largest* child in each dimension, so keeping
+    /// every page's content in the tree (just invisible/non-interactive
+    /// when it isn't the current one) makes the box's own reported size
+    /// the union of every page rather than whichever one happens to be
+    /// showing. That's what keeps the panel's width/height constant across
+    /// a tap between pages — confirmed live, 2026-08-28, that without it
+    /// the box visibly grew and shrank (and, anchored `.topTrailing`,
+    /// shifted) as the two pages' very different row counts came and went.
+    /// Plain `ZStack` sizing, not a measurement — no `GeometryReader`/
+    /// `PreferenceKey` involved, so none of the "renders at zero size"
+    /// failure `PlayerControlsOverlay.estimatedHeight(for:)`'s own doc
+    /// comment describes trying and abandoning for a similar sizing
+    /// problem can happen here.
     @ViewBuilder
     private var content: some View {
         if let stats {
-            if isLandscape {
-                HStack(alignment: .top, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        videoSection(stats)
-                        audioSection(stats)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        playbackSection(stats)
-                        displaySection(stats)
-                        streamingSection()
-                        buildSection()
+            ZStack(alignment: .topLeading) {
+                ForEach(0..<Self.pageCount, id: \.self) { page in
+                    if page != currentPage {
+                        pageContent(page, stats)
+                            .opacity(0)
+                            .accessibilityHidden(true)
+                            .allowsHitTesting(false)
                     }
                 }
-            } else {
-                VStack(alignment: .leading, spacing: 2) {
-                    videoSection(stats)
-                    audioSection(stats)
-                    playbackSection(stats)
-                    displaySection(stats)
-                    streamingSection()
-                    buildSection()
-                }
+                pageContent(currentPage, stats)
             }
         } else {
             Text("Gathering stats…")
@@ -196,17 +274,50 @@ struct PlaybackStatsOverlay: View {
     }
 
     @ViewBuilder
+    private func pageContent(_ page: Int, _ stats: PlaybackStats) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            switch page {
+            case 0:
+                videoSection(stats)
+                audioSection(stats)
+                playbackSection(stats)
+            default:
+                displaySection(stats)
+                streamingSection()
+                buildSection()
+            }
+        }
+    }
+
+    @ViewBuilder
     private func videoSection(_ stats: PlaybackStats) -> some View {
         Text("Video").bold()
-        row("Resolution", stats.videoSize ?? "—")
-        row("Frame Rate", stats.frameRate ?? "—")
-        row("Bitrate", stats.bitrate ?? "—")
+        // `stats.videoSize`/`.frameRate`/`.bitrate` come from AetherEngine's
+        // own source probe — confirmed live, 2026-08-28, that probe never
+        // runs on the `nativeRemoteHLS` bypass route (a server-chosen
+        // "Allow Transcoding" session with no direct play), so all three
+        // sit `nil` for the life of such a session, not just briefly at
+        // startup. Falling back to `viewModel.sourceVideoStream` — Jellyfin's
+        // own probe of the same file — keeps this row informative instead
+        // of a permanent "—"; it describes the *source*, same as the
+        // Streaming section's "Transcode Video"/"Transcode Bitrate" rows
+        // already describe the transcode target, so the two together still
+        // tell the full story.
+        row("Resolution", stats.videoSize ?? Self.sourceResolutionText(viewModel.sourceVideoStream) ?? "—")
+        row("Frame Rate", stats.frameRate ?? Self.sourceFrameRateText(viewModel.sourceVideoStream) ?? "—")
+        row("Bitrate", stats.bitrate ?? Self.sourceBitrateText(viewModel.sourceVideoStream) ?? "—")
         row("Source Color", stats.sourceColorFormat)
         if stats.sourceColorFormat.hasPrefix("Dolby Vision") {
             row("Enhancement Layer", Self.describeEnhancementLayer(viewModel.sourceVideoStream?.videoRangeType))
         }
+        // No fallback here, unlike the three rows above: which decoder
+        // AVPlayer picked for a `nativeRemoteHLS` session isn't something
+        // Jellyfin's probe (or anything else this app has) can answer —
+        // AetherEngine itself doesn't expose it for this route, so this
+        // stays "—" for the life of such a session.
         row("Decoder", stats.videoDecoder ?? "—")
         row("Backend", stats.backend)
+        row("Route", stats.route)
     }
 
     /// "Source Channels" (the media's own channel layout — "5.1", "Atmos",
@@ -222,15 +333,23 @@ struct PlaybackStatsOverlay: View {
     @ViewBuilder
     private func audioSection(_ stats: PlaybackStats) -> some View {
         Text("Audio").bold().padding(.top, 4)
+        // Same "—" for the life of the session, same reasoning as the
+        // video Decoder row above.
         row("Decoder", stats.audioDecoder ?? "—")
-        row("Source Channels", stats.audioChannels ?? "—")
+        // Same probe-never-runs gap as the video section above — falls
+        // back to `viewModel.sourceAudioStream` (Jellyfin's own probe of
+        // the default/first audio track) rather than staying blank.
+        row("Source Channels", stats.audioChannels ?? Self.sourceChannelsText(viewModel.sourceAudioStream) ?? "—")
         row("Output Route", audioOutputRoute ?? "—")
         row("Output Channels", Self.describeChannelCount(audioOutputChannelCount))
     }
 
     @ViewBuilder
     private func playbackSection(_ stats: PlaybackStats) -> some View {
-        Text("Playback").bold().padding(.top, isLandscape ? 0 : 4)
+        // Always page 1's third (never leading) section now that pagination
+        // has replaced the old landscape/portrait branch this used to key
+        // its top padding on — no longer conditional.
+        Text("Playback").bold().padding(.top, 4)
         row("State", Self.describe(viewModel.state))
         row("Position", "\(Self.formatTime(stats.currentTime)) / \(Self.formatTime(stats.duration))")
         row("Buffered", Self.describeBuffered(seconds: stats.bufferedSeconds, bytes: stats.bufferedBytes))
@@ -239,7 +358,9 @@ struct PlaybackStatsOverlay: View {
 
     @ViewBuilder
     private func displaySection(_ stats: PlaybackStats) -> some View {
-        Text("Display").bold().padding(.top, 4)
+        // Page 2's leading section — no top padding, matching `videoSection`
+        // (page 1's own leading section) just above it in this file.
+        Text("Display").bold()
         row("Screen", "\(Int(Self.screenSize.width))×\(Int(Self.screenSize.height)) pt")
         row("Displayed Color", stats.displayColorFormat)
         row("Refresh Rate", "\(Self.refreshRateHz) Hz")
@@ -374,6 +495,46 @@ struct PlaybackStatsOverlay: View {
 
     private static func formatMbps(_ bitsPerSecond: Int) -> String {
         String(format: "%.1f Mbps", Double(bitsPerSecond) / 1_000_000)
+    }
+
+    /// See `videoSection`'s doc comment — the source-probe fallback for
+    /// "Resolution" when AetherEngine's own value is unavailable.
+    private static func sourceResolutionText(_ stream: MediaStream?) -> String? {
+        guard let stream, let width = stream.width, let height = stream.height, width > 0, height > 0 else { return nil }
+        return "\(width)×\(height)"
+    }
+
+    /// Same fallback role as `sourceResolutionText` above, for "Frame
+    /// Rate" — `realFrameRate` (measured from the file) preferred over
+    /// `averageFrameRate` (a coarser, container-level figure), same
+    /// preference `MediaItem`'s own technical-details formatting uses.
+    /// `"%.3g fps"` matches `AetherPlaybackEngine.stats`'s own formatting
+    /// for the same field, so the row reads identically regardless of
+    /// which source populated it.
+    private static func sourceFrameRateText(_ stream: MediaStream?) -> String? {
+        guard let rate = stream?.realFrameRate ?? stream?.averageFrameRate, rate > 0 else { return nil }
+        return String(format: "%.3g fps", rate)
+    }
+
+    /// Same fallback role, for "Bitrate" — the stream's own bit rate
+    /// (`MediaStream.bitRate`), not `MediaSourceInfo.bitrate` (covers the
+    /// whole container, inflated by however many audio tracks the file
+    /// carries).
+    private static func sourceBitrateText(_ stream: MediaStream?) -> String? {
+        guard let bitRate = stream?.bitRate, bitRate > 0 else { return nil }
+        return formatMbps(bitRate)
+    }
+
+    /// Same fallback role, for "Source Channels" — Jellyfin's own
+    /// `audioSpatialFormat`/`channelLayout` rather than a numeric channel
+    /// count (unlike `AetherPlaybackEngine.describeChannels`, which has one
+    /// to work with), so this doesn't attempt the same "1.0"/"5.1"/"7.1"
+    /// normalization — Jellyfin's own layout string ("Stereo", "5.1", ...)
+    /// is informative as-is.
+    private static func sourceChannelsText(_ stream: MediaStream?) -> String? {
+        guard let stream else { return nil }
+        if stream.audioSpatialFormat == "DolbyAtmos" { return "Atmos" }
+        return stream.channelLayout?.capitalized
     }
 
     private static func describe(_ state: PlaybackState) -> String {

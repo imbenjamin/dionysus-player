@@ -87,7 +87,14 @@ protocol PlaybackEngine: AnyObject {
     /// Pass `[]`/`Set()` for either when there's nothing to register/hint —
     /// the default-argument overloads below cover callers that don't deal
     /// with either at all (previews, most tests).
-    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws
+    ///
+    /// `isRemoteHLS` is `true` only when `url` is a server-chosen HLS
+    /// transcode (`MediaSourceInfo.transcodingUrl`, "Allow Transcoding"
+    /// mode) rather than a direct-play file — `AetherPlaybackEngine` maps
+    /// it to `LoadOptions.nativeRemoteHLS`, which hands the playlist
+    /// straight to AVPlayer instead of AetherEngine's own FFmpeg demuxer.
+    /// `false` for every other load, including the offline path.
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool) async throws
     func play()
     func pause()
     func togglePlayPause()
@@ -127,12 +134,19 @@ extension PlaybackEngine {
     /// values, so this covers what would otherwise be every pre-existing
     /// `load(url:)` call site.
     func load(url: URL) async throws {
-        try await load(url: url, externalSubtitles: [], knownAtmosAudioTrackIndices: [])
+        try await load(url: url, externalSubtitles: [], knownAtmosAudioTrackIndices: [], isRemoteHLS: false)
     }
 
     /// Convenience for callers with external subtitles but no Atmos hints —
     /// same reasoning as `load(url:)` above.
     func load(url: URL, externalSubtitles: [ExternalSubtitleSource]) async throws {
-        try await load(url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: [])
+        try await load(url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: [], isRemoteHLS: false)
+    }
+
+    /// Convenience for callers with no server-transcode hint to pass —
+    /// covers every pre-existing 3-arg call site (offline playback, tests
+    /// not exercising the transcode path) without needing to change them.
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws {
+        try await load(url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: knownAtmosAudioTrackIndices, isRemoteHLS: false)
     }
 }

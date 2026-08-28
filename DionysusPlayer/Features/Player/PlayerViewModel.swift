@@ -83,6 +83,15 @@ final class PlayerViewModel {
     /// asked for.
     private(set) var activeMediaSourceID: String?
 
+    /// The negotiated session id from `PlaybackInfoResponse.playSessionId`
+    /// — only meaningful in "Allow Transcoding" mode (`StreamDecisionMode
+    /// .allowTranscoding`), where the server actually allocates a session
+    /// worth tracking; `nil` in Direct Play Always mode, matching the
+    /// original no-negotiation request. Reported alongside every
+    /// start/progress/stop call, same as `activeMediaSourceID`, so the
+    /// server can track/kill the right transcode job.
+    private(set) var activePlaySessionID: String?
+
     /// The video stream of whichever `MediaSourceInfo` `start()` resolved to
     /// — Jellyfin's own server-side probe result for it (`MediaStream
     /// .videoRangeType` in particular), used by `PlaybackStatsOverlay` to
@@ -90,6 +99,19 @@ final class PlayerViewModel {
     /// AetherEngine's own `sourceColorFormat`. Set once in `start()`; `nil`
     /// before that resolves or if the source genuinely has no video stream.
     private(set) var sourceVideoStream: MediaStream?
+    /// The default audio stream of whichever `MediaSourceInfo` `start()`
+    /// resolved to — same Jellyfin-probe-result reasoning as
+    /// `sourceVideoStream`, and the same fallback role: on AetherEngine's
+    /// `nativeRemoteHLS` bypass route (a server-chosen "Allow Transcoding"
+    /// session with no direct play), AetherEngine does its own probing of
+    /// neither audio nor video — confirmed live, 2026-08-28 — so
+    /// `PlaybackStatsOverlay`'s "Source Channels" row would otherwise stay
+    /// blank on every such session. Falls back to the *first* stream when
+    /// none is marked default, same as `sourceVideoStream`'s own
+    /// `.first { $0.type == "Video" }` (a source with multiple audio
+    /// tracks and no explicit default is rare, and this is a diagnostics
+    /// display, not the actual track selection).
+    private(set) var sourceAudioStream: MediaStream?
     /// The Jellyfin server's own version string (e.g. "10.9.7"). Fetched
     /// lazily via `refreshServerVersion()` rather than in `start()` — it's
     /// diagnostics-only (`PlaybackStatsOverlay`'s Streaming section), so
@@ -105,6 +127,7 @@ final class PlayerViewModel {
     private let userID: String
     private let trackPreferenceStore: TrackPreferenceStore
     private let nextUpPreferenceStore: NextUpPreferenceStore
+    private let streamPreferenceStore: StreamPreferenceStore
     /// Set only via `init`'s `downloadedItem:` parameter — when non-nil,
     /// `start()`/`stop()`/progress reporting all route through the
     /// local-only offline paths below instead of any network call. `itemID`
@@ -357,6 +380,7 @@ final class PlayerViewModel {
         startFromBeginning: Bool = false, mediaSourceID: String? = nil,
         trackPreferenceStore: TrackPreferenceStore = TrackPreferenceStore(),
         nextUpPreferenceStore: NextUpPreferenceStore = NextUpPreferenceStore(),
+        streamPreferenceStore: StreamPreferenceStore = StreamPreferenceStore(),
         // Non-nil routes this whole session through the offline playback
         // path — see the `downloadedItem` property's own doc comment.
         downloadedItem: DownloadedItem? = nil,
@@ -370,6 +394,7 @@ final class PlayerViewModel {
         self.requestedMediaSourceID = mediaSourceID
         self.trackPreferenceStore = trackPreferenceStore
         self.nextUpPreferenceStore = nextUpPreferenceStore
+        self.streamPreferenceStore = streamPreferenceStore
         self.downloadedItem = downloadedItem
         self.downloadStore = downloadStore
 
@@ -443,22 +468,57 @@ final class PlayerViewModel {
             loadNextEpisode(for: mediaItem, images: images)
             loadMediaSegments(for: mediaItem)
 
-            let playbackInfo = try await client.playbackInfo(itemID: itemID, userID: userID, mediaSourceID: requestedMediaSourceID)
+            // A `DeviceProfile` is only built/sent in "Allow Transcoding"
+            // mode — `nil` here reproduces the app's original,
+            // non-negotiated request exactly, so Direct Play Always stays
+            // byte-for-byte unchanged.
+            let deviceProfile: DeviceProfile?
+            let maxStreamingBitrate: Int?
+            if streamPreferenceStore.decisionMode == .allowTranscoding {
+                maxStreamingBitrate = streamPreferenceStore.streamingMaxBitrate.bitsPerSecond
+                deviceProfile = DeviceProfileBuilder.build(maxStreamingBitrate: maxStreamingBitrate)
+            } else {
+                deviceProfile = nil
+                maxStreamingBitrate = nil
+            }
+            let playbackInfo = try await client.playbackInfo(
+                itemID: itemID, userID: userID, mediaSourceID: requestedMediaSourceID,
+                deviceProfile: deviceProfile, maxStreamingBitrate: maxStreamingBitrate
+            )
             // The requested id might not match anything (stale preference
             // for a version since removed from the server, say) — fall back
             // to the server's own default rather than failing outright.
             let source = requestedMediaSourceID.flatMap { id in playbackInfo.mediaSources?.first { $0.id == id } }
                 ?? playbackInfo.mediaSources?.first
             activeMediaSourceID = source?.id
+            activePlaySessionID = playbackInfo.playSessionId
             sourceVideoStream = source?.mediaStreams?.first { $0.type == "Video" }
+            let audioStreams = source?.mediaStreams?.filter { $0.type == "Audio" } ?? []
+            sourceAudioStream = audioStreams.first { $0.isDefault == true } ?? audioStreams.first
             if let mediaSourceID = activeMediaSourceID,
                let info = TrickplayMath.bestInfo(from: mediaItem.dto.trickplay, mediaSourceID: mediaSourceID) {
                 trickplayProvider = TrickplayThumbnailProvider(itemID: itemID, info: info, imageURLBuilder: images)
             }
 
-            guard let url = await client.streamURL(itemID: itemID, mediaSourceID: source?.id, container: source?.container) else {
-                errorMessage = String(localized: "Couldn't build a playback URL for this item.")
-                return
+            // `transcodingUrl`'s presence/absence is the server's actual
+            // direct-play-vs-transcode verdict (only ever populated in
+            // "Allow Transcoding" mode) — see `MediaSourceInfo
+            // .transcodingUrl`'s doc comment. Falls back to the existing
+            // direct-play `streamURL` builder whenever it's absent, which
+            // is unconditionally true in Direct Play Always mode.
+            let url: URL
+            let isRemoteHLS: Bool
+            if let transcodingPath = source?.transcodingUrl,
+               let transcodingURL = await client.resolveTranscodingURL(transcodingPath) {
+                url = transcodingURL
+                isRemoteHLS = true
+            } else {
+                guard let directURL = await client.streamURL(itemID: itemID, mediaSourceID: source?.id, container: source?.container) else {
+                    errorMessage = String(localized: "Couldn't build a playback URL for this item.")
+                    return
+                }
+                url = directURL
+                isRemoteHLS = false
             }
 
             var externalSubtitles: [ExternalSubtitleSource] = []
@@ -470,7 +530,7 @@ final class PlayerViewModel {
             let atmosAudioTrackIndices = Self.atmosAudioTrackIndices(from: source?.mediaStreams ?? [])
 
             try await engine.load(
-                url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: atmosAudioTrackIndices
+                url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: atmosAudioTrackIndices, isRemoteHLS: isRemoteHLS
             )
             applyStoredTrackSelection()
             // An explicit `resumeSeconds` (connectivity-loss retry, resuming
@@ -485,7 +545,7 @@ final class PlayerViewModel {
             }
             engine.play()
 
-            try? await client.reportPlaybackStart(itemID: itemID, mediaSourceID: activeMediaSourceID)
+            try? await client.reportPlaybackStart(itemID: itemID, mediaSourceID: activeMediaSourceID, playSessionID: activePlaySessionID)
             startProgressReporting()
         } catch is CancellationError {
             // A superseded load (rapid next-episode navigation, backing out
@@ -974,7 +1034,7 @@ final class PlayerViewModel {
         // branch above — this one only ever runs for a live session that
         // might, mid-session, no longer have a reachable server).
         if !ConnectivityMonitor.shared.isOffline {
-            try? await client.reportPlaybackStopped(itemID: itemID, positionTicks: ticks, mediaSourceID: activeMediaSourceID)
+            try? await client.reportPlaybackStopped(itemID: itemID, positionTicks: ticks, mediaSourceID: activeMediaSourceID, playSessionID: activePlaySessionID)
         }
     }
 
@@ -994,7 +1054,8 @@ final class PlayerViewModel {
                 // only so a repeated failure leaves a diagnostic trail.
                 do {
                     try await self.client.reportPlaybackProgress(
-                        itemID: self.itemID, positionTicks: ticks, isPaused: isPaused, mediaSourceID: self.activeMediaSourceID
+                        itemID: self.itemID, positionTicks: ticks, isPaused: isPaused,
+                        mediaSourceID: self.activeMediaSourceID, playSessionID: self.activePlaySessionID
                     )
                 } catch {
                     Self.logger.debug("reportPlaybackProgress failed: \(error.localizedDescription, privacy: .public)")

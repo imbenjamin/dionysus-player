@@ -31,7 +31,17 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
   intro/outro skip segments, Picture in Picture (native AVPlayer route),
   Now Playing/lock-screen/Control Center integration, a live "stats for
   nerds" overlay (codec, bitrate, resolution, dropped frames, streaming
-  session info, offline-vs-live playback method).
+  session info, offline-vs-live playback method). Streaming defaults to
+  **Allow Transcoding** (Settings → Playback): it negotiates with the
+  server via a real `DeviceProfile` and falls back to a server-chosen
+  transcode — fragmented MP4 over HLS, not MPEG-TS, the container AVPlayer
+  actually requires to decode a transcoded HEVC target at all — when
+  direct play isn't possible, with a configurable max-bitrate cap — the
+  more reliable choice for most users, since a source your device can't
+  decode still plays instead of failing outright. Both AVC and HEVC
+  transcode targets are supported as a result. **Direct Play Always**
+  (send the original file untouched, no negotiation) is still available
+  for anyone who'd rather force it.
 - **Downloads** — see below; this is the differentiator.
 - **Accounts** — Jellyfin sign-in with silent session restore, per-server
   config, profile/settings screen.
@@ -82,12 +92,13 @@ placeholder content where noted. As of Xcode 26.5, the app builds clean end
 to end — package resolution (AetherEngine and its dependencies), compilation,
 and linking all succeed with no errors — and the unit test suite passes (see
 [Testing](#testing)). Real device testing (see `TESTING.md`) has confirmed
-direct-play HDR/Dolby Vision video with passthrough audio, and the Downloads
+direct-play HDR/Dolby Vision video with passthrough audio, the Downloads
 feature end-to-end (queueing, background transfer, resume, bulk season
-download, quality overrides, offline playback, sync-back) — both driven by
-extensive live iPhone testing, not just unit tests. Areas still resting on
-unit-test coverage alone rather than confirmed live: transcoded (non-direct-
-play) streaming, non-Dolby-Vision HDR formats on other devices, and some
+download, quality overrides, offline playback, sync-back), and Allow
+Transcoding live streaming (both AVC and HEVC transcode targets, seeking,
+Picture in Picture) — all driven by extensive live iPhone testing, not just
+unit tests. Areas still resting on unit-test coverage alone rather than
+confirmed live: non-Dolby-Vision HDR formats on other devices, and some
 seeking/scrubbing edge cases.
 
 ## Known limitations
@@ -111,10 +122,12 @@ seeking/scrubbing edge cases.
 - **Downloaded audio is always AAC-LC stereo**, regardless of the source's
   own audio (a deliberate v1 simplification) — no surround/lossless
   passthrough for offline files yet. Live playback is unaffected.
-- **Live streaming is direct-play only** — there's no server-side transcode
-  negotiation for live playback (unlike downloads, which do transcode to a
-  chosen resolution/bitrate tier). A source your device truly can't decode
-  won't play back live yet.
+- **Direct Play Always, if selected, is direct-play only** — the Streaming
+  setting (Settings → Playback) defaults to **Allow Transcoding**, but
+  forcing **Direct Play Always** opts out of server-side negotiation
+  entirely: a source your device truly can't decode won't play back live
+  in that mode (downloads have always transcoded to a chosen
+  resolution/bitrate tier regardless of this setting).
 - **tvOS/macOS are not built yet** — iOS/iPadOS only for now, per the
   Status section above.
 - **Audio/music libraries aren't supported yet** — browsing/playing music is

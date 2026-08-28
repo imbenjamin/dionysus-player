@@ -279,11 +279,31 @@ struct PlaybackInfoRequest: Encodable {
     /// default (the pre-existing behavior, still used for the common
     /// single-version case).
     var mediaSourceId: String?
+    /// Non-nil only in "Allow Transcoding" mode (`StreamDecisionMode
+    /// .allowTranscoding`) — see `DeviceProfileBuilder`. `nil` in Direct
+    /// Play Always mode leaves this request byte-for-byte identical to the
+    /// app's original shape: synthesized `Encodable` for `Optional` omits a
+    /// `nil` field entirely rather than encoding JSON `null`.
+    var deviceProfile: DeviceProfile?
+    /// Mirrors `DeviceProfile.maxStreamingBitrate` — sent at both the top
+    /// level and inside the profile, matching reference clients (Swiftfin).
+    /// Only non-nil when the user's `StreamingMaxBitrate` setting isn't
+    /// `.unlimited`, and only in "Allow Transcoding" mode.
+    var maxStreamingBitrate: Int?
+    var startTimeTicks: Int64?
+    var allowVideoStreamCopy: Bool?
+    var allowAudioStreamCopy: Bool?
 }
 
 struct PlaybackInfoResponse: Codable {
     var mediaSources: [MediaSourceInfo]?
     var playSessionId: String?
+    /// Jellyfin's `PlaybackErrorCode` (e.g. `"NoCompatibleStream"`) — only
+    /// meaningful when `mediaSources` comes back empty/nil, which in
+    /// practice only happens in "Allow Transcoding" mode (a
+    /// non-negotiated, no-`DeviceProfile` request has nothing for the
+    /// server to reject).
+    var errorCode: String?
 }
 
 struct MediaSourceInfo: Codable, Identifiable {
@@ -302,12 +322,31 @@ struct MediaSourceInfo: Codable, Identifiable {
     var container: String?
     var isRemote: Bool?
     var supportsDirectPlay: Bool?
+    /// Advisory only, like `supportsDirectPlay`/`supportsTranscoding` —
+    /// don't branch on any of these three directly. `transcodingUrl`'s
+    /// presence/absence is the server's actual verdict; see its own doc
+    /// comment.
+    var supportsDirectStream: Bool?
+    var supportsTranscoding: Bool?
     var runTimeTicks: Int64?
     /// Overall bitrate in bits/sec, for the Details tab's summary row.
     var bitrate: Int?
     /// File size in bytes, for the Details tab's summary row.
     var size: Int64?
     var mediaStreams: [MediaStream]?
+    /// A relative path + query string (e.g. `"/videos/{id}/master.m3u8?
+    /// DeviceId=...&PlaySessionId=..."`) — NOT a full URL. Only populated
+    /// in "Allow Transcoding" mode, and only when the server decided direct
+    /// play/direct stream isn't possible. Resolve via
+    /// `JellyfinAPIClient.resolveTranscodingURL(_:)`. Presence/absence of
+    /// this field is the entire direct-play-vs-transcode decision —
+    /// `supportsDirectPlay`/`supportsDirectStream`/`supportsTranscoding`
+    /// above are advisory only (matches Swiftfin's reference client
+    /// behavior, `MediaPlayerItem+Build.swift`).
+    var transcodingUrl: String?
+    /// "hls" | "http" — only meaningful alongside `transcodingUrl`.
+    var transcodingSubProtocol: String?
+    var transcodingContainer: String?
 }
 
 struct MediaStream: Codable, Identifiable, Hashable {
@@ -371,12 +410,16 @@ struct PlaybackProgressRequest: Encodable {
     /// server's active-session bookkeeping reflect the real file being
     /// streamed.
     var mediaSourceId: String?
-    /// Set only by `DownloadManager`'s transcode keep-alive ping — see
-    /// `JellyfinAPIClient.pingDownloadTranscode`'s doc comment. Live
-    /// playback never sets this: `reportPlaybackStart`/`reportPlaybackProgress`/
-    /// `reportPlaybackStopped` all leave it `nil`, which is fine since those
-    /// calls aren't targeting a specific server-side transcode job the way
-    /// a download's keep-alive ping needs to.
+    /// Set by `DownloadManager`'s transcode keep-alive ping (see
+    /// `JellyfinAPIClient.pingDownloadTranscode`'s doc comment) and, since
+    /// "Allow Transcoding" mode, by live playback too —
+    /// `PlayerViewModel.activePlaySessionID`, sourced from
+    /// `PlaybackInfoResponse.playSessionId`, flows into
+    /// `reportPlaybackStart`/`reportPlaybackProgress`/`reportPlaybackStopped`
+    /// whenever the server negotiated a session, so it can track/kill the
+    /// right transcode job. Still `nil` for Direct Play Always mode: with
+    /// no `DeviceProfile` sent, the server never allocates a job worth
+    /// tracking.
     var playSessionId: String?
 }
 

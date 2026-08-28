@@ -38,13 +38,14 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         audioDecoder: "AVPlayer",
         audioChannels: "5.1",
         backend: "Native",
+        route: "Loopback",
         bufferedSeconds: 24,
         bufferedBytes: 8_400_000,
         currentTime: 0,
         duration: 5400
     )
 
-    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws {
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool) async throws {
         if let simulatedFailure {
             onStateChange?(.failed(simulatedFailure))
             return

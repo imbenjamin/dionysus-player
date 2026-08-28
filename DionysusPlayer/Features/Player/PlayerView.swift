@@ -378,11 +378,16 @@ struct PlayerView: View {
                         // this build/device can never play) gets Close
                         // only — Retry can't fix it, and leaving only a
                         // dead-end retry loop with no way out was a real
-                        // gap. `.rateLimited` and `.transient` keep the
-                        // existing Retry-only UI, since both are worth
-                        // retrying (a metered origin is expected to work
-                        // again later; everything else is today's existing
-                        // "just try again" default).
+                        // gap. `.rateLimited` and `.transient` keep Retry
+                        // (both are worth retrying — a metered origin is
+                        // expected to work again later; everything else is
+                        // today's existing "just try again" default) but
+                        // *also* get Close now — a Retry-only dead end here
+                        // was the same gap `.refused` was already fixed
+                        // for, just not yet closed for this branch
+                        // (confirmed live, 2026-08-28: a transcode-URL
+                        // failure landed here with no way out of the
+                        // player at all besides a fruitless Retry loop).
                         Group {
                             if ConnectivityMonitor.shared.isOffline {
                                 // No `.tint` override here — unlike
@@ -420,9 +425,12 @@ struct PlayerView: View {
                                 // below for the matching icon/message fix).
                                 .tint(.white)
                             } else {
-                                ErrorStateView(message: errorMessage) {
-                                    Task { await viewModel.start() }
-                                }
+                                ErrorStateView(
+                                    message: errorMessage,
+                                    retry: { Task { await viewModel.start() } },
+                                    secondaryActionTitle: String(localized: "Close"),
+                                    secondaryAction: { Task { await close() } }
+                                )
                                 .tint(.white)
                             }
                         }

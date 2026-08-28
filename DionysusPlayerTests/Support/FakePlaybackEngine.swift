@@ -33,6 +33,7 @@ final class FakePlaybackEngine: PlaybackEngine {
         audioDecoder: nil,
         audioChannels: nil,
         backend: "None",
+        route: "None",
         bufferedSeconds: nil,
         bufferedBytes: nil,
         currentTime: 0,
@@ -54,6 +55,11 @@ final class FakePlaybackEngine: PlaybackEngine {
     /// `PlayerViewModel.start()` derived the right set from a
     /// `MediaSourceInfo`'s audio `MediaStream`s' `audioSpatialFormat`.
     private(set) var loadedAtmosAudioTrackIndices: [Set<Int>] = []
+    /// Recorded alongside each `loadedURLs` entry, same index — the
+    /// `isRemoteHLS` flag `load(...)` was called with, for tests asserting
+    /// `PlayerViewModel.start()` chose the right load path (a plain
+    /// direct-play URL vs. a server-chosen HLS transcode).
+    private(set) var loadedIsRemoteHLS: [Bool] = []
     private(set) var playCallCount = 0
     private(set) var pauseCallCount = 0
     private(set) var togglePlayPauseCallCount = 0
@@ -65,11 +71,12 @@ final class FakePlaybackEngine: PlaybackEngine {
     private(set) var stopPictureInPictureCallCount = 0
     private(set) var nowPlayingInfoCalls: [(title: String, subtitle: String?, artwork: UIImage?)] = []
 
-    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws {
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool) async throws {
         if let loadError { throw loadError }
         loadedURLs.append(url)
         loadedExternalSubtitles.append(externalSubtitles)
         loadedAtmosAudioTrackIndices.append(knownAtmosAudioTrackIndices)
+        loadedIsRemoteHLS.append(isRemoteHLS)
     }
 
     func play() { playCallCount += 1 }

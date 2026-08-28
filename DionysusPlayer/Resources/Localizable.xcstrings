@@ -68,6 +68,16 @@
     "%lld episodes couldn't be downloaded." : {
 
     },
+    "%lld/%lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld/%2$lld"
+          }
+        }
+      }
+    },
     "0 seconds" : {
 
     },
@@ -80,10 +90,22 @@
     "3D Depth Effects" : {
 
     },
+    "4 Mbps" : {
+
+    },
+    "4 megabits per second" : {
+
+    },
     "4K UHD" : {
 
     },
     "9:59:59" : {
+
+    },
+    "10 Mbps" : {
+
+    },
+    "10 megabits per second" : {
 
     },
     "15 seconds" : {
@@ -92,10 +114,22 @@
     "15s" : {
 
     },
+    "20 Mbps" : {
+
+    },
+    "20 megabits per second" : {
+
+    },
     "30 seconds (Default)" : {
 
     },
     "30s (Default)" : {
+
+    },
+    "40 Mbps" : {
+
+    },
+    "40 megabits per second" : {
 
     },
     "45 seconds" : {
@@ -153,6 +187,12 @@
 
     },
     "All Studios" : {
+
+    },
+    "Allow Transcoding" : {
+
+    },
+    "Allow Transcoding asks the server to decide, transcoding when necessary — including to keep the stream under the Max Streaming Bitrate cap, even for a file that could otherwise play untouched." : {
 
     },
     "An estimate of this app's downloaded videos, artwork, and subtitles against total device storage." : {
@@ -343,6 +383,12 @@
     "Dionysus needs the address of your Jellyfin server to get started." : {
 
     },
+    "Direct Play Always" : {
+
+    },
+    "Direct Play Always sends the original file untouched — best quality, but may fail if your device or network can't handle it." : {
+
+    },
     "Dismiss %@" : {
 
     },
@@ -515,6 +561,9 @@
     "Mark as Watched" : {
 
     },
+    "Max Streaming Bitrate" : {
+
+    },
     "megabytes" : {
 
     },
@@ -537,6 +586,9 @@
 
     },
     "Next Item" : {
+
+    },
+    "Next Page" : {
 
     },
     "Next Up" : {
