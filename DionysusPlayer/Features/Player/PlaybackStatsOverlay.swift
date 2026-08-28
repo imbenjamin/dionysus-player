@@ -223,6 +223,7 @@ struct PlaybackStatsOverlay: View {
         // stays "—" for the life of such a session.
         row("Decoder", stats.videoDecoder ?? "—")
         row("Backend", stats.backend)
+        row("Route", stats.route)
     }
 
     /// "Source Channels" (the media's own channel layout — "5.1", "Atmos",

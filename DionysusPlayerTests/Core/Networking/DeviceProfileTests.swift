@@ -97,17 +97,22 @@ final class DeviceProfileTests: XCTestCase {
         XCTAssertEqual(DeviceProfileBuilder.build(maxStreamingBitrate: nil).maxStaticMusicBitrate, 120_000_000)
     }
 
-    /// The HLS transcoding target's video codec is restricted to H.264
-    /// only — confirmed live (2026-08-28): an HEVC transcode target on
-    /// this exact `nativeRemoteHLS` consumption path played `Playing`/
-    /// advancing position with a black screen and no audio, while an
-    /// H.264 transcode target (tried moments earlier, same device/content)
-    /// rendered correctly. Audio stays AAC/AC3/EAC3 — unaffected.
-    func test_build_transcodingProfile_videoCodecIsH264OnlyAudioIsConfirmedCodecs() throws {
+    /// The HLS transcoding target uses fragmented MP4 (`"mp4"`), not
+    /// MPEG-TS (`"ts"`) — per Apple's HLS Authoring Specification, AVPlayer
+    /// only supports HEVC over fMP4 carriage, never HEVC-in-MPEG-TS. Both
+    /// H.264 and HEVC are offered as transcode targets on this one `"mp4"`
+    /// profile (H.264-in-fMP4 is an existing-good combination too, per
+    /// AetherEngine's own AE#268 changelog entry — no need for a separate
+    /// TS profile just for it). See `DeviceProfile.swift`'s doc comment on
+    /// `hlsTranscode` for the full research trail (Apple's spec, Jellyfin's
+    /// own web client precedent, AetherEngine's changelog). Audio stays
+    /// AAC/AC3/EAC3 — unaffected.
+    func test_build_transcodingProfile_containerIsFmp4VideoCodecsAreH264AndHevc() throws {
         let profile = DeviceProfileBuilder.build(maxStreamingBitrate: nil)
         let hls = try XCTUnwrap(profile.transcodingProfiles.first)
         XCTAssertEqual(hls.protocol, "hls")
-        XCTAssertEqual(hls.videoCodec, "h264")
+        XCTAssertEqual(hls.container, "mp4")
+        XCTAssertEqual(hls.videoCodec, "h264,hevc")
         XCTAssertEqual(hls.audioCodec, "aac,ac3,eac3")
     }
 }

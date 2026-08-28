@@ -136,21 +136,42 @@ enum DeviceProfileBuilder {
         // Jellyfin's own transcode *output* tagging, not this gate on the
         // *source*.
 
-        // `videoCodec: "h264"` only — deliberately narrower than the
-        // direct-play matrix above. Confirmed live (2026-08-28): when
-        // Jellyfin picked HEVC as the transcode target for this exact
-        // profile (still `nativeRemoteHLS`-delivered, so no local FFmpeg
-        // decode either way), playback showed `Playing`/advancing position
-        // with a completely black screen and no audio — H.264 transcode
-        // targets, tried moments earlier on the same device/content,
-        // rendered correctly. This is a different pipeline question from
-        // "can AetherEngine direct-play HEVC" (yes, confirmed elsewhere in
-        // CLAUDE.md) — it's specifically about consuming an HEVC-coded HLS
-        // stream through this bypass, which doesn't work yet. Revisit
-        // (and re-add "hevc" here) only after that's independently
-        // confirmed fixed/working on a real device.
+        // `container: "mp4"` (fragmented MP4 / CMAF segments), not `"ts"`
+        // (MPEG-TS) — and `videoCodec` includes both `"h264"` and `"hevc"`.
+        // This used to be `container: "ts"`/`videoCodec: "h264"` only,
+        // after a live test showed a server-chosen HEVC transcode target
+        // playing `Playing`/advancing with a completely black screen and
+        // no audio while H.264 (same device/content) worked. That symptom
+        // wasn't an AetherEngine bug to work around — per Apple's own HLS
+        // Authoring Specification, AVPlayer only supports HEVC over
+        // fragmented MP4 carriage; HEVC-in-MPEG-TS isn't a combination it
+        // decodes video for at all. Jellyfin's own reference web client
+        // (`browserDeviceProfile.js`) never requests HEVC over its `"ts"`
+        // TranscodingProfile for Apple-class native-HLS players either —
+        // only Tizen/webOS/Vidaa (which have native TS-HEVC hardware
+        // decoders AVPlayer lacks) get that combination; every other
+        // native-fMP4-HLS platform gets HEVC exclusively through a
+        // `Container: 'mp4'` profile, matching what's built here.
+        //
+        // AetherEngine does ship a documented recovery for exactly this
+        // misconfiguration — a load-time probe (AE#268, `docs/architecture
+        // .md`) that detects a finite HEVC-in-MPEG-TS VOD playlist and
+        // reroutes from `.remoteBypass` (AVPlayer on the origin URL) to
+        // `.loopback` (its own local TS-to-fMP4 remux) — but per its own
+        // changelog that probe fails open for a still-encoding/non-`ENDLIST`
+        // playlist ("inconclusive HLS inputs keep their existing route"),
+        // which is plausibly why the black-screen symptom still occurred
+        // on a version well past AE#268's release. Requesting the correct
+        // container from Jellyfin directly avoids depending on that
+        // recovery firing at all, and keeps the session on a clean
+        // `.remoteBypass` (see `PlaybackStats.route` in the "stats for
+        // nerds" overlay to confirm this on-device) rather than a silent
+        // reroute. H.264 moves to the same `"mp4"` profile alongside HEVC
+        // rather than keeping a separate `"ts"` profile for it — AE#268's
+        // own text already lists "H.264, fMP4" as an existing-route
+        // combination, so there's no known-good reason to keep it on TS.
         let hlsTranscode = TranscodingProfile(
-            container: "ts", type: "Video", videoCodec: "h264", audioCodec: "aac,ac3,eac3",
+            container: "mp4", type: "Video", videoCodec: "h264,hevc", audioCodec: "aac,ac3,eac3",
             protocol: "hls", context: "Streaming", enableSubtitlesInManifest: true,
             maxAudioChannels: "6", minSegments: 1, breakOnNonKeyFrames: true, conditions: nil
         )

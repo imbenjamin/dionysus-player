@@ -36,7 +36,11 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
   with the server via a real `DeviceProfile` and falls back to a
   server-chosen HLS transcode when direct play isn't possible, with a
   configurable max-bitrate cap. Off by default — Direct Play Always is
-  unchanged.
+  unchanged. Any server-chosen transcode is requested as fragmented MP4
+  (fMP4) HLS rather than MPEG-TS, since that's what AVPlayer requires to
+  decode a transcoded HEVC target at all (MPEG-TS carriage is H.264-only on
+  Apple platforms) — both AVC and HEVC transcode targets are supported as a
+  result.
 - **Downloads** — see below; this is the differentiator.
 - **Accounts** — Jellyfin sign-in with silent session restore, per-server
   config, profile/settings screen.
@@ -87,12 +91,13 @@ placeholder content where noted. As of Xcode 26.5, the app builds clean end
 to end — package resolution (AetherEngine and its dependencies), compilation,
 and linking all succeed with no errors — and the unit test suite passes (see
 [Testing](#testing)). Real device testing (see `TESTING.md`) has confirmed
-direct-play HDR/Dolby Vision video with passthrough audio, and the Downloads
+direct-play HDR/Dolby Vision video with passthrough audio, the Downloads
 feature end-to-end (queueing, background transfer, resume, bulk season
-download, quality overrides, offline playback, sync-back) — both driven by
-extensive live iPhone testing, not just unit tests. Areas still resting on
-unit-test coverage alone rather than confirmed live: transcoded (non-direct-
-play) streaming, non-Dolby-Vision HDR formats on other devices, and some
+download, quality overrides, offline playback, sync-back), and Allow
+Transcoding live streaming (both AVC and HEVC transcode targets, seeking,
+Picture in Picture) — all driven by extensive live iPhone testing, not just
+unit tests. Areas still resting on unit-test coverage alone rather than
+confirmed live: non-Dolby-Vision HDR formats on other devices, and some
 seeking/scrubbing edge cases.
 
 ## Known limitations

@@ -38,6 +38,7 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         audioDecoder: "AVPlayer",
         audioChannels: "5.1",
         backend: "Native",
+        route: "Loopback",
         bufferedSeconds: 24,
         bufferedBytes: 8_400_000,
         currentTime: 0,

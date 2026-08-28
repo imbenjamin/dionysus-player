@@ -118,6 +118,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
             audioDecoder: engine.activeAudioDecoder,
             audioChannels: Self.describeChannels(engine.audioTracks.first { $0.id == engine.activeAudioTrackIndex }),
             backend: engine.playbackBackend.rawValue.capitalized,
+            route: Self.describeVideoRoute(engine.videoRoute),
             // Native-only — see `PlaybackStats.bufferedSeconds`'s doc
             // comment. Confirmed live against a real server/title:
             // AetherEngine's own internal diagnostics (its 30 s memprobe
@@ -856,6 +857,18 @@ final class AetherPlaybackEngine: PlaybackEngine {
 
     private static func formatBitrate(_ bitsPerSecond: Int64) -> String {
         String(format: "%.1f Mbps", Double(bitsPerSecond) / 1_000_000)
+    }
+
+    /// `VideoRoute.rawValue.capitalized` would mangle the camelCase cases
+    /// ("remoteBypass" → "Remotebypass") — spell each one out instead.
+    private static func describeVideoRoute(_ route: VideoRoute) -> String {
+        switch route {
+        case .none: return "None"
+        case .remoteBypass: return "Remote Bypass"
+        case .loopback: return "Loopback"
+        case .software: return "Software"
+        case .audio: return "Audio"
+        }
     }
 
     /// `stats.bufferedSeconds`'s route-agnostic path — see that doc

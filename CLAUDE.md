@@ -177,11 +177,25 @@ the just-signed-out user.
 snapshotted via `client.makeImageURLBuilder()` so SwiftUI views can build
 image URLs synchronously without hopping through the actor on every render.
 
-**Live playback** is direct-play only: `streamURL(itemID:mediaSourceID:container:)`
-builds a static stream URL (`Static=true`) and AetherEngine decodes whatever
-comes back. `PlaybackInfoResponse`/`DeviceProfile`-based transcode negotiation
-is not implemented for playback — if asked to add transcoding *to playback*,
-this is the file to extend.
+**Live playback** direct-plays by default, with an opt-in server-negotiated
+mode: a `StreamPreferenceStore.decisionMode` setting (Profile → Streaming)
+switches between **Direct Play Always** (`streamURL(itemID:mediaSourceID:
+container:)` builds a static stream URL — `Static=true` — and AetherEngine
+decodes whatever comes back; no `DeviceProfile` sent, unchanged from the
+app's original behavior) and **Allow Transcoding** (`DeviceProfileBuilder
+.build(maxStreamingBitrate:)` — `Core/Networking/DeviceProfile.swift` —
+builds a real `DeviceProfile`, sent on `/PlaybackInfo` so Jellyfin can
+choose direct play or a transcode; `PlayerViewModel.start()` branches on
+whether the response carries a `MediaSourceInfo.transcodingUrl`). A
+server-chosen transcode is consumed via AetherEngine's `nativeRemoteHLS`
+bypass (`AetherPlaybackEngine.load(..., isRemoteHLS: true)` — the playlist
+goes straight to AVPlayer, no local FFmpeg demux) rather than downloaded
+and re-muxed; the HLS transcode target itself is fragmented MP4 (H.264 or
+HEVC), never MPEG-TS — see that file's `hlsTranscode` doc comment for why
+(Apple's HLS Authoring Spec doesn't support HEVC-in-MPEG-TS on AVPlayer at
+all). `PlaybackStats.route` in the "stats for nerds" overlay shows which
+AetherEngine pipeline (`.remoteBypass`/`.loopback`/...) actually ended up
+serving a session — `playbackBackend` alone can't distinguish them.
 
 **Downloads are a separate path that always transcodes** —
 `downloadStreamURL(...)` (`Static=false`, HEVC/MP4, resolution + bitrate capped

@@ -33,6 +33,7 @@ final class FakePlaybackEngine: PlaybackEngine {
         audioDecoder: nil,
         audioChannels: nil,
         backend: "None",
+        route: "None",
         bufferedSeconds: nil,
         bufferedBytes: nil,
         currentTime: 0,
