@@ -52,9 +52,22 @@ git commit -am "Prepare release v1.2.0-alpha.1"
 gh pr create --base develop --title "Prepare release v1.2.0-alpha.1" --fill
 # merge once the required check passes, same as any other PR, then:
 git checkout develop && git pull
+./Scripts/verify-ready-to-tag.sh v1.2.0-alpha.1   # confirms HEAD is actually ready — see below
 git tag -a v1.2.0-alpha.1 -m "1.2.0-alpha.1"
 git push origin v1.2.0-alpha.1
 ```
+
+**Always run `verify-ready-to-tag.sh` right before `git tag`, not just after
+merging the prep PR.** The prep PR's stamp predicts the build number as
+"current commit count + 2" (this commit, plus the merge commit `gh pr merge
+--merge` fabricates) — correct in isolation, but it can't know about a
+*second*, unplanned PR landing on `develop` in between (another fix, a
+second prep cycle after `update-aetherengine-version.sh` turned up drift,
+...). `verify-ready-to-tag.sh` catches that mismatch locally in seconds by
+computing the real on-tag values the same way `release.yml` will once the
+tag is pushed, rather than finding out via a failed CI run ~8 minutes later.
+If it reports HEAD isn't ready, repeat the stamp-PR-merge cycle (with the
+same tag argument) before tagging — don't push the tag anyway.
 
 Pushing the tag triggers `.github/workflows/release.yml`, which builds,
 tests, and publishes a GitHub Release for that exact commit — marked
@@ -141,9 +154,13 @@ string isn't user-visible anyway.
 ## GitHub Actions
 
 - **`.github/workflows/ios.yml`** — runs on every push/PR to `main` or
-  `develop`: generates the Xcode project, builds, and runs the full test
-  suite. This is the PR gate — set it as a required status check in this
-  repo's branch protection rules for `main` and `develop` if not already.
+  `develop`: generates the Xcode project, regenerates and verifies
+  `AetherEngineVersion.swift` against a genuinely fresh package resolution
+  (catches drift within days of it happening upstream, not just whenever a
+  release happens to get cut — see `Scripts/update-aetherengine-version.sh`'s
+  own comment), then builds and runs the full test suite. This is the PR
+  gate — set it as a required status check in this repo's branch protection
+  rules for `main` and `develop` if not already.
 - **`.github/workflows/release.yml`** — runs on any `v*.*.*` tag push:
   regenerates the project, stamps the version from that tag via
   `Scripts/update-version.sh`, builds and tests the exact tagged commit,
