@@ -80,6 +80,30 @@ picking up a newer `6.x` release still needs an explicit refresh — Xcode's
 `File > Packages > Update to Latest Package Versions`, or deleting
 DerivedData's SPM state — followed by the script above.
 
+**Check this before opening a PR, not just when you know you touched
+packages.** `Package.resolved` is gitignored (the whole `.xcodeproj` is,
+per the generated-not-committed policy above), so every CI run does an
+uncached resolve and can pick up a newly-released AetherEngine version
+with zero local trigger — no `project.yml` change, no manual Xcode
+action, nothing about the PR's own diff. `ios.yml`/`release.yml`'s
+"Verify AetherEngine version display is up to date" step exists to catch
+that drift, but discovering it there costs a red CI check and a
+follow-up commit (confirmed live, PR #147, 2026-08-28: CI resolved
+`6.54.0` against a checked-in `6.52.0` pin with no other
+AetherEngine-related change on the branch at all). A plain `xcodebuild
+-resolvePackageDependencies` isn't enough to check for this locally
+either — it silently reuses whatever's cached and won't reproduce what
+CI's uncached resolve sees. To actually check before pushing:
+
+```sh
+rm -rf ~/Library/Caches/org.swift.swiftpm
+rm -rf ~/Library/Developer/Xcode/DerivedData/DionysusPlayer-*/SourcePackages
+xcodebuild -resolvePackageDependencies -project DionysusPlayer.xcodeproj -scheme DionysusPlayer
+```
+
+then run `./Scripts/update-aetherengine-version.sh` if the resolved
+version moved.
+
 ### App version (SemVer)
 
 The app's own version — shown on the Profile screen's footer via
