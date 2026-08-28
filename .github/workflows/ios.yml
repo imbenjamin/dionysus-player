@@ -28,6 +28,25 @@ jobs:
         # project.yml. Without this step there is nothing for the steps
         # below to find and build.
         run: xcodegen generate
+      - name: Verify AetherEngine version display is up to date
+        # Runs here (every PR/push to develop/main), not just in
+        # release.yml at tag time — a fresh `AetherEngine` resolution
+        # picking up a newer release can happen on any PR, and catching it
+        # here surfaces it within days of it happening upstream instead of
+        # only whenever someone next happens to cut a release. Also has the
+        # side effect of populating this runner's SPM caches with today's
+        # real resolution, which the Build step below then reuses rather
+        # than resolving cold itself. Confirmed live (2026-08-28): a stale
+        # *local* SPM cache let a real version bump go undetected on a
+        # developer machine even after this same script ran there — CI is
+        # always a clean checkout, so this check is meaningful every time
+        # it runs here, unlike a local run someone forgets is stale.
+        run: |
+          ./Scripts/update-aetherengine-version.sh
+          if ! git diff --exit-code -- DionysusPlayer/Core/Playback/AetherEngineVersion.swift; then
+            echo "::error::AetherEngineVersion.swift is out of date — run ./Scripts/update-aetherengine-version.sh locally and commit the result." >&2
+            exit 1
+          fi
       - name: Set Default Scheme
         run: |
           scheme_list=$(xcodebuild -list -json | tr -d "\n")

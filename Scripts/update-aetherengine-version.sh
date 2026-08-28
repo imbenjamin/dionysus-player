@@ -30,12 +30,38 @@
 # the tagged build too, purely as a safety net — it fails the release if
 # that turns up a diff against what's checked in, rather than committing
 # anything itself.
+#
+# Always forces a genuinely fresh resolution rather than trusting whatever
+# happens to already be resolved locally — an already-resolved checkout
+# won't re-resolve a floating `from:` requirement on its own even when a
+# newer version exists upstream (SPM's local package-repository cache just
+# keeps serving the tag list it last saw), so a stale local run of this
+# script can silently report last month's version while a genuinely fresh
+# resolution (which is all CI ever does, since it's always a clean
+# checkout) finds something newer. Confirmed live (2026-08-28): a local run
+# reported 6.42.0 with no diff to commit, while `release.yml`'s safety net
+# on the very same commit caught 6.52.0 — costing a wasted release cut.
+# Clearing SPM's caches and re-resolving here is what makes this script's
+# output as trustworthy as CI's from now on, at the cost of this always
+# taking a few seconds longer (a real network resolution, not a cache hit)
+# and always touching the untracked `Package.resolved` even when nothing
+# upstream actually changed.
 set -e
 cd "$(dirname "$0")/.."
 
+if [ ! -d "DionysusPlayer.xcodeproj" ]; then
+  echo "error: DionysusPlayer.xcodeproj not found — run 'xcodegen generate' first." >&2
+  exit 1
+fi
+
 RESOLVED="DionysusPlayer.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+rm -rf ~/Library/Caches/org.swift.swiftpm ~/Library/org.swift.swiftpm
+rm -f "$RESOLVED"
+echo "Resolving packages fresh (no cache) — this talks to the network..."
+xcodebuild -resolvePackageDependencies -project DionysusPlayer.xcodeproj -scheme DionysusPlayer >/dev/null
+
 if [ ! -f "$RESOLVED" ]; then
-  echo "error: $RESOLVED not found — run 'xcodegen generate' and let Xcode/xcodebuild resolve packages at least once first." >&2
+  echo "error: $RESOLVED not found after a fresh resolution — check for xcodebuild errors above (network access, an invalid pin, etc.)." >&2
   exit 1
 fi
 
