@@ -4,4 +4,4 @@
 // This intentionally holds only the Apple-clean "X.Y.Z" + build number —
 // see AppVersion.swift for the full human-facing SemVer string.
 MARKETING_VERSION = 0.7.0
-CURRENT_PROJECT_VERSION = 279
+CURRENT_PROJECT_VERSION = 283

@@ -12,6 +12,6 @@
 /// string. Read by `AppVersionInfo` for the Profile screen footer.
 enum AppVersion {
     static let full = "0.7.0-alpha.1"
-    static let build = "279"
-    static let commit = "dd9dddf"
+    static let build = "283"
+    static let commit = "daf6a45"
 }
