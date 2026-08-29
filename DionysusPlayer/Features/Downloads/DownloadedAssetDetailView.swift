@@ -39,6 +39,19 @@ struct DownloadedAssetDetailView: View {
     @State private var isPlayerPresented = false
     @State private var startFromBeginning = false
     @State private var showDeleteConfirmation = false
+    /// Bumped from `fullScreenCover(onDismiss:)` — forces this view's `body`
+    /// to re-run once the Player closes, same fix as `MovieDetailView
+    /// .refreshTrigger` (see its own doc comment): a view presenting its own
+    /// `.fullScreenCover` doesn't reliably re-run `body` just because an
+    /// `@Observable` property it reads (`downloadManager.store.changeCount`
+    /// below) changed while covered — `PlayerViewModel.stop()`'s offline
+    /// path writes the just-finished session's resume position/watched
+    /// state directly to this item and bumps that counter *before*
+    /// `dismiss()`, but without an explicit `@State` write here too, the
+    /// Play/Resume row could still show stale progress right after
+    /// returning from playback until something else happened to remount
+    /// this view.
+    @State private var refreshTrigger = UUID()
 
     /// `_ = downloadManager.store.changeCount` establishes a real,
     /// Observation-tracked dependency — see `DownloadStore.changeCount`'s
@@ -115,7 +128,7 @@ struct DownloadedAssetDetailView: View {
                     }
                     Button("Cancel", role: .cancel) {}
                 }
-                .fullScreenCover(isPresented: $isPlayerPresented) {
+                .fullScreenCover(isPresented: $isPlayerPresented, onDismiss: { refreshTrigger = UUID() }) {
                     PlayerView(itemID: item.itemID, startFromBeginning: startFromBeginning, downloadedItem: item)
                 }
             } else {
