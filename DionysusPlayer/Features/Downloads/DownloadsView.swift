@@ -2,10 +2,9 @@ import SwiftUI
 
 /// The Downloads tab's landing screen: one alphabetically-sorted list
 /// mixing standalone items (movies, or lone episodes) and per-show group
-/// rows — see `DownloadsRow`/`DownloadsViewModel`. Reachable both as a
-/// `MainTabView` tab and, with no live session required, from `RootView`'s
-/// `.offline` "View Downloads" escape hatch — everything here reads
-/// straight from local storage.
+/// rows — see `DownloadsRow`/`DownloadsViewModel`. Reachable as a
+/// `MainTabView` tab regardless of connectivity or sign-in state —
+/// everything here reads straight from local storage.
 ///
 /// Bulk delete: the trash toolbar button enters selection mode (Photos/
 /// Files-style Cancel-top-left/Select-All-top-right/destructive-action

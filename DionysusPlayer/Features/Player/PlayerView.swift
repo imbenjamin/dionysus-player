@@ -655,9 +655,8 @@ struct PlayerView: View {
         guard viewModel == nil, let client = appState.apiClient else { return }
         // Falls back to the stored credentials' userID (not just
         // `currentUser?.id`) so offline playback works from a cold launch
-        // that never completed a live sign-in this session — see
-        // `RootView`'s `.offline` "View Downloads" escape hatch, which
-        // reaches this view with no `currentUser` at all.
+        // that resumed `.main` from a cached session rather than a fresh
+        // sign-in — see `AppState.start()`.
         guard let userID = appState.currentUser?.id ?? appState.sessionStore.credentials?.userID else { return }
         let engine: AetherPlaybackEngine
         do {

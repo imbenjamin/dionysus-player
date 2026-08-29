@@ -64,18 +64,13 @@ struct ErrorStateView: View {
 /// connectivity-failure event in the app routes to, driven by
 /// `ConnectivityMonitor.shared.isOffline`. `retry` should reload whatever
 /// the caller was already trying to show (not restart some unrelated
-/// flow); `secondaryAction`/`tertiaryAction`, when provided, offer escape
-/// hatches to something reachable without a live server for contexts where
-/// the normal tab bar isn't up yet (e.g. before sign-in completes) —
-/// `RootView`'s `.offline` case uses `secondaryAction` for server settings
-/// and `tertiaryAction` for offline downloads, both of which work with no
-/// network and (for downloads) no completed sign-in this launch.
+/// flow); `secondaryAction`, when provided, offers an escape hatch to
+/// something else reachable without a live server — `PlayerView` uses it
+/// for a "Close" button back out of a title that failed to start offline.
 struct OfflineStateView: View {
     var retry: () -> Void
     var secondaryActionTitle: String?
     var secondaryAction: (() -> Void)?
-    var tertiaryActionTitle: String?
-    var tertiaryAction: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 12) {
@@ -91,10 +86,6 @@ struct OfflineStateView: View {
                 .buttonStyle(.borderedProminent)
             if let secondaryActionTitle, let secondaryAction {
                 Button(secondaryActionTitle, action: secondaryAction)
-                    .buttonStyle(.bordered)
-            }
-            if let tertiaryActionTitle, let tertiaryAction {
-                Button(tertiaryActionTitle, action: tertiaryAction)
                     .buttonStyle(.bordered)
             }
         }

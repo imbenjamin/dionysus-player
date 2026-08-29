@@ -161,7 +161,12 @@ struct SearchView: View {
     }
 
     private func setUpIfNeeded() async {
-        guard viewModel == nil, let client = appState.apiClient, let userID = appState.currentUser?.id else { return }
+        // Falls back to the cached `userID` from a prior sign-in (same
+        // idiom `PlayerView` uses) so this still constructs a view model
+        // right away on a cold launch that resumed `.main` from cache
+        // rather than a fresh sign-in — see `AppState.start()`.
+        guard viewModel == nil, let client = appState.apiClient,
+              let userID = appState.currentUser?.id ?? appState.sessionStore.credentials?.userID else { return }
         let newViewModel = SearchViewModel(client: client, userID: userID)
         viewModel = newViewModel
         await newViewModel.loadImagesIfNeeded()

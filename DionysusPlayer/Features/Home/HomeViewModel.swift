@@ -101,6 +101,16 @@ final class HomeViewModel {
     /// anyway, so which 200 doesn't need to be exhaustive) while keeping
     /// the discovery payload bounded for a very large one.
     private static let personDiscoveryLimit = 200
+    /// Default delays before each reconnect retry of `load()` after a
+    /// `ConnectivityMonitor` offline→online transition still finds
+    /// `loadState` unloaded — same array-of-delays convention as
+    /// `JellyfinAPIClient.reauthBackoffSchedule`/`AssetDetailViewModel
+    /// .userDataCommitPollSchedule`. The first attempt is immediate; these
+    /// are the delays *before* each subsequent one. Bounded rather than
+    /// infinite: a genuinely still-unreachable server must still leave
+    /// `loadState` at `.failed` (so the visible "Try Again" button still
+    /// works) rather than retrying forever — see `retryLoadIfNeeded()`.
+    static let defaultReconnectRetrySchedule: [Double] = [1.0, 2.0, 4.0, 8.0]
 
     private let client: JellyfinAPIClient
     private let userID: String
@@ -116,17 +126,23 @@ final class HomeViewModel {
     /// this one gets called from inside `loadMoreDynamicRails`'s
     /// `withTaskGroup` child tasks, not straight from the actor.
     private let itemShuffle: @Sendable ([BaseItemDto]) -> [BaseItemDto]
+    /// See `defaultReconnectRetrySchedule`'s doc comment. Injectable so
+    /// tests can exercise `retryLoadIfNeeded()`'s retry/give-up logic
+    /// without waiting out the real delays.
+    private let reconnectRetrySchedule: [Double]
 
     init(
         client: JellyfinAPIClient,
         userID: String,
         shuffle: @escaping ([DynamicRailCandidate]) -> [DynamicRailCandidate] = { $0.shuffled() },
-        itemShuffle: @escaping @Sendable ([BaseItemDto]) -> [BaseItemDto] = { $0.shuffled() }
+        itemShuffle: @escaping @Sendable ([BaseItemDto]) -> [BaseItemDto] = { $0.shuffled() },
+        reconnectRetrySchedule: [Double] = HomeViewModel.defaultReconnectRetrySchedule
     ) {
         self.client = client
         self.userID = userID
         self.itemShuffle = itemShuffle
         self.shuffle = shuffle
+        self.reconnectRetrySchedule = reconnectRetrySchedule
     }
 
     func loadIfNeeded() async {
@@ -292,6 +308,45 @@ final class HomeViewModel {
         hasMoreDynamicRails = !pendingDynamicRailCandidates.isEmpty
         dynamicRailCandidatesFailed = anyFetchFailed
         await loadMoreDynamicRails()
+    }
+
+    /// Called by `HomeView` when `ConnectivityMonitor` transitions back
+    /// online — retries `load()` itself if it never succeeded (a cold
+    /// launch that hit this while genuinely offline, or a previous
+    /// in-session failure), no-opping once it already has. `isOffline`
+    /// flipping `false` only means *some* request succeeded (see
+    /// `ConnectivityMonitor`'s own doc comment) — often a lightweight
+    /// scenePhase-driven health check that can beat the network actually
+    /// stabilizing enough for a real, heavier `/Users/{id}/Views` fan-out
+    /// to succeed (confirmed live: Wi-Fi reassociating can report
+    /// "connected" a couple of seconds before DNS/routing to a LAN server
+    /// is actually usable). A single immediate retry right at that instant
+    /// can still land in that same window and fail again — instead this
+    /// retries with backoff (`reconnectRetrySchedule`), so a genuinely
+    /// still-unreachable server still ends up back at `.failed` rather than
+    /// retrying forever, but a server that's a few seconds from being ready
+    /// gets caught by a later attempt instead of leaving the user stuck on
+    /// a stale failure with no obvious path forward besides tapping "Try
+    /// Again" themselves.
+    ///
+    /// Deliberately resets a mid-loop failure back to `.loading` (rather
+    /// than leaving `load()`'s own `.failed` write in place) before every
+    /// attempt but the last — both writes happen synchronously with no
+    /// `await` in between, so SwiftUI never actually renders the
+    /// intermediate `.failed` state, avoiding a flash of "Something went
+    /// wrong" between retries. Once the schedule is exhausted, the final
+    /// attempt's outcome (loaded or failed) is left as-is, so a genuinely
+    /// still-unreachable server ends up on the same `.failed` + visible
+    /// "Try Again" a single attempt would have shown.
+    func retryLoadIfNeeded() async {
+        guard loadState != .loaded else { return }
+        let delays = [0.0] + reconnectRetrySchedule
+        for (index, delay) in delays.enumerated() {
+            if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+            await load()
+            if loadState == .loaded { return }
+            if index < delays.count - 1 { loadState = .loading }
+        }
     }
 
     /// Called by `HomeView` when `ConnectivityMonitor` transitions back

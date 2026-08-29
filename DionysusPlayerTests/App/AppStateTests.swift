@@ -85,15 +85,39 @@ final class AppStateTests: XCTestCase {
         await appState.start()
 
         // A real HTTP response (bad credentials) — not a connectivity
-        // failure — must still land on `.login`, not `.offline`.
+        // failure — must still land on `.login`, not resume a session.
         XCTAssertEqual(appState.phase, .login)
     }
 
     /// Distinct from the test above: the server couldn't be reached at all
-    /// (a `URLError`, not an HTTP response), so this should land on the new
-    /// `.offline` phase instead of `.login` — see `Phase.offline`'s doc
-    /// comment for why the two are kept separate.
-    func test_start_serverUnreachable_goesToOffline() async {
+    /// (a `URLError`, not an HTTP response). Rather than stalling on a
+    /// separate offline phase, this resumes the last known session from
+    /// cache and lands straight on `.main` — `HomeView`/`SearchView`/etc.
+    /// fall back to `sessionStore.credentials?.userID` when `currentUser`
+    /// is still `nil`, so the tab bar and its screens work immediately
+    /// using the resumed session (see `AppState.start()`'s doc comment).
+    func test_start_serverUnreachable_resumesMainFromCachedSession() async {
+        let store = ServerSessionStore(defaults: defaults)
+        store.saveServer(exampleServer)
+        store.saveCredentials(StoredCredentials(username: "ben", password: "hunter2", accessToken: "cached-token", userID: "user-1"))
+        MockURLProtocol.requestHandler = { _ in throw URLError(.cannotConnectToHost) }
+        let appState = AppState(sessionStore: store)
+
+        await appState.start()
+
+        XCTAssertEqual(appState.phase, .main)
+        XCTAssertNil(appState.currentUser)
+        let restoredToken = await appState.apiClient?.accessToken
+        XCTAssertEqual(restoredToken, "cached-token")
+    }
+
+    /// Defensive fallback: a connectivity failure with remembered
+    /// credentials that never actually carry a cached token/userID (not
+    /// reachable in practice — `saveCredentials` is only ever called with
+    /// both populated, from a prior successful sign-in — but nothing to
+    /// resume a session from if it somehow happened) still falls back to
+    /// `.login` rather than presenting a broken `.main`.
+    func test_start_serverUnreachableNoCachedToken_fallsBackToLogin() async {
         let store = ServerSessionStore(defaults: defaults)
         store.saveServer(exampleServer)
         store.saveCredentials(StoredCredentials(username: "ben", password: "hunter2", accessToken: nil, userID: nil))
@@ -102,7 +126,7 @@ final class AppStateTests: XCTestCase {
 
         await appState.start()
 
-        XCTAssertEqual(appState.phase, .offline)
+        XCTAssertEqual(appState.phase, .login)
     }
 
     // MARK: completeServerSetup / signIn / signOut / changeServer

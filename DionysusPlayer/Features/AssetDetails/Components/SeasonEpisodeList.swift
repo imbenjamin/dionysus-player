@@ -116,7 +116,9 @@ struct SeasonEpisodeList: View {
                 // Next to the picker when there's one to show; in its place
                 // (still trailing the "Episodes" title) for a single-season
                 // show, where the picker itself is omitted above.
-                if let client = appState.apiClient, let userID = appState.currentUser?.id, let selectedSeasonID {
+                if let client = appState.apiClient,
+                   let userID = appState.currentUser?.id ?? appState.sessionStore.credentials?.userID,
+                   let selectedSeasonID {
                     SeasonDownloadButton(
                         seriesID: seriesID, seasonID: selectedSeasonID, episodes: episodes,
                         client: client, userID: userID, downloadManager: appState.downloadManager
@@ -137,7 +139,7 @@ struct SeasonEpisodeList: View {
                             onPlay: { onPlayEpisode(episode.id) },
                             onSelect: { onSelectEpisode(episode.id) },
                             client: appState.apiClient,
-                            userID: appState.currentUser?.id,
+                            userID: appState.currentUser?.id ?? appState.sessionStore.credentials?.userID,
                             downloadManager: appState.downloadManager
                         )
                     }
@@ -159,7 +161,7 @@ struct SeasonEpisodeList: View {
     private func loadEpisodes(showsLoadingIndicator: Bool = true) async {
         guard let seasonID = selectedSeasonID,
               let client = appState.apiClient,
-              let userID = appState.currentUser?.id else { return }
+              let userID = appState.currentUser?.id ?? appState.sessionStore.credentials?.userID else { return }
 
         if showsLoadingIndicator { isLoading = true }
         defer { isLoading = false }

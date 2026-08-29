@@ -17,116 +17,170 @@ struct HomeView: View {
     var isActiveTab: Bool = true
 
     var body: some View {
-        ScrollView {
-            content
-                // Loads more dynamic rails once the scroll view's own
-                // content offset comes within one screen height of the
-                // bottom — see `ScrollBottomObserver`'s doc comment for why
-                // this is the third design tried here, and what was wrong
-                // with each of the first two.
-                .background {
-                    ScrollBottomObserver {
-                        // Both guards checked here, synchronously, before
-                        // spawning anything — not just left to
-                        // `loadMoreDynamicRails()`'s own internal guard.
-                        // `checkNearBottom` (the caller of this closure)
-                        // fires on every `contentOffset` KVO tick while
-                        // within one screen height of the bottom, i.e. many
-                        // times a second during a continuous scroll; without
-                        // the `isLoadingMoreDynamicRails` check here too,
-                        // every one of those ticks spawned a fresh `Task`
-                        // that only found out it had nothing to do once it
-                        // actually ran, piling up avoidable work on the main
-                        // actor for the whole scroll instead of skipping it
-                        // up front.
-                        guard viewModel?.hasMoreDynamicRails == true,
-                              viewModel?.isLoadingMoreDynamicRails == false else { return }
-                        Task { await viewModel?.loadMoreDynamicRails() }
-                    }
+        Group {
+            if let placeholderState {
+                // Rendered outside the `ScrollView` entirely (rather than
+                // inside it at a fixed height, as this used to do) so
+                // `OfflineStateView`/`LoadingView`/`ErrorStateView`'s own
+                // `.frame(maxHeight: .infinity)` centers within the *actual*
+                // visible screen instead of a small fixed-height box sitting
+                // at the top of an otherwise-empty scroll area — confirmed
+                // live (2026-08-29): the offline/error states rendered
+                // pinned near the top with a large dead area below rather
+                // than centered on screen.
+                placeholderView(for: placeholderState)
+            } else {
+                ScrollView {
+                    content
+                        // Loads more dynamic rails once the scroll view's own
+                        // content offset comes within one screen height of the
+                        // bottom — see `ScrollBottomObserver`'s doc comment for why
+                        // this is the third design tried here, and what was wrong
+                        // with each of the first two.
+                        .background {
+                            ScrollBottomObserver {
+                                // Both guards checked here, synchronously, before
+                                // spawning anything — not just left to
+                                // `loadMoreDynamicRails()`'s own internal guard.
+                                // `checkNearBottom` (the caller of this closure)
+                                // fires on every `contentOffset` KVO tick while
+                                // within one screen height of the bottom, i.e. many
+                                // times a second during a continuous scroll; without
+                                // the `isLoadingMoreDynamicRails` check here too,
+                                // every one of those ticks spawned a fresh `Task`
+                                // that only found out it had nothing to do once it
+                                // actually ran, piling up avoidable work on the main
+                                // actor for the whole scroll instead of skipping it
+                                // up front.
+                                guard viewModel?.hasMoreDynamicRails == true,
+                                      viewModel?.isLoadingMoreDynamicRails == false else { return }
+                                Task { await viewModel?.loadMoreDynamicRails() }
+                            }
+                        }
                 }
+                // Lets `HeroRailView` bleed up under the status bar/notch at rest —
+                // a `ScrollView` clips its content to its own bounds, so a child
+                // declaring `.ignoresSafeArea` on itself has nothing to bleed into
+                // unless the `ScrollView` containing it extends there too (same
+                // mechanism `MovieDetailView`/`ShowDetailView` use for their own
+                // hero header, just without their compensating top padding, since
+                // here the bleed is the whole point rather than something to avoid
+                // at rest). Deliberately not applied to the placeholder branch
+                // above — a centered message/spinner has no bleed to gain from it,
+                // and it would just shift the centered content up under the
+                // status bar for no benefit.
+                .ignoresSafeArea(edges: .top)
+            }
         }
-        // Lets `HeroRailView` bleed up under the status bar/notch at rest —
-        // a `ScrollView` clips its content to its own bounds, so a child
-        // declaring `.ignoresSafeArea` on itself has nothing to bleed into
-        // unless the `ScrollView` containing it extends there too (same
-        // mechanism `MovieDetailView`/`ShowDetailView` use for their own
-        // hero header, just without their compensating top padding, since
-        // here the bleed is the whole point rather than something to avoid
-        // at rest).
-        .ignoresSafeArea(edges: .top)
         .navigationBarTitleDisplayMode(.inline)
         .task { await setUpIfNeeded() }
-        // Dynamic rail discovery fails silently by design (see
-        // `HomeViewModel.load()`'s doc comment — Home stays usable rather
-        // than erroring over a supplementary fetch), which means nothing
-        // else ever retries it. If that failure happened to land in the
-        // brief window right after reconnecting, the rails would otherwise
-        // stay missing for the rest of this Home instance's lifetime —
-        // this catches the "we're back online" transition and gives it
-        // one retry.
+        // Catches the "we're back online" transition and retries whatever
+        // didn't make it: `retryLoadIfNeeded()` (with backoff — see its own
+        // doc comment for why a single immediate retry isn't enough) if the
+        // primary load itself never succeeded, then
+        // `retryDynamicRailCandidatesIfNeeded()` for the narrower case
+        // where the curated rails loaded fine but dynamic rail discovery
+        // — which fails silently by design, see `HomeViewModel.load()`'s
+        // doc comment — happened to land in that same reconnect window.
+        // Sequenced rather than parallel: a successful `retryLoadIfNeeded()`
+        // already re-ran dynamic rail discovery as part of `load()` itself,
+        // so this only ever has real work left to do in the narrower case.
         .onChange(of: ConnectivityMonitor.shared.isOffline) { wasOffline, isOffline in
             guard wasOffline, !isOffline else { return }
-            Task { await viewModel?.retryDynamicRailCandidatesIfNeeded() }
-        }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        // Only short-circuits the "nothing to show yet" states — a
-        // scenePhase-triggered background ping failing while Home already
-        // has loaded content must never blank the screen out from under
-        // the user.
-        if ConnectivityMonitor.shared.isOffline, viewModel?.loadState != .loaded {
-            OfflineStateView(retry: { Task { await viewModel?.load() } })
-                .frame(height: 300)
-        } else {
-            switch viewModel?.loadState ?? .loading {
-            case .idle, .loading:
-                LoadingView().frame(height: 300)
-            case .failed(let message):
-                ErrorStateView(message: message) {
-                    Task { await viewModel?.load() }
-                }
-                .frame(height: 300)
-            case .loaded:
-                let heroItems = viewModel?.heroItems ?? []
-                let libraries = viewModel?.libraries ?? []
-                let rails = viewModel?.rails ?? []
-                if heroItems.isEmpty && libraries.isEmpty && rails.isEmpty {
-                    ErrorStateView(message: String(localized: "Nothing here yet."), retry: nil)
-                        .frame(height: 200)
-                } else {
-                    // `LazyVStack`, not `VStack` — with dynamic rails
-                    // potentially pushing the rail count well past the curated
-                    // set, this avoids constructing every rail's view hierarchy
-                    // up front.
-                    LazyVStack(alignment: .leading, spacing: 24) {
-                        if !heroItems.isEmpty {
-                            HeroRailView(items: heroItems, isTabActive: isActiveTab)
-                        }
-                        if !libraries.isEmpty {
-                            LibraryRailView(libraries: libraries)
-                        }
-                        // `rails.indices`, not `Array(rails.enumerated())` —
-                        // same reasoning as `HeroRailView.loopedItems`'s
-                        // `ForEach`: avoids allocating a fresh array of tuples
-                        // every time this recomputes.
-                        ForEach(rails.indices, id: \.self) { index in
-                            MediaRailView(rail: rails[index])
-                        }
-
-                        if viewModel?.isLoadingMoreDynamicRails == true {
-                            LoadingView().frame(height: 150)
-                        }
-                    }
-                    .padding(.bottom, 24)
-                }
+            Task {
+                await viewModel?.retryLoadIfNeeded()
+                await viewModel?.retryDynamicRailCandidatesIfNeeded()
             }
         }
     }
 
+    /// Which full-screen placeholder (if any) should replace the rail
+    /// `ScrollView` entirely. `nil` means there's real content to show —
+    /// the only case that still uses the `ScrollView`. Single source of
+    /// truth for this decision so `body` (which branch to render) and
+    /// `placeholderView(for:)` (what that branch shows) can't drift apart.
+    private enum PlaceholderState {
+        case offline
+        case loading
+        case failed(String)
+        case empty
+    }
+
+    private var placeholderState: PlaceholderState? {
+        // Checked first and independently of `loadState` — a
+        // scenePhase-triggered background ping failing while Home already
+        // has loaded content must never blank the screen out from under
+        // the user.
+        if ConnectivityMonitor.shared.isOffline, viewModel?.loadState != .loaded {
+            return .offline
+        }
+        switch viewModel?.loadState ?? .loading {
+        case .idle, .loading:
+            return .loading
+        case .failed(let message):
+            return .failed(message)
+        case .loaded:
+            let heroItems = viewModel?.heroItems ?? []
+            let libraries = viewModel?.libraries ?? []
+            let rails = viewModel?.rails ?? []
+            return heroItems.isEmpty && libraries.isEmpty && rails.isEmpty ? .empty : nil
+        }
+    }
+
+    @ViewBuilder
+    private func placeholderView(for state: PlaceholderState) -> some View {
+        switch state {
+        case .offline:
+            OfflineStateView(retry: { Task { await viewModel?.load() } })
+        case .loading:
+            LoadingView()
+        case .failed(let message):
+            ErrorStateView(message: message) {
+                Task { await viewModel?.load() }
+            }
+        case .empty:
+            ErrorStateView(message: String(localized: "Nothing here yet."), retry: nil)
+        }
+    }
+
+    /// Only reached once `placeholderState` is `nil` — there's always at
+    /// least one of hero items/libraries/rails to show here.
+    @ViewBuilder
+    private var content: some View {
+        let heroItems = viewModel?.heroItems ?? []
+        let libraries = viewModel?.libraries ?? []
+        let rails = viewModel?.rails ?? []
+        // `LazyVStack`, not `VStack` — with dynamic rails potentially
+        // pushing the rail count well past the curated set, this avoids
+        // constructing every rail's view hierarchy up front.
+        LazyVStack(alignment: .leading, spacing: 24) {
+            if !heroItems.isEmpty {
+                HeroRailView(items: heroItems, isTabActive: isActiveTab)
+            }
+            if !libraries.isEmpty {
+                LibraryRailView(libraries: libraries)
+            }
+            // `rails.indices`, not `Array(rails.enumerated())` — same
+            // reasoning as `HeroRailView.loopedItems`'s `ForEach`: avoids
+            // allocating a fresh array of tuples every time this recomputes.
+            ForEach(rails.indices, id: \.self) { index in
+                MediaRailView(rail: rails[index])
+            }
+
+            if viewModel?.isLoadingMoreDynamicRails == true {
+                LoadingView().frame(height: 150)
+            }
+        }
+        .padding(.bottom, 24)
+    }
+
     private func setUpIfNeeded() async {
-        guard viewModel == nil, let client = appState.apiClient, let userID = appState.currentUser?.id else { return }
+        // Falls back to the cached `userID` from a prior sign-in (same
+        // idiom `PlayerView` uses) so this still constructs a view model
+        // right away on a cold launch that resumed `.main` from cache
+        // rather than a fresh sign-in — see `AppState.start()`.
+        guard viewModel == nil, let client = appState.apiClient,
+              let userID = appState.currentUser?.id ?? appState.sessionStore.credentials?.userID else { return }
         let newViewModel = HomeViewModel(client: client, userID: userID)
         viewModel = newViewModel
         await newViewModel.loadIfNeeded()

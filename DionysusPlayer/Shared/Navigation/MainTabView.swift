@@ -120,6 +120,19 @@ struct MainTabView: View {
         // to theme changes.
         .tint(Color.dionysusPrimary)
         .task(id: appState.currentUser?.id) { await loadProfileTabIcon() }
+        // Cold launch can reach `.main` with `currentUser` still `nil` —
+        // resumed from a cached session because the server was
+        // unreachable at launch (see `AppState.start()`). The Profile tab
+        // already tolerates that (falls back to a generic label/icon), but
+        // once real connectivity returns, quietly upgrade to a real sign-in
+        // so the tab picks up the user's actual name/avatar without them
+        // having to do anything — same "catch the reconnect transition"
+        // idea as `HomeView`'s dynamic-rail retry.
+        .onChange(of: ConnectivityMonitor.shared.isOffline) { wasOffline, isOffline in
+            guard wasOffline, !isOffline, appState.currentUser == nil,
+                  let credentials = appState.sessionStore.credentials else { return }
+            Task { try? await appState.signIn(username: credentials.username, password: credentials.password ?? "") }
+        }
     }
 
     private func loadProfileTabIcon() async {

@@ -11,10 +11,6 @@ final class AppState {
         case serverSetup
         case login
         case main
-        /// Session restore at launch couldn't reach the server at all
-        /// (distinct from `.login`, which also covers a user actively
-        /// signing in manually — see `start()`'s doc comment).
-        case offline
     }
 
     private(set) var phase: Phase = .serverSetup
@@ -45,7 +41,9 @@ final class AppState {
     }
 
     /// Call once at launch: restores the configured server and attempts to
-    /// sign the user back in with their remembered credentials.
+    /// sign the user back in with their remembered credentials. If the
+    /// server can't be reached at all, resumes the last known session from
+    /// cache instead of stalling — see the `catch` block below.
     func start() async {
         defer { isRestoringSession = false }
 
@@ -73,14 +71,30 @@ final class AppState {
         do {
             try await signIn(username: credentials.username, password: credentials.password ?? "", client: client)
         } catch {
-            // Either the remembered credentials no longer work (fall back to
-            // manual sign-in), or the server couldn't be reached at all —
             // `ConnectivityMonitor` reflects this specific attempt's outcome
             // since `sendRaw`'s reporting call is awaited inline in the same
             // chain this catch waits on, so it's never stale here. A 401/other
             // HTTP error still reports success, so bad credentials still land
-            // on `.login` as before.
-            phase = ConnectivityMonitor.shared.isOffline ? .offline : .login
+            // on `.login` as before (the remembered credentials no longer
+            // work — fall back to manual sign-in).
+            //
+            // A connectivity failure instead resumes the last known session
+            // from cache rather than stalling on a separate offline phase —
+            // `credentials.accessToken`/`.userID` are always populated here,
+            // since `saveCredentials` is only ever called from this same
+            // `signIn()`'s success path below. `currentUser` stays `nil`
+            // until a real sign-in eventually succeeds; everywhere that
+            // needs the signed-in user's ID falls back to
+            // `sessionStore.credentials?.userID` in the meantime (see e.g.
+            // `PlayerView`'s own use of that fallback).
+            if ConnectivityMonitor.shared.isOffline,
+               let accessToken = credentials.accessToken,
+               credentials.userID != nil {
+                await client.restoreSession(accessToken: accessToken, username: credentials.username, password: credentials.password ?? "")
+                phase = .main
+            } else {
+                phase = .login
+            }
         }
     }
 

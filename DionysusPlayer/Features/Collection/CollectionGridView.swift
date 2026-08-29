@@ -69,7 +69,8 @@ struct CollectionGridView: View {
     /// itself, per `randomPick`'s doc comment.
     @ViewBuilder
     private func randomDestination(for item: MediaItem) -> some View {
-        if let client = appState.apiClient, let userID = appState.currentUser?.id {
+        if let client = appState.apiClient,
+           let userID = appState.currentUser?.id ?? appState.sessionStore.credentials?.userID {
             AssetDetailView(itemID: item.id, preloadedItem: item, client: client, userID: userID)
         } else {
             ErrorStateView(message: String(localized: "You're not signed in."), retry: nil)
@@ -344,7 +345,12 @@ struct CollectionGridView: View {
     }
 
     private func setUpIfNeeded() async {
-        guard viewModel == nil, let client = appState.apiClient, let userID = appState.currentUser?.id else { return }
+        // Falls back to the cached `userID` from a prior sign-in (same
+        // idiom `PlayerView` uses) so this still constructs a view model
+        // right away on a cold launch that resumed `.main` from cache
+        // rather than a fresh sign-in — see `AppState.start()`.
+        guard viewModel == nil, let client = appState.apiClient,
+              let userID = appState.currentUser?.id ?? appState.sessionStore.credentials?.userID else { return }
         let newViewModel = CollectionGridViewModel(client: client, userID: userID, query: query)
         viewModel = newViewModel
         await newViewModel.loadIfNeeded()

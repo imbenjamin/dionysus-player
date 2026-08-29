@@ -24,14 +24,18 @@ final class HomeViewModelTests: XCTestCase {
     /// identity "shuffle".
     private func makeViewModel(
         shuffle: @escaping ([DynamicRailCandidate]) -> [DynamicRailCandidate] = { $0 },
-        itemShuffle: @escaping @Sendable ([BaseItemDto]) -> [BaseItemDto] = { $0 }
+        itemShuffle: @escaping @Sendable ([BaseItemDto]) -> [BaseItemDto] = { $0 },
+        reconnectRetrySchedule: [Double] = HomeViewModel.defaultReconnectRetrySchedule
     ) -> HomeViewModel {
         let client = JellyfinAPIClient(
             baseURL: URL(string: "https://jellyfin.example.com")!,
             accessToken: "tok",
             session: MockURLProtocol.makeSession()
         )
-        return HomeViewModel(client: client, userID: "user-1", shuffle: shuffle, itemShuffle: itemShuffle)
+        return HomeViewModel(
+            client: client, userID: "user-1", shuffle: shuffle, itemShuffle: itemShuffle,
+            reconnectRetrySchedule: reconnectRetrySchedule
+        )
     }
 
     /// Stubs `/Genres`, `/Studios`, and `/Persons` (every discovery call
@@ -757,6 +761,87 @@ final class HomeViewModelTests: XCTestCase {
         await viewModel.retryDynamicRailCandidatesIfNeeded()
 
         XCTAssertEqual(requestCount, requestCountAfterLoad, "Nothing failed, so retry should no-op without firing new requests")
+    }
+
+    /// `HomeView` calls this on the same reconnect transition as
+    /// `retryDynamicRailCandidatesIfNeeded()`, but for the primary load
+    /// itself — a single request failing right as connectivity flips back
+    /// on (confirmed live, 2026-08-29: Wi-Fi reassociating can report
+    /// "connected" before the server is actually reachable) shouldn't leave
+    /// `loadState` stuck at `.failed` when a later attempt would have
+    /// succeeded.
+    func test_retryLoadIfNeeded_succeedsOnRetryAfterInitialFailure() async {
+        let viewModel = makeViewModel(reconnectRetrySchedule: [0, 0, 0, 0])
+        nonisolated(unsafe) var viewsAttempts = 0
+        MockURLProtocol.requestHandler = { request in
+            // `/Users/user-1/Views` is `load()`'s first, sequentially-awaited
+            // request — throwing here fails the whole attempt before any of
+            // its concurrent sibling requests ever fire, so counting it
+            // directly counts attempts with no race against those siblings.
+            if request.url?.path == "/Users/user-1/Views" {
+                viewsAttempts += 1
+                if viewsAttempts < 3 { throw URLError(.networkConnectionLost) }
+            }
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.retryLoadIfNeeded()
+
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(viewsAttempts, 3, "Should succeed on the 3rd attempt (2 failures + 1 success)")
+    }
+
+    /// The flip side: a server that's still genuinely unreachable once the
+    /// injected schedule is exhausted must land back on `.failed` (so the
+    /// visible "Try Again" button still works) rather than retrying forever.
+    func test_retryLoadIfNeeded_scheduleExhausted_leavesFailedState() async {
+        let viewModel = makeViewModel(reconnectRetrySchedule: [0, 0])
+        nonisolated(unsafe) var viewsAttempts = 0
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path == "/Users/user-1/Views" { viewsAttempts += 1 }
+            throw URLError(.networkConnectionLost)
+        }
+
+        await viewModel.retryLoadIfNeeded()
+
+        guard case .failed = viewModel.loadState else {
+            return XCTFail("Expected .failed, got \(viewModel.loadState)")
+        }
+        XCTAssertEqual(viewsAttempts, 3, "1 immediate attempt plus the 2 scheduled retries, matching the injected schedule")
+    }
+
+    /// Guards against the same "duplicate work on an already-fine state"
+    /// mistake `test_retryDynamicRailCandidatesIfNeeded_noPriorFailure_doesNotRefetch`
+    /// pins for the dynamic-rails retry.
+    func test_retryLoadIfNeeded_alreadyLoaded_doesNotRefetch() async {
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        await viewModel.load()
+        XCTAssertEqual(viewModel.loadState, .loaded)
+
+        MockURLProtocol.requestHandler = { request in
+            XCTFail("retryLoadIfNeeded() should no-op once already loaded, but requested \(request.url?.path ?? "?")")
+            throw URLError(.unknown)
+        }
+        await viewModel.retryLoadIfNeeded()
     }
 
     func test_loadMoreDynamicRails_noOpsWhileAlreadyLoading() async {
