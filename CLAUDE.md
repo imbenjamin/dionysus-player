@@ -93,16 +93,28 @@ follow-up commit (confirmed live, PR #147, 2026-08-28: CI resolved
 AetherEngine-related change on the branch at all). A plain `xcodebuild
 -resolvePackageDependencies` isn't enough to check for this locally
 either — it silently reuses whatever's cached and won't reproduce what
-CI's uncached resolve sees. To actually check before pushing:
+CI's uncached resolve sees.
+
+To actually check before pushing, run:
 
 ```sh
-rm -rf ~/Library/Caches/org.swift.swiftpm
-rm -rf ~/Library/Developer/Xcode/DerivedData/DionysusPlayer-*/SourcePackages
-xcodebuild -resolvePackageDependencies -project DionysusPlayer.xcodeproj -scheme DionysusPlayer
+./Scripts/update-aetherengine-version.sh
 ```
 
-then run `./Scripts/update-aetherengine-version.sh` if the resolved
-version moved.
+and commit the result if it produced a diff. That script clears *both*
+caches that can hide drift — SPM's global cache and, as of PR #152
+(2026-08-29), `xcodebuild`'s own per-project checkout under DerivedData's
+`SourcePackages` — and does a genuine from-scratch resolve, so its output
+now actually matches what CI sees. (Before that fix, this section
+documented clearing both by hand as a *separate* step from running the
+script, and the two had quietly diverged: the script only cleared the SPM
+cache. PR #152 passed the script with no diff on a machine that had
+already built the project locally — DerivedData's stale
+`SourcePackages/workspace-state.json` still had the old pin cached — and
+still failed CI, which resolved `6.56.3` from a clean checkout with
+nothing cached to fall back on. Don't reintroduce that split: any future
+fix to how this check works belongs in the script itself, not as prose
+here that the script can silently fall behind.)
 
 ### App version (SemVer)
 
