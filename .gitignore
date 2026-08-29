@@ -138,3 +138,10 @@ xcuserdata
 **/xcshareddata/WorkspaceSettings.xcsettings
 
 # End of https://www.toptal.com/developers/gitignore/api/swift,xcode,swiftpackagemanager,macos
+
+# Claude Code
+# Per-machine local settings (permission overrides, etc.) — not project
+# source. Only this specific file, not the whole .claude/ directory, so a
+# future team-shared .claude/settings.json or shared commands/skills can
+# still be committed intentionally.
+.claude/settings.local.json
