@@ -66,8 +66,9 @@ struct SearchView: View {
 
     @ViewBuilder
     private var content: some View {
-        // Only gates `.searching`/`.failed` — `.idle` is local history with
-        // no network involved, and `.loaded` is content already on screen;
+        // Only gates `.searching`/`.failed` — `.idle` is handled by
+        // `idleContent` below (which has its own, `LibraryAvailability`-based
+        // offline handling), and `.loaded` is content already on screen;
         // neither should be blanked out by a stale/background offline flag.
         if ConnectivityMonitor.shared.isOffline,
            viewModel?.loadState == .searching || isFailedState(viewModel?.loadState) {
@@ -75,16 +76,7 @@ struct SearchView: View {
         } else {
             switch viewModel?.loadState ?? .idle {
             case .idle:
-                let history = viewModel?.history ?? []
-                if !isSearching, !history.isEmpty {
-                    historyList(history)
-                } else {
-                    ContentUnavailableView(
-                        "Search Your Library",
-                        systemImage: "magnifyingglass",
-                        description: Text("Find movies, shows, and episodes on your server.")
-                    )
-                }
+                idleContent
             case .searching:
                 LoadingView()
             case .failed(let message):
@@ -96,6 +88,35 @@ struct SearchView: View {
                 } else {
                     resultsList(results)
                 }
+            }
+        }
+    }
+
+    /// Search has no network activity of its own until a query is typed,
+    /// so — unlike `.searching`/`.failed` above — it has no live request
+    /// whose failure would tell it the app is offline. This mirrors
+    /// `HomeViewModel`'s own load state instead (via `LibraryAvailability`,
+    /// see that type's doc comment), so the landing page shows the same
+    /// "You're Offline" Home does whenever Home's own content isn't
+    /// available yet, and switches back to normal — no action needed here
+    /// — the moment Home's own retry/reconnect handling succeeds.
+    @ViewBuilder
+    private var idleContent: some View {
+        switch LibraryAvailability.shared.state {
+        case .loading:
+            LoadingView()
+        case .unavailable:
+            OfflineStateView(retry: { LibraryAvailability.shared.retryAction?() })
+        case .available:
+            let history = viewModel?.history ?? []
+            if !isSearching, !history.isEmpty {
+                historyList(history)
+            } else {
+                ContentUnavailableView(
+                    "Search Your Library",
+                    systemImage: "magnifyingglass",
+                    description: Text("Find movies, shows, and episodes on your server.")
+                )
             }
         }
     }

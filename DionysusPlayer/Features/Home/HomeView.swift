@@ -107,18 +107,27 @@ struct HomeView: View {
     }
 
     private var placeholderState: PlaceholderState? {
-        // Checked first and independently of `loadState` — a
-        // scenePhase-triggered background ping failing while Home already
-        // has loaded content must never blank the screen out from under
-        // the user.
-        if ConnectivityMonitor.shared.isOffline, viewModel?.loadState != .loaded {
-            return .offline
-        }
         switch viewModel?.loadState ?? .loading {
         case .idle, .loading:
+            // Unconditional, regardless of `ConnectivityMonitor.isOffline`
+            // — an active attempt (the first load, a manual "Try Again", or
+            // the automatic reconnect loop) should always show progress.
+            // This used to be gated behind an offline check that ran ahead
+            // of `loadState` entirely, which meant a retry tapped while
+            // `isOffline` hadn't yet flipped false (it only does once some
+            // request actually succeeds) silently kept showing the static
+            // "You're Offline" screen with no visible sign anything was
+            // happening — confirmed live, 2026-08-29.
             return .loading
         case .failed(let message):
-            return .failed(message)
+            // Only consulted once there's an actual outcome to explain —
+            // distinguishes "can't reach the server at all" from some other
+            // real error. Never reached while `.loaded` already has content
+            // on screen (that case is handled separately below), so a
+            // scenePhase-triggered background ping failing after Home
+            // already loaded still can't blank the screen out from under
+            // the user.
+            return ConnectivityMonitor.shared.isOffline ? .offline : .failed(message)
         case .loaded:
             let heroItems = viewModel?.heroItems ?? []
             let libraries = viewModel?.libraries ?? []
@@ -131,12 +140,16 @@ struct HomeView: View {
     private func placeholderView(for state: PlaceholderState) -> some View {
         switch state {
         case .offline:
-            OfflineStateView(retry: { Task { await viewModel?.load() } })
+            // `retryLoadIfNeeded()`, not a bare `load()` — coalesces with
+            // any automatic reconnect retry (or a concurrent tap on
+            // `LibraryAvailability.retryAction` from Search) already in
+            // flight instead of racing it — see that method's doc comment.
+            OfflineStateView(retry: { Task { await viewModel?.retryLoadIfNeeded() } })
         case .loading:
             LoadingView()
         case .failed(let message):
             ErrorStateView(message: message) {
-                Task { await viewModel?.load() }
+                Task { await viewModel?.retryLoadIfNeeded() }
             }
         case .empty:
             ErrorStateView(message: String(localized: "Nothing here yet."), retry: nil)
@@ -183,6 +196,16 @@ struct HomeView: View {
               let userID = appState.currentUser?.id ?? appState.sessionStore.credentials?.userID else { return }
         let newViewModel = HomeViewModel(client: client, userID: userID)
         viewModel = newViewModel
+        // Lets `SearchView`'s landing page trigger Home's own retry —
+        // `retryLoadIfNeeded()`, same as this view's own "Try Again"
+        // buttons above, so it coalesces with any concurrent retry rather
+        // than racing it (see that method's doc comment) — without needing
+        // a reference to `HomeViewModel` itself, see `LibraryAvailability`'s
+        // doc comment. `weak` since `newViewModel`'s only strong owner is
+        // this view's own `viewModel` `@State`, not this closure.
+        LibraryAvailability.shared.retryAction = { [weak newViewModel] in
+            Task { await newViewModel?.retryLoadIfNeeded() }
+        }
         await newViewModel.loadIfNeeded()
     }
 }

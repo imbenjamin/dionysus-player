@@ -15,6 +15,11 @@ import XCTest
 final class HomeViewModelTests: XCTestCase {
     override func tearDown() {
         MockURLProtocol.reset()
+        // `LibraryAvailability` is a true `.shared` singleton (unlike the
+        // fresh `HomeViewModel` each test constructs), so a test that lets
+        // `load()`/`retryLoadIfNeeded()` write to it would otherwise leak
+        // that state into whichever test runs next.
+        LibraryAvailability.shared.reset()
         super.tearDown()
     }
 
@@ -229,9 +234,35 @@ final class HomeViewModelTests: XCTestCase {
         guard case .failed = viewModel.loadState else {
             return XCTFail("Expected .failed, got \(viewModel.loadState)")
         }
+        XCTAssertEqual(
+            LibraryAvailability.shared.state, .unavailable,
+            "SearchView's landing page mirrors this to show its own offline state"
+        )
         XCTAssertTrue(viewModel.heroItems.isEmpty)
         XCTAssertTrue(viewModel.libraries.isEmpty)
         XCTAssertTrue(viewModel.rails.isEmpty)
+    }
+
+    /// `SearchView`'s landing page mirrors this (via `LibraryAvailability`)
+    /// to know when to switch off its own "You're Offline" placeholder.
+    func test_load_success_marksLibraryAvailable() async {
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        XCTAssertEqual(LibraryAvailability.shared.state, .loading, "Nothing has loaded yet")
+
+        await viewModel.load()
+
+        XCTAssertEqual(LibraryAvailability.shared.state, .available)
     }
 
     func test_loadIfNeeded_doesNothingOnceAlreadyLoaded() async {
@@ -797,6 +828,10 @@ final class HomeViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.loadState, .loaded)
         XCTAssertEqual(viewsAttempts, 3, "Should succeed on the 3rd attempt (2 failures + 1 success)")
+        XCTAssertEqual(
+            LibraryAvailability.shared.state, .available,
+            "The two intermediate failures must never leave LibraryAvailability stuck at .unavailable"
+        )
     }
 
     /// The flip side: a server that's still genuinely unreachable once the
@@ -816,6 +851,20 @@ final class HomeViewModelTests: XCTestCase {
             return XCTFail("Expected .failed, got \(viewModel.loadState)")
         }
         XCTAssertEqual(viewsAttempts, 3, "1 immediate attempt plus the 2 scheduled retries, matching the injected schedule")
+        XCTAssertEqual(LibraryAvailability.shared.state, .unavailable)
+    }
+
+    /// Regression net for a real bug found live (2026-08-29): each attempt
+    /// can cost up to `JellyfinAPIClient`'s own 20s per-request timeout
+    /// against a routable-but-unresponsive server, not a quick failure —
+    /// the original 4-retry default multiplied that into ~100s of an
+    /// unmoving spinner before finally settling back to the offline
+    /// screen, which read as "stuck forever" rather than "gave it a few
+    /// tries." Pins the default down to a single retry so this can't
+    /// silently regress back to a long schedule — see
+    /// `defaultReconnectRetrySchedule`'s own doc comment for the math.
+    func test_defaultReconnectRetrySchedule_isBoundedToOneRetry() {
+        XCTAssertEqual(HomeViewModel.defaultReconnectRetrySchedule.count, 1)
     }
 
     /// Guards against the same "duplicate work on an already-fine state"
@@ -842,6 +891,41 @@ final class HomeViewModelTests: XCTestCase {
             throw URLError(.unknown)
         }
         await viewModel.retryLoadIfNeeded()
+    }
+
+    /// Regression test for a real bug found live (2026-08-29): tapping
+    /// Search's mirrored "Try Again" (via `LibraryAvailability.retryAction`)
+    /// while `HomeView`'s own automatic reconnect hook already had a
+    /// `retryLoadIfNeeded()` in flight fired a second, independent `load()`
+    /// racing the first — whichever finished last could clobber the other's
+    /// outcome, and the visible symptom was a "Try Again" tap that just spun
+    /// forever with no result. Two concurrent callers must instead coalesce
+    /// into the single in-flight attempt, matching `JellyfinAPIClient`'s own
+    /// `inFlightReauth` coalescing (see `test_401_concurrentFailures_
+    /// coalesceIntoASingleReauthentication`) — same `async let` technique
+    /// used here to actually race the two calls against each other.
+    func test_retryLoadIfNeeded_concurrentCallers_coalesceIntoOneAttempt() async {
+        let viewModel = makeViewModel()
+        nonisolated(unsafe) var viewsAttempts = 0
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path == "/Users/user-1/Views" { viewsAttempts += 1 }
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        async let first: Void = viewModel.retryLoadIfNeeded()
+        async let second: Void = viewModel.retryLoadIfNeeded()
+        _ = await (first, second)
+
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(viewsAttempts, 1, "Two concurrent callers should coalesce into a single attempt, not race two independent loads")
     }
 
     func test_loadMoreDynamicRails_noOpsWhileAlreadyLoading() async {
