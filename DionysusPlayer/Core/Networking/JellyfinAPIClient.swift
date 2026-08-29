@@ -99,6 +99,19 @@ actor JellyfinAPIClient {
         return result
     }
 
+    /// Hydrates this client from a previously-successful sign-in's cached
+    /// credentials, without a network round-trip — used when a fresh
+    /// `authenticate(...)` call can't be made (server unreachable at
+    /// launch) but `ServerSessionStore` already holds a token from an
+    /// earlier session. Sets the same state `authenticate(...)` sets on
+    /// success, so `sendRaw`'s existing 401 retry/reauth machinery works
+    /// identically once real connectivity returns — see
+    /// `reauthCredentials`'s doc comment.
+    func restoreSession(accessToken: String, username: String, password: String) {
+        self.accessToken = accessToken
+        reauthCredentials = (username, password)
+    }
+
     // MARK: - Browsing
 
     // `Studios` added for CollectionGridView's Studios filter — without it

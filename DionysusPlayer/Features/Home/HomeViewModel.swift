@@ -101,6 +101,31 @@ final class HomeViewModel {
     /// anyway, so which 200 doesn't need to be exhaustive) while keeping
     /// the discovery payload bounded for a very large one.
     private static let personDiscoveryLimit = 200
+    /// Default delays before each reconnect retry of `load()` after a
+    /// `ConnectivityMonitor` offline→online transition still finds
+    /// `loadState` unloaded — same array-of-delays convention as
+    /// `JellyfinAPIClient.reauthBackoffSchedule`/`AssetDetailViewModel
+    /// .userDataCommitPollSchedule`. The first attempt is immediate; these
+    /// are the delays *before* each subsequent one. Bounded rather than
+    /// infinite: a genuinely still-unreachable server must still leave
+    /// `loadState` at `.failed` (so the visible "Try Again" button still
+    /// works) rather than retrying forever — see `retryLoadIfNeeded()`.
+    ///
+    /// Deliberately just one retry, not several: unlike
+    /// `reauthBackoffSchedule` (a 401 means the server already responded,
+    /// so each retry is a normal fast round trip), a *reconnect* retry can
+    /// hit a server that's routable but not actually answering — each such
+    /// attempt costs up to `JellyfinAPIClient`'s own 20s per-request
+    /// timeout before it gives up, not a quick failure. A longer schedule
+    /// (originally 4 retries) multiplies that 20s ceiling by every attempt,
+    /// which measured live (2026-08-29) as up to ~100s of an unmoving
+    /// spinner before finally settling back to the offline screen — far
+    /// past what "attempted, then stop" reads as to someone watching it.
+    /// One retry bounds the worst case to roughly 2×20s+2s instead, while
+    /// still catching the original motivating case (Wi-Fi reassociating a
+    /// couple of seconds before the server is actually reachable) with the
+    /// first, immediate attempt or this one retry.
+    static let defaultReconnectRetrySchedule: [Double] = [2.0]
 
     private let client: JellyfinAPIClient
     private let userID: String
@@ -116,22 +141,50 @@ final class HomeViewModel {
     /// this one gets called from inside `loadMoreDynamicRails`'s
     /// `withTaskGroup` child tasks, not straight from the actor.
     private let itemShuffle: @Sendable ([BaseItemDto]) -> [BaseItemDto]
+    /// See `defaultReconnectRetrySchedule`'s doc comment. Injectable so
+    /// tests can exercise `retryLoadIfNeeded()`'s retry/give-up logic
+    /// without waiting out the real delays.
+    private let reconnectRetrySchedule: [Double]
+    /// Coalesces concurrent `retryLoadIfNeeded()` callers into one shared
+    /// attempt — see that method's own doc comment for the bug this fixes.
+    /// Same shape as `JellyfinAPIClient.inFlightReauth`.
+    private var inFlightRetry: Task<Void, Never>?
 
     init(
         client: JellyfinAPIClient,
         userID: String,
         shuffle: @escaping ([DynamicRailCandidate]) -> [DynamicRailCandidate] = { $0.shuffled() },
-        itemShuffle: @escaping @Sendable ([BaseItemDto]) -> [BaseItemDto] = { $0.shuffled() }
+        itemShuffle: @escaping @Sendable ([BaseItemDto]) -> [BaseItemDto] = { $0.shuffled() },
+        reconnectRetrySchedule: [Double] = HomeViewModel.defaultReconnectRetrySchedule
     ) {
         self.client = client
         self.userID = userID
         self.itemShuffle = itemShuffle
         self.shuffle = shuffle
+        self.reconnectRetrySchedule = reconnectRetrySchedule
     }
 
     func loadIfNeeded() async {
         guard loadState == .idle else { return }
         await load()
+    }
+
+    /// Every `loadState` write goes through this rather than a bare
+    /// assignment, so `LibraryAvailability.shared` — the signal `SearchView`'s
+    /// landing page mirrors instead of duplicating Home's own retry/reconnect
+    /// handling, see that type's doc comment — can never drift out of sync
+    /// with it, including the flicker-suppressing mid-loop reset in
+    /// `retryLoadIfNeeded()` below.
+    private func setLoadState(_ newValue: LoadState) {
+        loadState = newValue
+        switch newValue {
+        case .idle, .loading:
+            LibraryAvailability.shared.update(.loading)
+        case .loaded:
+            LibraryAvailability.shared.update(.available)
+        case .failed:
+            LibraryAvailability.shared.update(.unavailable)
+        }
     }
 
     /// Populates Home's curated rails, then kicks off dynamic genre/studio
@@ -142,7 +195,7 @@ final class HomeViewModel {
     /// doesn't affect `loadState`; Home stays usable without the extra
     /// rails rather than erroring out entirely over them.
     func load() async {
-        loadState = .loading
+        setLoadState(.loading)
         do {
             let images = await client.makeImageURLBuilder()
 
@@ -216,14 +269,14 @@ final class HomeViewModel {
             )
 
             rails = newRails
-            loadState = .loaded
+            setLoadState(.loaded)
 
             await loadDynamicRailCandidates()
         } catch {
-            loadState = .failed(
+            setLoadState(.failed(
                 (error as? LocalizedError)?.errorDescription
                     ?? String(localized: "Something went wrong loading your library.")
-            )
+            ))
         }
     }
 
@@ -292,6 +345,73 @@ final class HomeViewModel {
         hasMoreDynamicRails = !pendingDynamicRailCandidates.isEmpty
         dynamicRailCandidatesFailed = anyFetchFailed
         await loadMoreDynamicRails()
+    }
+
+    /// Called by `HomeView` when `ConnectivityMonitor` transitions back
+    /// online — retries `load()` itself if it never succeeded (a cold
+    /// launch that hit this while genuinely offline, or a previous
+    /// in-session failure), no-opping once it already has. `isOffline`
+    /// flipping `false` only means *some* request succeeded (see
+    /// `ConnectivityMonitor`'s own doc comment) — often a lightweight
+    /// scenePhase-driven health check that can beat the network actually
+    /// stabilizing enough for a real, heavier `/Users/{id}/Views` fan-out
+    /// to succeed (confirmed live: Wi-Fi reassociating can report
+    /// "connected" a couple of seconds before DNS/routing to a LAN server
+    /// is actually usable). A single immediate retry right at that instant
+    /// can still land in that same window and fail again — instead this
+    /// retries with backoff (`reconnectRetrySchedule`), so a genuinely
+    /// still-unreachable server still ends up back at `.failed` rather than
+    /// retrying forever, but a server that's a few seconds from being ready
+    /// gets caught by a later attempt instead of leaving the user stuck on
+    /// a stale failure with no obvious path forward besides tapping "Try
+    /// Again" themselves.
+    ///
+    /// Deliberately resets a mid-loop failure back to `.loading` (rather
+    /// than leaving `load()`'s own `.failed` write in place) before every
+    /// attempt but the last — both writes happen synchronously with no
+    /// `await` in between, so SwiftUI never actually renders the
+    /// intermediate `.failed` state, avoiding a flash of "Something went
+    /// wrong" between retries. Once the schedule is exhausted, the final
+    /// attempt's outcome (loaded or failed) is left as-is, so a genuinely
+    /// still-unreachable server ends up on the same `.failed` + visible
+    /// "Try Again" a single attempt would have shown.
+    ///
+    /// Every retry entry point — `HomeView`'s own "Try Again" buttons,
+    /// `LibraryAvailability.retryAction` (`SearchView`'s mirrored "Try
+    /// Again"), and `HomeView`'s automatic reconnect hook — calls this same
+    /// method rather than `load()` directly, and concurrent callers
+    /// coalesce into one shared attempt via `inFlightRetry` (same idea as
+    /// `JellyfinAPIClient.inFlightReauth`) instead of racing independent
+    /// `load()` calls. A real bug found live (2026-08-29): a manual retry
+    /// tapped while the automatic backoff loop was still mid-cycle could
+    /// have the loop's own next scheduled attempt fire *after* the manual
+    /// tap's `load()` had already succeeded, silently clobbering that
+    /// success back down to `.loading`/`.failed` with no further attempt
+    /// left to recover it — the visible symptom was a "Try Again" tap that
+    /// just spun forever with no outcome.
+    func retryLoadIfNeeded() async {
+        if let inFlightRetry {
+            await inFlightRetry.value
+            return
+        }
+        guard loadState != .loaded else { return }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.runRetryLoop()
+        }
+        inFlightRetry = task
+        await task.value
+        inFlightRetry = nil
+    }
+
+    private func runRetryLoop() async {
+        let delays = [0.0] + reconnectRetrySchedule
+        for (index, delay) in delays.enumerated() {
+            if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+            await load()
+            if loadState == .loaded { return }
+            if index < delays.count - 1 { setLoadState(.loading) }
+        }
     }
 
     /// Called by `HomeView` when `ConnectivityMonitor` transitions back
