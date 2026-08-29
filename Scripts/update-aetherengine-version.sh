@@ -41,11 +41,25 @@
 # checkout) finds something newer. Confirmed live (2026-08-28): a local run
 # reported 6.42.0 with no diff to commit, while `release.yml`'s safety net
 # on the very same commit caught 6.52.0 — costing a wasted release cut.
-# Clearing SPM's caches and re-resolving here is what makes this script's
-# output as trustworthy as CI's from now on, at the cost of this always
-# taking a few seconds longer (a real network resolution, not a cache hit)
-# and always touching the untracked `Package.resolved` even when nothing
-# upstream actually changed.
+#
+# Clearing SPM's global caches (below) turned out NOT to be sufficient on
+# its own, either — confirmed live again (2026-08-29, PR #152): with only
+# those cleared, this script reported 6.54.0 (no diff, so nothing to catch)
+# on a machine that had already built/tested the project locally, while
+# CI's from-scratch checkout resolved 6.56.3 on the same commit. The
+# missing piece is `xcodebuild`'s *own* per-project package checkout under
+# DerivedData (`<DerivedData>/DionysusPlayer-*/SourcePackages`) — once a
+# scheme has been built or resolved once, `-resolvePackageDependencies`
+# reuses that already-checked-out working copy instead of re-fetching tags,
+# regardless of whether SPM's global caches are warm or cold. CI never
+# builds it either — but that's incidental (a fresh CI runner has no prior
+# DerivedData at all), which is exactly why CI catches this and a local
+# run that skips this step can't be trusted to match it. Clearing *both*
+# caches and re-resolving here is what actually makes this script's output
+# as trustworthy as CI's, at the cost of this always taking a few seconds
+# longer (a real network resolution, not a cache hit) and always touching
+# the untracked `Package.resolved` even when nothing upstream actually
+# changed.
 set -e
 cd "$(dirname "$0")/.."
 
@@ -56,6 +70,7 @@ fi
 
 RESOLVED="DionysusPlayer.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 rm -rf ~/Library/Caches/org.swift.swiftpm ~/Library/org.swift.swiftpm
+rm -rf ~/Library/Developer/Xcode/DerivedData/DionysusPlayer-*/SourcePackages
 rm -f "$RESOLVED"
 echo "Resolving packages fresh (no cache) — this talks to the network..."
 xcodebuild -resolvePackageDependencies -project DionysusPlayer.xcodeproj -scheme DionysusPlayer >/dev/null

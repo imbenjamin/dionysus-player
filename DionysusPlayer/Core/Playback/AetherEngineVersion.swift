@@ -10,5 +10,5 @@
 /// exposes no runtime version API of its own (checked — nothing on
 /// `AetherEngine` reports it), so this is the only source of truth for it.
 enum AetherEngineVersion {
-    static let current = "6.54.0"
+    static let current = "6.56.3"
 }
