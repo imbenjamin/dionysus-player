@@ -23,13 +23,6 @@ struct ProfileView: View {
     /// own fallback for the same "both sides declare the same default"
     /// reason as `hero3DDepthEnabled` above.
     @AppStorage(nextUpCountdownStorageKey) private var nextUpCountdown: NextUpCountdownPreference = .seconds30
-    /// Default `.allowTranscoding` — matches `StreamPreferenceStore
-    /// .decisionMode`'s own fallback for the same "both sides declare the
-    /// same default" reason as `hero3DDepthEnabled` above.
-    @AppStorage(streamDecisionModeStorageKey) private var streamDecisionMode: StreamDecisionMode = .allowTranscoding
-    /// Default `.unlimited` — matches `StreamPreferenceStore
-    /// .streamingMaxBitrate`'s own fallback, same reasoning.
-    @AppStorage(streamingMaxBitrateStorageKey) private var streamingMaxBitrate: StreamingMaxBitrate = .unlimited
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showSignOutConfirmation = false
     @State private var showChangeServerConfirmation = false
@@ -109,45 +102,16 @@ struct ProfileView: View {
                             .tag(preference)
                     }
                 }
+                // Streaming mode/bitrate and the Playback Stats button
+                // toggle live on their own pushed screen — see
+                // `AdvancedPlaybackSettingsView`'s doc comment for why.
+                NavigationLink("Advanced") {
+                    AdvancedPlaybackSettingsView()
+                }
             } header: {
                 Text("Playback")
             } footer: {
                 Text("How long before the end of an episode to countdown the next episode, if end credits are not detected.")
-            }
-
-            // No header of its own — reads as a continuation of "Playback"
-            // just above, same as multiple footer-only sections under one
-            // header elsewhere in Settings.app. Kept apart from the
-            // countdown section above (rather than one section/footer
-            // covering all three controls) so each footer can stay scoped
-            // to the control(s) it actually explains — a single combined
-            // block covering three unrelated settings read as a wall of
-            // text nobody could tell which control it was about
-            // (confirmed live, 2026-08-28).
-            Section {
-                Picker("Streaming", selection: $streamDecisionMode) {
-                    ForEach(StreamDecisionMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                if streamDecisionMode == .allowTranscoding {
-                    Picker("Max Streaming Bitrate", selection: $streamingMaxBitrate) {
-                        ForEach(StreamingMaxBitrate.allCases) { tier in
-                            Text(tier.displayName)
-                                .accessibilityLabel(tier.accessibilityLabel)
-                                .tag(tier)
-                        }
-                    }
-                }
-            } footer: {
-                // Switches with the picker above rather than trying to
-                // explain both modes unconditionally — only ever one
-                // is relevant to what's currently selected.
-                if streamDecisionMode == .allowTranscoding {
-                    Text("Allow Transcoding asks the server to decide, transcoding when necessary — including to keep the stream under the Max Streaming Bitrate cap, even for a file that could otherwise play untouched.")
-                } else {
-                    Text("Direct Play Always sends the original file untouched — best quality, but may fail if your device or network can't handle it.")
-                }
             }
 
             Section {
