@@ -997,22 +997,24 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(session?.transcodingInfo?.completionPercentage, 42.5)
     }
 
-    func test_pingDownloadTranscode_postsPlaySessionIdAndZeroPosition() async throws {
+    func test_pingDownloadTranscode_pingsPlaySessionIdViaQueryParam() async throws {
         let client = makeClient(accessToken: "tok")
-        struct DecodedBody: Decodable { let ItemId: String; let PositionTicks: Int64; let MediaSourceId: String?; let PlaySessionId: String? }
-        var decoded: DecodedBody?
+        var capturedRequest: URLRequest?
         MockURLProtocol.requestHandler = { request in
-            XCTAssertEqual(request.url?.path, "/Sessions/Playing/Progress")
-            decoded = try JSONDecoder().decode(DecodedBody.self, from: request.capturedHTTPBody ?? Data())
+            capturedRequest = request
             return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
         }
 
-        try await client.pingDownloadTranscode(itemID: "item-1", mediaSourceID: "src-1", playSessionId: "session-123")
+        try await client.pingDownloadTranscode(playSessionId: "session-123")
 
-        XCTAssertEqual(decoded?.ItemId, "item-1")
-        XCTAssertEqual(decoded?.PositionTicks, 0)
-        XCTAssertEqual(decoded?.MediaSourceId, "src-1")
-        XCTAssertEqual(decoded?.PlaySessionId, "session-123")
+        XCTAssertEqual(capturedRequest?.url?.path, "/Sessions/Playing/Ping")
+        let components = capturedRequest?.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        XCTAssertEqual(components?.queryItems, [URLQueryItem(name: "playSessionId", value: "session-123")])
+        // A dedicated keep-alive ping, not the real playback-progress
+        // endpoint — no body at all, so nothing for the server to
+        // misinterpret as watched progress. See `pingDownloadTranscode`'s
+        // own doc comment for why this matters.
+        XCTAssertTrue((capturedRequest?.capturedHTTPBody ?? Data()).isEmpty)
     }
 
     func test_reportPlaybackProgress_serverError_throwsHTTPError() async {

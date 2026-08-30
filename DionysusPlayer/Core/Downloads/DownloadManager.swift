@@ -413,7 +413,7 @@ final class DownloadManager: NSObject {
         // whether a completion percentage ever shows up to read, which
         // `startTranscodeProgressPolling` already handles by simply finding
         // nothing to apply.
-        startTranscodeProgressPolling(itemID: item.id, mediaSourceID: mediaSourceID, playSessionId: playSessionId, client: client)
+        startTranscodeProgressPolling(itemID: item.id, playSessionId: playSessionId, client: client)
     }
 
     /// Re-attempts a `.failed` download using the same resolution/quality/
@@ -1034,13 +1034,13 @@ final class DownloadManager: NSObject {
     /// silently skipped rather than treated as an error — both are
     /// best-effort, and a single missed tick two seconds before the next
     /// one is immaterial either way.
-    private func startTranscodeProgressPolling(itemID: String, mediaSourceID: String, playSessionId: String, client: JellyfinAPIClient) {
+    private func startTranscodeProgressPolling(itemID: String, playSessionId: String, client: JellyfinAPIClient) {
         transcodeProgressPollTasks[itemID]?.cancel()
         transcodeProgressPollTasks[itemID] = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.transcodeProgressPollInterval)
                 guard !Task.isCancelled, let self else { return }
-                try? await client.pingDownloadTranscode(itemID: itemID, mediaSourceID: mediaSourceID, playSessionId: playSessionId)
+                try? await client.pingDownloadTranscode(playSessionId: playSessionId)
                 guard var progress = self.activeDownloads[itemID] else { continue }
 
                 // See the doc comment above: only trust the shared session's

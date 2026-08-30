@@ -637,6 +637,58 @@ change them together.
   Downloads list row and via the Retry button there. 95%, not 100%: real
   transcode output can land a fraction of a second short of the source's own
   metadata (keyframe/mux rounding) without anything being wrong.
+
+### A finished-but-never-played download could appear watched
+
+  Reported after the fix above shipped: an item that finished downloading but
+  was never actually opened started showing up in Home's Continue Watching
+  rail at a nonzero watched percentage. That rail is entirely server-driven
+  (`GET /Users/{userId}/Items/Resume`, filtered server-side on
+  `UserData.PlaybackPositionTicks` — confirmed via `HomeViewModel`/
+  `MediaItem.playedFraction`, no client-side filtering exists), so the nonzero
+  position had to be persisted server-side, and the download's keep-alive
+  ping — the only playback-progress-shaped call anywhere in the download path
+  — was the only plausible cause, even though it always sent
+  `PositionTicks: 0`.
+
+  This was checked directly against Jellyfin server source
+  (`github.com/jellyfin/jellyfin`, not guessed) rather than assumed. Tracing
+  `PlaystateController.ReportPlaybackProgress` → `SessionManager
+  .OnPlaybackProgress` → `UserDataManager.UpdatePlayState` confirms a literal
+  `PositionTicks: 0` is written back as exactly `0`. The idle-timeout path
+  (`SessionManager.CheckForIdlePlayback`, a 5-minute sweep that synthesizes a
+  `Stopped` call for any session that's stopped checking in) also traced
+  clean — it uses `SessionInfo.LastPlaybackCheckInPositionTicks`, a snapshot
+  taken only at the last real check-in, never the separate, second-by-second
+  dead-reckoning "now playing" position server sessions maintain internally
+  (`SessionInfo.StartAutomaticProgress`/`OnProgressTimerCallback`, which does
+  extrapolate a climbing position once a real check-in starts it — and which
+  this download session, never sending an explicit `Stopped`, never told to
+  stop either). That second, ever-climbing value never showed up written to
+  persisted `UserData` in any path traced through `master`, so the *exact*
+  mechanism that lands on a persisted nonzero value on whatever server
+  version is actually deployed remains unreproduced from source alone —
+  server internals can differ by version, and the download path is the only
+  place in this app that ever sends an indefinite stream of `Progress` pings
+  against a real `PlaySessionId` with no bracketing `Start` and no bracketing
+  `Stop`, unlike every real playback session (`PlayerViewModel`).
+
+  Rather than chase a version-specific mechanism further, the source search
+  turned up something better: `PlaystateController` also defines a dedicated
+  `POST /Sessions/Playing/Ping?playSessionId=...` endpoint
+  (`PingPlaybackSession`) whose entire body is
+  `_transcodeManager.PingTranscodingJob(playSessionId, null)` — no
+  `SessionManager` call, no `NowPlayingItem`, no `PlayState`, no automatic-
+  progress timer, nothing `UserData`-adjacent at all. It exists purely to
+  reset a transcode job's kill-timer, which is the *only* thing the download's
+  keep-alive ping was ever trying to do. `pingDownloadTranscode` now calls
+  this instead of reusing `reportPlaybackProgress`'s
+  `/Sessions/Playing/Progress` — a structural fix rather than a careful choice
+  of position value: it doesn't just avoid creating a fake watched session, it
+  can't create one, regardless of server version. `DownloadManager` no longer
+  needs to pass an item or media source to the ping at all — the endpoint
+  keys purely on `PlaySessionId`.
+
 - **No `DeviceProfile` is sent.** The app hand-builds the stream URL rather than
   negotiating through `PlaybackInfo`, which bypasses Jellyfin's own stream
   selection entirely. That's what makes the ladder fully deterministic, but it
