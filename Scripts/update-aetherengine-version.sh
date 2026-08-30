@@ -1,8 +1,14 @@
 #!/bin/sh
 # Regenerates DionysusPlayer/Core/Playback/AetherEngineVersion.swift from
-# whatever AetherEngine version is actually pinned in the *checked-in*
-# Package.resolved lock file (see that file's own comment for why it's
-# checked in, unlike the rest of `.xcodeproj`).
+# whatever AetherEngine version is pinned in Package.resolved after a
+# from-scratch resolve.
+#
+# Package.resolved is NOT checked in — it lives inside the .xcodeproj
+# (`project.xcworkspace/xcshareddata/swiftpm/`), and .gitignore's blanket
+# `*.xcodeproj` rule covers it, same as the rest of the generated project.
+# That's precisely why this script clears the caches below and resolves
+# fresh: there is no committed lock file, so every CI run resolves cold and
+# can legitimately land on a newer 6.x than the last one did.
 #
 # Why a checked-in generated Swift file rather than stamping the version
 # into the built Info.plist at build time (the same trick this project
