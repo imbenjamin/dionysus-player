@@ -739,19 +739,25 @@ actor JellyfinAPIClient {
     /// download is still very much wanted), and nothing refreshes that timer
     /// unless a ping arrives on the *same* `PlaySessionId` the stream was
     /// requested with. A `streamURL`/plain playback request never needed
-    /// this — only a download's long-lived, unattended transfer does. Hits
-    /// the same `/Sessions/Playing/Progress` endpoint `reportPlaybackProgress`
-    /// does; `positionTicks: 0` is deliberate (there's no real "playback
-    /// position" for an in-progress transcode file, and Jellyfin's kill-timer
-    /// logic only cares that a ping with this `PlaySessionId` arrived at
-    /// all, not what position it reports).
-    func pingDownloadTranscode(itemID: String, mediaSourceID: String?, playSessionId: String) async throws {
-        try await postNoContent(
-            "/Sessions/Playing/Progress",
-            body: PlaybackProgressRequest(
-                itemId: itemID, positionTicks: 0, mediaSourceId: mediaSourceID, playSessionId: playSessionId
-            )
-        )
+    /// this — only a download's long-lived, unattended transfer does.
+    ///
+    /// Hits `/Sessions/Playing/Ping` — a dedicated keep-alive endpoint,
+    /// *not* `reportPlaybackProgress`'s `/Sessions/Playing/Progress` (an
+    /// earlier version of this used that, which read as reasonable since
+    /// `positionTicks: 0` sounds harmless, but downloads then showed up in
+    /// Home's Continue Watching rail at a nonzero watched percentage despite
+    /// never being played — see `DOWNLOADS.md`'s "A finished-but-never-played
+    /// download could appear watched" for the investigation). Confirmed
+    /// against Jellyfin server source (`PlaystateController
+    /// .PingPlaybackSession` → `ITranscodeManager.PingTranscodingJob`) that
+    /// this dedicated endpoint touches *only* the transcode job's kill-timer
+    /// — no session/`NowPlayingItem`/`UserData` interaction of any kind — so
+    /// it can't cause that class of bug at all, rather than merely avoiding
+    /// it through a careful choice of position value. It also only takes a
+    /// `PlaySessionId`, not an item/position, which is why this no longer
+    /// does either.
+    func pingDownloadTranscode(playSessionId: String) async throws {
+        try await sendNoContent(path: "/Sessions/Playing/Ping", method: "POST", query: [.init(name: "playSessionId", value: playSessionId)])
     }
 
     /// Directly sets a user's watched/resume state for an item — `POST
@@ -831,9 +837,11 @@ actor JellyfinAPIClient {
 
     /// Like `postNoContent`, but for an endpoint that also needs no request
     /// body at all (`setFavorite`/`setWatched`'s `POST`/`DELETE` toggle
-    /// shape) — `method` rather than always `"POST"` is the only difference.
-    private func sendNoContent(path: String, method: String) async throws {
-        let request = try makeRequest(path: path, method: method)
+    /// shape, and `pingDownloadTranscode`'s query-param-only ping) — `method`
+    /// rather than always `"POST"`, and an optional `query`, are the only
+    /// differences.
+    private func sendNoContent(path: String, method: String, query: [URLQueryItem] = []) async throws {
+        let request = try makeRequest(path: path, method: method, query: query)
         _ = try await sendRaw(request)
     }
 
