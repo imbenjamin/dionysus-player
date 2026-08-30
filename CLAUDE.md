@@ -136,6 +136,31 @@ same fix (a checked-in generated file, refreshed by
 tag convention, alpha/beta/final release flow, and how the version reaches
 the built app.
 
+**Cutting a release is one annotated tag push.** `release.yml` stamps the
+version from the tag, builds and tests it, archives and signs it, uploads it
+to App Store Connect (where it becomes a TestFlight build), and publishes the
+GitHub Release. Nothing needs stamping, predicting, or verifying beforehand —
+if you find yourself adding a "stamp before tagging" step, read
+`VERSIONING.md`'s "Why there is no longer a release-prep PR" first; that
+coupling was removed deliberately after its build-number prediction broke
+three times.
+
+Three things about it that aren't obvious from the workflow file:
+
+- **The annotated tag's message is the release notes.** It becomes both the
+  GitHub Release body and TestFlight's "What to Test", so write it for a
+  tester. A lightweight tag (`git tag` without `-a`) silently produces an
+  empty summary.
+- **`Config/Version.xcconfig` and `AppVersion.swift` are expected to lag**
+  between releases. CI stamps the shipped build; the checked-in copies are a
+  local-dev convenience and report honest off-tag metadata
+  (`0.8.0-alpha.1+12.gabc1234`). Don't "fix" them to match.
+- **The archive signs automatically, the export signs manually.** That
+  asymmetry is deliberate — automatic export fails with a cloud-signing
+  permission error. It depends on a provisioning profile named *by string* in
+  `Config/ExportOptions.plist`, which, along with the distribution
+  certificate, expires 2027-08-30. See `VERSIONING.md`'s "Signing setup".
+
 ## Manual/automated UI verification
 
 For visual or interactive changes, prefer the `ios-simulator-skill` (when
