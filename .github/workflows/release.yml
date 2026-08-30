@@ -11,12 +11,22 @@ name: Release
 # VERSIONING.md for why the old "stamp on a release-prep branch, PR it, merge,
 # then tag" flow is gone.
 #
-# No code signing/archive export/TestFlight upload yet; that needs App Store
-# Connect API key secrets and lands in the follow-up PR.
+# It also archives, signs, and uploads the build to App Store Connect, which
+# is what puts it in TestFlight. That needs five repo secrets/variables — see
+# "Signing setup" in VERSIONING.md. When they're absent the signing steps are
+# skipped with a loud warning rather than failing the run, so a GitHub Release
+# is still published; check the run summary if a tag didn't reach TestFlight.
 on:
   push:
     tags:
       - "v*.*.*"
+  # Re-run a release for a tag that already exists, without re-tagging —
+  # for recovering from an infrastructure failure partway through.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re-)release, e.g. v0.9.0-alpha.1
+        required: true
 
 # This repo's default GITHUB_TOKEN permissions are read-only (repo Settings
 # > Actions > General), so `gh release create` 403s without this — scoped
@@ -29,7 +39,7 @@ concurrency:
   # Never cancel a release mid-flight — unlike a PR run, there's no
   # superseding commit coming, and a half-finished release is worse than a
   # slow one.
-  group: release-${{ github.ref_name }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -39,14 +49,103 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      - name: Resolve tag
+        id: tag
+        # One place that decides what's being released, so the tag-push and
+        # workflow_dispatch paths can't diverge.
+        #
+        # Via env, not `${{ }}` interpolation: on the workflow_dispatch path
+        # this value is typed by a human and would otherwise be pasted into
+        # the script text verbatim. It also has to name a real tag, so
+        # validate it rather than trusting the input.
+        env:
+          RAW_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          # Format only — this step runs before checkout, so there's no repo
+          # to check existence against yet. A tag that doesn't exist fails at
+          # the Checkout step below, which is a clear enough error.
+          TAG="$RAW_TAG"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9]+)?$ ]]; then
+            echo "::error::'$TAG' is not a version tag. Expected vX.Y.Z, vX.Y.Z-alpha.N, or vX.Y.Z-beta.N — see VERSIONING.md." >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          # Prerelease if the tag carries an -alpha/-beta suffix *or* the core
+          # version is still 0.x — a 0.x release is by definition not stable,
+          # and a suffix-only test would publish a bare `v0.9.0` as a full
+          # release. Prereleases are cut from develop, finals from main.
+          CORE="${TAG#v}"; CORE="${CORE%%-*}"; MAJOR="${CORE%%.*}"
+          case "$TAG" in
+            *-alpha*|*-beta*) PRE=true ;;
+            *) if [ "$MAJOR" = "0" ]; then PRE=true; else PRE=false; fi ;;
+          esac
+          echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
+          if [ "$PRE" = "true" ]; then
+            echo "branch=develop" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=main" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          ref: ${{ steps.tag.outputs.tag }}
           # Full history + tags: Scripts/update-version.sh derives the
           # version from `git describe`/`git rev-list --count`, both of
           # which need real history, not the default single-commit
           # shallow clone.
           fetch-depth: 0
+
+      - name: Verify the tag is on the right branch
+        # Prereleases are cut from develop and stay there; final releases are
+        # cut from main after a develop -> main promotion (see
+        # promote-to-main.yml). Catching a misplaced tag here costs seconds;
+        # catching it after a ~40 minute archive-and-upload costs a build
+        # number and a wasted TestFlight slot.
+        env:
+          BRANCH: ${{ steps.tag.outputs.branch }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          git fetch --quiet origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+          if ! git merge-base --is-ancestor "$TAG^{commit}" "origin/$BRANCH"; then
+            echo "::error::$TAG is not contained in origin/$BRANCH. Prerelease tags (-alpha/-beta, or any 0.x) are cut from develop; final releases are cut from main after merging the promote-to-main PR. See VERSIONING.md." >&2
+            exit 1
+          fi
+          echo "$TAG is contained in origin/$BRANCH."
+
+      - name: Compose release notes
+        id: notes
+        # Composed up front rather than at publish time because two later
+        # steps consume it: TestFlight's "What to Test" and the GitHub
+        # Release body. One tag message, both destinations.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          # The annotated tag's own message is the human-facing summary.
+          # `--generate-notes` alone is just an auto-generated "What's Changed"
+          # PR list — accurate, but not what a tester wants to read first,
+          # which is why this used to be hand-edited after every release.
+          TAG_MSG=$(git tag -l --format='%(contents)' "$TAG")
+          if [ -z "$(printf '%s' "$TAG_MSG" | tr -d '[:space:]')" ]; then
+            echo "::warning::$TAG has no annotated message, so this release has no human-written summary. Tag with 'git tag -a' and a real message — see VERSIONING.md."
+          fi
+
+          GENERATED=$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$TAG" --jq .body)
+          printf '%s\n\n%s\n' "$TAG_MSG" "$GENERATED" > "$RUNNER_TEMP/notes.md"
+
+          # Multi-line step output needs the delimiter form. The delimiter is
+          # random so a tag message that happens to contain it can't terminate
+          # the block early (a real injection vector for attacker-controlled
+          # text, and merely a footgun for our own).
+          DELIM="EOF_$(openssl rand -hex 16)"
+          {
+            echo "summary<<$DELIM"
+            printf '%s\n' "$TAG_MSG"
+            echo "$DELIM"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up iOS project
         uses: ./.github/actions/setup-ios-project
@@ -86,37 +185,162 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      # ---------------------------------------------------------------
+      # Sign, archive, export, and ship to App Store Connect.
+      # ---------------------------------------------------------------
+
+      - name: Check for signing credentials
+        id: signing
+        # Skip-with-warning rather than fail: a missing secret shouldn't stop
+        # the GitHub Release from being published, and this workflow has to be
+        # mergeable before the App Store Connect setup is done. The warning and
+        # the run summary are what make a skipped upload visible — a tag that
+        # quietly never reached TestFlight would be worse than a red run.
+        # Everything reaches the shell via env rather than `${{ }}`
+        # interpolation: a value containing a quote would otherwise be pasted
+        # straight into the script text and break it (or worse).
+        env:
+          P12: ${{ secrets.APPSTORE_CERTIFICATES_FILE_BASE64 }}
+          KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          ISSUER_ID: ${{ vars.APPSTORE_ISSUER_ID }}
+          KEY_ID: ${{ vars.APPSTORE_API_KEY_ID }}
+        run: |
+          if [ -n "$P12" ] && [ -n "$KEY" ] \
+             && [ -n "$ISSUER_ID" ] \
+             && [ -n "$KEY_ID" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::App Store Connect credentials are not configured — skipping archive and TestFlight upload. This release will publish to GitHub only. See 'Signing setup' in VERSIONING.md."
+            echo "⚠️ **No TestFlight build.** App Store Connect credentials are not configured; this release published to GitHub only. See \`Signing setup\` in VERSIONING.md." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Import signing certificate
+        if: steps.signing.outputs.available == 'true'
+        uses: apple-actions/import-codesign-certs@v7
+        with:
+          p12-file-base64: ${{ secrets.APPSTORE_CERTIFICATES_FILE_BASE64 }}
+          p12-password: ${{ secrets.APPSTORE_CERTIFICATES_PASSWORD }}
+
+      - name: Download provisioning profile
+        if: steps.signing.outputs.available == 'true'
+        # Installs "Dionysus App Store" (IOS_APP_STORE, tied to the
+        # distribution certificate above) into ~/Library/MobileDevice/
+        # Provisioning Profiles/, where -exportArchive looks for the profile
+        # Config/ExportOptions.plist names. Without this the export fails with
+        # "Cloud signing permission error" — see that file's comment.
+        uses: apple-actions/download-provisioning-profiles@v6
+        with:
+          bundle-id: com.imbenjamin.dionysusplayer
+          profile-type: IOS_APP_STORE
+          issuer-id: ${{ vars.APPSTORE_ISSUER_ID }}
+          api-key-id: ${{ vars.APPSTORE_API_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+
+      - name: Write App Store Connect API key
+        if: steps.signing.outputs.available == 'true'
+        # -authenticationKeyPath takes a path, not a value, so the .p8 has to
+        # land on disk. RUNNER_TEMP is wiped when the job ends. Only the
+        # archive needs this; the export signs from the profile above.
+        env:
+          KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          printf '%s' "$KEY" > "$RUNNER_TEMP/asc-key.p8"
+          chmod 600 "$RUNNER_TEMP/asc-key.p8"
+
+      - name: Archive and export
+        if: steps.signing.outputs.available == 'true'
+        id: export
+        # Plain xcodebuild rather than apple-actions/xcodebuild: that action
+        # pushes `extra-arguments` onto the archive invocation only — its
+        # export builds an argument list from scratch (checked against
+        # src/main.ts, 2026-08-30) — so the archive's signing flags could
+        # never reach an export that needed them.
+        #
+        # The two invocations sign differently, on purpose:
+        #
+        #   archive — automatic (-allowProvisioningUpdates + API key),
+        #     matching project.yml's CODE_SIGN_STYLE.
+        #   export  — manual, against the profile installed above, needing no
+        #     credentials at all. Automatic export was tried first and fails
+        #     with "Cloud signing permission error" even with an Admin-level
+        #     key, because it asks Apple to mint a profile at export time.
+        #
+        # Both halves were verified by a local dry-run against the real
+        # credentials (2026-08-30) before this first ran in CI: the archive
+        # succeeded, automatic export failed, manual export produced a
+        # correctly-signed .ipa with the tag's version fields intact.
+        env:
+          KEY_PATH: ${{ runner.temp }}/asc-key.p8
+          KEY_ID: ${{ vars.APPSTORE_API_KEY_ID }}
+          ISSUER_ID: ${{ vars.APPSTORE_ISSUER_ID }}
+        run: |
+          xcodebuild archive \
+            -project DionysusPlayer.xcodeproj \
+            -scheme DionysusPlayer \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath .build/Dionysus.xcarchive \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            | xcbeautify --renderer github-actions
+
+          xcodebuild -exportArchive \
+            -archivePath .build/Dionysus.xcarchive \
+            -exportOptionsPlist Config/ExportOptions.plist \
+            -exportPath .build/export \
+            | xcbeautify --renderer github-actions
+
+          IPA=$(find .build/export -name '*.ipa' -maxdepth 1 | head -1)
+          if [ -z "$IPA" ]; then
+            echo "::error::Export produced no .ipa in .build/export." >&2
+            ls -laR .build/export || true
+            exit 1
+          fi
+          echo "ipa=$IPA" >> "$GITHUB_OUTPUT"
+          echo "Exported $IPA"
+
+      - name: Upload to App Store Connect
+        if: steps.signing.outputs.available == 'true'
+        uses: apple-actions/upload-testflight-build@v5
+        with:
+          app-path: ${{ steps.export.outputs.ipa }}
+          issuer-id: ${{ vars.APPSTORE_ISSUER_ID }}
+          api-key-id: ${{ vars.APPSTORE_API_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          # The annotated tag's message doubles as TestFlight's "What to Test"
+          # — the same text this run publishes as the GitHub Release notes.
+          release-notes: ${{ steps.notes.outputs.summary }}
+
+      - name: Upload build artifacts
+        if: steps.signing.outputs.available == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.tag.outputs.tag }}-build
+          # The .ipa is App Store-signed and so installable by nobody; it's
+          # kept for forensics, not distribution. dSYMs are what let a
+          # TestFlight crash report be symbolicated locally.
+          path: |
+            .build/export/*.ipa
+            .build/Dionysus.xcarchive/dSYMs
+          retention-days: 30
+          if-no-files-found: warn
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          IS_PRERELEASE: ${{ steps.tag.outputs.prerelease }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
-
-          # Prerelease if the tag carries an -alpha/-beta suffix *or* the core
-          # version is still 0.x — a 0.x release is by definition not stable,
-          # and the previous suffix-only test would have published a bare
-          # `v0.9.0` as a full release.
-          CORE="${TAG#v}"; CORE="${CORE%%-*}"; MAJOR="${CORE%%.*}"
           PRERELEASE_FLAG=""
-          case "$TAG" in
-            *-alpha*|*-beta*) PRERELEASE_FLAG="--prerelease" ;;
-            # An `if` rather than `[ … ] && …`: this is the last command in the
-            # branch, so under `set -e` a false test would make the whole `case`
-            # return non-zero and kill the step. An `if` with no else returns 0.
-            *) if [ "$MAJOR" = "0" ]; then PRERELEASE_FLAG="--prerelease"; fi ;;
-          esac
-
-          # The annotated tag's own message is the human-facing summary.
-          # `--generate-notes` alone is just an auto-generated "What's Changed"
-          # PR list — accurate, but not what a tester wants to read first, which
-          # is why this used to be hand-edited after every release. Composing
-          # both here means the notes live in git and need no follow-up.
-          TAG_MSG=$(git tag -l --format='%(contents)' "$TAG")
-          GENERATED=$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-            -f tag_name="$TAG" --jq .body)
-          printf '%s\n\n%s\n' "$TAG_MSG" "$GENERATED" > "$RUNNER_TEMP/notes.md"
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
 
           # create-or-update, so re-running a release that failed after this
-          # point isn't blocked by the release already existing.
+          # point (or a workflow_dispatch re-run) isn't blocked by the release
+          # already existing.
           gh release create "$TAG" --notes-file "$RUNNER_TEMP/notes.md" $PRERELEASE_FLAG \
             || gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md" $PRERELEASE_FLAG

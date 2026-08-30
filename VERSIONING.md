@@ -52,16 +52,38 @@ git push origin v1.2.0-alpha.1
 
 `.github/workflows/release.yml` takes it from there: it stamps the version
 from the tag, refreshes the AetherEngine version display, builds and tests
-the exact tagged commit, and publishes a GitHub Release — marked
-"prerelease" automatically when the tag contains `-alpha` or `-beta`.
+the exact tagged commit, publishes a GitHub Release, and archives, signs and
+uploads the build to App Store Connect — where it becomes a TestFlight build.
 
-**Write the tag message as real release notes.** It isn't just a label — see
+**Write the tag message as real release notes.** It isn't just a label: it
+becomes both the GitHub Release body and TestFlight's "What to Test" — see
 "Release notes" below.
 
 Successive builds at the same core version bump the trailing number:
-`v1.2.0-alpha.2`, `v1.2.0-alpha.3`, ... then `v1.2.0-beta.1`, ... then, once
-approved and merged to `main`, `v1.2.0` — same one-command flow, just based
-off `main` instead of `develop`.
+`v1.2.0-alpha.2`, `v1.2.0-alpha.3`, ... then `v1.2.0-beta.1`, ... then,
+once approved, `v1.2.0`.
+
+### Final releases come from `main`
+
+Prereleases (`-alpha`/`-beta`, or **any** `0.x` version) are cut from
+`develop` and stay there. Final releases are cut from `main`, which is
+release-only and lags `develop`:
+
+```sh
+gh workflow run promote-to-main.yml   # opens the develop -> main PR
+# merge it (gated by pr-checks.yml, like any other PR), then:
+git checkout main && git pull
+git tag -a v1.2.0 -m "Release summary for testers…"
+git push origin v1.2.0
+```
+
+`release.yml` refuses a tag on the wrong branch — a prerelease tag not
+contained in `develop`, or a final tag not contained in `main` — and says so
+within seconds, rather than after a ~40 minute archive and upload.
+
+The promotion workflow deliberately opens the PR but does **not** merge it.
+Merging from CI would need a standing credential able to bypass `main`'s
+ruleset, kept around for something done a handful of times a year.
 
 Nothing needs stamping, predicting, or verifying beforehand, and
 `./Scripts/update-aetherengine-version.sh` does not need running as part of
@@ -118,6 +140,105 @@ and "treat the release as done" depended on someone remembering. Getting it
 wrong now means amending the notes on GitHub after the fact — the same
 recovery as before, just no longer the default path.
 
+## Signing setup
+
+`release.yml` signs, archives and uploads to App Store Connect using three
+repo **secrets** and two repo **variables**. Without them it skips those
+steps with a warning and publishes to GitHub only — so a missing credential
+degrades the release rather than failing it. If a tag didn't reach
+TestFlight, check the run summary first.
+
+| | Name | Contents |
+|---|---|---|
+| secret | `APPSTORE_CERTIFICATES_FILE_BASE64` | `base64 -i AppleDistribution.p12` |
+| secret | `APPSTORE_CERTIFICATES_PASSWORD` | the `.p12` export password |
+| secret | `APPSTORE_API_PRIVATE_KEY` | full contents of `AuthKey_XXXXXX.p8` |
+| var | `APPSTORE_ISSUER_ID` | ASC → Users and Access → Integrations |
+| var | `APPSTORE_API_KEY_ID` | the key's ID, same page |
+
+One-time setup:
+
+1. **App Store Connect API key.** ASC → Users and Access → Integrations →
+   App Store Connect API → generate a team key with the **App Manager**
+   role. Admin or App Manager is required — `-allowProvisioningUpdates`
+   needs to create and update provisioning profiles, and a Developer-role
+   key will fail the archive. The `.p8` downloads **once**; there is no
+   second chance.
+2. **Distribution certificate.** Keychain Access → your *Apple Distribution*
+   certificate → expand it and select both the certificate **and** its
+   private key → Export as a `.p12` with a password. Exporting the
+   certificate alone produces a `.p12` that imports cleanly and then fails
+   to sign.
+3. Set them:
+   ```sh
+   base64 -i AppleDistribution.p12 | gh secret set APPSTORE_CERTIFICATES_FILE_BASE64
+   gh secret set APPSTORE_CERTIFICATES_PASSWORD
+   gh secret set APPSTORE_API_PRIVATE_KEY < AuthKey_XXXXXX.p8
+   gh variable set APPSTORE_ISSUER_ID
+   gh variable set APPSTORE_API_KEY_ID
+   ```
+
+This repo is public. Secrets are unavailable to fork PRs by design, and the
+signing steps live only in `release.yml`, which runs on tag pushes — never in
+`pr-checks.yml`.
+
+### The archive and the export sign differently
+
+- **Archive** — automatic (`-allowProvisioningUpdates` + the API key),
+  matching `project.yml`'s `CODE_SIGN_STYLE: Automatic`.
+- **Export** — *manual*, against a named provisioning profile, needing no
+  credentials at all.
+
+Automatic export was tried first and does not work. At export time it asks
+Apple to mint the provisioning profile via cloud signing, which fails:
+
+```
+error: exportArchive Cloud signing permission error
+```
+
+— even with an Admin-role API key. Only the export needs a profile, which is
+why the archive succeeds and the export doesn't. Naming an existing profile
+sidesteps the cloud-signing path entirely.
+
+`apple-actions/xcodebuild` was also evaluated and rejected: it passes
+`extra-arguments` to the archive only, building its export argument list from
+scratch, so signing flags can never reach the export.
+
+### ⚠️ The provisioning profile is a maintained artifact
+
+`Dionysus App Store` (type `IOS_APP_STORE`, bundle ID
+`com.imbenjamin.dionysusplayer`) must exist in App Store Connect, and
+`Config/ExportOptions.plist` names it **by name, exactly**.
+`apple-actions/download-provisioning-profiles` installs it on the runner
+before the export.
+
+Two ways this breaks, neither of which the pipeline warns about in advance:
+
+- **The profile is renamed or deleted.** The export fails with "doesn't
+  include signing certificate" or a no-matching-profile error. Recreate it
+  under the same name.
+- **It expires** — profiles are tied to the signing certificate's lifetime,
+  so this one expires with the cert (see below). Regenerate it, and make sure
+  the new one keeps the name.
+
+Recreate it from the developer portal (Certificates, Identifiers & Profiles →
+Profiles → + → App Store Connect), or via the API:
+
+```
+POST /v1/profiles
+  attributes: { name: "Dionysus App Store", profileType: "IOS_APP_STORE" }
+  relationships: { bundleId: <bundle id>, certificates: [<distribution cert>] }
+```
+
+### ⚠️ Both credentials expire
+
+The distribution certificate and the profile that depends on it both expire
+**2027-08-30**. Nothing warns beforehand; a release simply fails at the
+archive or export step with a signing error that doesn't obviously say
+"expired". Renew the certificate, re-export the `.p12`, update
+`APPSTORE_CERTIFICATES_FILE_BASE64`, and regenerate the profile under the
+same name.
+
 ## How the version gets into the app
 
 `Scripts/update-version.sh` is the single source of truth's consumer. It
@@ -173,9 +294,17 @@ string isn't user-visible anyway.
 - **`.github/workflows/release.yml`** — runs on any `v*.*.*` tag push: sets up
   the project, stamps the version from that tag via `Scripts/update-version.sh`,
   **regenerates** `AetherEngineVersion.swift`, builds and tests the exact
-  tagged commit, then publishes a GitHub Release with the tag's own message
-  above GitHub's generated notes (`--prerelease` for `-alpha`/`-beta` tags and
-  for any `0.x` version).
+  tagged commit, archives and signs it, uploads it to App Store Connect, and
+  publishes a GitHub Release with the tag's own message above GitHub's
+  generated notes (`--prerelease` for `-alpha`/`-beta` tags and for any `0.x`
+  version). It also refuses a tag on the wrong branch — see "Final releases
+  come from `main`" above. A `workflow_dispatch` input re-runs a release for
+  an existing tag without re-tagging, for recovering from an infrastructure
+  failure partway through.
+
+- **`.github/workflows/promote-to-main.yml`** — `workflow_dispatch` only:
+  opens (or finds) the `develop` → `main` PR that a final release is tagged
+  from. Never merges; see that file's header for why.
 
 The two treat AetherEngine drift deliberately differently. `pr-checks.yml`
 *verifies* — drift is actionable there, days after it happens upstream.
@@ -187,6 +316,9 @@ Both share `.github/actions/setup-ios-project` and
 `.github/actions/build-and-test`, so their build/test behaviour cannot drift
 apart; they previously carried byte-identical copies of those steps.
 
-Neither workflow does code signing, archiving, or TestFlight/App Store
-upload yet — that needs an App Store Connect API key as a repo secret and
-is a deliberate follow-up, not part of this pass.
+Code signing, archiving and TestFlight upload live in `release.yml` only, and
+need the credentials in "Signing setup" above. Submitting a build for Beta App
+Review and assigning it to a tester group remain manual in the App Store
+Connect UI — deliberately, since neither is a per-release decision worth
+automating yet. App Store submission (metadata, screenshots) is not automated
+at all.

@@ -1,0 +1,81 @@
+name: Promote develop to main
+
+# Opens (or finds) the develop -> main PR that a final release is cut from.
+#
+# `main` is release-only and lags develop; only final `vX.Y.Z` tags are cut
+# from it, and release.yml refuses a final tag that isn't contained in it.
+# This workflow exists so that promotion is one command rather than a
+# remembered sequence of git steps.
+#
+# It deliberately does NOT merge. `main` is branch-protected, and merging
+# from CI would need a token that can bypass its ruleset — a standing
+# credential capable of writing to main, kept around for something a human
+# does a handful of times a year. Opening the PR is the automatable part;
+# merging it stays a human decision, gated by pr-checks.yml like any other.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  promote:
+    name: Open the develop to main promotion PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Open or find the promotion PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          EXISTING=$(gh pr list --base main --head develop --state open \
+            --json url --jq '.[0].url // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "A develop -> main PR is already open: $EXISTING"
+            echo "Promotion PR already open: $EXISTING" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if git merge-base --is-ancestor origin/develop origin/main; then
+            echo "::error::origin/main already contains everything on origin/develop — nothing to promote." >&2
+            exit 1
+          fi
+
+          AHEAD=$(git rev-list --count origin/main..origin/develop)
+
+          # Quoted heredoc ('BODY') so the backticks in the markdown below stay
+          # literal instead of being run as command substitutions; the one
+          # dynamic value is printf'd in ahead of it rather than interpolated.
+          {
+            printf 'Promotes `develop` to `main` so a final release can be tagged from it. %s commit(s) ahead.\n\n' "$AHEAD"
+            cat <<'BODY'
+          Opened by the `Promote develop to main` workflow.
+
+          After merging, tag the final release **on `main`**:
+
+          ```sh
+          git checkout main && git pull
+          git tag -a vX.Y.Z -m "Release summary for testers…"
+          git push origin vX.Y.Z
+          ```
+
+          `release.yml` refuses a final `vX.Y.Z` tag that isn't contained in
+          `main`, so this PR has to land first. See VERSIONING.md.
+          BODY
+          } > "$RUNNER_TEMP/body.md"
+
+          URL=$(gh pr create --base main --head develop \
+            --title "Promote develop to main" \
+            --body-file "$RUNNER_TEMP/body.md")
+
+          echo "Opened $URL"
+          echo "Promotion PR opened: $URL" >> "$GITHUB_STEP_SUMMARY"
