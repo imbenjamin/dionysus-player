@@ -168,6 +168,9 @@
     "Address" : {
 
     },
+    "Advanced" : {
+
+    },
     "Age Rating: %@" : {
 
     },
@@ -849,10 +852,16 @@
     "Show playback stats" : {
 
     },
+    "Show Playback Stats Button" : {
+
+    },
     "Show Player Controls" : {
 
     },
     "Shows" : {
+
+    },
+    "Shows a button on the player screen for viewing technical playback details — codec, bitrate, resolution, and more. On by default in development builds, off by default in release builds." : {
 
     },
     "Sign In" : {

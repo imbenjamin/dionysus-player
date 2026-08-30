@@ -68,6 +68,16 @@ struct PlayerControlsOverlay: View {
     /// flipped by tapping that timestamp. Local `@State`: nothing outside
     /// this overlay needs to know which mode is showing.
     @State private var showRemainingTime = true
+    /// Whether the info-circle button below (which toggles
+    /// `PlaybackStatsOverlay`) should be shown at all — a persisted
+    /// setting (Profile → Playback → Advanced), read directly via its own
+    /// `@AppStorage` rather than threaded down from `PlayerView`, same
+    /// "the view that displays a persisted setting reads it directly"
+    /// shape `HeroHeaderView`'s `hero3DDepthEnabled` already uses. Default
+    /// must stay in lockstep with `AdvancedPlaybackSettingsView`'s own read
+    /// of this key — see `showPlaybackStatsButtonEnabledDefault`'s doc
+    /// comment (`PlaybackStatsOverlay.swift`).
+    @AppStorage(showPlaybackStatsButtonEnabledStorageKey) private var isPlaybackStatsButtonEnabled = showPlaybackStatsButtonEnabledDefault
 
     /// Gates the zoom-mode button below — same check `PlayerView.isLandscape`
     /// uses, duplicated here rather than threaded through as a parameter —
@@ -440,26 +450,33 @@ struct PlayerControlsOverlay: View {
                     // too subtle against a busy video frame for that one
                     // (see its own comment), and this is the same kind of
                     // persistent-until-toggled-again state.
-                    Button {
-                        onInteract()
-                        onTogglePlaybackStats()
-                    } label: {
-                        Image(systemName: "info.circle")
-                            .font(.title2)
-                            .foregroundStyle(isPlaybackStatsVisible ? .black : .white)
-                            .frame(width: 36, height: 36)
-                            .background {
-                                if isPlaybackStatsVisible {
-                                    Circle().fill(Color.white)
+                    //
+                    // Gated on the Advanced settings toggle
+                    // (`isPlaybackStatsButtonEnabled`) — omitted entirely
+                    // when disabled, not shown-disabled, same treatment the
+                    // PiP button above gets when unavailable.
+                    if isPlaybackStatsButtonEnabled {
+                        Button {
+                            onInteract()
+                            onTogglePlaybackStats()
+                        } label: {
+                            Image(systemName: "info.circle")
+                                .font(.title2)
+                                .foregroundStyle(isPlaybackStatsVisible ? .black : .white)
+                                .frame(width: 36, height: 36)
+                                .background {
+                                    if isPlaybackStatsVisible {
+                                        Circle().fill(Color.white)
+                                    }
                                 }
-                            }
-                            // Same 36pt-badge-inside-a-44pt-target treatment
-                            // as the rotation lock button above.
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
+                                // Same 36pt-badge-inside-a-44pt-target treatment
+                                // as the rotation lock button above.
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel(isPlaybackStatsVisible ? Text("Hide playback stats") : Text("Show playback stats"))
+                        .animation(.easeInOut(duration: 0.15), value: isPlaybackStatsVisible)
                     }
-                    .accessibilityLabel(isPlaybackStatsVisible ? Text("Hide playback stats") : Text("Show playback stats"))
-                    .animation(.easeInOut(duration: 0.15), value: isPlaybackStatsVisible)
 
                     // Landscape-only — see `zoomMode`'s own doc comment. No
                     // on-state badge the way rotation-lock/stats above get
