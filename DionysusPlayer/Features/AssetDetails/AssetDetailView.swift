@@ -16,6 +16,44 @@ struct AssetDetailView: View {
     let itemID: String
     @State private var viewModel: AssetDetailViewModel
 
+    /// Bumped once `viewModel.loadIfNeeded()` (below) returns — forces a hard
+    /// identity reset of `content` so the Movie/Show/Collection detail layout
+    /// underneath is guaranteed to re-render with the now-fully-loaded
+    /// `viewModel.item` (cast, technical details, similar/collections rails),
+    /// not just whatever shallow `preloadedItem` it first rendered with.
+    ///
+    /// Exists because `viewModel.item` mutating on its own isn't reliably
+    /// enough to get this page to pick it up — the same class of bug
+    /// `MovieDetailView`/`ShowDetailView`/`CollectionDetailView`'s own
+    /// `refreshTrigger` already works around for the *post-playback* refresh
+    /// (see that property's doc comment), but until now nothing covered the
+    /// *initial* load. Confirmed live (2026-08-30) reaching an item from a
+    /// Home rail card (which seeds a preload — see `preloadedItem` below):
+    /// intermittently, `MovieDetailView.body` itself would never re-run a
+    /// second time after `load()` finished, even though direct instrumentation
+    /// showed `viewModel.item` had already been correctly replaced with the
+    /// full item (`loadState == .loaded`, cast/technical details present) —
+    /// leaving the page permanently stuck showing only preload-level fields
+    /// (year/rating/runtime/genres/overview) with no cast, no Details tab, no
+    /// technical-format badges, and no Similar/Included-In rails, and no
+    /// error or retry affordance since nothing had actually failed. Reached
+    /// via Search (no preload, `item` starts `nil`) never reproduced it,
+    /// since that path only ever renders `content` once, already fully
+    /// loaded — this only race-loses when a shallow preload's render and the
+    /// full load's completion are both vying for the same page.
+    ///
+    /// A plain `@State` write is what makes this reliable where re-reading
+    /// `viewModel.item`/`viewModel.loadState` directly isn't — see
+    /// `refreshTrigger`'s own doc comment for why. Scoped to bump right after
+    /// `loadIfNeeded()` returns (whether or not this session actually had a
+    /// preload to move past) rather than gating on `preloadedItem`'s
+    /// presence — a redundant identity reset on the no-preload path is
+    /// harmless (nothing to lose: the page hasn't been visible long enough
+    /// for the user to have scrolled it), and keeping this unconditional
+    /// avoids re-deriving "did this session need it" logic that could itself
+    /// drift out of sync with `AssetDetailViewModel.load()`'s own behavior.
+    @State private var loadCompletionTrigger = UUID()
+
     /// `client`/`userID` are passed in rather than read from
     /// `@Environment(AppState.self)` here directly, precisely so
     /// `viewModel` can be built *in* `init` — environment values aren't
@@ -30,8 +68,12 @@ struct AssetDetailView: View {
 
     var body: some View {
         content
+            .id(loadCompletionTrigger)
             .navigationBarTitleDisplayMode(.inline)
-            .task { await viewModel.loadIfNeeded() }
+            .task {
+                await viewModel.loadIfNeeded()
+                loadCompletionTrigger = UUID()
+            }
             // Stops any favorite/watched toggle confirmation poll or
             // post-playback refresh still in flight the moment this page
             // is no longer on screen — see `AssetDetailViewModel
