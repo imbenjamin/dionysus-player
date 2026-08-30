@@ -25,19 +25,26 @@
 # generated file refreshed by an explicit script run sidesteps that
 # entirely, at the cost of needing to remember to run it.
 #
-# Run this:
-#   - on a release-prep branch, with the intended tag name as an explicit
-#     argument (`./Scripts/update-version.sh v1.2.0-alpha.3`), *before* that
-#     tag exists — see VERSIONING.md's "Day-to-day: cutting a tag" section.
-#     This is the normal path now: stamp on a branch, PR it in like any
-#     other change, merge, *then* tag the already-correct merge commit — so
-#     nothing needs fixing up after the tag is pushed.
-#   - with no argument, to derive the version from the latest reachable
-#     `v*` tag instead — used automatically in CI
-#     (.github/workflows/release.yml) right before building a tagged
-#     release, purely to make that build's MARKETING_VERSION correct (the
-#     tag already exists by then, having been pushed to trigger the
-#     workflow).
+# Takes no arguments: the version is always derived from the latest reachable
+# `v*` tag. .github/workflows/release.yml runs this right before building a
+# tagged release, at a point where that tag demonstrably exists (it's what
+# triggered the run), so `git describe` resolves it and `git rev-list --count`
+# is the real commit count.
+#
+# It used to also accept an explicit tag argument, for stamping on a
+# release-prep branch *before* that tag existed. That mode had to *predict*
+# the build number as "current count + 2" (the prep commit, plus the merge
+# commit `gh pr merge --merge` always fabricates), and the prediction broke
+# live three times — twice on the +1-vs-+2 arithmetic itself (#123, #132), and
+# once when an unrelated PR landed on develop between the stamp and the tag
+# (v0.7.0-alpha.1). It's gone, along with the prep branch and
+# verify-ready-to-tag.sh that existed to police it. Don't reintroduce a mode
+# that guesses at a number CI can simply read.
+#
+# Run it by hand any time you want the checked-in files to reflect the current
+# tag; between releases they're expected to lag, and the off-tag build metadata
+# below (`+<distance>.g<sha>`) says so honestly rather than claiming to be the
+# tagged version.
 #
 # It's deliberately *not* wired into a build phase that runs on every local
 # build — the output would change (build number, commit hash) on nearly
@@ -53,37 +60,8 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   DIRTY=".dirty"
 fi
 
-EXPLICIT_TAG="${1:-}"
-if [ -n "$EXPLICIT_TAG" ]; then
-  # Release-prep mode: the caller is telling us what tag this commit is
-  # *about to become* (it doesn't exist yet, so `git describe` can't see
-  # it) — stamp as if already exactly on that tag, same as the "clean,
-  # zero commits since the tag" case below.
-  #
-  # BUILD_NUMBER (a plain count) is knowable in advance — but by *two*,
-  # not one, past HEAD's current count: this script's own output becomes
-  # one commit (the prep commit itself), and merging that prep branch's PR
-  # adds a *second* — this repo merges PRs via "Create a merge commit"
-  # (`gh pr merge --merge`), which, unlike a local fast-forwarding `git
-  # merge`, always fabricates a distinct merge commit on top, even for an
-  # already-linear history. Skipping either +1 would leave the checked-in
-  # build number behind the count CI computes once that commit and its tag
-  # actually exist (see release.yml's verification step, which caught
-  # exactly this live — a real release run failed on a stale +1 guess
-  # before this comment existed).
-  #
-  # COMMIT's short SHA is *not* knowable in advance, though — a commit
-  # can't contain its own hash, only its parent's — so this stays whatever
-  # HEAD is right now (the commit this release was prepared from, two
-  # behind the eventual tag). release.yml's verification step knows to
-  # excuse exactly this field for exactly this reason.
-  BUILD_NUMBER=$(($(git rev-list --count HEAD) + 2))
-  LATEST_TAG="$EXPLICIT_TAG"
-  SINCE_TAG="0"
-else
-  BUILD_NUMBER=$(git rev-list --count HEAD)
-  LATEST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
-fi
+BUILD_NUMBER=$(git rev-list --count HEAD)
+LATEST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
 
 if [ -z "$LATEST_TAG" ]; then
   # No `v*` tag reachable yet (e.g. before the first release is cut) — fall
@@ -98,12 +76,7 @@ else
     *-*) PRERELEASE="${TAG_VERSION#*-}" ;;
     *) PRERELEASE="" ;;
   esac
-  if [ -z "$EXPLICIT_TAG" ]; then
-    # Only recompute from git when LATEST_TAG came from `git describe` — an
-    # explicit tag argument doesn't exist as a ref yet, so `rev-list` can't
-    # resolve it, and SINCE_TAG is already "0" from the branch above.
-    SINCE_TAG=$(git rev-list "${LATEST_TAG}..HEAD" --count)
-  fi
+  SINCE_TAG=$(git rev-list "${LATEST_TAG}..HEAD" --count)
 fi
 
 if [ -n "$LATEST_TAG" ] && [ "$SINCE_TAG" = "0" ] && [ -z "$DIRTY" ]; then

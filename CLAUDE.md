@@ -85,7 +85,7 @@ packages.** `Package.resolved` is gitignored (the whole `.xcodeproj` is,
 per the generated-not-committed policy above), so every CI run does an
 uncached resolve and can pick up a newly-released AetherEngine version
 with zero local trigger — no `project.yml` change, no manual Xcode
-action, nothing about the PR's own diff. `ios.yml`/`release.yml`'s
+action, nothing about the PR's own diff. `pr-checks.yml`'s
 "Verify AetherEngine version display is up to date" step exists to catch
 that drift, but discovering it there costs a red CI check and a
 follow-up commit (confirmed live, PR #147, 2026-08-28: CI resolved
@@ -115,6 +115,12 @@ still failed CI, which resolved `6.56.3` from a clean checkout with
 nothing cached to fall back on. Don't reintroduce that split: any future
 fix to how this check works belongs in the script itself, not as prose
 here that the script can silently fall behind.)
+
+Note this matters at **PR** time only. `release.yml` *regenerates* this file
+rather than verifying it, so drift can no longer fail an already-pushed tag —
+a tagged build always displays the AetherEngine version it was actually linked
+against. `pr-checks.yml` is the only place the checked-in constant is enforced,
+which is why letting drift through there quietly rots it.
 
 ### App version (SemVer)
 
@@ -365,7 +371,7 @@ absence of new strings in `Localizable.xcstrings` as a sign something's
 wrong; open the project in Xcode and build once to sync it.
 
 **Sync the catalog in the same PR that adds the strings, not as a
-follow-up.** Because extraction is IDE-only, neither `ios.yml` nor
+follow-up.** Because extraction is IDE-only, neither `pr-checks.yml` nor
 `release.yml` (both CLI `xcodebuild`) can ever catch or commit this — it
 used to be deferred to a separate "Sync Localizable.xcstrings catalog" PR
 discovered well after the fact (e.g. #106, #119), which is exactly the kind

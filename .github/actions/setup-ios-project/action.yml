@@ -1,0 +1,36 @@
+name: Set up iOS project
+description: >-
+  Pins the Xcode toolchain, installs the CLI tools every job here needs, and
+  generates the Xcode project from project.yml. Shared by pr-checks.yml and
+  release.yml so the two can't drift apart — they used to carry byte-identical
+  copies of these steps.
+
+runs:
+  using: composite
+  steps:
+    - name: Select Xcode
+      # Both workflows used to take whatever Xcode `macos-latest` happened to
+      # default to. That's a silent toolchain change waiting to happen on the
+      # next runner-image rollover, which matters here: project.yml pins
+      # SWIFT_VERSION 6.0 against an iOS 17 deployment target, and AetherEngine
+      # is resolved fresh (uncached) on every run. `latest-stable` at least
+      # makes the choice explicit and greppable; swap it for an exact version
+      # (e.g. "26.4") the moment a rollover actually breaks something.
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: latest-stable
+
+    - name: Install XcodeGen and xcbeautify
+      # xcbeautify's github-actions renderer turns compile errors and test
+      # failures into inline PR annotations instead of leaving them buried in a
+      # 10k-line log. Installed rather than assumed present — it ships in some
+      # runner images and not others, and a missing binary would fail the pipe
+      # rather than degrade.
+      shell: bash
+      run: brew install xcodegen xcbeautify
+
+    - name: Generate Xcode project
+      # No .xcodeproj is committed (see .gitignore's blanket `*.xcodeproj`) —
+      # it's generated from project.yml. Without this there is nothing to build.
+      shell: bash
+      run: xcodegen generate

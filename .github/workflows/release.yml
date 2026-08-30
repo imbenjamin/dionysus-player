@@ -3,9 +3,16 @@ name: Release
 # Fires on any version tag (see VERSIONING.md for the convention:
 # `v1.2.3`, `v1.2.3-alpha.4`, `v2.0.0-beta.1`). Builds and tests the exact
 # tagged commit, then publishes a GitHub Release for it — marked
-# "prerelease" for -alpha/-beta tags, a full release otherwise. No code
-# signing/archive export/TestFlight upload yet; that needs App Store
-# Connect API key secrets and is a deliberately separate follow-up.
+# "prerelease" for -alpha/-beta tags, a full release otherwise.
+#
+# The tag is the only input. Nothing needs stamping, predicting, or
+# verifying beforehand: this workflow derives the version from the tag it was
+# triggered by, at a point where that tag demonstrably exists. See
+# VERSIONING.md for why the old "stamp on a release-prep branch, PR it, merge,
+# then tag" flow is gone.
+#
+# No code signing/archive export/TestFlight upload yet; that needs App Store
+# Connect API key secrets and lands in the follow-up PR.
 on:
   push:
     tags:
@@ -14,18 +21,26 @@ on:
 # This repo's default GITHUB_TOKEN permissions are read-only (repo Settings
 # > Actions > General), so `gh release create` 403s without this — scoped
 # to just this workflow rather than flipping the repo-wide default, since
-# ios.yml doesn't need write access.
+# pr-checks.yml doesn't need write access.
 permissions:
   contents: write
+
+concurrency:
+  # Never cancel a release mid-flight — unlike a PR run, there's no
+  # superseding commit coming, and a half-finished release is worse than a
+  # slow one.
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   build-test-release:
     name: Build, test, and publish a GitHub Release for the tag
     runs-on: macos-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           # Full history + tags: Scripts/update-version.sh derives the
           # version from `git describe`/`git rev-list --count`, both of
@@ -33,113 +48,75 @@ jobs:
           # shallow clone.
           fetch-depth: 0
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Generate Xcode project
-        run: xcodegen generate
+      - name: Set up iOS project
+        uses: ./.github/actions/setup-ios-project
 
       - name: Stamp version from the tag being built
+        # No argument: the tag already exists (it's what triggered this run),
+        # so `git describe` resolves it and `git rev-list --count HEAD` is the
+        # real commit count. Nothing is predicted, so nothing can be predicted
+        # wrong — which is the entire reason the release-prep branch went away.
         run: ./Scripts/update-version.sh
 
-      - name: Set Default Scheme
-        run: |
-          scheme_list=$(xcodebuild -list -json | tr -d "\n")
-          default=$(echo $scheme_list | ruby -e "require 'json'; puts JSON.parse(STDIN.gets)['project']['targets'][0]")
-          echo $default | cat >default
-          echo Using default scheme: $default
-      - name: Select Simulator
-        id: select_simulator
-        run: |
-          # `xcrun xctrace list devices` (the usual boilerplate here) lists
-          # a bare device name with no guarantee it's paired with the
-          # runner's "latest" iOS runtime — `-destination
-          # platform=...,name=X` with no OS resolves to "OS:latest", which
-          # then fails to match if X isn't provisioned for that runtime
-          # (confirmed failure: 2026-08-13, picked "iPhone 16e", which only
-          # had an older runtime installed on the runner). Selecting a UDID
-          # directly from `simctl`'s own available-devices listing instead
-          # guarantees a name+runtime pairing that actually exists.
-          UDID=$(xcrun simctl list devices available -j \
-            | jq -r '[.devices | to_entries[] | .key as $rt | .value[] | select(.name | test("^iPhone")) | {runtime: $rt, udid: .udid, name: .name}] | sort_by(.runtime) | last')
-          echo "$UDID" | jq .
-          udid=$(echo "$UDID" | jq -r '.udid')
-          if [ -z "$udid" ] || [ "$udid" = "null" ]; then
-            echo "error: no available iPhone simulator found" >&2
-            xcrun simctl list devices available
-            exit 1
-          fi
-          echo "udid=$udid" >> "$GITHUB_OUTPUT"
-      - name: Build
-        env:
-          scheme: ${{ 'default' }}
-          udid: ${{ steps.select_simulator.outputs.udid }}
-        run: |
-          if [ $scheme = default ]; then scheme=$(cat default); fi
-          if [ "`ls -A | grep -i \\.xcworkspace\$`" ]; then filetype_parameter="workspace" && file_to_build="`ls -A | grep -i \\.xcworkspace\$`"; else filetype_parameter="project" && file_to_build="`ls -A | grep -i \\.xcodeproj\$`"; fi
-          file_to_build=`echo $file_to_build | awk '{$1=$1;print}'`
-          xcodebuild build-for-testing -scheme "$scheme" -"$filetype_parameter" "$file_to_build" -destination "platform=iOS Simulator,id=$udid"
-      - name: Test
-        env:
-          scheme: ${{ 'default' }}
-          udid: ${{ steps.select_simulator.outputs.udid }}
-        run: |
-          if [ $scheme = default ]; then scheme=$(cat default); fi
-          if [ "`ls -A | grep -i \\.xcworkspace\$`" ]; then filetype_parameter="workspace" && file_to_build="`ls -A | grep -i \\.xcworkspace\$`"; else filetype_parameter="project" && file_to_build="`ls -A | grep -i \\.xcodeproj\$`"; fi
-          file_to_build=`echo $file_to_build | awk '{$1=$1;print}'`
-          xcodebuild test-without-building -scheme "$scheme" -"$filetype_parameter" "$file_to_build" -destination "platform=iOS Simulator,id=$udid"
-
-      - name: Regenerate AetherEngine version display
-        # Package.resolved only exists once something has actually resolved
-        # packages — the Build step above is the first thing in this job
-        # that does that, so this has to run after it, not alongside the
-        # version stamp earlier.
+      - name: Refresh AetherEngine version display
+        # Regenerate, don't verify. A newly-published upstream AetherEngine
+        # release must never fail a tag that has already been pushed — that
+        # cost two recovery branches and three CI round-trips cutting
+        # v0.7.0-alpha.1. Regenerating here means the shipped build always
+        # displays the version it was actually linked against, whatever the
+        # resolver picked. Drift against the checked-in constant is still
+        # enforced, on every PR, by pr-checks.yml — which is where it's
+        # actionable.
+        #
+        # Runs before the build because the script does its own
+        # `xcodebuild -resolvePackageDependencies` (from a deliberately cold
+        # cache), so it doesn't need a prior build to have produced
+        # Package.resolved.
         run: ./Scripts/update-aetherengine-version.sh
 
-      - name: Verify nothing was left uncommitted for this release
-        # By this point in the release flow (see VERSIONING.md), the
-        # commit this tag points at should already carry correct generated
-        # files — stamped on a release-prep branch and merged *before* the
-        # tag was cut, not fixed up after. A non-empty diff here means
-        # either that prep step was skipped, or a fresh package resolution
-        # picked up a newer AetherEngine release in the gap between prep
-        # and tagging. Failing loudly here catches that immediately,
-        # instead of shipping a stale "stats for nerds" version display and
-        # relying on someone noticing days later.
-        run: |
-          fail=0
-          if ! git diff --exit-code -- \
-            Config/Version.xcconfig \
-            DionysusPlayer/Core/Playback/AetherEngineVersion.swift
-          then
-            fail=1
-          fi
-          # AppVersion.swift's `commit` constant is excused from this
-          # comparison: a commit can't contain its own hash, only its
-          # parent's, so Scripts/update-version.sh's explicit-tag mode
-          # (used to stamp this on the release-prep branch) necessarily
-          # recorded the prep commit's parent SHA, one behind this tag's
-          # actual commit — expected, not drift. Everything else in the
-          # file (the version string, the build number) must still match
-          # exactly.
-          if ! diff \
-            <(git show "HEAD:DionysusPlayer/Shared/AppVersion.swift" | grep -v 'static let commit') \
-            <(grep -v 'static let commit' DionysusPlayer/Shared/AppVersion.swift)
-          then
-            fail=1
-          fi
-          if [ "$fail" = "1" ]; then
-            echo "::error::Generated version files don't match what's checked in for this tag. Run the release-prep flow in VERSIONING.md (stamp on a branch, PR it, merge, *then* tag) before re-cutting this release." >&2
-            exit 1
-          fi
+      - name: Build and test
+        uses: ./.github/actions/build-and-test
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: .build/TestResults.xcresult
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${GITHUB_REF_NAME}"
+
+          # Prerelease if the tag carries an -alpha/-beta suffix *or* the core
+          # version is still 0.x — a 0.x release is by definition not stable,
+          # and the previous suffix-only test would have published a bare
+          # `v0.9.0` as a full release.
+          CORE="${TAG#v}"; CORE="${CORE%%-*}"; MAJOR="${CORE%%.*}"
           PRERELEASE_FLAG=""
           case "$TAG" in
             *-alpha*|*-beta*) PRERELEASE_FLAG="--prerelease" ;;
+            # An `if` rather than `[ … ] && …`: this is the last command in the
+            # branch, so under `set -e` a false test would make the whole `case`
+            # return non-zero and kill the step. An `if` with no else returns 0.
+            *) if [ "$MAJOR" = "0" ]; then PRERELEASE_FLAG="--prerelease"; fi ;;
           esac
-          gh release create "$TAG" --generate-notes $PRERELEASE_FLAG
+
+          # The annotated tag's own message is the human-facing summary.
+          # `--generate-notes` alone is just an auto-generated "What's Changed"
+          # PR list — accurate, but not what a tester wants to read first, which
+          # is why this used to be hand-edited after every release. Composing
+          # both here means the notes live in git and need no follow-up.
+          TAG_MSG=$(git tag -l --format='%(contents)' "$TAG")
+          GENERATED=$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$TAG" --jq .body)
+          printf '%s\n\n%s\n' "$TAG_MSG" "$GENERATED" > "$RUNNER_TEMP/notes.md"
+
+          # create-or-update, so re-running a release that failed after this
+          # point isn't blocked by the release already existing.
+          gh release create "$TAG" --notes-file "$RUNNER_TEMP/notes.md" $PRERELEASE_FLAG \
+            || gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md" $PRERELEASE_FLAG

@@ -1,0 +1,77 @@
+name: PR checks
+
+on:
+  # No `push:` trigger: both `main` and `develop` are covered by rulesets
+  # that (a) block any push that isn't a PR merge and (b) set
+  # `strict_required_status_checks_policy: true` on this workflow's check
+  # — together that guarantees every merge commit's tree is identical to
+  # what `pull_request` already tested, so a push-triggered re-run would
+  # always be re-testing identical code. If either of those ruleset
+  # settings ever changes (bypass actors added, strict policy turned off),
+  # this reasoning no longer holds and a `push:` trigger would earn its
+  # keep again.
+  pull_request:
+    branches: [ "main", "develop" ]
+
+concurrency:
+  # Superseded pushes to the same PR are worth cancelling; a ~7 minute run
+  # per force-push otherwise queues up behind itself.
+  group: pr-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # ⚠️ DO NOT RENAME THIS JOB. Both branch rulesets ("Secure main",
+    # "develop protection") require a status check whose context is this
+    # exact string — GitHub keys required checks on the *job* name, not on
+    # the workflow name or filename. Renaming it here without first updating
+    # both rulesets makes every PR hang forever waiting on a check that no
+    # longer reports, including the PR doing the rename. The name is
+    # starter-template boilerplate and reads oddly; it stays anyway.
+    name: Build and Test default scheme using any available iPhone simulator
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up iOS project
+        uses: ./.github/actions/setup-ios-project
+
+      - name: Verify AetherEngine version display is up to date
+        # This is the *only* place AetherEngine drift is enforced. release.yml
+        # deliberately regenerates rather than verifies (a newly-published
+        # upstream version must never fail an already-pushed tag), so if this
+        # check goes away the checked-in constant silently rots.
+        #
+        # Runs on every PR rather than only at release time — a fresh
+        # `AetherEngine` resolution picking up a newer release can happen on
+        # any PR, and catching it here surfaces it within days of it happening
+        # upstream. Also has the side effect of populating this runner's SPM
+        # caches with today's real resolution, which the build below then
+        # reuses rather than resolving cold itself. Confirmed live
+        # (2026-08-28): a stale *local* SPM cache let a real version bump go
+        # undetected on a developer machine even after this same script ran
+        # there — CI is always a clean checkout, so this check is meaningful
+        # every time it runs here, unlike a local run someone forgets is stale.
+        run: |
+          ./Scripts/update-aetherengine-version.sh
+          if ! git diff --exit-code -- DionysusPlayer/Core/Playback/AetherEngineVersion.swift; then
+            echo "::error::AetherEngineVersion.swift is out of date — run ./Scripts/update-aetherengine-version.sh locally and commit the result." >&2
+            exit 1
+          fi
+
+      - name: Build and test
+        uses: ./.github/actions/build-and-test
+
+      - name: Upload test results
+        # Failure only — a green run's .xcresult is ~100MB of nothing anyone
+        # will open.
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: .build/TestResults.xcresult
+          retention-days: 7
+          if-no-files-found: ignore
