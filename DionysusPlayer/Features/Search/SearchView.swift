@@ -138,14 +138,16 @@ struct SearchView: View {
             Section {
                 ForEach(history) { entry in
                     row(for: entry) { select(entry) }
-                        // Leading (swipe-right-to-reveal), not the more
-                        // common trailing swipe-left — per an explicit
-                        // design call, not the default.
-                        .swipeActions(edge: .leading) {
-                            Button(role: .destructive) {
+                        // Trailing (swipe-left-to-reveal), matching both the
+                        // HIG-standard direction for a destructive action
+                        // and every Downloads list's own swipe-to-delete
+                        // (`DownloadsView`/`DownloadedShowView`/
+                        // `DownloadedSeasonView`) — this used to be a
+                        // deliberately reversed leading-edge swipe with no
+                        // recorded rationale; aligned 2026-08-31.
+                        .swipeActions {
+                            Button("Delete", role: .destructive) {
                                 viewModel?.removeFromHistory(entry)
-                            } label: {
-                                Label("Remove", systemImage: "trash")
                             }
                         }
                 }
