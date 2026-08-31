@@ -48,6 +48,7 @@ struct DownloadButton: View {
     var accessibilityContext: String? = nil
 
     private let preferences = DownloadPreferencesStore()
+    private let trackPreferenceStore = TrackPreferenceStore()
 
     @State private var isResolving = false
     @State private var pendingResolution: PendingDownload?
@@ -82,6 +83,14 @@ struct DownloadButton: View {
         /// button reads this rather than `audioTracks.first`, which would
         /// otherwise silently discard whatever the user actually chose.
         var chosenAudioTrack: MediaStream? = nil
+        /// The track in `audioTracks` that best matches whatever
+        /// `TrackPreferenceStore` remembers this user picking for this item
+        /// during *live* playback, if any — computed once in
+        /// `startResolving()` (see that method's doc comment on the
+        /// matching heuristic) and just marked in the audio-track prompt,
+        /// never auto-applied: which track actually gets baked into a
+        /// download is still always the user's own explicit tap.
+        var rememberedAudioTrackIndex: Int? = nil
     }
 
     /// `_ = downloadManager.store.changeCount` establishes a real,
@@ -199,7 +208,7 @@ struct DownloadButton: View {
         ) {
             if let pendingResolution {
                 ForEach(pendingResolution.audioTracks, id: \.index) { track in
-                    Button(track.displayTitle ?? String(localized: "Track \(track.index + 1)")) {
+                    Button(audioTrackButtonLabel(for: track, pendingResolution: pendingResolution)) {
                         resolveAudioTrack(track)
                     }
                 }
@@ -399,7 +408,10 @@ struct DownloadButton: View {
                 let streams = mediaSource.mediaStreams ?? []
                 let audioTracks = streams.filter { $0.type == "Audio" }
                 let subtitleTracks = streams.filter { $0.type == "Subtitle" }
-                let resolution = PendingDownload(mediaSource: mediaSource, audioTracks: audioTracks, subtitleTracks: subtitleTracks)
+                var resolution = PendingDownload(mediaSource: mediaSource, audioTracks: audioTracks, subtitleTracks: subtitleTracks)
+                resolution.rememberedAudioTrackIndex = Self.rememberedAudioTrackIndex(
+                    among: audioTracks, storedPreference: trackPreferenceStore.selection(forItem: item.id, userID: userID)?.audioTrack
+                )
                 pendingResolution = resolution
 
                 if audioTracks.count > 1 {
@@ -411,6 +423,50 @@ struct DownloadButton: View {
                 presentError((error as? LocalizedError)?.errorDescription ?? String(localized: "Couldn't fetch playback info for this item."))
             }
         }
+    }
+
+    /// Finds whichever of `audioTracks` most likely *is* the track named by
+    /// a `TrackPreferenceStore` entry from a previous **live** playback
+    /// session, so the audio-track prompt below can flag it — purely
+    /// informational, never auto-applied (see `PendingDownload
+    /// .rememberedAudioTrackIndex`'s doc comment).
+    ///
+    /// Can't reuse `PlayerViewModel.applyStoredTrackSelection()`'s
+    /// stricter id-*and*-title check as-is: that compares against
+    /// `engine.audioTracks`, whose `id`/`title` are AetherEngine's own
+    /// physical-container-position id and container-metadata-derived title
+    /// (see `AetherPlaybackEngine.normalize(_:kind:selectedID:...)`) — a
+    /// completely different id space and title vocabulary than
+    /// `MediaStream.index`/`.displayTitle` here, which come straight from
+    /// Jellyfin's `PlaybackInfo` response with no engine involved at all
+    /// (this view never loads the item into the player). So this matches
+    /// on title alone, and loosely — a case-insensitive substring check
+    /// rather than equality — since Jellyfin's own `displayTitle` is
+    /// typically a decorated superset of the bare language name
+    /// AetherEngine's title normally reduces to (e.g. `MediaStream
+    /// .displayTitle` "English - AC3 5.1" against a stored title of plain
+    /// "English"). A miss just means the prompt shows no hint, exactly
+    /// today's behavior — this is a nice-to-have signal, not something a
+    /// wrong match could corrupt (the user always still taps to choose).
+    private static func rememberedAudioTrackIndex(
+        among audioTracks: [MediaStream], storedPreference: TrackPreferenceStore.TrackChoice?
+    ) -> Int? {
+        guard let storedPreference, !storedPreference.title.isEmpty else { return nil }
+        return audioTracks.first { track in
+            let label = track.displayTitle ?? track.title ?? ""
+            return label.localizedCaseInsensitiveContains(storedPreference.title)
+        }?.index
+    }
+
+    /// The matched track (see `rememberedAudioTrackIndex(among:storedPreference:)`)
+    /// gets an explicit text suffix, not just a highlight/checkmark — this
+    /// is a `confirmationDialog`, whose buttons are plain strings with no
+    /// room for a separate caption view or color-only treatment VoiceOver
+    /// would miss.
+    private func audioTrackButtonLabel(for track: MediaStream, pendingResolution: PendingDownload) -> String {
+        let title = track.displayTitle ?? String(localized: "Track \(track.index + 1)")
+        guard track.index == pendingResolution.rememberedAudioTrackIndex else { return title }
+        return String(localized: "\(title) (Previously selected)")
     }
 
     /// Also resets `pendingResolution`/`overrideResolution`/`overridePreset`
