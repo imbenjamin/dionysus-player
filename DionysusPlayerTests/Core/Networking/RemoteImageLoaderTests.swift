@@ -107,6 +107,29 @@ final class RemoteImageLoaderTests: XCTestCase {
         }
     }
 
+    // MARK: - Per-call retry overrides
+
+    /// `image(for:maxAttempts:retryBaseDelay:)`'s per-call overrides
+    /// (used by `AsyncRemoteImage.RetryPatience.extended` for the hero
+    /// backdrop/logo) must win over this instance's own configured
+    /// defaults — configure the loader for only 2 attempts, but request 4
+    /// for this one call, and confirm all 4 actually happen rather than
+    /// stopping at the instance's own smaller budget.
+    func test_image_perCallMaxAttemptsOverridesInstanceDefault() async throws {
+        let counter = RequestCounter()
+        MockURLProtocol.requestHandler = { request in
+            counter.increment()
+            throw URLError(.timedOut)
+        }
+
+        do {
+            _ = try await makeLoader(maxAttempts: 2).image(for: url, maxAttempts: 4, retryBaseDelay: .milliseconds(1))
+            XCTFail("Expected image(for:) to throw after exhausting the overridden retry count")
+        } catch {
+            XCTAssertEqual(counter.count, 4)
+        }
+    }
+
     // MARK: - Caching
 
     func test_image_secondCallForSameURLIsServedFromCacheWithoutHittingNetwork() async throws {

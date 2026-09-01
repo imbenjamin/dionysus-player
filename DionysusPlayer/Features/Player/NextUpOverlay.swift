@@ -121,7 +121,7 @@ struct NextUpOverlay: View {
     }
 
     private func thumbnail(for episode: MediaItem) -> some View {
-        AsyncRemoteImage(url: episode.thumbImageURL ?? episode.primaryImageURL)
+        AsyncRemoteImage(url: episode.thumbImageURL ?? episode.primaryImageURL, placeholderSystemImage: "play.tv")
             .frame(width: textBlockHeight * 16 / 9, height: textBlockHeight)
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay { countdownRing }

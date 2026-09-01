@@ -42,6 +42,12 @@ struct BackdropLogoOverlay: View {
     /// The show/movie/collection's own name — the no-logo fallback's first
     /// (only, for non-episode content) line.
     let title: String
+    /// Drives the backdrop's placeholder glyph (`MediaPlaceholderBox`, via
+    /// `AdaptiveArtworkImage`) while it's loading or has failed — `nil`
+    /// (the default) falls back to a generic glyph, needed since
+    /// `DownloadedAssetDetailView`'s offline hero has no live
+    /// `BaseItemKind` to pass (only a `DownloadedItemKind`).
+    var kind: BaseItemKind? = nil
     /// Non-`nil` only for episode content — the specific episode's own
     /// title, shown as a second line under whichever of the logo/`title`
     /// rendered above it: under the logo image when there is one, or
@@ -196,7 +202,7 @@ struct BackdropLogoOverlay: View {
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
-                AdaptiveArtworkImage(url: backdropURL)
+                AdaptiveArtworkImage(url: backdropURL, placeholderSystemImage: kind?.placeholderSystemImage ?? "photo")
                     .scaleEffect(enable3DDepth ? Self.backdropScale : 1)
                     .rotation3DEffect(
                         tiltRotation.angle, axis: tiltRotation.axis,
@@ -230,7 +236,7 @@ struct BackdropLogoOverlay: View {
                                 LocalFileImage(url: logoURL, contentMode: .fit)
                                     .frame(maxWidth: 240, maxHeight: 80, alignment: Alignment(horizontal: alignment, vertical: .center))
                             } else {
-                                LogoImageView(url: logoURL, fallback: titleText)
+                                LogoImageView(url: logoURL, fallback: titleText, retryPatience: .extended)
                                     .frame(maxWidth: 240, maxHeight: 80, alignment: Alignment(horizontal: alignment, vertical: .center))
                             }
                         } else {
@@ -357,12 +363,21 @@ struct BackdropLogoOverlay: View {
 private struct AdaptiveArtworkImage: View {
     let url: URL?
     var contentMode: ContentMode = .fill
+    var placeholderSystemImage: String = "photo"
 
     var body: some View {
         if url?.isFileURL == true {
-            LocalFileImage(url: url, contentMode: contentMode)
+            LocalFileImage(url: url, contentMode: contentMode, placeholderSystemImage: placeholderSystemImage)
         } else {
-            AsyncRemoteImage(url: url, contentMode: contentMode)
+            // `.extended` retry patience — this is the hero backdrop, the
+            // single most prominent image on whichever screen renders it,
+            // worth `RemoteImageLoader.heroMaxAttempts`' extra attempts on
+            // a slow/cold server. The local-file branch above has no
+            // network retry concept to extend.
+            AsyncRemoteImage(
+                url: url, contentMode: contentMode,
+                placeholderSystemImage: placeholderSystemImage, retryPatience: .extended
+            )
         }
     }
 }

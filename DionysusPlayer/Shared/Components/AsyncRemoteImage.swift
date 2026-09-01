@@ -7,9 +7,29 @@ import UIKit
 /// placeholder/failure styling, used everywhere posters, backdrops, and
 /// logos are shown.
 struct AsyncRemoteImage: View {
+    /// How many attempts/how much backoff `RemoteImageLoader` should give
+    /// this particular image before giving up — see that type's
+    /// `heroMaxAttempts`/`heroRetryBaseDelay` doc comments. `.standard`
+    /// (the default) uses the loader's own configured defaults; `.extended`
+    /// is reserved for the single most prominent image per screen (the
+    /// hero backdrop/logo), which is worth spending extra attempts on.
+    enum RetryPatience {
+        case standard
+        case extended
+    }
+
     var url: URL?
     var contentMode: ContentMode = .fill
+    /// The SF Symbol `MediaPlaceholderBox` shows while this image is
+    /// loading or has failed — pass a content-representative glyph (e.g.
+    /// `BaseItemKind.placeholderSystemImage`) rather than leaving the
+    /// generic default wherever the caller knows what kind of content this
+    /// is.
+    var placeholderSystemImage: String = "photo"
+    var glyphSize: CGFloat = 28
+    var retryPatience: RetryPatience = .standard
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var phase: Phase
 
     /// Seeds `phase` synchronously from whatever's already in
@@ -23,11 +43,25 @@ struct AsyncRemoteImage: View {
     /// was already decoded and sitting in memory. Same fix as
     /// `LogoImageView`'s `init`, which hit the identical symptom on the
     /// hero rail's loop-wrap first.
-    init(url: URL?, contentMode: ContentMode = .fill) {
+    init(
+        url: URL?,
+        contentMode: ContentMode = .fill,
+        placeholderSystemImage: String = "photo",
+        glyphSize: CGFloat = 28,
+        retryPatience: RetryPatience = .standard
+    ) {
         self.url = url
         self.contentMode = contentMode
+        self.placeholderSystemImage = placeholderSystemImage
+        self.glyphSize = glyphSize
+        self.retryPatience = retryPatience
         if let url, let cached = RemoteImageLoader.shared.cachedImage(for: url) {
             _phase = State(initialValue: .success(cached))
+        } else if url == nil {
+            // No URL to even try — e.g. a cast member with no image tag at
+            // all. Settled from the start, not "loading": there's nothing
+            // in flight for the shimmer to be indicating.
+            _phase = State(initialValue: .failure)
         } else {
             _phase = State(initialValue: .empty)
         }
@@ -49,7 +83,7 @@ struct AsyncRemoteImage: View {
 
     var body: some View {
         content
-            .animation(.default, value: phase)
+            .animation(reduceMotion ? nil : .default, value: phase)
             .task(id: url) { await load() }
     }
 
@@ -59,19 +93,17 @@ struct AsyncRemoteImage: View {
         case .success(let uiImage):
             Image(uiImage: uiImage).resizable().aspectRatio(contentMode: contentMode)
         case .empty:
-            placeholder.overlay { if url != nil { ProgressView().tint(.dionysusPrimary) } }
+            MediaPlaceholderBox(systemImage: placeholderSystemImage, glyphSize: glyphSize, isSettled: false)
         case .failure:
-            placeholder
+            MediaPlaceholderBox(systemImage: placeholderSystemImage, glyphSize: glyphSize, isSettled: true)
         }
-    }
-
-    private var placeholder: some View {
-        Rectangle().fill(Color.gray.opacity(0.2))
     }
 
     private func load() async {
         guard let url else {
-            phase = .empty
+            // See `init`'s identical reasoning — no URL means nothing to
+            // load, so this is a settled, static state, not "in progress."
+            phase = .failure
             return
         }
         // Cache hit: resolve synchronously (same check `init` already did —
@@ -86,7 +118,17 @@ struct AsyncRemoteImage: View {
         }
         phase = .empty
         do {
-            let image = try await RemoteImageLoader.shared.image(for: url)
+            let image: UIImage
+            switch retryPatience {
+            case .standard:
+                image = try await RemoteImageLoader.shared.image(for: url)
+            case .extended:
+                image = try await RemoteImageLoader.shared.image(
+                    for: url,
+                    maxAttempts: RemoteImageLoader.heroMaxAttempts,
+                    retryBaseDelay: RemoteImageLoader.heroRetryBaseDelay
+                )
+            }
             guard !Task.isCancelled else { return }
             phase = .success(image)
         } catch {

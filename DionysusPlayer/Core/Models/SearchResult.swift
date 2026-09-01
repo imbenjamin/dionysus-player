@@ -34,6 +34,16 @@ struct SearchResult: Identifiable, Hashable, Codable {
     /// there's nothing worth showing.
     var subtitle: String?
     var imageReference: ImageReference?
+    /// Drives `SearchResultRow`'s placeholder glyph while its thumbnail is
+    /// loading or has failed. Optional, not a non-optional with a default
+    /// value — `SearchResult` is `Codable` and persisted to disk via
+    /// `SearchHistoryStore`, and Swift's synthesized `Decodable` only
+    /// treats a missing key as "use the default" for `Optional` properties;
+    /// a non-optional property with a default value still throws on a
+    /// missing key. An optional lets history entries persisted before this
+    /// field existed decode as `nil` (falling back to a generic glyph)
+    /// instead of failing to decode at all.
+    var kind: BaseItemKind?
 
     /// The stable pieces needed to (re)build a poster/thumbnail URL — an
     /// item id, image type, and tag, none of which expire the way an
@@ -47,6 +57,7 @@ struct SearchResult: Identifiable, Hashable, Codable {
     init(hint: SearchHint) {
         id = hint.id
         name = hint.name
+        kind = hint.type
 
         switch hint.type {
         case .episode:

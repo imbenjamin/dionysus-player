@@ -3,17 +3,24 @@ import UIKit
 
 /// Loads a logo image via `RemoteImageLoader` (retry-with-backoff, caching —
 /// same rationale as `AsyncRemoteImage`, not reused directly here since this
-/// needs its own fade-in-on-success and custom fallback-on-failure behavior
-/// rather than a placeholder rectangle) and fades it in once loaded.
+/// needs its own fade-in-on-success and custom fallback behavior rather than
+/// a placeholder rectangle). Shows `fallback` immediately while the logo is
+/// loading (not a blank gap) and cross-fades to the real logo once it
+/// resolves, staying on `fallback` for good if every retry fails.
 ///
 /// Shared by `BackdropLogoOverlay` (hero header/rail — text-title fallback)
 /// and `LandscapeMediaCard`'s episode logo overlay (no fallback — an episode
 /// tile already shows its title as text below the artwork, so nothing
-/// renders there when there's no logo).
+/// renders there whether the logo is loading or missing).
 struct LogoImageView<Fallback: View>: View {
     let url: URL
     let fallback: Fallback
+    /// See `AsyncRemoteImage.RetryPatience`'s doc comment — reused here
+    /// rather than a duplicate type, since the concept (and the
+    /// hero-only `.extended` use case) is identical.
+    var retryPatience: AsyncRemoteImage.RetryPatience = .standard
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var phase: Phase
 
     /// Seeds `phase` synchronously from whatever's already in
@@ -25,14 +32,15 @@ struct LogoImageView<Fallback: View>: View {
     /// own `.id`, per that property's doc comment), so it gets a brand-new
     /// `LogoImageView` with fresh `@State` even though the same logo was
     /// already on screen a moment before. Without this, that fresh instance
-    /// always started at `.loading` (a blank frame) and then, once `.task`
-    /// resolved — from cache, near-instantly, but never *synchronously*
+    /// always started at `.loading` (briefly showing `fallback` again) and
+    /// then, once `.task` resolved — from cache, near-instantly, but never *synchronously*
     /// before the first paint, since a `Task` schedules its body rather
     /// than running it inline — replayed the full fade-in, reading as the
     /// logo flashing/reloading even though nothing had actually changed.
-    init(url: URL, fallback: Fallback) {
+    init(url: URL, fallback: Fallback, retryPatience: AsyncRemoteImage.RetryPatience = .standard) {
         self.url = url
         self.fallback = fallback
+        self.retryPatience = retryPatience
         if let cached = RemoteImageLoader.shared.cachedImage(for: url) {
             _phase = State(initialValue: .success(cached, animated: false))
         } else {
@@ -46,17 +54,20 @@ struct LogoImageView<Fallback: View>: View {
         case failure
     }
 
+    /// A `ZStack`, not a hard-switching `Group`, so `fallback` and the
+    /// incoming logo can cross-fade rather than pop from one to the other.
+    /// `fallback` renders for both `.loading` and `.failure` — showing it
+    /// immediately while the logo is still in flight (rather than the
+    /// previous `Color.clear`, fully invisible loading state) means a
+    /// caller's text-title fallback (`BackdropLogoOverlay`) or `EmptyView`
+    /// (`LandscapeMediaCard`'s episode overlay, where the title's already
+    /// shown as text below) is what the user sees the whole time a logo
+    /// hasn't resolved yet, not a lengthening blank gap.
     var body: some View {
-        Group {
-            switch phase {
-            case .success(let image, let animated):
-                FadeInLogoImage(image: Image(uiImage: image), animated: animated)
-            case .failure:
-                // Logo failed to load (404, timeout, etc. — retried a few
-                // times by RemoteImageLoader first).
-                fallback
-            case .loading:
-                Color.clear
+        ZStack {
+            if case .success = phase {} else { fallback }
+            if case .success(let image, let animated) = phase {
+                FadeInLogoImage(image: Image(uiImage: image), animated: animated, reduceMotion: reduceMotion)
             }
         }
         .task(id: url) { await load() }
@@ -75,11 +86,30 @@ struct LogoImageView<Fallback: View>: View {
         }
         phase = .loading
         do {
-            let image = try await RemoteImageLoader.shared.image(for: url)
+            let image: UIImage
+            switch retryPatience {
+            case .standard:
+                image = try await RemoteImageLoader.shared.image(for: url)
+            case .extended:
+                image = try await RemoteImageLoader.shared.image(
+                    for: url,
+                    maxAttempts: RemoteImageLoader.heroMaxAttempts,
+                    retryBaseDelay: RemoteImageLoader.heroRetryBaseDelay
+                )
+            }
             guard !Task.isCancelled else { return }
-            phase = .success(image, animated: true)
+            if reduceMotion {
+                phase = .success(image, animated: false)
+            } else {
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    phase = .success(image, animated: true)
+                }
+            }
         } catch {
             guard !Task.isCancelled else { return }
+            // No visual change needed here — `fallback` was already
+            // showing throughout `.loading`, so nothing needs to animate
+            // when retries quietly exhaust.
             phase = .failure
         }
     }
@@ -104,13 +134,19 @@ struct LogoImageView<Fallback: View>: View {
 private struct FadeInLogoImage: View {
     let image: Image
     var animated: Bool = true
+    /// Passed in from the caller rather than read via this view's own
+    /// `@Environment`, so there's one source of truth with
+    /// `LogoImageView.load()`'s own reduce-motion branch rather than two
+    /// independent reads that could disagree.
+    var reduceMotion: Bool = false
 
     @State private var opacity: Double
 
-    init(image: Image, animated: Bool = true) {
+    init(image: Image, animated: Bool = true, reduceMotion: Bool = false) {
         self.image = image
         self.animated = animated
-        _opacity = State(initialValue: animated ? 0 : 1)
+        self.reduceMotion = reduceMotion
+        _opacity = State(initialValue: animated && !reduceMotion ? 0 : 1)
     }
 
     var body: some View {
@@ -119,7 +155,10 @@ private struct FadeInLogoImage: View {
             .aspectRatio(contentMode: .fit)
             .opacity(opacity)
             .onAppear {
-                guard animated else { return }
+                guard animated, !reduceMotion else {
+                    opacity = 1
+                    return
+                }
                 withAnimation(.easeIn(duration: 0.35)) {
                     opacity = 1
                 }
