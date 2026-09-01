@@ -13,6 +13,27 @@ name: CodeQL
 # was added; the two can't coexist for the same language without GitHub
 # rejecting the advanced-setup upload.
 #
+# Two separate jobs, not one matrix job, because their gating differs:
+# `analyze-swift` only blocks a PR into `stable`, not `develop`. Its first
+# live run (PR #166) took ~43 minutes — genuine CodeQL-tracer overhead on
+# AetherEngine's FFmpeg/SMBClient/LibDovi dependencies, not a fluke — and
+# this repo merges several `develop` PRs a day with no second reviewer to
+# absorb that wait. `stable` only moves a handful of times a year via the
+# develop -> stable promotion PR (see promote-to-stable.yml), so blocking
+# there costs nothing in day-to-day velocity while still gating anything
+# that's about to ship. `develop` still gets `swift` coverage — just
+# non-blocking, via the `push`/`schedule` triggers below rather than
+# `pull_request` — so a real finding shows up as a Security-tab alert
+# within, worst case, a week, without holding up the PR that introduced it.
+# (A single matrix job with a job-level `if:` referencing `matrix.language`
+# was tried first and rejected by GitHub at parse time — "Unrecognized
+# named-value: 'matrix'" — the matrix context isn't available to a job's
+# own `if:`, only within its steps/runs-on/etc. Two jobs sidesteps that
+# entirely.)
+#
+# `analyze-actions` stays cheap (~40s) regardless of target branch, so it
+# blocks PRs into both.
+#
 # `push: develop` exists for a different reason than pr-checks.yml's lack
 # of one: the tree really is identical to what `pull_request` already
 # scanned (same guarantee pr-checks.yml relies on), but GitHub's Security
@@ -20,9 +41,9 @@ name: CodeQL
 # itself, not from PR-merge refs — without this, PR-time scans would never
 # populate it (GitHub says so explicitly: "Please specify an on.push hook
 # to analyze and see code scanning alerts from the default branch on the
-# Security tab", surfaced live setting this workflow up). `stable` doesn't
-# get the same treatment — it only moves via the develop -> stable
-# promotion PR, which is itself scanned pre-merge.
+# Security tab", surfaced live setting this workflow up). It's also now
+# `analyze-swift`'s only per-merge trigger on `develop`, since
+# `pull_request` no longer covers it there.
 on:
   pull_request:
     branches: [ "stable", "develop" ]
@@ -45,40 +66,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  analyze:
-    name: Analyze (${{ matrix.language }})
-    runs-on: ${{ matrix.runs-on }}
+  analyze-actions:
+    name: Analyze (actions)
+    runs-on: ubuntu-latest
     timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
 
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # No build needed: this just parses the workflow YAML itself.
-          - language: actions
-            build-mode: none
-            runs-on: ubuntu-latest
-          # Needs a real Xcode build under CodeQL's tracer — see header.
-          - language: swift
-            build-mode: manual
-            runs-on: macos-latest
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: actions
+          build-mode: none
 
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:actions"
+
+  analyze-swift:
+    name: Analyze (swift)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    # Skip only when this is a pull_request into develop — see header.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.base.ref == 'stable'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
       - name: Set up iOS project
-        if: matrix.language == 'swift'
         uses: ./.github/actions/setup-ios-project
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
-          languages: ${{ matrix.language }}
-          build-mode: ${{ matrix.build-mode }}
+          languages: swift
+          build-mode: manual
 
       - name: Build
-        if: matrix.build-mode == 'manual'
         # A plain build, not build-for-testing/archive: CodeQL only needs
         # the compiler actually invoked under its tracer, not a runnable
         # product, so this skips simulator selection and signing entirely.
@@ -94,4 +122,4 @@ jobs:
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
         with:
-          category: "/language:${{ matrix.language }}"
+          category: "/language:swift"
