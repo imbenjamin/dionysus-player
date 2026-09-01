@@ -1,0 +1,89 @@
+name: CodeQL
+
+# Scans the real Swift app plus this repo's own GitHub Actions workflow
+# files. The repo's default-branch code-scanning setup ("default setup")
+# could only cover the `actions` language on its own — its autobuild
+# couldn't build an XcodeGen-generated Xcode project (confirmed live,
+# 2026-09-01: `Analyze (swift)` failed at the Autobuild step). Swift/iOS
+# needs a real build under CodeQL's tracer, which default setup doesn't
+# support, so this is an "advanced setup" workflow instead — build-mode
+# `manual`, with the same setup-ios-project composite action pr-checks.yml
+# and release.yml use, so all three can't drift apart on toolchain/project
+# generation. Default setup was disabled for this repo once this workflow
+# was added; the two can't coexist for the same language without GitHub
+# rejecting the advanced-setup upload.
+#
+# No `push:` trigger for the same reason pr-checks.yml has none: both
+# `stable` and `develop` are covered by rulesets that guarantee a merge
+# commit's tree is identical to what `pull_request` already scanned, so a
+# push-triggered re-run would always be re-scanning identical code.
+on:
+  pull_request:
+    branches: [ "stable", "develop" ]
+  schedule:
+    # Weekly, matching the cadence the disabled default setup used —
+    # catches newly-published CodeQL queries surfacing something in code
+    # that hasn't changed, not just new PRs.
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # No build needed: this just parses the workflow YAML itself.
+          - language: actions
+            build-mode: none
+            runs-on: ubuntu-latest
+          # Needs a real Xcode build under CodeQL's tracer — see header.
+          - language: swift
+            build-mode: manual
+            runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up iOS project
+        if: matrix.language == 'swift'
+        uses: ./.github/actions/setup-ios-project
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Build
+        if: matrix.build-mode == 'manual'
+        # A plain build, not build-for-testing/archive: CodeQL only needs
+        # the compiler actually invoked under its tracer, not a runnable
+        # product, so this skips simulator selection and signing entirely.
+        shell: bash
+        run: |
+          xcodebuild build \
+            -project DionysusPlayer.xcodeproj \
+            -scheme DionysusPlayer \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
