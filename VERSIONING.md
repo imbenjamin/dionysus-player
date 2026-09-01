@@ -84,6 +84,25 @@ The promotion workflow deliberately opens the PR but does **not** merge it.
 Merging from CI would need a standing credential able to bypass `stable`'s
 ruleset, kept around for something done a handful of times a year.
 
+### ⚠️ Branch rulesets are configured by literal name, not by role
+
+`stable`'s ruleset (`"Secure stable"` in GitHub Settings → Rules) targets
+`refs/heads/stable` explicitly. It used to target the special token
+`~DEFAULT_BRANCH` — "whichever branch is currently the repo default" —
+which was fine back when `main` (this repo's original name for `stable`)
+*was* the default branch, but silently started protecting `develop`
+instead the moment the default branch was switched to `develop`
+(2026-09-01), stacking an extra `require_last_push_approval` requirement
+onto `develop` on top of its own separate `"develop protection"` ruleset —
+unsatisfiable in a solo-maintainer repo with no `CODEOWNERS`, and it
+blocked a real PR merge before being caught. Renaming a branch does **not**
+migrate a ruleset's condition either — confirmed live renaming `main` to
+`stable`, the ruleset kept pointing at the now-nonexistent `refs/heads/main`
+until it was repointed by hand. If the default branch, or either
+protected branch's name, ever changes again: check both rulesets'
+conditions explicitly rather than assuming GitHub carries them forward —
+`gh api repos/imbenjamin/dionysus-player/rulesets` lists them.
+
 Nothing needs stamping, predicting, or verifying beforehand, and
 `./Scripts/update-aetherengine-version.sh` does not need running as part of
 cutting a release — CI regenerates both.
@@ -304,6 +323,20 @@ string isn't user-visible anyway.
 - **`.github/workflows/promote-to-stable.yml`** — `workflow_dispatch` only:
   opens (or finds) the `develop` → `stable` PR that a final release is tagged
   from. Never merges; see that file's header for why.
+
+- **`.github/workflows/codeql.yml`** — CodeQL security scanning, split into
+  two jobs because their gating differs. `analyze-actions` (this repo's own
+  workflow YAML) is cheap (~40s) and blocks PRs into both `stable` and
+  `develop`. `analyze-swift` (the real app — an "advanced setup" workflow,
+  since GitHub's default setup can't autobuild an XcodeGen-generated Xcode
+  project) takes 40+ minutes, so it only blocks PRs into `stable`; on
+  `develop` it runs non-blocking instead, via the `push`/weekly-schedule
+  triggers rather than `pull_request`, surfacing anything it finds as a
+  Security-tab alert rather than holding up the PR that introduced it.
+  GitHub's own code-scanning **default setup** was disabled for this repo
+  once this workflow was added — the two can't coexist for the same
+  language; GitHub rejects the advanced-setup SARIF upload if default setup
+  is still active.
 
 The two treat AetherEngine drift deliberately differently. `pr-checks.yml`
 *verifies* — drift is actionable there, days after it happens upstream.
