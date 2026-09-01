@@ -103,6 +103,27 @@ protected branch's name, ever changes again: check both rulesets'
 conditions explicitly rather than assuming GitHub carries them forward —
 `gh api repos/imbenjamin/dionysus-player/rulesets` lists them.
 
+### ⚠️ A `code_scanning` ruleset rule can require a config that never runs
+
+`develop protection` used to also carry a `code_scanning` rule (GitHub's
+"Require code scanning results" branch rule, scoped to the `CodeQL` tool).
+That rule blocks a merge unless it sees a completed result for *every*
+CodeQL configuration the repo has ever reported — including
+`analyze-swift`, which `codeql.yml` deliberately only runs on PRs into
+`stable` (see below), never on `develop`. So every `develop` PR showed a
+"1 configuration not found" neutral check, and the rule then blocked
+merging on exactly that gap — with zero actual alerts open
+(`code-scanning/alerts` for the branch was empty; confirmed live on PR
+#170, 2026-09-01). No `bypass_actors` were configured on the ruleset
+either, so neither `gh pr merge --admin` nor `--auto` could get around
+it — the rule itself had to change, not the merge command. Fixed by
+removing the `code_scanning` rule from `develop protection` entirely;
+`stable`'s ruleset needs no equivalent fix since `analyze-swift` actually
+runs — and blocks — there. If a `code_scanning` rule ever gets added back
+to a branch's ruleset, check first that every CodeQL job it depends on
+actually runs on every PR into that branch; one keyed to a config that
+branch's own PRs never trigger can never be satisfied, by any PR, ever.
+
 Nothing needs stamping, predicting, or verifying beforehand, and
 `./Scripts/update-aetherengine-version.sh` does not need running as part of
 cutting a release — CI regenerates both.
