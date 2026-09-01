@@ -136,6 +136,12 @@ same fix (a checked-in generated file, refreshed by
 tag convention, alpha/beta/final release flow, and how the version reaches
 the built app.
 
+`stable` is the branch final `vX.Y.Z` releases are tagged from — it moves
+forward only via the `develop → stable` promotion PR (`promote-to-stable.yml`,
+see `VERSIONING.md`), and should never be branched from or committed to
+directly. `develop` is the default branch and where all day-to-day work
+happens; `stable` stays dormant until there's a final release to cut.
+
 **Cutting a release is one annotated tag push.** `release.yml` stamps the
 version from the tag, builds and tests it, archives and signs it, uploads it
 to App Store Connect (where it becomes a TestFlight build), and publishes the

@@ -25,12 +25,11 @@ Annotated tags, prefixed `v`: `v1.2.3`, `v1.2.3-alpha.4`, `v2.0.0-beta.1`.
 - **Alpha/beta tags are cut from `develop`** — features and fixes land on
   `develop` as the working branch; once a batch is ready for wider internal
   testing, tag it there.
-- **Final `vX.Y.Z` tags (no suffix) are cut from `main`**, after merging
-  `develop` into `main`. The final release is either exactly the approved
+- **Final `vX.Y.Z` tags (no suffix) are cut from `stable`**, after merging
+  `develop` into `stable`. The final release is either exactly the approved
   prerelease commit, or that commit plus any last fixes found during
-  prerelease testing — either way, `main` only ever moves forward via a
-  `develop → main` merge (see `CLAUDE.md`'s note that `main` is
-  release-only and lags behind `develop`).
+  prerelease testing — either way, `stable` only ever moves forward via a
+  `develop → stable` merge.
 - Bump rules are the usual SemVer judgment call: PATCH for fixes only,
   MINOR for backward-compatible features, MAJOR for breaking changes/major
   redesigns.
@@ -63,26 +62,26 @@ Successive builds at the same core version bump the trailing number:
 `v1.2.0-alpha.2`, `v1.2.0-alpha.3`, ... then `v1.2.0-beta.1`, ... then,
 once approved, `v1.2.0`.
 
-### Final releases come from `main`
+### Final releases come from `stable`
 
 Prereleases (`-alpha`/`-beta`, or **any** `0.x` version) are cut from
-`develop` and stay there. Final releases are cut from `main`, which is
+`develop` and stay there. Final releases are cut from `stable`, which is
 release-only and lags `develop`:
 
 ```sh
-gh workflow run promote-to-main.yml   # opens the develop -> main PR
+gh workflow run promote-to-stable.yml   # opens the develop -> stable PR
 # merge it (gated by pr-checks.yml, like any other PR), then:
-git checkout main && git pull
+git checkout stable && git pull
 git tag -a v1.2.0 -m "Release summary for testers…"
 git push origin v1.2.0
 ```
 
 `release.yml` refuses a tag on the wrong branch — a prerelease tag not
-contained in `develop`, or a final tag not contained in `main` — and says so
-within seconds, rather than after a ~40 minute archive and upload.
+contained in `develop`, or a final tag not contained in `stable` — and says
+so within seconds, rather than after a ~40 minute archive and upload.
 
 The promotion workflow deliberately opens the PR but does **not** merge it.
-Merging from CI would need a standing credential able to bypass `main`'s
+Merging from CI would need a standing credential able to bypass `stable`'s
 ruleset, kept around for something done a handful of times a year.
 
 Nothing needs stamping, predicting, or verifying beforehand, and
@@ -279,7 +278,7 @@ string isn't user-visible anyway.
 
 ## GitHub Actions
 
-- **`.github/workflows/pr-checks.yml`** — the PR gate, on every PR into `main`
+- **`.github/workflows/pr-checks.yml`** — the PR gate, on every PR into `stable`
   or `develop`: sets up the project, regenerates and **verifies**
   `AetherEngineVersion.swift` against a genuinely fresh package resolution,
   then builds and runs the full test suite. This is the only place AetherEngine
@@ -298,12 +297,12 @@ string isn't user-visible anyway.
   publishes a GitHub Release with the tag's own message above GitHub's
   generated notes (`--prerelease` for `-alpha`/`-beta` tags and for any `0.x`
   version). It also refuses a tag on the wrong branch — see "Final releases
-  come from `main`" above. A `workflow_dispatch` input re-runs a release for
+  come from `stable`" above. A `workflow_dispatch` input re-runs a release for
   an existing tag without re-tagging, for recovering from an infrastructure
   failure partway through.
 
-- **`.github/workflows/promote-to-main.yml`** — `workflow_dispatch` only:
-  opens (or finds) the `develop` → `main` PR that a final release is tagged
+- **`.github/workflows/promote-to-stable.yml`** — `workflow_dispatch` only:
+  opens (or finds) the `develop` → `stable` PR that a final release is tagged
   from. Never merges; see that file's header for why.
 
 The two treat AetherEngine drift deliberately differently. `pr-checks.yml`

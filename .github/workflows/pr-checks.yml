@@ -1,7 +1,7 @@
 name: PR checks
 
 on:
-  # No `push:` trigger: both `main` and `develop` are covered by rulesets
+  # No `push:` trigger: both `stable` and `develop` are covered by rulesets
   # that (a) block any push that isn't a PR merge and (b) set
   # `strict_required_status_checks_policy: true` on this workflow's check
   # — together that guarantees every merge commit's tree is identical to
@@ -11,7 +11,7 @@ on:
   # this reasoning no longer holds and a `push:` trigger would earn its
   # keep again.
   pull_request:
-    branches: [ "main", "develop" ]
+    branches: [ "stable", "develop" ]
 
 concurrency:
   # Superseded pushes to the same PR are worth cancelling; a ~7 minute run
@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   build:
-    # ⚠️ DO NOT RENAME THIS JOB. Both branch rulesets ("Secure main",
+    # ⚠️ DO NOT RENAME THIS JOB. Both branch rulesets ("Secure stable",
     # "develop protection") require a status check whose context is this
     # exact string — GitHub keys required checks on the *job* name, not on
     # the workflow name or filename. Renaming it here without first updating

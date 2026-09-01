@@ -74,7 +74,7 @@ jobs:
           # Prerelease if the tag carries an -alpha/-beta suffix *or* the core
           # version is still 0.x — a 0.x release is by definition not stable,
           # and a suffix-only test would publish a bare `v0.9.0` as a full
-          # release. Prereleases are cut from develop, finals from main.
+          # release. Prereleases are cut from develop, finals from stable.
           CORE="${TAG#v}"; CORE="${CORE%%-*}"; MAJOR="${CORE%%.*}"
           case "$TAG" in
             *-alpha*|*-beta*) PRE=true ;;
@@ -84,7 +84,7 @@ jobs:
           if [ "$PRE" = "true" ]; then
             echo "branch=develop" >> "$GITHUB_OUTPUT"
           else
-            echo "branch=main" >> "$GITHUB_OUTPUT"
+            echo "branch=stable" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout
@@ -99,8 +99,8 @@ jobs:
 
       - name: Verify the tag is on the right branch
         # Prereleases are cut from develop and stay there; final releases are
-        # cut from main after a develop -> main promotion (see
-        # promote-to-main.yml). Catching a misplaced tag here costs seconds;
+        # cut from stable after a develop -> stable promotion (see
+        # promote-to-stable.yml). Catching a misplaced tag here costs seconds;
         # catching it after a ~40 minute archive-and-upload costs a build
         # number and a wasted TestFlight slot.
         env:
@@ -109,7 +109,7 @@ jobs:
         run: |
           git fetch --quiet origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
           if ! git merge-base --is-ancestor "$TAG^{commit}" "origin/$BRANCH"; then
-            echo "::error::$TAG is not contained in origin/$BRANCH. Prerelease tags (-alpha/-beta, or any 0.x) are cut from develop; final releases are cut from main after merging the promote-to-main PR. See VERSIONING.md." >&2
+            echo "::error::$TAG is not contained in origin/$BRANCH. Prerelease tags (-alpha/-beta, or any 0.x) are cut from develop; final releases are cut from stable after merging the promote-to-stable PR. See VERSIONING.md." >&2
             exit 1
           fi
           echo "$TAG is contained in origin/$BRANCH."
