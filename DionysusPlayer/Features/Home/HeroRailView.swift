@@ -398,7 +398,8 @@ struct HeroRailView: View {
                     BackdropLogoOverlay(
                         backdropURL: fadeOutItem.backdropImageURL ?? fadeOutItem.primaryImageURL,
                         logoURL: fadeOutItem.logoImageURL,
-                        title: fadeOutItem.name
+                        title: fadeOutItem.name,
+                        kind: fadeOutItem.kind
                     )
                     .frame(width: pageWidth, height: heroHeight)
                     .opacity(fadeOutOpacity)
@@ -686,7 +687,12 @@ private struct HeroRailCard: View {
         // mid-scroll, produced the identical signature.
         ZStack {
             NavigationLink(value: AppRoute.assetDetail(itemID: item.id, preloadedItem: item)) {
-                BackdropLogoOverlay(backdropURL: item.backdropImageURL ?? item.primaryImageURL, logoURL: item.logoImageURL, title: item.name)
+                BackdropLogoOverlay(
+                    backdropURL: item.backdropImageURL ?? item.primaryImageURL,
+                    logoURL: item.logoImageURL,
+                    title: item.name,
+                    kind: item.kind
+                )
             }
             .buttonStyle(.plain)
             // `BackdropLogoOverlay` renders a logo *image* over the backdrop

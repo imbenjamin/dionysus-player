@@ -65,6 +65,33 @@ enum BaseItemKind: String, Codable {
         let raw = try container.decode(String.self)
         self = BaseItemKind(rawValue: raw) ?? .unknown
     }
+
+    /// The SF Symbol shown by `MediaPlaceholderBox` while this kind's own
+    /// artwork is loading or has failed to load — chosen to be
+    /// representative of the content type itself (a show's placeholder
+    /// looks like a TV, not a generic photo icon), matching the one
+    /// existing precedent for this in the app (`CastCrewGridView`'s
+    /// `"person.fill"` for a cast member with no image). `.playlist`
+    /// deliberately doesn't use a music-specific glyph — a Jellyfin
+    /// playlist can hold any media type, not just audio — and instead uses
+    /// `"list.triangle"`, Apple's own established symbol for a playback
+    /// queue ("Up Next" in Music/TV), matching existing platform
+    /// vocabulary rather than inventing new meaning. The music cases are
+    /// unreachable in practice per the app's audio-suppression policy (see
+    /// this enum's own doc comment above), but the switch stays exhaustive
+    /// rather than falling back to `default:`.
+    var placeholderSystemImage: String {
+        switch self {
+        case .movie: "film"
+        case .series, .season: "tv"
+        case .episode: "play.tv"
+        case .boxSet: "square.stack.3d.down.right"
+        case .collectionFolder, .folder: "folder"
+        case .playlist: "list.triangle"
+        case .audio, .audioBook, .musicAlbum, .musicArtist, .musicGenre: "music.note"
+        case .unknown: "photo"
+        }
+    }
 }
 
 struct BaseItemDto: Codable, Identifiable {

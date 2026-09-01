@@ -84,7 +84,8 @@ struct ShowDetailView: View {
                             logoURL: item.logoImageURL,
                             title: item.railTitle,
                             episodeTitle: isEpisodeContent ? item.name : nil,
-                            episodeNumberAccessibilityText: isEpisodeContent ? item.episodeLabelAccessibilityText : nil
+                            episodeNumberAccessibilityText: isEpisodeContent ? item.episodeLabelAccessibilityText : nil,
+                            kind: item.kind
                         )
                             // The scroll anchor itself — see `heroAnchorID`'s
                             // doc comment. `BackdropLogoOverlay` bottom-aligns

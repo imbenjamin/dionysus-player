@@ -38,15 +38,14 @@ private struct CastMemberCard: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            ZStack {
-                AsyncRemoteImage(url: person.imageURL)
-                if person.imageURL == nil {
-                    Image(systemName: "person.fill")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(width: 84, height: 84)
-            .clipShape(Circle())
+            // `MediaPlaceholderBox`'s "person.fill" glyph (via
+            // `AsyncRemoteImage`) now covers both "no image tag at all" and
+            // "fetch failed" with one code path — previously only the
+            // former had a representative glyph; a failed fetch fell back
+            // to a plain gray box.
+            AsyncRemoteImage(url: person.imageURL, placeholderSystemImage: "person.fill", glyphSize: 20)
+                .frame(width: 84, height: 84)
+                .clipShape(Circle())
 
             Text(person.name)
                 .font(.caption.bold())

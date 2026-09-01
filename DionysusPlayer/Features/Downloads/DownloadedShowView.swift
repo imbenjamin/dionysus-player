@@ -360,7 +360,8 @@ struct DownloadedEpisodeRow: View {
         HStack(spacing: 12) {
             LocalFileImage(
                 url: (episode.thumbImagePath ?? episode.posterImagePath).map(DownloadFileStore.url(forRelativePath:)),
-                targetSize: CGSize(width: 88, height: 50)
+                targetSize: CGSize(width: 88, height: 50),
+                placeholderSystemImage: "play.tv"
             )
                 .frame(width: 88, height: 50)
                 .clipShape(RoundedRectangle(cornerRadius: 4))

@@ -237,7 +237,10 @@ private struct DownloadsRowView: View {
             // convention, since `DownloadedItem` has no `MediaItem` of its
             // own to read that from directly.
             HStack(spacing: 12) {
-                thumbnail(relativePath: item.kind == .episode ? (item.thumbImagePath ?? item.posterImagePath) : item.posterImagePath)
+                thumbnail(
+                    relativePath: item.kind == .episode ? (item.thumbImagePath ?? item.posterImagePath) : item.posterImagePath,
+                    placeholderSystemImage: item.kind == .episode ? "play.tv" : "film"
+                )
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.kind == .episode ? (item.seriesTitle ?? item.title) : item.title).lineLimit(1)
                     subtitleLine(for: item)
@@ -264,7 +267,7 @@ private struct DownloadsRowView: View {
             }
         case .show(_, let seriesTitle, let posterImagePath, let episodeCount):
             HStack(spacing: 12) {
-                thumbnail(relativePath: posterImagePath)
+                thumbnail(relativePath: posterImagePath, placeholderSystemImage: "tv")
                 VStack(alignment: .leading, spacing: 2) {
                     Text(seriesTitle).lineLimit(1)
                     Text("\(episodeCount) Episodes").font(.caption).foregroundStyle(.secondary)
@@ -356,8 +359,12 @@ private struct DownloadsRowView: View {
         }
     }
 
-    private func thumbnail(relativePath: String?) -> some View {
-        LocalFileImage(url: relativePath.map(DownloadFileStore.url(forRelativePath:)), targetSize: CGSize(width: 44, height: 66))
+    private func thumbnail(relativePath: String?, placeholderSystemImage: String = "film") -> some View {
+        LocalFileImage(
+            url: relativePath.map(DownloadFileStore.url(forRelativePath:)),
+            targetSize: CGSize(width: 44, height: 66),
+            placeholderSystemImage: placeholderSystemImage
+        )
             .frame(width: 44, height: 66)
             .clipShape(RoundedRectangle(cornerRadius: 4))
     }

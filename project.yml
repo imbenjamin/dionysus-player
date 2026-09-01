@@ -78,6 +78,13 @@ packages:
   AetherEngine:
     url: https://github.com/superuser404notfound/AetherEngine
     from: 6.5.5
+  # A small (single-file), MIT-licensed, dependency-free view modifier
+  # (`.shimmering()`) — used by `MediaPlaceholderBox` for the "still
+  # loading" placeholder animation. Purely a rendering effect — no
+  # networking, no data collection.
+  SwiftUIShimmer:
+    url: https://github.com/markiv/SwiftUI-Shimmer
+    from: 1.5.1
 
 targets:
   DionysusPlayer:
@@ -96,6 +103,8 @@ targets:
     dependencies:
       - package: AetherEngine
         product: AetherEngine
+      - package: SwiftUIShimmer
+        product: Shimmer
     settings:
       base:
         # No platform suffix (contrast the test target below) — this is the

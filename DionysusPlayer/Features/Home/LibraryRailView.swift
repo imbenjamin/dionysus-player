@@ -45,7 +45,14 @@ private struct LibraryCard: View {
         // defensively, ahead of its own confirmed repro.
         ZStack {
             NavigationLink(value: AppRoute.collection(query)) {
-                AsyncRemoteImage(url: library.imageURL(type: "Primary", maxWidth: 400), contentMode: .fill)
+                AsyncRemoteImage(
+                    url: library.imageURL(type: "Primary", maxWidth: 400),
+                    contentMode: .fill,
+                    // A library is a browsable shelf of many items —
+                    // deliberately distinct from `.boxSet`'s glyph, which
+                    // represents one themed grouping instead.
+                    placeholderSystemImage: "square.grid.2x2"
+                )
                     .frame(width: width, height: width * 9 / 16)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             }
@@ -53,6 +60,14 @@ private struct LibraryCard: View {
             // No title row on this card at all (see this type's doc
             // comment) — without an explicit label, VoiceOver had nothing
             // to read here whatsoever (confirmed blank/"Unnamed").
+            //
+            // `.accessibilityElement(children: .ignore)` added alongside —
+            // this card only has the one child today, so it was harmless
+            // without it, but bringing it in line with the house pattern
+            // (`PosterCard`, `HeroRailCard`, `CastMemberCard`) protects
+            // against a future second child leaking its own content into
+            // VoiceOver's read.
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel(library.name)
             .accessibilityAddTraits(.isButton)
         }

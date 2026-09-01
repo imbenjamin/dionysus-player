@@ -171,7 +171,8 @@ struct SearchView: View {
     /// it's resolved on demand instead of stored on `SearchResult`.
     private func row(for result: SearchResult, onSelect: @escaping () -> Void) -> some View {
         SearchResultRow(
-            name: result.name, subtitle: result.subtitle, imageURL: viewModel?.imageURL(for: result), onSelect: onSelect
+            name: result.name, subtitle: result.subtitle, imageURL: viewModel?.imageURL(for: result),
+            kind: result.kind, onSelect: onSelect
         )
     }
 
@@ -207,12 +208,16 @@ private struct SearchResultRow: View {
     let name: String
     let subtitle: String?
     let imageURL: URL?
+    /// Drives the thumbnail's placeholder glyph — `nil` (e.g. a history
+    /// entry persisted before `SearchResult.kind` existed) falls back to a
+    /// generic glyph.
+    let kind: BaseItemKind?
     let onSelect: () -> Void
 
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 12) {
-                AsyncRemoteImage(url: imageURL)
+                AsyncRemoteImage(url: imageURL, placeholderSystemImage: kind?.placeholderSystemImage ?? "photo")
                     .frame(width: 44, height: 44)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
 

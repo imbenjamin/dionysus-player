@@ -15,6 +15,11 @@ import UIKit
 struct LocalFileImage: View {
     var url: URL?
     var contentMode: ContentMode = .fill
+    /// The SF Symbol `MediaPlaceholderBox` shows when `url` is `nil` or
+    /// fails to decode — see `AsyncRemoteImage.placeholderSystemImage`'s
+    /// doc comment for the same reasoning.
+    var placeholderSystemImage: String = "photo"
+    var glyphSize: CGFloat = 28
 
     private let image: UIImage?
 
@@ -37,9 +42,17 @@ struct LocalFileImage: View {
     /// the original full-resolution decode — the right choice for the
     /// hero backdrop/logo call sites, which need most of their frame's
     /// actual pixel budget, not a small fixed thumbnail size.
-    init(url: URL?, contentMode: ContentMode = .fill, targetSize: CGSize? = nil) {
+    init(
+        url: URL?,
+        contentMode: ContentMode = .fill,
+        targetSize: CGSize? = nil,
+        placeholderSystemImage: String = "photo",
+        glyphSize: CGFloat = 28
+    ) {
         self.url = url
         self.contentMode = contentMode
+        self.placeholderSystemImage = placeholderSystemImage
+        self.glyphSize = glyphSize
         guard let url else {
             image = nil
             return
@@ -114,7 +127,10 @@ struct LocalFileImage: View {
         if let image {
             Image(uiImage: image).resizable().aspectRatio(contentMode: contentMode)
         } else {
-            Rectangle().fill(Color.gray.opacity(0.2))
+            // Always settled, never shimmering — this type's decode is
+            // synchronous, so there's no "still loading" window to
+            // distinguish from a genuine failure.
+            MediaPlaceholderBox(systemImage: placeholderSystemImage, glyphSize: glyphSize, isSettled: true)
         }
     }
 }

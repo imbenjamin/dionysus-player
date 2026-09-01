@@ -76,7 +76,8 @@ struct DownloadedAssetDetailView: View {
                             logoURL: item.logoImagePath.map(DownloadFileStore.url(forRelativePath:)),
                             title: item.seriesTitle ?? item.title,
                             episodeTitle: item.kind == .episode ? item.title : nil,
-                            episodeNumberAccessibilityText: item.kind == .episode ? item.episodeLabelAccessibilityText : nil
+                            episodeNumberAccessibilityText: item.kind == .episode ? item.episodeLabelAccessibilityText : nil,
+                            kind: item.kind == .episode ? .episode : .movie
                         )
 
                         VStack(alignment: .leading, spacing: 16) {

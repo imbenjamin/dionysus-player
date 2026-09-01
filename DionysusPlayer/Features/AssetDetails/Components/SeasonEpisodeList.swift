@@ -261,7 +261,10 @@ private struct EpisodeRow: View {
             ZStack(alignment: .topTrailing) {
                 Button(action: onPlay) {
                     ZStack {
-                        AsyncRemoteImage(url: episode.imageURL(type: "Primary", maxWidth: 300))
+                        AsyncRemoteImage(
+                            url: episode.imageURL(type: "Primary", maxWidth: 300),
+                            placeholderSystemImage: "play.tv"
+                        )
                             .frame(width: Self.thumbnailWidth, height: Self.thumbnailHeight)
                             // Same progress-bar treatment as `PosterCard`'s rail
                             // thumbnails (`watchStatusOverlay`) — this can show

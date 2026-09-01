@@ -44,15 +44,35 @@ import UIKit
 actor RemoteImageLoader {
     static let shared = RemoteImageLoader()
 
-    /// Default transient-failure retries before giving up. Kept small — this
-    /// runs on Home's initial load where many images are already competing
-    /// for bandwidth/connections; retrying too aggressively would make
-    /// things worse, not better.
-    static let defaultMaxAttempts = 3
+    /// Default transient-failure retries before giving up. Kept modest —
+    /// this runs on Home's initial load where many images are already
+    /// competing for bandwidth/connections; retrying too aggressively would
+    /// make things worse, not better. Bumped from `3` to give a slow, cold
+    /// local Jellyfin server (still warming up its own image-resizing
+    /// pipeline right after launch) a bit more background runway before a
+    /// tile settles into its failed placeholder — this retry is
+    /// non-blocking (nothing in the UI waits on it), so the extra patience
+    /// is cheap, unlike a page-level retry loop that blocks a visible
+    /// loading state (see `HomeViewModel.reconnectRetrySchedule`'s own,
+    /// deliberately shorter, reasoning).
+    static let defaultMaxAttempts = 4
 
     /// Default base delay for retry backoff; attempt `n` (0-indexed) waits
-    /// `retryBaseDelay * 2^n` — 0.4s, 0.8s.
-    static let defaultRetryBaseDelay: Duration = .milliseconds(400)
+    /// `retryBaseDelay * 2^n` — 0.5s/1s/2s, ~3.5s total across `
+    /// defaultMaxAttempts` attempts. Bumped from 400ms alongside
+    /// `defaultMaxAttempts`, same rationale.
+    static let defaultRetryBaseDelay: Duration = .milliseconds(500)
+
+    /// Extended-patience retry budget for the single most prominent image
+    /// per screen (the hero backdrop/logo, via
+    /// `AsyncRemoteImage.RetryPatience.extended`) — worth spending
+    /// noticeably more attempts on than every other, smaller image on the
+    /// page. ~9s total across 5 attempts (0.6s/1.2s/2.4s/4.8s). Not applied
+    /// globally: a cold server already sees a burst of concurrent rail
+    /// requests at launch, and multiplying every one of those by this
+    /// budget would make a slow server's initial burst worse, not better.
+    static let heroMaxAttempts = 5
+    static let heroRetryBaseDelay: Duration = .milliseconds(600)
 
     /// Roughly the working set for smooth scrolling through several dozen
     /// rails' worth of posters/backdrops/logos without needing to re-fetch
@@ -128,7 +148,19 @@ actor RemoteImageLoader {
     /// Returns the decoded image at `url`, using the in-memory cache,
     /// joining an in-flight request for the same URL if one exists, or
     /// fetching (with retry) otherwise. Throws if every attempt fails.
-    func image(for url: URL) async throws -> UIImage {
+    ///
+    /// - Parameters:
+    ///   - maxAttempts/retryBaseDelay: override this instance's configured
+    ///     defaults for just this call — used by `AsyncRemoteImage
+    ///     .RetryPatience.extended` (the hero backdrop/logo) to pass
+    ///     `heroMaxAttempts`/`heroRetryBaseDelay` instead of the smaller
+    ///     defaults every other image uses. `nil` (the default) keeps this
+    ///     instance's own configured values. If two callers request the
+    ///     same URL concurrently with different overrides, the *first*
+    ///     caller's values win for both, since they share one in-flight
+    ///     `Task` — accepted as a rare, harmless trade-off rather than
+    ///     something worth extra bookkeeping to avoid.
+    func image(for url: URL, maxAttempts: Int? = nil, retryBaseDelay: Duration? = nil) async throws -> UIImage {
         if let cached = memoryCache.object(forKey: url as NSURL) {
             return cached
         }
@@ -136,12 +168,14 @@ actor RemoteImageLoader {
             return try await existing.value
         }
 
-        let task = Task<UIImage, Error> { [session, maxAttempts, retryBaseDelay] in
+        let resolvedMaxAttempts = maxAttempts ?? self.maxAttempts
+        let resolvedRetryBaseDelay = retryBaseDelay ?? self.retryBaseDelay
+        let task = Task<UIImage, Error> { [session] in
             try await Self.fetchWithRetry(
                 url: url,
                 session: session,
-                maxAttempts: maxAttempts,
-                retryBaseDelay: retryBaseDelay
+                maxAttempts: resolvedMaxAttempts,
+                retryBaseDelay: resolvedRetryBaseDelay
             )
         }
         inFlightTasks[url] = task

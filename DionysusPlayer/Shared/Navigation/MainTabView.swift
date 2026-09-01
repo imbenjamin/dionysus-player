@@ -148,11 +148,13 @@ struct MainTabView: View {
             return
         }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            guard let raw = UIImage(data: data) else {
-                profileTabIcon = nil
-                return
-            }
+            // `RemoteImageLoader.shared`, not a hand-rolled
+            // `URLSession.shared` fetch (this used to be one) — this
+            // avatar gets the same retry-with-backoff and shared in-memory
+            // cache as every other image in the app for essentially free,
+            // rather than silently going permanently blank on a single
+            // transient failure with nothing else in the app any wiser.
+            let raw = try await RemoteImageLoader.shared.image(for: url)
             profileTabIcon = raw.circularTabIcon()
         } catch {
             profileTabIcon = nil

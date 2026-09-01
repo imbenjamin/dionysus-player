@@ -56,7 +56,7 @@ private struct CollectionItemRow: View {
         HStack(alignment: .top, spacing: 12) {
             Button(action: onPlay) {
                 ZStack {
-                    AsyncRemoteImage(url: item.primaryImageURL)
+                    AsyncRemoteImage(url: item.primaryImageURL, placeholderSystemImage: item.kind.placeholderSystemImage)
                         .frame(width: Self.posterWidth, height: posterHeight)
                         .watchStatusOverlay(for: item)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -72,6 +72,14 @@ private struct CollectionItemRow: View {
                 }
             }
             .buttonStyle(.plain)
+            // This row had no accessibility treatment at all before this —
+            // found during the placeholder-imagery audit; the app's main
+            // VoiceOver sweep (PR #134) predates this file and simply
+            // missed it. Matches `SeasonEpisodeList.EpisodeRow`'s identical
+            // thumbnail-play `Button` exactly: just a label, no extra
+            // `.accessibilityElement`/trait needed since a plain `Button`
+            // already reads as one element with the `.isButton` trait.
+            .accessibilityLabel(String(localized: "Play \(item.name)"))
 
             // See `PosterCard.body`'s doc comment for why the `NavigationLink`
             // needs its own `ZStack` wrapper, not just sitting bare inside
@@ -105,10 +113,14 @@ private struct CollectionItemRow: View {
                         // Same "this row does something when tapped" cue as
                         // `EpisodeRow`'s identical trailing chevron — see its
                         // own doc comment for why this reads as "open" rather
-                        // than "select in place" here specifically.
+                        // than "select in place" here specifically. Purely
+                        // decorative — the `.isButton` trait below already
+                        // says "this opens something," so this glyph adds no
+                        // information VoiceOver needs to read on its own.
                         Image(systemName: "chevron.right")
                             .font(.caption.bold())
                             .foregroundStyle(.tertiary)
+                            .accessibilityHidden(true)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     // Caps the text column to the poster's own height,
@@ -125,6 +137,16 @@ private struct CollectionItemRow: View {
                     .frame(height: posterHeight, alignment: .top)
                     .clipped()
                     .contentShape(Rectangle())
+                    // See `PosterCard.body`'s identical block for why —
+                    // this row had no accessibility treatment at all
+                    // before this (found during the placeholder-imagery
+                    // audit); without it, VoiceOver's default combining of
+                    // this stack's several `Text`s (plus the chevron, were
+                    // it not hidden above) reads far less cleanly than one
+                    // curated label.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(item.accessibilityDescription)
+                    .accessibilityAddTraits(.isButton)
                 }
                 .buttonStyle(.plain)
             }

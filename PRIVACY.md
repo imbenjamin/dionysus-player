@@ -61,9 +61,11 @@ and its own dependencies (FFmpegBuild, LibDovi, SMBClient), which decode
 and play media on-device. We have no indication that these components make
 network connections of their own beyond what Dionysus Player itself
 directs (streaming or downloading from your configured server), but as
-with any third-party software, we can't audit their internals directly —
-see the in-app **License** screen (Profile → License) for the full set of
-licenses involved.
+with any third-party software, we can't audit their internals directly.
+The app also uses [SwiftUI-Shimmer](https://github.com/markiv/SwiftUI-Shimmer),
+a small open-source loading-animation effect with no network access of its
+own. See the in-app **License** screen (Profile → License) for the full
+set of licenses involved.
 
 ## Data Retention & Deletion
 

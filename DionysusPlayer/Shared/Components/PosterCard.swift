@@ -32,7 +32,7 @@ struct PosterCard: View {
         ZStack(alignment: .topLeading) {
             NavigationLink(value: AppRoute.assetDetail(itemID: item.id, preloadedItem: item)) {
                 VStack(alignment: .leading, spacing: 6) {
-                    AsyncRemoteImage(url: item.primaryImageURL)
+                    AsyncRemoteImage(url: item.primaryImageURL, placeholderSystemImage: item.kind.placeholderSystemImage)
                         .frame(width: width, height: imageHeight)
                         .watchStatusOverlay(for: item)
                         // Clipped *after* the overlay, not before — `.overlay`
@@ -84,7 +84,10 @@ struct LandscapeMediaCard: View {
         ZStack(alignment: .topLeading) {
             NavigationLink(value: AppRoute.assetDetail(itemID: item.id, preloadedItem: item)) {
                 VStack(alignment: .leading, spacing: 6) {
-                    AsyncRemoteImage(url: item.thumbImageURL ?? item.primaryImageURL)
+                    AsyncRemoteImage(
+                        url: item.thumbImageURL ?? item.primaryImageURL,
+                        placeholderSystemImage: item.kind.placeholderSystemImage
+                    )
                         .frame(width: width, height: imageHeight)
                         .episodeLogoOverlay(for: item)
                         .watchStatusOverlay(for: item)
