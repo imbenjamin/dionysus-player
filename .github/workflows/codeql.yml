@@ -13,6 +13,20 @@ name: CodeQL
 # was added; the two can't coexist for the same language without GitHub
 # rejecting the advanced-setup upload.
 #
+# `swift` only blocks a PR into `stable`, not `develop`. Its first live run
+# (PR #166) took ~43 minutes — genuine CodeQL-tracer overhead on
+# AetherEngine's FFmpeg/SMBClient/LibDovi dependencies, not a fluke — and
+# this repo merges several `develop` PRs a day with no second reviewer to
+# absorb that wait. `stable` only moves a handful of times a year via the
+# develop -> stable promotion PR (see promote-to-stable.yml), so blocking
+# there costs nothing in day-to-day velocity while still gating anything
+# that's about to ship. `develop` still gets `swift` coverage — just
+# non-blocking, via the `push`/`schedule` triggers below rather than
+# `pull_request` — so a real finding shows up as a Security-tab alert
+# within, worst case, a week, without holding up the PR that introduced it.
+# `actions` stays cheap (~40s) regardless of target branch, so it blocks
+# PRs into both.
+#
 # `push: develop` exists for a different reason than pr-checks.yml's lack
 # of one: the tree really is identical to what `pull_request` already
 # scanned (same guarantee pr-checks.yml relies on), but GitHub's Security
@@ -20,9 +34,9 @@ name: CodeQL
 # itself, not from PR-merge refs — without this, PR-time scans would never
 # populate it (GitHub says so explicitly: "Please specify an on.push hook
 # to analyze and see code scanning alerts from the default branch on the
-# Security tab", surfaced live setting this workflow up). `stable` doesn't
-# get the same treatment — it only moves via the develop -> stable
-# promotion PR, which is itself scanned pre-merge.
+# Security tab", surfaced live setting this workflow up). It's also now
+# `swift`'s only per-merge trigger on `develop`, since `pull_request` no
+# longer covers it there.
 on:
   pull_request:
     branches: [ "stable", "develop" ]
@@ -49,6 +63,14 @@ jobs:
     name: Analyze (${{ matrix.language }})
     runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 45
+    # Skip only: swift, on a pull_request, targeting develop. Every other
+    # combination runs — actions on any PR, swift on a PR into stable, and
+    # both languages on push/schedule/workflow_dispatch regardless of
+    # branch. See the header comment for why.
+    if: >-
+      matrix.language != 'swift' ||
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.base.ref == 'stable'
 
     strategy:
       fail-fast: false
