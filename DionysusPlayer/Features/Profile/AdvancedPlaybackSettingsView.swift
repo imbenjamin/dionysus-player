@@ -62,7 +62,7 @@ struct AdvancedPlaybackSettingsView: View {
             Section {
                 Toggle("Show Playback Stats Button", isOn: $showPlaybackStatsButtonEnabled)
             } footer: {
-                Text("Shows a button on the player screen for viewing technical playback details — codec, bitrate, resolution, and more. On by default in development builds, off by default in release builds.")
+                Text("Shows a button on the player screen for viewing technical playback details.")
             }
         }
         .navigationTitle("Advanced")
