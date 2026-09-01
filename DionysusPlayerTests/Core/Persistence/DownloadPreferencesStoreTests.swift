@@ -20,7 +20,7 @@ final class DownloadPreferencesStoreTests: XCTestCase {
         let store = DownloadPreferencesStore(defaults: defaults)
         XCTAssertEqual(store.bitratePreset, .normal)
         XCTAssertEqual(store.wifiOnly, true)
-        XCTAssertEqual(store.maxConcurrentDownloads, 5)
+        XCTAssertEqual(store.maxConcurrentDownloads, 3)
     }
 
     /// Resolution's own default is device-class-dependent

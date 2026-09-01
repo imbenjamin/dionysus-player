@@ -1006,7 +1006,7 @@ final class DownloadManager: NSObject {
     ///    `currentSession(deviceID:)`'s own doc comment), so using it
     ///    directly is both correct and simpler — but it also means two
     ///    *concurrent* downloads (`DownloadPreferencesStore
-    ///    .maxConcurrentDownloads` defaults to 5, so this is common, not
+    ///    .maxConcurrentDownloads` defaults to 3, so this is common, not
     ///    rare) share that one `TranscodingInfo`, clobbered by whichever job
     ///    reported last — confirmed live by running two transcodes at once
     ///    from the same `DeviceId`. Applying that value to *this* item's

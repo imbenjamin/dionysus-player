@@ -16,9 +16,9 @@ struct DownloadsSettingsView: View {
     @AppStorage(downloadBitratePresetStorageKey) private var downloadBitratePreset: DownloadBitratePreset = .normal
     @AppStorage(downloadWifiOnlyStorageKey) private var downloadWifiOnly = true
     /// Raw slider value — `0` is its own "Unlimited" position, past `10`.
-    /// Default `5`, matching `downloadMaxConcurrentStorageKey`'s own
-    /// fallback (see its doc comment for why 5, not Unlimited).
-    @AppStorage(downloadMaxConcurrentStorageKey) private var downloadMaxConcurrentRaw = 5
+    /// Default `3`, matching `downloadMaxConcurrentStorageKey`'s own
+    /// fallback (see its doc comment for why 3, not Unlimited).
+    @AppStorage(downloadMaxConcurrentStorageKey) private var downloadMaxConcurrentRaw = 3
 
     /// Recomputed on every `body` evaluation — a plain `FileManager`
     /// directory scan plus a volume-capacity read, not cached or reactively

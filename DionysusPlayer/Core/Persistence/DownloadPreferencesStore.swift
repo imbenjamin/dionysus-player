@@ -19,7 +19,7 @@ let downloadWifiOnlyStorageKey = "downloadWifiOnlyPreference"
 /// `Optional<Int>` — `@AppStorage`/`UserDefaults` have no native optional
 /// representation, so `0` is the slider's own "Unlimited" sentinel, mapped
 /// to `nil` by `maxConcurrentDownloads` below so every other call site
-/// reasons about "no limit" the normal Swift way. Default `5` — a
+/// reasons about "no limit" the normal Swift way. Default `3` — a
 /// deliberate choice to be considerate of the server by default rather
 /// than Unlimited.
 let downloadMaxConcurrentStorageKey = "downloadMaxConcurrentPreference"
@@ -70,7 +70,7 @@ struct DownloadPreferencesStore {
     /// subtitle/artwork fetches always run inline as soon as a download is
     /// requested, regardless of this limit, since they're small and quick.
     var maxConcurrentDownloads: Int? {
-        let raw = defaults.object(forKey: downloadMaxConcurrentStorageKey) as? Int ?? 5
+        let raw = defaults.object(forKey: downloadMaxConcurrentStorageKey) as? Int ?? 3
         return raw > 0 ? raw : nil
     }
 }
