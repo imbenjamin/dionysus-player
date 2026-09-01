@@ -2,6 +2,14 @@
   <img src=".github/dionysus-iOS-Default-512x512@1x.png" alt="Dionysus Player" width="180">
 </p>
 
+<p align="center">
+  <a href="https://github.com/imbenjamin/dionysus-player/releases"><img src="https://img.shields.io/github/v/release/imbenjamin/dionysus-player?include_prereleases&logo=github" alt="GitHub Releases"></a>
+  <a href="https://testflight.apple.com/join/M6cu7Afs"><img src="https://img.shields.io/badge/TestFlight-Alpha%20Releases-blue?logo=appstore" alt="TestFlight Alpha Releases"></a>
+</p>
+<p align="center">
+  <a href="https://github.com/imbenjamin/dionysus-player/actions?query=branch%3Adevelop"><img src="https://img.shields.io/github/check-suites/imbenjamin/dionysus-player/develop?logo=github&label=develop" alt="GitHub branch check suites"></a>
+</p>
+
 # Dionysus Player
 
 A better and open Apple client for Jellyfin.
@@ -122,12 +130,6 @@ seeking/scrubbing edge cases.
 - **Downloaded audio is always AAC-LC stereo**, regardless of the source's
   own audio (a deliberate v1 simplification) — no surround/lossless
   passthrough for offline files yet. Live playback is unaffected.
-- **Direct Play Always, if selected, is direct-play only** — the Streaming
-  setting (Settings → Playback) defaults to **Allow Transcoding**, but
-  forcing **Direct Play Always** opts out of server-side negotiation
-  entirely: a source your device truly can't decode won't play back live
-  in that mode (downloads have always transcoded to a chosen
-  resolution/bitrate tier regardless of this setting).
 - **tvOS/macOS are not built yet** — iOS/iPadOS only for now, per the
   Status section above.
 - **Audio/music libraries aren't supported yet** — browsing/playing music is
