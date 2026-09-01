@@ -3,9 +3,9 @@ import XCTest
 
 @MainActor
 final class LibraryAvailabilityTests: XCTestCase {
-    override func tearDown() {
+    override func tearDown() async throws {
         LibraryAvailability.shared.reset()
-        super.tearDown()
+        try await super.tearDown()
     }
 
     func test_update_changesState() {

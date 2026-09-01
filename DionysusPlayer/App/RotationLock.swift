@@ -54,6 +54,7 @@ enum RotationLock {
         case .portraitUpsideDown: return .portraitUpsideDown
         case .landscapeLeft: return .landscapeLeft
         case .landscapeRight: return .landscapeRight
+        case .unknown: return .all
         @unknown default: return .all
         }
     }

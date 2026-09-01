@@ -4,6 +4,7 @@ import UIKit
 #endif
 @testable import Dionysus
 
+@MainActor
 final class DownloadTypesTests: XCTestCase {
     // MARK: DownloadResolution.videoBitrate — the bitrate ladder table
 

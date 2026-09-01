@@ -13,11 +13,11 @@ import XCTest
 final class DownloadManagerTests: XCTestCase {
     private var touchedRelativePaths: [String] = []
 
-    override func tearDown() {
+    override func tearDown() async throws {
         for path in touchedRelativePaths { try? FileManager.default.removeItem(at: DownloadFileStore.url(forRelativePath: path)) }
         touchedRelativePaths = []
         MockURLProtocol.reset()
-        super.tearDown()
+        try await super.tearDown()
     }
 
     private let baseURL = URL(string: "https://jellyfin.example.com")!

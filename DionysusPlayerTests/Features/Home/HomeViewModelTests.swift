@@ -13,14 +13,14 @@ import XCTest
 /// redesigned.
 @MainActor
 final class HomeViewModelTests: XCTestCase {
-    override func tearDown() {
+    override func tearDown() async throws {
         MockURLProtocol.reset()
         // `LibraryAvailability` is a true `.shared` singleton (unlike the
         // fresh `HomeViewModel` each test constructs), so a test that lets
         // `load()`/`retryLoadIfNeeded()` write to it would otherwise leak
         // that state into whichever test runs next.
         LibraryAvailability.shared.reset()
-        super.tearDown()
+        try await super.tearDown()
     }
 
     /// `shuffle`/`itemShuffle` both default to identity (not `HomeViewModel`'s

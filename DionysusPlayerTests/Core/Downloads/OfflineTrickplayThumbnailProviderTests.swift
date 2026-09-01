@@ -10,10 +10,15 @@ import XCTest
 final class OfflineTrickplayThumbnailProviderTests: XCTestCase {
     private var touchedItemIDs: [String] = []
 
-    override func tearDown() {
+    // `async throws` override, not the plain synchronous one: XCTestCase's
+    // synchronous `tearDown()` is nonisolated in the framework overlay, so an
+    // override must match that regardless of this class's own `@MainActor`
+    // — touching `touchedItemIDs` (MainActor-isolated) there would warn.
+    // The async override runs genuinely on the main actor.
+    override func tearDown() async throws {
         for itemID in touchedItemIDs { DownloadFileStore.deleteItemFiles(itemID: itemID) }
         touchedItemIDs = []
-        super.tearDown()
+        try await super.tearDown()
     }
 
     private func uniqueItemID() -> String {

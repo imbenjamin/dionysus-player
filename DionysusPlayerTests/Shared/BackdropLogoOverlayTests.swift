@@ -5,6 +5,7 @@ import XCTest
 /// beyond `rotation(tiltX:tiltY:maxDegrees:)`, the one piece of actual
 /// computation behind its device-tilt depth effect (see
 /// `DeviceTiltObserverTests`' doc comment for the same reasoning).
+@MainActor
 final class BackdropLogoOverlayTests: XCTestCase {
     func test_rotation_zeroTilt_isZeroAngle() {
         let result = BackdropLogoOverlay.rotation(tiltX: 0, tiltY: 0, maxDegrees: 10)

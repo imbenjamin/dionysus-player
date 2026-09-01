@@ -13,16 +13,16 @@ final class SearchViewModelTests: XCTestCase {
     private var defaults: UserDefaults!
     private let suiteName = "com.dionysusplayer.tests.SearchViewModelTests"
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         defaults = UserDefaults(suiteName: suiteName)
         defaults.removePersistentDomain(forName: suiteName)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         defaults.removePersistentDomain(forName: suiteName)
         MockURLProtocol.reset()
-        super.tearDown()
+        try await super.tearDown()
     }
 
     private func makeViewModel(userID: String = "user-1", accessToken: String = "tok") -> SearchViewModel {

@@ -11,12 +11,12 @@ import XCTest
 final class JellyfinAPIClientTests: XCTestCase {
     private let baseURL = URL(string: "https://jellyfin.example.com")!
 
-    override func tearDown() {
+    override func tearDown() async throws {
         MockURLProtocol.reset()
         // Process-wide singleton, same cross-test-pollution risk
         // `MockURLProtocol.reset()` above already guards against.
         ConnectivityMonitor.shared.reset()
-        super.tearDown()
+        try await super.tearDown()
     }
 
     private func makeClient(accessToken: String? = nil) -> JellyfinAPIClient {
