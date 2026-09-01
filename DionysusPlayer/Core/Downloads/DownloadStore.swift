@@ -33,6 +33,19 @@ final class DownloadStore {
     /// throwing/crashing if the on-disk store can't be opened — a corrupt
     /// local cache shouldn't be able to take down the whole app.
     static func makeDefault() -> DownloadStore {
+        // On a brand-new app container (a fresh Simulator, or a device's
+        // first launch after install) `Application Support` doesn't exist
+        // yet — SwiftData's preflight `statfs` on it before creating the
+        // store file then logs a "Failed to stat path"/"Sandbox access ...
+        // denied" pair (harmless; the store still gets created either way,
+        // but it shows up as a scary CI annotation). Pre-creating the
+        // directory, same boilerplate Apple's own Core Data templates
+        // include, avoids that preflight ever missing.
+        if let supportURL = try? FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false
+        ) {
+            try? FileManager.default.createDirectory(at: supportURL, withIntermediateDirectories: true)
+        }
         let schema = Schema([DownloadedItem.self])
         if let onDisk = try? ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema)]) {
             return DownloadStore(modelContainer: onDisk)

@@ -334,7 +334,12 @@ private struct ScrollBottomObserver: UIViewRepresentable {
             guard observation == nil, let scrollView = hostView?.nearestScrollViewAncestor() else { return }
             self.scrollView = scrollView
             observation = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] scrollView, _ in
-                self?.checkNearBottom(scrollView)
+                // KVO's closure type is inferred nonisolated regardless of
+                // this class's own `@MainActor`, but a UIScrollView's
+                // contentOffset only ever changes on the main thread in
+                // practice — the isolation assumption here is guaranteed,
+                // not a leap of faith.
+                MainActor.assumeIsolated { self?.checkNearBottom(scrollView) }
             }
             // Also check once immediately — content shorter than one
             // screen (nothing to scroll at all) would otherwise never

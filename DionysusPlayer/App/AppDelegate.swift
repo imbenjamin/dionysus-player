@@ -7,6 +7,17 @@ import UIKit
 /// only way to answer it at all. `RotationLock` is what actually flips the
 /// mask this returns and asks UIKit to re-query it once it changes.
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    /// Primes `DeviceIdentity`'s cached `UIDevice.current` snapshot —
+    /// UIKit always calls this on the main thread before anything else in
+    /// the app runs, well before the first network request needs it.
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+    ) -> Bool {
+        DeviceIdentity.primeCache()
+        return true
+    }
+
     func application(
         _ application: UIApplication,
         supportedInterfaceOrientationsFor window: UIWindow?

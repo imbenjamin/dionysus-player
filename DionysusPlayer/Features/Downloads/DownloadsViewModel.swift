@@ -55,15 +55,23 @@ final class DownloadsViewModel {
     /// `DownloadManager.delete(itemID:)` call, after `rows` has already
     /// been updated synchronously — see `delete(itemID:)`'s doc comment for
     /// why this needs to happen on a later run-loop turn, not inline.
-    /// Defaults to the real `DispatchQueue.main.async`; test-only DI seam
+    /// Defaults to a `Task { @MainActor in ... }` hop; test-only DI seam
     /// (matching `DownloadManager`'s own `...Override` seams) lets
     /// `DownloadsViewModelTests` run it synchronously instead of needing to
-    /// pump the run loop to observe the deferred deletion.
-    private let deferredDeleteScheduler: (@escaping () -> Void) -> Void
+    /// pump the run loop to observe the deferred deletion. `@MainActor`
+    /// rather than `@Sendable` on the inner closure: the actual requirement
+    /// is "run this on the main actor", which is also what both call sites
+    /// below (`delete(itemID:)`/`deleteSelected()`, both already `@MainActor`
+    /// methods) naturally produce — `DispatchQueue.main.async`'s `@Sendable`
+    /// parameter type was never the right fit for a non-Sendable capture
+    /// that's only ever meant to run on this one actor.
+    private let deferredDeleteScheduler: (@escaping @MainActor () -> Void) -> Void
 
     init(
         downloadManager: DownloadManager,
-        deferredDeleteScheduler: @escaping (@escaping () -> Void) -> Void = { DispatchQueue.main.async(execute: $0) }
+        deferredDeleteScheduler: @escaping (@escaping @MainActor () -> Void) -> Void = { work in
+            Task { @MainActor in work() }
+        }
     ) {
         self.downloadManager = downloadManager
         self.deferredDeleteScheduler = deferredDeleteScheduler

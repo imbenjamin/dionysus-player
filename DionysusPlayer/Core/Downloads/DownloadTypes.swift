@@ -1,7 +1,4 @@
 import Foundation
-#if os(iOS)
-import UIKit
-#endif
 
 /// Resolution tier for an offline download's transcode target — caps
 /// `MaxWidth`/`MaxHeight` sent to Jellyfin's transcoder
@@ -107,7 +104,7 @@ enum DownloadResolution: String, Codable, CaseIterable, Identifiable {
     /// per-device default can't produce a cross-device conflict.
     static var deviceClassDefault: DownloadResolution {
         #if os(iOS)
-        return UIDevice.current.userInterfaceIdiom == .pad ? .hd1080p : .hd720p
+        return DeviceIdentity.isPad ? .hd1080p : .hd720p
         #else
         return .hd1080p
         #endif

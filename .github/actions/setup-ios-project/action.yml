@@ -26,8 +26,17 @@ runs:
       # 10k-line log. Installed rather than assumed present — it ships in some
       # runner images and not others, and a missing binary would fail the pipe
       # rather than degrade.
+      #
+      # `brew untap aws/tap` first: the `macos-latest` image ships that tap
+      # pre-added but untrusted, and any `brew install`/`brew update` on the
+      # runner logs an "ignoring formulae ... tap trust is required" warning
+      # about it — unrelated to anything this repo installs. `|| true` so a
+      # future runner image that no longer ships it doesn't turn this into a
+      # new failure point.
       shell: bash
-      run: brew install xcodegen xcbeautify
+      run: |
+        brew untap aws/tap 2>/dev/null || true
+        brew install xcodegen xcbeautify
 
     - name: Generate Xcode project
       # No .xcodeproj is committed (see .gitignore's blanket `*.xcodeproj`) —
