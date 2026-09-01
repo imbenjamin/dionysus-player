@@ -24,8 +24,8 @@ struct ProfileView: View {
     /// reason as `hero3DDepthEnabled` above.
     @AppStorage(nextUpCountdownStorageKey) private var nextUpCountdown: NextUpCountdownPreference = .seconds30
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var showSignOutConfirmation = false
-    @State private var showChangeServerConfirmation = false
+    @State private var showAccountDetails = false
+    @State private var avatarImageURL: URL?
 
     /// Recomputed on every `body` evaluation — a plain `FileManager`
     /// directory scan (`DownloadFileStore.totalSizeOnDisk()`), not cached
@@ -59,12 +59,90 @@ struct ProfileView: View {
         return "\(number) \(spokenUnit)"
     }
 
+    /// Fetches the signed-in user's avatar URL via a `client.makeImageURLBuilder()`
+    /// actor hop — same pattern `MainTabView.loadProfileTabIcon()` uses for
+    /// the tab-bar icon, just handed to `AsyncRemoteImage` here instead of a
+    /// hand-rolled `UIGraphicsImageRenderer` render, since this avatar is
+    /// large enough to want the same retry/placeholder/shimmer treatment as
+    /// every other image in the app.
+    private func loadAvatarImageURL() async {
+        guard let user = appState.currentUser, let tag = user.primaryImageTag,
+              let client = appState.apiClient else {
+            avatarImageURL = nil
+            return
+        }
+        let builder = await client.makeImageURLBuilder()
+        avatarImageURL = builder.userImageURL(userID: user.id, tag: tag, maxWidth: 240)
+    }
+
+    private var accountDisplayName: String {
+        appState.currentUser?.name ?? appState.sessionStore.credentials?.username ?? "\u{2014}"
+    }
+
+    private var accountServerName: String {
+        appState.sessionStore.serverConfiguration?.name ?? "\u{2014}"
+    }
+
     var body: some View {
         List {
-            Section("Account") {
-                LabeledContent("Username", value: appState.currentUser?.name ?? appState.sessionStore.credentials?.username ?? "\u{2014}")
-                LabeledContent("Server", value: appState.sessionStore.serverConfiguration?.name ?? "\u{2014}")
-                LabeledContent("Address", value: appState.sessionStore.serverConfiguration?.baseURL.absoluteString ?? "\u{2014}")
+            // A tappable "contact card" rather than plain rows — tapping it
+            // presents `AccountDetailsSheet`, which holds the
+            // username/server/address detail plus Sign Out/Change Server.
+            Section {
+                Button {
+                    showAccountDetails = true
+                } label: {
+                    HStack(spacing: 12) {
+                        AsyncRemoteImage(url: avatarImageURL, placeholderSystemImage: "person.fill", glyphSize: 24)
+                            .frame(width: 60, height: 60)
+                            .clipShape(Circle())
+                            // Decorative — `accountDisplayName` below already
+                            // identifies who this is; without this, a loaded
+                            // avatar photo (a plain `Image(uiImage:)`, not
+                            // hidden by default) would risk getting folded
+                            // into the row's combined label as a second,
+                            // unlabeled stop.
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(accountDisplayName)
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                            Text(accountServerName)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            // Decorative disclosure affordance, not content —
+                            // same reasoning as the avatar above.
+                            .accessibilityHidden(true)
+                    }
+                    .padding(.vertical, 4)
+                    // Without this, the `Spacer()` above (and the padding)
+                    // paint nothing, so only the avatar/text actually
+                    // hit-test as tappable — a tap anywhere else in the row
+                    // (including the chevron) silently does nothing. This
+                    // makes the whole row's bounds the tap target, matching
+                    // what it visually looks like.
+                    .contentShape(Rectangle())
+                    // Same "one combined accessibility label" shape as the
+                    // Downloads row below (`.ignore` + explicit
+                    // `.accessibilityLabel`), not `.combine` — more robust
+                    // than relying on every child view happening to carry no
+                    // label of its own, and consistent with this file's own
+                    // established pattern. Applied to the label content
+                    // (not the `Button` itself, as `Downloads`'s own
+                    // `LabeledContent` does it) — putting it on the `Button`
+                    // instead would collapse the button's own "Button"
+                    // accessibility trait along with its children, leaving
+                    // VoiceOver with no indication this row is tappable.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(String(localized: "\(accountDisplayName), \(accountServerName)"))
+                    .accessibilityHint("Shows account details and sign-out options.")
+                }
+                .buttonStyle(.plain)
             }
 
             Section("Appearance") {
@@ -134,24 +212,13 @@ struct ProfileView: View {
                 }
             }
 
-            Section {
+            Section("About") {
                 NavigationLink("License") {
                     LicenseView()
                 }
                 NavigationLink("Privacy Policy") {
                     PrivacyPolicyView()
                 }
-            }
-
-            Section {
-                Button("Sign Out", role: .destructive) {
-                    showSignOutConfirmation = true
-                }
-                Button("Change Server", role: .destructive) {
-                    showChangeServerConfirmation = true
-                }
-            } footer: {
-                Text("Change Server also signs you out and forgets this server, returning to first-time setup.")
             }
 
             // Page-wide footer (not tied to the section above it): which
@@ -190,6 +257,10 @@ struct ProfileView: View {
             }
         }
         .navigationTitle("Profile & Settings")
+        .task(id: appState.currentUser?.id) { await loadAvatarImageURL() }
+        .sheet(isPresented: $showAccountDetails) {
+            AccountDetailsSheet()
+        }
         // Drives `DeviceTiltObserver.shared` directly from the toggle that
         // actually triggers it, rather than relying solely on whichever
         // `HeroHeaderView` (if any) happens to still be mounted in some
@@ -209,22 +280,6 @@ struct ProfileView: View {
                     await DeviceTiltObserver.shared.stop()
                 }
             }
-        }
-        .confirmationDialog(
-            "Sign out of \(appState.currentUser?.name ?? "your account")?",
-            isPresented: $showSignOutConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Sign Out", role: .destructive) { appState.signOut() }
-            Button("Cancel", role: .cancel) {}
-        }
-        .confirmationDialog(
-            "Change server?",
-            isPresented: $showChangeServerConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Change Server", role: .destructive) { appState.changeServer() }
-            Button("Cancel", role: .cancel) {}
         }
     }
 }
