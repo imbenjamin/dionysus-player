@@ -13,13 +13,21 @@ name: CodeQL
 # was added; the two can't coexist for the same language without GitHub
 # rejecting the advanced-setup upload.
 #
-# No `push:` trigger for the same reason pr-checks.yml has none: both
-# `stable` and `develop` are covered by rulesets that guarantee a merge
-# commit's tree is identical to what `pull_request` already scanned, so a
-# push-triggered re-run would always be re-scanning identical code.
+# `push: develop` exists for a different reason than pr-checks.yml's lack
+# of one: the tree really is identical to what `pull_request` already
+# scanned (same guarantee pr-checks.yml relies on), but GitHub's Security
+# tab reads code-scanning alerts from analyses tied to the default branch
+# itself, not from PR-merge refs — without this, PR-time scans would never
+# populate it (GitHub says so explicitly: "Please specify an on.push hook
+# to analyze and see code scanning alerts from the default branch on the
+# Security tab", surfaced live setting this workflow up). `stable` doesn't
+# get the same treatment — it only moves via the develop -> stable
+# promotion PR, which is itself scanned pre-merge.
 on:
   pull_request:
     branches: [ "stable", "develop" ]
+  push:
+    branches: [ "develop" ]
   schedule:
     # Weekly, matching the cadence the disabled default setup used —
     # catches newly-published CodeQL queries surfacing something in code
@@ -64,7 +72,7 @@ jobs:
         uses: ./.github/actions/setup-ios-project
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -84,6 +92,6 @@ jobs:
             | xcbeautify --renderer github-actions
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
