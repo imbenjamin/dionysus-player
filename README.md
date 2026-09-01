@@ -33,23 +33,19 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
 - **Browse & search** — home rails, library grids (Movies/Shows/Collections)
   with cascading genre/studio/decade/watched/favorite filters, search,
   cast & crew, "Up Next"/continue-watching.
-- **Playback** — direct-play via AetherEngine (FFmpeg + VideoToolbox),
-  HDR10/HDR10+/Dolby Vision on supported source+device combinations,
-  scrubbing with trickplay thumbnails, subtitle/audio track selection,
-  intro/outro skip segments, Picture in Picture (native AVPlayer route),
-  Now Playing/lock-screen/Control Center integration, a live "stats for
-  nerds" overlay (codec, bitrate, resolution, dropped frames, streaming
-  session info, offline-vs-live playback method). Streaming defaults to
-  **Allow Transcoding** (Settings → Playback): it negotiates with the
-  server via a real `DeviceProfile` and falls back to a server-chosen
-  transcode — fragmented MP4 over HLS, not MPEG-TS, the container AVPlayer
-  actually requires to decode a transcoded HEVC target at all — when
-  direct play isn't possible, with a configurable max-bitrate cap — the
-  more reliable choice for most users, since a source your device can't
-  decode still plays instead of failing outright. Both AVC and HEVC
-  transcode targets are supported as a result. **Direct Play Always**
-  (send the original file untouched, no negotiation) is still available
-  for anyone who'd rather force it.
+- **Playback** — AetherEngine (FFmpeg + VideoToolbox), HDR10/HDR10+/Dolby
+  Vision on supported source+device combinations, trickplay-thumbnail
+  scrubbing, subtitle/audio track selection, intro/outro skip segments,
+  Picture in Picture, Now Playing/lock-screen/Control Center integration,
+  and a live "stats for nerds" overlay (codec, bitrate, resolution, dropped
+  frames, streaming session info, offline-vs-live playback method).
+- **Streaming** — defaults to **Allow Transcoding** (Settings → Playback):
+  negotiates with the server via a real `DeviceProfile`, falling back to a
+  server-chosen AVC or HEVC transcode with a configurable max-bitrate cap
+  when direct play isn't possible, so a source your device can't decode
+  still plays instead of failing outright. **Direct Play Always** (send the
+  original file untouched, no negotiation) is also available for anyone
+  who'd rather force it.
 - **Downloads** — see below; this is the differentiator.
 - **Accounts** — Jellyfin sign-in with silent session restore, per-server
   config, profile/settings screen.
@@ -111,25 +107,11 @@ seeking/scrubbing edge cases.
 
 ## Known limitations
 
-- **Offline downloads of HDR content always come out SDR.** This isn't a gap
-  in this app's own download request — it's a hard limitation of Jellyfin's
-  server-side transcoder, confirmed against a real Jellyfin server (an Apple
-  Silicon Mac Mini with VideoToolbox hardware transcoding, tone mapping
-  enabled) using multiple real HDR10 and Dolby Vision sources, and against
-  [Jellyfin's own documentation](https://jellyfin.org/docs/general/post-install/transcoding/):
-  "When the source video is in HDR, it will need to be tone-mapped to SDR
-  when transcoding, as Jellyfin currently doesn't support HDR to HDR
-  tone-mapping, or passing through HDR metadata." That applies to every
-  transcode unconditionally — there's no server setting or client-declared
-  device capability that changes it. Live playback (direct-play, not
-  transcoded) is unaffected and preserves HDR normally; only a *downloaded*
-  copy of an HDR title is forced to SDR. `DownloadedItem.isHDR` reflects
-  this honestly (always `false`) rather than mislabeling a tone-mapped
-  file. Revisit this only if Jellyfin's server ever adds real
-  HDR-preserving transcode support upstream.
-- **Downloaded audio is always AAC-LC stereo**, regardless of the source's
-  own audio (a deliberate v1 simplification) — no surround/lossless
-  passthrough for offline files yet. Live playback is unaffected.
+- **Downloads always come out HDR→SDR and AAC-LC stereo**, regardless of the
+  source. The HDR loss is a hard limitation of Jellyfin's server-side
+  transcoder (no HDR-to-HDR tone-mapping); the audio downmix is a deliberate
+  v1 simplification. Live/direct-play is unaffected either way. See
+  [DOWNLOADS.md](DOWNLOADS.md#limitations) for the full detail.
 - **tvOS/macOS are not built yet** — iOS/iPadOS only for now, per the
   Status section above.
 - **Audio/music libraries aren't supported yet** — browsing/playing music is
@@ -164,15 +146,6 @@ open DionysusPlayer.xcodeproj
 
 Then let Xcode resolve Swift Package dependencies (AetherEngine) and build
 the `DionysusPlayer` scheme.
-
-> **Note:** This scaffold was originally written in an environment without a
-> macOS/Xcode toolchain, with the expectation that `AetherPlaybackEngine.swift`
-> would need fixes once built against AetherEngine's real API. That's no
-> longer the case, and hasn't been for a while — the app builds clean
-> (Xcode 26.5) with no compiler errors anywhere, `AetherPlaybackEngine.swift`
-> included, and real playback has since been confirmed on physical hardware
-> too, not just compiled. See [Status](#status) for exactly what's been
-> verified live versus what's still resting on unit-test coverage alone.
 
 ## Testing
 
