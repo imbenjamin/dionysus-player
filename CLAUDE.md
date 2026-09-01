@@ -283,6 +283,45 @@ ladder is derived from a single bits-per-pixel rule rather than chosen
 per-rung, and a locally-sensible tweak breaks that. `DownloadTypesTests`
 asserts the rule directly.
 
+### Image loading & placeholders
+
+`RemoteImageLoader` (`Core/Networking/`) is the single choke point for every
+network image (posters, backdrops, logos, cast photos) — an actor with its
+own tuned `URLSession`, retry-with-backoff for transient failures, an
+in-memory `NSCache` (byte-cost-limited, not count-limited), and in-flight
+de-duplication, all built to survive a burst of concurrent requests against
+a self-hosted server on first launch. `image(for:maxAttempts:retryBaseDelay:)`
+takes optional per-call overrides on top of its own configured defaults —
+used by `AsyncRemoteImage.RetryPatience`/`LogoImageView`'s `retryPatience`
+(`.standard` vs `.extended`) to give the single hero backdrop/logo per
+screen a longer retry budget than every other, smaller image, without
+multiplying a cold server's initial request burst. `AsyncRemoteImage`
+(network) and `LocalFileImage` (local/offline `file://` artwork — a
+synchronous `ImageIO` decode, deliberately not routed through
+`RemoteImageLoader`, whose retry logic assumes an `HTTPURLResponse`) are the
+two view-level wrappers everything else uses; `LogoImageView` layers on top
+of `AsyncRemoteImage`'s network path for the fade-in/fallback-text behavior
+logos need.
+
+Every one of those three renders `MediaPlaceholderBox`
+(`Shared/Components/`) for its loading/failure state — a content-type SF
+Symbol glyph (`BaseItemKind.placeholderSystemImage`, e.g. `film` for a
+movie, `tv` for a show, `person.fill` for cast) tinted `.dionysusHighlight`,
+never a generic spinner or blank gray box. The glyph itself shimmers (via
+the `SwiftUI-Shimmer` package's `.shimmering()` modifier, scoped to the
+glyph rather than the whole tile — deliberately calmer than shimmering the
+full box) while a fetch is still outstanding, and settles to a static,
+higher-opacity glyph once it's failed or known not to exist at all (`isSettled`
+— gated on Reduce Motion, matching every other animated effect in this
+part of the app). When adding a new image display site, pass a
+`placeholderSystemImage` that matches the content type rather than leaving
+the generic default.
+
+`LogoImageView`'s `fallback` view (usually title text, via
+`BackdropLogoOverlay`) renders immediately while the logo is loading, not
+just after a definitive failure — cross-fading to the real logo once it
+resolves, reduce-motion aware.
+
 ### Playback (`Core/Playback/`)
 
 `PlaybackEngine` is a protocol wrapping AetherEngine so feature code never
