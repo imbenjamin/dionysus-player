@@ -17,20 +17,20 @@ final class AppStateTests: XCTestCase {
     private let credentialsKey = "server.credentials" // matches ServerSessionStore.Keys.credentials
     private let exampleServer = ServerConfiguration(name: "Home", baseURL: URL(string: "https://jellyfin.example.com")!)
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         defaults = UserDefaults(suiteName: suiteName)
         defaults.removePersistentDomain(forName: suiteName)
         URLProtocol.registerClass(MockURLProtocol.self)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         URLProtocol.unregisterClass(MockURLProtocol.self)
         MockURLProtocol.reset()
         ConnectivityMonitor.shared.reset()
         defaults.removePersistentDomain(forName: suiteName)
         KeychainStore.delete(forKey: credentialsKey)
-        super.tearDown()
+        try await super.tearDown()
     }
 
     private func makeAppState() -> AppState {

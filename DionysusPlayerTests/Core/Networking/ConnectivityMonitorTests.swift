@@ -3,9 +3,9 @@ import XCTest
 
 @MainActor
 final class ConnectivityMonitorTests: XCTestCase {
-    override func tearDown() {
+    override func tearDown() async throws {
         ConnectivityMonitor.shared.reset()
-        super.tearDown()
+        try await super.tearDown()
     }
 
     func test_reportFailureThenSuccess_updatesIsOffline() {
