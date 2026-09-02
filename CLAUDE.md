@@ -409,6 +409,22 @@ own lighter view-facing models (e.g. `MediaItem`, `MediaCollectionRail`) —
 DTOs get mapped into app models (usually via an `init(dto:images:)`
 initializer) rather than passed directly to views.
 
+**`BaseItemDto`/`MediaItem` equality is structural, and must stay that
+way.** Both look like obvious candidates for a cheap id-only `==` (both
+did, once). Don't: SwiftUI prefers a stored property's own `==` over its
+internal comparison when deciding whether a view changed, and `MediaItem`
+is the stored property of essentially every view in the app while
+`[MediaItem]` is what `ForEach(rail.items)` diffs on. An id-only `==`
+promises SwiftUI that nothing under a stable id is worth repainting —
+false for `userData` after playback and for `mediaSources`/`people` when
+`AssetDetailViewModel` swaps its preloaded item for the full fetch. The
+symptom is a view frozen on stale data while every layer underneath it
+holds the correct value, which reads convincingly as a timing bug and
+isn't one; it cost six separate `.id(...)` workarounds and a spell of
+`os.Logger` calls kept in production before the shared cause was found.
+`hash(into:)` stays id-only alongside it — the legal direction for the
+`Hashable` contract. See `MediaItem.==`'s doc comment.
+
 ### Localization
 
 User-facing strings go through a String Catalog
