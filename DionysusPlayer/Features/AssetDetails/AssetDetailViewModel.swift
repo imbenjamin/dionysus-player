@@ -47,6 +47,20 @@ final class AssetDetailViewModel {
     /// going through *its* `refreshItem()`) still shows an up-to-date
     /// watched/progress overlay once the player closes.
     private(set) var collectionItems: [MediaItem] = []
+    /// A Playlist's own member items, in the playlist's own stored order —
+    /// `PlaylistDetailView`'s `PlaylistItemList` section, and the exact
+    /// array `PlayerView`'s `playbackQueue` plays through (see
+    /// `playlistResumeTarget` and `PlaylistDetailView` for how). Always
+    /// empty for every other item type. AUDIO SUPPRESSION: filtered to
+    /// exclude audio/music members before assignment — this is a
+    /// **playable, viewable** array, so nothing downstream (the item list
+    /// view, the resume-target resolution, the playback queue) needs to
+    /// filter again. Fetched alongside `similar`/`collections` in `load()`
+    /// (same non-fatal treatment — `nil` on failure just leaves this
+    /// empty, which `PlaylistDetailView` treats the same as a genuinely
+    /// empty playlist), and re-fetched at the end of `refreshItem()` so
+    /// resuming/watched state stays current after a playback session.
+    private(set) var orderedPlaylistItems: [MediaItem] = []
     private(set) var loadState: LoadState = .idle
 
     /// The Show's own item — always set alongside `seriesID` for a
@@ -87,6 +101,22 @@ final class AssetDetailViewModel {
     /// "Resume" when its first episode happens to already be part-watched,
     /// rather than always blindly "Play".
     private(set) var showPlaybackEpisode: MediaItem?
+
+    /// `PlaylistDetailView`'s Play/Resume button target — unlike
+    /// `showPlaybackEpisode`, this needs no server round trip: Jellyfin has
+    /// no NextUp-equivalent for playlists (confirmed — `/Shows/NextUp` is
+    /// strictly Series/Season/Episode-scoped, and `/Playlists/{id}/
+    /// InstantMix` is an unrelated "generate similar tracks" radio
+    /// feature), so this is resolved purely from `orderedPlaylistItems`'
+    /// own already-fetched `userData`: the first member that isn't fully
+    /// played, or the playlist's first item if every member is (a full
+    /// replay). `nil` exactly when `orderedPlaylistItems` is empty (fetch
+    /// failed, or a genuinely empty playlist) — `PlaylistDetailView` hides
+    /// its Play/Resume row in that case rather than showing one with
+    /// nothing to target.
+    var playlistResumeTarget: MediaItem? {
+        orderedPlaylistItems.first(where: { !$0.isPlayed }) ?? orderedPlaylistItems.first
+    }
 
     /// The id `refreshItem()` should re-fetch to keep `item` current —
     /// `itemID` itself for a Movie/Series/Episode load (where `item` is
@@ -251,6 +281,12 @@ final class AssetDetailViewModel {
             async let collectionItemsResult: BaseItemDtoQueryResult? = dto.type == .boxSet
                 ? try? client.items(userID: userID, parentID: itemID, recursive: false, sortBy: "PremiereDate")
                 : nil
+            // `orderedPlaylistItems`' own fetch — see that property's doc
+            // comment. `dto.type == .playlist` gated the same way
+            // `collectionItemsResult` above is gated on `.boxSet`.
+            async let orderedPlaylistItemsResult: BaseItemDtoQueryResult? = dto.type == .playlist
+                ? try? client.playlistItems(playlistID: itemID, userID: userID)
+                : nil
 
             if let seriesID, let seasonsResult = try? await client.seasons(seriesID: seriesID, userID: userID) {
                 seasons = seasonsResult.items.map { MediaItem(dto: $0, images: images) }
@@ -275,6 +311,14 @@ final class AssetDetailViewModel {
             }
             if let collectionItemsItems = await collectionItemsResult {
                 collectionItems = collectionItemsItems.items.map { MediaItem(dto: $0, images: images) }
+            }
+            // AUDIO SUPPRESSION: see `orderedPlaylistItems`'s doc comment —
+            // audio/music members are dropped here, before assignment, so
+            // this array is always safe to show and play through directly.
+            if let playlistItemsResult = await orderedPlaylistItemsResult {
+                orderedPlaylistItems = playlistItemsResult.items
+                    .map { MediaItem(dto: $0, images: images) }
+                    .filter { !$0.isAudioContent }
             }
 
             loadState = .loaded
@@ -572,6 +616,10 @@ final class AssetDetailViewModel {
         if let current = showPlaybackEpisode, current.id == outcome.itemID {
             showPlaybackEpisode = current.withOptimisticPlaybackPosition(seconds: outcome.positionSeconds, duration: outcome.durationSeconds)
         }
+        if let index = orderedPlaylistItems.firstIndex(where: { $0.id == outcome.itemID }) {
+            orderedPlaylistItems[index] = orderedPlaylistItems[index]
+                .withOptimisticPlaybackPosition(seconds: outcome.positionSeconds, duration: outcome.durationSeconds)
+        }
     }
 
     /// Set by `applyOptimisticPlaybackPosition(_:)`, read (and cleared) by
@@ -726,6 +774,20 @@ final class AssetDetailViewModel {
             userID: userID, parentID: displayedItemID, recursive: false, sortBy: "PremiereDate"
         ) {
             collectionItems = childrenResult.items.map { MediaItem(dto: $0, images: images) }
+        }
+
+        // `orderedPlaylistItems`' own refresh — same reasoning as
+        // `collectionItems`' block just above (this page's own
+        // `displayedItemID` poll never "catches up" for a Playlist either,
+        // for the same reason), so `playlistResumeTarget` reflects each
+        // member's real watched state after a playback session closes.
+        if item?.kind == .playlist, let playlistItemsResult = try? await client.playlistItems(
+            playlistID: displayedItemID, userID: userID
+        ) {
+            // AUDIO SUPPRESSION: see `orderedPlaylistItems`'s doc comment.
+            orderedPlaylistItems = playlistItemsResult.items
+                .map { MediaItem(dto: $0, images: images) }
+                .filter { !$0.isAudioContent }
         }
 
         // See `episodeListRefreshToken`'s own doc comment. Bumped

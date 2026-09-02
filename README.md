@@ -30,15 +30,18 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
 
 ## Features
 
-- **Browse & search** — home rails, library grids (Movies/Shows/Collections)
-  with cascading genre/studio/decade/watched/favorite filters, search,
-  cast & crew, "Up Next"/continue-watching.
+- **Browse & search** — home rails, library grids (Movies/Shows/Collections/
+  Playlists) with cascading genre/studio/decade/watched/favorite filters,
+  search, cast & crew, "Up Next"/continue-watching.
 - **Playback** — AetherEngine (FFmpeg + VideoToolbox), HDR10/HDR10+/Dolby
   Vision on supported source+device combinations, trickplay-thumbnail
   scrubbing, subtitle/audio track selection, intro/outro skip segments,
   Picture in Picture, Now Playing/lock-screen/Control Center integration,
-  and a live "stats for nerds" overlay (codec, bitrate, resolution, dropped
-  frames, streaming session info, offline-vs-live playback method).
+  a live "stats for nerds" overlay (codec, bitrate, resolution, dropped
+  frames, streaming session info, offline-vs-live playback method), and
+  sequential playlist playback (mixed movies/episodes, start-to-finish with
+  its own client-driven "Up Next" — Jellyfin has no server-side equivalent
+  for playlists).
 - **Streaming** — defaults to **Allow Transcoding** (Settings → Playback):
   negotiates with the server via a real `DeviceProfile`, falling back to a
   server-chosen AVC or HEVC transcode with a configurable max-bitrate cap
@@ -119,14 +122,19 @@ seeking/scrubbing edge cases.
   Status section above.
 - **Audio/music libraries aren't supported yet** — browsing/playing music is
   future scope (see tvOS/macOS above), so a server's Music library and its
-  contents (tracks, albums, artists, audio playlists) are suppressed
-  throughout the app: hidden from Home's library rail and excluded
-  server-side from Continue Watching/library grids, with a clear "not
-  supported" state on the rare path that still reaches one (e.g. a
-  "More Like This" rail, since Jellyfin's own `/Similar` endpoint can't be
-  scoped by type) rather than the broken video-player attempt this used to
-  cause. Every suppression site is marked `AUDIO SUPPRESSION:` in the code
-  for easy removal/rewiring once real audio support lands.
+  contents (tracks, albums, artists) are suppressed throughout the app:
+  hidden from Home's library rail and excluded server-side from Continue
+  Watching/library grids, with a clear "not supported" state on the rare
+  path that still reaches one (e.g. a "More Like This" rail, since
+  Jellyfin's own `/Similar` endpoint can't be scoped by type) rather than
+  the broken video-player attempt this used to cause. This extends to
+  playlists too: an audio-only playlist is filtered out of the Playlists
+  grid and shows the same "not supported" state if reached directly, and
+  any audio/music track inside an otherwise mixed-media playlist is
+  filtered out of that playlist's own item list and playback queue — a
+  mixed movie/episode playlist itself is fully supported (see Features
+  above). Every suppression site is marked `AUDIO SUPPRESSION:` in the
+  code for easy removal/rewiring once real audio support lands.
 - Rail/grid curation logic (what shows up on Home, in what order) is an
   explicit placeholder, not final UX.
 

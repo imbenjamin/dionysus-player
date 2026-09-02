@@ -176,6 +176,7 @@ enum JellyfinCollectionType {
     static let movies = "movies"
     static let tvShows = "tvshows"
     static let boxSets = "boxsets"
+    static let playlists = "playlists"
     // AUDIO SUPPRESSION: only referenced by `MediaItem.isAudioLibrary` to
     // hide a Music library from Home. Delete once Dionysus Player supports
     // browsing a Music library instead of hiding it.

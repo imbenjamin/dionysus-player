@@ -37,7 +37,8 @@ final class PlayerViewModelTests: XCTestCase {
         engine: FakePlaybackEngine = FakePlaybackEngine(),
         trackPreferenceStore: TrackPreferenceStore? = nil,
         nextUpPreferenceStore: NextUpPreferenceStore? = nil,
-        streamPreferenceStore: StreamPreferenceStore? = nil
+        streamPreferenceStore: StreamPreferenceStore? = nil,
+        playbackQueue: [MediaItem] = []
     ) -> (PlayerViewModel, FakePlaybackEngine) {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
         let viewModel = PlayerViewModel(
@@ -45,9 +46,17 @@ final class PlayerViewModelTests: XCTestCase {
             startFromBeginning: startFromBeginning, mediaSourceID: mediaSourceID,
             trackPreferenceStore: trackPreferenceStore ?? TrackPreferenceStore(defaults: defaults),
             nextUpPreferenceStore: nextUpPreferenceStore ?? NextUpPreferenceStore(defaults: defaults),
-            streamPreferenceStore: streamPreferenceStore ?? StreamPreferenceStore(defaults: defaults)
+            streamPreferenceStore: streamPreferenceStore ?? StreamPreferenceStore(defaults: defaults),
+            playbackQueue: playbackQueue
         )
         return (viewModel, engine)
+    }
+
+    /// A `MediaItem` wrapping a bare `BaseItemDto` — enough for
+    /// `playbackQueue`-mode tests, which only need `id`/`kind` to exercise
+    /// `loadNextUpItem(for:images:)`'s index lookup; no image URLs involved.
+    private func makeMediaItem(id: String, name: String, kind: BaseItemKind) -> MediaItem {
+        MediaItem(dto: BaseItemDto(id: id, name: name, type: kind), images: ImageURLBuilder(baseURL: baseURL, accessToken: nil))
     }
 
     /// `loadNextEpisode(for:images:)` resolves `nextEpisode` from a
@@ -1091,6 +1100,59 @@ final class PlayerViewModelTests: XCTestCase {
         try? await Task.sleep(for: .milliseconds(50))
 
         XCTAssertNil(viewModel.nextEpisode)
+    }
+
+    // MARK: playbackQueue (Playlist) mode
+
+    /// `playbackQueue` mode resolves `nextEpisode` by a plain local index
+    /// lookup — no `/Shows/.../Episodes` network call at all, unlike the
+    /// per-series episode path above. `stubStart`'s `default: XCTFail`
+    /// doubles as that assertion: if this fell through to the episode path
+    /// instead, the unstubbed request would fail the test.
+    func test_loadNextUpItem_nonEmptyQueue_resolvesNextItemByIndexWithNoNetworkCall() async {
+        let queue = [
+            makeMediaItem(id: "item-1", name: "Toy Story", kind: .movie),
+            makeMediaItem(id: "item-2", name: "Cars", kind: .movie),
+        ]
+        let (viewModel, _) = makeViewModel(itemID: "item-1", playbackQueue: queue)
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Toy Story", type: .movie), mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")])
+
+        await viewModel.start()
+
+        XCTAssertEqual(viewModel.nextEpisode?.id, "item-2")
+    }
+
+    /// The last item in the queue has nothing after it.
+    func test_loadNextUpItem_lastItemInQueue_leavesNextEpisodeNil() async {
+        let queue = [
+            makeMediaItem(id: "item-1", name: "Toy Story", kind: .movie),
+            makeMediaItem(id: "item-2", name: "Cars", kind: .movie),
+        ]
+        let (viewModel, _) = makeViewModel(itemID: "item-2", playbackQueue: queue)
+        stubStart(itemID: "item-2", itemDto: BaseItemDto(id: "item-2", name: "Cars", type: .movie), mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")])
+
+        await viewModel.start()
+
+        XCTAssertNil(viewModel.nextEpisode)
+    }
+
+    /// Queue mode wins outright even for an Episode reached via a
+    /// playlist — regression guard against silently falling back to the
+    /// per-series `nextEpisode(...)` API path (which would need
+    /// `seriesId`/`seasonId` and a `/Shows/.../Episodes` stub neither of
+    /// which this test provides; `stubStart`'s `default: XCTFail` would
+    /// catch that fallback happening).
+    func test_loadNextUpItem_queueContainingEpisode_resolvesViaIndexNotEpisodeAPI() async {
+        let queue = [
+            makeMediaItem(id: "ep-1", name: "Pilot", kind: .episode),
+            makeMediaItem(id: "movie-1", name: "Toy Story", kind: .movie),
+        ]
+        let (viewModel, _) = makeViewModel(itemID: "ep-1", playbackQueue: queue)
+        stubStart(itemID: "ep-1", itemDto: BaseItemDto(id: "ep-1", name: "Pilot", type: .episode, seriesId: "series-1", seasonId: "season-1"), mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")])
+
+        await viewModel.start()
+
+        XCTAssertEqual(viewModel.nextEpisode?.id, "movie-1")
     }
 
     func test_nextUpSecondsRemaining_withinCountdownWindow_reportsRemainingSeconds() async {

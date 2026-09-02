@@ -325,6 +325,106 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.collectionItems.isEmpty)
     }
 
+    /// A Playlist's own member items fetch (`orderedPlaylistItems`) hits
+    /// the dedicated `/Playlists/{id}/Items` endpoint — distinct from
+    /// `collectionItems`' `/Users/{id}/Items?ParentId=` — and preserves the
+    /// server's own returned order rather than re-sorting. `track-1`
+    /// (audio) is filtered out; `movie-1` and `ep-1` (video) both pass
+    /// through, pinning that AUDIO SUPPRESSION applies per-member, not
+    /// per-kind.
+    func test_load_playlist_fetchesOrderedPlaylistItemsInServerOrderAndExcludesAudio() async {
+        let playlistDto = BaseItemDto(id: "playlist-1", name: "Movie Night", type: .playlist, mediaType: "Video")
+        let movieDto = BaseItemDto(id: "movie-1", name: "Toy Story", type: .movie)
+        let trackDto = BaseItemDto(id: "track-1", name: "Interlude", type: .audio, mediaType: "Audio")
+        let episodeDto = BaseItemDto(id: "ep-1", name: "Pilot", type: .episode, seriesName: "Top Gear")
+        let viewModel = makeViewModel(itemID: "playlist-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/playlist-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: playlistDto)
+            case "/Items/playlist-1/Similar", "/Users/user-1/Items": // BoxSets probe inside collectionsContaining
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Playlists/playlist-1/Items":
+                XCTAssertEqual(request.queryDictionary["userId"], "user-1")
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [movieDto, trackDto, episodeDto], totalRecordCount: 3)
+                )
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(viewModel.orderedPlaylistItems.map(\.id), ["movie-1", "ep-1"], "server order preserved, audio member dropped")
+    }
+
+    // MARK: playlistResumeTarget
+
+    func test_playlistResumeTarget_firstUnplayedMember() async {
+        let playlistDto = BaseItemDto(id: "playlist-1", name: "Movie Night", type: .playlist, mediaType: "Video")
+        let watched = BaseItemDto(id: "movie-1", name: "Toy Story", type: .movie, userData: UserItemDataDto(played: true))
+        let unwatched = BaseItemDto(id: "movie-2", name: "Cars", type: .movie, userData: UserItemDataDto(played: false))
+        let viewModel = makeViewModel(itemID: "playlist-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/playlist-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: playlistDto)
+            case "/Items/playlist-1/Similar", "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Playlists/playlist-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [watched, unwatched], totalRecordCount: 2)
+                )
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.playlistResumeTarget?.id, "movie-2", "movie-1 is already fully played")
+    }
+
+    func test_playlistResumeTarget_everyMemberPlayed_fallsBackToFirst() async {
+        let playlistDto = BaseItemDto(id: "playlist-1", name: "Movie Night", type: .playlist, mediaType: "Video")
+        let first = BaseItemDto(id: "movie-1", name: "Toy Story", type: .movie, userData: UserItemDataDto(played: true))
+        let second = BaseItemDto(id: "movie-2", name: "Cars", type: .movie, userData: UserItemDataDto(played: true))
+        let viewModel = makeViewModel(itemID: "playlist-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/playlist-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: playlistDto)
+            case "/Items/playlist-1/Similar", "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Playlists/playlist-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [first, second], totalRecordCount: 2)
+                )
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.playlistResumeTarget?.id, "movie-1", "a full replay starts over from the beginning")
+    }
+
+    func test_playlistResumeTarget_nilWhenOrderedPlaylistItemsIsEmpty() async {
+        let viewModel = makeViewModel(itemID: "movie-1")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie))
+        }
+        await viewModel.load()
+
+        XCTAssertNil(viewModel.playlistResumeTarget)
+    }
+
     func test_loadIfNeeded_doesNotRefetchOnceItemIsPopulated() async {
         let itemDto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie)
         let viewModel = makeViewModel(itemID: "movie-1")
@@ -801,6 +901,61 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.collectionItems.first?.isPlayed, true)
     }
 
+    /// `orderedPlaylistItems`' own refresh — same reasoning/shape as
+    /// `test_refreshItem_boxSet_refetchesCollectionItems` just above: this
+    /// page's own item poll never "catches up" for a Playlist either, so
+    /// `refreshItem()` re-fetches `/Playlists/{id}/Items` unconditionally
+    /// once that poll finishes, keeping `playlistResumeTarget` current
+    /// after a playback session closes.
+    func test_refreshItem_playlist_refetchesOrderedPlaylistItems() async {
+        let playlistDto = BaseItemDto(id: "playlist-1", name: "Movie Night", type: .playlist, mediaType: "Video")
+        let movieDto = BaseItemDto(id: "movie-1", name: "Toy Story", type: .movie, userData: UserItemDataDto(played: false))
+        let refreshedPlaylistDto = BaseItemDto(
+            id: "playlist-1", name: "Movie Night", type: .playlist,
+            userData: UserItemDataDto(playbackPositionTicks: nil, playedPercentage: nil, played: true), mediaType: "Video"
+        )
+        let updatedMovieDto = BaseItemDto(
+            id: "movie-1", name: "Toy Story", type: .movie,
+            userData: UserItemDataDto(playbackPositionTicks: nil, playedPercentage: nil, played: true)
+        )
+        let viewModel = makeViewModel(itemID: "playlist-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/playlist-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: playlistDto)
+            case "/Items/playlist-1/Similar", "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Playlists/playlist-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [movieDto], totalRecordCount: 1))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        await viewModel.load()
+        XCTAssertEqual(viewModel.orderedPlaylistItems.first?.isPlayed, false, "sanity check")
+
+        // Differs from the initial (all-nil) userData on the very first
+        // poll attempt, same trick `test_refreshItem_boxSet_refetchesCollectionItems`
+        // uses to keep the poll loop from running out its full schedule.
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/playlist-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: refreshedPlaylistDto)
+            case "/Playlists/playlist-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [updatedMovieDto], totalRecordCount: 1))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.refreshItem()
+
+        XCTAssertEqual(viewModel.orderedPlaylistItems.map(\.id), ["movie-1"])
+        XCTAssertEqual(viewModel.orderedPlaylistItems.first?.isPlayed, true)
+    }
+
     /// Regression test for a live bug report (2026-08-13): resuming a
     /// movie, scrubbing to a different position, and exiting within a few
     /// seconds left the detail page's progress bar showing the pre-scrub
@@ -979,6 +1134,38 @@ final class AssetDetailViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.showPlaybackEpisode?.resumePositionSeconds, 90)
         XCTAssertNil(viewModel.item?.resumePositionSeconds, "item is the Series itself here, not the episode — shouldn't be touched")
+    }
+
+    /// A playlist's main Play/Resume button targets `playlistResumeTarget`
+    /// (one of `orderedPlaylistItems`), not `item` (the Playlist itself,
+    /// which has no `MediaSources`/resume position of its own) — see
+    /// `PlaylistDetailView`'s doc comment — so that's the array a
+    /// just-closed playback session needs to patch.
+    func test_applyOptimisticPlaybackPosition_matchingOrderedPlaylistItem_updatesIt() async {
+        let playlistDto = BaseItemDto(id: "playlist-1", name: "Movie Night", type: .playlist, mediaType: "Video")
+        let movieDto = BaseItemDto(
+            id: "movie-1", name: "Toy Story", type: .movie, runTimeTicks: 100 * 10_000_000,
+            userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000, playedPercentage: 10, played: false)
+        )
+        let viewModel = makeViewModel(itemID: "playlist-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/playlist-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: playlistDto)
+            case "/Items/playlist-1/Similar", "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Playlists/playlist-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [movieDto], totalRecordCount: 1))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        await viewModel.load()
+
+        viewModel.applyOptimisticPlaybackPosition(PlaybackSessionOutcome(itemID: "movie-1", positionSeconds: 90, durationSeconds: 100))
+
+        XCTAssertEqual(viewModel.orderedPlaylistItems.first?.resumePositionSeconds, 90)
     }
 
     func test_applyOptimisticPlaybackPosition_nonMatchingItemID_isANoOp() async {

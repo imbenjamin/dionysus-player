@@ -368,6 +368,25 @@ actor JellyfinAPIClient {
             .first
     }
 
+    // MARK: - Playlists
+
+    /// A playlist's member items, in the playlist's own stored order — no
+    /// `SortBy` param exists on this endpoint, unlike the generic
+    /// `items(...)` browse call, because there's nothing to sort: Jellyfin
+    /// already returns the explicit order the playlist was authored in,
+    /// which is exactly what `PlaylistDetailView`'s Play-through-the-
+    /// whole-playlist button and Up Next queueing depend on. `userId` is
+    /// passed explicitly even though this app always authenticates as a
+    /// real user — a live Jellyfin issue (jellyfin/jellyfin#15600) reports
+    /// this endpoint 400ing without it under API-key auth, and there's no
+    /// downside to including it defensively.
+    func playlistItems(playlistID: String, userID: String, fields: String = defaultFields) async throws -> BaseItemDtoQueryResult {
+        try await get("/Playlists/\(playlistID)/Items", query: [
+            .init(name: "userId", value: userID),
+            .init(name: "Fields", value: fields)
+        ])
+    }
+
     /// "More Like This" for a detail page.
     func similarItems(itemID: String, userID: String, limit: Int = 12) async throws -> BaseItemDtoQueryResult {
         try await get("/Items/\(itemID)/Similar", query: [

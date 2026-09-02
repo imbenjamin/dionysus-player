@@ -15,24 +15,25 @@ struct PlayerView: View {
     /// default) for any presentation that doesn't need it.
     var onPlaybackEnded: ((PlaybackSessionOutcome) -> Void)? = nil
     /// Fired when the "Up Next" prompt (`NextUpOverlay`) advances to the
-    /// next episode — via its own Play Now button, or automatically once
-    /// its countdown reaches zero — with that episode's id, right before
-    /// this `PlayerView` dismisses itself. `nil` (the default) for
-    /// `MovieDetailView`/`CollectionDetailView`, whose items are never
-    /// `.episode`, so `PlayerViewModel.nextEpisode` never resolves to
-    /// anything there and this never fires.
+    /// next item — via its own Play Now button, or automatically once its
+    /// countdown reaches zero — with that item's id, right before this
+    /// `PlayerView` dismisses itself. `nil` (the default) for presentations
+    /// with no next item to resolve to at all — `PlayerViewModel.nextEpisode`
+    /// only ever resolves for Show content (`itemID` is an Episode) or when
+    /// `playbackQueue` below is non-empty, so this never fires for a bare
+    /// `MovieDetailView` presentation, for instance.
     ///
-    /// `ShowDetailView` implements it by *stashing* the id (a local
-    /// `@State`), not by re-pointing `playbackRequest` at it directly —
-    /// see `advanceToNextEpisode()`'s doc comment for why setting an
-    /// already-presented `.fullScreenCover(item:)`'s bound value straight
-    /// to a new id, while still presented, doesn't reliably re-present:
-    /// confirmed live (2026-08-17), it doesn't just fail to animate a
-    /// clean transition, the actual episode that ends up on screen after
-    /// is wrong and unplayable. `playbackRequest` only ever gets set from
-    /// `onDismiss`, once the cover has genuinely gone through `nil` first —
-    /// the same nil-then-non-nil path every ordinary Play/Resume tap
-    /// already takes.
+    /// `ShowDetailView`/`PlaylistDetailView` implement it by *stashing* the
+    /// id (a local `@State`), not by re-pointing `playbackRequest` at it
+    /// directly — see `advanceToNextItem()`'s doc comment for why
+    /// setting an already-presented `.fullScreenCover(item:)`'s bound value
+    /// straight to a new id, while still presented, doesn't reliably
+    /// re-present: confirmed live (2026-08-17), it doesn't just fail to
+    /// animate a clean transition, the actual item that ends up on screen
+    /// after is wrong and unplayable. `playbackRequest` only ever gets set
+    /// from `onDismiss`, once the cover has genuinely gone through `nil`
+    /// first — the same nil-then-non-nil path every ordinary Play/Resume
+    /// tap already takes.
     var onRequestNextItem: ((String) -> Void)? = nil
     /// Non-nil plays this local downloaded copy instead of fetching
     /// `itemID` over the network — see `PlayerViewModel.downloadedItem`'s
@@ -40,6 +41,17 @@ struct PlayerView: View {
     /// wiring" section. `itemID` above should still be
     /// `downloadedItem.itemID` in that case.
     var downloadedItem: DownloadedItem? = nil
+    /// A Playlist's full, already-ordered, already-audio-filtered member
+    /// list — `[]` (the default) for every ordinary presentation. Non-empty
+    /// only from `PlaylistDetailView`, which passes the same array to every
+    /// `PlayerView` presentation it makes (main button, any row tap, any
+    /// Up-Next-driven continuation), so playback always advances by walking
+    /// this one array forward regardless of where in it playback started.
+    /// See `PlayerViewModel.playbackQueue`'s own doc comment for how this
+    /// takes over "what's next" resolution once it's non-empty — Jellyfin
+    /// has no server-side equivalent of `/Shows/NextUp` for playlists, so
+    /// there's nothing to call instead.
+    var playbackQueue: [MediaItem] = []
 
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -85,7 +97,7 @@ struct PlayerView: View {
     /// `PlayerControlsOverlay` flips, per that overlay's own doc comment on
     /// why it's driven separately from the rest of the controls.
     @State private var showPlaybackStats = false
-    /// Guards `advanceToNextEpisode()` against firing a second time while
+    /// Guards `advanceToNextItem()` against firing a second time while
     /// its own `await viewModel.stop()` is still in flight — the
     /// `.onChange(of: nextUpSecondsRemaining)` trigger below could
     /// otherwise re-fire on some intermediate re-render before
@@ -254,7 +266,7 @@ struct PlayerView: View {
                     nextEpisode: viewModel.nextEpisode,
                     secondsRemaining: viewModel.nextUpSecondsRemaining,
                     totalSeconds: viewModel.nextUpTotalCountdownSeconds,
-                    onPlayNow: { Task { await advanceToNextEpisode() } },
+                    onPlayNow: { Task { await advanceToNextItem() } },
                     onCancel: { viewModel.dismissNextUp() }
                 )
 
@@ -548,7 +560,7 @@ struct PlayerView: View {
         // a separate timer.
         .onChange(of: viewModel?.nextUpSecondsRemaining) { _, secondsRemaining in
             guard secondsRemaining == 0 else { return }
-            Task { await advanceToNextEpisode() }
+            Task { await advanceToNextItem() }
         }
         // Entering PiP from the in-app button leaves the app foregrounded —
         // unlike every other case `showControls` reacts to, nothing else
@@ -669,7 +681,8 @@ struct PlayerView: View {
         let newViewModel = PlayerViewModel(
             client: client, userID: userID, itemID: itemID, engine: engine,
             startFromBeginning: startFromBeginning, mediaSourceID: mediaSourceID,
-            downloadedItem: downloadedItem, downloadStore: downloadedItem != nil ? appState.downloadManager.store : nil
+            downloadedItem: downloadedItem, downloadStore: downloadedItem != nil ? appState.downloadManager.store : nil,
+            playbackQueue: playbackQueue
         )
         viewModel = newViewModel
         await newViewModel.start()
@@ -696,13 +709,13 @@ struct PlayerView: View {
     /// separately from `tearDown(nextItemID:)` itself (rather than folding
     /// the `nextEpisode` unwrap in there too) since `close()` has no
     /// equivalent id to guard on — it always tears down unconditionally.
-    private func advanceToNextEpisode() async {
+    private func advanceToNextItem() async {
         guard let viewModel, let nextEpisode = viewModel.nextEpisode, !isAdvancingToNextEpisode else { return }
         isAdvancingToNextEpisode = true
         await tearDown(nextItemID: nextEpisode.id)
     }
 
-    /// The shared teardown behind both `close()` and `advanceToNextEpisode()`
+    /// The shared teardown behind both `close()` and `advanceToNextItem()`
     /// — cancels the auto-hide countdown, unlocks rotation (a player-only
     /// affordance; leaving it engaged past this point would leave the rest
     /// of the app stuck in whatever orientation the player happened to be

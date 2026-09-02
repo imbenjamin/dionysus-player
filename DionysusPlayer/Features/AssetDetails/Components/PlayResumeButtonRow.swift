@@ -40,6 +40,19 @@ struct PlayResumeButtonRow: View {
     /// Episode's own `episodeLabel` still produces the "SXX:EYY" suffix
     /// there via `effectiveItem` resolving to `item` itself).
     var targetEpisode: MediaItem? = nil
+    /// Overrides `buttonTitle`'s label text entirely — `"Resume
+    /// \(titleOverride)"`/`"Play \(titleOverride)"` instead of the default
+    /// bare/"SXX:EYY"-suffix logic below. `PlaylistDetailView` is the one
+    /// caller that sets this: a Playlist's Play/Resume button needs to name
+    /// the specific member it's about to play — "Resume Toy Story"/"Resume
+    /// Top Gear S12:E9" — which the default logic can't produce (it only
+    /// ever adds an episode-number suffix, never a title, so a Movie
+    /// `effectiveItem` there renders as a bare "Play"/"Resume"). Doesn't
+    /// affect `onResume`/`onPlay`/`onRestart` branching, the progress bar,
+    /// or the version-choice prompt — those still key off `effectiveItem`
+    /// exactly as before. `nil` (the default) for every other caller,
+    /// leaving their behavior unchanged.
+    var titleOverride: String? = nil
     /// Fresh start (unwatched item's "Play") — the chosen version's
     /// `MediaVersion.id`, or `nil` when there was nothing to choose between.
     var onPlay: (String?) -> Void
@@ -85,13 +98,20 @@ struct PlayResumeButtonRow: View {
     /// convention rather than being auto-extracted; the interpolated
     /// "SXX:EYY" portion is deliberately left as plain, unlocalized data
     /// (same category as any other timecode-style label — see
-    /// `MediaItem.episodeLabel`'s own call sites).
+    /// `MediaItem.episodeLabel`'s own call sites). `titleOverride`, when
+    /// set, replaces this whole suffix scheme with a caller-supplied title
+    /// instead — see its own doc comment.
     private var buttonTitle: String {
+        if let titleOverride {
+            return effectiveItem.isPartWatched
+                ? String(localized: "Resume \(titleOverride)")
+                : String(localized: "Play \(titleOverride)")
+        }
         switch (effectiveItem.isPartWatched, effectiveItem.episodeLabel) {
-        case (true, let suffix?):  String(localized: "Resume \(suffix)")
-        case (true, nil):          String(localized: "Resume")
-        case (false, let suffix?): String(localized: "Play \(suffix)")
-        case (false, nil):         String(localized: "Play")
+        case (true, let suffix?):  return String(localized: "Resume \(suffix)")
+        case (true, nil):          return String(localized: "Resume")
+        case (false, let suffix?): return String(localized: "Play \(suffix)")
+        case (false, nil):         return String(localized: "Play")
         }
     }
 

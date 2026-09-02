@@ -215,6 +215,18 @@ final class CollectionGridViewModel {
                 sortOrder: sortOrder.value
             )
             items = result.items.map { MediaItem(dto: $0, images: images) }
+            // AUDIO SUPPRESSION: `"Playlist"` is deliberately excluded from
+            // `audioItemTypeExclusions` above — a mixed playlist can't be
+            // filtered out by item type alone, since the Playlist entry
+            // itself (not its member items) is what a Playlists library
+            // query returns. Filter client-side instead, the same way
+            // `BaseItemDto.isAudioContent` already does for a single item
+            // elsewhere: an audio-only (or empty) playlist is dropped, a
+            // mixed-media one passes through unchanged. Delete once
+            // Dionysus Player supports audio/music playback.
+            if query.includeItemTypes.contains("Playlist") {
+                items = items.filter { !$0.isAudioContent }
+            }
             loadState = .loaded
         } catch {
             loadState = .failed(

@@ -103,15 +103,19 @@ struct MediaItem: Identifiable {
     /// this, a recursive `/Items?ParentId=` walk returns *everything*
     /// nested under the library, not just its top-level items: a Shows
     /// library would mix every Season and Episode in alongside each
-    /// Series, and a Collections library would pull in every Movie/Series
-    /// inside each BoxSet too. Empty (no restriction) for library types
-    /// this doesn't apply to (Music, Playlists, ...) or for anything
-    /// that isn't a library at all (`collectionType == nil`).
+    /// Series, a Collections library would pull in every Movie/Series
+    /// inside each BoxSet too, and (confirmed live) a Playlists library
+    /// without this would pull in every member item of every playlist
+    /// flattened in alongside the playlists themselves. Empty (no
+    /// restriction) for library types this doesn't apply to (Music, ...)
+    /// or for anything that isn't a library at all (`collectionType ==
+    /// nil`).
     var libraryContentItemTypes: [String] {
         switch collectionType {
         case JellyfinCollectionType.movies: ["Movie"]
         case JellyfinCollectionType.tvShows: ["Series"]
         case JellyfinCollectionType.boxSets: ["BoxSet"]
+        case JellyfinCollectionType.playlists: ["Playlist"]
         default: []
         }
     }
