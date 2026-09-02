@@ -13,20 +13,26 @@ final class HomeViewModel {
 
     /// A random mix of unwatched movies/series for the hero rail at the top
     /// of Home. Reshuffles (server-side, via `SortBy=Random`) on every
-    /// `load()`.
+    /// `load()`/`hardRefresh()`.
     private(set) var heroItems: [MediaItem] = []
     /// The user's own libraries (Movies, Shows, Collections, ...), for the
     /// rail that replaced the old top-menu category picker.
     private(set) var libraries: [MediaItem] = []
-    /// Curated rails (Continue Watching, Next Up, Recently Added Movies,
-    /// Recently Added Shows, in that order — omitted when empty) followed
-    /// by however many dynamic rails (genres, studios/networks, actors,
+    /// Continue Watching, Next Up, Recently Added Movies, Recently Added
+    /// Shows, in that order — omitted when empty. Kept separate from
+    /// `dynamicRails` (rather than one flat array, as this used to be) so
+    /// `softRefresh()` has a precise, safe target to replace in place
+    /// without touching dynamic rails or their scroll-triggered pagination
+    /// state.
+    private(set) var curatedRails: [MediaCollectionRail] = []
+    /// However many dynamic rails (genres, studios/networks, actors,
     /// directors — see `DynamicRailCandidate`) have loaded so far via
-    /// `loadDynamicRailCandidates`/`loadMoreDynamicRails`. Both kinds live
-    /// in the same array/order since `HomeView` just renders it straight
-    /// through — the dynamic ones are simply appended after `load()`
-    /// finishes the curated set.
-    private(set) var rails: [MediaCollectionRail] = []
+    /// `loadDynamicRailCandidates`/`loadMoreDynamicRails`.
+    private(set) var dynamicRails: [MediaCollectionRail] = []
+    /// `HomeView` renders this straight through as one list — the split
+    /// above only matters internally, for `softRefresh()`/`hardRefresh()`
+    /// to target the right slice.
+    var rails: [MediaCollectionRail] { curatedRails + dynamicRails }
     private(set) var loadState: LoadState = .idle
 
     /// Dynamic rail candidates discovered but not yet fetched into a rail —
@@ -74,12 +80,13 @@ final class HomeViewModel {
     /// dynamic rails. 5 halves that burst per batch — still few enough
     /// scroll-triggered reloads that it doesn't meaningfully change how
     /// often `loadMoreDynamicRails` fires overall.
-    /// Resolved once by `load()`, reused by both the curated rails' own
-    /// `seeAllQuery`s and (via `DynamicRailCandidate.seeAllQuery`)
-    /// `loadMoreDynamicRails`' — stored rather than a `load()`-local `let`
-    /// since `loadMoreDynamicRails` is also called independently later, from
-    /// `HomeView`'s scroll-triggered sentinel, long after `load()`'s own
-    /// locals are out of scope.
+    /// Resolved once by `load()`/`hardRefresh()`, reused by both the
+    /// curated rails' own `seeAllQuery`s and (via `DynamicRailCandidate
+    /// .seeAllQuery`) `loadMoreDynamicRails`' — stored rather than a
+    /// `performFullLoad()`-local `let` since `loadMoreDynamicRails` is also
+    /// called independently later, from `HomeView`'s scroll-triggered
+    /// sentinel, long after `performFullLoad()`'s own locals are out of
+    /// scope.
     private var moviesLibraryID: String?
     private var showsLibraryID: String?
 
@@ -149,6 +156,22 @@ final class HomeViewModel {
     /// attempt — see that method's own doc comment for the bug this fixes.
     /// Same shape as `JellyfinAPIClient.inFlightReauth`.
     private var inFlightRetry: Task<Void, Never>?
+    /// Bumped once at the top of every `performFullLoad(resetLoadState:)` —
+    /// lets `softRefresh()` detect a concurrent `hardRefresh()` that
+    /// started (or even finished) after it began and defer to that
+    /// instead, see `performSoftRefresh()`'s doc comment.
+    private var refreshGeneration = 0
+    /// Coalesces concurrent `softRefresh()` callers — same idea as
+    /// `inFlightRetry`.
+    private var inFlightSoftRefresh: Task<Void, Never>?
+    /// Coalesces concurrent `hardRefresh()` callers — same idea as
+    /// `inFlightRetry`.
+    private var inFlightHardRefresh: Task<Void, Never>?
+    /// Drives the VoiceOver-only refresh button's spinner/disabled state in
+    /// `HomeView` — `hardRefresh()`'s only user-visible signal, since
+    /// `loadState` deliberately doesn't change during one (see
+    /// `performFullLoad(resetLoadState:)`'s doc comment).
+    private(set) var isHardRefreshing = false
 
     init(
         client: JellyfinAPIClient,
@@ -187,15 +210,37 @@ final class HomeViewModel {
         }
     }
 
-    /// Populates Home's curated rails, then kicks off dynamic genre/studio
-    /// rail discovery (`loadDynamicRailCandidates`) once they're showing —
-    /// `loadState` flips to `.loaded` as soon as the curated set is ready,
-    /// deliberately not waiting on genre/studio discovery too, so Home
-    /// doesn't feel slower because of it. A failure in that follow-on step
-    /// doesn't affect `loadState`; Home stays usable without the extra
-    /// rails rather than erroring out entirely over them.
+    /// A first load (or a retry from `.idle`/`.failed`) — flips `loadState`
+    /// to `.loading` immediately, which is what drives `HomeView`'s
+    /// full-screen placeholder. See `performFullLoad(resetLoadState:)` for
+    /// the actual fetch; `hardRefresh()` shares the same body without that
+    /// visible state transition.
     func load() async {
-        setLoadState(.loading)
+        await performFullLoad(resetLoadState: true)
+    }
+
+    /// The shared body behind both `load()` and `hardRefresh()`.
+    /// `resetLoadState` is what tells them apart: `load()` needs
+    /// `loadState` to visibly flip to `.loading`/`.loaded`/`.failed` (that's
+    /// what drives `HomeView`'s full-screen placeholder for a first load or
+    /// an error), while `hardRefresh()` must NOT touch `loadState` at
+    /// all — it's already `.loaded`, and flipping it to `.loading` even
+    /// momentarily would unmount `HomeView`'s `ScrollView` (via
+    /// `placeholderState`) out from under a pull-to-refresh gesture the
+    /// user is actively holding, killing the `.refreshable` spinner and
+    /// `ScrollBottomObserver`'s KVO observation along with it.
+    ///
+    /// Populates the hero rail, libraries, and curated rails, then kicks
+    /// off dynamic genre/studio rail discovery (`loadDynamicRailCandidates`)
+    /// once they're showing — `loadState` (when `resetLoadState`) flips to
+    /// `.loaded` as soon as the curated set is ready, deliberately not
+    /// waiting on genre/studio discovery too, so Home doesn't feel slower
+    /// because of it. A failure in that follow-on step doesn't affect
+    /// `loadState`; Home stays usable without the extra rails rather than
+    /// erroring out entirely over them.
+    private func performFullLoad(resetLoadState: Bool) async {
+        if resetLoadState { setLoadState(.loading) }
+        refreshGeneration += 1
         do {
             let images = await client.makeImageURLBuilder()
 
@@ -212,14 +257,9 @@ final class HomeViewModel {
                 filters: ["IsUnplayed"],
                 limit: 10
             )
-            // AUDIO SUPPRESSION: excludeItemTypes keeps audio/music out of
-            // Continue Watching server-side — see `JellyfinAPIClient
-            // .audioItemTypeExclusions`'s doc comment. Delete this argument
-            // once Dionysus Player supports audio/music playback.
-            async let resume = client.resumeItems(userID: userID, excludeItemTypes: JellyfinAPIClient.audioItemTypeExclusions)
-            async let upNext = client.nextUp(userID: userID, limit: 16)
-            async let latestMovies = client.latestItems(userID: userID, parentID: moviesLibraryID, limit: 16)
-            async let latestShows = client.latestItems(userID: userID, parentID: showsLibraryID, limit: 16)
+            async let curated = fetchCuratedRails(
+                images: images, moviesLibraryID: moviesLibraryID, showsLibraryID: showsLibraryID
+            )
 
             heroItems = try await heroCandidates.items.map { MediaItem(dto: $0, images: images) }
             // AUDIO SUPPRESSION: `/Users/{id}/Views` has no server-side type
@@ -230,54 +270,90 @@ final class HomeViewModel {
             libraries = views.items
                 .map { MediaItem(dto: $0, images: images) }
                 .filter { !$0.isAudioLibrary }
+            curatedRails = try await curated
+            if resetLoadState { setLoadState(.loaded) }
 
-            var newRails: [MediaCollectionRail] = []
-            func appendRail(_ title: String, _ dtos: [BaseItemDto], seeAllQuery: CollectionQuery? = nil) {
-                guard !dtos.isEmpty else { return }
-                let items = dtos.map { MediaItem(dto: $0, images: images) }
-                newRails.append(MediaCollectionRail(title: title, items: items, seeAllQuery: seeAllQuery))
-            }
-
-            let resumeItems = try await resume.items
-            appendRail(String(localized: "Continue Watching"), resumeItems)
-            // Jellyfin's `/Shows/NextUp` isn't guaranteed disjoint from
-            // `/Users/{id}/Items/Resume` — a show can surface the same
-            // episode from both endpoints (e.g. right after resuming
-            // playback, before the server's own "next up" state has caught
-            // up) — so an item already shown in Continue Watching is
-            // filtered out here rather than shown a second time.
-            let resumeItemIDs = Set(resumeItems.map(\.id))
-            let nextUpItems = try await upNext.items.filter { !resumeItemIDs.contains($0.id) }
-            appendRail(String(localized: "Next Up"), nextUpItems)
-            appendRail(
-                String(localized: "Recently Added Movies"), try await latestMovies,
-                // Preset newest-first — matches what "Recently Added"
-                // already means for this rail, rather than landing on the
-                // grid's own bare default (Title, ascending) and making the
-                // user reapply the exact ordering that got them here.
-                seeAllQuery: CollectionQuery(
-                    title: String(localized: "Movies"), parentID: moviesLibraryID, includeItemTypes: ["Movie"],
-                    initialSortField: .dateAdded, initialSortOrder: .descending
-                )
-            )
-            appendRail(
-                String(localized: "Recently Added Shows"), try await latestShows,
-                seeAllQuery: CollectionQuery(
-                    title: String(localized: "Shows"), parentID: showsLibraryID, includeItemTypes: ["Series"],
-                    initialSortField: .dateAdded, initialSortOrder: .descending
-                )
-            )
-
-            rails = newRails
-            setLoadState(.loaded)
-
+            // Reset dynamic-rail state before rediscovering — otherwise a
+            // hard refresh's fresh discovery pass would have every
+            // candidate silently filtered right back out by
+            // `consumedDynamicRailCandidates` below, and dynamic rails
+            // would never actually reshuffle the way "as if a fresh app
+            // load" implies. A first `load()` starts with this state
+            // already empty, so this is a no-op there.
+            dynamicRails = []
+            pendingDynamicRailCandidates = []
+            consumedDynamicRailCandidates = []
+            hasMoreDynamicRails = false
+            dynamicRailCandidatesFailed = false
             await loadDynamicRailCandidates()
         } catch {
-            setLoadState(.failed(
-                (error as? LocalizedError)?.errorDescription
-                    ?? String(localized: "Something went wrong loading your library.")
-            ))
+            if resetLoadState {
+                setLoadState(.failed(
+                    (error as? LocalizedError)?.errorDescription
+                        ?? String(localized: "Something went wrong loading your library.")
+                ))
+            }
+            // else: a hard refresh's own failure — silently leave whatever
+            // was already on screen rather than blanking an already-
+            // populated page, matching `loadDynamicRailCandidates`'s and
+            // `retryDynamicRailCandidatesIfNeeded`'s existing best-effort
+            // philosophy.
         }
+    }
+
+    /// Builds Home's four curated rails (Continue Watching, Next Up,
+    /// Recently Added Movies, Recently Added Shows, in that order — omitted
+    /// when empty) — the shared fetch behind both `performFullLoad(resetLoadState:)`
+    /// and `softRefresh()`.
+    private func fetchCuratedRails(
+        images: ImageURLBuilder, moviesLibraryID: String?, showsLibraryID: String?
+    ) async throws -> [MediaCollectionRail] {
+        // AUDIO SUPPRESSION: excludeItemTypes keeps audio/music out of
+        // Continue Watching server-side — see `JellyfinAPIClient
+        // .audioItemTypeExclusions`'s doc comment. Delete this argument
+        // once Dionysus Player supports audio/music playback.
+        async let resume = client.resumeItems(userID: userID, excludeItemTypes: JellyfinAPIClient.audioItemTypeExclusions)
+        async let upNext = client.nextUp(userID: userID, limit: 16)
+        async let latestMovies = client.latestItems(userID: userID, parentID: moviesLibraryID, limit: 16)
+        async let latestShows = client.latestItems(userID: userID, parentID: showsLibraryID, limit: 16)
+
+        var newRails: [MediaCollectionRail] = []
+        func appendRail(_ title: String, _ dtos: [BaseItemDto], seeAllQuery: CollectionQuery? = nil) {
+            guard !dtos.isEmpty else { return }
+            let items = dtos.map { MediaItem(dto: $0, images: images) }
+            newRails.append(MediaCollectionRail(title: title, items: items, seeAllQuery: seeAllQuery))
+        }
+
+        let resumeItems = try await resume.items
+        appendRail(String(localized: "Continue Watching"), resumeItems)
+        // Jellyfin's `/Shows/NextUp` isn't guaranteed disjoint from
+        // `/Users/{id}/Items/Resume` — a show can surface the same
+        // episode from both endpoints (e.g. right after resuming
+        // playback, before the server's own "next up" state has caught
+        // up) — so an item already shown in Continue Watching is
+        // filtered out here rather than shown a second time.
+        let resumeItemIDs = Set(resumeItems.map(\.id))
+        let nextUpItems = try await upNext.items.filter { !resumeItemIDs.contains($0.id) }
+        appendRail(String(localized: "Next Up"), nextUpItems)
+        appendRail(
+            String(localized: "Recently Added Movies"), try await latestMovies,
+            // Preset newest-first — matches what "Recently Added"
+            // already means for this rail, rather than landing on the
+            // grid's own bare default (Title, ascending) and making the
+            // user reapply the exact ordering that got them here.
+            seeAllQuery: CollectionQuery(
+                title: String(localized: "Movies"), parentID: moviesLibraryID, includeItemTypes: ["Movie"],
+                initialSortField: .dateAdded, initialSortOrder: .descending
+            )
+        )
+        appendRail(
+            String(localized: "Recently Added Shows"), try await latestShows,
+            seeAllQuery: CollectionQuery(
+                title: String(localized: "Shows"), parentID: showsLibraryID, includeItemTypes: ["Series"],
+                initialSortField: .dateAdded, initialSortOrder: .descending
+            )
+        )
+        return newRails
     }
 
     /// Discovers every eligible dynamic rail — genres and studios for both
@@ -289,11 +365,11 @@ final class HomeViewModel {
     /// discovery call is independently best-effort (`try?`) — e.g. a failed
     /// director lookup shouldn't also wipe out genre rails that succeeded.
     /// Can be called more than once per `HomeViewModel` lifetime (a
-    /// connectivity-triggered retry re-runs it wholesale — see
-    /// `retryDynamicRailCandidatesIfNeeded()`), so candidates already
-    /// represented by a rail (`consumedDynamicRailCandidates`) are filtered
-    /// out before the fresh discovery results get queued, or a retry would
-    /// re-append rails that are already showing.
+    /// connectivity-triggered retry, or a `hardRefresh()`, re-runs it
+    /// wholesale — see `retryDynamicRailCandidatesIfNeeded()`), so
+    /// candidates already represented by a rail (`consumedDynamicRailCandidates`)
+    /// are filtered out before the fresh discovery results get queued, or a
+    /// retry would re-append rails that are already showing.
     ///
     /// A brief detour (2026-08-23): tried tiering candidates by category
     /// (genres, then studios, then actors/directors, instead of one flat
@@ -412,6 +488,94 @@ final class HomeViewModel {
             if loadState == .loaded { return }
             if index < delays.count - 1 { setLoadState(.loading) }
         }
+    }
+
+    /// Silently re-fetches just the four curated rails (Continue Watching,
+    /// Next Up, Recently Added Movies, Recently Added Shows) in place —
+    /// called by `HomeView` whenever the user returns to Home from
+    /// elsewhere (a tab switch, or in-page back navigation back to Home's
+    /// root), to pick up resume points / newly-watched status / a changed
+    /// "next up" episode / newly added items without disturbing the hero
+    /// banner, library rail, dynamic rails, or scroll position the way a
+    /// `hardRefresh()` would. Never user-triggered directly — `hardRefresh()`
+    /// is what pull-to-refresh and the VoiceOver refresh button call.
+    ///
+    /// Deliberately has no visible loading UI at all: `loadState` never
+    /// changes, and the current curated rails stay on screen until the
+    /// fresh ones replace them in one shot (or stay as-is on failure — this
+    /// is a best-effort background refresh, not a user-initiated action
+    /// that owes anyone an error state).
+    ///
+    /// No-ops if Home hasn't finished its first `load()` yet — that case is
+    /// already owned by `load()`/`retryLoadIfNeeded()`. Concurrent callers
+    /// coalesce via `inFlightSoftRefresh`, same idea as `inFlightRetry`.
+    func softRefresh() async {
+        if let inFlightSoftRefresh {
+            await inFlightSoftRefresh.value
+            return
+        }
+        guard loadState == .loaded else { return }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.performSoftRefresh()
+        }
+        inFlightSoftRefresh = task
+        await task.value
+        inFlightSoftRefresh = nil
+    }
+
+    private func performSoftRefresh() async {
+        // Cheap early-out, not required for correctness (the generation
+        // check below already covers this) — avoids firing a redundant
+        // network fetch when a hardRefresh() is already underway.
+        guard !isHardRefreshing else { return }
+        let generation = refreshGeneration
+        let images = await client.makeImageURLBuilder()
+        guard let result = try? await fetchCuratedRails(
+            images: images, moviesLibraryID: moviesLibraryID, showsLibraryID: showsLibraryID
+        ) else { return }
+        // A hardRefresh() may have started (or even finished) while this
+        // was in flight — e.g. switching into the Home tab fires a soft
+        // refresh, and an immediate double-tap of the VoiceOver refresh
+        // button fires a hard one, a normal VoiceOver interaction pattern.
+        // `refreshGeneration` only ever advances, so if it moved since this
+        // started, a hard refresh's fresher (and more complete) data has
+        // already landed — defer to it rather than clobbering it with this
+        // slower, narrower result.
+        guard generation == refreshGeneration else { return }
+        curatedRails = result
+    }
+
+    /// Re-fetches everything on Home — hero banner, libraries, curated
+    /// rails, and a freshly reshuffled set of dynamic rails — as if this
+    /// were a fresh app load, without blanking the page while it's in
+    /// flight (unlike `load()`/`retryLoadIfNeeded()`, `loadState` stays
+    /// `.loaded` throughout — see `performFullLoad(resetLoadState:)`'s doc
+    /// comment). Called by `HomeView`'s `.refreshable` pull-to-refresh
+    /// gesture and by its VoiceOver-only refresh button, both via this same
+    /// coalesced entry point rather than `load()` directly.
+    ///
+    /// No-ops if Home hasn't finished its first `load()` yet (nothing to
+    /// refresh over). A failure leaves whatever was already on screen in
+    /// place rather than erroring the whole page out from under the user —
+    /// see `performFullLoad(resetLoadState:)`'s catch branch. Concurrent
+    /// callers coalesce via `inFlightHardRefresh`, same idea as
+    /// `inFlightRetry`.
+    func hardRefresh() async {
+        if let inFlightHardRefresh {
+            await inFlightHardRefresh.value
+            return
+        }
+        guard loadState == .loaded else { return }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            self.isHardRefreshing = true
+            await self.performFullLoad(resetLoadState: false)
+            self.isHardRefreshing = false
+        }
+        inFlightHardRefresh = task
+        await task.value
+        inFlightHardRefresh = nil
     }
 
     /// Called by `HomeView` when `ConnectivityMonitor` transitions back
@@ -544,20 +708,21 @@ final class HomeViewModel {
         }
 
         // Collected into a local array and appended once, rather than
-        // calling `rails.append(rail)` inside the loop — `rails` is an
-        // `@Observable` property that `HomeView` reads to build its
-        // `LazyVStack` of rails, so each separate append used to fire its
-        // own SwiftUI transaction/layout flush over the whole rail list.
-        // Landing up to `dynamicRailBatchSize` (5) of those back-to-back,
-        // right as `HomeView`'s scroll-triggered sentinel fires (i.e. while
-        // the user is actively scrolling), was a plausible contributor to
-        // an intermittently-reported real-device freeze in this exact
-        // region — see `home-collection-nav-freeze-unconfirmed` memory,
-        // occurrence 3. One append means one flush instead of up to five.
+        // calling `dynamicRails.append(rail)` inside the loop —
+        // `dynamicRails` is an `@Observable` property that `HomeView` reads
+        // (via `rails`) to build its `LazyVStack` of rails, so each
+        // separate append used to fire its own SwiftUI transaction/layout
+        // flush over the whole rail list. Landing up to `dynamicRailBatchSize`
+        // (5) of those back-to-back, right as `HomeView`'s scroll-triggered
+        // sentinel fires (i.e. while the user is actively scrolling), was a
+        // plausible contributor to an intermittently-reported real-device
+        // freeze in this exact region — see
+        // `home-collection-nav-freeze-unconfirmed` memory, occurrence 3.
+        // One append means one flush instead of up to five.
         let newRails = fetched.compactMap { _, candidate, rail in
             rail.map { (candidate, $0) }
         }
-        rails.append(contentsOf: newRails.map(\.1))
+        dynamicRails.append(contentsOf: newRails.map(\.1))
         for (candidate, _) in newRails {
             consumedDynamicRailCandidates.insert(candidate)
         }

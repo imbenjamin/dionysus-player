@@ -8,10 +8,14 @@ import UIKit
 /// itself carries the item's identity, and a header row would fight the
 /// full-bleed treatment.
 ///
-/// Bleeding up under the status bar/notch relies on `HomeView`'s `ScrollView`
-/// declaring `.ignoresSafeArea(edges: .top)` — a `ScrollView` clips its
-/// content to its own bounds, so this view alone ignoring the safe area
-/// would have nothing to bleed into.
+/// Bleeds up under the status bar/notch via negative top padding applied by
+/// `HomeView` where this is constructed (`-topSafeAreaInset`, combined with
+/// `.scrollClipDisabled()` on `HomeView`'s `ScrollView` so the overflow
+/// actually renders instead of being clipped at the scroll view's bounds)
+/// — see that padding's own doc comment in `HomeView.content` for the full
+/// story, including two earlier designs (`.ignoresSafeArea` on the
+/// `ScrollView`, then on this view) that were each confirmed live to have a
+/// real problem.
 struct HeroRailView: View {
     let items: [MediaItem]
     /// Whether Home is the currently-selected tab — threaded down from

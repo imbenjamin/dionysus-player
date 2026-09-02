@@ -973,4 +973,312 @@ final class HomeViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.rails.count, 10, "Only the winning call should have fetched the remaining 5")
         XCTAssertEqual(dynamicItemsRequestCount, 5, "The losing concurrent call should no-op, not fire a duplicate batch")
     }
+
+    // MARK: Soft refresh
+
+    /// `softRefresh()` should touch only the four curated rails — never
+    /// re-resolve libraries, re-fetch the hero rail, or re-run dynamic rail
+    /// discovery. Rather than asserting equality on values that merely
+    /// happen not to change, the post-load handler below `XCTFail`s if any
+    /// of those endpoints fire at all — the strongest way to prove
+    /// `softRefresh()` never called them.
+    func test_softRefresh_updatesCuratedRailsOnlyWithoutTouchingHeroLibrariesOrDynamicRails() async {
+        let viewModel = makeViewModel()
+        let moviesLibrary = BaseItemDto(id: "lib-movies", name: "Movies", type: .collectionFolder, collectionType: "movies")
+        let showsLibrary = BaseItemDto(id: "lib-shows", name: "Shows", type: .collectionFolder, collectionType: "tvshows")
+        let heroItem = BaseItemDto(id: "hero-1", name: "Featured", type: .movie)
+        let firstResumeItem = BaseItemDto(id: "resume-1", name: "In Progress", type: .movie)
+
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Views":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [moviesLibrary, showsLibrary], totalRecordCount: 2)
+                )
+            case "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [heroItem], totalRecordCount: 1))
+            case "/Users/user-1/Items/Resume":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [firstResumeItem], totalRecordCount: 1))
+            case "/Shows/NextUp":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items/Latest":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]())
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+        XCTAssertEqual(viewModel.rails.map(\.title), ["Continue Watching"])
+        XCTAssertEqual(viewModel.rails[0].items.map(\.id), ["resume-1"])
+        XCTAssertEqual(viewModel.heroItems.map(\.id), ["hero-1"])
+        XCTAssertEqual(viewModel.libraries.map(\.id), ["lib-movies", "lib-shows"])
+
+        let secondResumeItem = BaseItemDto(id: "resume-2", name: "Still In Progress", type: .movie)
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Views", "/Users/user-1/Items", "/Genres", "/Studios", "/Persons":
+                XCTFail("softRefresh() should never touch \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items/Resume":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [secondResumeItem], totalRecordCount: 1))
+            case "/Shows/NextUp":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items/Latest":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]())
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.softRefresh()
+
+        XCTAssertEqual(viewModel.rails.map(\.title), ["Continue Watching"])
+        XCTAssertEqual(viewModel.rails[0].items.map(\.id), ["resume-2"], "Curated rails should reflect the fresh fetch")
+        XCTAssertEqual(viewModel.heroItems.map(\.id), ["hero-1"], "Hero items must be untouched by a soft refresh")
+        XCTAssertEqual(viewModel.libraries.map(\.id), ["lib-movies", "lib-shows"], "Libraries must be untouched by a soft refresh")
+        XCTAssertEqual(viewModel.loadState, .loaded, "loadState must never change during a soft refresh")
+    }
+
+    func test_softRefresh_noOpsWhenNotLoaded() async {
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            XCTFail("softRefresh() should no-op before the first load, but requested \(request.url?.path ?? "?")")
+            throw URLError(.unknown)
+        }
+
+        await viewModel.softRefresh()
+
+        XCTAssertEqual(viewModel.loadState, .idle)
+        XCTAssertTrue(viewModel.rails.isEmpty)
+    }
+
+    /// Same coalescing idiom (and the same reasoning) as
+    /// `test_retryLoadIfNeeded_concurrentCallers_coalesceIntoOneAttempt`.
+    func test_softRefresh_coalescesConcurrentCallers() async {
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        await viewModel.load()
+        XCTAssertEqual(viewModel.loadState, .loaded)
+
+        nonisolated(unsafe) var resumeRequestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path == "/Users/user-1/Items/Resume" { resumeRequestCount += 1 }
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        async let first: Void = viewModel.softRefresh()
+        async let second: Void = viewModel.softRefresh()
+        _ = await (first, second)
+
+        XCTAssertEqual(resumeRequestCount, 1, "Two concurrent callers should coalesce into a single fetch")
+    }
+
+    // MARK: Hard refresh
+
+    /// `hardRefresh()` must refetch everything — hero, libraries, curated
+    /// rails, and a genuinely reshuffled set of dynamic rails, not ones
+    /// silently skipped by `consumedDynamicRailCandidates` — and must never
+    /// visibly flip `loadState` away from `.loaded` while doing it.
+    func test_hardRefresh_refetchesEverythingAndReshufflesDynamicRails() async {
+        let viewModel = makeViewModel()
+        let firstMoviesLibrary = BaseItemDto(id: "lib-movies", name: "Movies", type: .collectionFolder, collectionType: "movies")
+        let firstShowsLibrary = BaseItemDto(id: "lib-shows", name: "Shows", type: .collectionFolder, collectionType: "tvshows")
+        let firstHero = BaseItemDto(id: "hero-1", name: "Featured", type: .movie)
+        let firstResume = BaseItemDto(id: "resume-1", name: "In Progress", type: .movie)
+        let actionMovies = Self.makeItems("action", count: 5)
+
+        MockURLProtocol.requestHandler = { request in
+            let query = request.queryDictionary
+            switch request.url?.path {
+            case "/Users/user-1/Views":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [firstMoviesLibrary, firstShowsLibrary], totalRecordCount: 2)
+                )
+            case "/Users/user-1/Items":
+                if query["Filters"] == "IsUnplayed" {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [firstHero], totalRecordCount: 1))
+                }
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: actionMovies, totalRecordCount: actionMovies.count))
+            case "/Users/user-1/Items/Resume":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [firstResume], totalRecordCount: 1))
+            case "/Shows/NextUp":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items/Latest":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]())
+            case "/Genres":
+                let items = query["IncludeItemTypes"] == "Movie" ? [BaseItemDto(id: "genre-action", name: "Action", type: .unknown)] : []
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
+            case "/Studios", "/Persons":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(viewModel.heroItems.map(\.id), ["hero-1"])
+        XCTAssertEqual(viewModel.libraries.map(\.id), ["lib-movies", "lib-shows"])
+        XCTAssertEqual(viewModel.curatedRails.map(\.title), ["Continue Watching"])
+        XCTAssertEqual(viewModel.dynamicRails.map(\.title), ["Action Movies"])
+        XCTAssertEqual(viewModel.dynamicRails[0].items.map(\.id), actionMovies.map(\.id))
+
+        // A fresh round where everything changes: a different library set,
+        // hero item, resume item, and dynamic rail (genre "Comedy" instead
+        // of "Action") — to confirm hardRefresh() actually refetches all of
+        // it, not just the curated rails a softRefresh() would.
+        let secondMoviesLibrary = BaseItemDto(id: "lib-movies-2", name: "Movies", type: .collectionFolder, collectionType: "movies")
+        let secondShowsLibrary = BaseItemDto(id: "lib-shows-2", name: "Shows", type: .collectionFolder, collectionType: "tvshows")
+        let secondHero = BaseItemDto(id: "hero-2", name: "New Featured", type: .movie)
+        let secondResume = BaseItemDto(id: "resume-2", name: "Still In Progress", type: .movie)
+        let comedyShows = Self.makeItems("comedy", count: 5)
+
+        MockURLProtocol.requestHandler = { request in
+            let query = request.queryDictionary
+            switch request.url?.path {
+            case "/Users/user-1/Views":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [secondMoviesLibrary, secondShowsLibrary], totalRecordCount: 2)
+                )
+            case "/Users/user-1/Items":
+                if query["Filters"] == "IsUnplayed" {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [secondHero], totalRecordCount: 1))
+                }
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: comedyShows, totalRecordCount: comedyShows.count))
+            case "/Users/user-1/Items/Resume":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [secondResume], totalRecordCount: 1))
+            case "/Shows/NextUp":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items/Latest":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]())
+            case "/Genres":
+                let items = query["IncludeItemTypes"] == "Series" ? [BaseItemDto(id: "genre-comedy", name: "Comedy", type: .unknown)] : []
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
+            case "/Studios", "/Persons":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.hardRefresh()
+
+        XCTAssertEqual(viewModel.loadState, .loaded, "hardRefresh() must never leave loadState anywhere but .loaded")
+        XCTAssertEqual(viewModel.heroItems.map(\.id), ["hero-2"])
+        XCTAssertEqual(viewModel.libraries.map(\.id), ["lib-movies-2", "lib-shows-2"])
+        XCTAssertEqual(viewModel.curatedRails.map(\.title), ["Continue Watching"])
+        XCTAssertEqual(viewModel.curatedRails[0].items.map(\.id), ["resume-2"])
+        XCTAssertEqual(
+            viewModel.dynamicRails.map(\.title), ["Comedy Shows"],
+            "Dynamic rails must actually reshuffle/refetch, not get silently skipped by consumedDynamicRailCandidates"
+        )
+        XCTAssertEqual(viewModel.dynamicRails[0].items.map(\.id), comedyShows.map(\.id))
+    }
+
+    /// A hard refresh's own failure must leave whatever was already on
+    /// screen in place — unlike `load()`'s own failure, which flips
+    /// `loadState` to `.failed` (and, via `HomeView`'s placeholder, blanks
+    /// the page).
+    func test_hardRefresh_leavesExistingContentOnFailureAfterLoaded() async {
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Views":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items/Resume":
+                let item = BaseItemDto(id: "resume-1", name: "In Progress", type: .movie)
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [item], totalRecordCount: 1))
+            case "/Shows/NextUp":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items/Latest":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]())
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(viewModel.curatedRails.map(\.title), ["Continue Watching"])
+
+        MockURLProtocol.requestHandler = { _ in throw URLError(.networkConnectionLost) }
+
+        await viewModel.hardRefresh()
+
+        XCTAssertEqual(viewModel.loadState, .loaded, "A hard refresh's own failure must not flip loadState to .failed")
+        XCTAssertEqual(viewModel.curatedRails.map(\.title), ["Continue Watching"], "Existing content must survive a failed hard refresh")
+        XCTAssertEqual(viewModel.curatedRails[0].items.map(\.id), ["resume-1"])
+    }
+
+    func test_hardRefresh_noOpsWhenNotLoaded() async {
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            XCTFail("hardRefresh() should no-op before the first load, but requested \(request.url?.path ?? "?")")
+            throw URLError(.unknown)
+        }
+
+        await viewModel.hardRefresh()
+
+        XCTAssertEqual(viewModel.loadState, .idle)
+    }
+
+    /// Same coalescing idiom as `test_retryLoadIfNeeded_concurrentCallers_coalesceIntoOneAttempt`.
+    func test_hardRefresh_coalescesConcurrentCallers() async {
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        await viewModel.load()
+        XCTAssertEqual(viewModel.loadState, .loaded)
+
+        nonisolated(unsafe) var viewsRequestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path == "/Users/user-1/Views" { viewsRequestCount += 1 }
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            if let stubbed = try Self.stubEmptyCuratedRails(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        async let first: Void = viewModel.hardRefresh()
+        async let second: Void = viewModel.hardRefresh()
+        _ = await (first, second)
+
+        XCTAssertEqual(viewsRequestCount, 1, "Two concurrent callers should coalesce into a single attempt")
+    }
 }
