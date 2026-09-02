@@ -182,16 +182,41 @@ enum DownloadBitratePreset: String, Codable, CaseIterable, Identifiable {
     /// than being a fixed label like `displayName`. Used by the downloads
     /// settings quality picker so each row shows the real number, not just a
     /// vague "High"/"Normal"/"Data Saver" label.
+    ///
+    /// Always reflects the **shipped default** ladder — a fixed function of
+    /// `resolution` alone, with no way to see a user's own
+    /// `DownloadQualityLadderStore` override. Any picker that should reflect
+    /// a customized ladder (every real one in the app today) must resolve
+    /// the effective bitrate itself and call `displayName(bitrate:)`
+    /// instead; this overload only remains for call sites that
+    /// deliberately want the stock number regardless of overrides.
     func displayName(in resolution: DownloadResolution) -> String {
-        "\(displayName) (\(Self.mbpsText(resolution.videoBitrate(preset: self))) Mbps)"
+        displayName(bitrate: resolution.videoBitrate(preset: self))
     }
 
     /// `displayName(in:)`'s VoiceOver counterpart — "Mbps" read letter by
     /// letter ("M B P S") rather than as a word. Same
     /// whole-number-vs-fractional formatting as `displayName(in:)` itself,
-    /// so the two only ever differ in how the unit is spelled out.
+    /// so the two only ever differ in how the unit is spelled out. Same
+    /// "shipped default only" caveat as `displayName(in:)` applies here too.
     func accessibilityDisplayName(in resolution: DownloadResolution) -> String {
-        "\(displayName) (\(Self.mbpsText(resolution.videoBitrate(preset: self))) megabits per second)"
+        accessibilityDisplayName(bitrate: resolution.videoBitrate(preset: self))
+    }
+
+    /// Same rendering as `displayName(in:)`, but takes the video bitrate
+    /// (bits/sec) directly rather than deriving it from the shipped ladder —
+    /// what a picker that needs to reflect a `DownloadQualityLadderStore`
+    /// override calls, passing that store's own
+    /// `videoBitrate(resolution:preset:)` result in place of
+    /// `resolution.videoBitrate(preset:)`.
+    func displayName(bitrate: Int) -> String {
+        "\(displayName) (\(Self.mbpsText(bitrate)) Mbps)"
+    }
+
+    /// `displayName(bitrate:)`'s VoiceOver counterpart, same relationship as
+    /// `accessibilityDisplayName(in:)` has to `displayName(in:)`.
+    func accessibilityDisplayName(bitrate: Int) -> String {
+        "\(displayName) (\(Self.mbpsText(bitrate)) megabits per second)"
     }
 
     /// Whole numbers render without a decimal ("3"), fractional ones to two
@@ -275,6 +300,17 @@ enum DownloadTranscodeCalculator {
     /// (an old high-bitrate SD encode, say), so that cap alone never pulls
     /// the number back down to match the achieved resolution the way
     /// `effectiveTier` does.
+    /// `videoBitrateLadder` is what actually looks up a rung's bitrate —
+    /// defaults to the shipped `DownloadResolution.videoBitrate(preset:)`
+    /// table, which is what every existing caller (and every test in
+    /// `DownloadTypesTests`) gets without changes. Real download call sites
+    /// (`JellyfinAPIClient.downloadStreamURL`, `DownloadManager.enqueue`)
+    /// pass `DownloadQualityLadderStore().videoBitrate(resolution:preset:)`
+    /// instead, so a user's own override actually reaches the transcode
+    /// request rather than only the settings screen that edits it. Kept as
+    /// an injectable closure rather than a stored property on this `enum`
+    /// (which has none) so the pure-function/no-mock-network-layer
+    /// unit-testability this type was split out for isn't lost.
     static func target(
         resolution: DownloadResolution,
         preset: DownloadBitratePreset,
@@ -282,12 +318,13 @@ enum DownloadTranscodeCalculator {
         sourceWidth: Int?,
         sourceHeight: Int?,
         sourceBitrate: Int?,
-        sourceVideoCodec: String? = nil
+        sourceVideoCodec: String? = nil,
+        videoBitrateLadder: (DownloadResolution, DownloadBitratePreset) -> Int = { $0.videoBitrate(preset: $1) }
     ) -> DownloadTranscodeTarget {
         let maxHeight = min(resolution.maxHeight, sourceHeight ?? resolution.maxHeight)
         let maxWidth = min(resolution.maxWidth, sourceWidth ?? resolution.maxWidth)
         let effectiveTier = effectiveTier(forAchievedHeight: maxHeight, notExceeding: resolution)
-        let tierBitrate = effectiveTier.videoBitrate(preset: preset)
+        let tierBitrate = videoBitrateLadder(effectiveTier, preset)
         let videoBitrate = min(tierBitrate, sourceBitrate ?? tierBitrate)
         let copyEligible = streamCopyEligible(
             resolution: resolution,
@@ -389,13 +426,14 @@ enum DownloadTranscodeCalculator {
         sourceHeight: Int?,
         sourceBitrate: Int?,
         sourceVideoCodec: String? = nil,
-        runtimeTicks: Int64?
+        runtimeTicks: Int64?,
+        videoBitrateLadder: (DownloadResolution, DownloadBitratePreset) -> Int = { $0.videoBitrate(preset: $1) }
     ) -> Int64? {
         guard let runtimeTicks, runtimeTicks > 0 else { return nil }
         let resolvedTarget = target(
             resolution: resolution, preset: preset, isSourceHDR: isSourceHDR,
             sourceWidth: sourceWidth, sourceHeight: sourceHeight, sourceBitrate: sourceBitrate,
-            sourceVideoCodec: sourceVideoCodec
+            sourceVideoCodec: sourceVideoCodec, videoBitrateLadder: videoBitrateLadder
         )
         let durationSeconds = Double(runtimeTicks) / 10_000_000
         let totalBitsPerSecond = Double(resolvedTarget.videoBitrate) + Double(preset.audioBitrate)

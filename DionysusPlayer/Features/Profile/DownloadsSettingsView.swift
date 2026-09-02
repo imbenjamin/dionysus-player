@@ -29,6 +29,12 @@ struct DownloadsSettingsView: View {
         DeviceStorageBreakdown.current()
     }
 
+    /// A fresh read on every access, same "cheap, always current" reasoning
+    /// as `storageBreakdown` above — picks up a ladder override made on the
+    /// pushed Advanced screen the moment this screen re-renders on return,
+    /// with no observation wiring needed.
+    private var qualityLadder: DownloadQualityLadderStore { DownloadQualityLadderStore() }
+
     /// "Unlimited" at the slider's `0` position, else the plain count —
     /// mirrors `DownloadPreferencesStore.maxConcurrentDownloads`'s own
     /// `0`-means-unlimited mapping.
@@ -53,7 +59,7 @@ struct DownloadsSettingsView: View {
     /// .target`) — this is a rough capacity estimate, not a prediction for
     /// any specific title, so it assumes the selected tier is fully reached.
     private func estimatedCount(minutes: Int, freeBytes: Int64) -> Int {
-        let bitsPerSecond = downloadResolution.videoBitrate(preset: downloadBitratePreset) + downloadBitratePreset.audioBitrate
+        let bitsPerSecond = qualityLadder.videoBitrate(resolution: downloadResolution, preset: downloadBitratePreset) + downloadBitratePreset.audioBitrate
         let bytesPerItem = Double(bitsPerSecond) / 8 * Double(minutes * 60)
         guard bytesPerItem > 0 else { return 0 }
         return Int(Double(freeBytes) / bytesPerItem)
@@ -75,10 +81,14 @@ struct DownloadsSettingsView: View {
                 }
                 Picker("Quality", selection: $downloadBitratePreset) {
                     ForEach(DownloadBitratePreset.allCases) { preset in
-                        Text(preset.displayName(in: downloadResolution))
-                            .accessibilityLabel(preset.accessibilityDisplayName(in: downloadResolution))
+                        let bitrate = qualityLadder.videoBitrate(resolution: downloadResolution, preset: preset)
+                        Text(preset.displayName(bitrate: bitrate))
+                            .accessibilityLabel(preset.accessibilityDisplayName(bitrate: bitrate))
                             .tag(preset)
                     }
+                }
+                NavigationLink("Advanced") {
+                    DownloadsQualityLadderView()
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     LabeledContent("Simultaneous Downloads", value: downloadMaxConcurrentDisplayText)
