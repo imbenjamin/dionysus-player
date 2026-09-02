@@ -29,7 +29,6 @@ struct CollectionDetailView: View {
 
                     VStack(alignment: .leading, spacing: 16) {
                         InfoMetadataRow(item: item)
-                            .id(item.technicalDetails == nil)
 
                         // A BoxSet's own `technicalDetails` is always `nil`
                         // (it has no media file of its own), so this always
@@ -39,7 +38,6 @@ struct CollectionDetailView: View {
                         // synopsis, and "Cast & Crew" degrades to its own
                         // empty-state message when a BoxSet has none.
                         DetailTabsView(item: item)
-                            .id(item.technicalDetails == nil)
                     }
                     .padding(.horizontal)
                     .id(refreshTrigger)

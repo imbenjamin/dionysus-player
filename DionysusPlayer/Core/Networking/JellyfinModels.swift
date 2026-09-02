@@ -94,7 +94,7 @@ enum BaseItemKind: String, Codable {
     }
 }
 
-struct BaseItemDto: Codable, Identifiable {
+struct BaseItemDto: Codable, Identifiable, Equatable {
     var id: String
     var name: String
     var overview: String?
@@ -229,8 +229,14 @@ struct NameGuidPair: Codable, Hashable {
     var id: String?
 }
 
-extension BaseItemDto: Equatable, Hashable {
-    static func == (lhs: BaseItemDto, rhs: BaseItemDto) -> Bool { lhs.id == rhs.id }
+extension BaseItemDto: Hashable {
+    /// Id-only, while `==` (synthesized on the type itself) is structural —
+    /// the legal direction for the `Hashable` contract, and what keeps
+    /// id-keyed lookups treating one server item as one entry.
+    ///
+    /// `==` must stay structural: `MediaItem` forwards its equality to this
+    /// type, and SwiftUI relies on it to decide whether a view changed. See
+    /// `MediaItem.==`.
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
@@ -249,13 +255,6 @@ struct TrickplayInfo: Codable, Equatable {
     var bandwidth: Int
 }
 
-/// `Equatable` (synthesized, i.e. genuinely field-by-field) specifically so
-/// `MediaItem.==` can compare it — see that conformance's doc comment for
-/// why comparing these four fields is what keeps SwiftUI re-rendering a
-/// card whose resume position/watched/favorite state changed. Deliberately
-/// *not* the id-only shortcut `BaseItemDto` takes: these are exactly the
-/// fields that change under a stable id, so an id-based comparison here
-/// would defeat the entire point.
 struct UserItemDataDto: Codable, Equatable {
     var playbackPositionTicks: Int64?
     var playedPercentage: Double?
@@ -340,7 +339,7 @@ struct PlaybackInfoResponse: Codable {
     var errorCode: String?
 }
 
-struct MediaSourceInfo: Codable, Identifiable {
+struct MediaSourceInfo: Codable, Identifiable, Equatable {
     var id: String?
     /// Server-computed, filename-derived (e.g. "[imdbid-tt8579674] -
     /// [Bluray-2160p][HDR10][x265]-GROUP", or that same string plus

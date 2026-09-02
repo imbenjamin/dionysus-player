@@ -106,12 +106,7 @@ struct ShowDetailView: View {
                             }
 
                         VStack(alignment: .leading, spacing: 16) {
-                            // See `MovieDetailView`'s matching call site — a
-                            // no-op for Show content (a Series/Season never has
-                            // `technicalDetails`) but meaningful, and needed for
-                            // the same reason, for Episode content.
                             InfoMetadataRow(item: item)
-                                .id(item.technicalDetails == nil)
 
                             // Show content (Series/Season): the button targets
                             // `viewModel.showPlaybackEpisode` (resolved during
@@ -179,13 +174,7 @@ struct ShowDetailView: View {
                                 }
                             }
 
-                            // See `MovieDetailView`'s matching call site and
-                            // `DetailTabsView.availableTabs`'s doc comment — a
-                            // no-op for Show content (same reasoning as
-                            // `InfoMetadataRow` above), meaningful for Episode
-                            // content.
                             DetailTabsView(item: item)
-                                .id(item.technicalDetails == nil)
                         }
                         .padding(.horizontal)
                         // See `refreshTrigger`'s own doc comment. Scoped to

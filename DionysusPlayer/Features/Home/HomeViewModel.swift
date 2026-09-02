@@ -646,18 +646,9 @@ final class HomeViewModel {
         // already landed — defer to it rather than clobbering it with this
         // slower, narrower result.
         guard generation == refreshGeneration else { return }
-        // Getting the *data* right here was only ever half the job — see
-        // `MediaItem.==` for the other half, and for a cautionary tale
-        // about this exact line. A correct merge assigned here could still
-        // fail to reach the screen, because `MediaItem`'s `Equatable` used
-        // to compare ids only and so reported a freshly-updated resume
-        // position as "unchanged" to SwiftUI's diffing. That was chased for
-        // a while as a timing problem in this file (a `Task.yield()` here
-        // fixed it ~1/3 of live trials; a stronger `DispatchQueue.main.async`
-        // wait made it worse, 0/5) and then papered over with logging calls
-        // whose only real effect was perturbing what SwiftUI compared. It
-        // was never a scheduling problem, and nothing about the fix belongs
-        // in this method.
+        // Whether this reaches the screen depends on `MediaItem.==` being
+        // structural — see its doc comment. It is not a scheduling concern;
+        // resist adding a yield or a run-loop hop here.
         curatedRails = mergeGuardingAgainstPlaybackRegression(result)
     }
 

@@ -44,15 +44,9 @@ struct MediaRailView: View {
                 let usesLandscapeTiles = rail.usesLandscapeTiles
                 LazyHStack(alignment: .top, spacing: 12) {
                     // `id: \.railRowIdentity`, not `MediaItem`'s own
-                    // `Identifiable` id — so a row whose resume position
-                    // changed gets a *different identity*, which SwiftUI
-                    // must act on, rather than a merely-different value it
-                    // could decide to skip. See `MediaItem.railRowIdentity`
-                    // and `MediaItem.==` for the full story; between them
-                    // they replace a per-card `.id(playbackProgressIdentity)`
-                    // that used to sit on the two cards below, and a set of
-                    // deliberately-retained `os.Logger` calls that were
-                    // doing nothing but perturbing SwiftUI's comparison.
+                    // `Identifiable` id — a row whose resume position
+                    // changed then has a different *identity*, which
+                    // SwiftUI must act on. See that property's doc comment.
                     ForEach(rail.items, id: \.railRowIdentity) { item in
                         if usesLandscapeTiles {
                             LandscapeMediaCard(item: item)
