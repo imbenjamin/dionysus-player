@@ -256,6 +256,139 @@ final class MediaItemTests: XCTestCase {
         XCTAssertEqual(makeMovie(userData: userData).playbackProgressIdentity, makeMovie(userData: userData).playbackProgressIdentity)
     }
 
+    // MARK: railRowIdentity
+
+    func test_railRowIdentity_changesWhenPlaybackProgressChanges() {
+        let original = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000, playedPercentage: 5, played: false))
+        let updated = original.withOptimisticPlaybackPosition(seconds: 900, duration: 3600)
+
+        XCTAssertNotEqual(original.railRowIdentity, updated.railRowIdentity)
+    }
+
+    func test_railRowIdentity_stableForIdenticalUserData() {
+        let userData = UserItemDataDto(playbackPositionTicks: 10 * 10_000_000, playedPercentage: 5, played: false)
+        XCTAssertEqual(makeMovie(userData: userData).railRowIdentity, makeMovie(userData: userData).railRowIdentity)
+    }
+
+    /// Two *different* items at the same progress must not collide — this
+    /// is a `ForEach` row id, and duplicate ids silently misattribute
+    /// state/identity between rows.
+    func test_railRowIdentity_differsAcrossItemsAtIdenticalProgress() {
+        let userData = UserItemDataDto(playbackPositionTicks: 10 * 10_000_000, playedPercentage: 5, played: false)
+        let first = MediaItem(dto: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, userData: userData), images: images)
+        let second = MediaItem(dto: BaseItemDto(id: "movie-2", name: "Dune", type: .movie, userData: userData), images: images)
+
+        XCTAssertNotEqual(first.railRowIdentity, second.railRowIdentity)
+    }
+
+    // MARK: Equatable / Hashable
+
+    /// `MediaItem.==` must be structural, not id-only — SwiftUI relies on
+    /// it to decide whether a view changed (see its doc comment). Each of
+    /// these four `userData` fields drives something visible on a card
+    /// (progress bar, watched eye, favorite star), so each must break
+    /// equality.
+    func test_equality_differsWhenPlaybackPositionDiffers() {
+        let original = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000))
+        let updated = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 900 * 10_000_000))
+
+        XCTAssertNotEqual(original, updated)
+    }
+
+    func test_equality_differsWhenPlayedPercentageDiffers() {
+        XCTAssertNotEqual(
+            makeMovie(userData: UserItemDataDto(playedPercentage: 5)),
+            makeMovie(userData: UserItemDataDto(playedPercentage: 80))
+        )
+    }
+
+    func test_equality_differsWhenPlayedDiffers() {
+        XCTAssertNotEqual(
+            makeMovie(userData: UserItemDataDto(played: false)),
+            makeMovie(userData: UserItemDataDto(played: true))
+        )
+    }
+
+    func test_equality_differsWhenFavoriteDiffers() {
+        XCTAssertNotEqual(
+            makeMovie(userData: UserItemDataDto(isFavorite: false)),
+            makeMovie(userData: UserItemDataDto(isFavorite: true))
+        )
+    }
+
+    func test_equality_differsWhenOneSideHasNoUserDataAtAll() {
+        XCTAssertNotEqual(makeMovie(userData: nil), makeMovie(userData: UserItemDataDto(played: true)))
+    }
+
+    /// The other half of what `==` has to catch: `AssetDetailViewModel`
+    /// renders a lightweight preloaded item first, then swaps in the full
+    /// `Fields=People,MediaSources,...` fetch under the same id. If that
+    /// doesn't break equality, `InfoMetadataRow`'s badge line and
+    /// `DetailTabsView`'s "Details"/"Cast & Crew" tabs never appear.
+    func test_equality_differsWhenTheFullItemFetchAddsMediaSources() {
+        let preloaded = makeMovie()
+        var fullDto = preloaded.dto
+        fullDto.mediaSources = [MediaSourceInfo(id: "source-1", container: "mkv")]
+        let full = MediaItem(dto: fullDto, images: images)
+
+        XCTAssertNil(preloaded.technicalDetails, "precondition: preloaded item has no Details tab")
+        XCTAssertNotNil(full.technicalDetails, "precondition: full item does")
+        XCTAssertNotEqual(preloaded, full)
+    }
+
+    func test_equality_differsWhenTheFullItemFetchAddsPeople() {
+        let preloaded = makeMovie()
+        var fullDto = preloaded.dto
+        fullDto.people = [BaseItemPerson(id: "person-1", name: "Amy Adams", role: "Louise", type: "Actor")]
+        let full = MediaItem(dto: fullDto, images: images)
+
+        XCTAssertNotEqual(preloaded, full)
+    }
+
+    func test_equality_differsWhenAPlainMetadataFieldDiffers() {
+        let preloaded = makeMovie()
+        var fullDto = preloaded.dto
+        fullDto.overview = "A linguist is recruited to communicate with extraterrestrials."
+        let full = MediaItem(dto: fullDto, images: images)
+
+        XCTAssertNotEqual(preloaded, full)
+    }
+
+    func test_equality_sameForIdenticalDTOs() {
+        let userData = UserItemDataDto(playbackPositionTicks: 10 * 10_000_000, playedPercentage: 5, played: false, isFavorite: true)
+        XCTAssertEqual(makeMovie(userData: userData), makeMovie(userData: userData))
+    }
+
+    func test_equality_differsAcrossItemsRegardlessOfUserData() {
+        let userData = UserItemDataDto(playedPercentage: 5)
+        let first = MediaItem(dto: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, userData: userData), images: images)
+        let second = MediaItem(dto: BaseItemDto(id: "movie-2", name: "Dune", type: .movie, userData: userData), images: images)
+
+        XCTAssertNotEqual(first, second)
+    }
+
+    /// What `ForEach(rail.items)` and `MediaRailView(rail:)` are actually
+    /// diffed on. `Array` equality is element-wise, so element `==` has to
+    /// hold up or a whole rail of updated items reads as unchanged.
+    func test_arrayEquality_differsWhenASingleItemsUserDataDiffers() {
+        let stale = [makeMovie(userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000))]
+        let fresh = [makeMovie(userData: UserItemDataDto(playbackPositionTicks: 900 * 10_000_000))]
+
+        XCTAssertNotEqual(stale, fresh)
+    }
+
+    /// Hashing stays id-only on purpose even though `==` is structural —
+    /// the legal direction for the `Hashable` contract, and what keeps
+    /// `AppRoute`'s synthesized hashing (and any id-keyed lookup) treating
+    /// one server item as one entry rather than one per revision of it.
+    func test_hashing_isIDOnlyEvenWhenUserDataDiffers() {
+        let original = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000))
+        let updated = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 900 * 10_000_000))
+
+        XCTAssertNotEqual(original, updated, "precondition: these are genuinely unequal")
+        XCTAssertEqual(original.hashValue, updated.hashValue)
+    }
+
     // MARK: withOptimisticPlaybackPosition
 
     func test_withOptimisticPlaybackPosition_overwritesTicksAndPercentage() {

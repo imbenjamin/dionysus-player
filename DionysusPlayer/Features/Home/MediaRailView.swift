@@ -43,7 +43,11 @@ struct MediaRailView: View {
                 // a rail an accidental O(n²) instead of O(n).
                 let usesLandscapeTiles = rail.usesLandscapeTiles
                 LazyHStack(alignment: .top, spacing: 12) {
-                    ForEach(rail.items) { item in
+                    // `id: \.railRowIdentity`, not `MediaItem`'s own
+                    // `Identifiable` id — a row whose resume position
+                    // changed then has a different *identity*, which
+                    // SwiftUI must act on. See that property's doc comment.
+                    ForEach(rail.items, id: \.railRowIdentity) { item in
                         if usesLandscapeTiles {
                             LandscapeMediaCard(item: item)
                         } else {

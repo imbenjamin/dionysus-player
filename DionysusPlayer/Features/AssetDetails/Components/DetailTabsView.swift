@@ -31,24 +31,9 @@ struct DetailTabsView: View {
     /// this view before either `cast` or `technicalDetails` exist — both are
     /// only populated by the same `Fields=People,MediaSources,...` full-item
     /// fetch, so they always arrive together — so this starts as a 1-element
-    /// array (just "About") and grows once `load()`'s full item lands.
-    /// `MovieDetailView`/`ShowDetailView`/`CollectionDetailView` key
-    /// `DetailTabsView`'s identity to `technicalDetails == nil` (see their
-    /// call sites), which is required for that transition to actually show
-    /// up — since `cast` becomes known at the exact same moment, that one
-    /// key covers both. Confirmed via a temporary runtime probe (prints in
-    /// this view's `body` and in `MovieDetailView`'s) that without that
-    /// `.id()`, `MovieDetailView.body` re-ran a second time once `load()`
-    /// landed the full item (it reads the `@Observable` `viewModel.item`
-    /// directly, so it's a tracked dependency) but *this* view's `body` —
-    /// holding `item` as a plain, non-`Equatable`, non-tracked `let` under
-    /// an otherwise-unchanged view identity (same type/position,
-    /// `selectedTab`'s `@State` box intact) — never fired again, so
-    /// `availableTabs` stayed frozen at whatever it was the first time this
-    /// view ever rendered. Forcing a fresh identity via `.id()` on the
-    /// change that matters is what actually gets this view's `body` invoked
-    /// again; relying on the parent alone re-running did not, for whatever
-    /// reason, propagate down to this specific view in practice.
+    /// array (just "About") and grows once `load()`'s full item lands. That
+    /// growth relies on `MediaItem.==` being structural (see its doc
+    /// comment); an id-only comparison leaves this frozen at "About".
     private var availableTabs: [Tab] {
         Tab.allCases.filter { tab in
             switch tab {

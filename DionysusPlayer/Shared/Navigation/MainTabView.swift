@@ -26,6 +26,10 @@ struct MainTabView: View {
     /// simultaneous gesture), which is exactly what caused history to never
     /// actually record.
     @State private var searchPath: [AppRoute] = []
+    /// Bound (unlike before) so `HomeView` can observe it to detect the
+    /// user popping back to Home's own root — see `HomeView`'s `path`
+    /// property and its `.onChange` for why that triggers a soft refresh.
+    @State private var homePath: [AppRoute] = []
     @State private var selectedTab: MainTab = .home
     /// Bumped whenever the user re-taps the Search tab while already on
     /// it — `SearchView` observes this (as a plain `let`, not a binding;
@@ -58,13 +62,15 @@ struct MainTabView: View {
 
     var body: some View {
         TabView(selection: selectedTabBinding) {
-            NavigationStack {
+            NavigationStack(path: $homePath) {
                 // `isActiveTab` lets `HeroRailView`'s auto-advance timer
                 // stop doing real work while another tab is showing,
                 // instead of ticking once a second for the app's entire
                 // lifetime regardless — see `HomeView.isActiveTab`'s doc
-                // comment.
-                HomeView(isActiveTab: selectedTab == .home)
+                // comment. `path` is bound (rather than left implicit, as
+                // this used to be) so `HomeView` can observe pops back to
+                // its own root — see `HomeView.path`'s doc comment.
+                HomeView(isActiveTab: selectedTab == .home, path: $homePath)
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
             }
             .tabItem { Label("Home", image: "DionysusGlyph") }

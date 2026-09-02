@@ -312,31 +312,28 @@ struct MediaItem: Identifiable {
 
     var isPlayed: Bool { dto.userData?.played ?? false }
 
-    /// A cheap identity string covering exactly the fields
-    /// `PlayResumeButtonRow`'s progress bar/Play-vs-Resume label read
-    /// (`resumePositionSeconds`/`playedFraction`/`isPlayed`, all derived
-    /// from `userData`) — deliberately *not* `MediaItem`/`BaseItemDto`'s own
-    /// `Hashable`/`Equatable` conformance, which is id-only by design (see
-    /// `BaseItemDto: Equatable`'s own comment, needed for list-diffing
-    /// elsewhere) and so never changes just because `userData` did.
+    /// Changes exactly when the progress-bar/Play-vs-Resume fields do
+    /// (`resumePositionSeconds`/`playedFraction`/`isPlayed`).
     ///
-    /// Exists to be handed to `.id()` at `PlayResumeButtonRow`'s call sites
-    /// (`MovieDetailView`/`ShowDetailView`) — that view takes `item` as a
-    /// plain `let` *and* owns its own `@State` (the version-choice prompt),
-    /// which is exactly the shape that can leave a child view's `body`
-    /// silently not re-running when a plain, non-tracked `let` input
-    /// changes, even though the parent's own body correctly re-ran and
-    /// passed a genuinely different value — already hit once in this exact
-    /// codebase (see `InfoMetadataRow`/`DetailTabsView`'s matching
-    /// `.id(item.technicalDetails == nil)`, added for the same reason
-    /// before `PlayResumeButtonRow` had any `@State` of its own to be
-    /// vulnerable to it). Forcing a fresh `.id()` whenever this changes
-    /// discards and rebuilds the view (and its `@State` — an acceptable
-    /// reset, same trade-off `DetailTabsView`'s fix already made), which
-    /// reliably re-invokes `body`.
+    /// Handed to `.id()` on `PlayResumeButtonRow`
+    /// (`MovieDetailView`/`ShowDetailView`) to force a rebuild rather than
+    /// an update. `MediaItem.==` alone should already be enough; this is
+    /// deliberate redundancy on the one update that has silently regressed
+    /// more than once. Rebuilding also resets that view's own `@State` (the
+    /// version-choice prompt), which is fine — it should not survive a
+    /// change of playback position anyway.
     var playbackProgressIdentity: String {
         "\(dto.userData?.playbackPositionTicks ?? -1)-\(dto.userData?.playedPercentage ?? -1)-\(dto.userData?.played ?? false)"
     }
+
+    /// `id` plus `playbackProgressIdentity`, for `MediaRailView`'s
+    /// `ForEach(rail.items, id:)` — a changed resume position becomes a
+    /// different row *identity*, which SwiftUI must act on, rather than a
+    /// different row value it may compare its way out of re-rendering.
+    ///
+    /// Same deliberate redundancy as `playbackProgressIdentity`, and no
+    /// more expensive than the per-card `.id()` it replaced.
+    var railRowIdentity: String { "\(id)-\(playbackProgressIdentity)" }
 
     var isFavorite: Bool { dto.userData?.isFavorite ?? false }
 
@@ -897,6 +894,28 @@ struct MediaItem: Identifiable {
 }
 
 extension MediaItem: Hashable {
+    /// Forwards to `BaseItemDto`'s structural equality — every field, not
+    /// just `id`. **Do not narrow this to an id comparison.**
+    ///
+    /// SwiftUI prefers a stored property's own `==` over its internal
+    /// comparison when deciding whether a view changed, and `MediaItem` is
+    /// the stored property of essentially every view here (`PosterCard`,
+    /// `PlayResumeButtonRow`, `InfoMetadataRow`, `DetailTabsView`, ...)
+    /// while `[MediaItem]` is what `ForEach(rail.items)` diffs on. An
+    /// id-only `==` is therefore a promise that nothing under a stable id
+    /// is ever worth repainting — false for `userData` after playback, and
+    /// for `mediaSources`/`people` when `AssetDetailViewModel` swaps its
+    /// preloaded item for the full fetch. Both froze views on their
+    /// first-rendered values.
+    ///
+    /// `images` is not compared: an `ImageURLBuilder` snapshot of session
+    /// config, identical for every item and never a reason to repaint.
     static func == (lhs: MediaItem, rhs: MediaItem) -> Bool { lhs.dto == rhs.dto }
-    func hash(into hasher: inout Hasher) { hasher.combine(dto) }
+
+    /// Id-only on purpose, even though `==` is structural — the legal
+    /// direction for the `Hashable` contract, and what keeps id-keyed
+    /// lookups (`AppRoute`'s synthesized hashing for
+    /// `navigationDestination`, any `Set`/dictionary use) treating one
+    /// server item as one entry rather than one per revision of its fields.
+    func hash(into hasher: inout Hasher) { hasher.combine(dto.id) }
 }

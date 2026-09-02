@@ -6,6 +6,7 @@ import UIKit
 /// Continue Watching / Recently Added Movies / Recently Added Shows.
 struct HomeView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @State private var viewModel: HomeViewModel?
     /// Whether Home is currently the selected tab — passed down from
     /// `MainTabView`, which tracks `selectedTab` explicitly. Threaded
@@ -13,8 +14,15 @@ struct HomeView: View {
     /// stop doing real work while Home isn't on screen; see that
     /// property's doc comment on `HeroRailView` for why tab selection alone
     /// isn't the whole story. Defaults to `true` so `#Preview` and any
-    /// future non-tab caller don't need to think about it.
+    /// future non-tab caller don't need to think about it. Also drives a
+    /// soft refresh whenever this flips from `false` to `true` — see the
+    /// `.onChange(of: isActiveTab)` below.
     var isActiveTab: Bool = true
+    /// `MainTabView`'s bound path for Home's own `NavigationStack` —
+    /// observed (never written) purely to detect the user popping back to
+    /// Home's root, which also triggers a soft refresh. Defaults to
+    /// `.constant([])` so `#Preview` doesn't need to think about it.
+    var path: Binding<[AppRoute]> = .constant([])
 
     var body: some View {
         Group {
@@ -58,21 +66,31 @@ struct HomeView: View {
                             }
                         }
                 }
-                // Lets `HeroRailView` bleed up under the status bar/notch at rest —
-                // a `ScrollView` clips its content to its own bounds, so a child
-                // declaring `.ignoresSafeArea` on itself has nothing to bleed into
-                // unless the `ScrollView` containing it extends there too (same
-                // mechanism `MovieDetailView`/`ShowDetailView` use for their own
-                // hero header, just without their compensating top padding, since
-                // here the bleed is the whole point rather than something to avoid
-                // at rest). Deliberately not applied to the placeholder branch
-                // above — a centered message/spinner has no bleed to gain from it,
-                // and it would just shift the centered content up under the
-                // status bar for no benefit.
-                .ignoresSafeArea(edges: .top)
+                // Lets `HeroRailView` overflow-paint above its own laid-out
+                // position (via the negative top padding applied to it in
+                // `content`, below) instead of being clipped there — see
+                // that padding's own doc comment for the full bleed-vs-
+                // `.refreshable` story this is one half of.
+                .scrollClipDisabled()
+                // Hard refresh — re-fetches everything, as if this were a
+                // fresh app load. Only ever mounted once `placeholderState`
+                // is `nil` (this branch), so it's naturally unreachable
+                // during the initial load/offline/error states — nothing
+                // to pull-to-refresh over yet in those.
+                .refreshable { await viewModel?.hardRefresh() }
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // VoiceOver users can't reliably perform a pull gesture, so
+            // this mirrors `.refreshable` above as an explicit, always-
+            // reachable button — same reasoning, and the same "unmount
+            // entirely rather than just hide" treatment, as `PlayerView`'s
+            // VoiceOver-only controls button.
+            if voiceOverEnabled {
+                ToolbarItem(placement: .topBarTrailing) { refreshButton }
+            }
+        }
         .task { await setUpIfNeeded() }
         // Catches the "we're back online" transition and retries whatever
         // didn't make it: `retryLoadIfNeeded()` (with backoff — see its own
@@ -92,6 +110,43 @@ struct HomeView: View {
                 await viewModel?.retryDynamicRailCandidatesIfNeeded()
             }
         }
+        // Soft refresh: catches the user switching into the Home tab from
+        // somewhere else (the nav-bar case). Also gated on `path` already
+        // being empty — without that, switching tabs away and back while
+        // still nested on a pushed detail (the path persists across tab
+        // switches) would soft-refresh rails not even on screen, then
+        // soft-refresh again when the user actually pops back to root via
+        // the `path` observer below. Can't race `setUpIfNeeded()`'s first
+        // load: `.onChange` never fires for a view's initial value, and
+        // `isActiveTab` defaults to `true`.
+        .onChange(of: isActiveTab) { wasActive, isActive in
+            guard !wasActive, isActive, path.wrappedValue.isEmpty else { return }
+            Task { await viewModel?.softRefresh() }
+        }
+        // Soft refresh: catches in-page back navigation returning to
+        // Home's own root — a single pop, a multi-level pop, or iOS's own
+        // "pop to root" on a tab reselect while nested, all collapse
+        // `path` to empty. `isEmpty`, not `newPath.count < oldPath.count`
+        // — this should fire on *returning to Home*, not every partial pop
+        // that doesn't reach root.
+        .onChange(of: path.wrappedValue) { oldPath, newPath in
+            guard !oldPath.isEmpty, newPath.isEmpty else { return }
+            Task { await viewModel?.softRefresh() }
+        }
+    }
+
+    private var refreshButton: some View {
+        Button {
+            Task { await viewModel?.hardRefresh() }
+        } label: {
+            if viewModel?.isHardRefreshing == true {
+                ProgressView()
+            } else {
+                Image(systemName: "arrow.clockwise")
+            }
+        }
+        .accessibilityLabel(String(localized: "Refresh"))
+        .disabled(viewModel?.isHardRefreshing == true)
     }
 
     /// Which full-screen placeholder (if any) should replace the rail
@@ -156,6 +211,19 @@ struct HomeView: View {
         }
     }
 
+    /// The key window's top safe area inset (status bar/notch/Dynamic
+    /// Island height) — used to bleed `HeroRailView` under it via negative
+    /// padding rather than `.ignoresSafeArea`; see that padding's own doc
+    /// comment in `content` for why. A plain UIKit lookup rather than a
+    /// `GeometryReader`-based one (SwiftUI has no direct environment value
+    /// for this) — cheap, and this app is single-scene/single-window, so
+    /// `.first` is always the right window.
+    private var topSafeAreaInset: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?.windows.first(where: \.isKeyWindow)?.safeAreaInsets.top ?? 0
+    }
+
     /// Only reached once `placeholderState` is `nil` — there's always at
     /// least one of hero items/libraries/rails to show here.
     @ViewBuilder
@@ -168,7 +236,52 @@ struct HomeView: View {
         // constructing every rail's view hierarchy up front.
         LazyVStack(alignment: .leading, spacing: 24) {
             if !heroItems.isEmpty {
+                // Bleeds `HeroRailView` up under the status bar/notch at
+                // rest via negative top padding, rather than the simpler
+                // `.ignoresSafeArea(edges: .top)` this used to carry (moved
+                // off the enclosing `ScrollView` to here, then off this
+                // view too — see below for why).
+                //
+                // `.ignoresSafeArea(edges: .top)` on the `ScrollView` itself
+                // was the very first design, and looked right at rest — but
+                // it also extends the scroll view's own *frame* under the
+                // status bar, and `.refreshable`'s system spinner anchors to
+                // that same frame's top edge. Confirmed live on a physical
+                // device (2026-09-02): the spinner rendered squeezed into
+                // the status bar/notch area (barely visible, fighting with
+                // the Dynamic Island) with a stray blank gap left below it.
+                //
+                // Putting `.ignoresSafeArea` on `HeroRailView` instead
+                // (still inside a normal, safe-area-respecting `ScrollView`)
+                // was the second design, tried next — also confirmed wrong
+                // live: a `ScrollView`'s own frame is what "ignoring the
+                // safe area" needs to reach into, and a child alone
+                // declaring the same modifier has no safe-area region left
+                // to expand into once its container doesn't occupy one
+                // (`.scrollClipDisabled()` on the `ScrollView`, added at the
+                // same time, only stops *clipping* of content that already
+                // overflows its bounds — it doesn't grant a child access to
+                // space the container's own frame was never laid out into).
+                // The visible result was the hero losing its bleed
+                // entirely, flush below the status bar instead.
+                //
+                // This third design keeps the `ScrollView` itself safe-area
+                // -respecting (so `.refreshable`'s spinner anchors correctly
+                // below the status bar) while still making the hero
+                // genuinely overflow-paint past its own laid-out top edge:
+                // negative top padding shrinks how much vertical space the
+                // `LazyVStack` believes this view occupies (by exactly
+                // `topSafeAreaInset`) while its content still renders at its
+                // full `heroHeight`, so the extra `topSafeAreaInset` worth
+                // of pixels overflow upward past where the stack thinks the
+                // view starts — reaching the physical top of the screen —
+                // without changing where `LibraryRailView` below it ends up
+                // (the same math the removed `.ignoresSafeArea` used to
+                // produce). `.scrollClipDisabled()` above is still required
+                // for that overflow to actually render instead of being
+                // clipped at the scroll view's bounds.
                 HeroRailView(items: heroItems, isTabActive: isActiveTab)
+                    .padding(.top, -topSafeAreaInset)
             }
             if !libraries.isEmpty {
                 LibraryRailView(libraries: libraries)

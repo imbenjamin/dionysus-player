@@ -20,6 +20,12 @@
     "%@ (Default)" : {
 
     },
+    "%@ (Previously selected)" : {
+
+    },
+    "%@ bitrate, in kilobits per second" : {
+
+    },
     "%@ megabits per second" : {
 
     },
@@ -154,6 +160,9 @@
 
     },
     "1080p Full HD" : {
+
+    },
+    "About" : {
 
     },
     "Account" : {
@@ -346,6 +355,9 @@
     "Default" : {
 
     },
+    "Default: %lld Kbps" : {
+
+    },
     "Delete" : {
 
     },
@@ -402,6 +414,9 @@
 
     },
     "Dolby Digital Plus" : {
+
+    },
+    "Done" : {
 
     },
     "Double tap to toggle between remaining time and total duration" : {
@@ -479,6 +494,9 @@
     "Find Your Server" : {
 
     },
+    "Fine-tune the video bitrate the app requests for each resolution and quality level, in kilobits per second (Kbps). Everywhere else in the app continues to show the equivalent value in megabits per second (Mbps).\n\nDefaults assume a software-encoded HEVC transcode and may not be optimal for your own server's transcoder configuration." : {
+
+    },
     "Forced" : {
 
     },
@@ -535,6 +553,9 @@
 
     },
     "Included In" : {
+
+    },
+    "Kbps" : {
 
     },
     "kilobytes" : {
@@ -735,6 +756,9 @@
     "Reconnecting…" : {
 
     },
+    "Refresh" : {
+
+    },
     "Release Date" : {
 
     },
@@ -744,13 +768,22 @@
     "Remaining time: %@" : {
 
     },
-    "Remove" : {
-
-    },
     "Remove from Favorites" : {
 
     },
     "Reset" : {
+
+    },
+    "Reset %@ to Default" : {
+
+    },
+    "Reset All" : {
+
+    },
+    "Reset All to Defaults" : {
+
+    },
+    "Reset All to Defaults?" : {
 
     },
     "Resolution" : {
@@ -861,7 +894,10 @@
     "Shows" : {
 
     },
-    "Shows a button on the player screen for viewing technical playback details — codec, bitrate, resolution, and more. On by default in development builds, off by default in release builds." : {
+    "Shows a button on the player screen for viewing technical playback details." : {
+
+    },
+    "Shows account details and sign-out options." : {
 
     },
     "Sign In" : {
@@ -974,6 +1010,9 @@
 
     },
     "This App: %@" : {
+
+    },
+    "This clears every custom bitrate you've set above. It can't be undone." : {
 
     },
     "This download is no longer available." : {
