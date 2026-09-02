@@ -63,7 +63,10 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
   calibrated against what Disney+, Prime Video and Netflix actually ship,
   and the default tier is chosen per device class (720p on iPhone, 1080p on
   iPad) from the angular resolution each can actually resolve — see
-  [DOWNLOADS.md](DOWNLOADS.md).
+  [DOWNLOADS.md](DOWNLOADS.md). Every Kbps value in that ladder can also be
+  customized per device (Settings → Downloads → Advanced), with a one-tap
+  reset back to the shipped default per value or for the whole ladder at
+  once.
 - **No pointless re-encoding**: a source that already fits the requested
   tier has its video track copied into the download untouched rather than
   re-encoded, avoiding a second generation of lossy compression.

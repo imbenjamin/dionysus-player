@@ -183,6 +183,31 @@ subtitle track, and comparing it against a video-only target made the cap too
 generous by however much the audio weighed — far from negligible on a source
 carrying a couple of lossless surround tracks.
 
+### Customizing the ladder per device
+
+Everything above is the **shipped default**, still what a fresh install
+uses. Profile → Downloads → Advanced (`DownloadsQualityLadderView`) lets a
+user override any of the twelve cells for themselves, in Kbps, with a
+per-cell and a global reset back to this table. Overrides live in
+`DownloadQualityLadderStore` — a thin `UserDefaults` wrapper, device-local
+like every other download preference — and every real call site that used to
+read `DownloadResolution.videoBitrate(preset:)` directly
+(`JellyfinAPIClient.downloadStreamURL`, `DownloadManager.enqueue`, the
+Quality pickers, the pre-download size estimate) now resolves through it
+instead, so a customized value actually reaches the transcode request, not
+just the settings screen that edits it.
+
+`DownloadTranscodeCalculator.target(...)`/`.estimatedTotalBytes(...)` take
+this as an injectable `videoBitrateLadder` closure rather than reaching for
+the store themselves, defaulting to the shipped table — which is what keeps
+every existing test in `DownloadTypesTests` (including the bits-per-pixel
+rule this document's design-rule section describes) exercising the *default*
+ladder unchanged, regardless of what a real device's `UserDefaults` happens
+to hold. A user free-typing any bitrate they like is deliberately exempt
+from that bpp rule — it governs the numbers this app ships and recommends,
+not a constraint enforced on a customization feature built expressly to let
+someone override them.
+
 ---
 
 ## Benchmarking against commercial streaming apps

@@ -37,6 +37,13 @@ struct AdvancedDownloadOptionsView: View {
     @State private var preset: DownloadBitratePreset
     @Environment(\.dismiss) private var dismiss
 
+    /// A fresh read on every access rather than cached — cheap (one
+    /// `UserDefaults` read), and means an override edited in Downloads →
+    /// Advanced is picked up immediately if this sheet was already on
+    /// screen underneath it, same "always current" reasoning as
+    /// `storageBreakdown` in `DownloadsSettingsView`.
+    private var ladder: DownloadQualityLadderStore { DownloadQualityLadderStore() }
+
     init(
         itemTitle: String, initialResolution: DownloadResolution, initialPreset: DownloadBitratePreset,
         sourceWidth: Int? = nil, sourceHeight: Int? = nil, sourceBitrate: Int? = nil,
@@ -76,7 +83,8 @@ struct AdvancedDownloadOptionsView: View {
         DownloadTranscodeCalculator.estimatedTotalBytes(
             resolution: resolution, preset: preset, isSourceHDR: isSourceHDR,
             sourceWidth: sourceWidth, sourceHeight: sourceHeight, sourceBitrate: sourceBitrate,
-            sourceVideoCodec: sourceVideoCodec, runtimeTicks: runtimeTicks
+            sourceVideoCodec: sourceVideoCodec, runtimeTicks: runtimeTicks,
+            videoBitrateLadder: ladder.videoBitrate(resolution:preset:)
         )
     }
 
@@ -107,7 +115,7 @@ struct AdvancedDownloadOptionsView: View {
                     .pickerStyle(.menu)
                     Picker("Quality", selection: $preset) {
                         ForEach(DownloadBitratePreset.allCases) { preset in
-                            Text(preset.displayName(in: resolution)).tag(preset)
+                            Text(preset.displayName(bitrate: ladder.videoBitrate(resolution: resolution, preset: preset))).tag(preset)
                         }
                     }
                     .pickerStyle(.menu)

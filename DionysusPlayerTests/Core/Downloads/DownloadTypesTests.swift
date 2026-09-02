@@ -371,4 +371,80 @@ final class DownloadTypesTests: XCTestCase {
         XCTAssertEqual(DownloadBitratePreset.high.displayName(in: .hd720p), "High (2.25 Mbps)")
         XCTAssertEqual(DownloadBitratePreset.dataSaver.displayName(in: .hd720p), "Data Saver (0.75 Mbps)")
     }
+
+    // MARK: DownloadBitratePreset.displayName(bitrate:) — same rendering, an explicit bitrate rather than derived from the shipped ladder
+
+    /// `displayName(in:)` must actually delegate to this rather than
+    /// duplicating the Mbps-formatting logic — passing the same bitrate that
+    /// tier/preset combination's own default resolves to must match exactly.
+    func test_displayNameBitrate_matchesDisplayNameInResolution_forTheSameDefaultBitrate() {
+        XCTAssertEqual(
+            DownloadBitratePreset.high.displayName(bitrate: DownloadResolution.hd1080p.videoBitrate(preset: .high)),
+            DownloadBitratePreset.high.displayName(in: .hd1080p)
+        )
+    }
+
+    /// The whole point of the `bitrate:` overload: it reflects whatever
+    /// number it's given, not the shipped ladder — a `DownloadQualityLadderStore`
+    /// override's effective bitrate renders correctly even though no
+    /// `DownloadResolution` tier's own default is that value.
+    func test_displayNameBitrate_reflectsACustomBitrateNotOnTheShippedLadder() {
+        XCTAssertEqual(DownloadBitratePreset.normal.displayName(bitrate: 2_500_000), "Normal (2.5 Mbps)")
+    }
+
+    // MARK: DownloadTranscodeCalculator.target/estimatedTotalBytes — injectable videoBitrateLadder
+
+    /// The default `videoBitrateLadder` closure (unchanged, omitted at every
+    /// call site above) must still resolve to exactly the shipped table —
+    /// this is what keeps every other test in this file exercising the real
+    /// default ladder even after the parameter was added.
+    func test_target_defaultVideoBitrateLadderMatchesShippedTable() {
+        let target = DownloadTranscodeCalculator.target(
+            resolution: .hd1080p, preset: .normal, isSourceHDR: false,
+            sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil
+        )
+        XCTAssertEqual(target.videoBitrate, DownloadResolution.hd1080p.videoBitrate(preset: .normal))
+    }
+
+    /// A caller that supplies its own ladder (what `DownloadQualityLadderStore
+    /// .videoBitrate(resolution:preset:)` is used as, at every real download
+    /// call site) gets that value instead of the shipped default — this is
+    /// what makes a user's override actually reach a real transcode request.
+    func test_target_customVideoBitrateLadder_overridesTheShippedDefault() {
+        let target = DownloadTranscodeCalculator.target(
+            resolution: .hd1080p, preset: .normal, isSourceHDR: false,
+            sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil,
+            videoBitrateLadder: { _, _ in 2_500_000 }
+        )
+        XCTAssertEqual(target.videoBitrate, 2_500_000)
+    }
+
+    /// The custom ladder is looked up from the *achieved* tier, exactly like
+    /// the default one — a source too small for the requested tier must
+    /// still route the override lookup through `effectiveTier`, not the
+    /// requested resolution.
+    func test_target_customVideoBitrateLadder_isLookedUpFromAchievedTierNotRequestedTier() {
+        var lookedUpTier: DownloadResolution?
+        _ = DownloadTranscodeCalculator.target(
+            resolution: .uhd4K, preset: .normal, isSourceHDR: false,
+            sourceWidth: 1280, sourceHeight: 720, sourceBitrate: 50_000_000,
+            videoBitrateLadder: { tier, _ in lookedUpTier = tier; return tier.videoBitrate(preset: .normal) }
+        )
+        XCTAssertEqual(lookedUpTier, .hd720p)
+    }
+
+    func test_estimatedTotalBytes_customVideoBitrateLadder_isReflectedInTheEstimate() {
+        let defaultBytes = DownloadTranscodeCalculator.estimatedTotalBytes(
+            resolution: .hd1080p, preset: .normal, isSourceHDR: false,
+            sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil,
+            runtimeTicks: 3600 * 10_000_000
+        )
+        let customBytes = DownloadTranscodeCalculator.estimatedTotalBytes(
+            resolution: .hd1080p, preset: .normal, isSourceHDR: false,
+            sourceWidth: nil, sourceHeight: nil, sourceBitrate: nil,
+            runtimeTicks: 3600 * 10_000_000,
+            videoBitrateLadder: { _, _ in 6_000_000 }
+        )
+        XCTAssertGreaterThan(customBytes!, defaultBytes!, "a higher custom bitrate must estimate a larger file than the shipped default")
+    }
 }

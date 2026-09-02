@@ -305,7 +305,8 @@ final class DownloadManager: NSObject {
         let target = DownloadTranscodeCalculator.target(
             resolution: resolution, preset: preset, isSourceHDR: isSourceHDR,
             sourceWidth: videoStream?.width, sourceHeight: videoStream?.height,
-            sourceBitrate: sourceVideoBitrate, sourceVideoCodec: videoStream?.codec
+            sourceBitrate: sourceVideoBitrate, sourceVideoCodec: videoStream?.codec,
+            videoBitrateLadder: DownloadQualityLadderStore().videoBitrate(resolution:preset:)
         )
 
         let metadata = DownloadedItemMetadata(

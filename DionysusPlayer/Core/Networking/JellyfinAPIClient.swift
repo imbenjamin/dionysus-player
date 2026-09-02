@@ -640,7 +640,8 @@ actor JellyfinAPIClient {
             sourceWidth: sourceWidth,
             sourceHeight: sourceHeight,
             sourceBitrate: sourceBitrate,
-            sourceVideoCodec: sourceVideoCodec
+            sourceVideoCodec: sourceVideoCodec,
+            videoBitrateLadder: DownloadQualityLadderStore().videoBitrate(resolution:preset:)
         )
 
         var query: [URLQueryItem] = [
