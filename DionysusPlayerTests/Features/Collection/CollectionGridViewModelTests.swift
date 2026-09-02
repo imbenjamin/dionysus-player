@@ -37,6 +37,46 @@ final class CollectionGridViewModelTests: XCTestCase {
         XCTAssertEqual(captured["ExcludeItemTypes"], "Audio,AudioBook,MusicAlbum,MusicArtist,MusicGenre")
     }
 
+    /// AUDIO SUPPRESSION: a Playlists library query (`includeItemTypes:
+    /// ["Playlist"]`) can't exclude audio-only playlists server-side —
+    /// `Playlist` is deliberately excluded from `audioItemTypeExclusions`
+    /// — so `CollectionGridViewModel.load()` filters them out client-side
+    /// via `MediaItem.isAudioContent`. A mixed-media playlist passes
+    /// through unchanged.
+    func test_load_playlistsLibrary_filtersOutAudioOnlyPlaylists() async {
+        let query = CollectionQuery(title: "Playlists", parentID: "lib-playlists", includeItemTypes: ["Playlist"])
+        let viewModel = makeViewModel(query: query)
+        let audioOnly = BaseItemDto(id: "playlist-audio", name: "Chill Mix", type: .playlist, mediaType: "Audio")
+        let mixed = BaseItemDto(id: "playlist-mixed", name: "Movie Night", type: .playlist, mediaType: "Video")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request, value: BaseItemDtoQueryResult(items: [audioOnly, mixed], totalRecordCount: 2)
+            )
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.items.map(\.id), ["playlist-mixed"])
+    }
+
+    /// The same filter must not accidentally apply to a non-Playlists
+    /// query — an item whose own `mediaType` happens to be `"Audio"` (e.g.
+    /// a `MusicVideo`, which the app's audio-suppression policy already
+    /// lets through elsewhere) shouldn't be dropped from an ordinary Movies
+    /// grid just because it superficially resembles the Playlist case.
+    func test_load_nonPlaylistsLibrary_doesNotApplyAudioFilter() async {
+        let query = CollectionQuery(title: "Movies", parentID: "lib-movies", includeItemTypes: ["Movie"])
+        let viewModel = makeViewModel(query: query)
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaType: "Audio")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [dto], totalRecordCount: 1))
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.items.map(\.id), ["movie-1"])
+    }
+
     func test_load_defaultsToTitleAscendingSort() async {
         let viewModel = makeViewModel(query: CollectionQuery(title: "Collections", includeItemTypes: ["BoxSet"]))
         var captured: [String: String] = [:]

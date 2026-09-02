@@ -42,13 +42,19 @@ final class PlayerViewModel {
     /// .onPictureInPictureActiveChange`'s doc comment.
     private(set) var isPictureInPictureActive = false
 
-    /// The episode immediately following this one, for the in-player "Up
-    /// Next" prompt (`NextUpOverlay`) — `nil` for non-episode content, a
-    /// series' last episode, or while the fire-and-forget lookup in
-    /// `start()` hasn't resolved yet (or failed; see that method's doc
-    /// comment). Resolved via `JellyfinAPIClient.nextEpisode(...)`, not
-    /// `nextUp(...)` — see that method's own doc comment for why the latter
-    /// can't answer "what's next" reliably mid-playback.
+    /// The item immediately following this one, for the in-player "Up Next"
+    /// prompt (`NextUpOverlay`) — `nil` while the fire-and-forget lookup in
+    /// `start()` hasn't resolved yet (or failed), or once there's genuinely
+    /// nothing left to play next. Two independent resolution modes, both in
+    /// `loadNextUpItem(for:images:)`: when `playbackQueue` is non-empty,
+    /// this is `playbackQueue[currentIndex + 1]` — a plain local lookup,
+    /// no network call, and not restricted to episodes (a Playlist's next
+    /// member can be a Movie). Otherwise, for Show content specifically
+    /// (`item.kind == .episode`), resolved via
+    /// `JellyfinAPIClient.nextEpisode(...)`, not `nextUp(...)` — see that
+    /// method's own doc comment for why the latter can't answer "what's
+    /// next" reliably mid-playback. `nil` for a bare Movie with no
+    /// `playbackQueue` — there's nothing to advance to.
     private(set) var nextEpisode: MediaItem?
     /// Set by `dismissNextUp()` (the "Up Next" card's Cancel button) —
     /// once true, `nextUpSecondsRemaining` stays `nil` for the rest of this
@@ -69,6 +75,15 @@ final class PlayerViewModel {
     let engine: PlaybackEngine
     let itemID: String
     let startFromBeginning: Bool
+    /// A Playlist's full, already-ordered, already-audio-filtered member
+    /// list — `[]` (the default) for every ordinary presentation. See
+    /// `nextEpisode`'s own doc comment for how this changes "what's next"
+    /// resolution in `loadNextUpItem(for:images:)`: non-empty, it wins
+    /// outright over the per-series episode lookup, since Jellyfin has no
+    /// server-side "continue this playlist" mechanism to consult instead —
+    /// the whole ordered list is already sitting in memory, fetched once by
+    /// `PlaylistDetailView`.
+    let playbackQueue: [MediaItem]
     /// The version requested by the caller (`PlaybackRequest.mediaSourceID`
     /// — either the version-choice prompt's answer, or a remembered
     /// preference for a Resume). `nil` lets `start()` fall back to the
@@ -384,7 +399,8 @@ final class PlayerViewModel {
         // Non-nil routes this whole session through the offline playback
         // path — see the `downloadedItem` property's own doc comment.
         downloadedItem: DownloadedItem? = nil,
-        downloadStore: DownloadStore? = nil
+        downloadStore: DownloadStore? = nil,
+        playbackQueue: [MediaItem] = []
     ) {
         self.client = client
         self.userID = userID
@@ -397,6 +413,7 @@ final class PlayerViewModel {
         self.streamPreferenceStore = streamPreferenceStore
         self.downloadedItem = downloadedItem
         self.downloadStore = downloadStore
+        self.playbackQueue = playbackQueue
 
         engine.onStateChange = { [weak self] state in
             guard let self else { return }
@@ -465,7 +482,7 @@ final class PlayerViewModel {
             // `loadNowPlayingArtwork(for:)`), rather than blocking on it.
             engine.setNowPlayingInfo(title: mediaItem.railTitle, subtitle: mediaItem.railSubtitle, artwork: nil)
             loadNowPlayingArtwork(for: mediaItem)
-            loadNextEpisode(for: mediaItem, images: images)
+            loadNextUpItem(for: mediaItem, images: images)
             loadMediaSegments(for: mediaItem)
 
             // A `DeviceProfile` is only built/sent in "Allow Transcoding"
@@ -746,15 +763,36 @@ final class PlayerViewModel {
         }
     }
 
-    /// Fire-and-forget, same shape as `loadNowPlayingArtwork(for:)`: resolves
-    /// `nextEpisode` for the "Up Next" prompt via `JellyfinAPIClient
-    /// .nextEpisode(...)` — see that method's doc comment for why this can't
-    /// use `nextUp(...)` instead. A no-op for non-episode content or an
-    /// episode DTO missing `seriesId`/`seasonId` (shouldn't happen in
+    /// Resolves `nextEpisode` for the "Up Next" prompt — see that
+    /// property's own doc comment for the two modes this picks between.
+    ///
+    /// Queue mode (`playbackQueue` non-empty) resolves synchronously: the
+    /// whole ordered, already-fetched-with-images array is already sitting
+    /// in memory, so there's nothing to await and no failure mode beyond
+    /// "not found" (falls straight through to leaving `nextEpisode` as
+    /// whatever it already was, same as the episode path's failed-fetch
+    /// case) or "already last" (`nextEpisode` stays `nil`). It wins
+    /// outright over the episode path below, even for an Episode reached
+    /// via a playlist — the playlist's explicit order is the whole point of
+    /// this mode, so it shouldn't silently fall back to that episode's own
+    /// series/season position instead.
+    ///
+    /// Episode mode (fire-and-forget, same shape as
+    /// `loadNowPlayingArtwork(for:)`) resolves via `JellyfinAPIClient
+    /// .nextEpisode(...)` — see that method's doc comment for why this
+    /// can't use `nextUp(...)` instead. A no-op for non-episode content or
+    /// an episode DTO missing `seriesId`/`seasonId` (shouldn't happen in
     /// practice, but there's nothing to look up without them); a failed
     /// fetch just leaves `nextEpisode` `nil`, the same "bonus, not a
     /// requirement" treatment `start()` already gives external subtitles.
-    private func loadNextEpisode(for item: MediaItem, images: ImageURLBuilder) {
+    private func loadNextUpItem(for item: MediaItem, images: ImageURLBuilder) {
+        if !playbackQueue.isEmpty {
+            guard let index = playbackQueue.firstIndex(where: { $0.id == item.id }),
+                  index + 1 < playbackQueue.count else { return }
+            nextEpisode = playbackQueue[index + 1]
+            return
+        }
+
         guard item.kind == .episode, let seriesID = item.dto.seriesId, let seasonID = item.dto.seasonId else { return }
         let userID = self.userID
         Task { [weak self] in
@@ -772,9 +810,10 @@ final class PlayerViewModel {
         isNextUpDismissed = true
     }
 
-    /// Fire-and-forget, same shape as `loadNextEpisode(for:images:)`:
-    /// resolves `mediaSegments` via `JellyfinAPIClient.mediaSegments(itemID:)`.
-    /// Unlike `loadNextEpisode`, this isn't episode-only — movies get
+    /// Fire-and-forget, same shape as the episode-mode half of
+    /// `loadNextUpItem(for:images:)`: resolves `mediaSegments` via
+    /// `JellyfinAPIClient.mediaSegments(itemID:)`. Unlike that, this isn't
+    /// episode-only — movies get
     /// Skip Intro/Recap/etc. too. A failed fetch (including an older server
     /// that doesn't support the Media Segments feature at all) just leaves
     /// `mediaSegments` empty, the same "bonus, not a requirement" treatment

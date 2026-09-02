@@ -142,6 +142,8 @@ struct AssetDetailView: View {
                     ShowDetailView(viewModel: viewModel)
                 case .boxSet:
                     CollectionDetailView(viewModel: viewModel)
+                case .playlist:
+                    PlaylistDetailView(viewModel: viewModel)
                 default:
                     MovieDetailView(viewModel: viewModel)
                 }
