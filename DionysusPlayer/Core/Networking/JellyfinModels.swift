@@ -249,7 +249,14 @@ struct TrickplayInfo: Codable, Equatable {
     var bandwidth: Int
 }
 
-struct UserItemDataDto: Codable {
+/// `Equatable` (synthesized, i.e. genuinely field-by-field) specifically so
+/// `MediaItem.==` can compare it — see that conformance's doc comment for
+/// why comparing these four fields is what keeps SwiftUI re-rendering a
+/// card whose resume position/watched/favorite state changed. Deliberately
+/// *not* the id-only shortcut `BaseItemDto` takes: these are exactly the
+/// fields that change under a stable id, so an id-based comparison here
+/// would defeat the entire point.
+struct UserItemDataDto: Codable, Equatable {
     var playbackPositionTicks: Int64?
     var playedPercentage: Double?
     var played: Bool?

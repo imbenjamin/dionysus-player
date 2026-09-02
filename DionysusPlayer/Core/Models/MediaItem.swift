@@ -338,6 +338,25 @@ struct MediaItem: Identifiable {
         "\(dto.userData?.playbackPositionTicks ?? -1)-\(dto.userData?.playedPercentage ?? -1)-\(dto.userData?.played ?? false)"
     }
 
+    /// `id` plus `playbackProgressIdentity` — handed to
+    /// `MediaRailView`'s `ForEach(rail.items, id:)` so a changed resume
+    /// position is a *structural* change (this row's identity differs, so
+    /// SwiftUI must rebuild it) rather than a value difference SwiftUI has
+    /// to be persuaded to notice.
+    ///
+    /// Belt-and-braces alongside `MediaItem`'s own `==` (see that
+    /// conformance's doc comment — it's the actual root-cause fix, and on
+    /// its own it *should* be enough). The redundancy is deliberate:
+    /// SwiftUI's preference for a stored property's `==` over its internal
+    /// comparison is documented behavior but not a guarantee, and this
+    /// specific rendering bug has already come back more than once. Row
+    /// identity is the one signal SwiftUI cannot decline to act on.
+    ///
+    /// Costs nothing extra over what this rail already did — it replaces a
+    /// per-card `.id(item.playbackProgressIdentity)` that forced exactly
+    /// the same rebuild one level further down.
+    var railRowIdentity: String { "\(id)-\(playbackProgressIdentity)" }
+
     var isFavorite: Bool { dto.userData?.isFavorite ?? false }
 
     /// True when the user has started but not finished this item. For movies,
@@ -897,6 +916,47 @@ struct MediaItem: Identifiable {
 }
 
 extension MediaItem: Hashable {
-    static func == (lhs: MediaItem, rhs: MediaItem) -> Bool { lhs.dto == rhs.dto }
-    func hash(into hasher: inout Hasher) { hasher.combine(dto) }
+    /// Compares the item's identity **and its `userData`** — deliberately
+    /// not the id-only shortcut `BaseItemDto.==` takes (and that this used
+    /// to delegate straight to).
+    ///
+    /// This is a SwiftUI correctness requirement, not a modelling
+    /// preference. For a non-POD view, SwiftUI prefers a stored property's
+    /// own `==` over its internal reflection-based comparison when deciding
+    /// whether a view actually changed. `MediaItem` is the stored property
+    /// of essentially every card in this app (`PosterCard`,
+    /// `LandscapeMediaCard`, `PlayResumeButtonRow`, ...) and `[MediaItem]`
+    /// is what `ForEach(rail.items)` diffs on — so an id-only `==` told
+    /// SwiftUI "nothing changed" in precisely the case where something
+    /// *had*: same server item, freshly-updated resume position/watched/
+    /// favorite state. The result was a card that kept painting its
+    /// previous progress bar after playback even though every layer of the
+    /// app already held the correct value (confirmed live on a physical
+    /// device, 2026-09-02, and traced through `HomeViewModel`,
+    /// `MediaRailView`'s row body and `PosterCard.watchStatusOverlay` —
+    /// all three correct, none of it reaching the screen).
+    ///
+    /// Before this was understood, the same symptom had been worked around
+    /// piecemeal with `.id(...)` forcing at five separate call sites
+    /// (`MediaRailView`, `MovieDetailView`, `ShowDetailView`,
+    /// `CollectionDetailView`) and — briefly and much worse — with
+    /// deliberately-retained `os.Logger` calls whose only real effect was
+    /// perturbing what SwiftUI compared. Those are all downstream of this
+    /// one line. **Don't narrow this back to `lhs.dto == rhs.dto`.**
+    ///
+    /// `userData` is the only part of a `MediaItem` that changes under a
+    /// stable id during a session, which is why comparing it is sufficient
+    /// as well as necessary.
+    static func == (lhs: MediaItem, rhs: MediaItem) -> Bool {
+        lhs.dto.id == rhs.dto.id && lhs.dto.userData == rhs.dto.userData
+    }
+
+    /// Stays id-only, on purpose, even though `==` above is now stricter.
+    /// That's the legal direction for the `Hashable` contract (equal values
+    /// still hash equal; unequal values are merely allowed to collide), and
+    /// it keeps every id-keyed lookup — `AppRoute`'s synthesized hashing
+    /// for `navigationDestination`, any future `Set`/dictionary use —
+    /// behaving as "one entry per server item" rather than one per
+    /// userData revision.
+    func hash(into hasher: inout Hasher) { hasher.combine(dto.id) }
 }

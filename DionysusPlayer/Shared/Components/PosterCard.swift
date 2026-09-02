@@ -1,12 +1,4 @@
 import SwiftUI
-import os
-
-/// Same `os.Logger` convention as `PlayerView`/`PlayerViewModel`/
-/// `HomeViewModel`/`MediaRailView` — file-scope (not a type member) since
-/// `watchStatusOverlay(for:)` below is a free `View` extension method, not
-/// part of `PosterCard`'s own type. See that function's `.debug` log for
-/// why it's there at all.
-private let posterCardLogger = Logger(subsystem: "com.dionysus.player", category: "PosterCard")
 
 /// A tappable poster with title, used in rails and grids. Pushes
 /// `.assetDetail` onto the enclosing `NavigationStack`.
@@ -200,13 +192,6 @@ extension View {
     func watchStatusOverlay(for item: MediaItem) -> some View {
         self
             .overlay(alignment: .bottom) {
-                // Not incidental diagnostics — see `MediaRailView`'s row
-                // body log for the full explanation; load-bearing, kept in
-                // production. This is the deepest of the three log points
-                // (`HomeViewModel`, `MediaRailView`'s row body, here), right
-                // where the `ProgressView(value:)` below actually gets its
-                // fraction.
-                let _ = posterCardLogger.debug("watchStatusOverlay: id=\(item.id, privacy: .public) playedFraction=\(item.playedFraction ?? -1, privacy: .public) isPlayed=\(item.isPlayed, privacy: .public)")
                 if let fraction = item.playedFraction, fraction > 0, !item.isPlayed {
                     ProgressView(value: fraction)
                         .tint(.dionysusHighlight)

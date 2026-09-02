@@ -1,15 +1,9 @@
 import Foundation
 import Observation
-import os
 
 @MainActor
 @Observable
 final class HomeViewModel {
-    /// Same `os.Logger` convention as `PlayerView`/`PlayerViewModel`. See
-    /// `mergeGuardingAgainstPlaybackRegression(_:)`'s call sites for why
-    /// this exists — a `.debug` log there is load-bearing, not incidental.
-    private static let logger = Logger(subsystem: "com.dionysus.player", category: "HomeViewModel")
-
     enum LoadState: Equatable {
         case idle
         case loading
@@ -290,11 +284,6 @@ final class HomeViewModel {
                 .map { MediaItem(dto: $0, images: images) }
                 .filter { !$0.isAudioLibrary }
             curatedRails = mergeGuardingAgainstPlaybackRegression(try await curated)
-            // See `performSoftRefresh()`'s identical log line — not
-            // incidental diagnostics, load-bearing. Same fix, same reason,
-            // shared by both entry points into
-            // `mergeGuardingAgainstPlaybackRegression(_:)`.
-            Self.logger.debug("performFullLoad: assigned curatedRails, first item playedFraction=\(self.curatedRails.first?.items.first?.playedFraction ?? -1, privacy: .public)")
             if resetLoadState { setLoadState(.loaded) }
 
             // Reset dynamic-rail state before rediscovering — otherwise a
@@ -657,35 +646,19 @@ final class HomeViewModel {
         // already landed — defer to it rather than clobbering it with this
         // slower, narrower result.
         guard generation == refreshGeneration else { return }
+        // Getting the *data* right here was only ever half the job — see
+        // `MediaItem.==` for the other half, and for a cautionary tale
+        // about this exact line. A correct merge assigned here could still
+        // fail to reach the screen, because `MediaItem`'s `Equatable` used
+        // to compare ids only and so reported a freshly-updated resume
+        // position as "unchanged" to SwiftUI's diffing. That was chased for
+        // a while as a timing problem in this file (a `Task.yield()` here
+        // fixed it ~1/3 of live trials; a stronger `DispatchQueue.main.async`
+        // wait made it worse, 0/5) and then papered over with logging calls
+        // whose only real effect was perturbing what SwiftUI compared. It
+        // was never a scheduling problem, and nothing about the fix belongs
+        // in this method.
         curatedRails = mergeGuardingAgainstPlaybackRegression(result)
-        // This log line is load-bearing, not incidental — see
-        // `MediaRailView`'s row body and `PosterCard.watchStatusOverlay`
-        // for its two siblings, and read on before deleting any of the
-        // three.
-        //
-        // A real, confirmed (2026-09-02) Observable/SwiftUI render-timing
-        // race, not a data problem this file owns: `curatedRails` here,
-        // `MediaRailView`'s row body, and `watchStatusOverlay`'s
-        // `ProgressView(value:)` construction were all independently
-        // confirmed (via temporary instrumentation, live on a physical
-        // device) to already hold the correct, freshly-merged resume
-        // position at their respective points — yet the rail's progress
-        // bar could still intermittently paint the *previous* stale
-        // position anyway. Synthetic attempts at a principled fix made it
-        // worse, not better: a bare `Task.yield()` right before this
-        // assignment reproduced the fix only ~1/3 of live trials, and a
-        // *stronger* explicit wait for the next run loop turn
-        // (`DispatchQueue.main.async`) made it worse still (0/5) — ruling
-        // out "just yield or wait longer" as the actual mechanism. What
-        // reliably worked, 9/9 across two separate live test rounds, was a
-        // real logging call — `print()` first, then this `os.Logger` call
-        // once confirmed — actually executing at each of the three points
-        // above: genuine synchronous I/O, not a scheduling hop. Kept as
-        // permanent production logging (this codebase's established
-        // `os.Logger` convention — see `PlayerView`/`PlayerViewModel`)
-        // specifically *because* removing it reintroduces the bug — this
-        // is not leftover debug scaffolding.
-        Self.logger.debug("performSoftRefresh: assigned curatedRails, first item playedFraction=\(self.curatedRails.first?.items.first?.playedFraction ?? -1, privacy: .public)")
     }
 
     /// Re-fetches everything on Home — hero banner, libraries, curated
