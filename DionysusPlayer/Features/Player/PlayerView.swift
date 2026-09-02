@@ -736,9 +736,16 @@ struct PlayerView: View {
         // `.fullScreenCover(onDismiss:)` fires — see `PlaybackSessionOutcome`'s
         // doc comment for why this exists at all.
         if let viewModel {
-            onPlaybackEnded?(PlaybackSessionOutcome(
+            let outcome = PlaybackSessionOutcome(
                 itemID: itemID, positionSeconds: viewModel.currentTime, durationSeconds: viewModel.duration
-            ))
+            )
+            onPlaybackEnded?(outcome)
+            // Broadcast unconditionally, not just when a presenter happens to
+            // pass `onPlaybackEnded` — `RecentPlaybackBroadcaster` has its
+            // own, separate consumer (`HomeViewModel`) that has no other way
+            // to learn this outcome, regardless of which screen presented
+            // this player.
+            RecentPlaybackBroadcaster.shared.record(outcome)
         }
         await viewModel?.stop()
         if let nextItemID {

@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 
 /// A titled horizontal-scrolling row of posters, with an optional
 /// "See All" link to the full collection.
@@ -9,6 +10,11 @@ import SwiftUI
 /// `MediaCollectionRail.usesLandscapeTiles`) applies everywhere a rail
 /// shows up, not just Home.
 struct MediaRailView: View {
+    /// Same `os.Logger` convention as `PlayerView`/`PlayerViewModel`/
+    /// `HomeViewModel`. See the `ForEach` row body below for why a
+    /// `.debug` log there is load-bearing, not incidental.
+    private static let logger = Logger(subsystem: "com.dionysus.player", category: "MediaRailView")
+
     let rail: MediaCollectionRail
 
     var body: some View {
@@ -44,10 +50,44 @@ struct MediaRailView: View {
                 let usesLandscapeTiles = rail.usesLandscapeTiles
                 LazyHStack(alignment: .top, spacing: 12) {
                     ForEach(rail.items) { item in
+                        // Load-bearing, not incidental — one of three
+                        // matching log calls (with `HomeViewModel
+                        // .performSoftRefresh()`/`.performFullLoad(
+                        // resetLoadState:)` and `PosterCard
+                        // .watchStatusOverlay`) that together fix a real,
+                        // confirmed SwiftUI render-timing race: this row's
+                        // body could run with the correct, freshly-updated
+                        // `item` yet still paint a stale progress bar.
+                        // See `HomeViewModel.performSoftRefresh()`'s
+                        // identical log line for the full writeup, including
+                        // what was tried and rejected before landing on
+                        // this. Removing this call reintroduces the bug.
+                        let _ = Self.logger.debug("row body: rail=\(rail.title, privacy: .public) id=\(item.id, privacy: .public) playedFraction=\(item.playedFraction ?? -1, privacy: .public)")
+                        // `.id(item.playbackProgressIdentity)`, not just
+                        // `item` (already the `ForEach` row's own identity
+                        // via `Identifiable`) — same fix, same reasoning, as
+                        // `MovieDetailView`/`ShowDetailView`'s identical use
+                        // of `playbackProgressIdentity`: `MediaItem`'s own
+                        // `Equatable` conformance only compares `dto.id`
+                        // (`BaseItemDto`'s own `==`), so two `MediaItem`s
+                        // for the same server item with *different*
+                        // `userData` (a new resume position/percentage)
+                        // read as equal to SwiftUI's diffing — confirmed
+                        // live (2026-09-02): a rail card's progress bar
+                        // stayed on its old position after
+                        // `HomeViewModel.softRefresh()` correctly updated
+                        // the underlying `MediaItem`, because nothing told
+                        // this card's already-rendered view identity that
+                        // anything about it needed to change. Forcing a
+                        // fresh identity whenever the progress-relevant
+                        // fields change is what actually gets the update
+                        // painted, not just held in the model.
                         if usesLandscapeTiles {
                             LandscapeMediaCard(item: item)
+                                .id(item.playbackProgressIdentity)
                         } else {
                             PosterCard(item: item)
+                                .id(item.playbackProgressIdentity)
                         }
                     }
                 }

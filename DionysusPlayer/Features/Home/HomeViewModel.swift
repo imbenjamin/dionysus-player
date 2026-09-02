@@ -1,9 +1,15 @@
 import Foundation
 import Observation
+import os
 
 @MainActor
 @Observable
 final class HomeViewModel {
+    /// Same `os.Logger` convention as `PlayerView`/`PlayerViewModel`. See
+    /// `mergeGuardingAgainstPlaybackRegression(_:)`'s call sites for why
+    /// this exists — a `.debug` log there is load-bearing, not incidental.
+    private static let logger = Logger(subsystem: "com.dionysus.player", category: "HomeViewModel")
+
     enum LoadState: Equatable {
         case idle
         case loading
@@ -172,6 +178,18 @@ final class HomeViewModel {
     /// `loadState` deliberately doesn't change during one (see
     /// `performFullLoad(resetLoadState:)`'s doc comment).
     private(set) var isHardRefreshing = false
+    /// Set by `consumePendingOptimisticPlaybackPosition()`, read (and
+    /// cleared once caught up) by `mergeGuardingAgainstPlaybackRegression(_:)`
+    /// — same shape and reasoning as `AssetDetailViewModel
+    /// .optimisticPlaybackTarget`, adapted for a list of rails instead of a
+    /// single displayed item.
+    private var optimisticPlaybackTarget: (itemID: String, ticks: Int64, durationSeconds: TimeInterval)?
+    /// See `AssetDetailViewModel.optimisticPositionTolerance`'s doc comment
+    /// — same value, same reasoning (the guess and the value `PlayerViewModel
+    /// .stop()` actually reports are read from the engine's clock a moment
+    /// apart, so they can differ by a couple of real seconds even once the
+    /// server has genuinely committed the right write).
+    private static let optimisticPositionTolerance: Int64 = 5 * 10_000_000
 
     init(
         client: JellyfinAPIClient,
@@ -241,6 +259,7 @@ final class HomeViewModel {
     private func performFullLoad(resetLoadState: Bool) async {
         if resetLoadState { setLoadState(.loading) }
         refreshGeneration += 1
+        consumePendingOptimisticPlaybackPosition()
         do {
             let images = await client.makeImageURLBuilder()
 
@@ -270,7 +289,12 @@ final class HomeViewModel {
             libraries = views.items
                 .map { MediaItem(dto: $0, images: images) }
                 .filter { !$0.isAudioLibrary }
-            curatedRails = try await curated
+            curatedRails = mergeGuardingAgainstPlaybackRegression(try await curated)
+            // See `performSoftRefresh()`'s identical log line — not
+            // incidental diagnostics, load-bearing. Same fix, same reason,
+            // shared by both entry points into
+            // `mergeGuardingAgainstPlaybackRegression(_:)`.
+            Self.logger.debug("performFullLoad: assigned curatedRails, first item playedFraction=\(self.curatedRails.first?.items.first?.playedFraction ?? -1, privacy: .public)")
             if resetLoadState { setLoadState(.loaded) }
 
             // Reset dynamic-rail state before rediscovering — otherwise a
@@ -354,6 +378,95 @@ final class HomeViewModel {
             )
         )
         return newRails
+    }
+
+    /// Consumes `RecentPlaybackBroadcaster.shared`'s pending outcome (if
+    /// any) exactly once: records it as `optimisticPlaybackTarget` (used by
+    /// `mergeGuardingAgainstPlaybackRegression(_:)` below to keep a
+    /// subsequent fetch from regressing it), and — if the item is already
+    /// showing in `curatedRails` right now — overlays it there immediately
+    /// too, so the UI never even flashes stale data while the fetch that
+    /// follows is in flight. Called at the top of both `performSoftRefresh()`
+    /// and `performFullLoad(resetLoadState:)`, so a resume point looks
+    /// correct on Home the moment it becomes visible again after playback —
+    /// the same thing `AssetDetailViewModel.applyOptimisticPlaybackPosition(_:)`
+    /// already does for the detail page itself. See `RecentPlaybackBroadcaster`'s
+    /// own doc comment for why Home needed this at all (confirmed live,
+    /// 2026-09-02: a resume point looked accurate on the detail page right
+    /// after playback but stale on Home moments later — Home's soft refresh
+    /// was a single unguarded server fetch with no optimistic overlay).
+    private func consumePendingOptimisticPlaybackPosition() {
+        guard let outcome = RecentPlaybackBroadcaster.shared.consume(), outcome.durationSeconds > 0 else { return }
+        optimisticPlaybackTarget = (
+            itemID: outcome.itemID,
+            ticks: Int64(outcome.positionSeconds * 10_000_000),
+            durationSeconds: outcome.durationSeconds
+        )
+        curatedRails = curatedRails.map { rail in
+            var rail = rail
+            rail.items = rail.items.map { item in
+                item.id == outcome.itemID
+                    ? item.withOptimisticPlaybackPosition(seconds: outcome.positionSeconds, duration: outcome.durationSeconds)
+                    : item
+            }
+            return rail
+        }
+    }
+
+    /// Keeps a freshly-fetched set of curated rails from regressing
+    /// `optimisticPlaybackTarget` back to stale data — same reasoning as
+    /// `AssetDetailViewModel.refreshItem()`'s own `optimisticTarget`/
+    /// `caughtUp` check (see that method's doc comment for why an early
+    /// fetch almost always still carries the server's old, not-yet-committed
+    /// position rather than genuinely differing data). Whichever rail item
+    /// matches `optimisticPlaybackTarget.itemID` is left showing the
+    /// optimistic value until a fetch's own position catches up to it
+    /// (within `optimisticPositionTolerance`) or the server reports it fully
+    /// played — either clears the target so future fetches are trusted
+    /// again.
+    private func mergeGuardingAgainstPlaybackRegression(_ freshRails: [MediaCollectionRail]) -> [MediaCollectionRail] {
+        guard let target = optimisticPlaybackTarget else { return freshRails }
+        var stillPending = false
+        let merged = freshRails.map { rail -> MediaCollectionRail in
+            var rail = rail
+            rail.items = rail.items.map { item -> MediaItem in
+                guard item.id == target.itemID else { return item }
+                let fetchedTicks = item.dto.userData?.playbackPositionTicks ?? 0
+                let played = item.dto.userData?.played ?? false
+                let caughtUp = fetchedTicks >= target.ticks - Self.optimisticPositionTolerance || played
+                if caughtUp {
+                    // Trust the fetch's own `playbackPositionTicks`, but not
+                    // its raw `playedPercentage` in isolation — confirmed
+                    // live (2026-09-02): Jellyfin can commit those two
+                    // fields at different times, so a fetch whose *ticks*
+                    // have already caught up to a scrub can still carry a
+                    // stale `playedPercentage` left over from before it (a
+                    // backward scrub in particular — ticks moved back, but
+                    // the percentage field hadn't been recalculated yet).
+                    // `MediaItem.playedFraction` prefers the raw percentage
+                    // over computing it from ticks, so left alone this
+                    // regressed the rail's progress bar right back to the
+                    // stale value even though the position itself was
+                    // already correct. Recompute it from this fetch's own
+                    // ticks instead of trusting the separate field — skipped
+                    // when `played`, since a fully-watched item's position
+                    // is reset by the server and `hasResumeProgress` already
+                    // gates its progress bar on `!isPlayed` first, so
+                    // there's nothing here worth overriding.
+                    guard !played, let runTimeTicks = item.dto.runTimeTicks, runTimeTicks > 0 else { return item }
+                    return item.withOptimisticPlaybackPosition(
+                        seconds: Double(fetchedTicks) / 10_000_000, duration: Double(runTimeTicks) / 10_000_000
+                    )
+                }
+                stillPending = true
+                return item.withOptimisticPlaybackPosition(
+                    seconds: TimeInterval(target.ticks) / 10_000_000, duration: target.durationSeconds
+                )
+            }
+            return rail
+        }
+        if !stillPending { optimisticPlaybackTarget = nil }
+        return merged
     }
 
     /// Discovers every eligible dynamic rail — genres and studios for both
@@ -530,6 +643,7 @@ final class HomeViewModel {
         // network fetch when a hardRefresh() is already underway.
         guard !isHardRefreshing else { return }
         let generation = refreshGeneration
+        consumePendingOptimisticPlaybackPosition()
         let images = await client.makeImageURLBuilder()
         guard let result = try? await fetchCuratedRails(
             images: images, moviesLibraryID: moviesLibraryID, showsLibraryID: showsLibraryID
@@ -543,7 +657,35 @@ final class HomeViewModel {
         // already landed — defer to it rather than clobbering it with this
         // slower, narrower result.
         guard generation == refreshGeneration else { return }
-        curatedRails = result
+        curatedRails = mergeGuardingAgainstPlaybackRegression(result)
+        // This log line is load-bearing, not incidental — see
+        // `MediaRailView`'s row body and `PosterCard.watchStatusOverlay`
+        // for its two siblings, and read on before deleting any of the
+        // three.
+        //
+        // A real, confirmed (2026-09-02) Observable/SwiftUI render-timing
+        // race, not a data problem this file owns: `curatedRails` here,
+        // `MediaRailView`'s row body, and `watchStatusOverlay`'s
+        // `ProgressView(value:)` construction were all independently
+        // confirmed (via temporary instrumentation, live on a physical
+        // device) to already hold the correct, freshly-merged resume
+        // position at their respective points — yet the rail's progress
+        // bar could still intermittently paint the *previous* stale
+        // position anyway. Synthetic attempts at a principled fix made it
+        // worse, not better: a bare `Task.yield()` right before this
+        // assignment reproduced the fix only ~1/3 of live trials, and a
+        // *stronger* explicit wait for the next run loop turn
+        // (`DispatchQueue.main.async`) made it worse still (0/5) — ruling
+        // out "just yield or wait longer" as the actual mechanism. What
+        // reliably worked, 9/9 across two separate live test rounds, was a
+        // real logging call — `print()` first, then this `os.Logger` call
+        // once confirmed — actually executing at each of the three points
+        // above: genuine synchronous I/O, not a scheduling hop. Kept as
+        // permanent production logging (this codebase's established
+        // `os.Logger` convention — see `PlayerView`/`PlayerViewModel`)
+        // specifically *because* removing it reintroduces the bug — this
+        // is not leftover debug scaffolding.
+        Self.logger.debug("performSoftRefresh: assigned curatedRails, first item playedFraction=\(self.curatedRails.first?.items.first?.playedFraction ?? -1, privacy: .public)")
     }
 
     /// Re-fetches everything on Home — hero banner, libraries, curated
