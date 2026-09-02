@@ -95,6 +95,10 @@ struct MainTabView: View {
             // it doesn't hit that issue.
             .tabItem { Label("Downloads", systemImage: "square.and.arrow.down.on.square") }
             .tag(MainTab.downloads)
+            // Small pending/downloading count — `0` hides the badge
+            // entirely (SwiftUI's own behavior for `.badge(Int)`), so
+            // there's nothing to gate here beyond reading the live count.
+            .badge(appState.downloadManager.pendingOrActiveDownloadsCount)
 
             NavigationStack {
                 ProfileView()

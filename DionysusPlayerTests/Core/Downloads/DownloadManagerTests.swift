@@ -109,6 +109,44 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(store.pendingSyncItems().map(\.itemID), ["item-1"])
     }
 
+    // MARK: pendingOrActiveDownloadsCount (the Downloads tab badge)
+
+    /// `.queued`/`.downloading` both count, `.completed`/`.failed` don't —
+    /// the exact split `MainTabView`'s badge relies on.
+    func test_pendingOrActiveDownloadsCount_countsQueuedAndDownloadingOnly() throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-queued", status: .queued))
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-downloading", status: .downloading))
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-completed", status: .completed))
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-failed", status: .failed))
+
+        XCTAssertEqual(manager.pendingOrActiveDownloadsCount, 2)
+    }
+
+    /// No pending/active rows at all — the badge's "hidden" state.
+    func test_pendingOrActiveDownloadsCount_noPendingRows_isZero() throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-completed", status: .completed))
+
+        XCTAssertEqual(manager.pendingOrActiveDownloadsCount, 0)
+    }
+
+    /// A row kept alive only as `markedForDeletion` (see the pendingSync
+    /// tests above) must not inflate the badge even if its stored status
+    /// still reads `.downloading` from before the delete.
+    func test_pendingOrActiveDownloadsCount_excludesMarkedForDeletionRows() throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        try writeFile(itemID: "item-1")
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", pendingSync: true, status: .downloading))
+
+        manager.delete(itemID: "item-1")
+
+        XCTAssertEqual(manager.pendingOrActiveDownloadsCount, 0)
+    }
+
     // MARK: shared-image dedup on delete
 
     func test_delete_sharedImage_stillReferencedByAnotherItem_fileSurvives() throws {

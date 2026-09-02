@@ -99,6 +99,20 @@ enum DownloadError: LocalizedError {
 final class DownloadManager: NSObject {
     private(set) var activeDownloads: [String: DownloadProgress] = [:]
 
+    /// Rows not yet finished — what `MainTabView`'s Downloads tab badge
+    /// shows. Reads `store.changeCount` (see that property's own doc
+    /// comment) rather than `activeDownloads`, so it also counts a
+    /// `.queued` row still waiting for a concurrency slot, which never
+    /// appears in `activeDownloads` at all. `.paused` is included even
+    /// though nothing currently sets it (see `DownloadStatus`) — it belongs
+    /// in the same "still needs attention" bucket as `.queued`/
+    /// `.downloading`, not with `.completed`/`.failed`.
+    var pendingOrActiveDownloadsCount: Int {
+        _ = store.changeCount
+        let pendingStatuses: Set<DownloadStatus> = [.queued, .downloading, .paused]
+        return store.visibleItems().filter { pendingStatuses.contains($0.status) }.count
+    }
+
     /// Fired from `delete(itemID:)` right after a row survives as
     /// `markedForDeletion`, to nudge `DownloadSyncManager` immediately
     /// rather than waiting for the next scenePhase trigger. A closure
