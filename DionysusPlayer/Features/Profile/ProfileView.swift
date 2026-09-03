@@ -23,6 +23,12 @@ struct ProfileView: View {
     /// own fallback for the same "both sides declare the same default"
     /// reason as `hero3DDepthEnabled` above.
     @AppStorage(nextUpCountdownStorageKey) private var nextUpCountdown: NextUpCountdownPreference = .seconds30
+    /// Default `true` — matches `PlayerControlsOverlay`'s own read of this
+    /// key, same "both sides declare the same default" reason as
+    /// `nextUpCountdown` above. See `chaptersInScrubberEnabledDefault`'s doc
+    /// comment (`PlayerControlsOverlay.swift`) for what this does and
+    /// doesn't gate.
+    @AppStorage(chaptersInScrubberEnabledStorageKey) private var isChaptersInScrubberEnabled = chaptersInScrubberEnabledDefault
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showAccountDetails = false
     @State private var avatarImageURL: URL?
@@ -180,6 +186,7 @@ struct ProfileView: View {
                             .tag(preference)
                     }
                 }
+                Toggle("Chapters in Scrubber", isOn: $isChaptersInScrubberEnabled)
                 // Streaming mode/bitrate and the Playback Stats button
                 // toggle live on their own pushed screen — see
                 // `AdvancedPlaybackSettingsView`'s doc comment for why.
@@ -189,7 +196,7 @@ struct ProfileView: View {
             } header: {
                 Text("Playback")
             } footer: {
-                Text("How long before the end of an episode to countdown the next episode, if end credits are not detected.")
+                Text("Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging.")
             }
 
             Section {

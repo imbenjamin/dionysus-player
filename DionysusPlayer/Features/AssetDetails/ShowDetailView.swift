@@ -188,6 +188,26 @@ struct ShowDetailView: View {
                         // episode list's loading spinner) with no benefit.
                         .id(refreshTrigger)
 
+                        // Episode-only, and in the same slot
+                        // `MovieDetailView` puts it (straight after the
+                        // tabs, ahead of anything pointing at *other*
+                        // items): chapters describe whichever single item
+                        // this page's hero/Play button already represent,
+                        // which for Series/Season content is a browsing
+                        // target rather than one playable file. `chapters`
+                        // would be empty for those anyway — a Series DTO
+                        // carries none — so this gate is about intent, not
+                        // correctness.
+                        if isEpisodeContent, !item.chapters.isEmpty {
+                            ChapterRailView(chapters: item.chapters) { chapter in
+                                playbackRequest = PlaybackRequest(
+                                    itemID: item.id,
+                                    mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: item.id),
+                                    startSeconds: chapter.startSeconds
+                                )
+                            }
+                        }
+
                         if let seriesID = viewModel.seriesID, !viewModel.seasons.isEmpty {
                             SeasonEpisodeList(
                                 seriesID: seriesID,
@@ -305,6 +325,7 @@ struct ShowDetailView: View {
         ) { request in
             PlayerView(
                 itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID,
+                startSeconds: request.startSeconds,
                 onPlaybackEnded: { viewModel.applyOptimisticPlaybackPosition($0) },
                 onRequestNextItem: { pendingNextEpisodeID = $0 }
             )

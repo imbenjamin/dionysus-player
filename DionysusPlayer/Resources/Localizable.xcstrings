@@ -49,6 +49,16 @@
         }
       }
     },
+    "%@, starts at %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, starts at %2$@"
+          }
+        }
+      }
+    },
     "%@:" : {
 
     },
@@ -265,6 +275,18 @@
     "Change server?" : {
 
     },
+    "Chapter %lld" : {
+
+    },
+    "Chapters" : {
+
+    },
+    "Chapters in Scrubber" : {
+
+    },
+    "Chapters, currently %@" : {
+
+    },
     "Choose a Version" : {
 
     },
@@ -419,6 +441,9 @@
     "Done" : {
 
     },
+    "Double tap to choose a chapter" : {
+
+    },
     "Double tap to toggle between remaining time and total duration" : {
 
     },
@@ -546,9 +571,6 @@
     "Home" : {
 
     },
-    "How long before the end of an episode to countdown the next episode, if end credits are not detected." : {
-
-    },
     "Image-based subtitle tracks can't be included in offline downloads." : {
 
     },
@@ -604,6 +626,9 @@
 
     },
     "Next Episode Countdown" : {
+
+    },
+    "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging." : {
 
     },
     "Next Item" : {
@@ -1004,6 +1029,9 @@
 
     },
     "The server sent an unexpected response." : {
+
+    },
+    "the start" : {
 
     },
     "Theme" : {

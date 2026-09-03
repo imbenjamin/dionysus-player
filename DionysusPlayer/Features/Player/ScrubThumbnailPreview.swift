@@ -21,6 +21,12 @@ struct ScrubThumbnailPreview: View {
     /// visibly pop in a beat after the drag itself starts.
     let image: CGImage?
     let timeText: String
+    /// The chapter the drag position currently falls in (or has magnetically
+    /// snapped to) — prefixed to the timestamp as `"Name · 12:34"` so a
+    /// scrub reads as a position in the *story*, not just on a clock. `nil`
+    /// for an item with no chapters, which collapses back to the bare
+    /// timestamp this pill has always shown.
+    var chapterName: String? = nil
 
     static let width: CGFloat = 160
     private static let height: CGFloat = width * 9 / 16
@@ -47,12 +53,30 @@ struct ScrubThumbnailPreview: View {
             )
             .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
 
-            Text(timeText)
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.white)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.black.opacity(0.6), in: Capsule())
+            // `.monospacedDigit()` only on the timestamp half — applying it
+            // to a chapter *name* too would render its letters in the
+            // monospaced variant, which reads as a different typeface from
+            // every other label in this overlay.
+            HStack(spacing: 4) {
+                if let chapterName {
+                    Text(chapterName)
+                        .font(.caption2)
+                        .lineLimit(1)
+                    Text(verbatim: "\u{00B7}")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+                Text(timeText)
+                    .font(.caption2.monospacedDigit())
+            }
+            .foregroundStyle(.white)
+            // Keeps a long chapter name from widening this pill past the
+            // preview image it sits under (which the caller's own clamping
+            // math positions against).
+            .frame(maxWidth: Self.width)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.black.opacity(0.6), in: Capsule())
         }
         // Purely visual — the scrubber track underneath already carries
         // its own accessibility element/adjustable action.

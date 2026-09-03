@@ -1,6 +1,19 @@
 import CoreGraphics
 import SwiftUI
 
+/// Both this default and `ProfileView`'s own `@AppStorage` default must be
+/// declared identically by hand — nothing enforces they stay in sync (same
+/// discipline as `showPlaybackStatsButtonEnabledStorageKey`'s documented
+/// gotcha, `PlaybackStatsOverlay.swift`).
+let chaptersInScrubberEnabledStorageKey = "chaptersInScrubberEnabled"
+/// Default `true` — chapters in the scrubber (boundary dividers + magnetic
+/// snap) are opt-out, not opt-in, matching every other chapter-UI surface
+/// in the app (the rail, the current-chapter button, the picker) being
+/// unconditionally on whenever chapters exist. This is the one exception a
+/// user can turn off, for anyone who finds the snap distracting while
+/// scrubbing — not because chapters-in-general default to hidden.
+let chaptersInScrubberEnabledDefault = true
+
 struct PlayerControlsOverlay: View {
     let viewModel: PlayerViewModel
     @Binding var isScrubbing: Bool
@@ -13,6 +26,12 @@ struct PlayerControlsOverlay: View {
     /// from under it a few seconds in, panel and all. See
     /// `PlayerView.scheduleAutoHide()`.
     @Binding var isShowingTrackPicker: Bool
+    /// Whether the chapter picker (`ChapterPickerOverlay`) is showing — a
+    /// `@Binding` for exactly the same reason `isShowingTrackPicker` above
+    /// is: `PlayerView`'s auto-hide timer has to know a panel is open, or it
+    /// fades the whole controls row out from under it. See
+    /// `PlayerView.scheduleAutoHide()`.
+    @Binding var isShowingChapterPicker: Bool
     var onClose: () -> Void
     /// Whether `RotationLock` currently has rotation locked. Plain state
     /// owned by `PlayerView`, not a `@Binding` — this button only ever
@@ -86,6 +105,21 @@ struct PlayerControlsOverlay: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
 
+    /// Whether the scrubber shows chapter boundary dividers and magnetically
+    /// snaps to them — a persisted setting (Profile → Playback, "Chapters in
+    /// Scrubber"), read directly via its own `@AppStorage` for the same
+    /// "the view that displays it reads it directly" reason
+    /// `isPlaybackStatsButtonEnabled` above does. Default `true` must stay
+    /// in lockstep with `ProfileView`'s own read of this key — see
+    /// `chaptersInScrubberEnabledDefault`'s doc comment just below.
+    ///
+    /// Deliberately does **not** gate the current-chapter button or
+    /// `ChapterPickerOverlay` — per the setting's own description, those
+    /// stay available regardless. Only the two behaviors this key is named
+    /// for: the track's boundary dividers, and the magnetic snap (soft pull
+    /// + haptic) in the drag handler below.
+    @AppStorage(chaptersInScrubberEnabledStorageKey) private var isChaptersInScrubberEnabled = chaptersInScrubberEnabledDefault
+
     /// Whether a touch is actively down on the scrubber track, as opposed to
     /// `isScrubbing` (the binding), which now stays `true` a little longer —
     /// through the just-issued seek landing, not just through the drag
@@ -118,6 +152,21 @@ struct PlayerControlsOverlay: View {
     /// "time since the last drag tick" (which is what a debounce, the
     /// shape this replaced, would key off instead).
     @State private var lastScrubThumbnailFireDate: Date?
+
+    /// Which chapter the in-progress drag is currently magnetically snapped
+    /// to, by index into `viewModel.chapters` — `nil` whenever the finger is
+    /// outside every boundary's `chapterSnapRadius`. Purely a
+    /// *transition* detector for the haptic below; the snapped *time* itself
+    /// is written straight to `scrubTime` and needs no separate state.
+    @State private var snappedChapterIndex: Int?
+    /// Flipped (never read directly) on each transition *into* a new snapped
+    /// chapter — `.sensoryFeedback(_:trigger:)` fires on each change of its
+    /// trigger, not on a particular value, matching the convention
+    /// `DownloadButton.advancedOptionsHapticTrigger` established. Not
+    /// flipped on leaving a snap zone, and never on a repeat frame within
+    /// one: a continuous drag through a boundary should tick exactly once,
+    /// not buzz for as long as the finger lingers there.
+    @State private var chapterSnapHapticTrigger = false
 
     /// A fixed cap on the track picker panel's height, *not* a measured
     /// half of the real screen height — every attempt to read the real
@@ -205,12 +254,12 @@ struct PlayerControlsOverlay: View {
             Color.black.opacity(0.001)
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    // Defensive: the track picker's own backdrop (below,
+                    // Defensive: either picker's own backdrop (below,
                     // added via a later `.overlay` and therefore already
                     // on top) should always claim a tap first while open,
                     // but guard here too rather than rely solely on
                     // z-order.
-                    guard !isShowingTrackPicker else { return }
+                    guard !isShowingTrackPicker, !isShowingChapterPicker else { return }
                     onDismissControls()
                 }
 
@@ -246,6 +295,44 @@ struct PlayerControlsOverlay: View {
                     .padding(.top, 76)
                     .padding(.trailing, 20)
                     .transition(.scale(scale: 0.92, anchor: .topTrailing).combined(with: .opacity))
+            }
+        }
+        // The chapter picker's own tap-catcher/panel pair, mounted after the
+        // track picker's so it sits above it in z-order. The two are never
+        // open at once in practice (opening either is a tap that would have
+        // dismissed the other first), so this ordering is belt-and-braces
+        // rather than load-bearing.
+        .overlay {
+            if isShowingChapterPicker {
+                Color.black.opacity(0.001)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation(ChapterPickerOverlay.animation) { isShowingChapterPicker = false }
+                    }
+            }
+        }
+        // Anchored bottom-leading, under the current-chapter button that
+        // opens it (which sits at the leading edge just below the scrubber),
+        // rather than top-trailing like the track picker under *its* button.
+        // The bottom padding clears the scrubber row and the chapter button
+        // itself — an approximate anchor, same as the track picker's own
+        // `.padding(.top, 76)`, not a measured one. Smaller in landscape,
+        // matching `ChapterPickerOverlay.maxHeight`'s own reduced cap there
+        // — see its doc comment for why landscape needs this at all.
+        .overlay(alignment: .bottomLeading) {
+            if isShowingChapterPicker {
+                ChapterPickerOverlay(
+                    chapters: viewModel.chapters,
+                    currentChapter: viewModel.currentChapter,
+                    onSelect: { chapter in
+                        onInteract()
+                        viewModel.seek(to: chapter.startSeconds)
+                        withAnimation(ChapterPickerOverlay.animation) { isShowingChapterPicker = false }
+                    }
+                )
+                .padding(.bottom, isLandscape ? 56 : 96)
+                .padding(.leading, 20)
+                .transition(.scale(scale: 0.92, anchor: .bottomLeading).combined(with: .opacity))
             }
         }
     }
@@ -1208,8 +1295,70 @@ struct PlayerControlsOverlay: View {
             }
             .font(.caption)
             .foregroundStyle(.white.opacity(0.8))
+
+            // Only for content that actually has chapters — see
+            // `MediaItem.chapters`, which already collapses Jellyfin's
+            // single-dummy-chapter case to empty.
+            if !viewModel.chapters.isEmpty {
+                HStack {
+                    chapterButton
+                    Spacer()
+                }
+            }
         }
         .padding()
+        // Fires once per transition into a new magnetically-snapped chapter
+        // while dragging the scrubber — see `chapterSnapHapticTrigger`.
+        // `.light`, matching the "a boundary just passed under your finger"
+        // scale of the event rather than `DownloadButton`'s heavier default
+        // `.impact` for a long-press committing to an action.
+        .sensoryFeedback(.impact(weight: .light), trigger: chapterSnapHapticTrigger)
+    }
+
+    /// The current chapter's name as a button, opening `ChapterPickerOverlay`
+    /// — the same "what am I looking at, and where else can I go" affordance
+    /// a YouTube chapter title serves. Falls back to a plain "Chapters"
+    /// label in the one case `currentChapter` can be `nil` with chapters
+    /// present: a playhead sitting before the first chapter's own start
+    /// (rare — Jellyfin's first chapter is normally at 00:00 — but possible
+    /// for a file whose chapter track starts late).
+    private var chapterButton: some View {
+        Button {
+            onInteract()
+            withAnimation(ChapterPickerOverlay.animation) { isShowingChapterPicker = true }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "list.bullet")
+                    .font(.caption2)
+                Text(viewModel.currentChapter?.name ?? String(localized: "Chapters"))
+                    .font(.caption)
+                    .lineLimit(1)
+                Image(systemName: "chevron.up")
+                    .font(.caption2)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.white.opacity(0.15), in: Capsule())
+            // Pads the drawn capsule out to HIG's 44pt minimum touch
+            // target height — same reasoning as every other control in
+            // this overlay (see the close button's doc comment): once
+            // blank space is tappable-to-dismiss, a narrowly-missed
+            // control misfires a dismiss instead.
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        // The current chapter is folded into the label rather than exposed
+        // as a separate `.accessibilityValue` — this button *navigates* (it
+        // opens a picker) rather than adjusting a value in place, the same
+        // distinction `navigationRow` above draws for the track picker's
+        // own root rows. An empty value string would otherwise read as a
+        // stray pause whenever `currentChapter` is nil.
+        .accessibilityLabel(
+            viewModel.currentChapter.map { String(localized: "Chapters, currently \($0.name)") }
+                ?? String(localized: "Chapters")
+        )
+        .accessibilityHint(String(localized: "Double tap to choose a chapter"))
     }
 
     /// A hand-drawn track rather than a plain `Slider` — SwiftUI's `Slider`
@@ -1242,6 +1391,28 @@ struct PlayerControlsOverlay: View {
                 Capsule()
                     .fill(Color.white)
                     .frame(width: width * fraction, height: 4)
+
+                // Chapter boundaries, drawn over both track segments and
+                // under the thumb — purely additive to the drawing above.
+                // Filtered on `startSeconds > 0` rather than by dropping
+                // index 0: it's normally the first chapter that sits at
+                // 0:00, but the thing actually worth skipping is a divider
+                // at the track's own leading edge (which reads as a
+                // rendering artifact, not a boundary) whichever chapter
+                // happens to be there. Dark rather than a lighter white, so
+                // it stays visible against the *filled* (solid white)
+                // segment as well as the unfilled one. Gated on
+                // `isChaptersInScrubberEnabled` — the current-chapter
+                // button/picker stay available either way, only this visual
+                // segmentation (and the magnetic snap below) are optional.
+                if isChaptersInScrubberEnabled {
+                    ForEach(viewModel.chapters.filter { $0.startSeconds > 0 }) { chapter in
+                        Rectangle()
+                            .fill(Color.black.opacity(0.5))
+                            .frame(width: Self.chapterDividerWidth, height: 4)
+                            .offset(x: chapterBoundaryX(for: chapter, width: width) - Self.chapterDividerWidth / 2)
+                    }
+                }
 
                 // Deliberately much larger than the 4pt track it sits on
                 // top of — a native `Slider`'s thumb is the same way, a
@@ -1282,7 +1453,16 @@ struct PlayerControlsOverlay: View {
                 // dragging to either extreme — unlike the 20pt thumb above,
                 // it would otherwise clip off-screen there.
                 if isDraggingScrubber, viewModel.supportsScrubThumbnails {
-                    ScrubThumbnailPreview(image: scrubThumbnailImage, timeText: Self.formatTime(scrubTime))
+                    ScrubThumbnailPreview(
+                        image: scrubThumbnailImage,
+                        timeText: Self.formatTime(scrubTime),
+                        // Reads off `scrubTime` (already snapped, when a
+                        // snap is active) rather than tracking
+                        // `snappedChapterIndex` separately — the two agree
+                        // by construction, and this also names the chapter
+                        // while merely dragging *through* one.
+                        chapterName: viewModel.chapters.chapter(at: scrubTime)?.name
+                    )
                         .offset(
                             x: min(
                                 max(width * fraction - ScrubThumbnailPreview.width / 2, 0),
@@ -1316,11 +1496,36 @@ struct PlayerControlsOverlay: View {
                         onInteract()
                         isDraggingScrubber = true
                         isScrubbing = true
-                        let newFraction = min(1, max(0, drag.location.x / width))
-                        scrubTime = newFraction * viewModel.duration
+                        // Magnetic snap — a *soft pull*, not a detent:
+                        // within `chapterSnapRadius` of a boundary the
+                        // displayed/seek time locks to that chapter's exact
+                        // start, but the finger keeps driving the raw
+                        // position with no added resistance, so leaving the
+                        // zone resumes free scrubbing immediately. The test
+                        // is in pixel space, not time, so the pull feels the
+                        // same on a 20-minute episode and a 3-hour film
+                        // (where an equivalent time radius would be either
+                        // unusably tight or absurdly wide).
+                        if let snapped = snappedChapter(forDragX: drag.location.x, width: width) {
+                            scrubTime = snapped.chapter.startSeconds
+                            if snappedChapterIndex != snapped.index {
+                                snappedChapterIndex = snapped.index
+                                chapterSnapHapticTrigger.toggle()
+                            }
+                        } else {
+                            let newFraction = min(1, max(0, drag.location.x / width))
+                            scrubTime = newFraction * viewModel.duration
+                            // Cleared without firing the haptic — a tick on
+                            // the way *out* of a boundary would double every
+                            // pass-through into a buzz-buzz.
+                            snappedChapterIndex = nil
+                        }
                         requestScrubThumbnail(at: scrubTime)
                     }
                     .onEnded { _ in
+                        // So the next drag's first frame inside the same
+                        // boundary counts as a fresh entry and ticks again.
+                        snappedChapterIndex = nil
                         // `isScrubbing` deliberately stays `true` here — see
                         // the `onChange`s below for why, and `displayedTime`'s
                         // doc comment for what this keeps showing in the
@@ -1390,6 +1595,62 @@ struct PlayerControlsOverlay: View {
         .onDisappear {
             scrubThumbnailTask?.cancel()
         }
+    }
+
+    /// Chapter-boundary divider thickness on the scrubber track — thin
+    /// enough to read as a tick mark rather than a second thumb, but not
+    /// hairline, which disappears against the filled segment.
+    private static let chapterDividerWidth: CGFloat = 1.5
+
+    /// How close (in points along the track, **not** in seconds) a drag has
+    /// to come to a chapter boundary before the magnetic snap engages.
+    ///
+    /// Pinned at exactly 6pt by interactive validation against a throwaway
+    /// browser prototype of this scrubber, not derived from anything — the
+    /// design's own first guess was 16-20pt and was rejected in favor of
+    /// this after trying both by hand. Don't widen it without re-running
+    /// that comparison; the whole point of a *soft* pull is that it stays
+    /// unnoticeable until you're essentially on the boundary already.
+    private static let chapterSnapRadius: CGFloat = 6
+
+    /// Where a chapter's start sits along the track, in points. Clamped to
+    /// `[0, 1]` before scaling so a chapter start beyond the reported
+    /// duration (possible mid-load, before `duration` settles) can't draw a
+    /// divider off the end of the track.
+    private func chapterBoundaryX(for chapter: Chapter, width: CGFloat) -> CGFloat {
+        guard viewModel.duration > 0 else { return 0 }
+        return width * min(1, max(0, chapter.startSeconds / viewModel.duration))
+    }
+
+    /// The chapter whose boundary the drag is currently within
+    /// `chapterSnapRadius` of, plus its index — `nil` when there's no
+    /// chapter in range, no chapters at all, or no duration to place them
+    /// against yet. The *nearest* one wins when two boundaries are both in
+    /// range (chapter-dense content at a short runtime), so the snap can
+    /// never flip between two candidates on jitter alone.
+    ///
+    /// `x` is clamped to the track before measuring, so dragging past either
+    /// end doesn't drift out of the first/last chapter's snap zone.
+    ///
+    /// Returns `nil` unconditionally when `isChaptersInScrubberEnabled` is
+    /// off — the single choke point for the setting on the drag side, so
+    /// `.onChanged` doesn't need its own separate check: with snapping
+    /// disabled this always reports "nothing to snap to" and the drag
+    /// handler's existing `else` branch (plain, unsnapped scrubbing) runs
+    /// exactly as it did before chapters existed.
+    private func snappedChapter(forDragX x: CGFloat, width: CGFloat) -> (index: Int, chapter: Chapter)? {
+        guard isChaptersInScrubberEnabled, viewModel.duration > 0, !viewModel.chapters.isEmpty else { return nil }
+        let clampedX = min(max(x, 0), width)
+        var best: (index: Int, chapter: Chapter, distance: CGFloat)?
+        for (index, chapter) in viewModel.chapters.enumerated() {
+            let distance = abs(chapterBoundaryX(for: chapter, width: width) - clampedX)
+            guard distance <= Self.chapterSnapRadius else { continue }
+            if best == nil || distance < best!.distance {
+                best = (index, chapter, distance)
+            }
+        }
+        guard let best else { return nil }
+        return (best.index, best.chapter)
     }
 
     /// How often `requestScrubThumbnail(at:)` allows a fetch to actually

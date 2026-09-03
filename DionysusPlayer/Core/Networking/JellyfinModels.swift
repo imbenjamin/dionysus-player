@@ -155,6 +155,17 @@ struct BaseItemDto: Codable, Identifiable, Equatable {
     /// the detail page's "Cast & Crew" tab.
     var people: [BaseItemPerson]?
 
+    /// Named position markers across the item's runtime, only populated when
+    /// requested via `Fields=Chapters` (part of
+    /// `JellyfinAPIClient.detailFields`). `nil` for any lighter list/rail
+    /// fetch, and empty — or a single dummy entry, which is why
+    /// `MediaItem.chapters` requires 2+ before surfacing any chapter UI —
+    /// for content Jellyfin found no real chapter data in. Entirely
+    /// unrelated to `MediaSegmentDto`/`PlaybackSegment` (Jellyfin's separate
+    /// skippable Intro/Outro feature): chapters are purely navigational and
+    /// never auto-skipped.
+    var chapters: [ChapterInfoDto]?
+
     /// Present on library "views" (e.g. `"movies"`, `"tvshows"`, `"boxsets"`)
     /// returned by `/Users/{id}/Views`; used to scope Home's rails.
     var collectionType: String?
@@ -221,6 +232,28 @@ struct BaseItemPerson: Codable, Identifiable, Hashable {
     var role: String?
     var type: String?
     var primaryImageTag: String?
+}
+
+/// One entry of `BaseItemDto.chapters` — a named position marker, with an
+/// optional server-generated still frame.
+///
+/// `imageTag` being `nil` is Jellyfin's *only* reliable "this chapter has no
+/// image" signal (`ImagePath`/`ImageDateModified`, which the server also
+/// sends, describe a server-side file path and say nothing useful to a
+/// client), so `Chapter.imageURL` is only ever built when it's non-nil —
+/// see `ImageURLBuilder.chapterImageURL(itemID:chapterIndex:tag:maxWidth:)`.
+/// The image route is addressed by the chapter's *position* in the
+/// `Chapters` array, not by any id of its own, which is why `Chapter`
+/// carries the enumerated index alongside these fields.
+struct ChapterInfoDto: Codable, Equatable {
+    /// .NET ticks (10,000,000 per second), same unit as `runTimeTicks`.
+    var startPositionTicks: Int64
+    /// Usually already normalized server-side to "Chapter N" when the source
+    /// file's own chapter name was blank or just a timestamp
+    /// (`FFProbeVideoInfo.NormalizeChapterNames`) — `Chapter.init` still
+    /// falls back defensively rather than trusting that.
+    var name: String?
+    var imageTag: String?
 }
 
 /// Jellyfin's generic named-entity-with-id shape — used for

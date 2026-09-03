@@ -642,6 +642,25 @@ struct MediaItem: Identifiable {
             || haystack.localizedCaseInsensitiveContains("hard of hearing")
     }
 
+    /// Named position markers for the Chapters rail (`ChapterRailView`) and
+    /// the player's chapter scrubber/picker. Only populated when `chapters`
+    /// was requested via `Fields=Chapters` (`JellyfinAPIClient
+    /// .detailFields`); `[]` for every lighter rail/list fetch.
+    ///
+    /// **A single-entry array is deliberately treated as no chapters at
+    /// all.** Jellyfin emits one dummy chapter at 00:00 for plenty of
+    /// content that was never really chaptered, and a rail (or a picker)
+    /// offering exactly one destination — the position playback already
+    /// starts at — is worse than not offering one, so every consumer gets
+    /// `[]` rather than each having to re-apply the same `count > 1` rule.
+    var chapters: [Chapter] {
+        let dtos = dto.chapters ?? []
+        guard dtos.count > 1 else { return [] }
+        return dtos.enumerated().map { index, chapter in
+            Chapter(dto: chapter, index: index, itemID: dto.id, images: images)
+        }
+    }
+
     /// Cast and crew, in whatever order the server returns (Jellyfin
     /// typically lists billed actors first, then crew). Only populated when
     /// `people` was requested via `Fields=People`.
