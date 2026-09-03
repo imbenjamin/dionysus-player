@@ -54,6 +54,17 @@ struct SearchView: View {
         horizontalSizeClass == .regular ? .navigationBarDrawer(displayMode: .always) : .automatic
     }
 
+    /// Same `.regular` gate as `searchPlacement` above, this time swapping
+    /// the results/history presentation itself: a full-bleed, single-column
+    /// `List` (`resultsList`/`historyList`) reads fine on `.compact`
+    /// (iPhone) but left most of an iPad's width as dead space — the same
+    /// "unmodified iPhone layout" issue Home's rails had. `.regular` gets a
+    /// `PosterGridMetrics`-driven grid (`resultsGrid`/`historyGrid`)
+    /// instead, reusing the exact column-fitting approach
+    /// `CollectionGridView` already established; `.compact` keeps today's
+    /// list untouched.
+    private var usesGridLayout: Bool { horizontalSizeClass == .regular }
+
     var body: some View {
         content
             .navigationTitle("Search")
@@ -102,6 +113,8 @@ struct SearchView: View {
                 let results = viewModel?.results ?? []
                 if results.isEmpty {
                     ContentUnavailableView.search
+                } else if usesGridLayout {
+                    resultsGrid(results)
                 } else {
                     resultsList(results)
                 }
@@ -127,7 +140,11 @@ struct SearchView: View {
         case .available:
             let history = viewModel?.history ?? []
             if !isSearching, !history.isEmpty {
-                historyList(history)
+                if usesGridLayout {
+                    historyGrid(history)
+                } else {
+                    historyList(history)
+                }
             } else {
                 ContentUnavailableView(
                     "Search Your Library",
@@ -179,6 +196,72 @@ struct SearchView: View {
             }
         }
         .listStyle(.plain)
+    }
+
+    /// `.regular`-size-class counterpart to `resultsList` — see
+    /// `usesGridLayout`'s doc comment for why this exists at all. No header,
+    /// matching `resultsList`'s own lack of one.
+    private func resultsGrid(_ results: [SearchResult]) -> some View {
+        GeometryReader { proxy in
+            ScrollView {
+                grid(results, containerWidth: proxy.size.width, onRemove: nil)
+                    .padding(.vertical)
+            }
+        }
+    }
+
+    /// `.regular`-size-class counterpart to `historyList` — same "Recent
+    /// Searches"/"Clear All" header, reused verbatim above the grid rather
+    /// than duplicated. Grid tiles have no swipe gesture to hang a per-entry
+    /// delete off of the way `historyList`'s row does, so
+    /// `SearchResultGridCard` gets a small corner button instead (see
+    /// `onRemove` below) — same visual language (a circular glyph button
+    /// over the artwork) `HeroRailView.heroNavigationButton` already uses
+    /// elsewhere in the app.
+    private func historyGrid(_ history: [SearchResult]) -> some View {
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        Text("Recent Searches")
+                            .font(.title3.bold())
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Clear All") { viewModel?.clearHistory() }
+                            .font(.subheadline)
+                    }
+                    .padding(.horizontal)
+
+                    grid(history, containerWidth: proxy.size.width) { entry in
+                        viewModel?.removeFromHistory(entry)
+                    }
+                }
+                .padding(.vertical)
+            }
+        }
+    }
+
+    /// Shared by `resultsGrid`/`historyGrid` — the only difference between
+    /// the two is whether tiles get a remove button (`onRemove`, `nil` for
+    /// live results). `usesLandscapeTiles` mirrors
+    /// `MediaCollectionRail.usesLandscapeTiles`'s exact rule (landscape if
+    /// *any* item is series/episode-like, decided once for the whole grid,
+    /// not per item — see that property's doc comment for why a mixed-shape
+    /// grid reads worse than a consistent one) rather than inventing a
+    /// different rule for search results.
+    private func grid(_ items: [SearchResult], containerWidth: CGFloat, onRemove: ((SearchResult) -> Void)?) -> some View {
+        let isLandscape = items.contains { $0.kind == .series || $0.kind == .episode }
+        let metrics = PosterGridMetrics(containerWidth: containerWidth, idealItemWidth: isLandscape ? 260 : 160)
+        return LazyVGrid(columns: metrics.columns, spacing: 20) {
+            ForEach(items) { item in
+                SearchResultGridCard(
+                    result: item, imageURL: viewModel?.imageURL(for: item, preferLandscape: isLandscape),
+                    width: metrics.itemWidth, isLandscape: isLandscape, onSelect: { select(item) },
+                    onRemove: onRemove.map { remove in { remove(item) } }
+                )
+            }
+        }
+        .padding(.horizontal)
     }
 
     /// Resolves `result`'s image URL against the ViewModel's current
@@ -265,6 +348,74 @@ private struct SearchResultRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// `.regular`-size-class counterpart to `SearchResultRow` — a poster/
+/// landscape-style tile (visual language borrowed from `PosterCard`/
+/// `LandscapeMediaCard`, not those views themselves; see `PosterCard`'s own
+/// doc comment for why `SearchResult`'s thinner model doesn't fit them
+/// directly). No watch-status/favorite overlay — `SearchResult` carries no
+/// `userData` to draw one from, same gap `SearchResultRow` already has.
+private struct SearchResultGridCard: View {
+    let result: SearchResult
+    let imageURL: URL?
+    let width: CGFloat
+    let isLandscape: Bool
+    let onSelect: () -> Void
+    /// `nil` for a live search result (nothing to remove); non-`nil` for a
+    /// history entry, rendering the small corner button below.
+    var onRemove: (() -> Void)?
+
+    private var imageHeight: CGFloat { isLandscape ? width * 9 / 16 : width * 1.5 }
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Button(action: onSelect) {
+                VStack(alignment: .leading, spacing: 6) {
+                    AsyncRemoteImage(url: imageURL, placeholderSystemImage: result.kind?.placeholderSystemImage ?? "photo")
+                        .frame(width: width, height: imageHeight)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(result.name)
+                            .font(.caption)
+                            .lineLimit(1)
+                            .foregroundStyle(.primary)
+                        if let subtitle = result.subtitle {
+                            Text(subtitle)
+                                .font(.caption2)
+                                .lineLimit(1)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .frame(width: width)
+                .contentShape(Rectangle())
+                // Same house pattern as `PosterCard`/`LandscapeMediaCard`/
+                // `LibraryCard` — see any of their identical blocks for why.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(result.accessibilityDescription)
+                .accessibilityAddTraits(.isButton)
+            }
+            .buttonStyle(.plain)
+
+            if let onRemove {
+                // Same circular-glyph-over-artwork idiom
+                // `HeroRailView.heroNavigationButton` already uses — a grid
+                // tile has no swipe gesture to hang a delete affordance off
+                // of the way `historyList`'s row does.
+                Button(action: onRemove) {
+                    Image(systemName: "xmark")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 24, height: 24)
+                        .background(Circle().fill(.black.opacity(0.55)))
+                }
+                .padding(6)
+                .accessibilityLabel(Text("Remove from history"))
+            }
+        }
     }
 }
 
