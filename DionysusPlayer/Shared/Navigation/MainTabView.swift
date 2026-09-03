@@ -100,10 +100,14 @@ struct MainTabView: View {
             // there's nothing to gate here beyond reading the live count.
             .badge(appState.downloadManager.pendingOrActiveDownloadsCount)
 
-            NavigationStack {
-                ProfileView()
-                    .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
-            }
+            // The only tab not wrapped in a `NavigationStack` here:
+            // `ProfileView` owns its own container because that container
+            // differs by device — a `NavigationSplitView` on iPad, a
+            // `NavigationStack` elsewhere — and a split view nested
+            // inside a stack isn't a supported arrangement. It applies
+            // the same `.navigationDestination(for: AppRoute.self)` in
+            // both of its layouts, so nothing is lost here.
+            ProfileView()
             .tabItem {
                 Label {
                     Text(appState.currentUser?.name ?? String(localized: "Profile"))

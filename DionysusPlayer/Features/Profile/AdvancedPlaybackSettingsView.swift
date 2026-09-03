@@ -52,17 +52,21 @@ struct AdvancedPlaybackSettingsView: View {
                 // Switches with the picker above rather than trying to
                 // explain both modes unconditionally — only ever one is
                 // relevant to what's currently selected.
-                if streamDecisionMode == .allowTranscoding {
-                    Text("Allow Transcoding asks the server to decide, transcoding when necessary — including to keep the stream under the Max Streaming Bitrate cap, even for a file that could otherwise play untouched.")
-                } else {
-                    Text("Direct Play Always sends the original file untouched — best quality, but may fail if your device or network can't handle it.")
+                Group {
+                    if streamDecisionMode == .allowTranscoding {
+                        Text("Allow Transcoding asks the server to decide, transcoding when necessary — including to keep the stream under the Max Streaming Bitrate cap, even for a file that could otherwise play untouched.")
+                    } else {
+                        Text("Direct Play Always sends the original file untouched — best quality, but may fail if your device or network can't handle it.")
+                    }
                 }
+                .readableSettingsFooter()
             }
 
             Section {
                 Toggle("Show Playback Stats Button", isOn: $showPlaybackStatsButtonEnabled)
             } footer: {
                 Text("Shows a button on the player screen for viewing technical playback details.")
+                    .readableSettingsFooter()
             }
         }
         .navigationTitle("Advanced")

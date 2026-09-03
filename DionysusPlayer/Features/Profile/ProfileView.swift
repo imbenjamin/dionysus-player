@@ -1,7 +1,85 @@
 import SwiftUI
 
+/// Which settings pane the iPad sidebar has selected.
+///
+/// Only used by `ProfileView`'s split layout — the compact layout shows
+/// every one of these as a `Section` of one long list instead, so it has
+/// no need for a selection type.
+private enum ProfileSettingsPane: Identifiable, Hashable {
+    /// Selected by the contact card at the top of the sidebar, not by a
+    /// labelled row — which is why this deliberately isn't in `listed`
+    /// below, and why the type is no longer `CaseIterable` (an
+    /// `allCases` that silently included `.account` would put a
+    /// duplicate "Account" row underneath the card).
+    case account
+    case appearance
+    case playback
+    case downloads
+    case about
+
+    var id: Self { self }
+
+    /// The panes shown as labelled sidebar rows, in order. `.account` is
+    /// reachable only through the contact card above them.
+    static let listed: [ProfileSettingsPane] = [.appearance, .playback, .downloads, .about]
+
+    /// `String(localized:)` rather than a bare literal because these are
+    /// consumed by `Label(_:systemImage:)`'s `String` overload, which
+    /// isn't auto-extracted into the String Catalog — see CLAUDE.md's
+    /// Localization section. Every one of these keys already exists in
+    /// the catalog from the section headers/navigation titles they
+    /// duplicate.
+    var title: String {
+        switch self {
+        case .account: return String(localized: "Account")
+        case .appearance: return String(localized: "Appearance")
+        case .playback: return String(localized: "Playback")
+        case .downloads: return String(localized: "Downloads")
+        case .about: return String(localized: "About")
+        }
+    }
+
+    /// Unused for `.account` — the contact card shows the user's avatar
+    /// instead of a symbol — but kept total so `listed`'s `ForEach` needs
+    /// no unwrapping.
+    var systemImage: String {
+        switch self {
+        case .account: return "person.crop.circle"
+        case .appearance: return "paintbrush"
+        case .playback: return "play.rectangle"
+        case .downloads: return "arrow.down.circle"
+        case .about: return "info.circle"
+        }
+    }
+}
+
 /// Account/server settings. For now: show who's signed in and where, plus
 /// sign out / change server.
+///
+/// ## Two layouts
+///
+/// On iPhone this is one scrolling `List` of sections — `compactLayout`,
+/// unchanged from before the iPad work.
+///
+/// On iPad it's a `NavigationSplitView`: the sections become sidebar
+/// items and their contents move into the detail column, mirroring
+/// Settings.app. This isn't cosmetic. Measured on an 11-inch iPad in
+/// landscape (1180x820pt), the single-column layout ran its content to
+/// y=1044 on an 820pt-tall screen — the whole About section and the
+/// version footer sat below the fold while 40% of the screen's *width*
+/// was empty. It also stretched every row to 1140pt, putting ~1,060pt of
+/// horizontal scan between a label like "Theme" and its own value.
+///
+/// The sidebar additionally flattens a level of depth: "Downloads" was a
+/// push from this screen, and is now a sidebar destination in its own
+/// right, so `DownloadsSettingsView`'s own "Advanced" push is the first
+/// push on iPad rather than the second.
+///
+/// This view owns its own navigation container (rather than
+/// `MainTabView` wrapping it in a `NavigationStack` the way the other
+/// three tabs are) precisely because that container differs per layout —
+/// a `NavigationSplitView` nested inside a `NavigationStack` is not a
+/// supported arrangement.
 struct ProfileView: View {
     @Environment(AppState.self) private var appState
     @AppStorage(themePreferenceStorageKey) private var themePreference: ThemePreference = .system
@@ -32,6 +110,21 @@ struct ProfileView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showAccountDetails = false
     @State private var avatarImageURL: URL?
+
+    /// Non-optional default so the detail column never opens empty —
+    /// Settings.app behaves the same way, landing on a real pane rather
+    /// than a "select something" placeholder. Still declared `Optional`
+    /// because that's what `List(selection:)` binds to.
+    @State private var selectedPane: ProfileSettingsPane? = .appearance
+
+    /// See `SettingsLayout`'s top-of-file comment for why this ANDs both
+    /// size classes rather than testing width alone the way the
+    /// Home/Search/Downloads grids do.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    private var usesSplitLayout: Bool {
+        horizontalSizeClass == .regular && verticalSizeClass == .regular
+    }
 
     /// Recomputed on every `body` evaluation — a plain `FileManager`
     /// directory scan (`DownloadFileStore.totalSizeOnDisk()`), not cached
@@ -90,180 +183,13 @@ struct ProfileView: View {
     }
 
     var body: some View {
-        List {
-            // A tappable "contact card" rather than plain rows — tapping it
-            // presents `AccountDetailsSheet`, which holds the
-            // username/server/address detail plus Sign Out/Change Server.
-            Section {
-                Button {
-                    showAccountDetails = true
-                } label: {
-                    HStack(spacing: 12) {
-                        AsyncRemoteImage(url: avatarImageURL, placeholderSystemImage: "person.fill", glyphSize: 24)
-                            .frame(width: 60, height: 60)
-                            .clipShape(Circle())
-                            // Decorative — `accountDisplayName` below already
-                            // identifies who this is; without this, a loaded
-                            // avatar photo (a plain `Image(uiImage:)`, not
-                            // hidden by default) would risk getting folded
-                            // into the row's combined label as a second,
-                            // unlabeled stop.
-                            .accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(accountDisplayName)
-                                .font(.headline)
-                                .foregroundStyle(.primary)
-                            Text(accountServerName)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            // Decorative disclosure affordance, not content —
-                            // same reasoning as the avatar above.
-                            .accessibilityHidden(true)
-                    }
-                    .padding(.vertical, 4)
-                    // Without this, the `Spacer()` above (and the padding)
-                    // paint nothing, so only the avatar/text actually
-                    // hit-test as tappable — a tap anywhere else in the row
-                    // (including the chevron) silently does nothing. This
-                    // makes the whole row's bounds the tap target, matching
-                    // what it visually looks like.
-                    .contentShape(Rectangle())
-                    // Same "one combined accessibility label" shape as the
-                    // Downloads row below (`.ignore` + explicit
-                    // `.accessibilityLabel`), not `.combine` — more robust
-                    // than relying on every child view happening to carry no
-                    // label of its own, and consistent with this file's own
-                    // established pattern. Applied to the label content
-                    // (not the `Button` itself, as `Downloads`'s own
-                    // `LabeledContent` does it) — putting it on the `Button`
-                    // instead would collapse the button's own "Button"
-                    // accessibility trait along with its children, leaving
-                    // VoiceOver with no indication this row is tappable.
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(String(localized: "\(accountDisplayName), \(accountServerName)"))
-                    .accessibilityHint("Shows account details and sign-out options.")
-                }
-                .buttonStyle(.plain)
-            }
-
-            Section("Appearance") {
-                Picker("Theme", selection: $themePreference) {
-                    ForEach(ThemePreference.allCases) { preference in
-                        Text(preference.displayName).tag(preference)
-                    }
-                }
-                Toggle("Auto Carousel on Home", isOn: $autoCarouselEnabled)
-                Toggle(isOn: $hero3DDepthEnabled) {
-                    HStack {
-                        Text("3D Depth Effects")
-                        // `DeviceTiltObserver.shared` (not something local
-                        // to this view) is what actually does the work this
-                        // spinner is standing in for — see its own
-                        // `isApplyingChange` doc comment for why this can
-                        // take a perceptible moment even off the main
-                        // thread: CoreMotion's stop() briefly blocked the
-                        // *entire app* before that existed, which is what
-                        // this spinner is here to explain rather than leave
-                        // silent.
-                        if DeviceTiltObserver.shared.isApplyingChange {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                    }
-                }
-            }
-
-            Section {
-                Picker("Next Episode Countdown", selection: $nextUpCountdown) {
-                    ForEach(NextUpCountdownPreference.allCases) { preference in
-                        Text(preference.displayName)
-                            .accessibilityLabel(preference.accessibilityLabel)
-                            .tag(preference)
-                    }
-                }
-                Toggle("Chapters in Scrubber", isOn: $isChaptersInScrubberEnabled)
-                // Streaming mode/bitrate and the Playback Stats button
-                // toggle live on their own pushed screen — see
-                // `AdvancedPlaybackSettingsView`'s doc comment for why.
-                NavigationLink("Advanced") {
-                    AdvancedPlaybackSettingsView()
-                }
-            } header: {
-                Text("Playback")
-            } footer: {
-                Text("Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging.")
-            }
-
-            Section {
-                NavigationLink {
-                    DownloadsSettingsView()
-                } label: {
-                    LabeledContent("Downloads", value: downloadsStorageUsedText)
-                        // `LabeledContent` already folds its title and
-                        // value into one combined accessibility label by
-                        // default (not a separate label+value pair) —
-                        // `.accessibilityValue` alone just appended a
-                        // second, spoken-out reading on top of that
-                        // existing one ("Downloads. 2.44 GB. 2.44
-                        // gigabytes."), rather than replacing it.
-                        // `.accessibilityElement(children: .ignore)` first
-                        // suppresses that default combine so the explicit
-                        // label below is the only thing read.
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(String(localized: "Downloads, \(Self.spokenFileSize(downloadsStorageUsedText))"))
-                }
-            }
-
-            Section("About") {
-                NavigationLink("License") {
-                    LicenseView()
-                }
-                NavigationLink("Privacy Policy") {
-                    PrivacyPolicyView()
-                }
-            }
-
-            // Page-wide footer (not tied to the section above it): which
-            // branch/commit this build actually came from, plus a link to
-            // the GitHub repo just above it.
-            Section {
-            } footer: {
-                // Tight spacing here because the Link's own frame (below)
-                // already pads the tappable area out to a 44pt touch
-                // target — that padding does double duty as the visual gap
-                // to the version text, so stacking more on top of it would
-                // separate the two too far.
-                VStack(spacing: 0) {
-                    Link(destination: URL(string: "https://github.com/imbenjamin/dionysus-player")!) {
-                        Image("GitHubGlyph")
-                            .renderingMode(.template)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 28, height: 28)
-                            // Glyph itself reads better at 28pt, but pad the
-                            // tappable area out to HIG's 44pt minimum touch
-                            // target rather than sizing the visible mark to
-                            // match — matching visually would look oversized
-                            // next to the caption-sized version text below.
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    // Without this, VoiceOver falls back to the image
-                    // asset's own name ("Github Glyph") rather than what
-                    // the link actually does.
-                    .accessibilityLabel(String(localized: "Open Dionysus Player on GitHub"))
-                    Text(AppVersionInfo.footerText())
-                }
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .center)
+        Group {
+            if usesSplitLayout {
+                splitLayout
+            } else {
+                compactLayout
             }
         }
-        .navigationTitle("Profile & Settings")
         .task(id: appState.currentUser?.id) { await loadAvatarImageURL() }
         .sheet(isPresented: $showAccountDetails) {
             AccountDetailsSheet()
@@ -289,9 +215,343 @@ struct ProfileView: View {
             }
         }
     }
+
+    // MARK: Layouts
+
+    /// iPhone (and any non-iPad regular-width container — see
+    /// `usesSplitLayout`). One list, every section inline.
+    private var compactLayout: some View {
+        NavigationStack {
+            List {
+                Section { accountCard }
+
+                Section("Appearance") { appearanceRows }
+
+                Section {
+                    playbackRows
+                } header: {
+                    Text("Playback")
+                } footer: {
+                    playbackFooter
+                }
+
+                Section { downloadsRow }
+
+                Section("About") { aboutRows }
+
+                // Page-wide footer (not tied to the section above it):
+                // which branch/commit this build actually came from, plus
+                // a link to the GitHub repo just above it.
+                Section {
+                } footer: {
+                    versionFooter
+                }
+            }
+            .navigationTitle("Profile & Settings")
+            .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
+        }
+    }
+
+    /// iPad. Sidebar of panes + detail column, mirroring Settings.app.
+    ///
+    /// The sidebar is pinned open: `.constant(.all)` leaves the system no
+    /// writable binding to collapse it through, and `.toolbar(removing:)`
+    /// takes away the show/hide button that would otherwise sit in the
+    /// sidebar's own toolbar. This is a settings screen with four fixed
+    /// destinations — there's nothing to gain from hiding the only
+    /// navigation it has, and a collapsed sidebar would leave the detail
+    /// pane with no way back to its siblings.
+    private var splitLayout: some View {
+        NavigationSplitView(columnVisibility: .constant(.all)) {
+            sidebar
+        } detail: {
+            // `.id(pane)` rebuilds the stack when the selection changes,
+            // so switching panes can never leave a pushed screen from the
+            // *previous* pane (e.g. Downloads > Advanced) stranded on top
+            // of the new one's root. Costs the pane's scroll position on
+            // return, which is the right trade for a settings screen.
+            let pane = selectedPane ?? .appearance
+            NavigationStack {
+                detailContent(for: pane)
+                    .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
+            }
+            .id(pane)
+        }
+    }
+
+    private var sidebar: some View {
+        List(selection: $selectedPane) {
+            // Tagged, so it selects the Account pane like any other
+            // sidebar row — no `Button`, no sheet. The chevron is dropped
+            // here because it would imply a push; selection highlight is
+            // the affordance instead.
+            Section {
+                accountCardLabel(showsChevron: false)
+                    .tag(ProfileSettingsPane.account)
+            }
+
+            Section {
+                ForEach(ProfileSettingsPane.listed) { pane in
+                    Label(pane.title, systemImage: pane.systemImage)
+                        .tag(pane)
+                }
+            }
+        }
+        .navigationTitle("Profile & Settings")
+        // See `splitLayout` — the sidebar is pinned open, so its toggle
+        // would be a control that does nothing.
+        .toolbar(removing: .sidebarToggle)
+        // Five fixed rows in a full-height column: the content virtually
+        // never fills it, so the scroll view underneath spent its time
+        // rubber-banding and painting a touch highlight in the empty
+        // space below the last row — the sidebar reading as interactive
+        // when it has nothing there to interact with. `.basedOnSize`
+        // makes it inert while the content fits, without hard-disabling
+        // scrolling, which would trap the rows off-screen at the largest
+        // Dynamic Type sizes where they genuinely do overflow.
+        .scrollBounceBehavior(.basedOnSize)
+        // Pinned to the bottom rather than trailing the last section the
+        // way the compact layout's does. The sidebar is far taller than
+        // its four items need, so a footer that simply follows them ends
+        // up stranded in the middle of a large empty column; anchoring it
+        // reads as deliberate instead.
+        .safeAreaInset(edge: .bottom) {
+            versionFooter
+                .padding(.bottom, 8)
+        }
+    }
+
+    /// Section headers are dropped here — the navigation title already
+    /// names the pane, so repeating it immediately underneath just reads
+    /// as a stutter.
+    @ViewBuilder
+    private func detailContent(for pane: ProfileSettingsPane) -> some View {
+        switch pane {
+        case .account:
+            // The same rows the iPhone shows in a sheet — see
+            // `AccountDetailsContent`.
+            AccountDetailsContent()
+                .navigationTitle("Account")
+        case .appearance:
+            List { Section { appearanceRows } }
+                .navigationTitle("Appearance")
+        case .playback:
+            List {
+                Section {
+                    playbackRows
+                } footer: {
+                    playbackFooter
+                }
+            }
+            .navigationTitle("Playback")
+        case .downloads:
+            // The whole screen, not a link to it — this is the level of
+            // depth the sidebar flattens away on iPad. `.large` so its
+            // title matches the other three panes; it defaults to
+            // `.inline` because everywhere *else* it's a pushed
+            // sub-screen.
+            DownloadsSettingsView(titleDisplayMode: .large)
+        case .about:
+            List { Section { aboutRows } }
+                .navigationTitle("About")
+        }
+    }
+
+    // MARK: Shared section content
+    //
+    // Every one of these is used by both layouts — `compactLayout` wraps
+    // them in `Section`s of one list, `detailContent(for:)` gives each its
+    // own pane.
+
+    /// The compact layout's "contact card" — tapping it presents
+    /// `AccountDetailsSheet`, which holds the username/server/address
+    /// detail plus Sign Out/Change Server.
+    ///
+    /// iPad doesn't use this: there the same card is a selectable sidebar
+    /// row (see `sidebar`) that opens the identical content as a detail
+    /// pane, so there's no `Button` and no sheet.
+    private var accountCard: some View {
+        Button {
+            showAccountDetails = true
+        } label: {
+            accountCardLabel(showsChevron: true)
+                .accessibilityHint("Shows account details and sign-out options.")
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The card's visuals, shared by both layouts.
+    ///
+    /// `showsChevron` is false in the sidebar, where a disclosure chevron
+    /// would wrongly imply a push — selection highlight is the affordance
+    /// there.
+    private func accountCardLabel(showsChevron: Bool) -> some View {
+        HStack(spacing: 12) {
+            AsyncRemoteImage(url: avatarImageURL, placeholderSystemImage: "person.fill", glyphSize: 24)
+                .frame(width: 60, height: 60)
+                .clipShape(Circle())
+                // Decorative — `accountDisplayName` below already
+                // identifies who this is; without this, a loaded
+                // avatar photo (a plain `Image(uiImage:)`, not
+                // hidden by default) would risk getting folded
+                // into the row's combined label as a second,
+                // unlabeled stop.
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(accountDisplayName)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(accountServerName)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    // Decorative disclosure affordance, not content —
+                    // same reasoning as the avatar above.
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.vertical, 4)
+        // Without this, the `Spacer()` above (and the padding)
+        // paint nothing, so only the avatar/text actually
+        // hit-test as tappable — a tap anywhere else in the row
+        // (including the chevron) silently does nothing. This
+        // makes the whole row's bounds the tap target, matching
+        // what it visually looks like.
+        .contentShape(Rectangle())
+        // Same "one combined accessibility label" shape as the
+        // Downloads row below (`.ignore` + explicit
+        // `.accessibilityLabel`), not `.combine` — more robust
+        // than relying on every child view happening to carry no
+        // label of its own, and consistent with this file's own
+        // established pattern. Applied to the label content
+        // (not the `Button` itself, as `Downloads`'s own
+        // `LabeledContent` does it) — putting it on the `Button`
+        // instead would collapse the button's own "Button"
+        // accessibility trait along with its children, leaving
+        // VoiceOver with no indication this row is tappable.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(String(localized: "\(accountDisplayName), \(accountServerName)"))
+    }
+
+    @ViewBuilder
+    private var appearanceRows: some View {
+        Picker("Theme", selection: $themePreference) {
+            ForEach(ThemePreference.allCases) { preference in
+                Text(preference.displayName).tag(preference)
+            }
+        }
+        Toggle("Auto Carousel on Home", isOn: $autoCarouselEnabled)
+        Toggle(isOn: $hero3DDepthEnabled) {
+            HStack {
+                Text("3D Depth Effects")
+                // `DeviceTiltObserver.shared` (not something local
+                // to this view) is what actually does the work this
+                // spinner is standing in for — see its own
+                // `isApplyingChange` doc comment for why this can
+                // take a perceptible moment even off the main
+                // thread: CoreMotion's stop() briefly blocked the
+                // *entire app* before that existed, which is what
+                // this spinner is here to explain rather than leave
+                // silent.
+                if DeviceTiltObserver.shared.isApplyingChange {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var playbackRows: some View {
+        Picker("Next Episode Countdown", selection: $nextUpCountdown) {
+            ForEach(NextUpCountdownPreference.allCases) { preference in
+                Text(preference.displayName)
+                    .accessibilityLabel(preference.accessibilityLabel)
+                    .tag(preference)
+            }
+        }
+        Toggle("Chapters in Scrubber", isOn: $isChaptersInScrubberEnabled)
+        // Streaming mode/bitrate and the Playback Stats button
+        // toggle live on their own pushed screen — see
+        // `AdvancedPlaybackSettingsView`'s doc comment for why.
+        NavigationLink("Advanced") {
+            AdvancedPlaybackSettingsView()
+        }
+    }
+
+    private var playbackFooter: some View {
+        Text("Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging.")
+            .readableSettingsFooter()
+    }
+
+    private var downloadsRow: some View {
+        NavigationLink {
+            DownloadsSettingsView()
+        } label: {
+            LabeledContent("Downloads", value: downloadsStorageUsedText)
+                // `LabeledContent` already folds its title and
+                // value into one combined accessibility label by
+                // default (not a separate label+value pair) —
+                // `.accessibilityValue` alone just appended a
+                // second, spoken-out reading on top of that
+                // existing one ("Downloads. 2.44 GB. 2.44
+                // gigabytes."), rather than replacing it.
+                // `.accessibilityElement(children: .ignore)` first
+                // suppresses that default combine so the explicit
+                // label below is the only thing read.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(String(localized: "Downloads, \(Self.spokenFileSize(downloadsStorageUsedText))"))
+        }
+    }
+
+    @ViewBuilder
+    private var aboutRows: some View {
+        NavigationLink("License") {
+            LicenseView()
+        }
+        NavigationLink("Privacy Policy") {
+            PrivacyPolicyView()
+        }
+    }
+
+    private var versionFooter: some View {
+        // Tight spacing here because the Link's own frame (below)
+        // already pads the tappable area out to a 44pt touch
+        // target — that padding does double duty as the visual gap
+        // to the version text, so stacking more on top of it would
+        // separate the two too far.
+        VStack(spacing: 0) {
+            Link(destination: URL(string: "https://github.com/imbenjamin/dionysus-player")!) {
+                Image("GitHubGlyph")
+                    .renderingMode(.template)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 28, height: 28)
+                    // Glyph itself reads better at 28pt, but pad the
+                    // tappable area out to HIG's 44pt minimum touch
+                    // target rather than sizing the visible mark to
+                    // match — matching visually would look oversized
+                    // next to the caption-sized version text below.
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            // Without this, VoiceOver falls back to the image
+            // asset's own name ("Github Glyph") rather than what
+            // the link actually does.
+            .accessibilityLabel(String(localized: "Open Dionysus Player on GitHub"))
+            Text(AppVersionInfo.footerText())
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
 }
 
 #Preview {
-    NavigationStack { ProfileView() }
+    ProfileView()
         .environment(AppState())
 }
