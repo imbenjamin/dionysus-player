@@ -102,7 +102,16 @@ jobs:
   analyze-swift:
     name: Analyze (swift)
     runs-on: macos-latest
-    timeout-minutes: 45
+    # 45 was sized against the default query suite's own ~43-minute
+    # baseline (PR #166's first live run, see the header comment above) —
+    # comfortable at the time, but `security-extended` (added on top for
+    # every non-pull_request trigger, including this job's `push: develop`
+    # one) adds real analysis time of its own, and `develop` pushes started
+    # tipping past 45 once that landed. 90 gives that suite genuine
+    # headroom rather than nudging the number up incrementally each time
+    # it's close; a hung job still gets killed well short of wasting a
+    # full workday of runner time.
+    timeout-minutes: 90
     # Skip only when this is a pull_request into develop — see header.
     if: >-
       github.event_name != 'pull_request' ||
