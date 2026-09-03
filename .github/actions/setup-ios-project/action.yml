@@ -16,7 +16,7 @@ runs:
       # is resolved fresh (uncached) on every run. `latest-stable` at least
       # makes the choice explicit and greppable; swap it for an exact version
       # (e.g. "26.4") the moment a rollover actually breaks something.
-      uses: maxim-lobanov/setup-xcode@v1
+      uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
       with:
         xcode-version: latest-stable
 
