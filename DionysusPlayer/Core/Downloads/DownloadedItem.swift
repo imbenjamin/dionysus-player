@@ -259,6 +259,32 @@ final class DownloadedItem: Identifiable {
         return Int64((totalBitsPerSecond * durationSeconds) / 8)
     }
 
+    /// Whether this item's artwork naturally wants a 16:9 (landscape) frame
+    /// rather than a 2:3 poster — an episode's `Primary` image is a still
+    /// frame, not a poster. Mirrors `SearchResult.isLandscapeShaped`'s rule
+    /// (`kind == .episode || kind == .series`) against the two kinds this
+    /// type actually has; `DownloadsRow.show` supplies the series half of
+    /// that rule itself, since a show group has no single `DownloadedItem`
+    /// to ask.
+    ///
+    /// Callers vote with this across a whole grid rather than applying it
+    /// per tile — see `DownloadsView.isLandscapeShape(_:)`.
+    var isLandscapeShaped: Bool { kind == .episode }
+
+    /// Whichever downloaded artwork file fits the shape the *grid* chose,
+    /// not necessarily this item's own natural kind — the exact preference
+    /// `SearchResult.imageURL(images:preferLandscape:)` applies to its
+    /// remote references, against local relative paths instead. A movie
+    /// mixed into an otherwise episode-heavy landscape grid uses its own
+    /// `Thumb` if one was downloaded, falling back to its poster cropped to
+    /// fill rather than showing no artwork at all; same fallback in reverse
+    /// for an episode in a portrait grid.
+    func artworkRelativePath(preferLandscape: Bool) -> String? {
+        preferLandscape
+            ? (thumbImagePath ?? posterImagePath)
+            : (posterImagePath ?? thumbImagePath)
+    }
+
     /// Same "Xh Ym" formatting as `MediaItem.durationText` — duplicated
     /// rather than shared since this type has no `BaseItemDto` of its own
     /// to share that logic with, just the one line of tick math. Shared

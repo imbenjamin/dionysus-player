@@ -25,7 +25,35 @@ struct DownloadedSeasonView: View {
         episodes.sorted { ($0.episodeNumber ?? 0) < ($1.episodeNumber ?? 0) }
     }
 
+    /// Same `.regular` gate as `DownloadsView.usesGridLayout` — see
+    /// `DownloadsGrid`'s doc comment. Unconditional here (unlike
+    /// `DownloadedShowView`'s), since every row on this screen is an
+    /// episode with its own artwork.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    private var usesGridLayout: Bool { horizontalSizeClass == .regular }
+
     var body: some View {
+        Group {
+            if usesGridLayout {
+                episodeGrid
+            } else {
+                listContent
+            }
+        }
+        .navigationTitle(episodes.first?.seasonNumber.map { String(localized: "Season \($0)") } ?? String(localized: "Season"))
+        // See `DownloadedShowView`'s identical modifier for why.
+        .navigationBarBackButtonHidden(isSelecting)
+        .onAppear(perform: refresh)
+        .toolbar { toolbarContent }
+        .confirmationDialog(
+            deleteConfirmationTitle, isPresented: $showDeleteConfirmation, titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) { deleteSelected() }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private var listContent: some View {
         List {
             ForEach(sortedEpisodes.map(DownloadedEpisodeSummary.init)) { episode in
                 DownloadedEpisodeRow(
@@ -40,14 +68,50 @@ struct DownloadedSeasonView: View {
                 }
             }
         }
-        .navigationTitle(episodes.first?.seasonNumber.map { String(localized: "Season \($0)") } ?? String(localized: "Season"))
-        .onAppear(perform: refresh)
-        .toolbar { toolbarContent }
-        .confirmationDialog(
-            deleteConfirmationTitle, isPresented: $showDeleteConfirmation, titleVisibility: .visible
-        ) {
-            Button("Delete", role: .destructive) { deleteSelected() }
-            Button("Cancel", role: .cancel) {}
+    }
+
+    /// `.regular`-size-class counterpart to `listContent` — see
+    /// `usesGridLayout`. Always landscape-shaped: every tile is an episode.
+    private var episodeGrid: some View {
+        DownloadsGrid(items: sortedEpisodes.map(DownloadedEpisodeSummary.init), isLandscape: true) { episode, width in
+            DownloadsGridCard(
+                title: episode.title,
+                subtitle: episode.episodeLabel,
+                artworkRelativePath: episode.thumbImagePath ?? episode.posterImagePath,
+                placeholderSystemImage: "play.tv",
+                width: width,
+                isLandscape: true,
+                accessibilityLabel: episode.gridAccessibilityLabel,
+                isSelecting: isSelecting,
+                isSelected: selectedEpisodeIDs.contains(episode.itemID),
+                progress: progress(for: episode),
+                isPreparing: isPreparing(episode),
+                statusText: statusText(for: episode),
+                isStatusError: episode.status == .failed,
+                navigationValue: .downloadedAsset(itemID: episode.itemID),
+                onToggleSelection: { toggleSelection(episode.itemID) }
+            )
+        }
+    }
+
+    private func progress(for episode: DownloadedEpisodeSummary) -> DownloadProgress? {
+        guard episode.status == .downloading || episode.status == .queued else { return nil }
+        return downloadManager.activeDownloads[episode.itemID]
+    }
+
+    private func isPreparing(_ episode: DownloadedEpisodeSummary) -> Bool {
+        (episode.status == .downloading || episode.status == .queued) && progress(for: episode) == nil
+    }
+
+    /// Mirrors `DownloadedShowView.statusText(for:)` — same rules, same
+    /// completed-case fallback to the air date/duration line.
+    private func statusText(for episode: DownloadedEpisodeSummary) -> String? {
+        switch episode.status {
+        case .downloading: return progress(for: episode)?.statusText ?? String(localized: "Preparing download\u{2026}")
+        case .queued: return String(localized: "Queued\u{2026}")
+        case .failed: return String(localized: "Download Failed")
+        case .paused: return String(localized: "Paused")
+        case .completed: return episode.metaText
         }
     }
 
@@ -65,7 +129,7 @@ struct DownloadedSeasonView: View {
                     Button(role: .destructive) {
                         showDeleteConfirmation = true
                     } label: {
-                        Image(systemName: "trash")
+                        Image(systemName: "trash").downloadsToolbarTapTarget()
                     }
                     .disabled(selectedEpisodeIDs.isEmpty)
                 }
@@ -74,7 +138,7 @@ struct DownloadedSeasonView: View {
                     Button {
                         beginSelecting()
                     } label: {
-                        Image(systemName: "trash")
+                        Image(systemName: "trash").downloadsToolbarTapTarget()
                     }
                 }
             }
