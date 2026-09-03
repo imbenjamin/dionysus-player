@@ -88,7 +88,14 @@ private struct PlaylistItemRow: View {
             // risks having its taps swallowed by the outer one instead of
             // reaching it. This keeps the two as independent sibling tap
             // targets layered on the same thumbnail instead.
-            ZStack(alignment: .topTrailing) {
+            //
+            // `.bottomTrailing`, not `.topTrailing` — the corner scheme this
+            // thumbnail follows is favorite (top-left) / watched (top-right)
+            // / show logo (bottom-left) / download (bottom-right), so the
+            // download badge below doesn't land on top of
+            // `watchStatusOverlay`'s watched-eye badge, which already owns
+            // top-right.
+            ZStack(alignment: .bottomTrailing) {
                 Button(action: onPlay) {
                     ZStack {
                         AsyncRemoteImage(
