@@ -141,8 +141,14 @@ final class DownloadStore {
     func isImagePathReferenced(_ relativePath: String, excludingItemID: String, among items: [DownloadedItem]) -> Bool {
         items.contains { item in
             guard item.itemID != excludingItemID else { return false }
-            return [item.posterImagePath, item.backdropImagePath, item.logoImagePath, item.thumbImagePath]
-                .contains(relativePath)
+            // Chapter stills are checked alongside the four single-image
+            // fields — they live in the same shared, content-addressed pool,
+            // so a path still named by any other row's chapter list must
+            // keep its file, exactly as a shared series logo does.
+            if [item.posterImagePath, item.backdropImagePath, item.logoImagePath, item.thumbImagePath].contains(relativePath) {
+                return true
+            }
+            return item.chapters.contains { $0.imageRelativePath == relativePath }
         }
     }
 }

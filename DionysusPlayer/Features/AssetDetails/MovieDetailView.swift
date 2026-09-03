@@ -91,6 +91,22 @@ struct MovieDetailView: View {
                     // (resetting scroll position) with no benefit.
                     .id(refreshTrigger)
 
+                    // Between the tabs and the related-content rails — a
+                    // chapter belongs to *this* item (like everything above
+                    // it) rather than pointing at other items (like the two
+                    // rails below). `item.chapters` is already empty for
+                    // anything without real chapters, including Jellyfin's
+                    // single-dummy-chapter case — see `MediaItem.chapters`.
+                    if !item.chapters.isEmpty {
+                        ChapterRailView(chapters: item.chapters) { chapter in
+                            playbackRequest = PlaybackRequest(
+                                itemID: item.id,
+                                mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: item.id),
+                                startSeconds: chapter.startSeconds
+                            )
+                        }
+                    }
+
                     if !viewModel.collections.isEmpty {
                         MediaRailView(rail: MediaCollectionRail(
                             title: String(localized: "Included In"), items: viewModel.collections
@@ -133,6 +149,7 @@ struct MovieDetailView: View {
         ) { request in
             PlayerView(
                 itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID,
+                startSeconds: request.startSeconds,
                 onPlaybackEnded: { viewModel.applyOptimisticPlaybackPosition($0) }
             )
         }

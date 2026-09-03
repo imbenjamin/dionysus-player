@@ -22,6 +22,29 @@ struct ImageURLBuilder: Equatable {
         return components.url
     }
 
+    /// URL for one chapter's still frame. Same `Items/{id}/Images/{type}`
+    /// route and query shape (`tag`/`maxWidth`/`ApiKey`) as `url(itemID:...)`
+    /// above, plus a trailing index path segment — Jellyfin addresses a
+    /// chapter image by the chapter's own 0-based position in the item's
+    /// `Chapters` array, since a `ChapterInfoDto` carries no id of its own.
+    ///
+    /// `tag` is non-optional here, unlike `url(itemID:...)`'s: a chapter with
+    /// no `imageTag` has no image at all (see `ChapterInfoDto.imageTag`), so
+    /// there's no "tagless but still serves something" case to allow for the
+    /// way an episode's Primary image has.
+    func chapterImageURL(itemID: String, chapterIndex: Int, tag: String, maxWidth: Int? = nil) -> URL? {
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent("Items/\(itemID)/Images/Chapter/\(chapterIndex)"),
+            resolvingAgainstBaseURL: false
+        ) else { return nil }
+
+        var query: [URLQueryItem] = [.init(name: "tag", value: tag)]
+        if let maxWidth { query.append(.init(name: "maxWidth", value: String(maxWidth))) }
+        if let accessToken { query.append(.init(name: "ApiKey", value: accessToken)) }
+        components.queryItems = query
+        return components.url
+    }
+
     /// URL for a user's profile picture. Uses Jellyfin's `Users/{id}/Images/{type}`
     /// endpoint (distinct from item images); `tag` should be `UserDto.primaryImageTag`.
     func userImageURL(userID: String, imageType: String = "Primary", tag: String? = nil, maxWidth: Int? = nil) -> URL? {

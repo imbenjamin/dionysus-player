@@ -401,9 +401,14 @@ final class DownloadManager: NSObject {
         async let thumbPathTask = downloadImageIfNeeded(sourceItemID: item.id, imageType: "Thumb", tag: item.dto.imageTags?["Thumb"], maxWidth: 500, images: images)
         async let segmentDTOsTask = (try? await client.mediaSegments(itemID: item.id)) ?? []
         async let trickplayInfoTask = downloadTrickplayTiles(itemID: item.id, mediaSourceID: mediaSourceID, client: client, userID: userID, images: images)
+        // `item.chapters` is already populated — `JellyfinAPIClient
+        // .detailFields` carries `Chapters`, so every DTO that reaches this
+        // method has them, with no extra fetch of its own the way trickplay
+        // needs one.
+        async let chaptersTask = downloadChapterImages(itemID: item.id, chapters: item.chapters, images: images)
 
-        let (posterPath, backdropPath, logoPath, thumbPath, segmentDTOs, trickplayInfo) = await (
-            posterPathTask, backdropPathTask, logoPathTask, thumbPathTask, segmentDTOsTask, trickplayInfoTask
+        let (posterPath, backdropPath, logoPath, thumbPath, segmentDTOs, trickplayInfo, chapters) = await (
+            posterPathTask, backdropPathTask, logoPathTask, thumbPathTask, segmentDTOsTask, trickplayInfoTask, chaptersTask
         )
 
         downloaded.posterImagePath = posterPath
@@ -414,6 +419,7 @@ final class DownloadManager: NSObject {
             guard let kind = Self.downloadedSegmentKind(from: dto.type) else { return nil }
             return DownloadedSegment(kind: kind, startSeconds: Double(dto.startTicks) / 10_000_000, endSeconds: Double(dto.endTicks) / 10_000_000)
         }
+        downloaded.chapters = chapters
         downloaded.trickplayInfo = trickplayInfo
         downloaded.subtitleFiles = await downloadSubtitles(
             itemID: item.id, mediaSourceID: mediaSourceID, tracks: subtitleTracks, client: client
@@ -602,6 +608,107 @@ final class DownloadManager: NSObject {
             await group.waitForAll()
         }
         return info
+    }
+
+    /// Captures this item's chapter markers, fetching each chapter's still
+    /// frame into the shared, content-addressed image pool so the offline
+    /// detail page's Chapters rail and the player's chapter picker have
+    /// artwork with no network — the chapter counterpart to
+    /// `downloadTrickplayTiles`, and shaped the same way.
+    ///
+    /// Entirely best-effort per chapter: a failed (or absent) image just
+    /// leaves that entry's `imageRelativePath` `nil`, which renders as
+    /// `MediaPlaceholderBox` rather than failing the download. A chapter
+    /// with no `imageTag` is never even attempted — that's Jellyfin's
+    /// definitive "no image here" signal (see `ChapterInfoDto.imageTag`),
+    /// unlike the tagless-but-still-served Primary images
+    /// `downloadImageIfNeeded` deliberately allows for.
+    ///
+    /// Takes the already-mapped `[Chapter]` rather than the raw DTOs so the
+    /// "a single dummy chapter means no chapters" rule stays in exactly one
+    /// place (`MediaItem.chapters`).
+    ///
+    /// Concurrent and bounded to `maxConcurrentTrickplaySheetDownloads`, the
+    /// same shape (and for the same reason) `downloadTrickplayTiles` uses:
+    /// a feature film can carry 30+ chapters, and this whole batch is
+    /// awaited *before* `queueVideoDownload` starts the actual transfer, so
+    /// fetching them one round trip at a time would visibly delay the start
+    /// of every download against a slow server. Results are re-sorted by
+    /// chapter index afterwards — a task group completes in whatever order
+    /// the network happens to finish in, and the stored list has to stay in
+    /// timeline order.
+    private func downloadChapterImages(itemID: String, chapters: [Chapter], images: ImageURLBuilder) async -> [DownloadedChapter] {
+        // Read once here and captured by value below — same reasoning
+        // `downloadTrickplayTiles` spells out: `URLSession` is `Sendable`,
+        // so hoisting it lets each child task run fully `nonisolated`
+        // instead of hopping back to this `@MainActor` type just to read
+        // it. Worth more here than it looks: without it, each chapter's
+        // ~100KB `DownloadFileStore.write` would be a synchronous disk
+        // write on the main thread, 30+ times over for a feature film.
+        let session = adHocFetchSession
+        var stored: [DownloadedChapter] = []
+        await withTaskGroup(of: DownloadedChapter.self) { group in
+            for (offset, chapter) in chapters.enumerated() {
+                if offset >= Self.maxConcurrentTrickplaySheetDownloads, let finished = await group.next() {
+                    stored.append(finished)
+                }
+                group.addTask {
+                    var relativePath: String?
+                    if let tag = chapter.imageTag {
+                        relativePath = await Self.downloadChapterImage(
+                            itemID: itemID, chapterIndex: chapter.index, tag: tag, images: images, session: session
+                        )
+                    }
+                    return DownloadedChapter(
+                        index: chapter.index,
+                        name: chapter.name,
+                        startSeconds: chapter.startSeconds,
+                        imageRelativePath: relativePath
+                    )
+                }
+            }
+            for await finished in group {
+                stored.append(finished)
+            }
+        }
+        return stored.sorted { $0.index < $1.index }
+    }
+
+    /// One chapter still, stored under the same content-addressed
+    /// `(sourceItemID, imageType, tag)` identity every other downloaded
+    /// image uses — with the chapter *index* folded into the type segment
+    /// (`"Chapter0"`, `"Chapter1"`, …), since a single item's chapters can
+    /// and do share one `imageTag` value, which a plain `"Chapter"` type
+    /// would collapse into a single file. Not a call to
+    /// `downloadImageIfNeeded` for the same reason: this route needs the
+    /// index in its *URL* too, which that helper's `url(itemID:imageType:…)`
+    /// can't build.
+    ///
+    /// `nonisolated static`, taking its `session` as a parameter, so
+    /// `downloadChapterImages`' task group can call it without hopping back
+    /// to this `@MainActor` type — see that method's own comment.
+    private nonisolated static func downloadChapterImage(
+        itemID: String, chapterIndex: Int, tag: String, images: ImageURLBuilder, session: URLSession
+    ) async -> String? {
+        let imageType = "Chapter\(chapterIndex)"
+        let relativePath = DownloadFileStore.imageRelativePath(sourceItemID: itemID, imageType: imageType, tag: tag)
+        if DownloadFileStore.imageAlreadyExists(sourceItemID: itemID, imageType: imageType, tag: tag) {
+            return relativePath
+        }
+        guard let url = images.chapterImageURL(itemID: itemID, chapterIndex: chapterIndex, tag: tag, maxWidth: 640) else { return nil }
+        do {
+            let (data, response) = try await session.data(from: url)
+            // An unexpected 404 here is a normal outcome, not an error worth
+            // surfacing — an older/unpatched server can report a phantom tag
+            // for a chapter it has no image for. Same explicit status check
+            // `downloadImageIfNeeded` makes, and for the same reason:
+            // `URLSession.data(from:)` doesn't throw on a 404.
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty else { return nil }
+            try DownloadFileStore.write(data, toRelativePath: relativePath)
+            return relativePath
+        } catch {
+            return nil
+        }
     }
 
     /// `error.localizedDescription` alone surfaces a raw system string for
@@ -1115,10 +1222,18 @@ final class DownloadManager: NSObject {
     func delete(itemID: String) {
         guard let downloaded = store.item(itemID: itemID) else { return }
         DownloadFileStore.deleteItemFiles(itemID: itemID)
-        // Fetched once and reused across all four checks below, rather than
-        // each independently re-fetching the full table.
+        // Fetched once and reused across every check below, rather than each
+        // independently re-fetching the full table.
         let allItems = store.allItems()
-        for path in [downloaded.posterImagePath, downloaded.backdropImagePath, downloaded.logoImagePath, downloaded.thumbImagePath] {
+        // Chapter stills live in the same shared, content-addressed image
+        // pool as the four fields above (they're per-item in practice, but
+        // the pool's reference check is what decides that, not this call
+        // site), so they need the same guarded unlink rather than a blind
+        // delete — without this they'd simply leak on every deletion.
+        let sharedImagePaths = [
+            downloaded.posterImagePath, downloaded.backdropImagePath, downloaded.logoImagePath, downloaded.thumbImagePath
+        ] + downloaded.chapters.map(\.imageRelativePath)
+        for path in sharedImagePaths {
             DownloadFileStore.deleteImageIfUnreferenced(relativePath: path, excludingItemID: itemID, store: store, among: allItems)
         }
         // `delegates[itemID] != nil` is exactly "this item's background

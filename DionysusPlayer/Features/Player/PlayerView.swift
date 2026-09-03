@@ -10,6 +10,20 @@ struct PlayerView: View {
     let itemID: String
     var startFromBeginning: Bool = false
     var mediaSourceID: String? = nil
+    /// An explicit position to start at, from a Chapters rail tap
+    /// (`PlaybackRequest.startSeconds`). Reuses `PlayerViewModel
+    /// .start(resumeSeconds:)`'s existing override — it already beats the
+    /// server's saved resume position outright when non-nil — rather than
+    /// adding a second start-position mechanism.
+    ///
+    /// The one wrinkle is the *first* chapter, which starts at exactly `0`:
+    /// `start(resumeSeconds:)` only honors a value `> 0`, so on its own a
+    /// "Chapter 1" tap would fall through to the saved resume position and
+    /// land somewhere mid-item. `setUpIfNeeded()` therefore also forces
+    /// `startFromBeginning` whenever this is non-nil, which is what a
+    /// chapter deep link means either way: play from *here*, not from
+    /// wherever this item was last left.
+    var startSeconds: TimeInterval? = nil
     /// Fired from `close()` with this session's final position — see
     /// `PlaybackSessionOutcome`'s own doc comment for why. `nil` (the
     /// default) for any presentation that doesn't need it.
@@ -80,6 +94,11 @@ struct PlayerView: View {
     /// would fade the whole controls row (picker included) out from under
     /// the user reading it.
     @State private var isShowingTrackPicker = false
+    /// Whether `ChapterPickerOverlay` is showing — lives here rather than as
+    /// `PlayerControlsOverlay`'s own local `@State` for exactly the reason
+    /// `isShowingTrackPicker` above does: `scheduleAutoHide()` has to be
+    /// able to see that a panel is open.
+    @State private var isShowingChapterPicker = false
     /// Mirrors `RotationLock`'s app-wide state for the button's own icon —
     /// see `toggleRotationLock()`/`close()` for why this view is what keeps
     /// the two in sync rather than `PlayerControlsOverlay` reading
@@ -233,6 +252,7 @@ struct PlayerView: View {
                     isScrubbing: $isScrubbing,
                     scrubTime: $scrubTime,
                     isShowingTrackPicker: $isShowingTrackPicker,
+                    isShowingChapterPicker: $isShowingChapterPicker,
                     onClose: { Task { await close() } },
                     isRotationLocked: isRotationLocked,
                     onToggleRotationLock: toggleRotationLock,
@@ -550,6 +570,11 @@ struct PlayerView: View {
         // closing it starts a fresh countdown, the same "you get another
         // full `autoHideDelay` after an interaction" treatment every other
         // tap in this screen already gets via `onInteract`.
+        // Same treatment for the chapter picker — see the track picker's own
+        // `onChange` just below.
+        .onChange(of: isShowingChapterPicker) { _, _ in
+            scheduleAutoHide()
+        }
         .onChange(of: isShowingTrackPicker) { _, _ in
             scheduleAutoHide()
         }
@@ -644,7 +669,8 @@ struct PlayerView: View {
     /// decides whether a fade should happen at all.
     private func scheduleAutoHide() {
         autoHideTask?.cancel()
-        guard showControls, !isShowingTrackPicker, !voiceOverEnabled, viewModel?.state == .playing else { return }
+        guard showControls, !isShowingTrackPicker, !isShowingChapterPicker,
+              !voiceOverEnabled, viewModel?.state == .playing else { return }
         autoHideTask = Task {
             try? await Task.sleep(for: Self.autoHideDelay)
             guard !Task.isCancelled else { return }
@@ -680,12 +706,16 @@ struct PlayerView: View {
         }
         let newViewModel = PlayerViewModel(
             client: client, userID: userID, itemID: itemID, engine: engine,
-            startFromBeginning: startFromBeginning, mediaSourceID: mediaSourceID,
+            // `|| startSeconds != nil` — see `startSeconds`' doc comment for
+            // why a chapter deep link has to suppress the saved resume
+            // position explicitly rather than relying on `resumeSeconds`
+            // alone (which a first chapter's `0` can't do).
+            startFromBeginning: startFromBeginning || startSeconds != nil, mediaSourceID: mediaSourceID,
             downloadedItem: downloadedItem, downloadStore: downloadedItem != nil ? appState.downloadManager.store : nil,
             playbackQueue: playbackQueue
         )
         viewModel = newViewModel
-        await newViewModel.start()
+        await newViewModel.start(resumeSeconds: startSeconds)
     }
 
     /// Flips `RotationLock` and this view's own mirror of it together — see

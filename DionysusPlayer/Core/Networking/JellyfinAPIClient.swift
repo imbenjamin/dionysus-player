@@ -121,7 +121,14 @@ actor JellyfinAPIClient {
     /// Not `private` — `episodes(seriesID:seasonID:userID:fields:)` needs an
     /// external caller able to opt into this heavier field list (see that
     /// method's own doc comment for why `SeasonEpisodeList` does).
-    static let detailFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,MediaSources,People,Taglines,BasicSyncInfo"
+    /// `Chapters` sits here rather than behind an opt-in like `Trickplay`
+    /// below — it's cheap metadata already in the item's own database row
+    /// (a handful of name/tick/tag triples), the same tier as
+    /// `Genres`/`Studios`, and both consumers of this constant need it:
+    /// `AssetDetailViewModel` for the detail page's Chapters rail *and*
+    /// `PlayerViewModel.start()`, which fetches its own DTO independently
+    /// for the player's chapter scrubber/picker.
+    static let detailFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,MediaSources,People,Taglines,Chapters,BasicSyncInfo"
     /// `detailFields` plus `Trickplay` — `PlayerViewModel.start()`'s own
     /// item fetch passes this explicitly (see `item(userID:itemID:fields:)`'s
     /// doc comment for why `detailFields` itself doesn't carry this).

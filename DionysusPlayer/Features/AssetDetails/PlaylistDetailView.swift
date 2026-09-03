@@ -125,6 +125,7 @@ struct PlaylistDetailView: View {
         ) { request in
             PlayerView(
                 itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID,
+                startSeconds: request.startSeconds,
                 onPlaybackEnded: { viewModel.applyOptimisticPlaybackPosition($0) },
                 onRequestNextItem: { pendingNextItemID = $0 },
                 playbackQueue: viewModel.orderedPlaylistItems

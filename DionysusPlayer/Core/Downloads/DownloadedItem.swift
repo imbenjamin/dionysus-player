@@ -44,6 +44,27 @@ struct DownloadedSegment: Codable, Equatable {
     var endSeconds: Double
 }
 
+/// Mirrors `Chapter` for offline storage, the same way `DownloadedSegment`
+/// mirrors `PlaybackSegment` — a plain index/name/start-seconds snapshot,
+/// plus the relative path of the chapter's still frame if one was
+/// successfully fetched at enqueue time (`DownloadManager
+/// .downloadChapterImages`). Not `Chapter` itself: that type resolves an
+/// `ImageURLBuilder`-built network URL and has no `Codable` conformance,
+/// neither of which makes sense on disk.
+///
+/// `index` is preserved rather than re-derived from array position so a
+/// rebuilt `Chapter` keeps the same displayed "Chapter N" fallback number
+/// it had online, even if a future best-effort fetch ever ends up storing a
+/// partial list.
+struct DownloadedChapter: Codable, Equatable {
+    var index: Int
+    var name: String
+    var startSeconds: Double
+    /// Relative to `DownloadFileStore`'s root; `nil` when the chapter has no
+    /// image server-side, or its best-effort fetch failed.
+    var imageRelativePath: String?
+}
+
 /// A cast/crew credit captured at download time — name/role only, no
 /// headshot image (explicit scope cut to bound per-item storage; offline
 /// cast rows fall back to a generic person glyph).
@@ -186,6 +207,15 @@ final class DownloadedItem: Identifiable {
     var logoImagePath: String?
     var thumbImagePath: String?
     var segments: [DownloadedSegment]
+    /// Chapter markers captured at enqueue time, so the offline detail
+    /// page's Chapters rail and the player's chapter scrubber/picker work
+    /// identically offline. Declared with a default value (unlike
+    /// `segments` above, which predates any shipped store) so SwiftData can
+    /// migrate an existing on-disk row lightweightly rather than needing a
+    /// schema version bump. `[]` for a download taken from an item with no
+    /// real chapters — see `MediaItem.chapters`' single-entry rule, applied
+    /// before this is ever populated.
+    var chapters: [DownloadedChapter] = []
     /// `nil` when this download has no scrub-preview thumbnails — either
     /// the source item had no trickplay track scanned by the server yet
     /// (see `BaseItemDto.trickplay`'s own doc comment), or the fetch for it
@@ -371,6 +401,7 @@ final class DownloadedItem: Identifiable {
         logoImagePath: String? = nil,
         thumbImagePath: String? = nil,
         segments: [DownloadedSegment] = [],
+        chapters: [DownloadedChapter] = [],
         trickplayInfo: TrickplayInfo? = nil
     ) {
         self.itemID = itemID
@@ -417,6 +448,7 @@ final class DownloadedItem: Identifiable {
         self.logoImagePath = logoImagePath
         self.thumbImagePath = thumbImagePath
         self.segments = segments
+        self.chapters = chapters
         self.trickplayInfo = trickplayInfo
     }
 }

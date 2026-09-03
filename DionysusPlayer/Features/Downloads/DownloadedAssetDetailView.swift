@@ -38,6 +38,10 @@ struct DownloadedAssetDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var isPlayerPresented = false
     @State private var startFromBeginning = false
+    /// An explicit start position from a Chapters rail tap — cleared by
+    /// Play/Restart so an ordinary play after a chapter jump doesn't inherit
+    /// the previous tap's position. See `PlayerView.startSeconds`.
+    @State private var startSeconds: TimeInterval?
     @State private var showDeleteConfirmation = false
     /// Bumped from `fullScreenCover(onDismiss:)` — forces this view's `body`
     /// to re-run once the Player closes, same fix as `MovieDetailView
@@ -89,10 +93,12 @@ struct DownloadedAssetDetailView: View {
                                 client: client,
                                 onPlay: {
                                     startFromBeginning = false
+                                    startSeconds = nil
                                     isPlayerPresented = true
                                 },
                                 onRestart: {
                                     startFromBeginning = true
+                                    startSeconds = nil
                                     isPlayerPresented = true
                                 }
                             )
@@ -100,6 +106,21 @@ struct DownloadedAssetDetailView: View {
                             DownloadedDetailTabsView(item: item, fileSizeBytes: fileSizeBytes)
                         }
                         .padding(.horizontal)
+
+                        // Same slot and same component as the live pages'
+                        // Chapters rail (`MovieDetailView`), sourced from
+                        // the download's own snapshot instead of a live
+                        // `MediaItem` — `Chapter.init(downloaded:)` resolves
+                        // each still to the already-stored `file://` copy.
+                        // Empty for a download taken before chapter support
+                        // existed, which simply hides the rail.
+                        if !item.chapters.isEmpty {
+                            ChapterRailView(chapters: item.chapters.map(Chapter.init(downloaded:))) { chapter in
+                                startFromBeginning = false
+                                startSeconds = chapter.startSeconds
+                                isPlayerPresented = true
+                            }
+                        }
                     }
                     .padding(.bottom, 32)
                 }
@@ -130,7 +151,10 @@ struct DownloadedAssetDetailView: View {
                     Button("Cancel", role: .cancel) {}
                 }
                 .fullScreenCover(isPresented: $isPlayerPresented, onDismiss: { refreshTrigger = UUID() }) {
-                    PlayerView(itemID: item.itemID, startFromBeginning: startFromBeginning, downloadedItem: item)
+                    PlayerView(
+                        itemID: item.itemID, startFromBeginning: startFromBeginning,
+                        startSeconds: startSeconds, downloadedItem: item
+                    )
                 }
             } else {
                 ErrorStateView(message: String(localized: "This download is no longer available."), retry: nil)

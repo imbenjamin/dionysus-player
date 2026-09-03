@@ -72,6 +72,31 @@ final class PlayerViewModel {
     /// read — see that property's own doc comment.
     private(set) var mediaSegments: [PlaybackSegment] = []
 
+    /// This item's chapter markers, driving `PlayerControlsOverlay`'s
+    /// segmented scrubber, magnetic snap, current-chapter button, and
+    /// chapter picker. Unlike `mediaSegments` (a separate endpoint, fetched
+    /// fire-and-forget), these ride along on the item DTO `start()` already
+    /// fetches — `Fields=Chapters` is part of `JellyfinAPIClient
+    /// .detailFields` — so they're set synchronously with `item` rather than
+    /// arriving later. Offline sessions get them from the download's own
+    /// snapshot instead (`startOffline`).
+    ///
+    /// Empty means "no chapter UI at all", which includes Jellyfin's
+    /// single-dummy-chapter case — that rule lives in `MediaItem.chapters`,
+    /// so nothing downstream re-applies it.
+    private(set) var chapters: [Chapter] = []
+
+    /// The chapter the playhead is currently inside — the last one starting
+    /// at or before `currentTime`. `nil` when this item has no chapters.
+    /// Computed rather than cached (unlike `endCreditsSegment`): it's read
+    /// only from view code that's already re-rendering on `currentTime`
+    /// anyway, and a chapter list is short enough that a `last(where:)` scan
+    /// per render is cheaper than the staleness risk of a second cached
+    /// value to keep in sync.
+    var currentChapter: Chapter? {
+        chapters.chapter(at: currentTime)
+    }
+
     let engine: PlaybackEngine
     let itemID: String
     let startFromBeginning: Bool
@@ -476,6 +501,9 @@ final class PlayerViewModel {
             }
             let mediaItem = MediaItem(dto: dto, images: images)
             item = mediaItem
+            // Straight off the DTO just fetched — no separate request, see
+            // `chapters`' own doc comment.
+            chapters = mediaItem.chapters
             // Title/subtitle land immediately so the lock screen/Control
             // Center have *something* as soon as this resolves — artwork
             // trails in separately once fetched (see
@@ -639,6 +667,10 @@ final class PlayerViewModel {
         activeMediaSourceID = downloadedItem.mediaSourceID
         mediaSegments = downloadedItem.segments.map(PlaybackSegment.init(downloaded:))
         endCreditsSegment = mediaSegments.filter { $0.kind == .outro }.max { $0.startSeconds < $1.startSeconds }
+        // Empty for a download taken before chapter support existed, or one
+        // whose item genuinely had no chapters — same "no chapter UI"
+        // outcome either way, see `chapters`' own doc comment.
+        chapters = downloadedItem.chapters.map(Chapter.init(downloaded:))
         // `nil` (no scrub thumbnails offline) when this download predates
         // trickplay support, or its own best-effort fetch at enqueue time
         // came up empty — see `DownloadedItem.trickplayInfo`'s own doc
