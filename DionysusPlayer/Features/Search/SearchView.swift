@@ -429,13 +429,23 @@ private struct SearchResultGridCard: View {
                 // Same circular-glyph-over-artwork idiom
                 // `HeroRailView.heroNavigationButton` already uses — a grid
                 // tile has no swipe gesture to hang a delete affordance off
-                // of the way `historyList`'s row does.
+                // of the way `historyList`'s row does. Unlike that button,
+                // this one's *visible* circle is deliberately smaller (24pt,
+                // sized to look right on a tile this size) than its
+                // *tappable* area — the outer `.frame`+`.contentShape` grow
+                // the actual tap target to the same 44x44pt
+                // `heroNavigationButton` uses outright, matching HIG's
+                // mobile minimum control size. Found during an iPad HIG
+                // review (2026-09-03): this used to size the button to the
+                // glyph itself (24x24), under HIG's stated 28x28 floor.
                 Button(action: onRemove) {
                     Image(systemName: "xmark")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(.white)
                         .frame(width: 24, height: 24)
                         .background(Circle().fill(.black.opacity(0.55)))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .padding(6)
                 .accessibilityLabel(Text("Remove from history"))
