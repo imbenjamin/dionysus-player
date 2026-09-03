@@ -13,6 +13,13 @@ on:
   pull_request:
     branches: [ "stable", "develop" ]
 
+# This job only checks out code, builds, and tests — no step needs write
+# access to anything. Scoped explicitly rather than left to the repo-wide
+# default (which may not always be read-only) — see release.yml's
+# `permissions` comment for why write access is scoped per-workflow here.
+permissions:
+  contents: read
+
 concurrency:
   # Superseded pushes to the same PR are worth cancelling; a ~7 minute run
   # per force-push otherwise queues up behind itself.
