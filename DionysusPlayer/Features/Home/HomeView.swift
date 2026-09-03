@@ -133,6 +133,14 @@ struct HomeView: View {
             guard !oldPath.isEmpty, newPath.isEmpty else { return }
             Task { await viewModel?.softRefresh() }
         }
+        // Measured once here (this view's own frame, not inside the
+        // `ScrollView`'s scrolled content — safe area insets don't change
+        // as content scrolls, so this doesn't reheat the perf trap
+        // `ScrollBottomObserver`'s doc comment describes for continuous
+        // offset tracking) rather than read via the UIKit window lookup
+        // `topSafeAreaInset` used to be — see that property's doc comment
+        // for why the window's raw `safeAreaInsets` isn't the same number.
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topSafeAreaInset = $0 }
     }
 
     private var refreshButton: some View {
@@ -211,18 +219,24 @@ struct HomeView: View {
         }
     }
 
-    /// The key window's top safe area inset (status bar/notch/Dynamic
-    /// Island height) — used to bleed `HeroRailView` under it via negative
-    /// padding rather than `.ignoresSafeArea`; see that padding's own doc
-    /// comment in `content` for why. A plain UIKit lookup rather than a
-    /// `GeometryReader`-based one (SwiftUI has no direct environment value
-    /// for this) — cheap, and this app is single-scene/single-window, so
-    /// `.first` is always the right window.
-    private var topSafeAreaInset: CGFloat {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first?.windows.first(where: \.isKeyWindow)?.safeAreaInsets.top ?? 0
-    }
+    /// This view's own effective top safe area inset — used to bleed
+    /// `HeroRailView` under it via negative padding rather than
+    /// `.ignoresSafeArea`; see that padding's own doc comment in `content`
+    /// for why. Populated by `.onGeometryChange` on `body`, not a plain
+    /// UIKit window lookup (tried first, and wrong on iPad): the window's
+    /// raw `safeAreaInsets.top` is only the device's own status
+    /// bar/notch/Dynamic Island inset, but on iPad the floating top tab
+    /// bar SwiftUI draws for `MainTabView` (the OS-default placement there,
+    /// distinct from iPhone's bottom bar) adds its own top safe-area inset
+    /// on top of that via `TabView`'s internal `.safeAreaInset(edge: .top)`
+    /// — invisible to a raw UIKit query, but included in this view's own
+    /// `GeometryProxy.safeAreaInsets` since it shares the same environment
+    /// the tab bar's inset was applied into. Using the window-only number
+    /// undercounted the true inset by the tab bar's height on iPad,
+    /// leaving the hero flush below the tab bar with a bare gap above it
+    /// instead of bleeding to the physical top edge like the detail pages'
+    /// `.ignoresSafeArea(edges: .top)` do.
+    @State private var topSafeAreaInset: CGFloat = 0
 
     /// Only reached once `placeholderState` is `nil` — there's always at
     /// least one of hero items/libraries/rails to show here.
