@@ -37,10 +37,27 @@ struct SearchView: View {
     /// awkwardly still focused and empty.
     @Environment(\.dismissSearch) private var dismissSearch
 
+    /// `.searchable`'s own `.automatic` placement (the default, left
+    /// implicit before this) resolves differently per size class: on
+    /// `.compact` (iPhone) it's an always-visible inline field right below
+    /// the nav bar, but on `.regular` (iPad, and iPhone Pro Max/Plus/Air in
+    /// landscape) it collapses to a small magnifying-glass toolbar button
+    /// that has to be tapped before the field even appears — confirmed live
+    /// during an iPad HIG review (2026-09-03) as a real point of friction,
+    /// not just a visual quirk: the landing page reads as "broken search"
+    /// rather than "ready to search". Forcing `.navigationBarDrawer(
+    /// displayMode: .always)` on `.regular` matches it to iPhone's own
+    /// existing (already-correct, left alone here) behavior instead of
+    /// leaving `.automatic` to pick the collapsed toolbar variant.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    private var searchPlacement: SearchFieldPlacement {
+        horizontalSizeClass == .regular ? .navigationBarDrawer(displayMode: .always) : .automatic
+    }
+
     var body: some View {
         content
             .navigationTitle("Search")
-            .searchable(text: searchTextBinding, prompt: "Movies, shows, episodes\u{2026}")
+            .searchable(text: searchTextBinding, placement: searchPlacement, prompt: "Movies, shows, episodes\u{2026}")
             .task { await setUpIfNeeded() }
             .onChange(of: resetToken) { _, _ in reset() }
     }
