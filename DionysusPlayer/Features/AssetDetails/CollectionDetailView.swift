@@ -7,6 +7,7 @@ import SwiftUI
 /// one of its member items via `CollectionItemList`.
 struct CollectionDetailView: View {
     let viewModel: AssetDetailViewModel
+    @Environment(AppState.self) private var appState
     @State private var playbackRequest: PlaybackRequest?
     /// See `MovieDetailView.refreshTrigger`'s doc comment — identical
     /// reasoning/fix: `viewModel` is held as a plain `let` here too, so a
@@ -45,7 +46,8 @@ struct CollectionDetailView: View {
                     if !viewModel.collectionItems.isEmpty {
                         CollectionItemList(
                             items: viewModel.collectionItems,
-                            onPlayItem: { itemID in playbackRequest = PlaybackRequest(itemID: itemID) }
+                            onPlayItem: { itemID in playbackRequest = PlaybackRequest(itemID: itemID) },
+                            client: viewModel.apiClient, userID: viewModel.currentUserID, downloadManager: appState.downloadManager
                         )
                         .padding(.horizontal)
                     }

@@ -258,7 +258,14 @@ private struct EpisodeRow: View {
             // why the thumbnail/title-row split above already avoids
             // that); this keeps the two as independent sibling tap targets
             // layered on the same thumbnail instead.
-            ZStack(alignment: .topTrailing) {
+            //
+            // `.bottomTrailing`, not `.topTrailing` — the corner scheme this
+            // thumbnail follows is favorite (top-left) / watched (top-right)
+            // / show logo (bottom-left) / download (bottom-right), so the
+            // download badge below doesn't land on top of
+            // `watchStatusOverlay`'s watched-eye badge, which already owns
+            // top-right.
+            ZStack(alignment: .bottomTrailing) {
                 Button(action: onPlay) {
                     ZStack {
                         AsyncRemoteImage(
@@ -266,20 +273,18 @@ private struct EpisodeRow: View {
                             placeholderSystemImage: "play.tv"
                         )
                             .frame(width: Self.thumbnailWidth, height: Self.thumbnailHeight)
-                            // Same progress-bar treatment as `PosterCard`'s rail
-                            // thumbnails (`watchStatusOverlay`) — this can show
+                            // Same favorite/watched/progress-bar treatment as
+                            // `PosterCard`'s rail thumbnails — this row used
+                            // to hand-duplicate just the progress-bar part
+                            // (and only that part), leaving this page's
+                            // episode thumbnails with no favorite/watched
+                            // badge at all. The progress bar can still show
                             // up alongside the main Play/Resume button's own
-                            // progress bar when this row's episode is also the
-                            // page's current content; a deliberate, harmless
-                            // overlap rather than something worth suppressing.
-                            .overlay(alignment: .bottom) {
-                                if let fraction = episode.playedFraction, fraction > 0, !episode.isPlayed {
-                                    ProgressView(value: fraction)
-                                        .tint(.dionysusHighlight)
-                                        .padding(.horizontal, 4)
-                                        .padding(.bottom, 4)
-                                }
-                            }
+                            // progress bar when this row's episode is also
+                            // the page's current content; a deliberate,
+                            // harmless overlap rather than something worth
+                            // suppressing.
+                            .watchStatusOverlay(for: episode)
                             .clipShape(RoundedRectangle(cornerRadius: 6))
 
                         Circle()

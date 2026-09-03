@@ -22,6 +22,17 @@ struct CollectionItemList: View {
     /// own content in place (there's no such concept here — see
     /// `CollectionItemRow`'s doc comment).
     var onPlayItem: (String) -> Void
+    /// Same "same trio" threading `PlaylistItemList` documents on its own
+    /// identical properties — `CollectionDetailView` resolves these once
+    /// (`viewModel.apiClient`/`.currentUserID`, `appState.downloadManager`)
+    /// and passes them straight down; `nil` (a `CollectionDetailView` with
+    /// no `AppState` in scope, which shouldn't happen in practice on a
+    /// screen that already requires one, but degrades gracefully) omits the
+    /// per-item download button entirely rather than showing one that can't
+    /// actually resolve `playbackInfo`.
+    var client: JellyfinAPIClient?
+    var userID: String?
+    var downloadManager: DownloadManager?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -30,7 +41,10 @@ struct CollectionItemList: View {
 
             LazyVStack(alignment: .leading, spacing: 16) {
                 ForEach(items) { item in
-                    CollectionItemRow(item: item, onPlay: { onPlayItem(item.id) })
+                    CollectionItemRow(
+                        item: item, onPlay: { onPlayItem(item.id) },
+                        client: client, userID: userID, downloadManager: downloadManager
+                    )
                 }
             }
         }
@@ -48,38 +62,71 @@ struct CollectionItemList: View {
 private struct CollectionItemRow: View {
     let item: MediaItem
     var onPlay: () -> Void
+    /// See `CollectionItemList`'s identical trio.
+    var client: JellyfinAPIClient?
+    var userID: String?
+    var downloadManager: DownloadManager?
 
     private static let posterWidth: CGFloat = 90
     private var posterHeight: CGFloat { Self.posterWidth * 1.5 }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Button(action: onPlay) {
-                ZStack {
-                    AsyncRemoteImage(url: item.primaryImageURL, placeholderSystemImage: item.kind.placeholderSystemImage)
-                        .frame(width: Self.posterWidth, height: posterHeight)
-                        .watchStatusOverlay(for: item)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+            // A `ZStack`, not the download button nested inside the Play
+            // `Button`'s own label — same reasoning as `EpisodeRow`'s/
+            // `PlaylistItemRow`'s identical split: a button nested in
+            // another button's label risks having its taps swallowed by the
+            // outer one instead of reaching it. This keeps the two as
+            // independent sibling tap targets layered on the same
+            // thumbnail instead.
+            //
+            // `.bottomTrailing`, not the default `.center` — the corner
+            // scheme this thumbnail follows is favorite (top-left) / watched
+            // (top-right) / download (bottom-right), matching every other
+            // row's thumbnail overlay in the app.
+            ZStack(alignment: .bottomTrailing) {
+                Button(action: onPlay) {
+                    ZStack {
+                        AsyncRemoteImage(url: item.primaryImageURL, placeholderSystemImage: item.kind.placeholderSystemImage)
+                            .frame(width: Self.posterWidth, height: posterHeight)
+                            .watchStatusOverlay(for: item)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
 
-                    Circle()
-                        .fill(.black.opacity(0.55))
-                        .frame(width: 36, height: 36)
-                        .overlay {
-                            Image(systemName: "play.fill")
-                                .font(.subheadline.bold())
-                                .foregroundStyle(.white)
-                        }
+                        Circle()
+                            .fill(.black.opacity(0.55))
+                            .frame(width: 36, height: 36)
+                            .overlay {
+                                Image(systemName: "play.fill")
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(.white)
+                            }
+                    }
+                }
+                .buttonStyle(.plain)
+                // This row had no accessibility treatment at all before this —
+                // found during the placeholder-imagery audit; the app's main
+                // VoiceOver sweep (PR #134) predates this file and simply
+                // missed it. Matches `SeasonEpisodeList.EpisodeRow`'s identical
+                // thumbnail-play `Button` exactly: just a label, no extra
+                // `.accessibilityElement`/trait needed since a plain `Button`
+                // already reads as one element with the `.isButton` trait.
+                .accessibilityLabel(String(localized: "Play \(item.name)"))
+
+                // Same component the detail page's own Play/Resume row
+                // uses — full parity (idle/preparing/downloading/
+                // downloaded states, audio-track prompt, subtitle
+                // warning), not a slimmed-down copy. Every item here is a
+                // Movie, so `item.episodeLabel` is always `nil` — the same
+                // "bare state word" fallback `EpisodeRow`'s/
+                // `PlaylistItemRow`'s identical call sites document.
+                if let client, let userID, let downloadManager {
+                    DownloadButton(
+                        item: item, client: client, userID: userID, downloadManager: downloadManager, style: .overlay,
+                        accessibilityContext: item.episodeLabel
+                    )
+                        .padding(4)
                 }
             }
-            .buttonStyle(.plain)
-            // This row had no accessibility treatment at all before this —
-            // found during the placeholder-imagery audit; the app's main
-            // VoiceOver sweep (PR #134) predates this file and simply
-            // missed it. Matches `SeasonEpisodeList.EpisodeRow`'s identical
-            // thumbnail-play `Button` exactly: just a label, no extra
-            // `.accessibilityElement`/trait needed since a plain `Button`
-            // already reads as one element with the `.isButton` trait.
-            .accessibilityLabel(String(localized: "Play \(item.name)"))
 
             // See `PosterCard.body`'s doc comment for why the `NavigationLink`
             // needs its own `ZStack` wrapper, not just sitting bare inside
