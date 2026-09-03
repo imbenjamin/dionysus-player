@@ -11,6 +11,26 @@ import SwiftUI
 struct MediaRailView: View {
     let rail: MediaCollectionRail
 
+    /// Drives `posterWidth`/`landscapeWidth` below — `.regular` covers
+    /// iPad in both orientations and iPhone Pro Max/Plus/Air models in
+    /// landscape (see the size-class table in Apple's own Layout
+    /// guidance), all cases with meaningfully more width to spend than the
+    /// `PosterCard`/`LandscapeMediaCard` defaults were sized for. Found
+    /// during an iPad HIG review (2026-09-03): those defaults are iPhone
+    /// numbers reused everywhere, so a rail with only a couple of items
+    /// (e.g. Continue Watching) left most of a wide iPad screen as dead
+    /// space instead of the cards actually taking advantage of it.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    /// `PosterCard`'s own default (130) is what `.compact` keeps; `.regular`
+    /// scales up by roughly the same ~1.23x `LandscapeMediaCard`'s own
+    /// portrait/landscape ratio uses, landing on a round number rather than
+    /// chasing an exact ratio.
+    private var posterWidth: CGFloat { horizontalSizeClass == .regular ? 160 : 130 }
+    /// Same reasoning as `posterWidth`, scaled from `LandscapeMediaCard`'s
+    /// own 220 default.
+    private var landscapeWidth: CGFloat { horizontalSizeClass == .regular ? 260 : 220 }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
@@ -49,9 +69,9 @@ struct MediaRailView: View {
                     // SwiftUI must act on. See that property's doc comment.
                     ForEach(rail.items, id: \.railRowIdentity) { item in
                         if usesLandscapeTiles {
-                            LandscapeMediaCard(item: item)
+                            LandscapeMediaCard(item: item, width: landscapeWidth)
                         } else {
-                            PosterCard(item: item)
+                            PosterCard(item: item, width: posterWidth)
                         }
                     }
                 }
