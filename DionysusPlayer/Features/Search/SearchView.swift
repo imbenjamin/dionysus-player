@@ -161,17 +161,19 @@ struct SearchView: View {
     }
 
     private func resultsList(_ results: [SearchResult]) -> some View {
-        List(results) { result in
-            row(for: result) { select(result) }
+        let isLandscape = isLandscapeShape(results)
+        return List(results) { result in
+            row(for: result, isLandscape: isLandscape) { select(result) }
         }
         .listStyle(.plain)
     }
 
     private func historyList(_ history: [SearchResult]) -> some View {
-        List {
+        let isLandscape = isLandscapeShape(history)
+        return List {
             Section {
                 ForEach(history) { entry in
-                    row(for: entry) { select(entry) }
+                    row(for: entry, isLandscape: isLandscape) { select(entry) }
                         // Trailing (swipe-left-to-reveal), matching both the
                         // HIG-standard direction for a destructive action
                         // and every Downloads list's own swipe-to-delete
@@ -241,16 +243,23 @@ struct SearchView: View {
         }
     }
 
+    /// Landscape if *any* item is series/episode-like (`SearchResult
+    /// .isLandscapeShaped`), decided once for the whole list/grid, not per
+    /// item — mirrors `MediaCollectionRail.usesLandscapeTiles`'s exact rule
+    /// (see that property's doc comment for why a mixed-shape rail/grid/
+    /// list reads worse than a consistent one) rather than inventing a
+    /// different rule for search results. Shared by both presentations:
+    /// `grid` (the `.regular` tile shape) and `resultsList`/`historyList`
+    /// (the `.compact` row's thumbnail shape).
+    private func isLandscapeShape(_ items: [SearchResult]) -> Bool {
+        items.contains { $0.isLandscapeShaped }
+    }
+
     /// Shared by `resultsGrid`/`historyGrid` — the only difference between
     /// the two is whether tiles get a remove button (`onRemove`, `nil` for
-    /// live results). `usesLandscapeTiles` mirrors
-    /// `MediaCollectionRail.usesLandscapeTiles`'s exact rule (landscape if
-    /// *any* item is series/episode-like, decided once for the whole grid,
-    /// not per item — see that property's doc comment for why a mixed-shape
-    /// grid reads worse than a consistent one) rather than inventing a
-    /// different rule for search results.
+    /// live results).
     private func grid(_ items: [SearchResult], containerWidth: CGFloat, onRemove: ((SearchResult) -> Void)?) -> some View {
-        let isLandscape = items.contains { $0.kind == .series || $0.kind == .episode }
+        let isLandscape = isLandscapeShape(items)
         let metrics = PosterGridMetrics(containerWidth: containerWidth, idealItemWidth: isLandscape ? 260 : 160)
         return LazyVGrid(columns: metrics.columns, spacing: 20) {
             ForEach(items) { item in
@@ -268,11 +277,14 @@ struct SearchView: View {
     /// `ImageURLBuilder` here (at the `SearchView` level, where the
     /// `@Observable` access is tracked) rather than inside `SearchResultRow`
     /// itself — see `SearchViewModel.imageURL(for:)`'s doc comment for why
-    /// it's resolved on demand instead of stored on `SearchResult`.
-    private func row(for result: SearchResult, onSelect: @escaping () -> Void) -> some View {
+    /// it's resolved on demand instead of stored on `SearchResult`. `isLandscape`
+    /// is the whole list's one shape decision (`isLandscapeShape(_:)`), not
+    /// `result`'s own kind — same reasoning as the grid's `SearchResultGridCard`.
+    private func row(for result: SearchResult, isLandscape: Bool, onSelect: @escaping () -> Void) -> some View {
         SearchResultRow(
-            name: result.name, subtitle: result.subtitle, imageURL: viewModel?.imageURL(for: result),
-            kind: result.kind, onSelect: onSelect
+            name: result.name, subtitle: result.subtitle,
+            imageURL: viewModel?.imageURL(for: result, preferLandscape: isLandscape),
+            kind: result.kind, isLandscape: isLandscape, onSelect: onSelect
         )
     }
 
@@ -312,13 +324,26 @@ private struct SearchResultRow: View {
     /// entry persisted before `SearchResult.kind` existed) falls back to a
     /// generic glyph.
     let kind: BaseItemKind?
+    /// The whole list's one shape decision (`SearchView.isLandscapeShape`),
+    /// not this row's own `kind` — a movie mixed into an otherwise
+    /// episode-heavy list gets the same landscape thumbnail shape as every
+    /// other row here, matching `SearchResultGridCard`'s identical rule for
+    /// the `.regular` grid. Height stays fixed at the row's own 44pt either
+    /// way; only the width (and therefore aspect ratio) changes — landscape
+    /// derives its width from `PosterCard`'s poster ratio (`height / 1.5`,
+    /// inverted since this fixes height rather than width), portrait from
+    /// `LandscapeMediaCard`'s 16:9 (`height * 16 / 9`).
+    let isLandscape: Bool
     let onSelect: () -> Void
+
+    private static let imageHeight: CGFloat = 44
+    private var imageWidth: CGFloat { isLandscape ? Self.imageHeight * 16 / 9 : Self.imageHeight / 1.5 }
 
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 12) {
                 AsyncRemoteImage(url: imageURL, placeholderSystemImage: kind?.placeholderSystemImage ?? "photo")
-                    .frame(width: 44, height: 44)
+                    .frame(width: imageWidth, height: Self.imageHeight)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
 
                 VStack(alignment: .leading, spacing: 2) {

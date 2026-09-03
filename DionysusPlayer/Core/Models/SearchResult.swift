@@ -140,6 +140,27 @@ struct SearchResult: Identifiable, Hashable, Codable {
         }()
     }
 
+    /// Whether this item counts as episode/series-like for a
+    /// landscape-vs-portrait shape decision — `SearchView`'s per-list/grid
+    /// `isLandscapeShape`, mirroring `MediaCollectionRail
+    /// .usesLandscapeTiles`, and this type's own `imageURL(images:)` below.
+    /// Prefers `kind` when known, but falls back to `subtitle`'s own shape
+    /// when it isn't: `kind` is optional specifically because history
+    /// entries persisted before that field existed decode as `nil` (see its
+    /// own doc comment), and a real user's long-lived history can still
+    /// contain such entries today — confirmed live (2026-09-03): a "Top
+    /// Gear" episode entry with `kind == nil` was silently voting portrait
+    /// for an entire mixed history list, because the naive `kind ==
+    /// .episode` check simply couldn't see it. Only the `.episode` subtitle
+    /// format ever joins two parts with `" · "` (season/episode + show
+    /// name, in `init(hint:)` above) — a bare year (`.movie`/`.series`) or
+    /// `"Collection"` (`.boxSet`) never contains that separator — so it's a
+    /// reliable stand-in for a `kind` that didn't survive.
+    var isLandscapeShaped: Bool {
+        if let kind { return kind == .episode || kind == .series }
+        return subtitle?.contains(" \u{00B7} ") == true
+    }
+
     /// Resolves whichever image a `.compact`-list row wants: each item's
     /// own natural-kind preference (episode/series favor `Thumb`, matching
     /// `LandscapeMediaCard`'s `thumbImageURL ?? primaryImageURL`;
@@ -147,7 +168,7 @@ struct SearchResult: Identifiable, Hashable, Codable {
     /// call with whatever `ImageURLBuilder` is current at render time
     /// (never store the result; see this type's own doc comment on why).
     func imageURL(images: ImageURLBuilder) -> URL? {
-        imageURL(images: images, preferLandscape: kind == .episode || kind == .series)
+        imageURL(images: images, preferLandscape: isLandscapeShaped)
     }
 
     /// Resolves whichever image a `.regular`-grid tile wants — `preferLandscape`
