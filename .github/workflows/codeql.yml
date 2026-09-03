@@ -44,6 +44,17 @@ name: CodeQL
 # Security tab", surfaced live setting this workflow up). It's also now
 # `analyze-swift`'s only per-merge trigger on `develop`, since
 # `pull_request` no longer covers it there.
+#
+# Non-`pull_request` runs (push/schedule/workflow_dispatch — i.e. the ones
+# that can't block a merge) additionally opt into the `security-extended`
+# query suite (both jobs' `queries:` input below), on top of the default
+# suite CodeQL always runs — it's additive, not a replacement (see
+# https://docs.github.com/en/code-security/reference/code-scanning/workflow-configuration-options#using-queries-in-ql-packs).
+# `pull_request` runs stay on the default suite alone so PR-blocking scan
+# time doesn't grow (`analyze-swift` already runs ~43 minutes per the note
+# above) — the deeper, lower-precision queries still surface as a
+# Security-tab alert post-merge or on the weekly schedule, same tradeoff
+# the `push`/`schedule` non-blocking split above already makes.
 on:
   pull_request:
     branches: [ "stable", "develop" ]
@@ -79,6 +90,9 @@ jobs:
         with:
           languages: actions
           build-mode: none
+          # See the `on:` block's comment above — additive to the default
+          # suite, and only on non-pull_request (non-blocking) runs.
+          queries: ${{ github.event_name != 'pull_request' && 'security-extended' || '' }}
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
@@ -105,6 +119,13 @@ jobs:
         with:
           languages: swift
           build-mode: manual
+          # See the `on:` block's comment above — additive to the default
+          # suite, and only on non-pull_request (non-blocking) runs. This
+          # job's `if:` above already excludes pull_request-into-develop
+          # entirely; this further keeps pull_request-into-stable (the one
+          # pull_request case that still reaches this job) on the default
+          # suite too, same as analyze-actions.
+          queries: ${{ github.event_name != 'pull_request' && 'security-extended' || '' }}
 
       - name: Build
         # A plain build, not build-for-testing/archive: CodeQL only needs
