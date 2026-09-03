@@ -150,27 +150,61 @@ struct SeasonDownloadButton: View {
         isQueuing = true
         Task {
             defer { isQueuing = false }
+            let toDownload = missingEpisodes
+            let client = client
+            let userID = userID
+            let downloadManager = downloadManager
+            let resolution = preferences.resolution
+            let preset = preferences.bitratePreset
+            // Each episode's `DownloadManager.enqueue(...)` only inserts its
+            // `DownloadedItem` row (what the Downloads tab badge and this
+            // season's own per-episode rows count) after its own
+            // `playbackInfo` round trip resolves — awaiting the episodes one
+            // at a time meant every episode *after* the first sat with no
+            // row at all, still waiting its turn, until the one ahead of it
+            // finished its *entire* enqueue (including the image/segment/
+            // trickplay/subtitle prep that follows the row insert). That
+            // undercounted an in-progress season download by "however many
+            // episodes haven't been reached yet" rather than 0. Bounded to
+            // `maxConcurrentDownloads` — the same limit real video transfers
+            // respect — so a large season doesn't fire every episode's
+            // playbackInfo/image/segment/trickplay/subtitle requests at the
+            // server all at once; `nil` (Unlimited) runs the whole season at
+            // once, same as an unbounded video-transfer limit already would.
+            let limit = max(1, preferences.maxConcurrentDownloads ?? toDownload.count)
             var failureCount = 0
-            for episode in missingEpisodes {
-                do {
-                    let info = try await client.playbackInfo(itemID: episode.id, userID: userID)
-                    guard let mediaSource = info.mediaSources?.first else {
-                        failureCount += 1
-                        continue
+            await withTaskGroup(of: Bool.self) { group in
+                var nextIndex = 0
+                func addNext() {
+                    guard nextIndex < toDownload.count else { return }
+                    let episode = toDownload[nextIndex]
+                    nextIndex += 1
+                    group.addTask {
+                        do {
+                            let info = try await client.playbackInfo(itemID: episode.id, userID: userID)
+                            guard let mediaSource = info.mediaSources?.first else { return false }
+                            let streams = mediaSource.mediaStreams ?? []
+                            let audioTrack = streams.first { $0.type == "Audio" && $0.isDefault == true }
+                                ?? streams.first { $0.type == "Audio" }
+                            let subtitleTracks = streams.filter { $0.type == "Subtitle" }
+                            try await downloadManager.enqueue(
+                                item: episode, mediaSource: mediaSource, audioTrack: audioTrack, subtitleTracks: subtitleTracks,
+                                resolution: resolution, preset: preset,
+                                client: client, userID: userID
+                            )
+                            return true
+                        } catch {
+                            // Best-effort: one episode failing to
+                            // resolve/enqueue shouldn't stop the rest of the
+                            // season from queuing.
+                            return false
+                        }
                     }
-                    let streams = mediaSource.mediaStreams ?? []
-                    let audioTrack = streams.first { $0.type == "Audio" && $0.isDefault == true }
-                        ?? streams.first { $0.type == "Audio" }
-                    let subtitleTracks = streams.filter { $0.type == "Subtitle" }
-                    try await downloadManager.enqueue(
-                        item: episode, mediaSource: mediaSource, audioTrack: audioTrack, subtitleTracks: subtitleTracks,
-                        resolution: preferences.resolution, preset: preferences.bitratePreset,
-                        client: client, userID: userID
-                    )
-                } catch {
-                    // Best-effort: one episode failing to resolve/enqueue
-                    // shouldn't stop the rest of the season from queuing.
-                    failureCount += 1
+                }
+                for _ in 0..<min(limit, toDownload.count) { addNext() }
+                for await succeeded in group {
+                    if !succeeded { failureCount += 1 }
+                    addNext()
                 }
             }
             if failureCount > 0 {
