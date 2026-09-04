@@ -81,8 +81,15 @@ struct MovieDetailView: View {
                         }
 
                         DetailTabsView(item: item)
+                            .detailTabsPanel()
                     }
                     .padding(.horizontal)
+                    // Caps this column — metadata, Play/Download, tabs —
+                    // to a readable measure on regular width, leaving the
+                    // hero above and the rails below full-bleed. See
+                    // `ReadableDetailColumn` for what goes wrong without
+                    // it at 820pt/1180pt.
+                    .readableDetailColumn()
                     // See `refreshTrigger`'s own doc comment. Scoped to just
                     // this metadata block, not the whole `ScrollView` — a
                     // hard identity reset here is enough to guarantee this

@@ -116,9 +116,44 @@ struct HeroHeaderView: View {
     /// inset is unaffected by any app-level chrome drawn inside it.
     private var statusBarInset: CGFloat { keyWindow?.safeAreaInsets.top ?? 0 }
 
+    /// The width the layout system actually measured for this hero,
+    /// written by the `.onGeometryChange` in `body`.
+    ///
+    /// Exists purely so `heroHeight(forWidth:)` has a dependency that
+    /// genuinely changes when an **iPad** rotates. `verticalSizeClass`
+    /// above cannot serve that role there: per Apple's own size-class
+    /// table every iPad reports regular height in *both* orientations,
+    /// so on iPad it never changes, `body` never re-runs on rotation,
+    /// and `screenHeight` — an untracked UIKit read — stays frozen at
+    /// whatever the orientation was when this page first rendered.
+    ///
+    /// Confirmed live (2026-09-04, iPad A16): opening a movie in
+    /// portrait measured the hero at 523.9pt and rotating to landscape
+    /// left it at 523.5pt, while the same page first rendered *in*
+    /// landscape measured 373.5pt. The 150.4pt gap is exactly
+    /// `(1180 - 820) / 3 * 1.25`, i.e. the whole difference between the
+    /// two orientations' formulas, never applied. The visible symptom
+    /// is a hero eating 64% of an 820pt-tall landscape screen and
+    /// pushing the metadata, Play button and tabs to the very bottom
+    /// of it.
+    ///
+    /// This hero is full-bleed, so its width *is* the screen width, and
+    /// unlike the window read it comes from the layout system — it
+    /// changes on rotation on every device, iPad included.
+    @State private var measuredWidth: CGFloat = 0
+
     /// Same formula as `HeroRailView.heroHeight` — see this type's own doc
     /// comment for why it's duplicated here rather than shared.
-    private var heroHeight: CGFloat {
+    ///
+    /// Takes the measured width as an argument it never actually uses in
+    /// the arithmetic. That's deliberate and is the whole point: passing
+    /// it in is what makes this computation depend on a tracked value
+    /// that changes on rotation, so the `screenHeight`/`statusBarInset`
+    /// reads below are re-evaluated rather than frozen. See
+    /// `measuredWidth`. `HeroRailView.heroHeight` still has the
+    /// unfixed version of this bug.
+    private func heroHeight(forWidth width: CGFloat) -> CGFloat {
+        _ = width
         guard !isLandscape else { return screenHeight * 0.75 }
         return statusBarInset + screenHeight / 3 * 1.25
     }
@@ -144,7 +179,13 @@ struct HeroHeaderView: View {
             // fixes.
             accessibilityTopInset: statusBarInset
         )
-        .frame(height: heroHeight)
+        .frame(height: heroHeight(forWidth: measuredWidth))
+        // See `measuredWidth`. Fires after layout, so a rotation shows
+        // one frame at the old height before correcting — the same
+        // trade-off Home's own `.onGeometryChange` safe-area fix makes.
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { newWidth in
+            measuredWidth = newWidth
+        }
         .onAppear { acquireTiltObserverIfNeeded() }
         // A real `.onDisappear` — releasing, not stopping outright — is
         // safe here specifically *because* `DeviceTiltObserver.acquire()`/
