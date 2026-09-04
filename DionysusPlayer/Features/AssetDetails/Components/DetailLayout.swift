@@ -155,3 +155,163 @@ extension View {
         modifier(DetailTabsPanel())
     }
 }
+
+/// Column count, per-row width and artwork size for a detail page's own
+/// list of child items — `SeasonEpisodeList`'s episodes and
+/// `CollectionItemList`'s movies. (`PlaylistItemList` is the same row
+/// shape again and hasn't adopted this yet.)
+///
+/// ## Why those lists aren't one column everywhere
+///
+/// A single full-width row wastes most of the width it's given on iPad.
+/// Measured on an 11-inch iPad: an episode row's text block ran 601pt in
+/// portrait and 961pt in landscape while staying 71pt tall, and a
+/// collection row's ran 686pt and 1046pt against a 90pt poster. In both
+/// the trailing chevron ended up ~1,000pt from the artwork it belongs to,
+/// so the row read as a small picture with a very long strip of text
+/// beside it rather than as one object.
+///
+/// Two columns fix the measure without shrinking the list's own footprint
+/// — unlike the metadata column above it (`ReadableDetailColumn`), which
+/// is capped instead. The distinction is what the extra width is *for*: a
+/// paragraph gains nothing from it, a list of items gains another item.
+/// It also halves the scroll depth of a 20-plus-episode season.
+///
+/// ## Why the artwork scales
+///
+/// An episode row's fixed 160pt thumbnail is 187pt of a row once the
+/// accent bar and spacing are counted, which a full-width row absorbs
+/// easily and a 386pt half-width row does not — it would leave 199pt of
+/// text, about 38 characters at `.caption`, tighter than the
+/// single-column layout this is meant to improve on. Sizing the artwork
+/// from the row it sits in (the same approach `PosterGridMetrics` takes
+/// for poster grids) keeps the text at a workable measure at every width,
+/// and on the way up gives a wide row's artwork enough height to be worth
+/// the space it occupies:
+///
+/// | container | columns | row | episode thumb | poster |
+/// | --- | --- | --- | --- | --- |
+/// | iPhone portrait, 402pt | 1 | 370pt | 160x90 | 90x135 |
+/// | iPhone Pro Max landscape, 932pt | 2 | 442pt | 133x75 | 97x146 |
+/// | iPad portrait, 820pt | 2 | 386pt | 120x68 | 90x135 |
+/// | iPad landscape, 1180pt | 2 | 566pt | 170x96 | 125x188 |
+///
+/// `rowWidth` is what each column *will* be given, solved rather than
+/// read back from the grid — see `columns` for why the grid can't be
+/// asked, and what goes wrong if it is.
+///
+/// The single-column case deliberately keeps each list's established
+/// artwork size rather than deriving it like the rest — which is to say
+/// compact width renders exactly as it did before this type existed. The
+/// fraction would give an iPhone portrait episode row a 111pt thumbnail
+/// and shrink a layout that has no width problem to solve.
+struct DetailRowGridMetrics {
+    /// How one list's artwork is sized: what it stays at in a
+    /// single-column layout, its shape, and how it scales once there's
+    /// more than one column.
+    ///
+    /// A per-list value rather than per-list constants on this type
+    /// because the two lists differ in every one of these numbers — a
+    /// 16:9 still frame and a 2:3 poster don't want the same fraction of
+    /// their row, and a poster that already starts small has nothing to
+    /// give back on a narrow two-column row the way a 160pt thumbnail
+    /// does.
+    struct Artwork {
+        /// Kept as-is whenever `columnCount` is 1.
+        let singleColumnWidth: CGFloat
+        /// Height as a multiple of width — 9/16 for a still frame, 1.5
+        /// for a portrait poster.
+        let heightRatio: CGFloat
+        /// Share of the row the artwork takes once there's more than one
+        /// column, before the clamps below.
+        let widthFraction: CGFloat
+        /// Clamps either side of `widthFraction`: the floor keeps a
+        /// narrow two-column row's artwork recognisable, the ceiling
+        /// stops a 13-inch iPad in landscape from turning a thumbnail
+        /// into a poster (or a poster into a hero).
+        let minimumWidth: CGFloat
+        let maximumWidth: CGFloat
+
+        /// `SeasonEpisodeList`'s 16:9 episode still.
+        static let episodeThumbnail = Artwork(
+            singleColumnWidth: 160, heightRatio: 9 / 16,
+            widthFraction: 0.3, minimumWidth: 120, maximumWidth: 200
+        )
+
+        /// `CollectionItemList`'s 2:3 movie poster. A smaller fraction
+        /// than the thumbnail above, and a floor equal to its own
+        /// single-column width: 90pt is already the smallest a poster
+        /// stays legible at, so a two-column row can only ever grow it.
+        static let poster = Artwork(
+            singleColumnWidth: 90, heightRatio: 1.5,
+            widthFraction: 0.22, minimumWidth: 90, maximumWidth: 130
+        )
+    }
+
+    /// Both the gap between columns and, via each list's own
+    /// `.padding(.horizontal)`, the list's outer margin.
+    static let spacing: CGFloat = 16
+    static let horizontalPadding: CGFloat = 16
+
+    /// A second column has to be worth having. Below this a row can't
+    /// hold artwork plus enough text to beat the full-width layout, so a
+    /// list stays single-column however wide the container claims to be —
+    /// which is also what a zero `containerWidth` (the first frame,
+    /// before `.onGeometryChange` reports) resolves to.
+    static let minimumRowWidth: CGFloat = 320
+
+    let columnCount: Int
+    let rowWidth: CGFloat
+    let artworkWidth: CGFloat
+    let artworkHeight: CGFloat
+
+    /// `.flexible`, **not** `.fixed` — despite `rowWidth` already being
+    /// solved to fill the container exactly, and despite
+    /// `PosterGridMetrics` using `.fixed` for the same job.
+    ///
+    /// The difference is where the width comes from. `PosterGridMetrics`'
+    /// callers read it from a `GeometryReader` wrapped *around* their
+    /// `ScrollView`, so it can't be affected by what the grid then does
+    /// with it. These lists have no such vantage point — each is one
+    /// child among many inside a detail page's scroll content — so they
+    /// measure themselves, and `.fixed` closes that into a loop: fixed
+    /// columns give the grid a hard minimum width, the grid raises its
+    /// container to meet it, and the container is what gets measured.
+    ///
+    /// Observed live (iPad, 2026-09-04): rotating landscape -> portrait
+    /// left the page stuck at 1180pt inside an 820pt window — hero and
+    /// episode list still landscape-width and shifted 180pt off the
+    /// leading edge, permanently, because the 2 x 566pt grid kept
+    /// re-asserting the width that had produced it. `.flexible` has no
+    /// meaningful minimum, so the measurement stays honest and the grid
+    /// divides whatever it is actually given — which, for two columns,
+    /// is `rowWidth` regardless.
+    ///
+    /// That leaves `rowWidth` sizing only each row's artwork, where being
+    /// one frame late during a rotation is invisible.
+    var columns: [GridItem] {
+        Array(
+            repeating: GridItem(.flexible(), spacing: Self.spacing, alignment: .top),
+            count: columnCount
+        )
+    }
+
+    /// Gated on horizontal size class *as well as* measured width, matching
+    /// `ReadableDetailColumn` rather than width alone: an iPhone Pro Max in
+    /// landscape is regular width and comfortably fits two columns, but a
+    /// compact-width container that happens to be wide (a narrow Split View
+    /// pane) is one the system is already treating as a phone.
+    init(containerWidth: CGFloat, isRegularWidth: Bool, artwork: Artwork) {
+        let available = max(containerWidth - Self.horizontalPadding * 2, 0)
+        let fitsTwoColumns = available >= Self.minimumRowWidth * 2 + Self.spacing
+        columnCount = isRegularWidth && fitsTwoColumns ? 2 : 1
+        rowWidth = (available - Self.spacing * CGFloat(columnCount - 1)) / CGFloat(columnCount)
+        artworkWidth = columnCount == 1
+            ? artwork.singleColumnWidth
+            : min(
+                max((rowWidth * artwork.widthFraction).rounded(), artwork.minimumWidth),
+                artwork.maximumWidth
+            )
+        artworkHeight = (artworkWidth * artwork.heightRatio).rounded()
+    }
+}
