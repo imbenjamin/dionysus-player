@@ -73,6 +73,13 @@ struct MainTabView: View {
                 HomeView(isActiveTab: selectedTab == .home, path: $homePath)
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
             }
+            // See `stableContentTint()` — keeps this stack's own toolbars
+            // off the tab bar's artwork-derived tint. Applied to the
+            // stack, not its content: a navigation bar resolves its tint
+            // above whatever view declared the `.toolbar`, so tinting the
+            // content leaves a pushed screen's bar buttons untouched
+            // (measured — the failing glyphs stayed at 2.46:1).
+            .stableContentTint()
             .tabItem { Label("Home", image: "DionysusGlyph") }
             .tag(MainTab.home)
 
@@ -80,6 +87,7 @@ struct MainTabView: View {
                 SearchView(path: $searchPath, resetToken: searchResetToken)
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
             }
+            .stableContentTint()
             .tabItem { Label("Search", systemImage: "magnifyingglass") }
             .tag(MainTab.search)
 
@@ -87,6 +95,7 @@ struct MainTabView: View {
                 DownloadsView()
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
             }
+            .stableContentTint()
             // Not "arrow.down.circle" — iOS's tab bar draws its own filled
             // pill/circle behind the selected tab's icon, and a symbol
             // with its own circular border merges visually with that into
@@ -108,6 +117,11 @@ struct MainTabView: View {
             // the same `.navigationDestination(for: AppRoute.self)` in
             // both of its layouts, so nothing is lost here.
             ProfileView()
+            // Applied to the view itself rather than to a stack, since
+            // this tab has none — see the comment just above. `.tabItem`
+            // wraps the already-tinted view either way, so the tab bar's
+            // own label still reads `TabBarTintModel`'s tint.
+            .stableContentTint()
             .tabItem {
                 Label {
                     Text(appState.currentUser?.name ?? String(localized: "Profile"))

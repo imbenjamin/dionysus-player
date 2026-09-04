@@ -165,3 +165,36 @@ final class TabBarTintModel {
         return 0.2126 * linear(pixel[0]) + 0.7152 * linear(pixel[1]) + 0.0722 * linear(pixel[2])
     }
 }
+
+extension View {
+    /// Pins a tab's own content to the brand tint, so it stops inheriting
+    /// the artwork-derived one `MainTabView` sets for the tab bar.
+    ///
+    /// `TabBarTintModel`'s tint is chosen for one specific surface: the
+    /// Liquid Glass selection pill, floating over Home's hero. SwiftUI's
+    /// `.tint(_:)` is not that narrow — set on the `TabView` it becomes the
+    /// accent for everything inside it, including the toolbars of screens
+    /// pushed onto each tab's `NavigationStack`, which have no hero behind
+    /// them and never will.
+    ///
+    /// Measured on `CollectionGridView` (iPad A16, 2026-09-04) while the
+    /// model had settled on the light tint after a dark Home hero — its
+    /// Sort and Random glyphs render `dionysusMagentaOnGlass` over a white
+    /// glass capsule at **2.46:1**, under the 3:1 minimum for a non-text
+    /// control (and under 4.5:1 read as a small icon). `dionysusPrimary`
+    /// on the same capsule measures 16.78:1. Nothing about that screen
+    /// varies — its background is the system background in both
+    /// appearances — so the tint that suits the pill is simply wrong
+    /// there, whichever one is currently in effect.
+    ///
+    /// Applied to each `NavigationStack` itself, *outside* its content
+    /// closure. Inside doesn't work: a navigation bar resolves its tint
+    /// from above whichever view declared the `.toolbar`, so tinting the
+    /// stack's content left the failing glyphs measuring 2.46:1
+    /// unchanged. `.tabItem` is attached after this, wrapping the
+    /// already-tinted stack, so the tab bar's own selected label still
+    /// reads `TabBarTintModel`'s tint.
+    func stableContentTint() -> some View {
+        tint(Color.dionysusPrimary)
+    }
+}
