@@ -310,15 +310,6 @@ struct ProfileView: View {
         // scrolling, which would trap the rows off-screen at the largest
         // Dynamic Type sizes where they genuinely do overflow.
         .scrollBounceBehavior(.basedOnSize)
-        // Pinned to the bottom rather than trailing the last section the
-        // way the compact layout's does. The sidebar is far taller than
-        // its four items need, so a footer that simply follows them ends
-        // up stranded in the middle of a large empty column; anchoring it
-        // reads as deliberate instead.
-        .safeAreaInset(edge: .bottom) {
-            versionFooter
-                .padding(.bottom, 8)
-        }
     }
 
     /// Section headers are dropped here — the navigation title already
@@ -352,8 +343,24 @@ struct ProfileView: View {
             // sub-screen.
             DownloadsSettingsView(titleDisplayMode: .large)
         case .about:
-            List { Section { aboutRows } }
-                .navigationTitle("About")
+            // The GitHub link and build stamp live here on iPad, rather
+            // than under the sidebar the way they briefly did: they're
+            // *about* the app, so the About pane is where someone goes
+            // looking for them, and the sidebar is navigation rather
+            // than a place to park content. A plain section footer
+            // trailing the rows — not pinned to the bottom of the pane —
+            // so it reads as part of this list the way the compact
+            // layout's own page-wide footer does below the same two
+            // rows, rather than as separate chrome anchored to the
+            // column.
+            List {
+                Section {
+                    aboutRows
+                } footer: {
+                    versionFooter
+                }
+            }
+            .navigationTitle("About")
         }
     }
 
