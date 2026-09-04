@@ -105,9 +105,10 @@ extension View {
     }
 }
 
-/// Gives a detail page's tabbed content (`DetailTabsView`) its own
-/// panel, so About/Cast & Crew/Details reads as one distinct area
-/// rather than as loose text following the Play button.
+/// Gives a detail page's tabbed content (`DetailTabsView`, and its
+/// offline counterpart `DownloadedDetailTabsView`) its own panel, so
+/// About/Cast & Crew/Details reads as one distinct area rather than as
+/// loose text following the Play button.
 ///
 /// Deliberately a plain filled card, not Liquid Glass. Glass is the
 /// system's *functional* layer — the tab bar and toolbar floating above
