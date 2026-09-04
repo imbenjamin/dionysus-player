@@ -175,8 +175,26 @@ struct ShowDetailView: View {
                             }
 
                             DetailTabsView(item: item)
+                                .detailTabsPanel()
                         }
                         .padding(.horizontal)
+                        // Caps this column — metadata, Play/Download, tabs —
+                        // to a readable measure on regular width, leaving the
+                        // hero above and the episode list/rails below
+                        // full-bleed. See `ReadableDetailColumn` for what goes
+                        // wrong without it at 820pt/1180pt; every number in
+                        // that doc comment was measured on `MovieDetailView`
+                        // and reproduces here unchanged.
+                        //
+                        // Series content's lone Play button fills the column
+                        // (568pt) rather than matching the 500pt the Movie and
+                        // Episode variants land on, where a `DownloadButton`
+                        // takes the remainder. Deliberate: a Series/Season has
+                        // no single file to download (see the `isEpisodeContent`
+                        // gate above), so there is no second button to leave
+                        // room for, and a lone primary action filling its
+                        // container is the standard pattern.
+                        .readableDetailColumn()
                         // See `refreshTrigger`'s own doc comment. Scoped to
                         // just this metadata block, not the whole
                         // `ScrollView` (nor, especially, `SeasonEpisodeList`
