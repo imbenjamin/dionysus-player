@@ -84,6 +84,9 @@
     "%lld episodes couldn't be downloaded." : {
 
     },
+    "%lld Items" : {
+
+    },
     "%lld/%lld" : {
       "localizations" : {
         "en" : {
@@ -575,9 +578,6 @@
 
     },
     "Included In" : {
-
-    },
-    "Items" : {
 
     },
     "Kbps" : {

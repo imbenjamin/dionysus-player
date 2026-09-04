@@ -151,7 +151,7 @@ struct SeasonEpisodeList: View {
             } else {
                 let metrics = DetailRowGridMetrics(
                     containerWidth: availableWidth, isRegularWidth: horizontalSizeClass == .regular,
-                    artwork: .episodeThumbnail
+                    artwork: .landscapeThumbnail
                 )
 
                 // A `LazyVGrid` only once there's genuinely more than one

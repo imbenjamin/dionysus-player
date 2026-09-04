@@ -157,9 +157,8 @@ extension View {
 }
 
 /// Column count, per-row width and artwork size for a detail page's own
-/// list of child items — `SeasonEpisodeList`'s episodes and
-/// `CollectionItemList`'s movies. (`PlaylistItemList` is the same row
-/// shape again and hasn't adopted this yet.)
+/// list of child items — `SeasonEpisodeList`'s episodes,
+/// `CollectionItemList`'s movies, and `PlaylistItemList`'s members.
 ///
 /// ## Why those lists aren't one column everywhere
 ///
@@ -189,7 +188,7 @@ extension View {
 /// and on the way up gives a wide row's artwork enough height to be worth
 /// the space it occupies:
 ///
-/// | container | columns | row | episode thumb | poster |
+/// | container | columns | row | 16:9 thumb | poster |
 /// | --- | --- | --- | --- | --- |
 /// | iPhone portrait, 402pt | 1 | 370pt | 160x90 | 90x135 |
 /// | iPhone Pro Max landscape, 932pt | 2 | 442pt | 133x75 | 97x146 |
@@ -232,8 +231,13 @@ struct DetailRowGridMetrics {
         let minimumWidth: CGFloat
         let maximumWidth: CGFloat
 
-        /// `SeasonEpisodeList`'s 16:9 episode still.
-        static let episodeThumbnail = Artwork(
+        /// The 16:9 still shared by `SeasonEpisodeList`'s episode rows
+        /// and `PlaylistItemList`'s members — the latter uses the same
+        /// landscape shape for every row regardless of kind, so a Movie
+        /// in a playlist sizes from this rather than from `poster`
+        /// below. Both start from the same 160x90 they were fixed at
+        /// before this type existed.
+        static let landscapeThumbnail = Artwork(
             singleColumnWidth: 160, heightRatio: 9 / 16,
             widthFraction: 0.3, minimumWidth: 120, maximumWidth: 200
         )

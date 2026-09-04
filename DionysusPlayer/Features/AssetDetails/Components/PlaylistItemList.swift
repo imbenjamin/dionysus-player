@@ -17,6 +17,17 @@ import SwiftUI
 /// `AssetDetailViewModel.orderedPlaylistItems`, already fetched (and
 /// audio/music-filtered) alongside `similar`/`collections` in `load()`/
 /// `refreshItem()`.
+///
+/// Lays out over two columns on regular width, via the same
+/// `DetailRowGridMetrics` the episode and collection lists use — see that
+/// type for why, and for the measurements behind it. Every row here is
+/// landscape-shaped whatever kind it holds (see this type's doc comment
+/// above), so it sizes from `.landscapeThumbnail` even for a Movie
+/// member, where `CollectionItemList` would use `.poster`. Owns its own
+/// horizontal padding rather than taking it from `PlaylistDetailView`
+/// (which is how it used to work), so that what `.onGeometryChange`
+/// measures below is the full width the list has to divide, matching what
+/// the metrics type expects.
 struct PlaylistItemList: View {
     let items: [MediaItem]
     /// Plays that item, joining the same Up Next chain as every other row
@@ -32,19 +43,65 @@ struct PlaylistItemList: View {
     var userID: String?
     var downloadManager: DownloadManager?
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    /// This list's own width, fed to `DetailRowGridMetrics` below. See
+    /// `SeasonEpisodeList.availableWidth` for why this is measured with
+    /// `.onGeometryChange` rather than read from `UIScreen`/`keyWindow`,
+    /// and why starting at 0 is safe.
+    @State private var availableWidth: CGFloat = 0
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Items")
+            // The count carries real information here that "Items" alone
+            // doesn't — a Playlist has no other length cue on the page
+            // (the metadata row shows total duration, not how many things
+            // make it up), and unlike the sibling lists this one can't say
+            // *what* they are: a Playlist mixes Movies and Episodes, which
+            // is why this header is the vague "Items" where
+            // `CollectionItemList`'s is "Movies". Uninflected past one, the
+            // same shape `DownloadsView`'s "\(count) Episodes" already
+            // uses.
+            Text("\(items.count) Items")
                 .font(.title3.bold())
+                .padding(.horizontal)
 
-            LazyVStack(alignment: .leading, spacing: 16) {
-                ForEach(items) { item in
-                    PlaylistItemRow(
-                        item: item, onPlay: { onPlayItem(item.id) },
-                        client: client, userID: userID, downloadManager: downloadManager
-                    )
+            let metrics = DetailRowGridMetrics(
+                containerWidth: availableWidth, isRegularWidth: horizontalSizeClass == .regular,
+                artwork: .landscapeThumbnail
+            )
+
+            // A `LazyVGrid` only once there's genuinely more than one
+            // column to lay out — the single-column case stays on the
+            // `LazyVStack` it has always used, so compact width is
+            // byte-identical to before this existed. Same split, same
+            // reasoning, as `SeasonEpisodeList`'s and
+            // `CollectionItemList`'s.
+            if metrics.columnCount > 1 {
+                LazyVGrid(columns: metrics.columns, alignment: .leading, spacing: 16) {
+                    itemRows(metrics: metrics)
                 }
+                .padding(.horizontal)
+            } else {
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    itemRows(metrics: metrics)
+                }
+                .padding(.horizontal)
             }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
+    }
+
+    /// Shared by both branches above so the single- and multi-column
+    /// lists can never drift apart in what a row actually is.
+    @ViewBuilder
+    private func itemRows(metrics: DetailRowGridMetrics) -> some View {
+        ForEach(items) { item in
+            PlaylistItemRow(
+                item: item, onPlay: { onPlayItem(item.id) },
+                thumbnailWidth: metrics.artworkWidth, thumbnailHeight: metrics.artworkHeight,
+                client: client, userID: userID, downloadManager: downloadManager
+            )
         }
     }
 }
@@ -68,6 +125,11 @@ struct PlaylistItemList: View {
 private struct PlaylistItemRow: View {
     let item: MediaItem
     var onPlay: () -> Void
+    /// Supplied by `DetailRowGridMetrics` rather than fixed on this type —
+    /// see that type for why a row in a two-column grid can't keep the
+    /// same 160x90 thumbnail a full-width row uses.
+    let thumbnailWidth: CGFloat
+    let thumbnailHeight: CGFloat
     /// `nil` (no live session — shouldn't happen in practice on a screen
     /// that already requires one, but degrades gracefully) omits the
     /// per-item download button entirely rather than showing one that
@@ -77,8 +139,53 @@ private struct PlaylistItemRow: View {
     var userID: String?
     var downloadManager: DownloadManager?
 
-    private static let thumbnailWidth: CGFloat = 160
-    private static let thumbnailHeight: CGFloat = 90
+    /// Measured height of the title/subtitle block above the synopsis —
+    /// see `overviewLineLimit`. 0 until the first layout pass reports.
+    @State private var headerHeight: CGFloat = 0
+
+    /// Line heights of the text styles this row stacks, used by
+    /// `overviewLineLimit` below. See `CollectionItemRow`'s identical pair
+    /// for why these are `@ScaledMetric` rather than plain literals.
+    @ScaledMetric(relativeTo: .subheadline) private var titleLineHeight: CGFloat = 20
+    @ScaledMetric(relativeTo: .caption) private var captionLineHeight: CGFloat = 16
+
+    /// How many lines of synopsis fit under the title and subtitle within
+    /// `thumbnailHeight`.
+    ///
+    /// Derived rather than the flat `lineLimit(6)` this used to carry: six
+    /// lines never came close to fitting a 16:9 thumbnail's 90pt at this
+    /// row's single-column size, so the `.clipped()` below was slicing a
+    /// line through its x-height on every row with a synopsis rather than
+    /// letting `Text` truncate it.
+    ///
+    /// What's reserved is *measured* (`headerHeight`), not estimated from
+    /// the title's own `lineLimit(2)`. Estimating cost two lines: nearly
+    /// every title here is one line — `railTitle` is a series name for an
+    /// episode member — so budgeting two reserved 60pt of a 90pt row
+    /// where the header actually measures ~35pt, and showed a single
+    /// line with a third of the row left empty. Measuring is also
+    /// self-correcting in the direction that matters: a title that *does*
+    /// wrap shrinks the synopsis by a line rather than pushing it under
+    /// the clip.
+    ///
+    /// The fallback covers the first frame only, before
+    /// `.onGeometryChange` has reported; it's the conservative estimate,
+    /// so a row can only ever gain lines as it settles, never flash more
+    /// than it can hold.
+    ///
+    /// Measured live, 2026-09-04: 3 lines at 90pt (iPhone 17, and any
+    /// compact-width row), 1 at the 68pt of an iPad portrait two-column
+    /// row, 3 at the 96pt of an iPad landscape one. `CollectionItemRow`
+    /// deliberately still uses the flat estimate — switching it too would
+    /// take its rows from 4 lines to the 6-line cap, which is a call
+    /// about how much prose that page wants rather than a bug fix, and
+    /// isn't part of this change.
+    private var overviewLineLimit: Int {
+        let reserved = headerHeight > 0
+            ? headerHeight
+            : titleLineHeight * 2 + captionLineHeight + 4
+        return max(1, min(6, Int((thumbnailHeight - reserved - 4) / captionLineHeight)))
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -102,7 +209,7 @@ private struct PlaylistItemRow: View {
                             url: item.thumbImageURL ?? item.primaryImageURL,
                             placeholderSystemImage: item.kind.placeholderSystemImage
                         )
-                        .frame(width: Self.thumbnailWidth, height: Self.thumbnailHeight)
+                        .frame(width: thumbnailWidth, height: thumbnailHeight)
                         // Same show-logo treatment Home's own episode rail
                         // tiles use (`LandscapeMediaCard`) — self-gated to
                         // `.episode` items with a logo, so a Movie member's
@@ -154,22 +261,33 @@ private struct PlaylistItemRow: View {
                 NavigationLink(value: AppRoute.assetDetail(itemID: item.id, preloadedItem: item)) {
                     HStack(spacing: 8) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(item.railTitle)
-                                .font(.subheadline.bold())
-                                .foregroundStyle(.primary)
-                                .lineLimit(2)
+                            // Title and subtitle measured together as one
+                            // block, so `overviewLineLimit` divides what's
+                            // genuinely left rather than what a worst-case
+                            // estimate assumed — see that property. Only
+                            // these two: the synopsis is deliberately
+                            // outside this stack, since measuring it too
+                            // would make the limit depend on its own
+                            // result.
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.railTitle)
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(2)
 
-                            if let subtitle = item.railSubtitle {
-                                Text(subtitle)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                if let subtitle = item.railSubtitle {
+                                    Text(subtitle)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
 
                             if let overview = item.overview {
                                 Text(overview)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                    .lineLimit(6)
+                                    .lineLimit(overviewLineLimit)
                             }
                         }
 
@@ -188,7 +306,7 @@ private struct PlaylistItemRow: View {
                     // top-aligned — see `CollectionItemRow`'s identical
                     // `.frame`/`.clipped()` pair for why this (not a fixed
                     // `lineLimit` alone) is what actually enforces it.
-                    .frame(height: Self.thumbnailHeight, alignment: .top)
+                    .frame(height: thumbnailHeight, alignment: .top)
                     .clipped()
                     .contentShape(Rectangle())
                     .accessibilityElement(children: .ignore)

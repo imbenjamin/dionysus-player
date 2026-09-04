@@ -78,6 +78,20 @@ struct PlaylistDetailView: View {
                         }
                     }
                     .padding(.horizontal)
+                    // Caps this column — metadata and the Play/Resume row —
+                    // to a readable measure on regular width, leaving the
+                    // hero above and the item list/rails below full-bleed.
+                    // See `ReadableDetailColumn`; every number in that doc
+                    // comment was measured on `MovieDetailView` and
+                    // reproduces here unchanged.
+                    //
+                    // This page has no tabs panel of its own to share the
+                    // column with (see this view's doc comment on why a
+                    // Playlist gets no `DetailTabsView`), so on regular
+                    // width the column is the metadata row plus the
+                    // Play/Resume button and nothing else — the button is
+                    // what the cap is really doing work for here.
+                    .readableDetailColumn()
                     .id(refreshTrigger)
 
                     if !viewModel.orderedPlaylistItems.isEmpty {
@@ -86,7 +100,6 @@ struct PlaylistDetailView: View {
                             onPlayItem: { itemID in playbackRequest = PlaybackRequest(itemID: itemID) },
                             client: viewModel.apiClient, userID: viewModel.currentUserID, downloadManager: appState.downloadManager
                         )
-                        .padding(.horizontal)
                     }
 
                     if !viewModel.similar.isEmpty {
