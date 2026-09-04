@@ -169,6 +169,21 @@ struct HeroRailView: View {
         return (scrollPosition - 1 + items.count) % items.count
     }
 
+    /// See `TabBarTintModel`. Resolves to `nil` — and so back to the
+    /// default tint — whenever there's no hero artwork to sample, rather
+    /// than leaving whichever tint the previous hero happened to pick.
+    private func publishBackdropLuminance() async {
+        guard items.indices.contains(currentIndex),
+              let url = items[currentIndex].backdropImageURL ?? items[currentIndex].primaryImageURL,
+              let image = try? await RemoteImageLoader.shared.image(for: url) else {
+            TabBarTintModel.shared.update(backdropLuminance: nil)
+            return
+        }
+        TabBarTintModel.shared.update(
+            backdropLuminance: TabBarTintModel.topStripLuminance(of: image)
+        )
+    }
+
     /// Whether a finger is currently down on the carousel — tracked via
     /// `RegionTouchObserver` below (a raw `UIGestureRecognizer` attached to
     /// the hero's own `UIScrollView`, not anything the scroll view exposes
@@ -391,6 +406,15 @@ struct HeroRailView: View {
                 // starting fresh — harmless to also fire redundantly right
                 // after an auto-advance (idleSeconds is already 0 by then).
                 .onChange(of: currentIndex) { _, _ in idleSeconds = 0 }
+                // Publishes the current hero's own backdrop luminance so
+                // the tab bar floating over it can pick a legible tint —
+                // see `TabBarTintModel`. Keyed on `currentIndex` so it
+                // re-runs on every advance, manual or automatic. The
+                // image is already in `RemoteImageLoader`'s cache by the
+                // time this runs (the hero itself just displayed it), so
+                // this is a cache hit and a one-pixel downsample rather
+                // than a fetch.
+                .task(id: currentIndex) { await publishBackdropLuminance() }
                 .onReceive(tickTimer) { _ in tick() }
 
                 // Reduce Motion only — see `advanceWithFade(from:to:)`.

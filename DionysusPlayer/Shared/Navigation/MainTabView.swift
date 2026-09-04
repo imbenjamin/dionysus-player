@@ -128,11 +128,14 @@ struct MainTabView: View {
             }
             .tag(MainTab.profile)
         }
-        // Selected-item tint tracks the brand primary (burgundy in light,
-        // amber in dark). Without this, the tab bar inherits the app-wide
-        // `AccentColor` asset, which is a static burgundy and doesn't adapt
-        // to theme changes.
-        .tint(Color.dionysusPrimary)
+        // Selected-item tint, chosen per-hero rather than fixed — see
+        // `TabBarTintModel` for the measured contrast failure a fixed
+        // tint produces on the Liquid Glass selection pill, and why
+        // recolouring alone can't fix it. Reading `.tint` here is what
+        // registers this view's Observation dependency on the model.
+        // Without any tint at all, the tab bar inherits the app-wide
+        // `AccentColor` asset, which is a static burgundy.
+        .tint(TabBarTintModel.shared.tint)
         .task(id: appState.currentUser?.id) { await loadProfileTabIcon() }
         // Cold launch can reach `.main` with `currentUser` still `nil` —
         // resumed from a cached session because the server was

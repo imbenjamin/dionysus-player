@@ -25,6 +25,29 @@ extension Color {
     /// this deeper/more saturated amber measures ~5.5:1.
     static let dionysusAmberHighContrast = Color(red: 0.65, green: 0.32, blue: 0.00)
 
+    /// The tab bar's selected-item tint when the artwork behind the bar
+    /// is dark — see `TabBarTintModel`, which chooses between this and
+    /// `dionysusPrimary` per hero.
+    ///
+    /// Same hue (333 degrees) and saturation (0.89) as `dionysusMagenta`,
+    /// lifted to HSL lightness 0.73: recognisably the same brand magenta,
+    /// light enough to survive the glass.
+    ///
+    /// Chosen against the *rendered* colour, not this raw one. The glass
+    /// lifts whatever tint it is given by half the pill's own value —
+    /// burgundy `(66, 0, 31)` renders as `(98, 32, 62)` on a `(64, 64, 64)`
+    /// pill, i.e. +32 per channel. Clearing 4.5:1 there needs a rendered
+    /// relative luminance of 0.406, so this renders to about
+    /// `(255, 157, 211)`. Predicted 5.44:1, measured 5.84:1 live.
+    /// Deliberately past the line rather than on it — HSL lightness 0.67
+    /// lands on exactly 4.50:1 with no margin.
+    ///
+    /// Magenta rather than the amber or gold that clear the bar more
+    /// easily (5.5:1 and 9.7:1): see `dionysusHighlight` for the palette's
+    /// standing "no amber in dark" rule, and a glass pill over a
+    /// near-black hero is a dark context.
+    static let dionysusMagentaOnGlass = Color(red: 0.97, green: 0.49, blue: 0.70)
+
     /// Primary brand action colour. Burgundy on light backgrounds; magenta in
     /// dark (amber-in-dark reads as Plex-adjacent, so the palette leans on
     /// magenta + burgundy to stand out). Backed by a dynamic `UIColor` so any
