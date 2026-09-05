@@ -44,8 +44,11 @@ scheme (target iOS 17+):
 open DionysusPlayer.xcodeproj
 ```
 
-A `DionysusPlayerTests` unit test target exists (XCTest, host-app style —
-see `TESTING.md` for the strategy and what's covered). Run it from Xcode with
+Two test targets exist: `DionysusPlayerTests` (XCTest unit tests, host-app
+style) and `DionysusPlayerUITests` (XCUITest journeys). Three test plans live
+in `TestPlans/` — `UnitTests` (the scheme default), `UITests-Smoke` (the PR
+gate) and `UITests-Full`. See `TESTING.md` for the strategy and what's
+covered. Run it from Xcode with
 the `DionysusPlayer` scheme (Cmd+U), or from the CLI once a Simulator runtime
 is available:
 
@@ -167,7 +170,24 @@ Three things about it that aren't obvious from the workflow file:
   `Config/ExportOptions.plist`, which, along with the distribution
   certificate, expires 2027-08-30. See `VERSIONING.md`'s "Signing setup".
 
-## Manual/automated UI verification
+## UI verification
+
+**The regression net is `DionysusPlayerUITests`** — an XCUITest suite driving
+the real app against an in-process stub server and a fake playback engine.
+See `TESTING.md`'s "UI tests" section for the harness, the launch arguments,
+the fixture catalogue and the selector rules. Run it with
+`-testPlan UITests-Smoke` (the PR gate) or `-testPlan UITests-Full`.
+
+**If a change touches a view, add or update a journey there** rather than
+verifying once by hand and moving on. Two rules that are not guessable and
+cost a debugging session each: never select on an accessibility *label*
+(those are localized), and never put an identifier on a screen-root
+container (it sometimes overwrites every descendant's own). Both are
+documented in `A11yID`.
+
+Everything below is for *exploratory* checking — seeing a new design, or
+chasing something the suite can't express. It is not a substitute for a
+committed test.
 
 For visual or interactive changes, prefer the `ios-simulator-skill` (when
 available) over ad hoc `simctl`/coordinate-tap scripting: it drives the
@@ -189,16 +209,15 @@ reuses fine back-to-back — closing and relaunching only wastes boot time and
 throws away useful state (installed build, current screen).
 
 Confirmed (2026-08-12) working well for Login, Home, Search, Profile, and
-detail-page screens — real accessibility elements, real taps. **Confirmed
-NOT working for the Player screen** (`PlayerView`/`PlayerControlsOverlay`):
-`idb ui describe-all` returns an empty tree there (root node, zero children)
-even with controls on screen, and coordinate taps aimed at any specific
-control (close, captions, rotation-lock, transport buttons, the scrubber)
-silently do nothing, while a generic full-screen tap still works. The
-working theory is AetherEngine's constantly-updating video surface, not a
-bug in the buttons themselves — a real device tap on the same buttons works
-fine. Don't burn time retrying automated taps against the Player screen;
-ask the user to verify interactive behavior there manually instead.
+detail-page screens — real accessibility elements, real taps.
+
+An earlier version of this section said `idb` returns an empty accessibility
+tree on the Player screen and that automated taps there were hopeless. **That
+is no longer true** — it was disproven on 2026-09-05, and XCUITest drives the
+player's controls fine under the UI-test harness, where the fake playback
+engine means there is no video surface at all. If a real AetherEngine session
+*is* on screen, the surface repaints continuously and automation there is
+still worth avoiding; use the harness instead of fighting it.
 
 ## Architecture
 
@@ -396,9 +415,12 @@ or the funnel guarantee breaks.
 
 ### Navigation (`Shared/Navigation/`)
 
-Single shared `AppRoute` enum (`collection`, `assetDetail`) used as the
-`navigationDestination(for:)` type across all three tabs in `MainTabView`
-(Home/Search/Profile), each with its own `NavigationStack`. Adding a new
+Single shared `AppRoute` enum (`collection`, `assetDetail`, `downloadedAsset`,
+`downloadedShow`, `downloadedSeason`) used as the
+`navigationDestination(for:)` type across `MainTabView`'s four tabs
+(Home/Search/Downloads/Profile). Home, Search and Downloads each own a
+`NavigationStack`; Profile owns its own container, because that container
+differs by device (a `NavigationSplitView` on iPad). Adding a new
 pushable destination means adding a case to `AppRoute` and a branch in
 `AppRouteDestinationView`, not a per-feature navigation type.
 

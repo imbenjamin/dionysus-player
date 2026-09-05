@@ -100,8 +100,8 @@ yet.
 Navigation, screens, and the networking/playback plumbing are in place with
 placeholder content where noted. As of Xcode 26.5, the app builds clean end
 to end — package resolution (AetherEngine and its dependencies), compilation,
-and linking all succeed with no errors — and the unit test suite passes (see
-[Testing](#testing)). Real device testing (see `TESTING.md`) has confirmed
+and linking all succeed with no errors — and both the unit and UI test suites
+pass (see [Testing](#testing)). Real device testing (see `TESTING.md`) has confirmed
 direct-play HDR/Dolby Vision video with passthrough audio, the Downloads
 feature end-to-end (queueing, background transfer, resume, bulk season
 download, quality overrides, offline playback, sync-back), and Allow
@@ -160,19 +160,34 @@ the `DionysusPlayer` scheme.
 
 ## Testing
 
-A `DionysusPlayerTests` unit test target covers the MVVM layer — ViewModels,
-the Jellyfin networking client, models, and persistence — via a fake-server
-pattern (`URLProtocol` stubbing) rather than hitting a real Jellyfin
-instance. Run it from Xcode with the `DionysusPlayer` scheme (**Cmd+U**), or:
+Two layers, neither of which touches a real Jellyfin server.
+
+`DionysusPlayerTests` covers the MVVM layer — ViewModels, the Jellyfin
+networking client, models, and persistence — via a fake-server pattern
+(`URLProtocol` stubbing). Run it from Xcode with the `DionysusPlayer` scheme
+(**Cmd+U**), or:
 
 ```sh
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
   -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
+`DionysusPlayerUITests` drives the real app in the Simulator with XCUITest,
+against an in-process stub server and a fake playback engine, so journeys
+like "sign in → open a title → play it" are deterministic and run in CI. A
+smoke subset gates every PR; the full suite runs nightly on an iPhone and an
+iPad, and on release tags.
+
+```sh
+xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
+  -testPlan UITests-Smoke \
+  -destination 'platform=iOS Simulator,name=iPhone 17'
+```
+
 All tests passing as of this writing. See [`TESTING.md`](TESTING.md) for the
-full strategy, a coverage table, and known gaps (SwiftUI views, true
-UI/end-to-end tests, and `AetherPlaybackEngine`'s own adapter code).
+full strategy, a coverage table, the UI harness, and known gaps (snapshot
+tests, per-feature journey depth, and `AetherPlaybackEngine`'s own adapter
+code).
 
 ## Architecture
 
