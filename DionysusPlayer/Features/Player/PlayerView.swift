@@ -110,6 +110,29 @@ struct PlayerView: View {
     /// force-reset to `.fit` on leaving landscape (see `isLandscape`'s doc
     /// comment).
     @State private var zoomMode: VideoZoomMode = .fit
+    /// Whether this player's window is wider than it is tall — the gate for
+    /// every zoom affordance (the button in `PlayerControlsOverlay`, the
+    /// double tap and the pinch below).
+    ///
+    /// Measured from the window's own geometry rather than derived from
+    /// `isLandscape` (`verticalSizeClass == .compact`), which this file used
+    /// to use for the same job. That size class is iPhone's landscape
+    /// signal and stays `.regular` on iPad in *both* orientations, so on
+    /// iPad it silently disabled zoom everywhere — no button, no double tap,
+    /// no pinch — leaving letterboxed content with no way to fill the
+    /// screen at all.
+    ///
+    /// `.onGeometryChange` rather than `windowScene.interfaceOrientation`:
+    /// it's the pattern this codebase already standardised on (`HomeView`,
+    /// `SeasonEpisodeList`, `CollectionItemList`, `PlaylistItemList` all
+    /// prefer it to a `UIScreen`/key-window read), it republishes itself on
+    /// change with nothing to subscribe to, it can't disagree with the UI
+    /// when this screen's own rotation lock is engaged, and under Split
+    /// View it describes the window the video actually occupies rather than
+    /// the device around it. It's also not a `GeometryReader`: it reads the
+    /// resolved size without proposing one, so it stays clear of the
+    /// zero-size failures `PlayerControlsOverlay`'s picker sizing documents.
+    @State private var isLandscapeWindow = false
     /// Whether `PlaybackStatsOverlay` (the "stats for nerds" panel) is
     /// showing. Unlike `showControls`, this has no auto-hide/fade — it's a
     /// plain on/off toggle that only the info button in
@@ -260,6 +283,7 @@ struct PlayerView: View {
                     onTogglePlaybackStats: { showPlaybackStats.toggle() },
                     zoomMode: zoomMode,
                     onToggleZoomMode: { setZoomMode(zoomMode.toggled) },
+                    isLandscapeWindow: isLandscapeWindow,
                     onEnterPictureInPicture: { viewModel.startPictureInPicture() },
                     onInteract: scheduleAutoHide,
                     onDismissControls: dismissControls
@@ -521,6 +545,12 @@ struct PlayerView: View {
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
+        // Feeds every zoom affordance — see `isLandscapeWindow`. On the
+        // whole player rather than on the video surface: this asks about the
+        // window the player occupies, and the surface's own frame is what
+        // zooming changes, which would make that circular.
+        .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height }
+            action: { isLandscapeWindow = $0 }
         .task { await setUpIfNeeded() }
         // The controls only ever fade while `.playing` — every other state
         // (paused, loading, seeking, buffering, reconnecting, ended, failed)
@@ -559,9 +589,9 @@ struct PlayerView: View {
         // Zoom is a landscape-only affordance — leaving landscape with
         // `.fill` still active would otherwise leave a portrait video
         // cropped with no way left to un-zoom it (both gestures below are
-        // gated on `isLandscape` too), so force it back to `.fit` the
+        // gated on `isLandscapeWindow` too), so force it back to `.fit` the
         // moment the rotation itself takes it out of scope.
-        .onChange(of: isLandscape) { _, landscape in
+        .onChange(of: isLandscapeWindow) { _, landscape in
             guard !landscape else { return }
             setZoomMode(.fit)
         }
@@ -631,7 +661,7 @@ struct PlayerView: View {
     /// while controls are hidden, so a double tap aimed at dismissing a
     /// button/scrubber doesn't also zoom the video out from under it.
     private func handleDoubleTap() {
-        guard isLandscape, !showControls else { return }
+        guard isLandscapeWindow, !showControls else { return }
         setZoomMode(zoomMode.toggled)
     }
 
@@ -646,7 +676,7 @@ struct PlayerView: View {
     private var pinchZoomGesture: some Gesture {
         MagnifyGesture()
             .onEnded { value in
-                guard isLandscape, abs(value.magnification - 1) > 0.05 else { return }
+                guard isLandscapeWindow, abs(value.magnification - 1) > 0.05 else { return }
                 setZoomMode(value.magnification > 1 ? .fill : .fit)
             }
     }

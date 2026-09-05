@@ -58,6 +58,19 @@ struct PlayerControlsOverlay: View {
     /// not something this button should expand the scope of.
     var zoomMode: VideoZoomMode
     var onToggleZoomMode: () -> Void
+    /// Whether the player's window is currently wider than it is tall,
+    /// measured by `PlayerView` via `.onGeometryChange` and handed down as
+    /// plain state — the same "value in, closure out" shape `zoomMode`
+    /// itself uses just above.
+    ///
+    /// Distinct from this file's own `isLandscape` (`verticalSizeClass ==
+    /// .compact`), which is still the right signal for the two places that
+    /// really mean "is this window short" — the chapter picker's bottom
+    /// padding here, and `ChapterPickerOverlay.maxHeight`. This one means
+    /// "is this window landscape-shaped", which on iPad the size class
+    /// cannot answer. See the zoom button in `topSection` for the full
+    /// reasoning.
+    var isLandscapeWindow: Bool
     /// A one-shot action, unlike the two toggle buttons above — there's no
     /// "currently in PiP" state to mirror here, `viewModel
     /// .isPictureInPicturePossible` alone decides whether the button is
@@ -104,6 +117,86 @@ struct PlayerControlsOverlay: View {
     /// "closure out" plumbing the actual zoom *state* needs.
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
+
+    /// Whether the user has Increase Contrast on. Every colour in this
+    /// overlay is a hardcoded white or white-at-an-opacity, so before this
+    /// the whole player ignored the setting outright — on the one screen
+    /// where a user with contrast difficulties is most likely to have it on,
+    /// since white chrome sits directly on arbitrary video here. The
+    /// unfilled scrubber segment measured exactly 3.00:1 against black (the
+    /// non-text floor) and didn't move when the setting was enabled.
+    ///
+    /// Used below to raise the low-opacity values toward opaque and to
+    /// deepen `controlScrim`'s shadow, rather than to swap in a different
+    /// palette — there's no colour here to re-tint, only contrast to add.
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    private var isIncreasedContrast: Bool { colorSchemeContrast == .increased }
+
+    /// Secondary text (timestamps, the episode subtitle) — `0.8` white
+    /// normally, opaque under Increase Contrast.
+    private var secondaryTextOpacity: Double { isIncreasedContrast ? 1 : 0.8 }
+
+    /// A dark halo behind whichever white glyph it's applied to. The
+    /// overlay's own `backgroundGradient` only covers the top-left corner
+    /// (for the logo) and a bottom fade (for the scrubber); the transport
+    /// cluster in the middle and the button cluster at the top trailing edge
+    /// both sit on unmodified video. Sampled against a real bright frame,
+    /// a pure-white glyph cleared 3:1 — HIG's non-text minimum — over only
+    /// 16% of the area behind the transport row, median 2.23:1, with a floor
+    /// of 1.00:1 where snow made the glyph literally invisible.
+    ///
+    /// A shadow rather than a plate or a material behind each button: it
+    /// costs nothing visually on the dark frames that are already fine (a
+    /// black halo on black reads as nothing at all) and only shows up where
+    /// it's actually needed, so the chrome-free look of the controls
+    /// survives. Note it buys *perceptual* separation via an edge rather
+    /// than raising the glyph's own measured ratio against the backdrop —
+    /// the honest ceiling for white-on-arbitrary-video short of an opaque
+    /// plate under every control.
+    private var controlScrim: some ViewModifier {
+        ControlScrim(opacity: isIncreasedContrast ? 1 : 0.8,
+                     radius: isIncreasedContrast ? 7 : 5)
+    }
+
+    /// Top-row control sizing — the button's tap target, the on-state badge
+    /// behind the glyph, and the glyph itself, in the 44 : 36 : 22 ratio
+    /// they've always had.
+    ///
+    /// All three scale together now. Only the glyph did before (via
+    /// `.font(.title2)`), while the frame and badge were fixed points — so
+    /// at AX3XL the glyph outgrew its 36pt badge and spilled out on all
+    /// sides, reading as a rendering fault rather than an active state
+    /// (confirmed on an iPad at AX3XL, rotation-lock and stats buttons
+    /// both).
+    ///
+    /// Clamped, unlike the picker row heights: this row carries up to five
+    /// buttons plus the close button, and unbounded growth overflows its
+    /// width on a narrow phone long before it runs out of room on an iPad.
+    /// The caps hold the same 44 : 36 : 22 ratio so the badge never loses
+    /// its glyph again at the top of the range either.
+    @ScaledMetric(relativeTo: .title2) private var scaledTopControlSize: CGFloat = 44
+    private var topControlSize: CGFloat { min(scaledTopControlSize, 60) }
+    @ScaledMetric(relativeTo: .title2) private var scaledTopBadgeSize: CGFloat = 36
+    private var topBadgeSize: CGFloat { min(scaledTopBadgeSize, 49) }
+    @ScaledMetric(relativeTo: .title2) private var scaledTopGlyphSize: CGFloat = 22
+    private var topGlyphSize: CGFloat { min(scaledTopGlyphSize, 30) }
+
+    /// Transport-row sizing, same shape as the top row above: tap target,
+    /// skip glyph, play/pause glyph, in their existing 44 : 28 : 44 ratio.
+    ///
+    /// Scaling these *together* is the point. Before, the skip buttons used
+    /// `.font(.title)` (which scales) and play/pause used
+    /// `.font(.system(size: 44))` (which doesn't), so at AX3XL the skip
+    /// glyphs rendered ~55pt across against play/pause's 44 — the secondary
+    /// controls visibly larger than the primary one, with the whole visual
+    /// hierarchy inverted. The frames were fixed at 44 too, so both skip
+    /// glyphs simply overflowed their own tap targets.
+    @ScaledMetric(relativeTo: .title) private var scaledTransportSize: CGFloat = 44
+    private var transportSize: CGFloat { min(scaledTransportSize, 72) }
+    @ScaledMetric(relativeTo: .title) private var scaledSkipGlyphSize: CGFloat = 28
+    private var skipGlyphSize: CGFloat { min(scaledSkipGlyphSize, 46) }
+    @ScaledMetric(relativeTo: .title) private var scaledPlayGlyphSize: CGFloat = 44
+    private var playGlyphSize: CGFloat { min(scaledPlayGlyphSize, 72) }
 
     /// Whether the scrubber shows chapter boundary dividers and magnetically
     /// snaps to them — a persisted setting (Profile → Playback, "Chapters in
@@ -288,11 +381,14 @@ struct PlayerControlsOverlay: View {
         .overlay(alignment: .topTrailing) {
             if isShowingTrackPicker {
                 trackPickerContent
-                    // Approximate clearance for the top button row + its
-                    // padding, not a measured value — the row's own height
-                    // varies a little with Dynamic Type, so this is a
-                    // reasonable anchor rather than a pixel-exact one.
-                    .padding(.top, 76)
+                    // Clearance for the top button row: its own height plus
+                    // the 16pt `.padding()` above and below it in
+                    // `topSection`. Derived from `topControlSize` rather
+                    // than the flat `76` this used to be — that literal was
+                    // right only at the default text size, and at AX3XL the
+                    // grown button row pushed straight through the panel's
+                    // top edge.
+                    .padding(.top, topControlSize + 32)
                     .padding(.trailing, 20)
                     .transition(.scale(scale: 0.92, anchor: .topTrailing).combined(with: .opacity))
             }
@@ -456,7 +552,12 @@ struct PlayerControlsOverlay: View {
                 // read as "exit playback" rather than "tuck this away".
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.title2)
+                        // `.system(size: topGlyphSize)` rather than
+                        // `.title2` — identical at the default text size
+                        // (Title 2 *is* 22pt), but clamped at the top of
+                        // the Dynamic Type range so this row can't outgrow
+                        // its own width. See `topControlSize`.
+                        .font(.system(size: topGlyphSize))
                         // Pads the drawn glyph out to HIG's 44×44 minimum
                         // touch target — see `body`'s blank-space tap
                         // catcher doc comment for why every real control
@@ -466,7 +567,7 @@ struct PlayerControlsOverlay: View {
                         // easy to narrowly miss and misfire a dismiss
                         // instead. Same pattern `ProfileView.swift`'s
                         // GitHub link uses.
-                        .frame(width: 44, height: 44)
+                        .frame(width: topControlSize, height: topControlSize)
                         .contentShape(Rectangle())
                 }
 
@@ -478,38 +579,50 @@ struct PlayerControlsOverlay: View {
                 // `transportControls` already uses between its three
                 // buttons.
                 HStack(spacing: 20) {
-                    Button {
-                        onInteract()
-                        onToggleRotationLock()
-                    } label: {
-                        // The open/closed padlock swap alone (no background
-                        // change) turned out too subtle to notice at a
-                        // glance against a busy, constantly-changing video
-                        // frame — confirmed against a real device. Locked
-                        // now also gets a solid white "badge" behind it
-                        // (glyph flips to black for contrast on top of
-                        // that), the same active/on-state affordance a
-                        // system control center toggle uses; unlocked stays
-                        // a plain icon with no chrome, matching every other
-                        // button in this row.
-                        Image(systemName: isRotationLocked ? "lock.rotation" : "lock.rotation.open")
-                            .font(.title2)
-                            .foregroundStyle(isRotationLocked ? .black : .white)
-                            .frame(width: 36, height: 36)
-                            .background {
-                                if isRotationLocked {
-                                    Circle().fill(Color.white)
+                    // Omitted where the system won't act on the lock at all
+                    // — see `RotationLock.isSupported`, which is `false` on
+                    // a multitasking-capable iPad. Omitted rather than shown
+                    // disabled, matching the PiP and playback-stats buttons
+                    // below: this one used to render, toggle its own icon to
+                    // the locked badge, and have no effect whatsoever, which
+                    // reads as a broken feature rather than an unavailable
+                    // one.
+                    if RotationLock.isSupported {
+                        Button {
+                            onInteract()
+                            onToggleRotationLock()
+                        } label: {
+                            // The open/closed padlock swap alone (no background
+                            // change) turned out too subtle to notice at a
+                            // glance against a busy, constantly-changing video
+                            // frame — confirmed against a real device. Locked
+                            // now also gets a solid white "badge" behind it
+                            // (glyph flips to black for contrast on top of
+                            // that), the same active/on-state affordance a
+                            // system control center toggle uses; unlocked stays
+                            // a plain icon with no chrome, matching every other
+                            // button in this row.
+                            Image(systemName: isRotationLocked ? "lock.rotation" : "lock.rotation.open")
+                                .font(.system(size: topGlyphSize))
+                                .foregroundStyle(isRotationLocked ? .black : .white)
+                                .frame(width: topBadgeSize, height: topBadgeSize)
+                                .background {
+                                    if isRotationLocked {
+                                        Circle().fill(Color.white)
+                                    }
                                 }
-                            }
-                            // The visible badge stays 36×36 — only the tap
-                            // target grows, via an outer frame the badge is
-                            // centered in, to HIG's 44pt minimum. See the
-                            // close button above for why this matters now.
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
+                                // The visible badge stays smaller than the tap
+                                // target — an outer frame the badge is centered
+                                // in carries the ≥44pt target. See the close
+                                // button above for why that matters now, and
+                                // `topControlSize` for why all three sizes are
+                                // scaled together rather than pinned.
+                                .frame(width: topControlSize, height: topControlSize)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel(isRotationLocked ? Text("Unlock rotation") : Text("Lock rotation"))
+                        .animation(.easeInOut(duration: 0.15), value: isRotationLocked)
                     }
-                    .accessibilityLabel(isRotationLocked ? Text("Unlock rotation") : Text("Lock rotation"))
-                    .animation(.easeInOut(duration: 0.15), value: isRotationLocked)
 
                     trackSelectionButton
 
@@ -525,8 +638,8 @@ struct PlayerControlsOverlay: View {
                             onEnterPictureInPicture()
                         } label: {
                             Image(systemName: "pip.enter")
-                                .font(.title2)
-                                .frame(width: 44, height: 44)
+                                .font(.system(size: topGlyphSize))
+                                .frame(width: topControlSize, height: topControlSize)
                                 .contentShape(Rectangle())
                         }
                         .accessibilityLabel(Text("Picture in Picture"))
@@ -548,30 +661,51 @@ struct PlayerControlsOverlay: View {
                             onTogglePlaybackStats()
                         } label: {
                             Image(systemName: "info.circle")
-                                .font(.title2)
+                                .font(.system(size: topGlyphSize))
                                 .foregroundStyle(isPlaybackStatsVisible ? .black : .white)
-                                .frame(width: 36, height: 36)
+                                .frame(width: topBadgeSize, height: topBadgeSize)
                                 .background {
                                     if isPlaybackStatsVisible {
                                         Circle().fill(Color.white)
                                     }
                                 }
-                                // Same 36pt-badge-inside-a-44pt-target treatment
-                                // as the rotation lock button above.
-                                .frame(width: 44, height: 44)
+                                // Same badge-inside-a-larger-tap-target
+                                // treatment as the rotation lock button
+                                // above, scaled the same way.
+                                .frame(width: topControlSize, height: topControlSize)
                                 .contentShape(Rectangle())
                         }
                         .accessibilityLabel(isPlaybackStatsVisible ? Text("Hide playback stats") : Text("Show playback stats"))
                         .animation(.easeInOut(duration: 0.15), value: isPlaybackStatsVisible)
                     }
 
-                    // Landscape-only — see `zoomMode`'s own doc comment. No
-                    // on-state badge the way rotation-lock/stats above get
-                    // one — unlike "locked"/"visible", the glyph itself
+                    // Landscape-only — but keyed off `isLandscapeWindow`
+                    // (the window's own shape, measured by `PlayerView`)
+                    // rather than the `isLandscape` size-class check the
+                    // rest of this file uses. `verticalSizeClass ==
+                    // .compact` is iPhone's landscape signal and stays
+                    // `.regular` on iPad in *both* orientations, so gating
+                    // this on it meant iPad never got a zoom affordance at
+                    // all — not this button, and not the double-tap or
+                    // pinch in `PlayerView` that share the gate. That left
+                    // 2.40:1 content in iPad portrait rendering 349pt tall
+                    // inside an 1180pt screen with no way to fill it.
+                    //
+                    // Window shape rather than `interfaceOrientation`
+                    // deliberately: it's the app's established pattern
+                    // (`HomeView`, `SeasonEpisodeList`, `CollectionItemList`
+                    // all prefer `.onGeometryChange` over a `UIScreen`/
+                    // key-window read), it re-evaluates on its own, it can't
+                    // be fooled by this screen's own rotation lock, and in
+                    // Split View it describes the window the video is
+                    // actually in rather than the device around it.
+                    //
+                    // No on-state badge the way rotation-lock/stats above
+                    // get one — unlike "locked"/"visible", the glyph itself
                     // already swaps direction to show which state a tap
                     // leads to, so a second, redundant indicator (per direct
                     // feedback) wasn't needed here.
-                    if isLandscape {
+                    if isLandscapeWindow {
                         Button {
                             onInteract()
                             onToggleZoomMode()
@@ -579,8 +713,8 @@ struct PlayerControlsOverlay: View {
                             Image(systemName: zoomMode == .fill
                                 ? "arrow.down.right.and.arrow.up.left"
                                 : "arrow.up.left.and.arrow.down.right")
-                                .font(.title2)
-                                .frame(width: 44, height: 44)
+                                .font(.system(size: topGlyphSize))
+                                .frame(width: topControlSize, height: topControlSize)
                                 .contentShape(Rectangle())
                         }
                         .accessibilityLabel(
@@ -592,6 +726,12 @@ struct PlayerControlsOverlay: View {
                 }
             }
             .foregroundStyle(.white)
+            // These buttons sit outside `backgroundGradient`'s corner
+            // ellipse (measured: it's down to ~9% opacity by the time it
+            // reaches the trailing edge), so in landscape — where the video
+            // reaches the top of the screen — they're white on unmodified
+            // video. See `controlScrim`.
+            .modifier(controlScrim)
             .padding()
 
             titleRow
@@ -730,9 +870,13 @@ struct PlayerControlsOverlay: View {
             withAnimation(Self.trackPickerAnimation) { isShowingTrackPicker = true }
         } label: {
             Image(systemName: "captions.bubble")
-                .font(.title2)
-                .opacity(hasAnyChoice ? 1 : 0.4)
-                .frame(width: 44, height: 44)
+                .font(.system(size: topGlyphSize))
+                // The dimmed unavailable state is exempt from the contrast
+                // floor, but Increase Contrast is still the setting of
+                // someone who needs the difference between "dim" and
+                // "gone" to be readable — so lift it rather than leave it.
+                .opacity(hasAnyChoice ? 1 : (isIncreasedContrast ? 0.6 : 0.4))
+                .frame(width: topControlSize, height: topControlSize)
                 .contentShape(Rectangle())
         }
         .disabled(!hasAnyChoice)
@@ -767,23 +911,40 @@ struct PlayerControlsOverlay: View {
         // animated area the way `.root` never needed one to.
         switch page {
         case .root:
-            return Self.navigationRowHeight * 2 + Self.dividerHeight
+            return navigationRowHeight * 2 + Self.dividerHeight
         case .audio:
             let count = viewModel.audioTracks.count
-            let rows = Self.selectionRowHeight * CGFloat(count) + Self.dividerHeight * CGFloat(max(0, count - 1))
-            return Self.leafHeaderHeight + Self.dividerHeight + rows
+            let rows = selectionRowHeight * CGFloat(count) + Self.dividerHeight * CGFloat(max(0, count - 1))
+            return leafHeaderHeight + Self.dividerHeight + rows
         case .subtitle:
             // +1 for the "Off" row, which isn't in `subtitleTracks`.
             let count = viewModel.subtitleTracks.count + 1
-            let rows = Self.selectionRowHeight * CGFloat(count) + Self.dividerHeight * CGFloat(max(0, count - 1))
-            return Self.leafHeaderHeight + Self.dividerHeight + rows
+            let rows = selectionRowHeight * CGFloat(count) + Self.dividerHeight * CGFloat(max(0, count - 1))
+            return leafHeaderHeight + Self.dividerHeight + rows
         }
     }
 
     /// `navigationRow`'s two-line (title + current-selection subtitle) rows
     /// — `.padding(.vertical, 10)` (×2) plus roughly a `.subheadline` and a
     /// `.footnote` line stacked with 2pt spacing.
-    private static let navigationRowHeight: CGFloat = 56
+    ///
+    /// `@ScaledMetric`, not a plain constant — and the same goes for the two
+    /// below. `estimatedHeight(for:)` is what sizes the whole panel, and the
+    /// rows it estimates are real text that grows with Dynamic Type, so a
+    /// fixed point value drifts further from the truth the larger the text
+    /// gets. Measured on an iPad at AX3XL before this changed: a root row
+    /// renders 133.5pt against this 56, so `min(estimatedHeight, ...)` sized
+    /// the panel at 113pt, `trackPickerContent`'s `.clipped()` cut the first
+    /// row off mid-word, and the "Subtitles" row fell outside the panel
+    /// entirely — reachable only by scrolling a panel that gives no visible
+    /// sign it scrolls.
+    ///
+    /// Scaling the estimate keeps the arithmetic shape intact (a real
+    /// measurement here is a documented dead end — see
+    /// `estimatedHeight(for:)`) while tracking what the rows actually do.
+    /// `relativeTo: .subheadline` because that's the title line each row's
+    /// height is driven by.
+    @ScaledMetric(relativeTo: .subheadline) private var navigationRowHeight: CGFloat = 56
     /// `selectionRow`'s rows — `.padding(.vertical, 10)` (×2) plus a
     /// `.subheadline` title and, for most tracks, a `.footnote` metadata
     /// line underneath (see `PlaybackTrack.metadata`). Sized for that
@@ -791,10 +952,11 @@ struct PlayerControlsOverlay: View {
     /// all renders one line shorter than estimated, same acceptable-gap
     /// trade-off as a title long enough to wrap (see `estimatedHeight(for:)`
     /// 's doc comment).
-    private static let selectionRowHeight: CGFloat = 56
+    @ScaledMetric(relativeTo: .subheadline) private var selectionRowHeight: CGFloat = 56
     /// `backRow`/`leafTitleRow`'s own height — `.padding(.vertical, 12)`
     /// (×2) plus roughly one `.subheadline` line.
-    private static let leafHeaderHeight: CGFloat = 44
+    @ScaledMetric(relativeTo: .subheadline) private var leafHeaderHeight: CGFloat = 44
+    /// Stays fixed, unlike the three above — it's a hairline rule, not text.
     private static let dividerHeight: CGFloat = 1
 
     /// The root page — "Audio"/"Subtitles" navigation rows. Always mounted,
@@ -1103,13 +1265,12 @@ struct PlayerControlsOverlay: View {
                 if viewModel.state == .reconnecting {
                     Text("Reconnecting…")
                         .font(.caption)
-                        .foregroundStyle(.white.opacity(0.8))
+                        .foregroundStyle(.white.opacity(secondaryTextOpacity))
                 }
             }
-            // Matches the play/pause button's own `.font(.system(size:
-            // 44))` footprint, so nothing else in the layout shifts
-            // when this swaps in and out.
-            .frame(height: 44)
+            // Matches the play/pause button's own footprint, so nothing
+            // else in the layout shifts when this swaps in and out.
+            .frame(height: transportSize)
         } else {
             HStack(spacing: 40) {
                 Button {
@@ -1117,11 +1278,18 @@ struct PlayerControlsOverlay: View {
                     viewModel.seek(to: max(0, displayedTime - 15))
                 } label: {
                     Image(systemName: "gobackward.15")
-                        .font(.title)
+                        // `.system(size: skipGlyphSize)` rather than
+                        // `.title` — identical at the default text size
+                        // (Title 1 *is* 28pt) but scaled in lockstep with
+                        // the play/pause glyph and with the frame below, so
+                        // the skip buttons can neither overtake the primary
+                        // control nor outgrow their own tap target. See
+                        // `transportSize`.
+                        .font(.system(size: skipGlyphSize))
                         // Same HIG-44pt tap-target padding as every other
                         // icon button in this overlay — see the close
                         // button's doc comment in `topSection`.
-                        .frame(width: 44, height: 44)
+                        .frame(width: transportSize, height: transportSize)
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel(String(localized: "Rewind 15 Seconds"))
@@ -1131,8 +1299,8 @@ struct PlayerControlsOverlay: View {
                     viewModel.togglePlayPause()
                 } label: {
                     Image(systemName: viewModel.state == .playing ? "pause.fill" : "play.fill")
-                        .font(.system(size: 44))
-                        .frame(width: 44, height: 44)
+                        .font(.system(size: playGlyphSize))
+                        .frame(width: transportSize, height: transportSize)
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel(viewModel.state == .playing ? String(localized: "Pause") : String(localized: "Play"))
@@ -1142,13 +1310,18 @@ struct PlayerControlsOverlay: View {
                     viewModel.seek(to: min(viewModel.duration, displayedTime + 30))
                 } label: {
                     Image(systemName: "goforward.30")
-                        .font(.title)
-                        .frame(width: 44, height: 44)
+                        .font(.system(size: skipGlyphSize))
+                        .frame(width: transportSize, height: transportSize)
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel(String(localized: "Fast Forward 30 Seconds"))
             }
             .foregroundStyle(.white)
+            // The middle of the screen is the one region `backgroundGradient`
+            // covers neither end of, so these three sit on raw video. This
+            // is where the contrast measurement was worst — see
+            // `controlScrim`.
+            .modifier(controlScrim)
         }
     }
 
@@ -1224,7 +1397,7 @@ struct PlayerControlsOverlay: View {
     private func episodeSubtitleText(_ text: String) -> some View {
         Text(text)
             .font(.subheadline)
-            .foregroundStyle(.white.opacity(0.8))
+            .foregroundStyle(.white.opacity(secondaryTextOpacity))
             .lineLimit(1)
     }
 
@@ -1236,7 +1409,7 @@ struct PlayerControlsOverlay: View {
             if let format = viewModel.videoFormatDescription {
                 Text(format)
                     .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.7))
+                    .foregroundStyle(.white.opacity(isIncreasedContrast ? 1 : 0.7))
             }
 
             // `spacing: 16`, not the tighter 8 this used to be — the thumb
@@ -1288,13 +1461,29 @@ struct PlayerControlsOverlay: View {
                         Text("-9:59:59").monospacedDigit().hidden()
                         Text(endTimeText).monospacedDigit()
                     }
+                    // Pads the drawn timestamp out to HIG's 44pt minimum
+                    // touch target. It measured 51×14.5pt before — under
+                    // even the 28pt floor — despite being a real control,
+                    // as its own `.accessibilityHint` below says outright.
+                    // Has to go on the *label*, not outside the `Button`: a
+                    // button hit-tests where its label paints, so a frame
+                    // applied outside grows the layout (and the
+                    // accessibility frame that gets measured) while leaving
+                    // the real target the size of the text. Same fix, same
+                    // reason, as the close button in `topSection`.
+                    //
+                    // Layout-neutral at every text size: `scrubberTrack`
+                    // already makes this row at least 44pt tall, so the
+                    // timestamp just centers in height the row had anyway.
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
                 }
                 .accessibilityLabel(endTimeAccessibilityLabel)
                 .accessibilityHint(String(localized: "Double tap to toggle between remaining time and total duration"))
                 .accessibilityAddTraits(.updatesFrequently)
             }
             .font(.caption)
-            .foregroundStyle(.white.opacity(0.8))
+            .foregroundStyle(.white.opacity(secondaryTextOpacity))
 
             // Only for content that actually has chapters — see
             // `MediaItem.chapters`, which already collapses Jellyfin's
@@ -1339,7 +1528,7 @@ struct PlayerControlsOverlay: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(Color.white.opacity(0.15), in: Capsule())
+            .background(Color.white.opacity(isIncreasedContrast ? 0.32 : 0.15), in: Capsule())
             // Pads the drawn capsule out to HIG's 44pt minimum touch
             // target height — same reasoning as every other control in
             // this overlay (see the close button's doc comment): once
@@ -1385,7 +1574,7 @@ struct PlayerControlsOverlay: View {
                 // is applied to the children individually; pinning each
                 // shape's own size is unambiguous regardless.
                 Capsule()
-                    .fill(Color.white.opacity(0.35))
+                    .fill(Color.white.opacity(isIncreasedContrast ? 0.6 : 0.35))
                     .frame(height: 4)
 
                 Capsule()
@@ -1765,5 +1954,33 @@ struct PlayerControlsOverlay: View {
             return String(localized: "0 seconds")
         }
         return result
+    }
+}
+
+/// A dark halo behind a white glyph, so it stays legible over whatever
+/// video frame happens to be underneath it — see
+/// `PlayerControlsOverlay.controlScrim`, which is the only thing that
+/// builds one and carries the full reasoning and the measurements.
+///
+/// A `ViewModifier` rather than a plain `.shadow(...)` at each call site so
+/// the two clusters that need it (the top button row and the transport row)
+/// can't drift apart, and so the Increase Contrast branch lives in exactly
+/// one place.
+private struct ControlScrim: ViewModifier {
+    let opacity: Double
+    let radius: CGFloat
+
+    /// Two stacked passes, not one. A single `.shadow` is a blur, so its
+    /// effective alpha right at the glyph's edge — the only place that
+    /// decides legibility — is far below the nominal opacity. Measured on a
+    /// bright frame, one pass at 0.65/4 lifted the adjacent pixel from 198
+    /// to 167 (2.41:1 against the white glyph), short of the 3:1 non-text
+    /// floor, which needs ≤149. Compositing the same shadow twice roughly
+    /// squares the transmission at the edge without widening the halo into
+    /// something visible as a smudge.
+    func body(content: Content) -> some View {
+        content
+            .shadow(color: .black.opacity(opacity), radius: radius)
+            .shadow(color: .black.opacity(opacity), radius: radius)
     }
 }

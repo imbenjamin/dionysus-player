@@ -26,6 +26,38 @@ enum RotationLock {
     /// hook on without a compiler error.
     static func currentMask() -> UIInterfaceOrientationMask { mask }
 
+    /// Whether locking rotation can actually take effect on this device —
+    /// `false` on iPad, unless the app requires full screen.
+    ///
+    /// iOS only honours `application(_:supportedInterfaceOrientationsFor:)`
+    /// on iPad for an app that has opted *out* of multitasking. A resizable
+    /// iPad app — which `UIRequiresFullScreen: false` in `project.yml` opts
+    /// into, for Split View and Stage Manager — must support every
+    /// orientation its Info.plist declares, and the mask above is simply
+    /// ignored. Everything here still runs correctly; the system just
+    /// doesn't act on it.
+    ///
+    /// Verified rather than inferred (2026-09-05, iPad A16 simulator): with
+    /// `UIRequiresFullScreen: false` the UI rotates freely with the lock
+    /// engaged, and flipping it to `true`, regenerating and rebuilding makes
+    /// the very same lock hold. Confirmed from the other side too — the lock
+    /// works on a physical iPhone, which honours the mask either way.
+    ///
+    /// `PlayerControlsOverlay` gates its rotation-lock button on this and
+    /// omits the button entirely where it's `false`, the same
+    /// omit-don't-disable treatment the PiP and playback-stats buttons
+    /// beside it already get. A control that visibly engages and then does
+    /// nothing is worse than an absent one.
+    ///
+    /// Reads `UIRequiresFullScreen` back out of the Info.plist rather than
+    /// hardcoding "not on iPad", so that if that flag is ever flipped the
+    /// button returns on its own instead of this rotting into a constant
+    /// that quietly disagrees with the build it ships in.
+    static var isSupported: Bool {
+        guard DeviceIdentity.isPad else { return true }
+        return Bundle.main.object(forInfoDictionaryKey: "UIRequiresFullScreen") as? Bool ?? false
+    }
+
     /// Locks rotation to whichever orientation the device is in right now.
     /// `PlayerView`'s rotation-lock button calls this, and pairs it with
     /// `unlock()` once playback closes — without that, the rest of the app
