@@ -51,19 +51,27 @@ class UITestCase: XCTestCase {
     ///   - signedIn: `true` seeds a server and credentials so the app opens
     ///     on Home. `false` leaves it at first-run server setup — which is
     ///     what the auth journeys want, and nothing else does.
+    ///   - resetsState: `true` (the default, and what almost every journey
+    ///     wants) wipes `UserDefaults`/the Keychain/downloaded artifacts
+    ///     before this launch, so one test can never see another's
+    ///     leftovers. `false` is for the rare journey that is *about*
+    ///     something surviving a relaunch — search history, say — and needs
+    ///     a second `launch()` in the same test that doesn't undo the
+    ///     first's state on the way in.
     ///   - extraArguments: Appended verbatim, for a test that needs to force
     ///     one of the app's own `@AppStorage` keys.
     @discardableResult
     func launch(
         scenario: String = "standard",
         signedIn: Bool = true,
+        resetsState: Bool = true,
         extraArguments: [String] = []
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [
             "-UITestMode", "YES",
             "-UITestScenario", scenario,
-            "-UITestResetState", "YES",
+            "-UITestResetState", resetsState ? "YES" : "NO",
             "-UITestDisableAnimations", "YES",
             "-UITestDisableControlAutoHide", "YES",
             // The app's own settings, forced through `UserDefaults`'

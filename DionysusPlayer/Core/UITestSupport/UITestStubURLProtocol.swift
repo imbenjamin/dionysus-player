@@ -58,6 +58,16 @@ final class UITestStubURLProtocol: URLProtocol {
             return
         }
 
+        // Independent of scenario — a login journey testing a mistyped
+        // password shouldn't need a whole error scenario switched on to get
+        // there. Checked here rather than folded into `scenarioFailure`,
+        // which gates *paths*, not *bodies*: this is the one request the
+        // stub actually has to look inside to answer correctly.
+        if path.hasSuffix("/Users/AuthenticateByName"), !Self.suppliesTheFixturePassword(request) {
+            finish(.success((401, Data("{}".utf8), "application/json")))
+            return
+        }
+
         do {
             let body = try Self.body(forPath: path, query: query, request: request)
             finish(.success((200, body, "application/json")))
@@ -88,6 +98,39 @@ final class UITestStubURLProtocol: URLProtocol {
     /// own queues, so this is guarded by `lock` rather than by isolation.
     nonisolated(unsafe) private static var challengedPaths: Set<String> = []
     private static let lock = NSLock()
+
+    /// Whether the posted body's password matches the fixture credential —
+    /// the whole check a "bad credentials" login journey needs. Any body
+    /// this can't decode (a malformed request, or none at all) counts as
+    /// not matching rather than crashing the stub.
+    private static func suppliesTheFixturePassword(_ request: URLRequest) -> Bool {
+        guard let body = requestBody(of: request),
+              let decoded = try? JellyfinJSON.decoder.decode(AuthenticateByNameRequest.self, from: body) else {
+            return false
+        }
+        return decoded.pw == UITestFixtureIdentity.password
+    }
+
+    /// `URLRequest.httpBody` is `nil` by the time a request reaches
+    /// `URLProtocol` — measured live: `URLSession` converts even a small,
+    /// directly-set body into `httpBodyStream` before handing the request to
+    /// a registered protocol, for every request this app sends through
+    /// `post(_:body:)`. This reads that stream instead, which is the only
+    /// place the bytes still exist.
+    private static func requestBody(of request: URLRequest) -> Data? {
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let bufferSize = 4096
+        var buffer = [UInt8](repeating: 0, count: bufferSize)
+        while stream.hasBytesAvailable {
+            let read = stream.read(&buffer, maxLength: bufferSize)
+            guard read > 0 else { break }
+            data.append(buffer, count: read)
+        }
+        return data
+    }
 
     private static func scenarioFailure(scenario: UITestScenario, path: String) -> Int? {
         guard !isInfrastructurePath(path) else { return nil }

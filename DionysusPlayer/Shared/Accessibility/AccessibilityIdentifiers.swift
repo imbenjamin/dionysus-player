@@ -121,6 +121,13 @@ enum A11yID {
         static let favoriteButton = "assetDetail.favoriteButton"
         static let watchedButton = "assetDetail.watchedButton"
         static let unsupportedAudioMessage = "assetDetail.unsupportedAudioMessage"
+
+        /// A show's episode list row — its title/overview half (`onSelect`,
+        /// which switches the page's own content to that episode in place,
+        /// not a push), keyed by the episode's item id like every other
+        /// media tile. The thumbnail half (`onPlay`) carries no identifier
+        /// of its own; nothing here drives it directly.
+        static func episodeRow(_ episodeID: String) -> String { "assetDetail.episodeRow.\(episodeID)" }
     }
 
     enum Player {

@@ -81,7 +81,17 @@ enum UITestFixtureLibrary {
             item.userData = UserItemDataDto(
                 playbackPositionTicks: index == 1 ? ticks(minutes: 20) : 0,
                 playedPercentage: index == 1 ? 21 : (spec.watched ? 100 : 0),
-                played: spec.watched,
+                // `index == 1` (Signal Fire, `UITestFixtureIdentity
+                // .partWatchedMovieID`) is forced unplayed regardless of
+                // its own `spec.watched` — `MediaItem.isPartWatched`
+                // requires `!isPlayed`, so leaving this as `spec.watched`
+                // (`true` for Signal Fire) made the fixture claim a
+                // position 21% through the film while simultaneously
+                // marking it fully watched, which the app reads as neither
+                // part-watched nor showing Restart — confirmed live, the
+                // detail page rendered a bare "Play" with no Restart
+                // button at all.
+                played: index == 1 ? false : spec.watched,
                 isFavorite: spec.favorite
             )
             item.mediaSources = [mediaSource(for: item)]
