@@ -161,6 +161,9 @@ final class DownloadManager: NSObject {
     private var adHocFetchSession: URLSession {
         let configuration = URLSessionConfiguration.default
         configuration.allowsCellularAccess = !preferences.wifiOnly
+        #if DEBUG
+        UITestHarness.decorate(configuration)
+        #endif
         return URLSession(configuration: configuration)
     }
 
@@ -916,6 +919,28 @@ final class DownloadManager: NSObject {
     /// `waitsForConnectivity` wiring below without needing a real
     /// background `URLSession`.
     static func makeBackgroundConfiguration(identifier: String, allowsCellularAccess: Bool) -> URLSessionConfiguration {
+        #if DEBUG
+        // A background configuration runs its transfers in a separate system
+        // daemon, which is out of reach of `URLProtocol` entirely — a stub
+        // registered in this process would simply never be consulted, and
+        // the download would try to hit the network for real. Under a UI
+        // test the session therefore drops to a default (in-process)
+        // configuration so the stub can serve it.
+        //
+        // This is a real behavioural divergence, and the reason downloads
+        // are covered here only up to "bytes land and the row settles":
+        // backgrounding, suspension and OS-relaunch resumption are exactly
+        // what a default configuration does not reproduce. Those stay
+        // device-only manual checks, as `TESTING.md` already records.
+        if UITestConfiguration.isActive {
+            let configuration = URLSessionConfiguration.default
+            configuration.timeoutIntervalForRequest = downloadRequestTimeout
+            configuration.timeoutIntervalForResource = downloadResourceTimeout
+            configuration.allowsCellularAccess = allowsCellularAccess
+            UITestHarness.decorate(configuration)
+            return configuration
+        }
+        #endif
         let configuration = URLSessionConfiguration.background(withIdentifier: identifier)
         configuration.timeoutIntervalForRequest = downloadRequestTimeout
         configuration.timeoutIntervalForResource = downloadResourceTimeout

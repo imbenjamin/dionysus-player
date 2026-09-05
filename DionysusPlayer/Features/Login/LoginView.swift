@@ -40,6 +40,7 @@ struct LoginView: View {
                         // VoiceOver announcing the typed text with
                         // nothing to say what it is.
                         .accessibilityLabel("Username")
+                        .accessibilityIdentifier(A11yID.Login.usernameField)
                         .onSubmit { focusedField = .password }
 
                     SecureField("Password (optional)", text: $viewModel.password)
@@ -48,11 +49,13 @@ struct LoginView: View {
                         .submitLabel(.go)
                         .focused($focusedField, equals: .password)
                         .accessibilityLabel("Password (optional)")
+                        .accessibilityIdentifier(A11yID.Login.passwordField)
                         .onSubmit { Task { await viewModel.signIn(using: appState) } }
                 }
 
                 if let errorMessage = viewModel.errorMessage {
                     Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .accessibilityIdentifier(A11yID.Login.errorMessage)
                         .font(.footnote)
                         // See `ServerSetupView` for what this colour
                         // change does and doesn't change.
@@ -106,6 +109,7 @@ struct LoginView: View {
             .controlSize(.large)
             .disabled(!viewModel.canSubmit)
             .accessibilityLabel("Sign In")
+            .accessibilityIdentifier(A11yID.Login.signInButton)
             .accessibilityValue(viewModel.isSigningIn ? String(localized: "Signing In") : "")
 
             // Stays visually tertiary — footnote text, no button styling
@@ -125,6 +129,7 @@ struct LoginView: View {
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .contentShape(Rectangle())
             }
+            .accessibilityIdentifier(A11yID.Login.changeServerButton)
         }
         .padding(.horizontal, SignInLayout.contentPadding)
         .padding(.vertical, 12)

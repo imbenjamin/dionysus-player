@@ -36,9 +36,22 @@ struct DionysusPlayerApp: App {
     // rotation-lock button (see `AppDelegate`/`RotationLock`) — SwiftUI's
     // `App` protocol has no hook for that itself.
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var appState = AppState()
+    @State private var appState: AppState
     @AppStorage(themePreferenceStorageKey) private var themePreference: ThemePreference = .system
     @Environment(\.scenePhase) private var scenePhase
+
+    /// `AppState` is built here rather than as a property default purely for
+    /// ordering: `AppState.init` constructs a `ServerSessionStore`, which
+    /// reads `UserDefaults` and the Keychain in its own initializer, so a UI
+    /// test's state reset and session seeding have to happen strictly before
+    /// this line. Anything later — `.task`, `.onAppear` — runs long after
+    /// the store has already loaded the previous run's leftovers.
+    init() {
+        #if DEBUG
+        UITestHarness.installIfNeeded()
+        #endif
+        _appState = State(initialValue: AppState())
+    }
 
     var body: some Scene {
         WindowGroup {

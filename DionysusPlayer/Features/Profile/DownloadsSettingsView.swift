@@ -97,9 +97,13 @@ struct DownloadsSettingsView: View {
                             .tag(preset)
                     }
                 }
+                // See `ProfileView`'s own "Advanced" link: two screens
+                // share this title, and only the identifier distinguishes
+                // them.
                 NavigationLink("Advanced") {
                     DownloadsQualityLadderView()
                 }
+                .accessibilityIdentifier(A11yID.Profile.qualityLadderLink)
                 VStack(alignment: .leading, spacing: 4) {
                     LabeledContent("Simultaneous Downloads", value: downloadMaxConcurrentDisplayText)
                     // `0...10`, `0` doubling as "Unlimited" (see

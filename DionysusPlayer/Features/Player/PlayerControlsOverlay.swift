@@ -369,6 +369,10 @@ struct PlayerControlsOverlay: View {
                 .transition(.scale(scale: 0.92, anchor: .bottomLeading).combined(with: .opacity))
             }
         }
+        // No container identifier here either — see `PlayerView`'s note.
+        // This overlay is inside the same `.fullScreenCover`, so an
+        // identifier on its root propagates down and overwrites every
+        // control's own.
     }
 
     /// `topSection`/`transportControls`/`scrubberBar` stacked as before —
@@ -508,6 +512,10 @@ struct PlayerControlsOverlay: View {
                         .frame(width: topControlSize, height: topControlSize)
                         .contentShape(Rectangle())
                 }
+                // No explicit `.accessibilityLabel` here: the system already
+                // names an "xmark" glyph "Close", which is what VoiceOver
+                // reads. The identifier is the stable handle a test uses.
+                .accessibilityIdentifier(A11yID.Player.closeButton)
 
                 Spacer()
 
@@ -559,6 +567,7 @@ struct PlayerControlsOverlay: View {
                                 .contentShape(Rectangle())
                         }
                         .accessibilityLabel(isRotationLocked ? Text("Unlock rotation") : Text("Lock rotation"))
+                        .accessibilityIdentifier(A11yID.Player.rotationLockButton)
                         .animation(.easeInOut(duration: 0.15), value: isRotationLocked)
                     }
 
@@ -581,6 +590,7 @@ struct PlayerControlsOverlay: View {
                                 .contentShape(Rectangle())
                         }
                         .accessibilityLabel(Text("Picture in Picture"))
+                        .accessibilityIdentifier(A11yID.Player.pictureInPictureButton)
                     }
 
                     // Same active/on-state badge treatment as the rotation
@@ -614,6 +624,7 @@ struct PlayerControlsOverlay: View {
                                 .contentShape(Rectangle())
                         }
                         .accessibilityLabel(isPlaybackStatsVisible ? Text("Hide playback stats") : Text("Show playback stats"))
+                        .accessibilityIdentifier(A11yID.Player.statsButton)
                         .animation(.easeInOut(duration: 0.15), value: isPlaybackStatsVisible)
                     }
 
@@ -818,6 +829,7 @@ struct PlayerControlsOverlay: View {
                 .contentShape(Rectangle())
         }
         .disabled(!hasAnyChoice)
+        .accessibilityIdentifier(A11yID.Player.tracksButton)
     }
 
     /// A deterministic, synchronous *estimate* of a page's content height,
@@ -1199,6 +1211,7 @@ struct PlayerControlsOverlay: View {
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel(String(localized: "Rewind 15 Seconds"))
+                .accessibilityIdentifier(A11yID.Player.skipBackwardButton)
 
                 Button {
                     onInteract()
@@ -1210,6 +1223,7 @@ struct PlayerControlsOverlay: View {
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel(viewModel.state == .playing ? String(localized: "Pause") : String(localized: "Play"))
+                .accessibilityIdentifier(A11yID.Player.playPauseButton)
 
                 Button {
                     onInteract()
@@ -1221,6 +1235,7 @@ struct PlayerControlsOverlay: View {
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel(String(localized: "Fast Forward 30 Seconds"))
+                .accessibilityIdentifier(A11yID.Player.skipForwardButton)
             }
             .foregroundStyle(.white)
             // The middle of the screen is the one region `backgroundGradient`
@@ -1351,6 +1366,7 @@ struct PlayerControlsOverlay: View {
                 // focused element — the standard trait for exactly this
                 // (a live-updating clock/timer), not something to leave off.
                 .accessibilityLabel(String(localized: "Current position: \(Self.spokenTime(displayedTime))"))
+                .accessibilityIdentifier(A11yID.Player.elapsedLabel)
                 .accessibilityAddTraits(.updatesFrequently)
 
                 scrubberTrack
@@ -1373,6 +1389,7 @@ struct PlayerControlsOverlay: View {
                     .contentShape(Rectangle())
                 }
                 .accessibilityLabel(endTimeAccessibilityLabel)
+                .accessibilityIdentifier(A11yID.Player.remainingLabel)
                 .accessibilityHint(String(localized: "Double tap to toggle between remaining time and total duration"))
                 .accessibilityAddTraits(.updatesFrequently)
             }
@@ -1442,6 +1459,7 @@ struct PlayerControlsOverlay: View {
                 ?? String(localized: "Chapters")
         )
         .accessibilityHint(String(localized: "Double tap to choose a chapter"))
+        .accessibilityIdentifier(A11yID.Player.chaptersButton)
     }
 
     /// A hand-drawn track rather than a plain `Slider` — SwiftUI's `Slider`
@@ -1626,6 +1644,7 @@ struct PlayerControlsOverlay: View {
         // scrubbing isn't a regression for VoiceOver users.
         .accessibilityElement()
         .accessibilityLabel(Text("Playback position"))
+        .accessibilityIdentifier(A11yID.Player.scrubber)
         .accessibilityValue(Text(Self.formatTime(displayedTime)))
         .accessibilityAdjustableAction { direction in
             switch direction {

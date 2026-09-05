@@ -80,7 +80,14 @@ struct MainTabView: View {
             // content leaves a pushed screen's bar buttons untouched
             // (measured — the failing glyphs stayed at 2.46:1).
             .stableContentTint()
-            .tabItem { Label("Home", image: "DionysusGlyph") }
+            // Inside the `.tabItem` closure, not on the tab's content.
+            // Applied outside, `.accessibilityIdentifier` attaches to the
+            // *content view* the tab shows rather than to the tab bar button
+            // — verified against the live accessibility tree, which put the
+            // identifier on an 820x1180 container and left the button
+            // carrying SwiftUI's own fallback (the SF Symbol name, e.g.
+            // "magnifyingglass").
+            .tabItem { Label("Home", image: "DionysusGlyph").accessibilityIdentifier(A11yID.Tabs.home) }
             .tag(MainTab.home)
 
             NavigationStack(path: $searchPath) {
@@ -88,7 +95,7 @@ struct MainTabView: View {
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
             }
             .stableContentTint()
-            .tabItem { Label("Search", systemImage: "magnifyingglass") }
+            .tabItem { Label("Search", systemImage: "magnifyingglass").accessibilityIdentifier(A11yID.Tabs.search) }
             .tag(MainTab.search)
 
             NavigationStack {
@@ -102,7 +109,7 @@ struct MainTabView: View {
             // one solid disc rather than a distinct glyph inside a
             // highlight. "square.and.arrow.down.on.square" is square, so
             // it doesn't hit that issue.
-            .tabItem { Label("Downloads", systemImage: "square.and.arrow.down.on.square") }
+            .tabItem { Label("Downloads", systemImage: "square.and.arrow.down.on.square").accessibilityIdentifier(A11yID.Tabs.downloads) }
             .tag(MainTab.downloads)
             // Small pending/downloading count — `0` hides the badge
             // entirely (SwiftUI's own behavior for `.badge(Int)`), so
@@ -139,6 +146,7 @@ struct MainTabView: View {
                 // tab actually is. Override with what the tab does, not
                 // who's using it.
                 .accessibilityLabel(String(localized: "Profile & Settings"))
+                .accessibilityIdentifier(A11yID.Tabs.profile)
             }
             .tag(MainTab.profile)
         }

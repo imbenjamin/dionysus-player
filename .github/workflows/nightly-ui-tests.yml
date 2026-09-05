@@ -1,0 +1,104 @@
+name: Nightly UI tests
+
+# The full UI suite, on both an iPhone and an iPad.
+#
+# Separate from pr-checks.yml, which runs only the smoke plan. UI tests are
+# slow and a shared macOS runner is variable, so the split trades "every
+# regression is caught before merge" for "PR feedback stays under ten
+# minutes" — a regression outside the smoke paths surfaces within a day
+# instead. If that trade stops paying (a real break repeatedly reaching
+# `develop` and being found here), move the full plan into pr-checks.yml
+# rather than adding a third tier.
+on:
+  schedule:
+    # 03:00 UTC. Nothing depends on the hour beyond it being outside the
+    # working day, when the runner pool is least contended.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A scheduled run and a manual one at the same time would just contend for
+  # the same runners; the later one wins.
+  group: nightly-ui-tests
+  cancel-in-progress: true
+
+jobs:
+  ui-tests:
+    name: UI tests (${{ matrix.device }})
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    strategy:
+      # Both device classes always report. Without this, an iPhone failure
+      # would cancel the iPad job and hide whether the break is
+      # device-specific — which, for a codebase whose layout forks on size
+      # class (ProfileView's split layout, Search and Downloads' grids), is
+      # the first thing worth knowing.
+      fail-fast: false
+      matrix:
+        device: [iPhone, iPad]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up iOS project
+        uses: ./.github/actions/setup-ios-project
+
+      - name: Shut down all simulators
+        run: xcrun simctl shutdown all || true
+
+      - name: Select simulator
+        id: select_simulator
+        # Same UDID-not-name selection as the shared build-and-test action,
+        # and for the same reason (see its own comment) — but parameterised
+        # by device family, which that action doesn't take. Kept here rather
+        # than adding a second selection mode to the shared action, which
+        # every other caller would have to ignore.
+        run: |
+          DEVICE=$(xcrun simctl list devices available -j \
+            | jq -r --arg prefix "${{ matrix.device }}" \
+              '[.devices | to_entries[] | .key as $rt | .value[] | select(.name | startswith($prefix)) | {runtime: $rt, udid: .udid, name: .name}] | sort_by(.runtime) | last')
+          echo "$DEVICE" | jq .
+          udid=$(echo "$DEVICE" | jq -r '.udid')
+          if [ -z "$udid" ] || [ "$udid" = "null" ]; then
+            echo "error: no available ${{ matrix.device }} simulator found" >&2
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+      - name: Build for testing
+        run: |
+          xcodebuild build-for-testing \
+            -scheme DionysusPlayer \
+            -project DionysusPlayer.xcodeproj \
+            -testPlan UITests-Full \
+            -destination "platform=iOS Simulator,id=${{ steps.select_simulator.outputs.udid }}" \
+            | xcbeautify --renderer github-actions
+
+      - name: Test
+        # `-retry-tests-on-failure` on top of the plan's own repetition
+        # settings: a nightly run has the time budget for it, and a test that
+        # only fails once is reported as flaky rather than as a break.
+        run: |
+          xcodebuild test-without-building \
+            -scheme DionysusPlayer \
+            -project DionysusPlayer.xcodeproj \
+            -testPlan UITests-Full \
+            -destination "platform=iOS Simulator,id=${{ steps.select_simulator.outputs.udid }}" \
+            -retry-tests-on-failure \
+            -resultBundlePath ".build/UITestResults-${{ matrix.device }}.xcresult" \
+            | xcbeautify --renderer github-actions
+
+      - name: Upload UI test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-test-results-${{ matrix.device }}
+          path: .build/UITestResults-${{ matrix.device }}.xcresult
+          retention-days: 7
+          if-no-files-found: ignore

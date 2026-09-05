@@ -63,6 +63,7 @@ struct CollectionGridView: View {
         }
         .disabled((viewModel?.filteredItems ?? []).isEmpty)
         .accessibilityLabel(String(localized: "Random Item"))
+        .accessibilityIdentifier(A11yID.Collection.randomButton)
     }
 
     /// Mirrors `AppRouteDestinationView`'s `.assetDetail` branch — kept as
@@ -98,6 +99,7 @@ struct CollectionGridView: View {
             Image(systemName: "arrow.up.arrow.down")
         }
         .accessibilityLabel(String(localized: "Sort Options"))
+        .accessibilityIdentifier(A11yID.Collection.sortMenu)
     }
 
     private var sortFieldBinding: Binding<CollectionSortField> {
@@ -177,6 +179,7 @@ struct CollectionGridView: View {
     private var resetButton: some View {
         if viewModel?.hasActiveFilters == true {
             ResetFiltersButton { viewModel?.resetFilters() }
+                .accessibilityIdentifier(A11yID.Collection.resetFiltersButton)
         }
     }
 
@@ -215,18 +218,21 @@ struct CollectionGridView: View {
                 title: String(localized: "Genre"), allLabel: String(localized: "All Genres"),
                 options: genres, display: { $0 }, systemImage: genreSystemImage, selection: genreBinding
             )
+            .accessibilityIdentifier(A11yID.Collection.filterPill("genre"))
         }
         if !studios.isEmpty {
             FilterMenu(
                 title: studioFilterTitle, allLabel: studioFilterAllLabel,
                 options: studios, display: { $0 }, systemImage: studioSystemImage, selection: studioBinding
             )
+            .accessibilityIdentifier(A11yID.Collection.filterPill("studio"))
         }
         if !decades.isEmpty {
             FilterMenu(
                 title: String(localized: "Decade"), allLabel: String(localized: "All Decades"),
                 options: decades, display: { "\($0)s" }, systemImage: decadeSystemImage, selection: decadeBinding
             )
+            .accessibilityIdentifier(A11yID.Collection.filterPill("decade"))
         }
         if !watchStatuses.isEmpty {
             FilterMenu(
@@ -234,6 +240,7 @@ struct CollectionGridView: View {
                 options: watchStatuses, display: watchStatusLabel,
                 systemImage: watchStatusSystemImage, selection: watchStatusBinding
             )
+            .accessibilityIdentifier(A11yID.Collection.filterPill("watched"))
         }
         if !favoriteStatuses.isEmpty {
             FilterMenu(
@@ -241,6 +248,7 @@ struct CollectionGridView: View {
                 options: favoriteStatuses, display: favoriteStatusLabel,
                 systemImage: favoriteStatusSystemImage, selection: favoriteStatusBinding
             )
+            .accessibilityIdentifier(A11yID.Collection.filterPill("favorites"))
         }
     }
 
@@ -352,14 +360,21 @@ struct CollectionGridView: View {
                 if items.isEmpty {
                     ErrorStateView(message: String(localized: "Nothing here yet."), retry: nil)
                         .frame(minHeight: 300)
+                        .accessibilityIdentifier(A11yID.Collection.emptyState)
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
                         filterRow
 
                         let filtered = viewModel?.filteredItems ?? []
                         if filtered.isEmpty {
+                            // A distinct identifier from `emptyState`: the
+                            // cascading-facet guarantee says this branch
+                            // should be unreachable through the UI, so a
+                            // test asserting that has to be able to tell it
+                            // apart from a genuinely empty library.
                             ErrorStateView(message: String(localized: "No items match these filters."), retry: nil)
                                 .frame(minHeight: 200)
+                                .accessibilityIdentifier(A11yID.Collection.noFilterMatches)
                         } else {
                             // Same "deliberately bigger on iPad" target
                             // `SearchView`'s grid and `MediaRailView`'s
@@ -386,6 +401,7 @@ struct CollectionGridView: View {
                                     PosterCard(item: item, width: metrics.itemWidth)
                                 }
                             }
+                            .accessibilityIdentifier(A11yID.Collection.grid)
                         }
                     }
                 }

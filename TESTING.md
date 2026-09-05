@@ -39,6 +39,21 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 
 (swap `iPhone 17` for whatever's in `xcrun simctl list devices available` on your machine.)
 
+That runs the `UnitTests` plan, which is the scheme's default. There are two
+more, both UI (see "UI tests" below) — ask for one by name:
+
+```sh
+xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
+  -testPlan UITests-Smoke \
+  -destination 'platform=iOS Simulator,name=iPhone 17'
+```
+
+| Plan | Contents | Where it runs |
+| --- | --- | --- |
+| `UnitTests` | The whole `DionysusPlayerTests` target | Every PR, every release |
+| `UITests-Smoke` | Seven journeys + the keychain-reset check | Every PR (`ui-smoke` job) |
+| `UITests-Full` | Every UI test | Nightly on iPhone + iPad, and on release tags |
+
 **Verified:** the full suite has been run for real via
 `xcodebuild test` against the iOS 26.5 Simulator — all passing, 0 failures.
 The exact test count isn't tracked here — CI runs and logs it on every
@@ -134,11 +149,12 @@ pattern, since ViewModels are constructed with an already-built client
 
 ## What's *not* covered yet
 
-- **SwiftUI views** — no view/snapshot tests. Views here are mostly thin
+- **SwiftUI views, as views** — no snapshot tests. Views here are mostly thin
   (`body` wired to a ViewModel's published state), so the ROI is lower than
-  the ViewModel layer underneath them; worth adding snapshot tests
-  (e.g. via `swift-snapshot-testing`) once the UI stabilizes rather than
-  before.
+  the ViewModel layer underneath them. The UI suite now covers the same
+  layout regressions end-to-end across an iPhone and an iPad, which is why
+  `swift-snapshot-testing` is still deferred rather than adopted — revisit if
+  visual regressions start slipping through anyway.
 - **`AetherPlaybackEngine`** itself — still untestable in the traditional
   sense (it wraps a real `AetherEngine` instance, which needs real media and
   a real display to construct). `PlayerViewModel` — the thing that actually
@@ -214,13 +230,11 @@ pattern, since ViewModels are constructed with an already-built client
   session would ever produce never reached `PlayerViewModel` — fixed by
   bridging `engine.$duration`'s own independent publisher directly,
   instead of only sampling it opportunistically off the clock.
-- **End-to-end/UI tests** — nothing drives the app in the Simulator yet.
-  Worth adding once the core flows (server setup → login → browse → play)
-  are stable enough that a UI test isn't just recording a moving target.
-- **`RootView`/`MainTabView`/navigation wiring** — `AppRoute` itself has no
-  logic (just an enum), and the views that switch on `AppState.phase` are
-  thin enough that a UI test would cover them more usefully than a unit test
-  would.
+- **Most user journeys.** There *is* a UI suite now (see "UI tests" below),
+  but it currently covers auth, Home, the collection grid, asset detail,
+  search and the player's presentation — seven journeys plus three harness
+  checks. The per-feature depth (every grid facet, downloads, Profile
+  settings, error/offline paths, accessibility audits) is still to come.
 - **The offline-download engine's background `URLSessionDownloadTask`/
   `AppDelegate` relaunch wiring** (`DownloadManager.enqueue`/
   `startVideoDownload`/`reattachBackgroundSession`,
@@ -311,7 +325,86 @@ pattern, since ViewModels are constructed with an already-built client
   swallowed with `try?`, now surfaces `setupError`) is still hard to
   provoke naturally — reviewed by code inspection instead of forced live.
 
-## Adding a new test
+## UI tests
+
+`DionysusPlayerUITests` drives the real app in the Simulator via XCUITest.
+It exists because the regressions this project actually ships are layout and
+navigation ones — the rotation-lock break, the Home→Detail push, the
+`LazyHStack` layout hang — and none of them are reachable from a ViewModel
+test.
+
+Three things make it deterministic. All are `#if DEBUG` and verifiably absent
+from a Release binary (`nm -a` on the Release build finds none of them).
+
+**A launch-argument harness** (`Core/UITestSupport/UITestHarness.swift`),
+invoked from `DionysusPlayerApp.init()` — before `AppState` is constructed,
+because `ServerSessionStore` reads `UserDefaults` and the Keychain in its own
+initializer. `-UITestResetState` clears both (the Keychain matters: it
+outlives the app container, so without it one test's sign-in seeds the next
+test's "first launch"); `-UITestSeedSession` plants a session so a test can
+start on Home; `-UITestDisableAnimations` and `-UITestDisableControlAutoHide`
+remove the two timing races. The hero carousel's timer and the 3D tilt effect
+are switched off through the app's own `@AppStorage` keys straight from
+`app.launchArguments`, with no app code involved at all.
+
+**A stub server in-process** (`UITestStubURLProtocol` + `UITestFixtureLibrary`),
+registered with `URLProtocol.registerClass`. That reaches `URLSession.shared`,
+which is what `JellyfinAPIClient` runs on — the same mechanism `AppStateTests`
+already uses, so no production refactor was needed. `RemoteImageLoader` and
+`DownloadManager` build their own sessions and opt in via
+`UITestHarness.decorate(_:)`. Fixtures are built as real `BaseItemDto` values
+and encoded with `JellyfinJSON.encoder` rather than checked in as JSON, so a
+DTO change is a compile error instead of a silent rot. Scenarios
+(`-UITestScenario`) cover `standard`, `emptyLibrary`, `serverError`,
+`unauthorized` and `offline`.
+
+**A fake playback engine**, via `PlaybackEngineFactory`. With no AetherEngine
+there is no video surface, so `PlayerControlsOverlay` is plain SwiftUI that
+XCUITest can drive. What this does *not* cover is decode, HDR, transcode and
+seek — those still need real media on a real device.
+
+### Selectors
+
+Tests address elements by `A11yID` (`Shared/Accessibility/`), which is
+compiled into *both* targets, so a renamed identifier is a compile error
+rather than a timeout. Never select on `.accessibilityLabel`: those are
+`String(localized:)` values and would break on the first translation.
+
+Two hard-won rules, both documented at length in `A11yID` itself:
+
+- **Identify controls, not screen roots.** `.accessibilityIdentifier` on a
+  container sometimes scopes to that container and sometimes propagates down
+  and *overwrites* its descendants' own identifiers. Measured both ways here.
+- **The tab bar differs by device.** iPad keeps the identifier set inside
+  `.tabItem`; iPhone converts the item into a UIKit `UITabBarItem` and drops
+  it. The `TabBar` screen object falls back to tab *order* — not label, which
+  would be localized.
+
+When something can't be found, dump `XCUIApplication.debugDescription` and
+look at the real tree. Every one of the rules above came from doing that;
+none of them were guessable.
+
+### Adding a journey
+
+1. Put it in `DionysusPlayerUITests/Journeys/`, and put its selectors in a
+   screen object in `Screens/` — tests should read as user intent, with
+   every selector defined once.
+2. Add any new identifier to `A11yID` **in the same change that applies it to
+   a view**. A constant nothing uses looks like an available selector and
+   silently never resolves.
+3. Launch through `UITestCase.launch(...)`, never by building
+   `XCUIApplication` by hand — that is where the flake mitigations live.
+4. New files need `xcodegen generate`.
+5. If it belongs in the PR gate, add it to `TestPlans/UITests-Smoke.xctestplan`
+   as well. Keep that plan small; its job is fast feedback, not coverage.
+
+**Check a new test actually fails.** Break the thing it covers on purpose and
+watch it go red. This is not ceremony: `testOpeningAnItemFromHome` passed with
+`PosterCard`'s destination deliberately broken, because `.firstMatch` resolved
+to the hero carousel's tile instead — the poster rails were never being
+tapped at all. `testOpeningAnItemFromACollectionGrid` exists because of that.
+
+## Adding a unit test
 
 1. Put it under `DionysusPlayerTests/`, mirroring the path of the file it
    tests (e.g. a test for `Features/Foo/FooViewModel.swift` goes in

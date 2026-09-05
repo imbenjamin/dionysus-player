@@ -1,7 +1,8 @@
 name: Build and test
 description: >-
-  Builds the app and runs the DionysusPlayerTests suite on an iPhone simulator
-  that actually exists on this runner. Shared by pr-checks.yml and release.yml.
+  Builds the app and runs one test plan on an iPhone simulator that actually
+  exists on this runner. Shared by pr-checks.yml, release.yml and
+  nightly-ui-tests.yml.
 
 inputs:
   scheme:
@@ -19,6 +20,14 @@ inputs:
       without re-running locally.
     required: false
     default: .build/TestResults.xcresult
+  test-plan:
+    description: >-
+      Which test plan to run (see TestPlans/). Defaults to UnitTests, the
+      scheme's own default, so adding the UI test target to the scheme can't
+      silently lengthen an existing caller's run — a UI plan has to be asked
+      for by name.
+    required: false
+    default: UnitTests
 
 runs:
   using: composite
@@ -58,6 +67,7 @@ runs:
         xcodebuild build-for-testing \
           -scheme "${{ inputs.scheme }}" \
           -project "${{ inputs.project }}" \
+          -testPlan "${{ inputs.test-plan }}" \
           -destination "platform=iOS Simulator,id=${{ steps.select_simulator.outputs.udid }}" \
           | xcbeautify --renderer github-actions
 
@@ -67,6 +77,7 @@ runs:
         xcodebuild test-without-building \
           -scheme "${{ inputs.scheme }}" \
           -project "${{ inputs.project }}" \
+          -testPlan "${{ inputs.test-plan }}" \
           -destination "platform=iOS Simulator,id=${{ steps.select_simulator.outputs.udid }}" \
           -resultBundlePath "${{ inputs.result-bundle-path }}" \
           | xcbeautify --renderer github-actions

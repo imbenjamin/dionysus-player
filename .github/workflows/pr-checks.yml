@@ -82,3 +82,55 @@ jobs:
           path: .build/TestResults.xcresult
           retention-days: 7
           if-no-files-found: ignore
+
+  ui-smoke:
+    # A separate job from `build`, deliberately. That one's name is required
+    # verbatim by both branch rulesets (see its own comment), so it must not
+    # grow a second responsibility or change shape. This one is also a new
+    # check context: it reports on every PR from the moment it merges, but it
+    # does not *block* anything until it is added to the "develop protection"
+    # and "Secure stable" rulesets by hand.
+    #
+    # Runs the smoke plan only — seven journeys, no per-feature coverage. The
+    # full suite runs nightly (nightly-ui-tests.yml) and on release tags. The
+    # split exists because UI tests are slow and a shared runner is variable;
+    # the point of this job is fast pre-merge feedback on the paths that stop
+    # the app being usable at all.
+    name: UI smoke tests
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up iOS project
+        uses: ./.github/actions/setup-ios-project
+
+      # No AetherEngine drift check here — `build` already enforces it on
+      # every PR, and running it twice would just resolve packages twice.
+
+      - name: Shut down all simulators
+        # A simulator left booted by the image (or by a previous step) is the
+        # single most common source of UI-test flake on a shared runner:
+        # xcodebuild picks a device that is already mid-boot and times out
+        # launching the app. Start from a known-clean state instead.
+        run: xcrun simctl shutdown all || true
+
+      - name: Build and test
+        uses: ./.github/actions/build-and-test
+        with:
+          test-plan: UITests-Smoke
+          result-bundle-path: .build/UITestResults.xcresult
+
+      - name: Upload UI test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          # A failed UI test's .xcresult carries the screenshots and the
+          # recorded interaction, which is the only practical way to see what
+          # the runner actually saw.
+          name: ui-test-results
+          path: .build/UITestResults.xcresult
+          retention-days: 7
+          if-no-files-found: ignore
