@@ -176,6 +176,29 @@ jobs:
       - name: Build and test
         uses: ./.github/actions/build-and-test
 
+      - name: Shut down all simulators
+        # See pr-checks.yml's identical step: a device left booted is the
+        # main cause of UI-test flake on a shared runner.
+        run: xcrun simctl shutdown all || true
+
+      - name: UI tests
+        # The full UI suite, not the smoke subset PRs run — a tagged build is
+        # the last gate before TestFlight, and this job is already sequential,
+        # so a failure here aborts before anything is signed or uploaded.
+        uses: ./.github/actions/build-and-test
+        with:
+          test-plan: UITests-Full
+          result-bundle-path: .build/UITestResults.xcresult
+
+      - name: Upload UI test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-test-results
+          path: .build/UITestResults.xcresult
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v7
