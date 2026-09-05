@@ -409,6 +409,7 @@ private struct EpisodeRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier(A11yID.AssetDetail.episodeRow(episode.id))
         }
     }
 }

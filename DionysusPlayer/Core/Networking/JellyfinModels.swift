@@ -12,7 +12,11 @@ struct PublicSystemInfo: Codable {
 
 // MARK: - Auth
 
-struct AuthenticateByNameRequest: Encodable {
+// `Codable`, not just `Encodable` — the app only ever encodes this to send
+// it, but `UITestStubURLProtocol` decodes it back out of the request body to
+// check the posted password against the fixture credential, which is what
+// makes a "bad credentials" login journey possible to simulate at all.
+struct AuthenticateByNameRequest: Codable {
     var username: String
     var pw: String
 }

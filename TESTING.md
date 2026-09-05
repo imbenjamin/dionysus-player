@@ -231,10 +231,24 @@ pattern, since ViewModels are constructed with an already-built client
   bridging `engine.$duration`'s own independent publisher directly,
   instead of only sampling it opportunistically off the clock.
 - **Most user journeys.** There *is* a UI suite now (see "UI tests" below),
-  but it currently covers auth, Home, the collection grid, asset detail,
-  search and the player's presentation — seven journeys plus three harness
-  checks. The per-feature depth (every grid facet, downloads, Profile
-  settings, error/offline paths, accessibility audits) is still to come.
+  covering auth (including error and offline paths), Home, the collection
+  grid's sort/filter/random controls, all four asset-detail layouts, search
+  and the player's presentation — 24 tests across the smoke plan and the
+  full plan. Downloads, Profile settings, and accessibility audits are still
+  to come. One narrower gap inside what *is* covered: swiping a
+  search-history row away isn't automated (`SearchResultRow` wraps the whole
+  row in a `Button`, and a synthesized `.swipeLeft()` on it can register as a
+  tap instead — reopening the row instead of revealing the delete action).
+  Re-tapping the Search tab to reset it isn't automated either, but for a
+  different reason than it first looked like: on iPad, the floating tab bar
+  disappears from the accessibility tree entirely once the search field has
+  ever been engaged, and popping back to the results list doesn't bring it
+  back on its own — not a bug, tapping away from the search field (confirmed
+  live) is the real, working way out, it's just a gesture XCUITest's
+  synthetic taps couldn't be made to trigger here (status bar, empty scroll
+  content, and the nav bar's own edge were all tried and none registered as
+  resigning the field). Automating this journey needs either a different
+  synthesis approach or a device.
 - **The offline-download engine's background `URLSessionDownloadTask`/
   `AppDelegate` relaunch wiring** (`DownloadManager.enqueue`/
   `startVideoDownload`/`reattachBackgroundSession`,
@@ -370,7 +384,7 @@ compiled into *both* targets, so a renamed identifier is a compile error
 rather than a timeout. Never select on `.accessibilityLabel`: those are
 `String(localized:)` values and would break on the first translation.
 
-Two hard-won rules, both documented at length in `A11yID` itself:
+Three hard-won rules, the first two documented at length in `A11yID` itself:
 
 - **Identify controls, not screen roots.** `.accessibilityIdentifier` on a
   container sometimes scopes to that container and sometimes propagates down
@@ -379,6 +393,19 @@ Two hard-won rules, both documented at length in `A11yID` itself:
   `.tabItem`; iPhone converts the item into a UIKit `UITabBarItem` and drops
   it. The `TabBar` screen object falls back to tab *order* — not label, which
   would be localized.
+- **A media tile's identifier is rarely unique on screen, and not every
+  duplicate is safe to tap.** The same item can legitimately appear twice
+  (a rail *and* the hero carousel); `Screen.onScreenMatch(identifier:in:)`
+  picks the copy XCUITest reports as actually within the screen's width.
+  Two real, measured failure modes this exists for: the hero carousel's
+  own off-screen paging duplicates (a full screen-width outside either
+  edge) synthesize a tap at whatever's really on screen at that point
+  instead — silently landing on a different item's detail page, no error —
+  and `.isHittable` doesn't catch it either. A `LazyHStack` library-rail
+  card genuinely off past the initial viewport (the later cards on
+  iPhone's narrower width) instead fails outright with "Activation point
+  invalid" rather than the auto-scroll a normal off-screen element gets;
+  `HomeScreen.openLibrary(_:)` does one bounded swipe on the rail first.
 
 When something can't be found, dump `XCUIApplication.debugDescription` and
 look at the real tree. Every one of the rules above came from doing that;
