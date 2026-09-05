@@ -53,13 +53,11 @@ struct ChapterPickerOverlay: View {
     /// beside it.
     ///
     /// `@ScaledMetric` for the same reason `PlayerControlsOverlay`'s row
-    /// heights are (see `navigationRowHeight` there): `estimatedHeight`
-    /// below sizes the panel, and a fixed point value under-estimates real
-    /// rows further and further as Dynamic Type grows. Less visible here
-    /// than in the track picker only because a feature-length film has
-    /// enough chapters that the estimate clears `maxHeight` anyway and the
-    /// cap binds instead — but a short chapter list takes the estimate
-    /// directly, and would clip exactly the same way.
+    /// heights are: `estimatedHeight` sizes the panel from it, and a fixed
+    /// point under-estimates real rows further as Dynamic Type grows. Masked
+    /// here on a feature-length film, whose chapter count clears `maxHeight`
+    /// so the cap binds instead — but a short list takes the estimate
+    /// directly and would clip the same way.
     @ScaledMetric(relativeTo: .subheadline) private var rowHeight: CGFloat = 65
     private static let dividerHeight: CGFloat = 1
 

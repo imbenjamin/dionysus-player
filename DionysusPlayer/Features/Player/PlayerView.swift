@@ -111,27 +111,23 @@ struct PlayerView: View {
     /// comment).
     @State private var zoomMode: VideoZoomMode = .fit
     /// Whether this player's window is wider than it is tall — the gate for
-    /// every zoom affordance (the button in `PlayerControlsOverlay`, the
-    /// double tap and the pinch below).
+    /// every zoom affordance (the button in `PlayerControlsOverlay`, and the
+    /// double tap and pinch below).
     ///
-    /// Measured from the window's own geometry rather than derived from
-    /// `isLandscape` (`verticalSizeClass == .compact`), which this file used
-    /// to use for the same job. That size class is iPhone's landscape
-    /// signal and stays `.regular` on iPad in *both* orientations, so on
-    /// iPad it silently disabled zoom everywhere — no button, no double tap,
-    /// no pinch — leaving letterboxed content with no way to fill the
-    /// screen at all.
+    /// Window geometry rather than `isLandscape` (`verticalSizeClass ==
+    /// .compact`), which is iPhone's landscape signal and stays `.regular` on
+    /// iPad in *both* orientations — gating on it disabled zoom everywhere on
+    /// iPad, leaving letterboxed content with no way to fill the screen.
     ///
     /// `.onGeometryChange` rather than `windowScene.interfaceOrientation`:
-    /// it's the pattern this codebase already standardised on (`HomeView`,
-    /// `SeasonEpisodeList`, `CollectionItemList`, `PlaylistItemList` all
-    /// prefer it to a `UIScreen`/key-window read), it republishes itself on
-    /// change with nothing to subscribe to, it can't disagree with the UI
-    /// when this screen's own rotation lock is engaged, and under Split
-    /// View it describes the window the video actually occupies rather than
-    /// the device around it. It's also not a `GeometryReader`: it reads the
-    /// resolved size without proposing one, so it stays clear of the
-    /// zero-size failures `PlayerControlsOverlay`'s picker sizing documents.
+    /// it's the pattern this codebase standardised on (`HomeView`,
+    /// `SeasonEpisodeList`, `CollectionItemList`), it republishes itself with
+    /// nothing to subscribe to, it can't disagree with the UI when this
+    /// screen's rotation lock is engaged, and under Split View it describes
+    /// the window the video occupies rather than the device around it. It
+    /// also isn't a `GeometryReader` — it reads the resolved size without
+    /// proposing one, so it stays clear of the zero-size failures
+    /// `PlayerControlsOverlay`'s picker sizing documents.
     @State private var isLandscapeWindow = false
     /// Whether `PlaybackStatsOverlay` (the "stats for nerds" panel) is
     /// showing. Unlike `showControls`, this has no auto-hide/fade — it's a
@@ -168,11 +164,11 @@ struct PlayerView: View {
     /// Skip again within that window.
     @State private var skipSegmentGeneration = 0
 
-    /// `.compact` is iPhone's landscape signal (see `HeroRailView.isLandscape`
-    /// for the same check/caveat: this stays `.regular` in both orientations
-    /// on iPad, so the zoom gestures below are effectively iPhone-only —
-    /// acceptable here since an iPad's video area rarely fills the whole
-    /// screen either way, unlike an iPhone in landscape).
+    /// `.compact` is iPhone's landscape signal, and stays `.regular` in both
+    /// orientations on iPad (see `HeroRailView.isLandscape` for the same
+    /// caveat). So this means "is this window short", not "is it landscape" —
+    /// which is why the zoom affordances use `isLandscapeWindow` instead, and
+    /// why this is now only read by things that genuinely care about height.
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
 

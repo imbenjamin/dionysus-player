@@ -114,55 +114,35 @@ struct CollectionGridView: View {
         )
     }
 
-    /// A row of pill buttons, one per facet that actually has values to
-    /// offer (a facet with nothing available — e.g. no Studios data at
-    /// all — doesn't show a dead control). Each of the five opens a `Menu`
-    /// listing that facet's values, narrowing the grid down by one value at
-    /// a time (not multi-select within a facet), combined with AND across
-    /// facets in `CollectionGridViewModel.filteredItems`. Reset sits
-    /// *outside* the scrolling pills — as a same-shape "Reset" pill inside
-    /// the scroll row it read as just a fourth filter option; a visually
-    /// distinct circular icon button reads as the separate "clear
-    /// everything" action it actually is.
+    /// A row of pill buttons, one per facet that has values to offer (a
+    /// facet with no data doesn't show a dead control). Each opens a `Menu`
+    /// of that facet's values, narrowing one value at a time, combined with
+    /// AND across facets in `CollectionGridViewModel.filteredItems`. Reset
+    /// sits *outside* the scrolling pills: as a same-shape pill inside the
+    /// row it read as a fourth filter rather than the clear-everything
+    /// action it is.
     ///
-    /// `ViewThatFits` picks between two arrangements of exactly that.
-    /// Preferred is a plain `HStack` that hugs its content, putting Reset
-    /// immediately after the last pill. The fallback — the original
-    /// layout — lets the pills scroll and pins Reset to the trailing
-    /// edge; a `ScrollView` accepts any width it's offered, so it only
-    /// ever wins once the pills genuinely don't fit.
+    /// `ViewThatFits` prefers an `HStack` that hugs its content, putting
+    /// Reset immediately after the last pill, and falls back to the original
+    /// scrolling row with Reset pinned trailing. A `ScrollView` accepts any
+    /// width offered, so the fallback only wins once the pills genuinely
+    /// don't fit — iPhone, and any device at accessibility text sizes (on
+    /// iPad A16 at accessibility-extra-large the pills run to x=984.5 in an
+    /// 820pt window). What it did wrongly was claim the full width when the
+    /// pills fit several times over, leaving a 240pt/600pt void between
+    /// Reset and the thing it clears.
     ///
-    /// The fallback is what iPhone gets, and what any device gets at
-    /// accessibility text sizes (measured on iPad A16: at
-    /// accessibility-extra-large the five pills run to x=984.5 in an
-    /// 820pt window, so the row really does need to scroll). What it was
-    /// doing *wrongly* was claiming the full width when the pills fit
-    /// several times over: on iPad the last pill ended at x=519.5 while
-    /// Reset sat at x=760 portrait and x=1120 landscape — a 240pt / 600pt
-    /// void between a control and the thing it clears, reading as an
-    /// unrelated button rather than as part of the filter row.
+    /// On iOS 26+ the pills sit inside a `GlassEffectContainer` — required,
+    /// not decorative: adjacent `.glassEffect` shapes must blend as one
+    /// material rather than each rendering an independent pass. Pre-26 falls
+    /// back to `FilterPill`'s flat-colour style.
     ///
-    /// On iOS 26+ the pills sit inside a `GlassEffectContainer` — required
-    /// (not just decorative) for multiple adjacent `.glassEffect` shapes to
-    /// blend/sample as one coherent material instead of each rendering an
-    /// independent, potentially-overlapping glass pass. Pre-26 falls back
-    /// to a plain `HStack` with `FilterPill`'s original flat-color style
-    /// (see its own `#available` branch).
-    ///
-    /// `.scrollClipDisabled()` on the horizontal scroll view: without it,
-    /// the scroll view clips to its own (pill-height-tight) bounds, cutting
-    /// the glass/shadow each pill casts off hard at the top/bottom edge
-    /// instead of letting it blend softly into the page the way it does on
-    /// every other pill-shaped control in this app.
-    ///
-    /// The `.mask` immediately after it puts the *horizontal* clipping
-    /// back. `.scrollClipDisabled()` turns clipping off on every edge, so
-    /// a scrolled pill kept drawing straight over the Reset button beside
-    /// it — visible on iPad at accessibility text sizes, where the pills
-    /// overflow an 820pt window and Reset is pinned at x=751. A plain
-    /// `Rectangle` inset by a *negative* vertical padding is the row's own
-    /// bounds widened top and bottom only: pills stop at the scroll view's
-    /// trailing edge again, and the glass still has somewhere to bleed.
+    /// `.scrollClipDisabled()` stops the scroll view clipping each pill's
+    /// glass/shadow hard at its pill-tight bounds. The `.mask` after it puts
+    /// the *horizontal* clipping back — `.scrollClipDisabled()` turns
+    /// clipping off on every edge, so a scrolled pill drew straight over the
+    /// Reset button beside it. A `Rectangle` inset by negative vertical
+    /// padding is the row's own bounds widened top and bottom only.
     @ViewBuilder
     private var filterRow: some View {
         let genres = viewModel?.availableGenres ?? []

@@ -1,63 +1,43 @@
 import SwiftUI
 import UIKit
 
-/// Picks the tab bar's selected-item tint from the artwork currently
-/// behind the bar.
+/// Picks the tab bar's selected-item tint from the artwork currently behind
+/// the bar.
 ///
-/// ## Why this exists
-///
-/// On iPadOS 26 the floating tab bar is Liquid Glass. Its selection pill
-/// takes its tone from whatever is behind it, while the selected item's
-/// label is painted from `MainTabView`'s `.tint(_:)` — so the two move
-/// independently and a fixed tint is legible at only one end of the
-/// range. Measured live (2026-09-04, iPad A16) by sweeping the Home hero
-/// carousel and sampling the rendered label against its own pill:
+/// On iPadOS 26 the floating tab bar is Liquid Glass: its selection pill
+/// takes its tone from whatever is behind it while the selected label is
+/// painted from `MainTabView`'s `.tint(_:)`, so the two move independently
+/// and a fixed tint is legible at only one end of the range. Measured live
+/// (2026-09-04, iPad A16) by sweeping the Home hero carousel and sampling
+/// the rendered label against its own pill, against a 4.5:1 minimum:
 ///
 /// | tint | dark pills (58–82) | light pills (125–227) |
 /// | --- | --- | --- |
 /// | `dionysusPrimary` (burgundy) | 1.05–1.67:1 FAIL | 5.22–13.76:1 PASS |
 /// | `dionysusMagentaOnGlass` | 5.13–5.92:1 PASS | 1.35–2.26:1 FAIL |
 ///
-/// Worst observed case was 1.05:1 — burgundy on a near-black hero, where
-/// the glyph is actually *darker* than the pill under it, so what
-/// legibility remains comes from hue rather than luminance. Against a
-/// 4.5:1 minimum for text this size.
+/// Worst case was 1.05:1 — burgundy on a near-black hero, the glyph actually
+/// *darker* than its pill. Neither colour wins outright but between them
+/// they cover the range, which is what this exploits.
 ///
-/// Neither colour wins outright, but between them they cover the range,
-/// which is what this type exploits: sample the artwork, pick the colour
-/// that suits it.
+/// Two things that don't work, so they aren't retried: recolouring alone
+/// just moves the failure (that's what the table shows), and giving Home a
+/// toolbar item to trigger a system-managed bar appearance changed nothing
+/// (11/16 frames still failed; the evidence for it was a single-frame
+/// comparison with different artwork behind each frame).
 ///
-/// ## What was tried first
+/// Swept over 18 frames this leaves **2 failures**, against 6 of 14 for
+/// burgundy alone and 8 of 16 for the light tint alone. Both survivors were
+/// saturated mid-tones where the light tint was chosen but the pill had gone
+/// bright. The residual cause is the sampling, not the threshold: this
+/// measures the *source image's* top strip, where what matters is the strip
+/// the aspect-filled hero puts behind the bar. Reproducing that fill
+/// geometry, or weighting by saturation, is where to look next.
 ///
-/// - **Recolouring alone.** Moves the failure rather than removing it —
-///   that is what the table above shows.
-/// - **Giving Home a toolbar item.** The theory was that a populated
-///   navigation bar puts the tab bar into a system-managed appearance
-///   that manages its own contrast. Built and swept: 11/16 frames still
-///   failed, worst case 1.05:1, label visibly unchanged. The evidence
-///   that suggested it was a single-frame comparison whose two frames
-///   had different artwork behind the bar — not a real effect.
-///
-/// ## What this does and does not fix
-///
-/// Swept live over 18 carousel frames: **2 failures**, against 6 of 14
-/// for burgundy alone and 8 of 16 for the light tint alone. Both
-/// survivors were saturated mid-tone backdrops — a vivid red and a pale
-/// cyan — where the light tint was still chosen but the pill had
-/// already gone bright (1.78:1 and 1.59:1).
-///
-/// The residual cause is the sampling, not the threshold. This measures
-/// the *source image's* top strip, while what matters is the strip the
-/// aspect-filled hero actually puts behind the bar; for those two frames
-/// the two diverged sharply. Reproducing the fill geometry — or
-/// weighting by saturation, since both survivors were highly saturated —
-/// is where to look next if this is worth pushing further.
-///
-/// One genuine difference between Home and a pushed screen remains
-/// unexplained: on a detail page the selection pill stayed at 173.8 even
-/// with a dark backdrop scrolled behind it, where Home's pill tracks the
-/// artwork down to 58. If that mechanism is ever identified it may well
-/// be a cleaner fix than this, and this type should be revisited.
+/// One difference remains unexplained: on a detail page the pill stayed at
+/// 173.8 even with a dark backdrop scrolled behind it, where Home's tracks
+/// the artwork down to 58. Identifying that mechanism may be a cleaner fix
+/// than this type.
 @Observable
 @MainActor
 final class TabBarTintModel {
