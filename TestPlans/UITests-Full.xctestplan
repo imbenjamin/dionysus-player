@@ -1,0 +1,30 @@
+{
+  "configurations" : [
+    {
+      "id" : "9A1C0E2B-0000-4000-9000-000000000002",
+      "name" : "Configuration 1",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:DionysusPlayer.xcodeproj",
+      "identifier" : "DionysusPlayer",
+      "name" : "DionysusPlayer"
+    },
+    "testRepetitionMode" : "retryOnFailure",
+    "maximumTestRepetitions" : 2
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:DionysusPlayer.xcodeproj",
+        "identifier" : "DionysusPlayerUITests",
+        "name" : "DionysusPlayerUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

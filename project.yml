@@ -203,17 +203,52 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Dionysus.app/Dionysus"
         BUNDLE_LOADER: "$(TEST_HOST)"
 
+  DionysusPlayerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: DionysusPlayerUITests
+      # Compiled into both targets so the tests and the app share one
+      # definition of every selector and every fixture id, rather than the
+      # test bundle carrying duplicate string literals that drift. A UI test
+      # bundle runs out-of-process and does not link the app module, so
+      # `@testable import` is not an option here the way it is for the unit
+      # target.
+      - path: DionysusPlayer/Shared/Accessibility/AccessibilityIdentifiers.swift
+      - path: DionysusPlayer/Core/UITestSupport/UITestFixtureIdentity.swift
+    dependencies:
+      - target: DionysusPlayer
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.uitests
+        # No TEST_HOST/BUNDLE_LOADER override here, unlike
+        # DionysusPlayerTests above: a UI test bundle launches the app as a
+        # separate process rather than loading into it, so it only needs to
+        # be pointed at the target by name. TEST_TARGET_NAME takes the
+        # *target*, not PRODUCT_NAME, so the "Dionysus" mismatch that trips
+        # up the unit target doesn't apply.
+        TEST_TARGET_NAME: DionysusPlayer
+
 schemes:
   DionysusPlayer:
     build:
       targets:
         DionysusPlayer: all
         DionysusPlayerTests: [test]
+        DionysusPlayerUITests: [test]
     run:
       config: Debug
     test:
       config: Debug
-      targets:
-        - DionysusPlayerTests
+      # The plan a bare `xcodebuild test` uses when none is named. Unit
+      # tests only — the UI plans are opted into explicitly, so adding the
+      # target above can't silently lengthen every existing invocation.
+      testPlans:
+        - path: TestPlans/UnitTests.xctestplan
+          defaultPlan: true
+        - path: TestPlans/UITests-Smoke.xctestplan
+        - path: TestPlans/UITests-Full.xctestplan
     archive:
       config: Release

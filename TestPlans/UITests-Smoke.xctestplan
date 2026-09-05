@@ -1,0 +1,37 @@
+{
+  "configurations": [
+    {
+      "id": "9A1C0E2B-0000-4000-9000-000000000003",
+      "name": "Configuration 1",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "targetForVariableExpansion": {
+      "containerPath": "container:DionysusPlayer.xcodeproj",
+      "identifier": "DionysusPlayer",
+      "name": "DionysusPlayer"
+    },
+    "testRepetitionMode": "retryOnFailure",
+    "maximumTestRepetitions": 2
+  },
+  "testTargets": [
+    {
+      "selectedTests": [
+        "HarnessTests/testStateResetClearsTheKeychainBetweenLaunches()",
+        "SmokeJourneyTests/testFirstRunSetupAndSignIn()",
+        "SmokeJourneyTests/testOpeningAnItemFromACollectionGrid()",
+        "SmokeJourneyTests/testOpeningAnItemFromHome()",
+        "SmokeJourneyTests/testPlayingAndClosingAnItem()",
+        "SmokeJourneyTests/testSearchingFindsAKnownTitle()",
+        "SmokeJourneyTests/testSeededSessionOpensOnHome()"
+      ],
+      "target": {
+        "containerPath": "container:DionysusPlayer.xcodeproj",
+        "identifier": "DionysusPlayerUITests",
+        "name": "DionysusPlayerUITests"
+      }
+    }
+  ],
+  "version": 1
+}
