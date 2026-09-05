@@ -10,8 +10,16 @@ import SwiftUI
 struct InfoMetadataRow: View {
     let item: MediaItem
 
+    /// Centered, and stretched to fill whatever width it's given, unlike
+    /// everything below the Play row on these pages — which stays
+    /// leading-aligned. These two lines are a caption for the hero
+    /// directly above them (whose logo/title is itself centered), not the
+    /// start of the page's reading column, so centering groups them with
+    /// the artwork rather than with the prose further down. Applies on
+    /// every device, not just regular width: the hero is centered on
+    /// iPhone too.
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .center, spacing: 8) {
             HStack(spacing: 10) {
                 if let date = item.metadataDateText {
                     Text(date).accessibilityLabel(String(localized: "Released: \(date)"))
@@ -64,6 +72,7 @@ struct InfoMetadataRow: View {
                     )
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
     /// Expands the handful of badges VoiceOver can't be expected to read

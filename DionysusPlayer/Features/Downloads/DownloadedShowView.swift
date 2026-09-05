@@ -24,6 +24,15 @@ struct DownloadedShowView: View {
     @State private var selectedRowIDs: Set<String> = []
     @State private var showDeleteConfirmation = false
 
+    /// Same `.regular` gate as `DownloadsView.usesGridLayout` — see
+    /// `DownloadsGrid`'s doc comment. Only the flat, single-season episode
+    /// layout gets a grid: the grouped-by-season layout's rows are pure text
+    /// ("Season 2", "8 Episodes") with no artwork to build a tile around, and
+    /// a grid of text tiles reads worse than the list does, the same way
+    /// Files shows folders as rows.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    private var usesGridLayout: Bool { horizontalSizeClass == .regular && !isGroupedBySeason }
+
     private var seasonIDs: Set<String> {
         Set(episodes.compactMap(\.seasonID))
     }
@@ -34,6 +43,77 @@ struct DownloadedShowView: View {
     }
 
     var body: some View {
+        Group {
+            if usesGridLayout {
+                episodeGrid
+            } else {
+                listContent
+            }
+        }
+        .navigationTitle(episodes.first?.seriesTitle ?? String(localized: "Show"))
+        // Selection mode owns the whole bar: Photos and Files both replace
+        // Back with Cancel rather than showing both. Leaving Back in place
+        // gave two competing "get out of here" affordances, and popping mid-
+        // selection abandoned the selection silently (iPad HIG review,
+        // 2026-09-03).
+        .navigationBarBackButtonHidden(isSelecting)
+        .onAppear(perform: refresh)
+        .toolbar { toolbarContent }
+        .confirmationDialog(
+            deleteConfirmationTitle, isPresented: $showDeleteConfirmation, titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) { deleteSelected() }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    /// `.regular`-size-class counterpart to the flat episode list — see
+    /// `usesGridLayout`. Always landscape-shaped: every tile here is an
+    /// episode.
+    private var episodeGrid: some View {
+        DownloadsGrid(items: sortedEpisodes.map(DownloadedEpisodeSummary.init), isLandscape: true) { episode, width in
+            DownloadsGridCard(
+                title: episode.title,
+                subtitle: episode.episodeLabel,
+                artworkRelativePath: episode.thumbImagePath ?? episode.posterImagePath,
+                placeholderSystemImage: "play.tv",
+                width: width,
+                isLandscape: true,
+                accessibilityLabel: episode.gridAccessibilityLabel,
+                isSelecting: isSelecting,
+                isSelected: selectedRowIDs.contains(episode.itemID),
+                progress: progress(for: episode),
+                isPreparing: isPreparing(episode),
+                statusText: statusText(for: episode),
+                isStatusError: episode.status == .failed,
+                navigationValue: .downloadedAsset(itemID: episode.itemID),
+                onToggleSelection: { toggleSelection(episode.itemID) }
+            )
+        }
+    }
+
+    private func progress(for episode: DownloadedEpisodeSummary) -> DownloadProgress? {
+        guard episode.status == .downloading || episode.status == .queued else { return nil }
+        return downloadManager.activeDownloads[episode.itemID]
+    }
+
+    private func isPreparing(_ episode: DownloadedEpisodeSummary) -> Bool {
+        (episode.status == .downloading || episode.status == .queued) && progress(for: episode) == nil
+    }
+
+    /// Mirrors `DownloadedEpisodeRow.statusLine` — `nil` once completed
+    /// (`metaText` already carries the air date/duration by then).
+    private func statusText(for episode: DownloadedEpisodeSummary) -> String? {
+        switch episode.status {
+        case .downloading: return progress(for: episode)?.statusText ?? String(localized: "Preparing download\u{2026}")
+        case .queued: return String(localized: "Queued\u{2026}")
+        case .failed: return String(localized: "Download Failed")
+        case .paused: return String(localized: "Paused")
+        case .completed: return episode.metaText
+        }
+    }
+
+    private var listContent: some View {
         List {
             if isGroupedBySeason {
                 ForEach(seasonRows, id: \.seasonID) { row in
@@ -69,15 +149,6 @@ struct DownloadedShowView: View {
                 }
             }
         }
-        .navigationTitle(episodes.first?.seriesTitle ?? String(localized: "Show"))
-        .onAppear(perform: refresh)
-        .toolbar { toolbarContent }
-        .confirmationDialog(
-            deleteConfirmationTitle, isPresented: $showDeleteConfirmation, titleVisibility: .visible
-        ) {
-            Button("Delete", role: .destructive) { deleteSelected() }
-            Button("Cancel", role: .cancel) {}
-        }
     }
 
     @ToolbarContentBuilder
@@ -94,7 +165,7 @@ struct DownloadedShowView: View {
                     Button(role: .destructive) {
                         showDeleteConfirmation = true
                     } label: {
-                        Image(systemName: "trash")
+                        Image(systemName: "trash").downloadsToolbarTapTarget()
                     }
                     .disabled(selectedRowIDs.isEmpty)
                 }
@@ -103,7 +174,7 @@ struct DownloadedShowView: View {
                     Button {
                         beginSelecting()
                     } label: {
-                        Image(systemName: "trash")
+                        Image(systemName: "trash").downloadsToolbarTapTarget()
                     }
                 }
             }
@@ -303,6 +374,15 @@ struct DownloadedEpisodeSummary: Identifiable {
     /// distinction is the whole point.
     var metaText: String?
     var metaAccessibilityText: String?
+
+    /// "S1:E1, Choosing the Right Project, 1 Jul 2005, 23 minutes" — the
+    /// same sentence `DownloadedEpisodeRow`'s stacked `Text`s already
+    /// produce for VoiceOver, spelled out for `DownloadsGridCard`, whose
+    /// tile collapses to a single accessibility element. Uses
+    /// `metaAccessibilityText` (worded-out durations), not `metaText`.
+    var gridAccessibilityLabel: String {
+        [episodeLabel, title, metaAccessibilityText].compactMap { $0 }.joined(separator: ", ")
+    }
 
     init(_ item: DownloadedItem) {
         itemID = item.itemID

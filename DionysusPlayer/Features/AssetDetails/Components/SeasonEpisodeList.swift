@@ -31,8 +31,26 @@ struct SeasonEpisodeList: View {
     var onSelectEpisode: (String) -> Void
 
     @Environment(AppState.self) private var appState
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var episodes: [MediaItem] = []
     @State private var isLoading = false
+
+    /// This list's own width, fed to `DetailRowGridMetrics` below.
+    ///
+    /// Measured with `.onGeometryChange` rather than read from
+    /// `UIScreen`/`keyWindow`: only the former is a layout dependency
+    /// SwiftUI actually tracks, so the list reflows on rotation and on a
+    /// Split View resize instead of staying frozen at whatever width it
+    /// first saw. (`HeroHeaderView` needed exactly this fix for exactly
+    /// this reason — see its `measuredWidth`.)
+    ///
+    /// Starts at 0, which `DetailRowGridMetrics` resolves to a single
+    /// column — the layout this list has always had — so the first frame
+    /// can never be a wrong-width grid that then reflows. In practice
+    /// even that frame isn't visible: `isLoading` starts true, so the
+    /// measurement lands while `LoadingView` is showing, well before any
+    /// row exists.
+    @State private var availableWidth: CGFloat = 0
 
     /// Backs `pickerWidth` below — `@ScaledMetric` tracks Dynamic Type the
     /// same way the trigger `Text`'s own (ambient, `.body`-style) font does,
@@ -131,22 +149,33 @@ struct SeasonEpisodeList: View {
             if isLoading {
                 LoadingView().frame(height: 120)
             } else {
-                LazyVStack(alignment: .leading, spacing: 16) {
-                    ForEach(episodes) { episode in
-                        EpisodeRow(
-                            episode: episode,
-                            isCurrent: episode.id == currentEpisodeID,
-                            onPlay: { onPlayEpisode(episode.id) },
-                            onSelect: { onSelectEpisode(episode.id) },
-                            client: appState.apiClient,
-                            userID: appState.currentUser?.id ?? appState.sessionStore.credentials?.userID,
-                            downloadManager: appState.downloadManager
-                        )
+                let metrics = DetailRowGridMetrics(
+                    containerWidth: availableWidth, isRegularWidth: horizontalSizeClass == .regular,
+                    artwork: .landscapeThumbnail
+                )
+
+                // A `LazyVGrid` only once there's genuinely more than one
+                // column to lay out — the single-column case stays on the
+                // `LazyVStack` it has always used, so compact width is
+                // byte-identical to before this existed rather than
+                // routed through a one-column grid that merely ought to
+                // behave the same. It also sidesteps handing
+                // `GridItem(.fixed(_:))` the zero width that
+                // `availableWidth` starts at.
+                if metrics.columnCount > 1 {
+                    LazyVGrid(columns: metrics.columns, alignment: .leading, spacing: 16) {
+                        episodeRows(metrics: metrics)
                     }
+                    .padding(.horizontal)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        episodeRows(metrics: metrics)
+                    }
+                    .padding(.horizontal)
                 }
-                .padding(.horizontal)
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         .task(id: selectedSeasonID) { await loadEpisodes() }
         // Separate from the `.task(id:)` above rather than folded into one
         // combined id: `selectedSeasonID` changing should show the loading
@@ -156,6 +185,25 @@ struct SeasonEpisodeList: View {
         // to `LoadingView` every time someone returns from playback would
         // be a jarring flash for what's meant to be invisible.
         .onChange(of: refreshToken) { _, _ in Task { await loadEpisodes(showsLoadingIndicator: false) } }
+    }
+
+    /// Shared by both branches above so the single- and multi-column
+    /// lists can never drift apart in what a row actually is.
+    @ViewBuilder
+    private func episodeRows(metrics: DetailRowGridMetrics) -> some View {
+        ForEach(episodes) { episode in
+            EpisodeRow(
+                episode: episode,
+                isCurrent: episode.id == currentEpisodeID,
+                thumbnailWidth: metrics.artworkWidth,
+                thumbnailHeight: metrics.artworkHeight,
+                onPlay: { onPlayEpisode(episode.id) },
+                onSelect: { onSelectEpisode(episode.id) },
+                client: appState.apiClient,
+                userID: appState.currentUser?.id ?? appState.sessionStore.credentials?.userID,
+                downloadManager: appState.downloadManager
+            )
+        }
     }
 
     private func loadEpisodes(showsLoadingIndicator: Bool = true) async {
@@ -194,6 +242,11 @@ private struct EpisodeRow: View {
     /// otherwise identical to any other row, just with a highlight so it's
     /// clear which one the rest of the page is about.
     var isCurrent: Bool = false
+    /// Supplied by `DetailRowGridMetrics` rather than fixed on this type —
+    /// see that type for why a row in a two-column grid can't keep the
+    /// same 160x90 thumbnail a full-width row uses.
+    let thumbnailWidth: CGFloat
+    let thumbnailHeight: CGFloat
     var onPlay: () -> Void
     var onSelect: () -> Void
     /// `nil` (no live session — shouldn't happen in practice on a screen
@@ -203,9 +256,6 @@ private struct EpisodeRow: View {
     var client: JellyfinAPIClient?
     var userID: String?
     var downloadManager: DownloadManager?
-
-    private static let thumbnailWidth: CGFloat = 160
-    private static let thumbnailHeight: CGFloat = 90
 
     /// Air date and runtime together, e.g. "1 Aug 2026 · 42m" — see
     /// `MediaItem.episodeAirDateText`'s doc comment for why a row here
@@ -269,10 +319,16 @@ private struct EpisodeRow: View {
                 Button(action: onPlay) {
                     ZStack {
                         AsyncRemoteImage(
-                            url: episode.imageURL(type: "Primary", maxWidth: 300),
+                            // 400, not the 300 this asked for while the
+                            // thumbnail was fixed at 160pt: the widest
+                            // `DetailRowGridMetrics` now produces is ~198pt
+                            // (a 13-inch iPad in landscape), which needs
+                            // 400px at 2x. The old value was already a
+                            // little short of even 160pt's 320px.
+                            url: episode.imageURL(type: "Primary", maxWidth: 400),
                             placeholderSystemImage: "play.tv"
                         )
-                            .frame(width: Self.thumbnailWidth, height: Self.thumbnailHeight)
+                            .frame(width: thumbnailWidth, height: thumbnailHeight)
                             // Same favorite/watched/progress-bar treatment as
                             // `PosterCard`'s rail thumbnails — this row used
                             // to hand-duplicate just the progress-bar part

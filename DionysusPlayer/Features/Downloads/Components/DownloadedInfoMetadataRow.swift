@@ -18,8 +18,11 @@ struct DownloadedInfoMetadataRow: View {
     /// the exact same number).
     let fileSizeBytes: Int64?
 
+    /// Centered and full-width, matching `InfoMetadataRow` — see that
+    /// view's `body` for why these two lines centre while everything
+    /// below the Play row stays leading-aligned.
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .center, spacing: 8) {
             HStack(spacing: 10) {
                 if let date = item.metadataDateText {
                     Text(date).accessibilityLabel(String(localized: "Released: \(date)"))
@@ -67,6 +70,7 @@ struct DownloadedInfoMetadataRow: View {
                     )
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
     /// Resolution, HDR (when applicable), whether subtitles are included,

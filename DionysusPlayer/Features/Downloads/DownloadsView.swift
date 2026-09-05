@@ -18,6 +18,13 @@ struct DownloadsView: View {
     @State private var viewModel: DownloadsViewModel?
     @State private var showDeleteConfirmation = false
 
+    /// Same `.regular` gate `SearchView.usesGridLayout` uses, for the same
+    /// reason — see `DownloadsGrid`'s doc comment for the measurements that
+    /// motivated it. `.compact` (iPhone) keeps the existing `List`
+    /// untouched.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    private var usesGridLayout: Bool { horizontalSizeClass == .regular }
+
     var body: some View {
         content
             .navigationTitle("Downloads")
@@ -114,7 +121,7 @@ struct DownloadsView: View {
                     Button(role: .destructive) {
                         showDeleteConfirmation = true
                     } label: {
-                        Image(systemName: "trash")
+                        Image(systemName: "trash").downloadsToolbarTapTarget()
                     }
                     .disabled(viewModel.selectedRowIDs.isEmpty)
                     .accessibilityLabel(String(localized: "Delete Selected Downloads"))
@@ -124,7 +131,7 @@ struct DownloadsView: View {
                     Button {
                         viewModel.beginSelecting()
                     } label: {
-                        Image(systemName: "trash")
+                        Image(systemName: "trash").downloadsToolbarTapTarget()
                     }
                     .accessibilityLabel(String(localized: "Select Downloads to Delete"))
                 }
@@ -141,12 +148,16 @@ struct DownloadsView: View {
                     retry: nil,
                     icon: "square.and.arrow.down.on.square"
                 )
+            } else if usesGridLayout {
+                grid(viewModel)
             } else {
+                let isLandscape = isLandscapeShape(viewModel.rows)
                 List {
                     ForEach(viewModel.rows) { row in
                         DownloadsRowView(
                             row: row,
                             downloadManager: appState.downloadManager,
+                            isLandscape: isLandscape,
                             isSelecting: viewModel.isSelecting,
                             isSelected: viewModel.selectedRowIDs.contains(row.id),
                             sizeBytes: viewModel.rowSizes[row.id],
@@ -171,6 +182,118 @@ struct DownloadsView: View {
             LoadingView()
         }
     }
+
+    /// Landscape if *any* row is episode/show-like, decided once for the
+    /// whole list or grid rather than per row — mirrors
+    /// `SearchView.isLandscapeShape(_:)` and `MediaCollectionRail
+    /// .usesLandscapeTiles`. So a library of only movies keeps poster-shaped
+    /// artwork, and one mixing in any show switches every row to 16:9.
+    /// Shared by both presentations, exactly as Search shares its own.
+    private func isLandscapeShape(_ rows: [DownloadsRow]) -> Bool {
+        rows.contains { $0.isLandscapeShaped }
+    }
+
+    /// `.regular`-size-class counterpart to the `List` above — see
+    /// `DownloadsGrid`.
+    private func grid(_ viewModel: DownloadsViewModel) -> some View {
+        let isLandscape = isLandscapeShape(viewModel.rows)
+        return DownloadsGrid(items: viewModel.rows, isLandscape: isLandscape) { row, width in
+            DownloadsGridCard(
+                title: gridTitle(row),
+                subtitle: gridSubtitle(row),
+                artworkRelativePath: row.artworkRelativePath(preferLandscape: isLandscape),
+                placeholderSystemImage: row.placeholderSystemImage,
+                width: width,
+                isLandscape: isLandscape,
+                accessibilityLabel: gridAccessibilityLabel(row),
+                isSelecting: viewModel.isSelecting,
+                isSelected: viewModel.selectedRowIDs.contains(row.id),
+                progress: gridProgress(row),
+                isPreparing: isPreparing(row),
+                statusText: gridStatusText(row),
+                isStatusError: isFailed(row),
+                sizeText: gridSizeText(row, viewModel: viewModel),
+                navigationValue: route(for: row),
+                onToggleSelection: { viewModel.toggleSelection(row.id) },
+                onRetry: retryAction(row),
+                isRetrying: isRetrying(row)
+            )
+        }
+    }
+
+    private func route(for row: DownloadsRow) -> AppRoute {
+        switch row {
+        case .standalone(let item): return .downloadedAsset(itemID: item.itemID)
+        case .show(let group): return .downloadedShow(seriesID: group.seriesID)
+        }
+    }
+
+    private func gridTitle(_ row: DownloadsRow) -> String {
+        switch row {
+        // Same series-name-first convention as the list row's own
+        // `rowContent` — see its comment.
+        case .standalone(let item): return item.kind == .episode ? (item.seriesTitle ?? item.title) : item.title
+        case .show(let group): return group.seriesTitle
+        }
+    }
+
+    private func gridSubtitle(_ row: DownloadsRow) -> String? {
+        switch row {
+        case .standalone(let item):
+            guard item.status == .completed else { return nil }
+            if item.kind == .episode {
+                return item.episodeLabel.map { "\($0) \u{00B7} \(item.title)" } ?? item.title
+            }
+            return item.yearAndDurationText
+        case .show(let group):
+            return String(localized: "\(group.episodeCount) Episodes")
+        }
+    }
+
+    /// Mirrors the list row's `subtitleLine(for:)` for every non-completed
+    /// status; `nil` once completed (the subtitle carries the real
+    /// information by then).
+    private func gridStatusText(_ row: DownloadsRow) -> String? {
+        guard case .standalone(let item) = row else { return nil }
+        switch item.status {
+        case .downloading:
+            return gridProgress(row)?.statusText ?? String(localized: "Preparing download\u{2026}")
+        case .queued: return String(localized: "Queued\u{2026}")
+        case .failed: return item.errorMessage ?? String(localized: "Download Failed")
+        case .paused: return String(localized: "Paused")
+        case .completed: return nil
+        }
+    }
+
+    private func gridProgress(_ row: DownloadsRow) -> DownloadProgress? {
+        guard case .standalone(let item) = row,
+              item.status == .downloading || item.status == .queued else { return nil }
+        return appState.downloadManager.activeDownloads[item.itemID]
+    }
+
+    private func isPreparing(_ row: DownloadsRow) -> Bool {
+        guard case .standalone(let item) = row else { return false }
+        return (item.status == .downloading || item.status == .queued) && gridProgress(row) == nil
+    }
+
+    private func isFailed(_ row: DownloadsRow) -> Bool {
+        guard case .standalone(let item) = row else { return false }
+        return item.status == .failed
+    }
+
+    private func gridSizeText(_ row: DownloadsRow, viewModel: DownloadsViewModel) -> String? {
+        guard let bytes = viewModel.rowSizes[row.id], bytes > 0 else { return nil }
+        return FileSizeText.text(bytes: bytes)
+    }
+
+    /// "Title, subtitle, status" — the same sentence the equivalent list row
+    /// composes from its own stacked `Text`s, spelled out here because the
+    /// tile collapses to a single accessibility element.
+    private func gridAccessibilityLabel(_ row: DownloadsRow) -> String {
+        [gridTitle(row), gridSubtitle(row), gridStatusText(row)]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+    }
 }
 
 /// One row of `DownloadsView`'s list — a standalone item (pushes
@@ -184,6 +307,18 @@ struct DownloadsView: View {
 private struct DownloadsRowView: View {
     let row: DownloadsRow
     let downloadManager: DownloadManager
+    /// The whole *list's* one shape decision (`DownloadsView.isLandscapeShape(_:)`),
+    /// not this row's own kind — a movie sitting in an otherwise show-heavy
+    /// list gets the same landscape thumbnail every other row here does.
+    /// Mirrors `SearchResultRow`'s identical parameter, and the `.regular`
+    /// grid's `DownloadsGridCard`; see `MediaCollectionRail.usesLandscapeTiles`
+    /// for why a mixed-shape list reads worse than a consistent one.
+    ///
+    /// Before this, each row picked its own image by kind *and* every
+    /// thumbnail was framed 44x66 portrait regardless — so a show group's
+    /// landscape still got squeezed into a poster-shaped box (reported on
+    /// device, 2026-09-03).
+    let isLandscape: Bool
     var isSelecting: Bool = false
     var isSelected: Bool = false
     /// `DownloadsViewModel.rowSizes[row.id]` — precomputed there rather
@@ -219,7 +354,7 @@ private struct DownloadsRowView: View {
     private var route: AppRoute {
         switch row {
         case .standalone(let item): return .downloadedAsset(itemID: item.itemID)
-        case .show(let seriesID, _, _, _): return .downloadedShow(seriesID: seriesID)
+        case .show(let group): return .downloadedShow(seriesID: group.seriesID)
         }
     }
 
@@ -238,8 +373,8 @@ private struct DownloadsRowView: View {
             // own to read that from directly.
             HStack(spacing: 12) {
                 thumbnail(
-                    relativePath: item.kind == .episode ? (item.thumbImagePath ?? item.posterImagePath) : item.posterImagePath,
-                    placeholderSystemImage: item.kind == .episode ? "play.tv" : "film"
+                    relativePath: row.artworkRelativePath(preferLandscape: isLandscape),
+                    placeholderSystemImage: row.placeholderSystemImage
                 )
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.kind == .episode ? (item.seriesTitle ?? item.title) : item.title).lineLimit(1)
@@ -265,12 +400,15 @@ private struct DownloadsRowView: View {
                     retryButton(action: onRetry)
                 }
             }
-        case .show(_, let seriesTitle, let posterImagePath, let episodeCount):
+        case .show(let group):
             HStack(spacing: 12) {
-                thumbnail(relativePath: posterImagePath, placeholderSystemImage: "tv")
+                thumbnail(
+                    relativePath: row.artworkRelativePath(preferLandscape: isLandscape),
+                    placeholderSystemImage: row.placeholderSystemImage
+                )
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(seriesTitle).lineLimit(1)
-                    Text("\(episodeCount) Episodes").font(.caption).foregroundStyle(.secondary)
+                    Text(group.seriesTitle).lineLimit(1)
+                    Text("\(group.episodeCount) Episodes").font(.caption).foregroundStyle(.secondary)
                 }
                 if isSelecting, let sizeText {
                     Spacer()
@@ -359,13 +497,22 @@ private struct DownloadsRowView: View {
         }
     }
 
+    /// 88x50 landscape / 44x66 portrait — both are sizes this feature
+    /// already uses (88x50 is exactly `DownloadedEpisodeRow`'s own thumbnail,
+    /// so a lone-episode row here matches an episode row on the show
+    /// subpage). Which one applies is `isLandscape`, the whole list's single
+    /// decision, not the row's own kind.
+    private var thumbnailSize: CGSize {
+        isLandscape ? CGSize(width: 88, height: 50) : CGSize(width: 44, height: 66)
+    }
+
     private func thumbnail(relativePath: String?, placeholderSystemImage: String = "film") -> some View {
         LocalFileImage(
             url: relativePath.map(DownloadFileStore.url(forRelativePath:)),
-            targetSize: CGSize(width: 44, height: 66),
+            targetSize: thumbnailSize,
             placeholderSystemImage: placeholderSystemImage
         )
-            .frame(width: 44, height: 66)
+            .frame(width: thumbnailSize.width, height: thumbnailSize.height)
             .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 }

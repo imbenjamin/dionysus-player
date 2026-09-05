@@ -14,6 +14,13 @@ import SwiftUI
 /// `refreshItem()`. There's no per-selection refetch to drive here the way
 /// a season switch drives `SeasonEpisodeList`'s, so there's nothing this
 /// view needs to own itself.
+///
+/// Lays out over two columns on regular width, via the same
+/// `DetailRowGridMetrics` the episode list uses — see that type for why,
+/// and for the measurements behind it. Owns its own horizontal padding
+/// rather than taking it from `CollectionDetailView` (which is how it used
+/// to work), so that what `.onGeometryChange` measures below is the full
+/// width the list has to divide, matching what the metrics type expects.
 struct CollectionItemList: View {
     let items: [MediaItem]
     /// Plays that item directly (a row's own thumbnail/play button) —
@@ -34,19 +41,55 @@ struct CollectionItemList: View {
     var userID: String?
     var downloadManager: DownloadManager?
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    /// This list's own width, fed to `DetailRowGridMetrics` below. See
+    /// `SeasonEpisodeList.availableWidth` for why this is measured with
+    /// `.onGeometryChange` rather than read from `UIScreen`/`keyWindow`,
+    /// and why starting at 0 is safe.
+    @State private var availableWidth: CGFloat = 0
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Movies")
                 .font(.title3.bold())
+                .padding(.horizontal)
 
-            LazyVStack(alignment: .leading, spacing: 16) {
-                ForEach(items) { item in
-                    CollectionItemRow(
-                        item: item, onPlay: { onPlayItem(item.id) },
-                        client: client, userID: userID, downloadManager: downloadManager
-                    )
+            let metrics = DetailRowGridMetrics(
+                containerWidth: availableWidth, isRegularWidth: horizontalSizeClass == .regular,
+                artwork: .poster
+            )
+
+            // A `LazyVGrid` only once there's genuinely more than one
+            // column to lay out — the single-column case stays on the
+            // `LazyVStack` it has always used, so compact width is
+            // byte-identical to before this existed. Same split, same
+            // reasoning, as `SeasonEpisodeList`'s.
+            if metrics.columnCount > 1 {
+                LazyVGrid(columns: metrics.columns, alignment: .leading, spacing: 16) {
+                    itemRows(metrics: metrics)
                 }
+                .padding(.horizontal)
+            } else {
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    itemRows(metrics: metrics)
+                }
+                .padding(.horizontal)
             }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
+    }
+
+    /// Shared by both branches above so the single- and multi-column
+    /// lists can never drift apart in what a row actually is.
+    @ViewBuilder
+    private func itemRows(metrics: DetailRowGridMetrics) -> some View {
+        ForEach(items) { item in
+            CollectionItemRow(
+                item: item, onPlay: { onPlayItem(item.id) },
+                posterWidth: metrics.artworkWidth, posterHeight: metrics.artworkHeight,
+                client: client, userID: userID, downloadManager: downloadManager
+            )
         }
     }
 }
@@ -62,13 +105,54 @@ struct CollectionItemList: View {
 private struct CollectionItemRow: View {
     let item: MediaItem
     var onPlay: () -> Void
+    /// Supplied by `DetailRowGridMetrics` rather than fixed on this type —
+    /// see that type for why a row in a two-column grid can't keep the
+    /// same poster size a full-width row uses.
+    let posterWidth: CGFloat
+    let posterHeight: CGFloat
     /// See `CollectionItemList`'s identical trio.
     var client: JellyfinAPIClient?
     var userID: String?
     var downloadManager: DownloadManager?
 
-    private static let posterWidth: CGFloat = 90
-    private var posterHeight: CGFloat { Self.posterWidth * 1.5 }
+    /// Line heights of the two text styles this row stacks, used by
+    /// `overviewLineLimit` below to work out how much of `posterHeight`
+    /// the synopsis actually has left.
+    ///
+    /// `@ScaledMetric` rather than the literals alone: the whole point of
+    /// deriving the line limit is that the text fits the box it's clipped
+    /// to, which stops being true the moment Dynamic Type moves and the
+    /// budget is still being divided by a 16pt line. Reading these also
+    /// makes the limit a tracked dependency, so it recomputes when the
+    /// user changes text size rather than staying at whatever it was.
+    @ScaledMetric(relativeTo: .subheadline) private var titleLineHeight: CGFloat = 20
+    @ScaledMetric(relativeTo: .caption) private var captionLineHeight: CGFloat = 16
+
+    /// How many lines of synopsis fit under the title and metadata line
+    /// within `posterHeight`.
+    ///
+    /// Derived rather than the flat `lineLimit(6)` this used to carry.
+    /// Six lines never fit the 135pt poster this row was fixed at, so the
+    /// `.clipped()` below — which is there to stop a long synopsis making
+    /// the row taller than its own poster — was slicing the last line
+    /// through its x-height instead of letting `Text` truncate it, which
+    /// reads as a rendering fault rather than as deliberate truncation.
+    /// (Measured live on an iPad, 2026-09-04: "The Last Crusade"'s row,
+    /// portrait.) Two columns would have made that the common case rather
+    /// than the exception, since a 386pt row wraps the same synopsis into
+    /// roughly twice as many lines.
+    ///
+    /// Budgets two lines for the title (its own `lineLimit`) and one for
+    /// the metadata line, plus the `VStack`'s two 4pt gaps. Still capped
+    /// at the original 6: a 188pt poster in iPad landscape has room for
+    /// more, but a wall of `.caption` prose isn't what this row is for.
+    /// `.clipped()` stays as the backstop for the accessibility text
+    /// sizes, where nothing computed from a fixed height can guarantee a
+    /// fit.
+    private var overviewLineLimit: Int {
+        let reserved = titleLineHeight * 2 + captionLineHeight + 8
+        return max(1, min(6, Int((posterHeight - reserved) / captionLineHeight)))
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -88,7 +172,7 @@ private struct CollectionItemRow: View {
                 Button(action: onPlay) {
                     ZStack {
                         AsyncRemoteImage(url: item.primaryImageURL, placeholderSystemImage: item.kind.placeholderSystemImage)
-                            .frame(width: Self.posterWidth, height: posterHeight)
+                            .frame(width: posterWidth, height: posterHeight)
                             .watchStatusOverlay(for: item)
                             .clipShape(RoundedRectangle(cornerRadius: 6))
 
@@ -151,7 +235,7 @@ private struct CollectionItemRow: View {
                                 Text(overview)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                    .lineLimit(6)
+                                    .lineLimit(overviewLineLimit)
                             }
                         }
 
@@ -176,11 +260,10 @@ private struct CollectionItemRow: View {
                     // first) either wasted the poster's extra height under a
                     // short, 1-line title, or, under a 2-line title, let the
                     // synopsis run past the poster and make the whole row
-                    // visibly taller than its own thumbnail. `lineLimit(6)`
-                    // above is deliberately generous rather than exact —
-                    // this `.frame`/`.clipped()` pair is what actually
-                    // enforces the height cap; the line limit just bounds
-                    // how much text this ever lays out in the first place.
+                    // visibly taller than its own thumbnail. See
+                    // `overviewLineLimit` for why the synopsis's own limit is
+                    // derived from that same height rather than fixed, and
+                    // for what this `.clipped()` is and isn't responsible for.
                     .frame(height: posterHeight, alignment: .top)
                     .clipped()
                     .contentShape(Rectangle())

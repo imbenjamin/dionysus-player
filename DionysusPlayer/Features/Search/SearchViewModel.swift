@@ -52,12 +52,22 @@ final class SearchViewModel {
         imageURLBuilder = await client.makeImageURLBuilder()
     }
 
-    /// Resolves a result/history entry's stable `imageReference` against
+    /// Resolves a result/history entry's stable image reference(s) against
     /// the current session's `ImageURLBuilder` — see `SearchResult`'s doc
     /// comment for why this is resolved on demand here rather than stored.
+    /// Used by the `.compact` list row, which wants each item's own
+    /// natural-kind image.
     func imageURL(for result: SearchResult) -> URL? {
         guard let imageURLBuilder else { return nil }
         return result.imageURL(images: imageURLBuilder)
+    }
+
+    /// `.regular`-grid counterpart — `preferLandscape` is the grid's own
+    /// one shape decision for every tile, not necessarily `result`'s own
+    /// kind. See `SearchResult.imageURL(images:preferLandscape:)`.
+    func imageURL(for result: SearchResult, preferLandscape: Bool) -> URL? {
+        guard let imageURLBuilder else { return nil }
+        return result.imageURL(images: imageURLBuilder, preferLandscape: preferLandscape)
     }
 
     /// Call when the user taps through a result (live or from history) —

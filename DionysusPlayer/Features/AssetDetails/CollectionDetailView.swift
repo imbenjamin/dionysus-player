@@ -39,8 +39,21 @@ struct CollectionDetailView: View {
                         // synopsis, and "Cast & Crew" degrades to its own
                         // empty-state message when a BoxSet has none.
                         DetailTabsView(item: item)
+                            .detailTabsPanel()
                     }
                     .padding(.horizontal)
+                    // Caps this column — metadata and tabs — to a readable
+                    // measure on regular width, leaving the hero above and
+                    // the movie list/rails below full-bleed. See
+                    // `ReadableDetailColumn`; every number in that doc
+                    // comment was measured on `MovieDetailView` and
+                    // reproduces here unchanged.
+                    //
+                    // A BoxSet has no Play/Resume row of its own to share
+                    // the column with (see this view's doc comment), so on
+                    // regular width the column is metadata plus the tabs
+                    // panel and nothing else.
+                    .readableDetailColumn()
                     .id(refreshTrigger)
 
                     if !viewModel.collectionItems.isEmpty {
@@ -49,7 +62,6 @@ struct CollectionDetailView: View {
                             onPlayItem: { itemID in playbackRequest = PlaybackRequest(itemID: itemID) },
                             client: viewModel.apiClient, userID: viewModel.currentUserID, downloadManager: appState.downloadManager
                         )
-                        .padding(.horizontal)
                     }
 
                     if !viewModel.collections.isEmpty {

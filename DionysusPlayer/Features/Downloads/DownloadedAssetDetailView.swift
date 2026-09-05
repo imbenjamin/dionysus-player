@@ -17,12 +17,14 @@ import SwiftUI
 /// `PlayResumeButtonRow`), and the same segmented About/Cast & Crew/Details
 /// tabs (`DownloadedDetailTabsView`, mirroring `DetailTabsView`) — reusing
 /// several of the live page's own presentational pieces directly where
-/// they had no real `MediaItem` coupling to begin with. The item's own
-/// title never appears as a separate text line, same as the live pages —
-/// it relies entirely on the hero (which carries both the series name and,
-/// for episode content, the episode's own name) — and an episode's
-/// "SXX:EYY" lives only in the Play/Resume button's own label
-/// (`DownloadedPlayResumeButtonRow.buttonTitle`), not a line of its own.
+/// they had no real `MediaItem` coupling to begin with, and the same
+/// shared `readableDetailColumn()`/`detailTabsPanel()` layout modifiers
+/// on top of them. The item's own title never appears as a separate text
+/// line, same as the live pages — it relies entirely on the hero (which
+/// carries both the series name and, for episode content, the episode's
+/// own name) — and an episode's "SXX:EYY" lives only in the Play/Resume
+/// button's own label (`DownloadedPlayResumeButtonRow.buttonTitle`), not
+/// a line of its own.
 ///
 /// Its Play button starts the offline `PlayerViewModel` path; its
 /// destructive "Delete Download" toolbar button mirrors `ProfileView`'s
@@ -104,8 +106,19 @@ struct DownloadedAssetDetailView: View {
                             )
 
                             DownloadedDetailTabsView(item: item, fileSizeBytes: fileSizeBytes)
+                                .detailTabsPanel()
                         }
                         .padding(.horizontal)
+                        // Same cap, for the same reasons, as
+                        // `MovieDetailView`'s own column — see
+                        // `ReadableDetailColumn`. This page's Details tab is
+                        // the one that suffered most from going uncapped:
+                        // `DownloadedTechnicalDetailsView` reuses the live
+                        // page's `SummaryRow`, so "File Size" and "1.4 GB"
+                        // ended up at opposite edges of a 1180pt landscape
+                        // page. The hero above and the chapter rail below
+                        // stay full-bleed.
+                        .readableDetailColumn()
 
                         // Same slot and same component as the live pages'
                         // Chapters rail (`MovieDetailView`), sourced from
@@ -132,7 +145,7 @@ struct DownloadedAssetDetailView: View {
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button(role: .destructive) { showDeleteConfirmation = true } label: {
-                            Image(systemName: "trash")
+                            Image(systemName: "trash").downloadsToolbarTapTarget()
                         }
                         // Without this, VoiceOver falls back to the SF
                         // Symbol's own name ("bin"), same class of fix as

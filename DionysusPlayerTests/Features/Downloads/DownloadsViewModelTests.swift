@@ -34,11 +34,37 @@ final class DownloadsViewModelTests: XCTestCase {
         let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
 
         XCTAssertEqual(viewModel.rows.count, 1)
-        guard case .show(_, let title, _, let count) = viewModel.rows.first else {
+        guard case .show(let group) = viewModel.rows.first else {
             return XCTFail("expected a .show row")
         }
-        XCTAssertEqual(title, "A Show")
-        XCTAssertEqual(count, 2)
+        XCTAssertEqual(group.seriesTitle, "A Show")
+        XCTAssertEqual(group.episodeCount, 2)
+    }
+
+    /// A show group always votes landscape (it's the series half of
+    /// `SearchResult.isLandscapeShaped`'s rule), which is what makes the
+    /// `.regular` grid pick 16:9 tiles for any library containing one.
+    func test_showRow_isLandscapeShaped() {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        store.insert(makeEpisode(itemID: "ep-1", seriesID: "series-1", seriesTitle: "A Show", episodeNumber: 1))
+        store.insert(makeEpisode(itemID: "ep-2", seriesID: "series-1", seriesTitle: "A Show", episodeNumber: 2))
+
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
+
+        XCTAssertEqual(viewModel.rows.first?.isLandscapeShaped, true)
+    }
+
+    /// A downloaded movie is portrait-shaped, so a library of only movies
+    /// keeps poster-shaped grid tiles.
+    func test_standaloneMovieRow_isNotLandscapeShaped() {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        store.insert(DownloadTestHelpers.makeItem(itemID: "movie-1", status: .completed))
+
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
+
+        XCTAssertEqual(viewModel.rows.first?.isLandscapeShaped, false)
     }
 
     // MARK: Bulk selection

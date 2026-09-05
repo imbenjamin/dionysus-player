@@ -51,7 +51,14 @@ struct ChapterPickerOverlay: View {
     /// One row's height — a 80×45 (16:9) thumbnail plus `.padding(.vertical,
     /// 10)` either side, which comfortably clears the two stacked text lines
     /// beside it.
-    private static let rowHeight: CGFloat = 65
+    ///
+    /// `@ScaledMetric` for the same reason `PlayerControlsOverlay`'s row
+    /// heights are: `estimatedHeight` sizes the panel from it, and a fixed
+    /// point under-estimates real rows further as Dynamic Type grows. Masked
+    /// here on a feature-length film, whose chapter count clears `maxHeight`
+    /// so the cap binds instead — but a short list takes the estimate
+    /// directly and would clip the same way.
+    @ScaledMetric(relativeTo: .subheadline) private var rowHeight: CGFloat = 65
     private static let dividerHeight: CGFloat = 1
 
     /// A deterministic, synchronous *estimate*, not a measurement — for
@@ -67,7 +74,7 @@ struct ChapterPickerOverlay: View {
     /// that's already scrolling.
     private var estimatedHeight: CGFloat {
         let count = CGFloat(chapters.count)
-        return Self.rowHeight * count + Self.dividerHeight * max(0, count - 1)
+        return rowHeight * count + Self.dividerHeight * max(0, count - 1)
     }
 
     var body: some View {

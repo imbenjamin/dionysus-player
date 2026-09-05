@@ -9,7 +9,17 @@ import SwiftUI
 /// rather than a new `AppRoute` case — `AppRoute` is for destinations
 /// pushed from more than one feature's navigation stack, and this is only
 /// ever reached from within `ProfileView`'s own.
+///
+/// On iPad this isn't pushed at all: it's the root of the Downloads pane
+/// in `ProfileView`'s split layout, which is why `titleDisplayMode` is a
+/// parameter. A pushed sub-screen wants `.inline`, but as a detail-pane
+/// root it sits alongside Appearance/Playback/About, all of which get a
+/// large title — leaving it `.inline` there made it the odd one out.
 struct DownloadsSettingsView: View {
+    /// `.inline` when pushed (iPhone, and the row on iPad's own Downloads
+    /// pane); `.large` when it *is* the pane. See the type's doc comment.
+    var titleDisplayMode: NavigationBarItem.TitleDisplayMode = .inline
+
     /// Default must stay in lockstep with `DownloadPreferencesStore.resolution`'s
     /// own fallback — see that type's doc comment.
     @AppStorage(downloadResolutionStorageKey) private var downloadResolution: DownloadResolution = .deviceClassDefault
@@ -117,6 +127,7 @@ struct DownloadsSettingsView: View {
                 Text("Quality & Network")
             } footer: {
                 Text("Downloaded videos are transcoded to fit your chosen resolution and quality, and are never upscaled past the source.")
+                    .readableSettingsFooter()
             }
 
             Section {
@@ -142,10 +153,11 @@ struct DownloadsSettingsView: View {
                         Text("Based on a \(Self.averageMovieMinutes) minute movie and \(Self.averageEpisodeMinutes) minute TV episode.")
                     }
                 }
+                .readableSettingsFooter()
             }
         }
         .navigationTitle("Downloads")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(titleDisplayMode)
     }
 }
 

@@ -7,19 +7,72 @@ import Observation
 /// one-item "submenu") or a group of a show's downloaded episodes.
 enum DownloadsRow: Identifiable {
     case standalone(DownloadedItem)
-    case show(seriesID: String, seriesTitle: String, posterImagePath: String?, episodeCount: Int)
+    case show(ShowGroup)
+
+    /// A show's downloaded episodes collapsed to one row. A struct rather
+    /// than a growing tuple of associated values so adding another display
+    /// field (as `thumbImagePath` was, for the `.regular` grid's landscape
+    /// tiles) doesn't churn every `case .show(_, _, _, _)` pattern in two
+    /// files.
+    struct ShowGroup {
+        let seriesID: String
+        let seriesTitle: String
+        /// The first episode that has one — an episode's `Primary` image is
+        /// its own still frame, not a series poster.
+        let posterImagePath: String?
+        /// The first episode that has one — the series `Thumb`, a proper
+        /// 16:9 image, and so the better artwork whenever the grid is
+        /// landscape-shaped (which a show group's own vote guarantees; see
+        /// `isLandscapeShaped`).
+        let thumbImagePath: String?
+        let episodeCount: Int
+    }
 
     var id: String {
         switch self {
         case .standalone(let item): return "standalone-\(item.itemID)"
-        case .show(let seriesID, _, _, _): return "show-\(seriesID)"
+        case .show(let group): return "show-\(group.seriesID)"
         }
     }
 
     var sortTitle: String {
         switch self {
         case .standalone(let item): return item.title
-        case .show(_, let seriesTitle, _, _): return seriesTitle
+        case .show(let group): return group.seriesTitle
+        }
+    }
+
+    /// Mirrors `SearchResult.isLandscapeShaped`'s `kind == .episode ||
+    /// kind == .series` rule: a show group is the series half of it (always
+    /// landscape), a standalone item defers to its own kind.
+    var isLandscapeShaped: Bool {
+        switch self {
+        case .standalone(let item): return item.isLandscapeShaped
+        case .show: return true
+        }
+    }
+
+    /// Whichever artwork fits the shape the *grid* chose — see
+    /// `DownloadedItem.artworkRelativePath(preferLandscape:)`, whose
+    /// preference this reuses verbatim for the standalone case and mirrors
+    /// for the show group.
+    func artworkRelativePath(preferLandscape: Bool) -> String? {
+        switch self {
+        case .standalone(let item):
+            return item.artworkRelativePath(preferLandscape: preferLandscape)
+        case .show(let group):
+            return preferLandscape
+                ? (group.thumbImagePath ?? group.posterImagePath)
+                : (group.posterImagePath ?? group.thumbImagePath)
+        }
+    }
+
+    /// Content-type glyph for `MediaPlaceholderBox`, matching what the
+    /// equivalent `.compact` list row already passes.
+    var placeholderSystemImage: String {
+        switch self {
+        case .standalone(let item): return item.kind == .episode ? "play.tv" : "film"
+        case .show: return "tv"
         }
     }
 }
@@ -93,12 +146,13 @@ final class DownloadsViewModel {
         var result: [DownloadsRow] = standalone.map(DownloadsRow.standalone)
         for (seriesID, episodes) in byShow {
             if episodes.count > 1, let first = episodes.first {
-                result.append(.show(
+                result.append(.show(DownloadsRow.ShowGroup(
                     seriesID: seriesID,
                     seriesTitle: first.seriesTitle ?? first.title,
                     posterImagePath: episodes.first { $0.posterImagePath != nil }?.posterImagePath,
+                    thumbImagePath: episodes.first { $0.thumbImagePath != nil }?.thumbImagePath,
                     episodeCount: episodes.count
-                ))
+                )))
             } else if let only = episodes.first {
                 result.append(.standalone(only))
             }
@@ -112,7 +166,8 @@ final class DownloadsViewModel {
         case .standalone(let item):
             guard item.status == .completed else { return 0 }
             return DownloadFileStore.fileSize(forRelativePath: item.videoFilePath) ?? 0
-        case .show(let seriesID, _, _, _):
+        case .show(let group):
+            let seriesID = group.seriesID
             var total: Int64 = 0
             for episode in allItems where episode.seriesID == seriesID && episode.status == .completed {
                 total += DownloadFileStore.fileSize(forRelativePath: episode.videoFilePath) ?? 0
@@ -225,7 +280,7 @@ final class DownloadsViewModel {
             .reduce(0) { total, row in
                 switch row {
                 case .standalone: return total + 1
-                case .show(_, _, _, let episodeCount): return total + episodeCount
+                case .show(let group): return total + group.episodeCount
                 }
             }
     }
@@ -271,8 +326,8 @@ final class DownloadsViewModel {
             switch row {
             case .standalone(let item):
                 itemIDsToDelete.append(item.itemID)
-            case .show(let seriesID, _, _, _):
-                itemIDsToDelete.append(contentsOf: allEpisodes.filter { $0.seriesID == seriesID }.map(\.itemID))
+            case .show(let group):
+                itemIDsToDelete.append(contentsOf: allEpisodes.filter { $0.seriesID == group.seriesID }.map(\.itemID))
             }
         }
         rows.removeAll { selectedRowIDs.contains($0.id) }

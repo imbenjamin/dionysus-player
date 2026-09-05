@@ -26,6 +26,28 @@ enum RotationLock {
     /// hook on without a compiler error.
     static func currentMask() -> UIInterfaceOrientationMask { mask }
 
+    /// Whether locking rotation can actually take effect — `false` on iPad
+    /// unless the app requires full screen.
+    ///
+    /// iOS only honours `application(_:supportedInterfaceOrientationsFor:)`
+    /// on iPad for an app that has opted *out* of multitasking. A resizable
+    /// iPad app (which `UIRequiresFullScreen: false` opts into, for Split
+    /// View and Stage Manager) must support every orientation its Info.plist
+    /// declares, and the mask above is ignored. Everything here still runs;
+    /// the system just doesn't act on it. Verified both ways on an iPad A16
+    /// (2026-09-05): flipping the flag to `true` makes the same lock hold,
+    /// and it works on a physical iPhone.
+    ///
+    /// `PlayerControlsOverlay` omits its rotation-lock button entirely where
+    /// this is `false` — a control that visibly engages and does nothing is
+    /// worse than an absent one. Reads the flag out of the Info.plist rather
+    /// than hardcoding "not on iPad", so it can't disagree with the build it
+    /// ships in.
+    static var isSupported: Bool {
+        guard DeviceIdentity.isPad else { return true }
+        return Bundle.main.object(forInfoDictionaryKey: "UIRequiresFullScreen") as? Bool ?? false
+    }
+
     /// Locks rotation to whichever orientation the device is in right now.
     /// `PlayerView`'s rotation-lock button calls this, and pairs it with
     /// `unlock()` once playback closes — without that, the rest of the app

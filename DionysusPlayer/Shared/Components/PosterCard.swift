@@ -6,10 +6,13 @@ import SwiftUI
 /// The portrait counterpart to `LandscapeMediaCard` — `MediaRailView` picks
 /// one or the other for an *entire* rail via
 /// `MediaCollectionRail.usesLandscapeTiles` (not per item; see that
-/// property's doc comment for why). Grids (`CollectionGridView`,
-/// `SearchView`) always use this one regardless of item kind: they're not
-/// in scope for the landscape treatment, and their column-width math
-/// assumes a uniform portrait aspect ratio throughout.
+/// property's doc comment for why). `CollectionGridView`'s grid always uses
+/// this one regardless of item kind: it's not in scope for the landscape
+/// treatment, and its column-width math (`PosterGridMetrics`) assumes a
+/// uniform portrait aspect ratio throughout. `SearchView`'s own `.regular`-
+/// size-class grid is a separate, purpose-built `SearchResultGridCard`
+/// instead — `SearchResult` is a much thinner model than `MediaItem` (no
+/// `MediaSources`/`userData`/watch-status), not a fit for this view.
 struct PosterCard: View {
     let item: MediaItem
     var width: CGFloat = 130

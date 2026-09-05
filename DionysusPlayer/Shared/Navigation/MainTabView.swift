@@ -73,6 +73,13 @@ struct MainTabView: View {
                 HomeView(isActiveTab: selectedTab == .home, path: $homePath)
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
             }
+            // See `stableContentTint()` — keeps this stack's own toolbars
+            // off the tab bar's artwork-derived tint. Applied to the
+            // stack, not its content: a navigation bar resolves its tint
+            // above whatever view declared the `.toolbar`, so tinting the
+            // content leaves a pushed screen's bar buttons untouched
+            // (measured — the failing glyphs stayed at 2.46:1).
+            .stableContentTint()
             .tabItem { Label("Home", image: "DionysusGlyph") }
             .tag(MainTab.home)
 
@@ -80,6 +87,7 @@ struct MainTabView: View {
                 SearchView(path: $searchPath, resetToken: searchResetToken)
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
             }
+            .stableContentTint()
             .tabItem { Label("Search", systemImage: "magnifyingglass") }
             .tag(MainTab.search)
 
@@ -87,6 +95,7 @@ struct MainTabView: View {
                 DownloadsView()
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
             }
+            .stableContentTint()
             // Not "arrow.down.circle" — iOS's tab bar draws its own filled
             // pill/circle behind the selected tab's icon, and a symbol
             // with its own circular border merges visually with that into
@@ -100,10 +109,19 @@ struct MainTabView: View {
             // there's nothing to gate here beyond reading the live count.
             .badge(appState.downloadManager.pendingOrActiveDownloadsCount)
 
-            NavigationStack {
-                ProfileView()
-                    .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
-            }
+            // The only tab not wrapped in a `NavigationStack` here:
+            // `ProfileView` owns its own container because that container
+            // differs by device — a `NavigationSplitView` on iPad, a
+            // `NavigationStack` elsewhere — and a split view nested
+            // inside a stack isn't a supported arrangement. It applies
+            // the same `.navigationDestination(for: AppRoute.self)` in
+            // both of its layouts, so nothing is lost here.
+            ProfileView()
+            // Applied to the view itself rather than to a stack, since
+            // this tab has none — see the comment just above. `.tabItem`
+            // wraps the already-tinted view either way, so the tab bar's
+            // own label still reads `TabBarTintModel`'s tint.
+            .stableContentTint()
             .tabItem {
                 Label {
                     Text(appState.currentUser?.name ?? String(localized: "Profile"))
@@ -124,11 +142,14 @@ struct MainTabView: View {
             }
             .tag(MainTab.profile)
         }
-        // Selected-item tint tracks the brand primary (burgundy in light,
-        // amber in dark). Without this, the tab bar inherits the app-wide
-        // `AccentColor` asset, which is a static burgundy and doesn't adapt
-        // to theme changes.
-        .tint(Color.dionysusPrimary)
+        // Selected-item tint, chosen per-hero rather than fixed — see
+        // `TabBarTintModel` for the measured contrast failure a fixed
+        // tint produces on the Liquid Glass selection pill, and why
+        // recolouring alone can't fix it. Reading `.tint` here is what
+        // registers this view's Observation dependency on the model.
+        // Without any tint at all, the tab bar inherits the app-wide
+        // `AccentColor` asset, which is a static burgundy.
+        .tint(TabBarTintModel.shared.tint)
         .task(id: appState.currentUser?.id) { await loadProfileTabIcon() }
         // Cold launch can reach `.main` with `currentUser` still `nil` —
         // resumed from a cached session because the server was

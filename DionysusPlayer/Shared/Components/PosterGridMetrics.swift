@@ -23,10 +23,19 @@ struct PosterGridMetrics {
     let columnCount: Int
     let itemWidth: CGFloat
 
-    init(containerWidth: CGFloat) {
-        let available = max(containerWidth - Self.horizontalPadding * 2, Self.idealItemWidth)
-        let fitCount = Int((available + Self.spacing) / (Self.idealItemWidth + Self.spacing))
-        columnCount = max(Self.minimumColumns, fitCount)
+    /// `idealItemWidth` defaults to the portrait-poster value every existing
+    /// caller (`CollectionGridView`) wants, but is overridable — `SearchView`
+    /// passes its own `.regular`-size-class card widths (160/260, matching
+    /// `MediaRailView`'s own scaled-up rail cards) so its iPad grid targets
+    /// the same "deliberately bigger on iPad" sizing rather than this
+    /// type's iPhone-oriented default. The fitting math itself doesn't care
+    /// what the value represents (portrait vs. landscape tiles) — it only
+    /// ever uses it as a target to solve column count from, then recomputes
+    /// the real per-item width to exactly fill the container either way.
+    init(containerWidth: CGFloat, idealItemWidth: CGFloat = Self.idealItemWidth, minimumColumns: Int = Self.minimumColumns) {
+        let available = max(containerWidth - Self.horizontalPadding * 2, idealItemWidth)
+        let fitCount = Int((available + Self.spacing) / (idealItemWidth + Self.spacing))
+        columnCount = max(minimumColumns, fitCount)
         itemWidth = (available - Self.spacing * CGFloat(columnCount - 1)) / CGFloat(columnCount)
     }
 

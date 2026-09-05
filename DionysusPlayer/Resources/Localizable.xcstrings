@@ -84,6 +84,9 @@
     "%lld episodes couldn't be downloaded." : {
 
     },
+    "%lld Items" : {
+
+    },
     "%lld/%lld" : {
       "localizations" : {
         "en" : {
@@ -311,7 +314,7 @@
     "Connect" : {
 
     },
-    "Connect to Server" : {
+    "Connecting" : {
 
     },
     "Continue Watching" : {
@@ -577,9 +580,6 @@
     "Included In" : {
 
     },
-    "Items" : {
-
-    },
     "Kbps" : {
 
     },
@@ -799,6 +799,9 @@
     "Remove from Favorites" : {
 
     },
+    "Remove from history" : {
+
+    },
     "Reset" : {
 
     },
@@ -935,6 +938,9 @@
 
     },
     "Sign out of %@?" : {
+
+    },
+    "Signing In" : {
 
     },
     "Simultaneous Downloads" : {

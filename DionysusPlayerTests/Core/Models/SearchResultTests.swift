@@ -66,25 +66,45 @@ final class SearchResultTests: XCTestCase {
         XCTAssertEqual(result.subtitle, "Collection")
     }
 
-    func test_imageReference_prefersThumbOverPrimaryWhenBothPresent() {
+    /// `init(hint:)` keeps *both* image references rather than collapsing to
+    /// one — see `SearchResult.primaryImageReference`'s doc comment on why
+    /// (which one a render wants depends on where it's rendering, not just
+    /// this item's own kind).
+    func test_init_keepsBothPrimaryAndThumbReferencesWhenBothPresent() {
         let hint = SearchHint(
             id: "ep-1", name: "Old Cases", type: .episode,
             primaryImageTag: "primary-tag", thumbImageTag: "thumb-tag", thumbImageItemId: "series-1"
         )
         let result = SearchResult(hint: hint)
-        XCTAssertEqual(result.imageReference, .init(itemID: "series-1", type: "Thumb", tag: "thumb-tag"))
+        XCTAssertEqual(result.primaryImageReference, .init(itemID: "ep-1", type: "Primary", tag: "primary-tag"))
+        XCTAssertEqual(result.thumbImageReference, .init(itemID: "series-1", type: "Thumb", tag: "thumb-tag"))
     }
 
-    func test_imageReference_fallsBackToPrimaryWhenNoThumb() {
+    func test_init_thumbReferenceNilWhenNoThumb() {
         let hint = SearchHint(id: "movie-1", name: "Arrival", type: .movie, primaryImageTag: "primary-tag")
         let result = SearchResult(hint: hint)
-        XCTAssertEqual(result.imageReference, .init(itemID: "movie-1", type: "Primary", tag: "primary-tag"))
+        XCTAssertEqual(result.primaryImageReference, .init(itemID: "movie-1", type: "Primary", tag: "primary-tag"))
+        XCTAssertNil(result.thumbImageReference)
     }
 
-    func test_imageReference_nilWhenNoImageTagsAtAll() {
+    func test_init_bothReferencesNilWhenNoImageTagsAtAll() {
         let hint = SearchHint(id: "movie-1", name: "Arrival", type: .movie)
         let result = SearchResult(hint: hint)
-        XCTAssertNil(result.imageReference)
+        XCTAssertNil(result.primaryImageReference)
+        XCTAssertNil(result.thumbImageReference)
+    }
+
+    /// `imageURL(images:)` (no `preferLandscape` override) uses each item's
+    /// own natural-kind preference — episode/series favor `Thumb`, matching
+    /// `isLandscapeShaped`.
+    func test_imageURL_prefersThumbForEpisodeWhenBothPresent() {
+        let hint = SearchHint(
+            id: "ep-1", name: "Old Cases", type: .episode,
+            primaryImageTag: "primary-tag", thumbImageTag: "thumb-tag", thumbImageItemId: "series-1"
+        )
+        let result = SearchResult(hint: hint)
+        let url = result.imageURL(images: makeImages())
+        XCTAssertEqual(url?.path, "/Items/series-1/Images/Thumb")
     }
 
     func test_imageURL_resolvesReferenceAgainstGivenBuilder() {

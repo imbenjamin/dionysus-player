@@ -14,6 +14,12 @@ import SwiftUI
 struct LibraryRailView: View {
     let libraries: [MediaItem]
 
+    /// Same `.regular`-size-class scale-up as `MediaRailView`'s
+    /// `posterWidth`/`landscapeWidth` — see that property's doc comment.
+    /// `LibraryCard`'s own default (160) is what `.compact` keeps.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    private var cardWidth: CGFloat { horizontalSizeClass == .regular ? 200 : 160 }
+
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             // `LazyHStack`, not `HStack` — see `MediaRailView`'s identical
@@ -23,7 +29,7 @@ struct LibraryRailView: View {
             // rail to be the odd one out.
             LazyHStack(spacing: 12) {
                 ForEach(libraries) { library in
-                    LibraryCard(library: library)
+                    LibraryCard(library: library, width: cardWidth)
                 }
             }
             .padding(.horizontal)
@@ -33,7 +39,7 @@ struct LibraryRailView: View {
 
 private struct LibraryCard: View {
     let library: MediaItem
-    private let width: CGFloat = 160
+    var width: CGFloat = 160
 
     var body: some View {
         // Wrapped in a (single-child) `ZStack`, not a bare `NavigationLink`

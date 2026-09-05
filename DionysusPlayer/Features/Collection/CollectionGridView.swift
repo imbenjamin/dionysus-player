@@ -7,6 +7,7 @@ struct CollectionGridView: View {
     let query: CollectionQuery
 
     @Environment(AppState.self) private var appState
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var viewModel: CollectionGridViewModel?
     /// Drives the dice button's push — a local `MediaItem?` binding rather
     /// than going through `AppRoute`/`.navigationDestination(for:)` (already
@@ -113,30 +114,35 @@ struct CollectionGridView: View {
         )
     }
 
-    /// A row of pill buttons, one per facet that actually has values to
-    /// offer (a facet with nothing available — e.g. no Studios data at
-    /// all — doesn't show a dead control). Each of the five opens a `Menu`
-    /// listing that facet's values, narrowing the grid down by one value at
-    /// a time (not multi-select within a facet), combined with AND across
-    /// facets in `CollectionGridViewModel.filteredItems`. Reset sits
-    /// *outside* the scrolling pills, anchored
-    /// at the trailing edge — as a same-shape "Reset" pill inside the
-    /// scroll row it read as just a fourth filter option; a visually
-    /// distinct circular icon button in a fixed position reads as the
-    /// separate "clear everything" action it actually is.
+    /// A row of pill buttons, one per facet that has values to offer (a
+    /// facet with no data doesn't show a dead control). Each opens a `Menu`
+    /// of that facet's values, narrowing one value at a time, combined with
+    /// AND across facets in `CollectionGridViewModel.filteredItems`. Reset
+    /// sits *outside* the scrolling pills: as a same-shape pill inside the
+    /// row it read as a fourth filter rather than the clear-everything
+    /// action it is.
     ///
-    /// On iOS 26+ the pills sit inside a `GlassEffectContainer` — required
-    /// (not just decorative) for multiple adjacent `.glassEffect` shapes to
-    /// blend/sample as one coherent material instead of each rendering an
-    /// independent, potentially-overlapping glass pass. Pre-26 falls back
-    /// to a plain `HStack` with `FilterPill`'s original flat-color style
-    /// (see its own `#available` branch).
+    /// `ViewThatFits` prefers an `HStack` that hugs its content, putting
+    /// Reset immediately after the last pill, and falls back to the original
+    /// scrolling row with Reset pinned trailing. A `ScrollView` accepts any
+    /// width offered, so the fallback only wins once the pills genuinely
+    /// don't fit — iPhone, and any device at accessibility text sizes (on
+    /// iPad A16 at accessibility-extra-large the pills run to x=984.5 in an
+    /// 820pt window). What it did wrongly was claim the full width when the
+    /// pills fit several times over, leaving a 240pt/600pt void between
+    /// Reset and the thing it clears.
     ///
-    /// `.scrollClipDisabled()` on the horizontal scroll view: without it,
-    /// the scroll view clips to its own (pill-height-tight) bounds, cutting
-    /// the glass/shadow each pill casts off hard at the top/bottom edge
-    /// instead of letting it blend softly into the page the way it does on
-    /// every other pill-shaped control in this app.
+    /// On iOS 26+ the pills sit inside a `GlassEffectContainer` — required,
+    /// not decorative: adjacent `.glassEffect` shapes must blend as one
+    /// material rather than each rendering an independent pass. Pre-26 falls
+    /// back to `FilterPill`'s flat-colour style.
+    ///
+    /// `.scrollClipDisabled()` stops the scroll view clipping each pill's
+    /// glass/shadow hard at its pill-tight bounds. The `.mask` after it puts
+    /// the *horizontal* clipping back — `.scrollClipDisabled()` turns
+    /// clipping off on every edge, so a scrolled pill drew straight over the
+    /// Reset button beside it. A `Rectangle` inset by negative vertical
+    /// padding is the row's own bounds widened top and bottom only.
     @ViewBuilder
     private var filterRow: some View {
         let genres = viewModel?.availableGenres ?? []
@@ -146,31 +152,55 @@ struct CollectionGridView: View {
         let favoriteStatuses = viewModel?.availableFavoriteStatuses ?? []
 
         if !genres.isEmpty || !studios.isEmpty || !decades.isEmpty || !watchStatuses.isEmpty || !favoriteStatuses.isEmpty {
-            HStack(spacing: 8) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    if #available(iOS 26.0, *) {
-                        GlassEffectContainer(spacing: 8) {
-                            HStack(spacing: 8) {
-                                filterPills(
-                                    genres: genres, studios: studios, decades: decades,
-                                    watchStatuses: watchStatuses, favoriteStatuses: favoriteStatuses
-                                )
-                            }
-                        }
-                    } else {
-                        HStack(spacing: 8) {
-                            filterPills(
-                                genres: genres, studios: studios, decades: decades,
-                                watchStatuses: watchStatuses, favoriteStatuses: favoriteStatuses
-                            )
-                        }
-                    }
-                }
-                .scrollClipDisabled()
+            let pills = pillRow(
+                genres: genres, studios: studios, decades: decades,
+                watchStatuses: watchStatuses, favoriteStatuses: favoriteStatuses
+            )
 
-                if viewModel?.hasActiveFilters == true {
-                    ResetFiltersButton { viewModel?.resetFilters() }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    pills
+                    resetButton
                 }
+
+                HStack(spacing: 8) {
+                    ScrollView(.horizontal, showsIndicators: false) { pills }
+                        .scrollClipDisabled()
+                        .mask(Rectangle().padding(.vertical, -16))
+                    resetButton
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var resetButton: some View {
+        if viewModel?.hasActiveFilters == true {
+            ResetFiltersButton { viewModel?.resetFilters() }
+        }
+    }
+
+    /// The pills themselves, shared by both of `filterRow`'s arrangements.
+    @ViewBuilder
+    private func pillRow(
+        genres: [String], studios: [String], decades: [Int],
+        watchStatuses: [CollectionWatchStatus], favoriteStatuses: [CollectionFavoriteStatus]
+    ) -> some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    filterPills(
+                        genres: genres, studios: studios, decades: decades,
+                        watchStatuses: watchStatuses, favoriteStatuses: favoriteStatuses
+                    )
+                }
+            }
+        } else {
+            HStack(spacing: 8) {
+                filterPills(
+                    genres: genres, studios: studios, decades: decades,
+                    watchStatuses: watchStatuses, favoriteStatuses: favoriteStatuses
+                )
             }
         }
     }
@@ -331,7 +361,26 @@ struct CollectionGridView: View {
                             ErrorStateView(message: String(localized: "No items match these filters."), retry: nil)
                                 .frame(minHeight: 200)
                         } else {
-                            let metrics = PosterGridMetrics(containerWidth: containerWidth)
+                            // Same "deliberately bigger on iPad" target
+                            // `SearchView`'s grid and `MediaRailView`'s
+                            // rail cards already use — this was the last
+                            // poster surface still taking
+                            // `PosterGridMetrics`' iPhone-oriented 130pt
+                            // default, so the same poster measured 160pt
+                            // in a Home rail, ~178pt in Search's grid, and
+                            // 144.5/150.5pt here: it got *smaller* on the
+                            // screen dedicated to browsing it. Costs a
+                            // column either way (portrait 5 -> 4,
+                            // landscape 7 -> 6) and buys back the card
+                            // label, which at accessibility text sizes was
+                            // truncating the subtitle mid-value
+                            // ("2007 · 2h…"), not just long titles.
+                            // Compact width is unchanged — at 393pt the
+                            // 3-column floor wins for either target.
+                            let metrics = PosterGridMetrics(
+                                containerWidth: containerWidth,
+                                idealItemWidth: horizontalSizeClass == .regular ? 160 : PosterGridMetrics.idealItemWidth
+                            )
                             LazyVGrid(columns: metrics.columns, spacing: 20) {
                                 ForEach(filtered) { item in
                                     PosterCard(item: item, width: metrics.itemWidth)

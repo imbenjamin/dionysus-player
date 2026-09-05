@@ -83,4 +83,49 @@ final class DownloadedItemTests: XCTestCase {
         item.runtimeTicks = 92 * 60 * 10_000_000
         XCTAssertEqual(item.yearAndDurationAccessibilityText, "2019, 1 hour, 32 minutes")
     }
+
+    // MARK: artworkRelativePath(preferLandscape:) — the `.regular` grid's
+    // thumb/poster preference, mirroring `SearchResult
+    // .imageURL(images:preferLandscape:)`.
+
+    func test_artworkRelativePath_preferLandscape_favorsThumb() {
+        let item = DownloadTestHelpers.makeItem(
+            itemID: "item-1", posterImagePath: "poster.jpg", thumbImagePath: "thumb.jpg"
+        )
+        XCTAssertEqual(item.artworkRelativePath(preferLandscape: true), "thumb.jpg")
+    }
+
+    func test_artworkRelativePath_preferPortrait_favorsPoster() {
+        let item = DownloadTestHelpers.makeItem(
+            itemID: "item-1", posterImagePath: "poster.jpg", thumbImagePath: "thumb.jpg"
+        )
+        XCTAssertEqual(item.artworkRelativePath(preferLandscape: false), "poster.jpg")
+    }
+
+    /// The whole point of the fallback: an item mixed into a grid shaped
+    /// against its own kind still shows *some* artwork (cropped to fill)
+    /// rather than a placeholder glyph.
+    func test_artworkRelativePath_fallsBackToTheOtherShapeWhenPreferredIsMissing() {
+        let posterOnly = DownloadTestHelpers.makeItem(itemID: "item-1", posterImagePath: "poster.jpg")
+        XCTAssertEqual(posterOnly.artworkRelativePath(preferLandscape: true), "poster.jpg")
+
+        let thumbOnly = DownloadTestHelpers.makeItem(itemID: "item-2", thumbImagePath: "thumb.jpg")
+        XCTAssertEqual(thumbOnly.artworkRelativePath(preferLandscape: false), "thumb.jpg")
+    }
+
+    func test_artworkRelativePath_noArtworkAtAll_isNil() {
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        XCTAssertNil(item.artworkRelativePath(preferLandscape: true))
+        XCTAssertNil(item.artworkRelativePath(preferLandscape: false))
+    }
+
+    /// An episode's `Primary` image is a still frame, not a poster — so an
+    /// episode votes landscape and a movie doesn't. `DownloadsRow` layers
+    /// the series half of the rule on top (see `DownloadsViewModelTests`).
+    func test_isLandscapeShaped_episodeYesMovieNo() {
+        let episode = DownloadTestHelpers.makeItem(itemID: "ep-1")
+        episode.kind = .episode
+        XCTAssertTrue(episode.isLandscapeShaped)
+        XCTAssertFalse(DownloadTestHelpers.makeItem(itemID: "movie-1").isLandscapeShaped)
+    }
 }
