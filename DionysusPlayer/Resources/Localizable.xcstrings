@@ -314,7 +314,7 @@
     "Connect" : {
 
     },
-    "Connect to Server" : {
+    "Connecting" : {
 
     },
     "Continue Watching" : {
@@ -938,6 +938,9 @@
 
     },
     "Sign out of %@?" : {
+
+    },
+    "Signing In" : {
 
     },
     "Simultaneous Downloads" : {
