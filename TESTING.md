@@ -235,15 +235,20 @@ pattern, since ViewModels are constructed with an already-built client
   grid's sort/filter/random controls, all four asset-detail layouts, search
   and the player's presentation — 24 tests across the smoke plan and the
   full plan. Downloads, Profile settings, and accessibility audits are still
-  to come. Two narrower gaps inside what *is* covered, both real findings
-  rather than oversights: swiping a search-history row away isn't
-  automated (`SearchResultRow` wraps the whole row in a `Button`, and a
-  synthesized `.swipeLeft()` on it can register as a tap instead — reopening
-  the row instead of revealing the delete action); and whether a real user
-  can still reach the tab bar at all once the Search field has ever been
-  engaged is an open question, not just a test gap — measured live on iPad,
-  the floating tab bar disappears from the accessibility tree entirely in
-  that state, and popping back to the results list doesn't bring it back.
+  to come. One narrower gap inside what *is* covered: swiping a
+  search-history row away isn't automated (`SearchResultRow` wraps the whole
+  row in a `Button`, and a synthesized `.swipeLeft()` on it can register as a
+  tap instead — reopening the row instead of revealing the delete action).
+  Re-tapping the Search tab to reset it isn't automated either, but for a
+  different reason than it first looked like: on iPad, the floating tab bar
+  disappears from the accessibility tree entirely once the search field has
+  ever been engaged, and popping back to the results list doesn't bring it
+  back on its own — not a bug, tapping away from the search field (confirmed
+  live) is the real, working way out, it's just a gesture XCUITest's
+  synthetic taps couldn't be made to trigger here (status bar, empty scroll
+  content, and the nav bar's own edge were all tried and none registered as
+  resigning the field). Automating this journey needs either a different
+  synthesis approach or a device.
 - **The offline-download engine's background `URLSessionDownloadTask`/
   `AppDelegate` relaunch wiring** (`DownloadManager.enqueue`/
   `startVideoDownload`/`reattachBackgroundSession`,
