@@ -101,6 +101,7 @@ struct MediaRailView: View {
                     headerLabel(showsSeeAll: true)
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier(A11yID.Home.seeAll(query))
             }
         } else {
             headerLabel(showsSeeAll: false)

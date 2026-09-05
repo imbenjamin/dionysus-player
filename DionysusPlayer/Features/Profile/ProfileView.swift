@@ -385,6 +385,7 @@ struct ProfileView: View {
                 .accessibilityHint("Shows account details and sign-out options.")
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(A11yID.Profile.accountCard)
     }
 
     /// The card's visuals, shared by both layouts.
@@ -486,9 +487,13 @@ struct ProfileView: View {
         // Streaming mode/bitrate and the Playback Stats button
         // toggle live on their own pushed screen — see
         // `AdvancedPlaybackSettingsView`'s doc comment for why.
+        // "Advanced" is the link text of two different screens (this one
+        // and `DownloadsQualityLadderView`) — the identifier is what tells
+        // them apart.
         NavigationLink("Advanced") {
             AdvancedPlaybackSettingsView()
         }
+        .accessibilityIdentifier(A11yID.Profile.advancedPlaybackLink)
     }
 
     private var playbackFooter: some View {
@@ -514,6 +519,7 @@ struct ProfileView: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(String(localized: "Downloads, \(Self.spokenFileSize(downloadsStorageUsedText))"))
         }
+        .accessibilityIdentifier(A11yID.Profile.downloadsSettingsLink)
     }
 
     @ViewBuilder
@@ -521,9 +527,11 @@ struct ProfileView: View {
         NavigationLink("License") {
             LicenseView()
         }
+        .accessibilityIdentifier(A11yID.Profile.licenseLink)
         NavigationLink("Privacy Policy") {
             PrivacyPolicyView()
         }
+        .accessibilityIdentifier(A11yID.Profile.privacyPolicyLink)
     }
 
     private var versionFooter: some View {

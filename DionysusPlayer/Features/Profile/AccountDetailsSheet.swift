@@ -16,6 +16,7 @@ struct AccountDetailsSheet: View {
     var body: some View {
         NavigationStack {
             AccountDetailsContent()
+                .accessibilityIdentifier(A11yID.Profile.accountSheet)
                 .navigationTitle("Account")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -63,9 +64,11 @@ struct AccountDetailsContent: View {
                 Button("Sign Out", role: .destructive) {
                     showSignOutConfirmation = true
                 }
+                .accessibilityIdentifier(A11yID.Profile.signOutButton)
                 Button("Change Server", role: .destructive) {
                     showChangeServerConfirmation = true
                 }
+                .accessibilityIdentifier(A11yID.Profile.changeServerButton)
             } footer: {
                 Text("Change Server also signs you out and forgets this server, returning to first-time setup.")
                     .readableSettingsFooter()

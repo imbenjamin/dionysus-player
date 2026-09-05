@@ -34,6 +34,7 @@ struct LibraryRailView: View {
             }
             .padding(.horizontal)
         }
+        .accessibilityIdentifier(A11yID.Home.libraryRail)
     }
 }
 
@@ -75,6 +76,7 @@ private struct LibraryCard: View {
             // VoiceOver's read.
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(library.name)
+            .accessibilityIdentifier(A11yID.Media.card(library.id))
             .accessibilityAddTraits(.isButton)
         }
     }

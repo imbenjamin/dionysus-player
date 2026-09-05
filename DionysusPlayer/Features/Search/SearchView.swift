@@ -113,6 +113,7 @@ struct SearchView: View {
                 let results = viewModel?.results ?? []
                 if results.isEmpty {
                     ContentUnavailableView.search
+                        .accessibilityIdentifier(A11yID.Search.emptyState)
                 } else if usesGridLayout {
                     resultsGrid(results)
                 } else {
@@ -268,6 +269,9 @@ struct SearchView: View {
                     width: metrics.itemWidth, isLandscape: isLandscape, onSelect: { select(item) },
                     onRemove: onRemove.map { remove in { remove(item) } }
                 )
+                // See `row(for:isLandscape:onSelect:)` — same identifier,
+                // same reason.
+                .accessibilityIdentifier(A11yID.Media.card(item.id))
             }
         }
         .padding(.horizontal)
@@ -286,6 +290,13 @@ struct SearchView: View {
             imageURL: viewModel?.imageURL(for: result, preferLandscape: isLandscape),
             kind: result.kind, isLandscape: isLandscape, onSelect: onSelect
         )
+        // The same identifier `PosterCard` carries, so a test can address a
+        // result by the item it shows rather than by its position in a list
+        // — and so "find this item" reads identically on Home, in a grid and
+        // in search results. Applied here rather than inside
+        // `SearchResultRow`, which is shared with history entries and takes
+        // flattened fields with no id of their own.
+        .accessibilityIdentifier(A11yID.Media.card(result.id))
     }
 
     /// Records `result` to search history and pushes its detail page, in

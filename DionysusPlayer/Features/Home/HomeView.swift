@@ -154,6 +154,7 @@ struct HomeView: View {
             }
         }
         .accessibilityLabel(String(localized: "Refresh"))
+        .accessibilityIdentifier(A11yID.Home.refreshButton)
         .disabled(viewModel?.isHardRefreshing == true)
     }
 

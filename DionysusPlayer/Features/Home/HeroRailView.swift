@@ -279,6 +279,7 @@ struct HeroRailView: View {
             heroContent(pageWidth: proxy.size.width)
         }
         .frame(height: heroHeight)
+        .accessibilityIdentifier(A11yID.Home.heroCarousel)
         // `GeometryReader.proxy.size`, by default, reports the size *within*
         // the safe area, not the full available width — confirmed via the
         // same runtime probe as the `contentInsetAdjustmentBehavior` fix
@@ -732,6 +733,7 @@ private struct HeroRailCard: View {
             // fallback happens to be showing.
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(item.accessibilityDescription)
+            .accessibilityIdentifier(A11yID.Media.card(item.id))
             .accessibilityAddTraits(.isButton)
         }
     }

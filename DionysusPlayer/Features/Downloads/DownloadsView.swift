@@ -125,6 +125,7 @@ struct DownloadsView: View {
                     }
                     .disabled(viewModel.selectedRowIDs.isEmpty)
                     .accessibilityLabel(String(localized: "Delete Selected Downloads"))
+                    .accessibilityIdentifier(A11yID.Downloads.deleteSelectedButton)
                 }
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -134,6 +135,7 @@ struct DownloadsView: View {
                         Image(systemName: "trash").downloadsToolbarTapTarget()
                     }
                     .accessibilityLabel(String(localized: "Select Downloads to Delete"))
+                    .accessibilityIdentifier(A11yID.Downloads.selectButton)
                 }
             }
         }
@@ -148,8 +150,12 @@ struct DownloadsView: View {
                     retry: nil,
                     icon: "square.and.arrow.down.on.square"
                 )
+                .accessibilityIdentifier(A11yID.Downloads.emptyState)
             } else if usesGridLayout {
+                // One identifier for both layouts — which renders is a
+                // size-class detail a test should not have to know.
                 grid(viewModel)
+                    .accessibilityIdentifier(A11yID.Downloads.list)
             } else {
                 let isLandscape = isLandscapeShape(viewModel.rows)
                 List {
@@ -177,6 +183,7 @@ struct DownloadsView: View {
                         }
                     }
                 }
+                .accessibilityIdentifier(A11yID.Downloads.list)
             }
         } else {
             LoadingView()

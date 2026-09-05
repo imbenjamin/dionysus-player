@@ -126,6 +126,7 @@ struct AssetDetailView: View {
                     message: String(localized: "Audio and music playback aren't supported in Dionysus Player yet."),
                     icon: "music.note"
                 )
+                .accessibilityIdentifier(A11yID.AssetDetail.unsupportedAudioMessage)
             } else {
                 switch item.kind {
                 case .series, .season, .episode:

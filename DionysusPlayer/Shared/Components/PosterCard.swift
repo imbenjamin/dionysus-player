@@ -58,6 +58,10 @@ struct PosterCard: View {
                 // combined label).
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(item.accessibilityDescription)
+                // Goes on the collapsed element, alongside the label —
+                // `.ignore` has already flattened everything inside, so an
+                // identifier on a child would be unreachable.
+                .accessibilityIdentifier(A11yID.Media.card(item.id))
                 .accessibilityAddTraits(.isButton)
             }
             .buttonStyle(.plain)
@@ -113,6 +117,10 @@ struct LandscapeMediaCard: View {
                 // See `PosterCard.body`'s identical block for why.
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(item.accessibilityDescription)
+                // Goes on the collapsed element, alongside the label —
+                // `.ignore` has already flattened everything inside, so an
+                // identifier on a child would be unreachable.
+                .accessibilityIdentifier(A11yID.Media.card(item.id))
                 .accessibilityAddTraits(.isButton)
             }
             .buttonStyle(.plain)

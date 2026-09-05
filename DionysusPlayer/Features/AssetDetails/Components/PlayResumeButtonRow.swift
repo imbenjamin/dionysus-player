@@ -151,6 +151,10 @@ struct PlayResumeButtonRow: View {
             .tint(.dionysusPrimary)
             .controlSize(.large)
             .accessibilityLabel(accessibilityLabelText)
+            // One identifier for both Play and Resume: the label changes
+            // with watch state, the action ("start this item") does not,
+            // and a test should not have to know which it will get.
+            .accessibilityIdentifier(A11yID.AssetDetail.playButton)
             .overlay(alignment: .bottom) {
                 if effectiveItem.isPartWatched, let fraction = effectiveItem.playedFraction {
                     GeometryReader { geo in
@@ -182,6 +186,7 @@ struct PlayResumeButtonRow: View {
                 // name ("arrow counterclockwise") rather than what the
                 // button actually does.
                 .accessibilityLabel(String(localized: "Restart"))
+                .accessibilityIdentifier(A11yID.AssetDetail.restartButton)
             }
         }
         .confirmationDialog(

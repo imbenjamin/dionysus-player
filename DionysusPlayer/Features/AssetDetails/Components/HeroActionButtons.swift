@@ -170,6 +170,7 @@ struct HeroActionButtons: View {
                 icon(item.isFavorite ? "star.fill" : "star", tint: item.isFavorite ? .dionysusFavorite : nil, isPending: isPending)
             }
             .accessibilityLabel(String(localized: "Favorite"))
+            .accessibilityIdentifier(A11yID.AssetDetail.favoriteButton)
         } else {
             Button(action: { toggleFavorite(item) }) {
                 icon(item.isFavorite ? "star.fill" : "star", tint: item.isFavorite ? .dionysusFavorite : nil, isPending: isPending)
@@ -177,6 +178,7 @@ struct HeroActionButtons: View {
             .buttonStyle(.plain)
             .disabled(isPending)
             .accessibilityLabel(item.isFavorite ? String(localized: "Remove from Favorites") : String(localized: "Add to Favorites"))
+            .accessibilityIdentifier(A11yID.AssetDetail.favoriteButton)
         }
     }
 
@@ -196,6 +198,7 @@ struct HeroActionButtons: View {
                 icon(item.isPlayed ? "eye.fill" : "eye.slash", tint: item.isPlayed ? .dionysusWatched : nil, isPending: isPending)
             }
             .accessibilityLabel(String(localized: "Watched"))
+            .accessibilityIdentifier(A11yID.AssetDetail.watchedButton)
         } else {
             Button(action: { toggleWatched(item) }) {
                 icon(item.isPlayed ? "eye.fill" : "eye.slash", tint: item.isPlayed ? .dionysusWatched : nil, isPending: isPending)
@@ -203,6 +206,7 @@ struct HeroActionButtons: View {
             .buttonStyle(.plain)
             .disabled(isPending)
             .accessibilityLabel(item.isPlayed ? String(localized: "Mark as Unwatched") : String(localized: "Mark as Watched"))
+            .accessibilityIdentifier(A11yID.AssetDetail.watchedButton)
         }
     }
 

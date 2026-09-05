@@ -39,12 +39,14 @@ struct ServerSetupView: View {
                         // announced as its placeholder while empty, and
                         // as nothing but the typed address once filled.
                         .accessibilityLabel("Server Address")
+                        .accessibilityIdentifier(A11yID.ServerSetup.addressField)
                         .onSubmit { Task { await connect() } }
                         .onChange(of: viewModel.address) { _, newAddress in
                             viewModel.syncHTTPSToggle(withAddress: newAddress)
                         }
 
                     Toggle("Use HTTPS", isOn: $viewModel.useHTTPS)
+                        .accessibilityIdentifier(A11yID.ServerSetup.httpsToggle)
 
                     Text("Enter your server's local IP and port, a domain name, or a full URL.")
                         .font(.footnote)
@@ -53,6 +55,7 @@ struct ServerSetupView: View {
 
                 if let errorMessage = viewModel.errorMessage {
                     Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .accessibilityIdentifier(A11yID.ServerSetup.errorMessage)
                         .font(.footnote)
                         // `dionysusPrimary`, not the raw `dionysusMagenta`
                         // this used to use. Both render the same colour in
@@ -127,6 +130,7 @@ struct ServerSetupView: View {
         // where the primary action was. Naming the button here keeps it
         // stable across both states, with the state itself as the value.
         .accessibilityLabel("Connect")
+        .accessibilityIdentifier(A11yID.ServerSetup.connectButton)
         .accessibilityValue(viewModel.isTesting ? String(localized: "Connecting") : "")
         .padding(.horizontal, SignInLayout.contentPadding)
         .padding(.vertical, 12)

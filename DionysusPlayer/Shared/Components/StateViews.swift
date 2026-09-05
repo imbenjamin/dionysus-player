@@ -6,6 +6,7 @@ struct LoadingView: View {
         ProgressView()
             .tint(.dionysusPrimary)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier(A11yID.State.loading)
     }
 }
 
@@ -49,6 +50,7 @@ struct ErrorStateView: View {
             if let retry {
                 Button("Try Again", action: retry)
                     .buttonStyle(.bordered)
+                    .accessibilityIdentifier(A11yID.State.retryButton)
             }
             if let secondaryActionTitle, let secondaryAction {
                 Button(secondaryActionTitle, action: secondaryAction)
@@ -57,6 +59,10 @@ struct ErrorStateView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // On the container, not the message `Text`: a test asserting "this
+        // screen failed" wants the state to exist, and the message itself
+        // is localized copy that changes.
+        .accessibilityIdentifier(A11yID.State.error)
     }
 }
 
@@ -84,6 +90,7 @@ struct OfflineStateView: View {
                 .foregroundStyle(.secondary)
             Button("Try Again", action: retry)
                 .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier(A11yID.State.retryButton)
             if let secondaryActionTitle, let secondaryAction {
                 Button(secondaryActionTitle, action: secondaryAction)
                     .buttonStyle(.bordered)
@@ -91,5 +98,6 @@ struct OfflineStateView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier(A11yID.State.offline)
     }
 }
