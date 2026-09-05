@@ -122,6 +122,12 @@ actor RemoteImageLoader {
                 diskCapacity: 256 * 1024 * 1024
             )
             configuration.requestCachePolicy = .useProtocolCachePolicy
+            // No-op outside a UI test run. `URLProtocol.registerClass` only
+            // reaches `URLSession.shared`, so a session configured here has
+            // to opt in explicitly or every image escapes to the network.
+            #if DEBUG
+            UITestHarness.decorate(configuration)
+            #endif
             self.session = URLSession(configuration: configuration)
         }
         self.maxAttempts = maxAttempts

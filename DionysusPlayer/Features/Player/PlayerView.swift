@@ -633,6 +633,14 @@ struct PlayerView: View {
                 scheduleAutoHide()
             }
         }
+        // Deliberately no screen-root identifier here. Applied to this
+        // view's outermost container, `.accessibilityIdentifier` propagated
+        // down onto *every* descendant — measured against the live tree: 22
+        // elements all reporting `player.root`, with each control's own
+        // identifier (close, play/pause, the scrubber) overwritten. The
+        // equivalent modifier on `HomeView` does not do this, so it is
+        // specific to being presented in a `.fullScreenCover`. Tests
+        // identify this screen by its close button instead.
     }
 
     /// The single-tap "show/hide controls" behavior this overlay always
@@ -695,6 +703,12 @@ struct PlayerView: View {
     /// decides whether a fade should happen at all.
     private func scheduleAutoHide() {
         autoHideTask?.cancel()
+        #if DEBUG
+        // A UI test drives these controls without VoiceOver, so the branch
+        // below that keeps them visible for VoiceOver users never fires and
+        // every assertion races a 3s fade.
+        guard !UITestHarness.keepsPlayerControlsVisible else { return }
+        #endif
         guard showControls, !isShowingTrackPicker, !isShowingChapterPicker,
               !voiceOverEnabled, viewModel?.state == .playing else { return }
         autoHideTask = Task {
@@ -722,9 +736,9 @@ struct PlayerView: View {
         // that resumed `.main` from a cached session rather than a fresh
         // sign-in — see `AppState.start()`.
         guard let userID = appState.currentUser?.id ?? appState.sessionStore.credentials?.userID else { return }
-        let engine: AetherPlaybackEngine
+        let engine: PlaybackEngine
         do {
-            engine = try AetherPlaybackEngine()
+            engine = try PlaybackEngineFactory.make()
         } catch {
             Self.logger.error("AetherPlaybackEngine construction failed: \(error.localizedDescription, privacy: .public)")
             setupError = String(localized: "Couldn't start the video player.")
