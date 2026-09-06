@@ -185,6 +185,16 @@ cost a debugging session each: never select on an accessibility *label*
 container (it sometimes overwrites every descendant's own). Both are
 documented in `A11yID`.
 
+**Accessibility is gated too.** `AccessibilityAuditTests` runs
+`performAccessibilityAudit()` over every screen, on the *structural* audit
+types only — unlabeled controls, labels that aren't human-readable, wrong
+traits, hit regions. A new view with a decorative `Image(systemName:)` and
+no `.accessibilityHidden(true)` will fail it, because SwiftUI falls back to
+the SF Symbol's name and VoiceOver reads it aloud. Contrast, Dynamic Type
+and text clipping are deliberately *not* gated — 145 known findings that
+come from app-wide design choices rather than mistakes; see `TESTING.md`'s
+"Accessibility audits" before widening the set or adding a suppression.
+
 Everything below is for *exploratory* checking — seeing a new design, or
 chasing something the suite can't express. It is not a substitute for a
 committed test.

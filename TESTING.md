@@ -235,8 +235,12 @@ pattern, since ViewModels are constructed with an already-built client
   all four asset-detail layouts, search, the player (transport, the track
   picker, the chapter picker), Downloads (enqueue → complete → bulk delete),
   Profile's two account actions, and the `serverError`/`unauthorized`/
-  `offline` scenarios — 35 tests across the smoke plan and the full plan.
-  Accessibility audits and the iPad journey matrix are still to come.
+  `offline` scenarios, plus a `performAccessibilityAudit()` pass over every
+  screen — 47 tests across the smoke plan and the full plan, run against
+  both an iPhone and an iPad nightly. What the audits deliberately do *not*
+  gate on is contrast, Dynamic Type and text clipping; those are real
+  findings but design-level ones, and they are recorded with counts under
+  "Accessibility audits" below rather than suppressed quietly.
   One narrower gap inside what *is* covered: swiping a
   search-history row away isn't automated (`SearchResultRow` wraps the whole
   row in a `Button`, and a synthesized `.swipeLeft()` on it can register as a
@@ -453,6 +457,55 @@ Five hard-won rules, the first two documented at length in `A11yID` itself:
 When something can't be found, dump `XCUIApplication.debugDescription` and
 look at the real tree. Every one of the rules above came from doing that;
 none of them were guessable.
+
+### Accessibility audits
+
+`AccessibilityAuditTests` runs `performAccessibilityAudit()` over all twelve
+screens the app can reach. These are the cheapest coverage here — about ten
+lines per screen, and the only tests in the suite that can fail for a reason
+nobody thought to write an assertion about.
+
+**They gate on structural issues only**, and the app passes those clean:
+`.elementDetection`, `.hitRegion`, `.sufficientElementDescription` and
+`.trait`. (`.action` and `.parentChild` are in the header but are macOS-only
+— they do not compile against the iOS SDK.) These are the "this element is
+wrong" checks: an unlabeled control, a label that is not human-readable, a
+trait contradicting what the element does. A regression here is a bug on any
+reading.
+
+Two real bugs turned up the first time it ran, both now fixed:
+
+- **`ServerSetupView`'s header icon announced "server.rack".** A decorative
+  `Image(systemName:)` with no `.accessibilityHidden(true)` falls back to the
+  SF Symbol's own name, so VoiceOver read the literal string out.
+- **The player had no accessible name for what was playing.** When an item
+  has a logo, `PlayerControlsOverlay.titleRow` renders it *instead of* the
+  title text — and `LogoImageView`/`LocalFileImage` produce a bare `Image`
+  with no label, so the one thing that row exists to say was unavailable.
+  Fixed with the same `.ignore` + explicit-label shape `HeroRailView` and
+  `ProfileView` already use.
+
+**What it deliberately does not gate on**, measured across all twelve screens
+(2026-09-06): `.contrast` (36 issues), `.dynamicType` (64) and
+`.textClipped` (45) — 145 of the 154 that `.all` reports. These are not
+stray mistakes. They are consequences of deliberate, app-wide design
+choices: the secondary caption colour behind every "2019 · 1h 35m" subtitle,
+and fixed-size poster/landscape tiles whose one-line captions cannot grow
+with Dynamic Type without reflowing every grid in the app. Turning them on
+today would mean 145 suppressions, which is not a gate — it is a rubber
+stamp. Changing the underlying design is real work with real visual
+trade-offs and deserves its own change, argued on its merits.
+
+That split is the point, and it is worth preserving: **this suite refuses to
+report green on something it is not actually checking.** If you widen
+`auditedTypes`, fix the findings rather than suppressing them.
+
+Only two suppressions exist, both scoped to a specific element rather than to
+an audit type (see `isKnownAcceptable`): UIKit's own 20.5pt "Clear text"
+button inside `.searchable`, which this app does not own and cannot resize;
+and the hit-region minimum on non-interactive `StaticText` metadata lines
+("Genres: Drama"), where a 44pt floor would insert large dead gaps between
+rows purely to satisfy a rule about touch targets.
 
 ### Adding a journey
 
