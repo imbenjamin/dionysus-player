@@ -62,6 +62,17 @@ struct DionysusPlayerApp: App {
                     await appState.start()
                 }
                 .onChange(of: scenePhase) { _, newPhase in
+                    // Leaving the foreground is the last moment the app can
+                    // start a download that will actually run while it's
+                    // suspended: iOS forces any background-session task
+                    // created after this point to be discretionary and
+                    // defers it, so anything still merely queued would stall
+                    // until the user next opened the app. Measured on device
+                    // — see `DownloadManager.releaseQueueForBackgroundExecution`
+                    // and DOWNLOADS.md.
+                    if newPhase != .active {
+                        appState.downloadManager.releaseQueueForBackgroundExecution()
+                    }
                     // Cheap unauthenticated reachability probe on every
                     // foreground transition (covers both "resume" and
                     // "return from background" — ScenePhase doesn't

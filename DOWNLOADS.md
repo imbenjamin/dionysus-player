@@ -834,12 +834,70 @@ change them together.
 
   `URLSessionConfiguration.isDiscretionary = false` does **not** override this;
   the rule is about when the *task* is created, not how the session was
-  configured. The only real lever is to create more tasks while the app is in
-  the foreground — raising `maxConcurrentDownloads`, or decoupling task
-  creation from the app-level concurrency limit and letting the daemon queue
-  them — which trades simultaneous server-side transcode load for background
-  throughput. Not attempted here; it is a product decision about how hard to
-  lean on a self-hosted server, not a defect.
+  configured. The only real lever is to create the tasks while the app is
+  still in the foreground.
+
+  **The fix: release the whole queue when the scene leaves the foreground.**
+  `DownloadManager.releaseQueueForBackgroundExecution()`, called from
+  `DionysusPlayerApp`'s `scenePhase` handler, starts every remaining queued
+  download at that last moment, ignoring `maxConcurrentDownloads`.
+
+  Abandoning the limit there is deliberate, because it cannot be honored
+  anyway. Measured on device: at the instant of suspension `nsurlsessiond`
+  resumes **every** task the app has created and schedules them itself —
+
+  ```
+  11:39:43.207  task .<5>  resumeTaskWithIdentifier, props <private>   ← app resumed
+  11:40:27.690  Application com.imbenjamin.dionysusplayer was suspended
+  11:40:27.690  task .<7>  resumeTaskWithIdentifier, props (null)      ← daemon resumed
+  11:40:27.690  task .<8>  resumeTaskWithIdentifier, props (null)
+  11:40:27.690  task .<9>  resumeTaskWithIdentifier, props (null)
+  11:40:27.690  task .<10> resumeTaskWithIdentifier, props (null)
+  ```
+
+  — with `props (null)` marking daemon-initiated resumes against the app's
+  own `props <private>`. It ran up to **11** concurrent transfers against a
+  configured limit of 2. Holding tasks back would therefore buy no reduction
+  in server load at all, only a stalled queue. The limit stays meaningful
+  while the app is open, which is what the Downloads settings footer now
+  says.
+
+  **Server cost measured, on the shipped code.** A 22-episode season released
+  this way with the phone backgrounded and locked throughout, transcode cache
+  cleared first so every request had to produce a real encode:
+
+  | | throwaway experiment build | shipped |
+  |---|---|---|
+  | transcode jobs for 22 episodes | 32 | **24** |
+  | duplicate encodes | 10 | **2** |
+  | peak concurrent transcodes | 11 | **6** |
+  | peak host load (10 cores) | ~70 | ~37 |
+  | non-zero ffmpeg exits | 0 | **0** |
+  | drain time | ~48 min | ~36 min |
+
+  All 22 landed as completed downloads on the device. Most of the experiment
+  build's waste was a bug in that throwaway code — it created two tasks per
+  episode, having assumed `downloadTask(with:)` returns a `.suspended` task
+  on a background session, which it does not — and halving the task count
+  roughly halved the peak concurrency and host load with it.
+
+  **Two duplicate encodes remain, and they are inherent rather than a
+  defect.** Both had their first encode inside the release burst and were
+  re-encoded ~32 minutes later:
+
+  ```
+  S01E04  14:01:49 -> 14:34:50
+  S01E16  14:01:49 -> 14:33:04
+  ```
+
+  iOS opens more connections than it is ready to consume, Jellyfin encodes
+  for each, the unread output is discarded, and a fresh encode is needed when
+  the daemon finally services that transfer. The cost scales with burst size,
+  so ~2 per season is the expected order. Reducing it would mean staggering
+  task creation, which trades complexity — and some of the unattended
+  completion this whole change exists for — against a few minutes of server
+  CPU. Not worth it at this ratio; revisit if a much larger queue makes the
+  burst materially worse.
 
   **Resume data is still deliberately absent.** `cancel(byProducingResumeData:)`
   needs a server that supports byte ranges and a stable validator. A Jellyfin
