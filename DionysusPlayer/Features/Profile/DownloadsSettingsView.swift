@@ -130,7 +130,16 @@ struct DownloadsSettingsView: View {
             } header: {
                 Text("Quality & Network")
             } footer: {
-                Text("Downloaded videos are transcoded to fit your chosen resolution and quality, and are never upscaled past the source.")
+                // The simultaneous-downloads caveat is not a hedge: it was
+                // measured. With the limit set to 2, iOS ran up to 11
+                // transfers at once as soon as the app was suspended —
+                // `nsurlsessiond` takes ownership of every task the app has
+                // created and schedules them itself, and an app has no way
+                // to hold one back once it stops running. Saying so plainly
+                // is better than a number the app visibly fails to honor.
+                // See DOWNLOADS.md's "iOS defers the *next* queued download
+                // when the app is backgrounded".
+                Text("Downloaded videos are transcoded to fit your chosen resolution and quality, and are never upscaled past the source.\n\nSimultaneous Downloads applies while Dionysus is open. Once it moves to the background, iOS schedules downloads itself and may run more at once than the limit you set.")
                     .readableSettingsFooter()
             }
 

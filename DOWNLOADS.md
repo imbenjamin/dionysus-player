@@ -548,7 +548,7 @@ change them together.
   confirmed live, by firing two concurrent transcodes from the same
   `DeviceId` and seeing exactly one `TranscodingInfo`, clobbered by
   whichever job most recently logged a progress line. `maxConcurrentDownloads`
-  defaults to 5, so two-or-more transcoding downloads at once is the common
+  defaults to 3, so two-or-more transcoding downloads at once is the common
   case, not an edge case — using the shared session's percentage
   unconditionally would have shown one download's progress on another's row,
   which is actively wrong, not just imprecise. `DownloadManager` now only
@@ -662,6 +662,207 @@ change them together.
   Downloads list row and via the Retry button there. 95%, not 100%: real
   transcode output can land a fraction of a second short of the source's own
   metadata (keyframe/mux rounding) without anything being wrong.
+
+### A background session per download exhausted the transfer service
+
+  Reported 2026-09-06: downloads were "more fragile" than they should be, most
+  often failing with **"Lost connection to the background transfer service"**,
+  mainly with a few downloads queued — and *regardless of the Max Simultaneous
+  Downloads setting*. That last detail is the one that identifies the bug.
+
+  The string is iOS's own `NSURLErrorBackgroundSessionWasDisconnected` (-997),
+  surfaced verbatim because `friendlyDownloadFailureMessage` only translated
+  `NSURLErrorCancelled` and passed everything else through as
+  `error.localizedDescription`.
+
+  The cause was structural. `DownloadManager` created **one background
+  `URLSession` per download item**, with the identifier
+  `"com.dionysus.downloads." + itemID`, at three separate sites (the normal
+  start and both reattachment paths). Every background session is its own XPC
+  channel to `nsurlsessiond` plus its own entry in that daemon's persistent
+  store, and Apple's model is one background session per app, created once and
+  kept for the process lifetime. This app churned them instead: each
+  completion called `finishTasksAndInvalidate()` and then, in the *same*
+  main-actor turn, admitted the next queued item and built another session —
+  and background-session invalidation is asynchronous, so teardown and setup
+  overlapped. Identifiers were never reused across items either, so the
+  daemon's state grew without bound and anything orphaned by a force-quit was
+  never reclaimed.
+
+  **Confirmed live on a physical device (iPhone 16 Pro, iOS 26.6.1,
+  2026-09-06)** rather than inferred — a 22-episode season bulk download with
+  Max Simultaneous Downloads set to **1**, captured with `log collect
+  --device-udid`. Three episodes completed with the app in the foreground;
+  episodes 4 and 5 failed once it was backgrounded. In that ~14-minute window
+  the daemon recorded:
+
+  | app | distinct background sessions |
+  |---|---|
+  | **Dionysus** | **12** (5 alive simultaneously) |
+  | WhatsApp | 1 |
+  | Audible | 1 |
+  | Amazon | 2 |
+
+  Twelve sessions for one app against one, one and two for the others, and
+  five still registered with the daemon at a single instant — **with the
+  concurrency limit set to one**. Of those five,
+  **four carried `XPC(N)` — no client connection at all**: dead-but-registered
+  leftovers the app had created and never fully torn down. Only one was live
+  and holding a transfer.
+
+  That is the finding that matters, and it is stronger than the original
+  hypothesis. Sessions were not merely churning, they were *accumulating*, and
+  the concurrency limit never bounded them at all:
+  it gates transfers, while `finishTasksAndInvalidate()` is asynchronous and
+  the redownload and reattachment paths mint further sessions of their own.
+  Hence "regardless of the number of simultaneous downloads set".
+
+  The failure sequence, identical for all three -997s:
+
+  ```
+  10:30:40.848  Dionysus       BackgroundSession <A1ABAE7A…> client transitioning to background
+  10:30:51.999  nsurlsessiond  NDSession <204CA73D…> notified … com.imbenjamin.dionysusplayer was suspended, XPC(N)
+  10:30:51.999  nsurlsessiond  NDSession <F6026DFD…> notified … was suspended, XPC(N)
+  10:30:51.999  nsurlsessiond  NDSession <A1ABAE7A…> notified … was suspended, XPC(Y)
+  10:30:51.999  nsurlsessiond  NDSession <EF762F56…> notified … was suspended, XPC(N)
+  10:30:51.999  nsurlsessiond  NDSession <80E967BC…> notified … was suspended, XPC(N)
+  10:30:51.999  nsurlsessiond  NDSession <A1ABAE7A…> has 1 outstanding tasks
+  10:30:52.000  nsurlsessiond  NDSession <A1ABAE7A…> Lost connection to app -- connection invalidated
+  10:31:36.867  Dionysus       Task <98E474E4…> finished with error [-997]
+  ```
+
+  The session holding the live transfer is the one whose client connection the
+  daemon drops on suspension. For contrast, WhatsApp's single session in the
+  same archive logs `attempting to reconnect to background transfer daemon`
+  → `background session setup complete` and carries on — which is what one
+  long-lived session is *supposed* to do, and what this app could not do while
+  its transfers were spread across a dozen of them.
+
+  It also explains two earlier bugs this document and the code already carried
+  scar tissue for — the -999 "Rushmore" case (a deleted row's orphaned session
+  kept an identifier the OS still considered in use, cancelling a same-day
+  redownload's brand-new task) and the two-sessions-racing-for-one-identifier
+  guard in the reattach path. Both were symptoms of the same design rather
+  than separate faults.
+
+  The fix is one fixed identifier (`com.dionysus.downloads`), one session
+  built lazily and **never invalidated**, and one long-lived
+  `DownloadTaskRouter` as its delegate. Per-item routing moved onto the task
+  itself (`taskDescription` = itemID, which a background session persists
+  across an app relaunch, with a URL match against the row as a fallback);
+  cancellation is now `task.cancel()` rather than session invalidation; and
+  the three reattachment paths collapsed into a single `getAllTasks` sweep at
+  launch that adopts live transfers, resolves rows whose transfer is gone, and
+  cancels tasks whose row is gone.
+
+  Three consequences worth recording:
+
+  - **Wi-Fi Only moved from the session to the request.** A session that lives
+    for the whole process can't have its configuration rewritten when the
+    toggle flips, so `allowsCellularAccess` is set per `URLRequest` instead —
+    which is also where `allowsExpensiveNetworkAccess` can be set, so "Wi-Fi
+    Only" now correctly excludes a personal hotspot, which it never did before.
+  - **Transient transport failures are re-armed, not failed.** -997, -996,
+    `.networkConnectionLost`, `.timedOut` and `.cannotConnectToHost` get up to
+    three automatic retries with backoff (2s/8s/20s — the first deliberately
+    inside Jellyfin's 10-second transcode kill-timer window, so the re-arm can
+    reconnect to the still-running job rather than provoking a fresh encode).
+    `NSURLErrorCancelled` is deliberately *not* retryable: that is a real
+    force-quit, and silently restarting a transcode the user may not still
+    want would be worse than reporting it. The budget lives in memory rather
+    than on the `DownloadedItem` row — it bounds one automatic loop against a
+    process/daemon-lifetime fault, and a user reopening the app the next day
+    should get fresh attempts rather than inherit an exhausted counter, which
+    would make the feature weakest in exactly the launch-adoption case it is
+    most needed for.
+  - **A re-arm reuses the same URL, and therefore the same `PlaySessionId`**
+    and the same server-side transcode cache entry (see the cache-hash
+    discussion above). That is what we want when the job is still alive — the
+    -997 case is the *client's* channel breaking, not the server's encode —
+    and it is safe when it isn't, because `finalizeCompletedDownload` already
+    rejects a short file via `durationValidationFailureReason`. Minting a
+    fresh `PlaySessionId` needs a live `JellyfinAPIClient`, which this type
+    deliberately never stores and which doesn't exist during launch adoption
+    at all; that escape hatch stays on the user-initiated `retry(itemID:client:)`.
+
+  **Verified fixed on the same device (2026-09-06)**, identical repro on the
+  next season. The app now creates exactly one live background session, and at
+  suspension it does what the old build never could:
+
+  ```
+  10:46:15  nsurlsessiond  NDSession <A9143869…> client disconnected (app suspended)
+  10:47:23  Dionysus       BackgroundSession <A9143869…> attempting to reconnect to background transfer daemon
+  10:47:23  Dionysus       BackgroundSession <A9143869…> background session setup complete
+  10:47:23  Dionysus       BackgroundSession <A9143869…> Reconnection to existing session and state complete
+  ```
+
+  Zero -997 across the run (against three in the same-length before-run), and
+  a transfer that began at 10:45:49 ran straight through the 10:46:15
+  suspension and **completed at 10:47:23 while the app was still suspended** —
+  Jellyfin logging `FFmpeg exited with code 0` 120ms earlier, i.e. a clean full
+  transcode, not a truncated one. The daemon then woke the app, which processed
+  the completion and admitted the next item 50ms later. That also settles the
+  one assumption in this design that only a device could settle:
+  **`taskDescription` does survive suspension and wake**, so the router's
+  itemID routing holds across the case that matters most.
+
+### iOS defers the *next* queued download when the app is backgrounded
+
+  Found while verifying the fix above, and **pre-existing** — the -997 simply
+  used to fire first and hide it. Background *continuation* of a running
+  transfer works (proven above). Background *starting* of the next queued item
+  does not:
+
+  ```
+  Task <F23E62AE…>.<20> current discretionary status for com.imbenjamin.dionysusplayer is discretionary (opt-in: 0)
+  Task <F23E62AE…>.<20> adding delay of 60.000000
+  ```
+
+  A background-session task created while the app is not in the foreground is
+  treated as **discretionary** by iOS regardless of what the app asked for
+  (`opt-in: 0` — the app did not request it; the system imposed it), and gets
+  scheduled at the system's convenience. The same archive shows Amazon and
+  Audible getting identical treatment, so this is systemic iOS behaviour rather
+  than anything specific to this app.
+
+  Confirmed end-to-end against the server: Jellyfin started transcode jobs at
+  10:42:40, 10:44:12 and 10:45:49, then **nothing at all until 10:49:10** — one
+  second after the app was foregrounded. The queued episode's HTTP request
+  never reached the server while the app was suspended. Nothing was lost or
+  restarted; that download simply had not begun yet, which is why it then ran
+  0→100 as a fresh transfer.
+
+  `URLSessionConfiguration.isDiscretionary = false` does **not** override this;
+  the rule is about when the *task* is created, not how the session was
+  configured. The only real lever is to create more tasks while the app is in
+  the foreground — raising `maxConcurrentDownloads`, or decoupling task
+  creation from the app-level concurrency limit and letting the daemon queue
+  them — which trades simultaneous server-side transcode load for background
+  throughput. Not attempted here; it is a product decision about how hard to
+  lean on a self-hosted server, not a defect.
+
+  **Resume data is still deliberately absent.** `cancel(byProducingResumeData:)`
+  needs a server that supports byte ranges and a stable validator. A Jellyfin
+  progressive transcode (`Static=false`) is a chunked response with no
+  `Content-Length` and no range support at all — the same property that forced
+  the duration-validation fix above — so there is nothing to resume from. An
+  interrupted transfer restarts, which is why the retry backoff is tuned to
+  keep the *server's* job alive across the gap rather than to preserve bytes.
+
+  Two smaller faults found and fixed alongside it, both of which got worse the
+  more items were queued:
+
+  - `adHocFetchSession` (subtitle/artwork/trickplay/chapter fetches) was a
+    *computed* property that constructed a brand-new `URLSession` on every
+    read and never invalidated any of them — four reads per item for artwork
+    alone. A ten-episode season download leaked dozens.
+  - The transcode-progress poll loop was started at `enqueue` for **every**
+    item, including ones still queued behind the concurrency limit with no
+    server-side job to ping yet. Besides the pointless traffic, the loop only
+    trusts the device's single shared `TranscodingInfo` while exactly one poll
+    loop is running — so merely *queueing* anything permanently suppressed the
+    live completion percentage for the download that was actually running. It
+    now starts at admission.
 
 ### A finished-but-never-played download could appear watched
 

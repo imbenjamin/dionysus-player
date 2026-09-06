@@ -471,7 +471,7 @@
     "Downloaded" : {
 
     },
-    "Downloaded videos are transcoded to fit your chosen resolution and quality, and are never upscaled past the source." : {
+    "Downloaded videos are transcoded to fit your chosen resolution and quality, and are never upscaled past the source.\n\nSimultaneous Downloads applies while Dionysus is open. Once it moves to the background, iOS schedules downloads itself and may run more at once than the limit you set." : {
 
     },
     "Downloading Season" : {
@@ -578,6 +578,9 @@
 
     },
     "Included In" : {
+
+    },
+    "iOS interrupted this download several times and it couldn't be completed. Try downloading again." : {
 
     },
     "Kbps" : {
@@ -1012,6 +1015,9 @@
     "That doesn't look like a valid server address." : {
 
     },
+    "The connection to the server kept dropping and the download couldn't finish. Check your network and try again." : {
+
+    },
     "The download stopped early (only %lld of %lld minutes were saved). Try downloading again." : {
       "localizations" : {
         "en" : {
@@ -1021,9 +1027,6 @@
           }
         }
       }
-    },
-    "The download was interrupted and couldn't be resumed. Try downloading again." : {
-
     },
     "The download was interrupted and couldn't continue. Try downloading again." : {
 
