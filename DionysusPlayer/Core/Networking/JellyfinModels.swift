@@ -128,6 +128,32 @@ struct BaseItemDto: Codable, Identifiable, Equatable {
     var indexNumber: Int?
     var parentIndexNumber: Int?
     var childCount: Int?
+    /// Total descendant count for a folder-like item — for a Series that's
+    /// every episode across every season, for a Season just its own
+    /// episodes (`childCount` is *seasons* on a Series, which is why this
+    /// separate field is needed for the deletion confirmation's episode
+    /// count). Only populated when requested via `Fields=RecursiveItemCount`
+    /// — part of `JellyfinAPIClient.detailFields`, `nil` on any lighter
+    /// rail/grid fetch.
+    var recursiveItemCount: Int?
+
+    /// Whether *this user* is allowed to delete *this item* from the server,
+    /// computed server-side and only populated when requested via
+    /// `Fields=CanDelete` (part of `JellyfinAPIClient.detailFields`; `nil`
+    /// on any lighter rail/grid fetch).
+    ///
+    /// Deliberately taken from the server rather than derived here from the
+    /// user's own policy flags. Jellyfin authorizes a delete with
+    /// `BaseItem.CanDelete(user)`, which is `IsFileProtocol` **and** either
+    /// the global `EnableContentDeletion` permission **or** the item's
+    /// collection folder appearing in the user's per-folder
+    /// `EnableContentDeletionFromFolders` list. A client-side check of
+    /// `EnableContentDeletion` alone would therefore both hide the affordance
+    /// from users granted delete on specific folders, and offer it for items
+    /// that aren't deletable at all. This flag is computed from the *same*
+    /// predicate `DELETE /Items/{id}` itself enforces, so it can't drift from
+    /// it — and it's what Jellyfin's own web client gates its delete menu on.
+    var canDelete: Bool?
 
     // Images
     var imageTags: [String: String]?

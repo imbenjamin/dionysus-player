@@ -128,4 +128,99 @@ final class AssetDetailJourneyTests: UITestCase {
 
         AssetDetailScreen(app: app).awaitLoaded()
     }
+
+    // MARK: - Deletion
+
+    /// The permission gate. `.noDeletePermission` serves the same catalogue
+    /// with `CanDelete: false` on every item, and the affordance must be
+    /// absent entirely — not merely disabled, which would advertise a
+    /// permission the user hasn't got.
+    func testDeleteButtonIsHiddenWithoutServerPermission() {
+        launch(scenario: "noDeletePermission")
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        // `awaitLoaded` already waited for the page, so the button has had
+        // its chance to appear — no separate wait needed before asserting
+        // absence.
+        XCTAssertFalse(detail.deleteButton.exists, "Delete must not be offered without server permission.")
+    }
+
+    /// The same page, with permission, does offer it.
+    func testDeleteButtonIsShownWithServerPermission() {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.deleteButton.awaitExistence("the delete button")
+    }
+
+    /// Raising the dialog must not itself delete anything, and the warning
+    /// has to actually say the content leaves the server irreversibly —
+    /// this is the only thing standing between a mis-tap and a deleted
+    /// file, so the copy is worth asserting rather than assuming.
+    ///
+    /// Doesn't tap Cancel: anchored to a toolbar button, iOS renders this
+    /// as a popover and omits the cancel action entirely, dismissing on a
+    /// tap outside instead (confirmed against the live accessibility tree —
+    /// no Cancel element exists). Tap-away dismissal is exactly the
+    /// synthetic-coordinate gesture this suite avoids elsewhere.
+    func testConfirmationWarnsBeforeAnythingIsDeleted() {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.deleteButton.tap()
+        detail.deleteConfirmButton.awaitExistence("the delete confirmation")
+
+        let warning = app.sheets.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS %@", "This cannot be undone")
+        ).firstMatch
+        XCTAssertTrue(warning.exists, "The dialog must warn that deletion is irreversible.")
+        XCTAssertTrue(
+            warning.label.contains("Jellyfin server"),
+            "The warning must say the item leaves the server, not just the app. Was: \(warning.label)"
+        )
+
+        // Nothing has been confirmed, so the item is still there.
+        XCTAssertTrue(detail.playButton.exists, "Merely opening the dialog must not delete anything.")
+    }
+
+    /// The whole movie flow end to end: confirm, the server accepts it, the
+    /// page pops, and the grid it returns to no longer lists the item.
+    ///
+    /// Reached via the movies grid rather than a Home rail so there's a
+    /// deterministic list to assert the disappearance against — see
+    /// `CollectionGridViewModel.removeDeletedItem(itemID:)`.
+    func testDeletingAMoviePopsBackAndRemovesItFromTheGrid() {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.moviesLibraryID)
+
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.primaryMovieID)
+        collection.card(UITestFixtureIdentity.primaryMovieID).tap()
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.deleteButton.tap()
+        detail.confirmDelete()
+
+        // Back on the grid, with the tile gone.
+        collection.awaitLoaded(UITestFixtureIdentity.movieID(2))
+        XCTAssertFalse(
+            app.otherElements[A11yID.Media.card(UITestFixtureIdentity.primaryMovieID)].exists,
+            "The deleted movie should no longer have a tile."
+        )
+    }
 }

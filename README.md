@@ -51,6 +51,13 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
   original file untouched, no negotiation) is also available for anyone
   who'd rather force it.
 - **Downloads** — see below; this is the differentiator.
+- **Library management** — delete a movie, episode, season or whole show
+  from the server, behind a confirmation that spells out that the media
+  file itself is removed and can't be recovered. Only ever offered when
+  the server says *that* user may delete *that* item (Jellyfin's own
+  per-item `CanDelete`, which respects per-folder delete rights, not just
+  the global permission), so it's invisible to accounts without the right.
+  A local download of the same item can be removed at the same time.
 - **Accounts** — Jellyfin sign-in with silent session restore, per-server
   config, profile/settings screen.
 

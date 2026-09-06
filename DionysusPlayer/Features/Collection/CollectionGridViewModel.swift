@@ -12,6 +12,16 @@ final class CollectionGridViewModel {
     }
 
     private(set) var items: [MediaItem] = []
+
+    /// Drops an item this grid is still listing after it's been deleted from
+    /// the server, so the user doesn't pop back from a detail page onto a
+    /// tile for content that no longer exists. Called by `CollectionGridView`
+    /// off `DeletedItemBroadcaster` — a local filter rather than a refetch,
+    /// since the whole grid's worth of items hasn't otherwise changed and
+    /// every active facet's option list is derived from `items` anyway.
+    func removeDeletedItem(itemID: String) {
+        items.removeAll { $0.id == itemID }
+    }
     private(set) var loadState: LoadState = .idle
     /// Seeded from `query.initialSortField`/`initialSortOrder` in `init` —
     /// see `CollectionQuery`'s own doc comment. Still ordinary

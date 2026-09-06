@@ -359,6 +359,118 @@ final class AssetDetailViewModel {
         preselectedSeasonID = dto.seasonId
     }
 
+    // MARK: - Deletion
+
+    /// Where the UI should go once a server-side deletion has landed.
+    /// Resolved by the view model (which is what knows how this page was
+    /// reached) and acted on by `DeleteAssetButton`, which owns the
+    /// `dismiss`/`popNavigationToRoot` environment values needed to carry
+    /// it out.
+    enum DeletionOutcome: Equatable {
+        /// The page's own subject still exists — an episode picked in place
+        /// from the show page, or a season of a show with other seasons.
+        /// Stay put; `delete(_:)` has already put the page back in order.
+        case stayAndRefresh
+        /// The page was showing the thing that just got deleted, and
+        /// whatever is underneath is still valid.
+        case popOneLevel
+        /// The thing underneath is *also* gone (the show's last episode went
+        /// with it), so popping onto it would land on a dead screen.
+        case popToRoot
+    }
+
+    /// Which items currently have a deletion in flight — same shape and
+    /// purpose as `pendingFavoriteIDs` (a set rather than one flag, because
+    /// a show page's delete menu offers Show/Season/Episode independently),
+    /// used to disable the control and show a spinner rather than leaving it
+    /// looking inert while the round trip runs.
+    private(set) var deletingItemIDs: Set<String> = []
+
+    /// Deletes `target` from the Jellyfin server — **the media file itself**,
+    /// see `JellyfinAPIClient.deleteItem`. Throws on failure (notably
+    /// `.notPermitted`) so the caller can surface it; on success, repairs
+    /// this page's own state where it can and reports where the UI should go.
+    ///
+    /// Deliberately *not* wrapped in `track(_:)`, unlike every other
+    /// fire-and-forget task here: `AssetDetailView.onDisappear` cancels
+    /// tracked tasks, and the whole point of this one is that it often ends
+    /// in a dismissal — tracking it would let the dismissal cancel the very
+    /// request that caused it, leaving the deletion half-done.
+    @discardableResult
+    func delete(_ target: MediaItem) async throws -> DeletionOutcome {
+        deletingItemIDs.insert(target.id)
+        defer { deletingItemIDs.remove(target.id) }
+
+        try await client.deleteItem(itemID: target.id)
+
+        // Announced before the outcome is resolved (which costs another
+        // round trip) so screens underneath start reacting immediately.
+        DeletedItemBroadcaster.shared.record(itemID: target.id)
+
+        let outcome = await resolveDeletionOutcome(for: target)
+        if outcome == .stayAndRefresh {
+            await repairPageAfterDeletion(of: target)
+        }
+        return outcome
+    }
+
+    private func resolveDeletionOutcome(for target: MediaItem) async -> DeletionOutcome {
+        switch target.kind {
+        case .episode, .season:
+            guard let seriesID else { return .popOneLevel }
+
+            // Ask the server what's actually left rather than subtracting
+            // one from a count fetched before the delete — and note a
+            // *failure* here is itself informative: Jellyfin drops a series
+            // once its last episode goes, so a 404 means there's nothing to
+            // go back to. Only a successful fetch reporting real remaining
+            // episodes keeps us in the show.
+            guard let seriesDTO = try? await client.item(userID: userID, itemID: seriesID) else {
+                return .popToRoot
+            }
+            if let remaining = seriesDTO.recursiveItemCount, remaining == 0 {
+                return .popToRoot
+            }
+
+            if target.kind == .season { return .stayAndRefresh }
+            // An episode reached by its own push *is* this page, so there's
+            // nothing left to show and we pop. One picked in place from the
+            // show page isn't — `itemID` is still the show's (or season's),
+            // and the show page it's sitting on remains perfectly valid.
+            return target.id == itemID ? .popOneLevel : .stayAndRefresh
+        default:
+            return .popOneLevel
+        }
+    }
+
+    /// Puts the page back in a coherent state after deleting something it
+    /// was displaying but doesn't need to leave over — swaps the hero back
+    /// to the show, re-reads the season list, and forces the episode list to
+    /// re-fetch.
+    private func repairPageAfterDeletion(of target: MediaItem) async {
+        let images = await client.makeImageURLBuilder()
+
+        // The hero was showing an episode that no longer exists.
+        if target.kind == .episode, let seriesItem {
+            item = seriesItem
+            displayedItemID = seriesItem.id
+        }
+
+        if let seriesID, let seasonsResult = try? await client.seasons(seriesID: seriesID, userID: userID) {
+            seasons = seasonsResult.items.map { MediaItem(dto: $0, images: images) }
+            // The season picker could be pointing at the season just
+            // deleted — fall back to whichever one now comes first.
+            if let preselectedSeasonID, !seasons.contains(where: { $0.id == preselectedSeasonID }) {
+                self.preselectedSeasonID = seasons.first?.id
+            }
+        }
+
+        // See `episodeListRefreshToken` — `SeasonEpisodeList` fetches
+        // independently of `item`, so without this the deleted episode's row
+        // stays on screen.
+        episodeListRefreshToken = UUID()
+    }
+
     /// Which items currently have a favorite toggle in flight — checked by
     /// `HeroActionButtons` to show a spinner in place of the star icon
     /// rather than leaving the button looking inert while the request (and

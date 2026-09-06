@@ -26,6 +26,14 @@ enum UITestScenario: String {
     /// Every request fails as if the network were unreachable, driving
     /// `ConnectivityMonitor.isOffline` and the `OfflineStateView` branches.
     case offline
+
+    /// The same catalogue as `.standard`, but every item comes back with
+    /// `CanDelete: false` and any `DELETE` is refused — the signed-in user
+    /// who simply isn't allowed to delete anything. Covers the permission
+    /// gate on `DeleteAssetButton`, which renders nothing at all in this
+    /// state, and (via a deliberately forced request) the 401-means-
+    /// "not permitted" path in `JellyfinAPIClient.deleteItem`.
+    case noDeletePermission
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a

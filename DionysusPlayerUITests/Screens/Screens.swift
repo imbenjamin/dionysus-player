@@ -278,6 +278,32 @@ struct AssetDetailScreen: Screen {
     var favoriteButton: XCUIElement { app.buttons[A11yID.AssetDetail.favoriteButton] }
     var watchedButton: XCUIElement { app.buttons[A11yID.AssetDetail.watchedButton] }
 
+    /// Present only when the server says this user may delete this item, so
+    /// asserting its *absence* is asserting the permission gate — see
+    /// `A11yID.AssetDetail.deleteButton`.
+    var deleteButton: XCUIElement { app.buttons[A11yID.AssetDetail.deleteButton] }
+
+    /// The confirmation dialog's own destructive action. Scoped to
+    /// `app.sheets` because a bare `app.buttons[...]` subscript matches
+    /// labels as well as identifiers, so an unscoped lookup can collide with
+    /// the control that raised the dialog.
+    var deleteConfirmButton: XCUIElement {
+        app.sheets.buttons.matching(identifier: A11yID.AssetDetail.deleteConfirmButton).firstMatch
+    }
+
+    /// The dialog's "…and Device" action — only offered when a local
+    /// download of the target exists.
+    var deleteWithDownloadButton: XCUIElement {
+        app.sheets.buttons.matching(identifier: A11yID.AssetDetail.deleteWithDownloadButton).firstMatch
+    }
+
+    /// Confirms a deletion that's already been started by tapping
+    /// `deleteButton` (or picking a row from its menu).
+    func confirmDelete(file: StaticString = #filePath, line: UInt = #line) {
+        deleteConfirmButton.awaitExistence("the delete confirmation", file: file, line: line)
+        deleteConfirmButton.tap()
+    }
+
     /// A show's episode row — its title/overview half, which switches this
     /// page's own content to that episode in place rather than pushing a
     /// new screen. See `A11yID.AssetDetail.episodeRow(_:)`'s doc comment.

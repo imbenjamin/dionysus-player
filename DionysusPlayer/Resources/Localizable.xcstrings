@@ -326,6 +326,9 @@
     "Couldn't build a playback URL for this item." : {
 
     },
+    "Couldn't delete" : {
+
+    },
     "Couldn't Download Season" : {
 
     },
@@ -408,10 +411,40 @@
     "Delete Download" : {
 
     },
+    "Delete Episode" : {
+
+    },
+    "Delete from Server" : {
+
+    },
+    "Delete from Server and Device" : {
+
+    },
+    "Delete Season" : {
+
+    },
     "Delete Selected Downloads" : {
 
     },
+    "Delete Show" : {
+
+    },
     "Delete this download?" : {
+
+    },
+    "Deleting \"%@\" will remove it from the Jellyfin server. This cannot be undone." : {
+
+    },
+    "Deleting this season will delete all %lld episodes from the Jellyfin server. This cannot be undone." : {
+
+    },
+    "Deleting this season will delete all of its episodes from the Jellyfin server. This cannot be undone." : {
+
+    },
+    "Deleting this show will delete all %lld episodes from the Jellyfin server. This cannot be undone." : {
+
+    },
+    "Deleting this show will delete all of its episodes from the Jellyfin server. This cannot be undone." : {
 
     },
     "Descending" : {
@@ -1116,6 +1149,9 @@
 
     },
     "Wi-Fi Only" : {
+
+    },
+    "You don't have permission to do that on this server." : {
 
     },
     "You need to sign in again." : {

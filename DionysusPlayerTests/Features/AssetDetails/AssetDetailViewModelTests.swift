@@ -1539,4 +1539,194 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.preferredMediaSourceID(forPlayableItem: "ep-5"), "src-1080p")
         XCTAssertNil(viewModel.preferredMediaSourceID(forPlayableItem: "series-1"))
     }
+
+    // MARK: delete()
+
+    /// Serves whatever `load()` asks for while establishing a show/episode
+    /// page, so each deletion test can set up real view-model state through
+    /// the real load path rather than a test-only mutator that could drift
+    /// from it. `episodeCount` is what the series reports *after* the
+    /// deletion, which is what decides `popToRoot` vs the rest.
+    private func stubShowEndpoints(
+        seriesEpisodeCount: Int?,
+        seriesStatus: Int = 200,
+        seasons: [BaseItemDto] = [BaseItemDto(id: "season-1", name: "Season 1", type: .season)]
+    ) {
+        MockURLProtocol.requestHandler = { request in
+            let path = request.url?.path
+            if request.httpMethod == "DELETE" {
+                return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+            }
+            switch path {
+            case "/Users/user-1/Items/series-1":
+                guard seriesStatus == 200 else {
+                    return MockURLProtocol.jsonResponse(for: request, status: seriesStatus, body: Data())
+                }
+                var series = BaseItemDto(id: "series-1", name: "Severance", type: .series)
+                series.recursiveItemCount = seriesEpisodeCount
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: series)
+            case "/Users/user-1/Items/ep-1":
+                var episode = BaseItemDto(id: "ep-1", name: "Good News About Hell", type: .episode)
+                episode.seriesId = "series-1"
+                episode.seasonId = "season-1"
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: episode)
+            case "/Shows/series-1/Seasons":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: seasons, totalRecordCount: seasons.count))
+            default:
+                // Similar / collections / NextUp / episodes — all optional
+                // supplementary fetches `load()` makes with `try?`.
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+    }
+
+    /// Deleting a movie takes its own page with it — there's nothing left on
+    /// screen to refresh, so the page pops.
+    func test_delete_movie_popsOneLevelAndBroadcasts() async throws {
+        DeletedItemBroadcaster.shared.reset()
+        let viewModel = makeViewModel(itemID: "movie-1")
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.httpMethod, "DELETE")
+            XCTAssertEqual(request.url?.path, "/Items/movie-1")
+            return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+
+        let outcome = try await viewModel.delete(mediaItem(BaseItemDto(id: "movie-1", name: "Arrival", type: .movie)))
+
+        XCTAssertEqual(outcome, .popOneLevel)
+        XCTAssertEqual(DeletedItemBroadcaster.shared.lastDeletedItemID, "movie-1")
+    }
+
+    /// An episode picked *in place* from a show page (so `itemID` is still
+    /// the show's) leaves that show page perfectly valid — stay on it, with
+    /// the hero swapped back to the series and the episode list re-fetched.
+    func test_delete_episodeSelectedInPlace_staysAndRepairsThePage() async throws {
+        stubShowEndpoints(seriesEpisodeCount: 8)
+        let viewModel = makeViewModel(itemID: "series-1")
+        await viewModel.load()
+        // The in-place selection this test is about — the page's `itemID`
+        // stays "series-1" while `item` becomes the episode.
+        await viewModel.selectEpisode("ep-1")
+        XCTAssertEqual(viewModel.item?.id, "ep-1", "precondition")
+        let tokenBefore = viewModel.episodeListRefreshToken
+
+        let outcome = try await viewModel.delete(mediaItem(episodeDto()))
+
+        XCTAssertEqual(outcome, .stayAndRefresh)
+        XCTAssertEqual(viewModel.item?.id, "series-1", "hero should revert to the show")
+        XCTAssertNotEqual(viewModel.episodeListRefreshToken, tokenBefore, "episode list must re-fetch")
+    }
+
+    /// The same episode reached by its own push (`itemID` *is* the episode)
+    /// has nothing left to show, so it pops — but only one level, because
+    /// the show underneath still has episodes.
+    func test_delete_episodeOnItsOwnPushedPage_popsOneLevel() async throws {
+        stubShowEndpoints(seriesEpisodeCount: 8)
+        let viewModel = makeViewModel(itemID: "ep-1")
+        await viewModel.load()
+        XCTAssertEqual(viewModel.item?.id, "ep-1", "precondition")
+
+        let outcome = try await viewModel.delete(mediaItem(episodeDto()))
+        XCTAssertEqual(outcome, .popOneLevel)
+    }
+
+    /// Deleting the show's *last* episode means the show page underneath is
+    /// empty too, so popping onto it would land the user on a dead screen —
+    /// unwind the whole stack instead.
+    func test_delete_lastEpisodeOfShow_popsToRoot() async throws {
+        stubShowEndpoints(seriesEpisodeCount: 0)
+        let viewModel = makeViewModel(itemID: "ep-1")
+        await viewModel.load()
+
+        let outcome = try await viewModel.delete(mediaItem(episodeDto()))
+        XCTAssertEqual(outcome, .popToRoot)
+    }
+
+    /// The series itself 404ing after the delete carries the same meaning as
+    /// a zero count — Jellyfin drops a series once its last episode goes, so
+    /// there is nothing underneath to return to.
+    func test_delete_whenSeriesItselfIsGone_popsToRoot() async throws {
+        stubShowEndpoints(seriesEpisodeCount: 8)
+        let viewModel = makeViewModel(itemID: "ep-1")
+        await viewModel.load()
+        // Only now does the series start 404ing — i.e. the delete removed it.
+        stubShowEndpoints(seriesEpisodeCount: nil, seriesStatus: 404)
+
+        let outcome = try await viewModel.delete(mediaItem(episodeDto()))
+        XCTAssertEqual(outcome, .popToRoot)
+    }
+
+    /// Deleting one season of a multi-season show keeps the user on the show
+    /// page and moves the season picker off the season that no longer exists.
+    func test_delete_season_staysAndReselectsARemainingSeason() async throws {
+        stubShowEndpoints(seriesEpisodeCount: 9)
+        let viewModel = makeViewModel(itemID: "season-1")
+        // A Season route loads the *series* into `item` and preselects the
+        // season — see `AssetDetailViewModel.load()`.
+        MockURLProtocol.requestHandler = { request in
+            let path = request.url?.path
+            if path == "/Users/user-1/Items/season-1" {
+                var season = BaseItemDto(id: "season-1", name: "Season 1", type: .season)
+                season.seriesId = "series-1"
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: season)
+            }
+            if path == "/Users/user-1/Items/series-1" {
+                var series = BaseItemDto(id: "series-1", name: "Severance", type: .series)
+                series.recursiveItemCount = 9
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: series)
+            }
+            if path == "/Shows/series-1/Seasons" {
+                let seasons = [
+                    BaseItemDto(id: "season-1", name: "Season 1", type: .season),
+                    BaseItemDto(id: "season-2", name: "Season 2", type: .season)
+                ]
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: seasons, totalRecordCount: 2))
+            }
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+        await viewModel.load()
+        XCTAssertEqual(viewModel.preselectedSeasonID, "season-1", "precondition")
+
+        // Season 1 is gone from the seasons list from here on.
+        stubShowEndpoints(
+            seriesEpisodeCount: 9,
+            seasons: [BaseItemDto(id: "season-2", name: "Season 2", type: .season)]
+        )
+        let outcome = try await viewModel.delete(mediaItem(BaseItemDto(id: "season-1", name: "Season 1", type: .season)))
+
+        XCTAssertEqual(outcome, .stayAndRefresh)
+        XCTAssertEqual(viewModel.preselectedSeasonID, "season-2", "picker must move off the deleted season")
+    }
+
+    /// A refused deletion has to propagate rather than being swallowed — the
+    /// button surfaces it, and nothing may be treated as deleted.
+    func test_delete_whenServerRefuses_throwsAndBroadcastsNothing() async {
+        DeletedItemBroadcaster.shared.reset()
+        let viewModel = makeViewModel(itemID: "movie-1")
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 403, body: Data())
+        }
+
+        do {
+            _ = try await viewModel.delete(mediaItem(BaseItemDto(id: "movie-1", name: "Arrival", type: .movie)))
+            XCTFail("Expected the refusal to propagate")
+        } catch {
+            // expected
+        }
+        XCTAssertNil(DeletedItemBroadcaster.shared.lastDeletedItemID)
+        XCTAssertTrue(viewModel.deletingItemIDs.isEmpty, "in-flight marker must clear even on failure")
+    }
+
+    private func episodeDto() -> BaseItemDto {
+        var episode = BaseItemDto(id: "ep-1", name: "Good News About Hell", type: .episode)
+        episode.seriesId = "series-1"
+        episode.seasonId = "season-1"
+        return episode
+    }
+
+    private func mediaItem(_ dto: BaseItemDto) -> MediaItem {
+        MediaItem(dto: dto, images: ImageURLBuilder(baseURL: baseURL, accessToken: "tok"))
+    }
 }

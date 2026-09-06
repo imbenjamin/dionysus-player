@@ -140,6 +140,22 @@ struct MovieDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 HeroActionButtons(viewModel: viewModel)
             }
+            // `ToolbarSpacer(.fixed)`, not just a second `ToolbarItem`: on
+            // iOS 26 adjacent trailing items share one Liquid Glass capsule
+            // by default, so declaring delete as its own item still drew it
+            // as a third glyph inside the favorite/watched group (confirmed
+            // on device). The spacer is the actual API for forcing the
+            // visual break — same fix, and same reasoning, as
+            // `CollectionGridView`'s sort/random pair. A destructive action
+            // must not read as a member of the metadata group.
+            if #available(iOS 26.0, *) {
+                ToolbarSpacer(.fixed, placement: .topBarTrailing)
+            }
+            // Renders nothing unless the server says this user may delete
+            // this item; see `DeleteAssetButton`.
+            ToolbarItem(placement: .topBarTrailing) {
+                DeleteAssetButton(viewModel: viewModel, downloadManager: appState.downloadManager)
+            }
         }
         .fullScreenCover(
             item: $playbackRequest,
