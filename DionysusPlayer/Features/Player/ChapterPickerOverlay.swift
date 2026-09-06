@@ -162,6 +162,7 @@ struct ChapterPickerOverlay: View {
             String(localized: "\(chapter.name), starts at \(ChapterTimeFormatter.spokenString(from: chapter.startSeconds))")
         )
         .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
+        .accessibilityIdentifier(A11yID.Player.chapterOption(chapter.index))
     }
 
     /// Same online/offline split as `ChapterCard`'s — see `Chapter.imageURL`.

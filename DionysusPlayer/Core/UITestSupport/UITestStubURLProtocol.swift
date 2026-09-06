@@ -221,7 +221,19 @@ final class UITestStubURLProtocol: URLProtocol {
         // the player side-loads. Playback itself never reaches here — the
         // fake engine is handed a URL it never opens — but `DownloadManager`
         // really does write these bytes to disk.
-        case path.contains("/Videos/") || path.contains("/Subtitles/"):
+        //
+        // Video specifically has to be a *parseable* MP4, not arbitrary
+        // bytes: `DownloadManager.validationFailureReason` opens every
+        // finished download with `AVURLAsset` and rejects it as unverifiable
+        // if the duration won't load (see that method's doc comment — it
+        // exists because a crashed transcode still closes as a clean HTTP
+        // 200). Arbitrary bytes fail that check, and the download lands in
+        // `.failed` — correct app behaviour, but it makes a completed
+        // download untestable. See `syntheticMP4(durationSeconds:)`.
+        case path.contains("/Videos/"):
+            return syntheticMP4(durationSeconds: runtimeSeconds(forVideoPath: path))
+
+        case path.contains("/Subtitles/"):
             return Data(repeating: 0, count: 4096)
 
         case path.hasSuffix("/PlaybackInfo"):
@@ -417,6 +429,128 @@ final class UITestStubURLProtocol: URLProtocol {
 
     private static func encode(_ value: some Encodable) throws -> Data {
         try JellyfinJSON.encoder.encode(value)
+    }
+
+    // MARK: - Synthetic video
+
+    /// The runtime `syntheticMP4(durationSeconds:)` should claim for the
+    /// item a `/Videos/{itemID}/stream.mp4` request names, so the file
+    /// `DownloadManager` validates matches the runtime it recorded at
+    /// enqueue time. Falls back to an hour for anything unrecognised —
+    /// long enough that no fixture's own runtime check could fail against
+    /// it by accident.
+    private static func runtimeSeconds(forVideoPath path: String) -> Double {
+        let itemID = path.components(separatedBy: "/Videos/").last?
+            .components(separatedBy: "/").first ?? ""
+        guard let ticks = UITestFixtureLibrary.allItems[itemID]?.runTimeTicks else { return 3600 }
+        return Double(ticks) / 10_000_000
+    }
+
+    /// A structurally valid, ~600-byte MP4 that declares `durationSeconds`
+    /// of video and contains one byte of media data.
+    ///
+    /// Hand-assembled rather than produced by `AVAssetWriter`: the point is
+    /// a file whose *declared* duration is a feature-length runtime while
+    /// its actual size stays negligible, and a writer would have to encode
+    /// the real thing to claim it.
+    ///
+    /// The duration has to come from the sample table, not from `mvhd`.
+    /// Measured live: an otherwise-identical file with the runtime only in
+    /// `mvhd`/`tkhd`/`mdhd` and empty `stts`/`stsz`/`stco` boxes loads
+    /// fine but reports `duration == 0`, because `AVAsset` derives its
+    /// duration from the longest *track*, and a track with no samples is
+    /// zero-length however long its header claims to be. So the single
+    /// sample below is given a `stts` delta spanning the whole runtime.
+    private static func syntheticMP4(durationSeconds: Double) -> Data {
+        let timescale: UInt32 = 600
+        let duration = UInt32(durationSeconds * Double(timescale))
+
+        func box(_ type: String, _ payload: Data) -> Data {
+            u32(UInt32(8 + payload.count)) + Data(type.utf8) + payload
+        }
+
+        let ftyp = box("ftyp", Data("isom".utf8) + u32(512) + Data("isomiso2avc1mp41".utf8))
+
+        var mvhd = Data()
+        mvhd += u32(0)                                  // version + flags
+        mvhd += u32(0) + u32(0)                         // created, modified
+        mvhd += u32(timescale) + u32(duration)
+        mvhd += u32(0x0001_0000)                        // rate 1.0
+        mvhd += u16(0x0100) + u16(0)                    // volume, reserved
+        mvhd += u32(0) + u32(0)                         // reserved
+        mvhd += unityMatrix
+        mvhd += Data(repeating: 0, count: 24)           // predefined
+        mvhd += u32(2)                                  // next track id
+
+        var tkhd = Data()
+        tkhd += u32(0x0000_0007)                        // v0, enabled|inMovie|inPreview
+        tkhd += u32(0) + u32(0)
+        tkhd += u32(1)                                  // track id
+        tkhd += u32(0)                                  // reserved
+        tkhd += u32(duration)
+        tkhd += u32(0) + u32(0)                         // reserved
+        tkhd += u16(0) + u16(0)                         // layer, alternate group
+        tkhd += u16(0) + u16(0)                         // volume, reserved
+        tkhd += unityMatrix
+        tkhd += u32(64 << 16) + u32(64 << 16)           // width, height (16.16)
+
+        var mdhd = Data()
+        mdhd += u32(0)
+        mdhd += u32(0) + u32(0)
+        mdhd += u32(timescale) + u32(duration)
+        mdhd += u16(0x55C4) + u16(0)                    // language 'und', predefined
+
+        let hdlr = box("hdlr", u32(0) + u32(0) + Data("vide".utf8) + u32(0) + u32(0) + u32(0) + Data([0]))
+        let vmhd = box("vmhd", u32(1) + u16(0) + u16(0) + u16(0) + u16(0))
+        let dinf = box("dinf", box("dref", u32(0) + u32(1) + box("url ", u32(1))))
+
+        var avc1 = Data()
+        avc1 += Data(repeating: 0, count: 6)            // reserved
+        avc1 += u16(1)                                  // data reference index
+        avc1 += u16(0) + u16(0)                         // predefined, reserved
+        avc1 += u32(0) + u32(0) + u32(0)                // predefined
+        avc1 += u16(64) + u16(64)                       // width, height
+        avc1 += u32(0x0048_0000) + u32(0x0048_0000)     // 72dpi horiz/vert resolution
+        avc1 += u32(0)                                  // reserved
+        avc1 += u16(1)                                  // frame count
+        avc1 += Data(repeating: 0, count: 32)           // compressor name
+        avc1 += u16(0x0018) + u16(0xFFFF)               // depth, predefined
+
+        /// The chunk offset in `stco` is an *absolute file* offset, so it
+        /// can't be known until `moov`'s own size is. Built twice: the
+        /// offset is a fixed-width `UInt32` either way, so the second pass
+        /// is byte-identical in size to the first and no third is needed.
+        func moov(sampleOffset: UInt32) -> Data {
+            let stbl = box("stbl",
+                box("stsd", u32(0) + u32(1) + box("avc1", avc1))
+                    // One sample, spanning the entire runtime.
+                    + box("stts", u32(0) + u32(1) + u32(1) + u32(duration))
+                    + box("stsc", u32(0) + u32(1) + u32(1) + u32(1) + u32(1))
+                    + box("stsz", u32(0) + u32(0) + u32(1) + u32(1))
+                    + box("stco", u32(0) + u32(1) + u32(sampleOffset))
+            )
+            let mdia = box("mdia", box("mdhd", mdhd) + hdlr + box("minf", vmhd + dinf + stbl))
+            let trak = box("trak", box("tkhd", tkhd) + mdia)
+            return box("moov", box("mvhd", mvhd) + trak)
+        }
+
+        let sampleOffset = UInt32(ftyp.count + moov(sampleOffset: 0).count + 8)
+        return ftyp + moov(sampleOffset: sampleOffset) + box("mdat", Data([0]))
+    }
+
+    /// The identity transform every MP4 header carries, as 3x3 fixed-point.
+    private static let unityMatrix: Data = {
+        [0x0001_0000, 0, 0, 0, 0x0001_0000, 0, 0, 0, 0x4000_0000]
+            .map(u32)
+            .reduce(into: Data()) { $0 += $1 }
+    }()
+
+    private static func u32(_ value: UInt32) -> Data {
+        withUnsafeBytes(of: value.bigEndian) { Data($0) }
+    }
+
+    private static func u16(_ value: UInt16) -> Data {
+        withUnsafeBytes(of: value.bigEndian) { Data($0) }
     }
 
     // MARK: - Artwork
