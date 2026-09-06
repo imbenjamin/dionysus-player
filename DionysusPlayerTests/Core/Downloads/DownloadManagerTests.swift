@@ -554,6 +554,64 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertTrue(configuration.allowsCellularAccess, "gated per request, not per session")
     }
 
+    // MARK: releasing the queue when the app leaves the foreground.
+    // iOS forces any background-session task created while the app isn't in
+    // the foreground to be discretionary and defers it, so a queue can't
+    // advance once suspended — measured on device 2026-09-06, see
+    // DOWNLOADS.md. Everything still queued therefore has to be started
+    // before the app stops running.
+
+    func test_releaseQueueForBackgroundExecution_startsEveryQueuedItemPastTheLimit() {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        var startedOrder: [String] = []
+        let manager = makeManagerWithFakeStarter(store: store, maxConcurrentDownloads: 1) { startedOrder.append($0) }
+        for i in 1...5 {
+            store.insert(DownloadTestHelpers.makeItem(itemID: "item-\(i)", status: .queued, pendingDownloadURLString: "https://example.com/\(i)"))
+            manager.queueVideoDownload(itemID: "item-\(i)")
+        }
+        XCTAssertEqual(startedOrder, ["item-1"], "the limit applies while the app is in the foreground")
+
+        manager.releaseQueueForBackgroundExecution()
+
+        XCTAssertEqual(startedOrder, ["item-1", "item-2", "item-3", "item-4", "item-5"],
+                       "everything still queued must be started before the app stops running")
+        for i in 1...5 {
+            XCTAssertEqual(store.item(itemID: "item-\(i)")?.status, .downloading)
+        }
+    }
+
+    /// Must not disturb anything when there is nothing waiting — this fires
+    /// on every single scene-phase change away from `.active`.
+    func test_releaseQueueForBackgroundExecution_withNothingQueued_isANoOp() {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        var startedOrder: [String] = []
+        let manager = makeManagerWithFakeStarter(store: store, maxConcurrentDownloads: 1) { startedOrder.append($0) }
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .queued, pendingDownloadURLString: "https://example.com/1"))
+        manager.queueVideoDownload(itemID: "item-1")
+
+        manager.releaseQueueForBackgroundExecution()
+        manager.releaseQueueForBackgroundExecution()
+
+        XCTAssertEqual(startedOrder, ["item-1"], "already-running downloads must not be restarted")
+    }
+
+    /// A row deleted while queued must not be resurrected by the release.
+    func test_releaseQueueForBackgroundExecution_skipsDeletedRows() {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        var startedOrder: [String] = []
+        let manager = makeManagerWithFakeStarter(store: store, maxConcurrentDownloads: 1) { startedOrder.append($0) }
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .queued, pendingDownloadURLString: "https://example.com/1"))
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-2", status: .queued, pendingDownloadURLString: "https://example.com/2"))
+        manager.queueVideoDownload(itemID: "item-1")
+        manager.queueVideoDownload(itemID: "item-2")
+        manager.delete(itemID: "item-2")
+
+        manager.releaseQueueForBackgroundExecution()
+
+        XCTAssertEqual(startedOrder, ["item-1"])
+        XCTAssertNil(store.item(itemID: "item-2"))
+    }
+
     // MARK: automatic retry of transient transport failures — the -997
     // ("Lost connection to the background transfer service") bug. A
     // background transfer can die for reasons that say nothing about

@@ -922,12 +922,12 @@ final class DownloadManager: NSObject {
     /// strictly in FIFO order — called whenever the queue gains an entry or
     /// a slot frees up. A popped row that's no longer actually `.queued`
     /// with a URL to start is silently skipped.
-    private func admitQueuedDownloadsIfPossible() {
+    private func admitQueuedDownloadsIfPossible(respectingLimit: Bool = true) {
         // Saved once, after the loop — not once per admitted row, so
         // several slots freeing up at once doesn't mean several SwiftData
         // round-trips.
         var admittedAny = false
-        while canStartAnotherDownload {
+        while !respectingLimit || canStartAnotherDownload {
             guard !pendingQueue.isEmpty else { break }
             let itemID = pendingQueue.removeFirst()
             guard let row = store.item(itemID: itemID), row.status == .queued,
@@ -959,6 +959,36 @@ final class DownloadManager: NSObject {
             pendingPollStarters.removeValue(forKey: itemID)?()
         }
         if admittedAny { store.save() }
+    }
+
+    /// Starts every remaining queued download, ignoring
+    /// `maxConcurrentDownloads`. Called from `DionysusPlayerApp` when the
+    /// scene leaves the foreground.
+    ///
+    /// This exists because of a hard constraint measured on device
+    /// (2026-09-06, see DOWNLOADS.md): iOS forces any background-session
+    /// task **created while the app is not in the foreground** to be
+    /// discretionary and defers it indefinitely, so a queue cannot advance
+    /// once the app is suspended — a season download would stall after the
+    /// first few episodes and only resume when the user next opened the app.
+    /// The only way to have the rest complete unattended is for their tasks
+    /// to already exist before the app stops running.
+    ///
+    /// The concurrency limit is deliberately abandoned here rather than
+    /// preserved, because it cannot be honored anyway: at the moment of
+    /// suspension `nsurlsessiond` takes ownership of every task the app has
+    /// created and schedules them itself — measured running up to 11 at once
+    /// against a configured limit of 2. Holding tasks back would therefore
+    /// buy no reduction in server load, only a stalled queue. The limit
+    /// remains meaningful while the app is open, which is what the Downloads
+    /// settings footer now tells the user.
+    ///
+    /// Server-side cost was measured before committing to this: a
+    /// 22-episode season released this way produced 22 transcodes, every one
+    /// exiting cleanly, with no kill-timer restarts.
+    func releaseQueueForBackgroundExecution() {
+        guard !pendingQueue.isEmpty else { return }
+        admitQueuedDownloadsIfPossible(respectingLimit: false)
     }
 
     /// `activeItemIDs.count` is exactly "how many video downloads are
