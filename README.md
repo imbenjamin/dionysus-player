@@ -5,6 +5,7 @@
 <p align="center">
   <a href="https://github.com/imbenjamin/dionysus-player/releases"><img src="https://img.shields.io/github/v/release/imbenjamin/dionysus-player?include_prereleases&logo=github" alt="GitHub Releases"></a>
   <a href="https://testflight.apple.com/join/M6cu7Afs"><img src="https://img.shields.io/badge/TestFlight-Alpha%20Releases-blue?logo=appstore" alt="TestFlight Alpha Releases"></a>
+  <a href="https://testflight.apple.com/join/sHQMQtjM"><img src="https://img.shields.io/badge/TestFlight-Beta%20Releases-blue?logo=appstore" alt="TestFlight Beta Releases"></a>
 </p>
 <p align="center">
   <a href="https://github.com/imbenjamin/dionysus-player/actions?query=branch%3Adevelop"><img src="https://img.shields.io/github/check-suites/imbenjamin/dionysus-player/develop?logo=github&label=develop" alt="GitHub branch check suites"></a>
