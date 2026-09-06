@@ -102,6 +102,13 @@ struct ServerSetupView: View {
             Image(systemName: "server.rack")
                 .font(.largeTitle)
                 .foregroundStyle(.tint)
+                // Decorative — the heading and body text below already say
+                // what this screen is. Without this, SwiftUI falls back to
+                // the SF Symbol's own name and VoiceOver announces the
+                // literal string "server.rack" (caught by
+                // `AccessibilityAuditTests`: "The accessibilityLabel of
+                // this SwiftUI.AccessibilityNode is not human-readable").
+                .accessibilityHidden(true)
             Text("Find Your Server")
                 .font(.largeTitle.bold())
             Text("Dionysus needs the address of your Jellyfin server to get started.")
