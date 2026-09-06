@@ -288,6 +288,11 @@ struct ProfileView: View {
             Section {
                 accountCardLabel(showsChevron: false)
                     .tag(ProfileSettingsPane.account)
+                    // Same identifier the compact layout's `Button`-wrapped
+                    // `accountCard` carries — a screen object addressing
+                    // "the account row" shouldn't need to know which layout
+                    // rendered it.
+                    .accessibilityIdentifier(A11yID.Profile.accountCard)
             }
 
             Section {

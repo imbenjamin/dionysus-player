@@ -116,6 +116,7 @@ struct DownloadsView: View {
                     Button(viewModel.isAllSelected ? "Deselect All" : "Select All") {
                         viewModel.toggleSelectAll()
                     }
+                    .accessibilityIdentifier(A11yID.Downloads.selectAllButton)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .destructive) {
@@ -239,7 +240,7 @@ struct DownloadsView: View {
         switch row {
         // Same series-name-first convention as the list row's own
         // `rowContent` — see its comment.
-        case .standalone(let item): return item.kind == .episode ? (item.seriesTitle ?? item.title) : item.title
+        case .standalone(let item): return item.isEpisode ? (item.seriesTitle ?? item.title) : item.title
         case .show(let group): return group.seriesTitle
         }
     }
@@ -248,7 +249,7 @@ struct DownloadsView: View {
         switch row {
         case .standalone(let item):
             guard item.status == .completed else { return nil }
-            if item.kind == .episode {
+            if item.isEpisode {
                 return item.episodeLabel.map { "\($0) \u{00B7} \(item.title)" } ?? item.title
             }
             return item.yearAndDurationText
@@ -384,7 +385,7 @@ private struct DownloadsRowView: View {
                     placeholderSystemImage: row.placeholderSystemImage
                 )
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(item.kind == .episode ? (item.seriesTitle ?? item.title) : item.title).lineLimit(1)
+                    Text(item.isEpisode ? (item.seriesTitle ?? item.title) : item.title).lineLimit(1)
                     subtitleLine(for: item)
                 }
                 Spacer()
@@ -459,13 +460,13 @@ private struct DownloadsRowView: View {
 
     /// Live byte progress for a standalone row still mid-download —
     /// `nil` once completed (or if it somehow failed, see `subtitleLine`).
-    private func progress(for item: DownloadedItem) -> DownloadProgress? {
+    private func progress(for item: DownloadsRow.StandaloneItem) -> DownloadProgress? {
         guard item.status == .downloading || item.status == .queued else { return nil }
         return downloadManager.activeDownloads[item.itemID]
     }
 
     @ViewBuilder
-    private func subtitleLine(for item: DownloadedItem) -> some View {
+    private func subtitleLine(for item: DownloadsRow.StandaloneItem) -> some View {
         switch item.status {
         case .downloading:
             if let progress = progress(for: item) {
@@ -488,7 +489,7 @@ private struct DownloadsRowView: View {
         case .paused:
             Text("Paused").font(.caption).foregroundStyle(.secondary)
         case .completed:
-            if item.kind == .episode {
+            if item.isEpisode {
                 // "S1:E4 · Episode Name" — same pattern as
                 // `MediaItem.railSubtitle`'s episode case.
                 Text(item.episodeLabel.map { "\($0) \u{00B7} \(item.title)" } ?? item.title)

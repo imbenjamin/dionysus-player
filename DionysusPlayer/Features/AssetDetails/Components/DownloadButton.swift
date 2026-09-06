@@ -304,6 +304,7 @@ struct DownloadButton: View {
                 badge { Image(systemName: "checkmark.circle.fill").foregroundStyle(iconColor) }
             }
             .accessibilityLabel(withContext(String(localized: "Downloaded")))
+            .accessibilityIdentifier(A11yID.AssetDetail.downloadButton)
         } else {
             Button(action: startResolving) {
                 if let progress = progress(for: row) {
@@ -325,6 +326,7 @@ struct DownloadButton: View {
             }
             .disabled(isBusy(for: row))
             .accessibilityLabel(accessibilityLabel(for: row))
+            .accessibilityIdentifier(A11yID.AssetDetail.downloadButton)
             // Hold instead of tap: same idle button, different entry point
             // into the same resolve/prompt/enqueue flow (`startResolving`)
             // — see `AdvancedDownloadOptionsView`'s own doc comment.

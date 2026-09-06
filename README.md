@@ -186,8 +186,7 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 
 All tests passing as of this writing. See [`TESTING.md`](TESTING.md) for the
 full strategy, a coverage table, the UI harness, and known gaps (snapshot
-tests, per-feature journey depth, and `AetherPlaybackEngine`'s own adapter
-code).
+tests, accessibility audits, and `AetherPlaybackEngine`'s own adapter code).
 
 ## Architecture
 

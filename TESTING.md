@@ -231,11 +231,13 @@ pattern, since ViewModels are constructed with an already-built client
   bridging `engine.$duration`'s own independent publisher directly,
   instead of only sampling it opportunistically off the clock.
 - **Most user journeys.** There *is* a UI suite now (see "UI tests" below),
-  covering auth (including error and offline paths), Home, the collection
-  grid's sort/filter/random controls, all four asset-detail layouts, search
-  and the player's presentation — 24 tests across the smoke plan and the
-  full plan. Downloads, Profile settings, and accessibility audits are still
-  to come. One narrower gap inside what *is* covered: swiping a
+  covering auth, Home, the collection grid's sort/filter/random controls,
+  all four asset-detail layouts, search, the player (transport, the track
+  picker, the chapter picker), Downloads (enqueue → complete → bulk delete),
+  Profile's two account actions, and the `serverError`/`unauthorized`/
+  `offline` scenarios — 35 tests across the smoke plan and the full plan.
+  Accessibility audits and the iPad journey matrix are still to come.
+  One narrower gap inside what *is* covered: swiping a
   search-history row away isn't automated (`SearchResultRow` wraps the whole
   row in a `Button`, and a synthesized `.swipeLeft()` on it can register as a
   tap instead — reopening the row instead of revealing the delete action).
@@ -372,10 +374,34 @@ DTO change is a compile error instead of a silent rot. Scenarios
 (`-UITestScenario`) cover `standard`, `emptyLibrary`, `serverError`,
 `unauthorized` and `offline`.
 
+Downloads are the one path where the stub has to serve *real media bytes*
+rather than JSON, and they can't be arbitrary ones:
+`DownloadManager.validationFailureReason` opens every finished download with
+`AVURLAsset` and fails it as unverifiable if the duration won't load — the
+check that exists because a crashed transcode still closes as a clean HTTP
+200. So `UITestStubURLProtocol.syntheticMP4(durationSeconds:)`
+hand-assembles a ~600-byte MP4 declaring the fixture item's own runtime.
+Two things about it that are not guessable: the duration has to live in the
+*sample table*, because `AVAsset` derives duration from the longest track
+and a track with no samples is zero-length however long its `mvhd` claims to
+be (measured — the header-only version loaded fine and reported `0`); and
+`stco`'s chunk offset is an absolute file offset, so `moov` is built twice,
+the second pass byte-identical in size to the first. Downloads also drop
+from a background `URLSessionConfiguration` to a default one under
+`-UITestMode` (`DownloadManager.makeBackgroundConfiguration`) — a background
+session runs its transfers in a separate system daemon that `URLProtocol`
+cannot reach at all. That is a real divergence, and the reason downloads are
+covered only as far as "bytes land and the row settles": backgrounding,
+suspension and OS-relaunch resumption stay device-only checks.
+
 **A fake playback engine**, via `PlaybackEngineFactory`. With no AetherEngine
 there is no video surface, so `PlayerControlsOverlay` is plain SwiftUI that
 XCUITest can drive. What this does *not* cover is decode, HDR, transcode and
-seek — those still need real media on a real device.
+seek — those still need real media on a real device. Note its
+`selectAudioTrack(id:)`/`selectSubtitleTrack(id:)` are no-ops that never
+flip a track's own `isSelected`, so the track-picker journey asserts that a
+leaf is reachable and that tapping a row dismisses the picker — not that the
+selection is retained.
 
 ### Selectors
 
@@ -384,7 +410,7 @@ compiled into *both* targets, so a renamed identifier is a compile error
 rather than a timeout. Never select on `.accessibilityLabel`: those are
 `String(localized:)` values and would break on the first translation.
 
-Three hard-won rules, the first two documented at length in `A11yID` itself:
+Five hard-won rules, the first two documented at length in `A11yID` itself:
 
 - **Identify controls, not screen roots.** `.accessibilityIdentifier` on a
   container sometimes scopes to that container and sometimes propagates down
@@ -406,6 +432,23 @@ Three hard-won rules, the first two documented at length in `A11yID` itself:
   iPhone's narrower width) instead fails outright with "Activation point
   invalid" rather than the auto-scroll a normal off-screen element gets;
   `HomeScreen.openLibrary(_:)` does one bounded swipe on the rail first.
+- **`.accessibilityElement(children: .ignore)` on a row makes it report as
+  `Other`, not `Button`** — so `app.buttons[id]` silently never resolves
+  even though the identifier is right there in the tree, with the real
+  `Button` nested one level below carrying no identifier of its own.
+  Measured on `PlayerControlsOverlay`'s track-picker rows; `PlayerScreen`
+  queries them via `app.descendants(matching: .any)[id]` instead, which
+  taps fine. `ChapterPickerOverlay`'s rows are the counter-example — they
+  add `.isButton` back via `.accessibilityAddTraits`, and so *do* resolve
+  as `Button`. Prefer `.descendants(matching: .any)` for anything carrying
+  `.ignore`.
+- **A subscript lookup matches on label as readily as on identifier**, so
+  `app.buttons["Sign Out"]` finds both a confirmation dialog's button and
+  the row that raised it — giving "Multiple matching elements found" even
+  though the row has an explicit, different identifier. Scope dialog
+  buttons to their container (`app.sheets.buttons["Sign Out"]`, as
+  `ProfileScreen.signOut()` does). Adding an identifier to a control does
+  not stop its *label* from matching.
 
 When something can't be found, dump `XCUIApplication.debugDescription` and
 look at the real tree. Every one of the rules above came from doing that;
@@ -430,6 +473,23 @@ watch it go red. This is not ceremony: `testOpeningAnItemFromHome` passed with
 `PosterCard`'s destination deliberately broken, because `.firstMatch` resolved
 to the hero carousel's tile instead — the poster rails were never being
 tapped at all. `testOpeningAnItemFromACollectionGrid` exists because of that.
+
+**An intermittent failure may be a crash, not flake.** The tell is an
+`app.debugDescription` that comes back *empty* (`Query chain: Find: Target
+Application`) alongside "Restarting after unexpected exit, crash, or test
+timeout" in the log — the app process died, so there was no tree to dump and
+no element to find. Check `~/Library/Logs/DiagnosticReports/` for a
+`Dionysus-*.ips` before touching the test; its stack names the trapping
+accessor directly, which the XCUITest log cannot.
+
+That is how this suite found its first real bug:
+`DownloadsJourneyTests.testDeletingAllDownloadsReturnsToTheEmptyState`
+failed 2 runs in 9 on iPad, and the crash logs pointed at
+`DownloadedItem.metadata.getter` reached from `DownloadsView.gridSubtitle(_:)`
+— bulk delete trapping in SwiftData because `DownloadsRow` held the live
+model. Fixed by snapshotting the row's display fields
+(`DownloadsRow.StandaloneItem`); 10/10 clean afterwards. Worth knowing the
+shape of, because a rerun-until-green habit would have buried it.
 
 ## Adding a unit test
 

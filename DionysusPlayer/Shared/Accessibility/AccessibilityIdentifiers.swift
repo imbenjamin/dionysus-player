@@ -128,6 +128,12 @@ enum A11yID {
         /// media tile. The thumbnail half (`onPlay`) carries no identifier
         /// of its own; nothing here drives it directly.
         static func episodeRow(_ episodeID: String) -> String { "assetDetail.episodeRow.\(episodeID)" }
+
+        /// `DownloadButton`'s own tap target — one identifier covers every
+        /// one of its states (idle/resolving/downloading/downloaded), the
+        /// same "the action stays put, only the label changes" shape
+        /// `playButton` above already uses for Play/Resume.
+        static let downloadButton = "assetDetail.downloadButton"
     }
 
     enum Player {
@@ -144,6 +150,28 @@ enum A11yID {
         static let rotationLockButton = "player.rotationLockButton"
         static let pictureInPictureButton = "player.pictureInPictureButton"
         static let statsButton = "player.statsButton"
+
+        /// The track picker's root page — its two "Audio"/"Subtitles"
+        /// navigation rows, keyed by `TrackPickerLeaf`'s raw kind ("audio"/
+        /// "subtitle") rather than by title, which is `String(localized:)`.
+        static func trackNavigationRow(_ kind: String) -> String { "player.trackPicker.navRow.\(kind)" }
+
+        /// A leaf page's own selectable rows — audio tracks, subtitle
+        /// tracks, and the subtitle leaf's own "Off" row — keyed by
+        /// `PlaybackTrack.id` (stable per track for a given load) and the
+        /// same kind string `trackNavigationRow(_:)` uses, since a
+        /// selection row's title/metadata are display text, not identity.
+        static func trackOption(_ kind: String, _ id: Int) -> String { "player.trackPicker.option.\(kind).\(id)" }
+
+        /// The subtitle leaf's "Off" row, which has no `PlaybackTrack` of
+        /// its own to key `trackOption(_:_:)` off.
+        static let subtitleOffOption = "player.trackPicker.option.subtitle.off"
+
+        /// A `ChapterPickerOverlay` row, keyed by `Chapter.index` — stable
+        /// across the online/offline model swap `Chapter.id`'s own doc
+        /// comment describes, and simpler than that composite string id for
+        /// a test that just wants "the second chapter".
+        static func chapterOption(_ index: Int) -> String { "player.chapterPicker.option.\(index)" }
     }
 
     enum Downloads {
@@ -151,6 +179,7 @@ enum A11yID {
         static let emptyState = "downloads.emptyState"
         static let selectButton = "downloads.selectButton"
         static let deleteSelectedButton = "downloads.deleteSelectedButton"
+        static let selectAllButton = "downloads.selectAllButton"
     }
 
     enum Profile {

@@ -903,11 +903,13 @@ struct PlayerControlsOverlay: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 navigationRow(
-                    systemImage: "waveform", title: String(localized: "Audio"), value: currentAudioTrackTitle
+                    systemImage: "waveform", title: String(localized: "Audio"), value: currentAudioTrackTitle,
+                    identifier: A11yID.Player.trackNavigationRow("audio")
                 ) { navigateToTrackPickerPage(.audio) }
                 divider
                 navigationRow(
-                    systemImage: "captions.bubble", title: String(localized: "Subtitles"), value: currentSubtitleTrackTitle
+                    systemImage: "captions.bubble", title: String(localized: "Subtitles"), value: currentSubtitleTrackTitle,
+                    identifier: A11yID.Player.trackNavigationRow("subtitle")
                 ) { navigateToTrackPickerPage(.subtitle) }
             }
         }
@@ -939,7 +941,7 @@ struct PlayerControlsOverlay: View {
                 VStack(alignment: .leading, spacing: 0) {
                     switch displayedLeafPage {
                     case .audio:
-                        trackRows(viewModel.audioTracks) { track in
+                        trackRows(viewModel.audioTracks, kind: "audio") { track in
                             onInteract()
                             viewModel.selectAudioTrack(id: track.id)
                             withAnimation(Self.trackPickerAnimation) { isShowingTrackPicker = false }
@@ -949,14 +951,15 @@ struct PlayerControlsOverlay: View {
                         selectionRow(
                             title: String(localized: "Off"),
                             metadata: nil,
-                            isSelected: !viewModel.subtitleTracks.contains { $0.isSelected }
+                            isSelected: !viewModel.subtitleTracks.contains { $0.isSelected },
+                            identifier: A11yID.Player.subtitleOffOption
                         ) {
                             onInteract()
                             viewModel.selectSubtitleTrack(id: nil)
                             withAnimation(Self.trackPickerAnimation) { isShowingTrackPicker = false }
                         }
                         if !viewModel.subtitleTracks.isEmpty { divider }
-                        trackRows(viewModel.subtitleTracks) { track in
+                        trackRows(viewModel.subtitleTracks, kind: "subtitle") { track in
                             onInteract()
                             viewModel.selectSubtitleTrack(id: track.id)
                             withAnimation(Self.trackPickerAnimation) { isShowingTrackPicker = false }
@@ -1054,7 +1057,7 @@ struct PlayerControlsOverlay: View {
     /// rows the same "leading icon, title, chevron" shape as a native
     /// Settings row.
     private func navigationRow(
-        systemImage: String, title: String, value: String, action: @escaping () -> Void
+        systemImage: String, title: String, value: String, identifier: String, action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             HStack {
@@ -1085,17 +1088,24 @@ struct PlayerControlsOverlay: View {
         // reader for a row that navigates rather than adjusts in place.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(String(localized: "\(title), \(value)"))
+        .accessibilityIdentifier(identifier)
     }
 
     /// A leaf-page row's list of tracks, dividers interleaved between
     /// entries (not after the last) — the same separator `List` would draw
     /// for free, hand-rolled here since this view doesn't use `List` (see
-    /// `trackSelectionButton`'s doc comment for why).
+    /// `trackSelectionButton`'s doc comment for why). `kind` ("audio"/
+    /// "subtitle") feeds `A11yID.Player.trackOption(_:_:)` — the same
+    /// string `rootPage`'s own navigation row above uses for the leaf it
+    /// drills into.
     @ViewBuilder
-    private func trackRows(_ tracks: [PlaybackTrack], onSelect: @escaping (PlaybackTrack) -> Void) -> some View {
+    private func trackRows(_ tracks: [PlaybackTrack], kind: String, onSelect: @escaping (PlaybackTrack) -> Void) -> some View {
         ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
             if index > 0 { divider }
-            selectionRow(title: track.title, metadata: track.metadata, isSelected: track.isSelected) {
+            selectionRow(
+                title: track.title, metadata: track.metadata, isSelected: track.isSelected,
+                identifier: A11yID.Player.trackOption(kind, track.id)
+            ) {
                 onSelect(track)
             }
         }
@@ -1107,7 +1117,7 @@ struct PlayerControlsOverlay: View {
     /// secondary line" shape as `navigationRow` above, just with a
     /// selection checkmark leading instead of a chevron trailing. `nil`
     /// collapses back to a single line rather than leaving an empty gap.
-    private func selectionRow(title: String, metadata: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    private func selectionRow(title: String, metadata: String?, isSelected: Bool, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack {
                 // Reserves the checkmark's width whether selected or not
@@ -1142,6 +1152,7 @@ struct PlayerControlsOverlay: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(metadata.map { String(localized: "\(title), \($0)") } ?? title)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier(identifier)
     }
 
     private var divider: some View {

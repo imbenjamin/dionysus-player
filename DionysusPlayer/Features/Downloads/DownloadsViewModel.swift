@@ -6,8 +6,75 @@ import Observation
 /// downloaded episodes — collapsed straight to a leaf row rather than a
 /// one-item "submenu") or a group of a show's downloaded episodes.
 enum DownloadsRow: Identifiable {
-    case standalone(DownloadedItem)
+    case standalone(StandaloneItem)
     case show(ShowGroup)
+
+    /// Everything the two `DownloadsView` presentations render for a
+    /// standalone row, **snapshotted as plain values** rather than read
+    /// live off the `DownloadedItem` this was built from.
+    ///
+    /// That indirection is the whole point of this type, and it is load-
+    /// bearing: SwiftData traps on *any* property access to a model whose
+    /// backing store row is gone, and there is no supported way to ask an
+    /// instance whether it is still valid. `delete(itemID:)`/
+    /// `deleteSelected()` already defer the real deletion past the removal
+    /// transition for exactly that reason (see `delete(itemID:)`'s doc
+    /// comment) — but deferral only buys a run-loop turn, and it turned out
+    /// not to be enough on its own. Holding the live model here meant
+    /// SwiftUI could still re-evaluate a removed row's body afterwards and
+    /// read straight through to the dead row.
+    ///
+    /// Confirmed live (2026-09-06, caught by `DownloadsJourneyTests
+    /// .testDeletingAllDownloadsReturnsToTheEmptyState` failing ~2 runs in
+    /// 9 on iPad): bulk-deleting downloads crashed in
+    /// `DownloadedItem.metadata.getter`, reached from
+    /// `DownloadsView.gridSubtitle(_:)` inside `DownloadsGrid`'s `ForEach`
+    /// — the `.regular`-size-class grid re-reads a row's model during the
+    /// removal transition where the `.compact` `List` path happened not to.
+    /// A snapshot makes that structurally impossible for every reader
+    /// rather than fixing the one accessor that happened to trap first.
+    ///
+    /// Cheap to build: every field is already in memory on the model, and
+    /// this is assembled once per `refresh()` — the same "precompute in
+    /// `refresh()` rather than read live per render" shape `rowSizes`
+    /// already uses just below.
+    struct StandaloneItem {
+        let itemID: String
+        let title: String
+        /// `kind == .episode`, kept as a plain flag — the two call sites
+        /// that care (`gridTitle`, `placeholderSystemImage`) only ever ask
+        /// this one question of it.
+        let isEpisode: Bool
+        let seriesTitle: String?
+        let episodeLabel: String?
+        let status: DownloadStatus
+        let errorMessage: String?
+        let yearAndDurationText: String?
+        let yearAndDurationAccessibilityText: String?
+        let isLandscapeShaped: Bool
+        let posterImagePath: String?
+        let thumbImagePath: String?
+        /// Only `sizeOnDisk(for:allItems:)` reads this, and only while the
+        /// model is still alive — kept here so that computation needs no
+        /// second pass over the live items.
+        let videoFilePath: String
+
+        init(_ item: DownloadedItem) {
+            itemID = item.itemID
+            title = item.title
+            isEpisode = item.kind == .episode
+            seriesTitle = item.seriesTitle
+            episodeLabel = item.episodeLabel
+            status = item.status
+            errorMessage = item.errorMessage
+            yearAndDurationText = item.yearAndDurationText
+            yearAndDurationAccessibilityText = item.yearAndDurationAccessibilityText
+            isLandscapeShaped = item.isLandscapeShaped
+            posterImagePath = item.posterImagePath
+            thumbImagePath = item.thumbImagePath
+            videoFilePath = item.videoFilePath
+        }
+    }
 
     /// A show's downloaded episodes collapsed to one row. A struct rather
     /// than a growing tuple of associated values so adding another display
@@ -59,7 +126,9 @@ enum DownloadsRow: Identifiable {
     func artworkRelativePath(preferLandscape: Bool) -> String? {
         switch self {
         case .standalone(let item):
-            return item.artworkRelativePath(preferLandscape: preferLandscape)
+            return preferLandscape
+                ? (item.thumbImagePath ?? item.posterImagePath)
+                : (item.posterImagePath ?? item.thumbImagePath)
         case .show(let group):
             return preferLandscape
                 ? (group.thumbImagePath ?? group.posterImagePath)
@@ -71,7 +140,7 @@ enum DownloadsRow: Identifiable {
     /// equivalent `.compact` list row already passes.
     var placeholderSystemImage: String {
         switch self {
-        case .standalone(let item): return item.kind == .episode ? "play.tv" : "film"
+        case .standalone(let item): return item.isEpisode ? "play.tv" : "film"
         case .show: return "tv"
         }
     }
@@ -143,7 +212,7 @@ final class DownloadsViewModel {
             }
         }
 
-        var result: [DownloadsRow] = standalone.map(DownloadsRow.standalone)
+        var result: [DownloadsRow] = standalone.map { .standalone(DownloadsRow.StandaloneItem($0)) }
         for (seriesID, episodes) in byShow {
             if episodes.count > 1, let first = episodes.first {
                 result.append(.show(DownloadsRow.ShowGroup(
@@ -154,7 +223,7 @@ final class DownloadsViewModel {
                     episodeCount: episodes.count
                 )))
             } else if let only = episodes.first {
-                result.append(.standalone(only))
+                result.append(.standalone(DownloadsRow.StandaloneItem(only)))
             }
         }
         rows = result.sorted { $0.sortTitle.localizedCaseInsensitiveCompare($1.sortTitle) == .orderedAscending }
@@ -192,6 +261,13 @@ final class DownloadsViewModel {
     /// nothing left pointing at the row's live model object, so the actual
     /// deletion — deferred past that — can never race a transition that's
     /// still reading it.
+    ///
+    /// The deferral is necessary but was **not sufficient** on its own: it
+    /// only buys one run-loop turn, and `rows` used to hold the live
+    /// `DownloadedItem`, so a re-render after that turn could still read
+    /// straight through to a deleted row. The same crash resurfaced on the
+    /// `.regular` grid path in 2026-09-06 — see
+    /// `DownloadsRow.StandaloneItem`, which is what actually closes it.
     func delete(itemID: String) {
         rows.removeAll { row in
             if case .standalone(let item) = row { return item.itemID == itemID }
@@ -215,10 +291,10 @@ final class DownloadsViewModel {
     /// Re-attempts a `.failed` download with its original resolution/
     /// quality/audio choice — see `DownloadManager.retry(itemID:client:)`'s
     /// own doc comment. Always `refresh()`es afterward regardless of
-    /// outcome: `rows` holds `DownloadedItem` references directly, and a
-    /// successful retry deletes-and-recreates the row under the hood
-    /// (`DownloadManager.enqueue`'s own "clean slate" behavior), so the
-    /// reference this view model is holding is stale either way.
+    /// outcome: a successful retry deletes-and-recreates the underlying
+    /// row under the hood (`DownloadManager.enqueue`'s own "clean slate"
+    /// behavior), so the `DownloadsRow.StandaloneItem` snapshot this view
+    /// model is holding describes a row that no longer exists either way.
     func retry(itemID: String, client: JellyfinAPIClient) async {
         guard !retryingItemIDs.contains(itemID) else { return }
         retryingItemIDs.insert(itemID)
