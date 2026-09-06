@@ -128,7 +128,18 @@ actor JellyfinAPIClient {
     /// `AssetDetailViewModel` for the detail page's Chapters rail *and*
     /// `PlayerViewModel.start()`, which fetches its own DTO independently
     /// for the player's chapter scrubber/picker.
-    static let detailFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,MediaSources,People,Taglines,Chapters,BasicSyncInfo"
+    ///
+    /// `CanDelete` and `RecursiveItemCount` are here rather than in
+    /// `defaultFields` on purpose: only the detail page can delete anything,
+    /// and `CanDelete` costs the server a per-item collection-folder lookup
+    /// (`DtoService` carries its own N+1 guard around exactly that) which a
+    /// rail or grid of dozens of items shouldn't be paying for. The cost of
+    /// that choice is that a preloaded `MediaItem` handed over from a rail
+    /// carries `canDelete == nil` until the detail fetch lands — which
+    /// `MediaItem.canDelete` deliberately reads as `false`, so the delete
+    /// affordance appears a beat late rather than appearing when it
+    /// shouldn't.
+    static let detailFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,MediaSources,People,Taglines,Chapters,BasicSyncInfo,CanDelete,RecursiveItemCount"
     /// `detailFields` plus `Trickplay` — `PlayerViewModel.start()`'s own
     /// item fetch passes this explicitly (see `item(userID:itemID:fields:)`'s
     /// doc comment for why `detailFields` itself doesn't carry this).
@@ -828,6 +839,31 @@ actor JellyfinAPIClient {
         try await sendNoContent(path: "/Users/\(userID)/PlayedItems/\(itemID)", method: isWatched ? "POST" : "DELETE")
     }
 
+    // MARK: - Deletion
+
+    /// Deletes an item from the server — **the media file itself, not just
+    /// the library entry**. Jellyfin's `LibraryController.DeleteItem` calls
+    /// `DeleteItem(item, new DeleteOptions { DeleteFileLocation = true })`,
+    /// so this is irreversible from both this app and the server.
+    ///
+    /// Note this is `/Items/{id}` and takes no `userId` — unlike
+    /// `setFavorite`/`setWatched` above, which are per-user state under
+    /// `/Users/{userId}/...`. The user is identified by the auth header
+    /// alone, and the server authorizes against it per-item; see
+    /// `BaseItemDto.canDelete`, which is the flag the UI gates on and is
+    /// computed from the very same predicate this endpoint enforces.
+    ///
+    /// `maxReauthAttempts: 1` is load-bearing, not a tuning choice. Jellyfin
+    /// reports "you may not delete this" as HTTP **401**, the same status as
+    /// an expired token, so the default reauth-and-retry behavior would
+    /// re-sign-in four times over ~7.5s and then report `.notAuthenticated`,
+    /// sending the user to the login screen for pressing a button they
+    /// weren't allowed to press. One attempt still recovers a genuinely
+    /// stale token; a 401 that survives it surfaces as `.notPermitted`.
+    func deleteItem(itemID: String) async throws {
+        try await sendNoContent(path: "/Items/\(itemID)", method: "DELETE", maxReauthAttempts: 1)
+    }
+
     // MARK: - Search
 
     /// Jellyfin's dedicated `/Search/Hints` endpoint — SearchView's sole
@@ -867,9 +903,16 @@ actor JellyfinAPIClient {
     /// shape, and `pingDownloadTranscode`'s query-param-only ping) — `method`
     /// rather than always `"POST"`, and an optional `query`, are the only
     /// differences.
-    private func sendNoContent(path: String, method: String, query: [URLQueryItem] = []) async throws {
+    /// `maxReauthAttempts` is forwarded to `sendRaw` — `nil` (the default)
+    /// keeps the full backoff schedule every other caller relies on.
+    private func sendNoContent(
+        path: String,
+        method: String,
+        query: [URLQueryItem] = [],
+        maxReauthAttempts: Int? = nil
+    ) async throws {
         let request = try makeRequest(path: path, method: method, query: query)
-        _ = try await sendRaw(request)
+        _ = try await sendRaw(request, maxReauthAttempts: maxReauthAttempts)
     }
 
     private func makeRequest(
@@ -953,15 +996,26 @@ actor JellyfinAPIClient {
     private static let requestTimeout: TimeInterval = 20
 
     @discardableResult
-    private func sendRaw(_ request: URLRequest) async throws -> Data {
-        try await sendRaw(request, reauthAttempt: 0)
+    private func sendRaw(_ request: URLRequest, maxReauthAttempts: Int? = nil) async throws -> Data {
+        try await sendRaw(request, reauthAttempt: 0, maxReauthAttempts: maxReauthAttempts ?? Self.reauthBackoffSchedule.count)
     }
 
     /// `reauthAttempt` counts how many re-authentication attempts this
     /// specific logical request has already gone through (0 the first
-    /// time) — bounds the recursion against `reauthBackoffSchedule` rather
+    /// time) — bounds the recursion against `maxReauthAttempts` rather
     /// than retrying forever, and picks that attempt's backoff delay.
-    private func sendRaw(_ request: URLRequest, reauthAttempt: Int) async throws -> Data {
+    ///
+    /// `maxReauthAttempts` defaults to the full `reauthBackoffSchedule` for
+    /// every ordinary request. A caller hitting an endpoint that answers
+    /// *permission denied* with 401 rather than 403 — Jellyfin's
+    /// `DELETE /Items/{id}` being the one in the app today — passes a
+    /// smaller budget so a genuine permission failure is reported as
+    /// `.notPermitted` promptly instead of being mistaken for an expired
+    /// token, retried four times over ~7.5s, and finally surfaced as
+    /// `.notAuthenticated` (which bounces the user to the login screen).
+    /// One attempt is still allowed there, so a token that really has
+    /// expired mid-session recovers transparently exactly as before.
+    private func sendRaw(_ request: URLRequest, reauthAttempt: Int, maxReauthAttempts: Int) async throws -> Data {
         let data: Data
         let response: URLResponse
         do {
@@ -996,7 +1050,7 @@ actor JellyfinAPIClient {
             // app's control. Try to recover transparently — re-authenticate
             // with whatever credentials last succeeded and retry this same
             // request — before giving up.
-            if let reauthCredentials, reauthAttempt < Self.reauthBackoffSchedule.count {
+            if let reauthCredentials, reauthAttempt < maxReauthAttempts {
                 do {
                     try await reauthenticate(using: reauthCredentials, attempt: reauthAttempt)
                 } catch {
@@ -1010,7 +1064,17 @@ actor JellyfinAPIClient {
                 }
                 var retried = request
                 retried.setValue(JellyfinAuthorization.headerValue(token: accessToken), forHTTPHeaderField: "Authorization")
-                return try await sendRaw(retried, reauthAttempt: reauthAttempt + 1)
+                return try await sendRaw(retried, reauthAttempt: reauthAttempt + 1, maxReauthAttempts: maxReauthAttempts)
+            }
+
+            // A caller that deliberately reduced its reauth budget did so
+            // because this endpoint uses 401 for "not allowed" as well as
+            // "not signed in" (see `maxReauthAttempts`' doc comment). Having
+            // re-authenticated successfully and *still* been refused, the
+            // credentials are demonstrably fine and this is a permission
+            // failure — report it as one rather than as a session problem.
+            if maxReauthAttempts < Self.reauthBackoffSchedule.count, reauthAttempt > 0 {
+                throw JellyfinAPIError.notPermitted
             }
 
             // Nothing left to retry with (no remembered credentials, or the

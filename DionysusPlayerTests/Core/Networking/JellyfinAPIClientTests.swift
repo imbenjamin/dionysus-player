@@ -1079,6 +1079,155 @@ final class JellyfinAPIClientTests: XCTestCase {
         try await client.setWatched(false, itemID: "item-1", userID: "user-1")
     }
 
+    // MARK: Deletion
+
+    func test_deleteItem_sendsDeleteToItemsPath() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.httpMethod, "DELETE")
+            // `/Items/{id}` — deliberately *not* under `/Users/{userId}/`
+            // like the favorite/watched writes above; deletion isn't
+            // per-user state, and the server identifies the caller from the
+            // auth header alone.
+            XCTAssertEqual(request.url?.path, "/Items/item-1")
+            return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+
+        try await client.deleteItem(itemID: "item-1")
+    }
+
+    /// A token that really has gone stale mid-session still recovers on the
+    /// delete path — the reduced reauth budget is one attempt, not zero.
+    func test_deleteItem_401_thenSuccess_recoversTransparently() async throws {
+        let client = makeClient()
+        _ = try await authenticateSuccessfully(client, token: "token-1")
+
+        var deleteRequestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Items/item-1":
+                deleteRequestCount += 1
+                if deleteRequestCount == 1 {
+                    return MockURLProtocol.jsonResponse(for: request, status: 401, body: Self.jellyfinHTML401Body)
+                }
+                return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+            case "/Users/AuthenticateByName":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: AuthenticationResult(user: UserDto(id: "user-1", name: "demo"), accessToken: "token-2")
+                )
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+        }
+
+        try await client.deleteItem(itemID: "item-1")
+        XCTAssertEqual(deleteRequestCount, 2)
+    }
+
+    /// The case this whole `maxReauthAttempts` mechanism exists for.
+    /// Jellyfin answers "you may not delete this" with **401**, the same
+    /// status as an expired token — so without the reduced budget, a
+    /// permission failure would re-sign-in four times over ~7.5s and then
+    /// surface as `.notAuthenticated`, which sends the user to the login
+    /// screen for pressing a button they weren't allowed to press.
+    func test_deleteItem_persistent401_throwsNotPermittedAfterOneReauth() async throws {
+        let client = makeClient()
+        _ = try await authenticateSuccessfully(client, token: "token-1")
+
+        var deleteRequestCount = 0
+        var reauthRequestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Items/item-1":
+                deleteRequestCount += 1
+                return MockURLProtocol.jsonResponse(for: request, status: 401, body: Self.jellyfinHTML401Body)
+            case "/Users/AuthenticateByName":
+                reauthRequestCount += 1
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: AuthenticationResult(user: UserDto(id: "user-1", name: "demo"), accessToken: "token-2")
+                )
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+        }
+
+        do {
+            try await client.deleteItem(itemID: "item-1")
+            XCTFail("Expected .notPermitted")
+        } catch JellyfinAPIError.notPermitted {
+            // expected
+        } catch {
+            XCTFail("Expected .notPermitted, got \(error)")
+        }
+
+        // The original attempt plus exactly one retry — not the five a
+        // full-budget request would have made.
+        XCTAssertEqual(deleteRequestCount, 2)
+        XCTAssertEqual(reauthRequestCount, 1)
+    }
+
+    /// The reduced budget is scoped to `deleteItem` and must not have
+    /// quietly become everyone's behavior.
+    func test_otherRequests_keepFullReauthBudget() async throws {
+        let client = makeClient()
+        _ = try await authenticateSuccessfully(client, token: "token-1")
+
+        var viewsRequestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Views":
+                viewsRequestCount += 1
+                return MockURLProtocol.jsonResponse(for: request, status: 401, body: Self.jellyfinHTML401Body)
+            case "/Users/AuthenticateByName":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: AuthenticationResult(user: UserDto(id: "user-1", name: "demo"), accessToken: "token-2")
+                )
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+        }
+
+        do {
+            _ = try await client.userViews(userID: "user-1")
+            XCTFail("Expected .notAuthenticated")
+        } catch JellyfinAPIError.notAuthenticated {
+            // expected — and notably *not* `.notPermitted`
+        } catch {
+            XCTFail("Expected .notAuthenticated, got \(error)")
+        }
+        XCTAssertEqual(viewsRequestCount, 5)
+    }
+
+    /// `CanDelete` and `RecursiveItemCount` have to actually be asked for —
+    /// Jellyfin leaves both `nil` otherwise, which would silently hide the
+    /// delete affordance from everyone.
+    func test_item_requestsCanDeleteAndRecursiveItemCountFields() async throws {
+        let client = makeClient(accessToken: "tok")
+        // Captured and asserted *after* the request, rather than inside the
+        // handler — the same shape `test_pingDownloadTranscode...` uses.
+        var capturedRequest: URLRequest?
+        MockURLProtocol.requestHandler = { request in
+            capturedRequest = request
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request,
+                value: BaseItemDto(id: "item-1", name: "Movie", type: .movie)
+            )
+        }
+
+        _ = try await client.item(userID: "user-1", itemID: "item-1")
+
+        let components = capturedRequest?.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        let fields = components?.queryItems?.first { $0.name == "Fields" }?.value ?? ""
+        XCTAssertTrue(fields.contains("CanDelete"), "Fields was \(fields)")
+        XCTAssertTrue(fields.contains("RecursiveItemCount"), "Fields was \(fields)")
+    }
+
     // MARK: Genres & Studios (Home's dynamic rail discovery)
 
     func test_genres_requestsExpectedPathAndScopesByIncludeItemTypes() async throws {

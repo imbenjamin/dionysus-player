@@ -234,9 +234,11 @@ pattern, since ViewModels are constructed with an already-built client
   covering auth, Home, the collection grid's sort/filter/random controls,
   all four asset-detail layouts, search, the player (transport, the track
   picker, the chapter picker), Downloads (enqueue → complete → bulk delete),
-  Profile's two account actions, and the `serverError`/`unauthorized`/
-  `offline` scenarios, plus a `performAccessibilityAudit()` pass over every
-  screen — 47 tests across the smoke plan and the full plan, run against
+  Profile's two account actions, server-side deletion (the permission gate
+  in both directions, the confirmation warning, and delete → pop → gone from
+  the grid), and the `serverError`/`unauthorized`/`offline` scenarios, plus a
+  `performAccessibilityAudit()` pass over every
+  screen — 51 tests across the smoke plan and the full plan, run against
   both an iPhone and an iPad nightly. What the audits deliberately do *not*
   gate on is contrast, Dynamic Type and text clipping; those are real
   findings but design-level ones, and they are recorded with counts under
@@ -402,7 +404,22 @@ already uses, so no production refactor was needed. `RemoteImageLoader` and
 and encoded with `JellyfinJSON.encoder` rather than checked in as JSON, so a
 DTO change is a compile error instead of a silent rot. Scenarios
 (`-UITestScenario`) cover `standard`, `emptyLibrary`, `serverError`,
-`unauthorized` and `offline`.
+`unauthorized`, `offline` and `noDeletePermission`.
+
+`noDeletePermission` is the standard catalogue with `CanDelete` cleared on
+every item and any `DELETE` refused — the signed-in user who simply isn't
+allowed to delete anything, which is what gates `DeleteAssetButton`. It
+exists as a *scenario* rather than a second set of fixtures so both halves of
+the permission gate come from one catalogue.
+
+Deletion is also the one place the stub carries state: `DELETE /Items/{id}`
+records the id, and every list route filters deleted ids out afterwards
+(cascading to a show's seasons and episodes, as the real server does), so a
+journey can assert the item is genuinely gone rather than that one request
+returned 204. It's per-process, so each test's fresh launch starts clean. It
+is also the only route matched on HTTP *method* as well as path — without
+that, a `DELETE` would fall through to the item-lookup route and be answered
+with a JSON body.
 
 Downloads are the one path where the stub has to serve *real media bytes*
 rather than JSON, and they can't be arbitrary ones:

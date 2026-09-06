@@ -241,6 +241,12 @@ enum UITestFixtureLibrary {
         item.imageTags = ["Primary": "\(id)-primary", "Thumb": "\(id)-thumb", "Logo": "\(id)-logo"]
         item.backdropImageTags = ["\(id)-backdrop"]
         item.mediaType = "Video"
+        // The fixture user can delete everything, so a deletion journey has
+        // something to act on. `UITestStubURLProtocol` clears this for the
+        // `.noDeletePermission` scenario, which is how the "button is hidden
+        // without permission" half of the gate is covered from this one
+        // catalogue rather than a parallel set of fixtures.
+        item.canDelete = true
         return item
     }
 

@@ -82,6 +82,22 @@ struct AssetDetailView: View {
             // `viewModel`, not a toolbar item or a sub-view that might not
             // get its own `.onDisappear` as predictably.
             .onDisappear { viewModel.cancelBackgroundWork() }
+            // Something was deleted from the server — possibly by the page
+            // that was, until a moment ago, sitting on top of this one. See
+            // `DeletedItemBroadcaster`: popping back to a parent doesn't
+            // refresh it, so without this a show page keeps listing the
+            // episode the user just deleted from it. Guarded on the page
+            // having actually loaded, so this can't fire a refresh at a
+            // view model that hasn't loaded anything yet.
+            .onChange(of: DeletedItemBroadcaster.shared.token) {
+                // Skip when the thing deleted is what *this* page is showing:
+                // that page is on its way out (`DeletionOutcome.popOneLevel`),
+                // and re-fetching an item the server no longer has would just
+                // be a guaranteed 404 on the way to dismissal.
+                guard let shown = viewModel.item?.id,
+                      shown != DeletedItemBroadcaster.shared.lastDeletedItemID else { return }
+                viewModel.track(Task { await viewModel.refreshItem() })
+            }
     }
 
     /// Keyed on whether `viewModel.item` exists at all, not on `loadState`

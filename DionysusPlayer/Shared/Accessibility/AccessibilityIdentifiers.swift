@@ -134,6 +134,27 @@ enum A11yID {
         /// same "the action stays put, only the label changes" shape
         /// `playButton` above already uses for Play/Resume.
         static let downloadButton = "assetDetail.downloadButton"
+
+        /// `DeleteAssetButton`'s tap target — present only when the server
+        /// says this user may delete this item (`MediaItem.canDelete`), so a
+        /// UI test asserting its *absence* is asserting the permission gate,
+        /// not just a missing view. One identifier covers both its forms:
+        /// the plain button on a movie, and the Show/Season/Episode menu on
+        /// a show page.
+        static let deleteButton = "assetDetail.deleteButton"
+
+        /// The destructive confirm action inside the deletion dialog. Needed
+        /// separately from `deleteButton` because the dialog's own button
+        /// would otherwise be matched by title alone — and, per
+        /// `Screens.swift`, an `app.buttons[...]` subscript matches labels as
+        /// well as identifiers, so the row that raised the dialog collides
+        /// with the dialog's own button without one.
+        static let deleteConfirmButton = "assetDetail.deleteConfirmButton"
+
+        /// The dialog's "also remove the downloaded copy" action, offered
+        /// only when a local download of the target actually exists.
+        static let deleteWithDownloadButton = "assetDetail.deleteWithDownloadButton"
+
     }
 
     enum Player {

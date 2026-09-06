@@ -68,6 +68,23 @@ final class UITestStubURLProtocol: URLProtocol {
             return
         }
 
+        // Deletion is the one route that has to be matched on *method* as
+        // well as path — `DELETE /Items/{id}` would otherwise fall through
+        // to the `/Users/.../Items/{id}` item lookup below and answer a
+        // deletion with a JSON item body.
+        if request.httpMethod == "DELETE", let itemID = Self.deletedItemID(forPath: path) {
+            // Mirrors the real server: refuse when this user has no delete
+            // rights, with Jellyfin's own (surprising) 401 rather than a
+            // 403 — see `JellyfinAPIClient.deleteItem`.
+            guard scenario != .noDeletePermission else {
+                finish(.success((401, Data("{}".utf8), "application/json")))
+                return
+            }
+            Self.recordDeletion(of: itemID)
+            finish(.success((204, Data(), "application/json")))
+            return
+        }
+
         do {
             let body = try Self.body(forPath: path, query: query, request: request)
             finish(.success((200, body, "application/json")))
@@ -98,6 +115,60 @@ final class UITestStubURLProtocol: URLProtocol {
     /// own queues, so this is guarded by `lock` rather than by isolation.
     nonisolated(unsafe) private static var challengedPaths: Set<String> = []
     private static let lock = NSLock()
+
+    /// Items deleted during this app session.
+    ///
+    /// The fixture library is otherwise immutable, which is fine for every
+    /// read-only journey — but a deletion test's whole point is that the
+    /// item is *gone* afterwards, so the stub has to carry that much state.
+    /// Deliberately the minimum: a set of ids filtered out of every
+    /// subsequent response (`scoped`), rather than a mutable copy of the
+    /// catalogue. Process-lifetime, so each test's fresh app launch starts
+    /// clean without needing an explicit reset.
+    ///
+    /// `nonisolated(unsafe)` + `lock` for the same reason as
+    /// `challengedPaths` above.
+    nonisolated(unsafe) private static var deletedItemIDs: Set<String> = []
+
+    /// The item id in a `DELETE /Items/{id}`, or `nil` if this isn't that
+    /// route. Matched precisely rather than with `contains("/Items/")` so a
+    /// path like `/Users/{id}/Items/{id}` can't be mistaken for it.
+    private static func deletedItemID(forPath path: String) -> String? {
+        let components = path.split(separator: "/", omittingEmptySubsequences: true)
+        guard components.count == 2, components[0] == "Items" else { return nil }
+        return String(components[1])
+    }
+
+    private static func recordDeletion(of itemID: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        deletedItemIDs.insert(itemID)
+        // Deleting a season or show takes its episodes with it, exactly as
+        // the real server does — otherwise a "the show is now empty" journey
+        // would still see every episode.
+        for episode in UITestFixtureLibrary.episodes
+        where episode.seasonId == itemID || episode.seriesId == itemID {
+            deletedItemIDs.insert(episode.id)
+        }
+        for season in UITestFixtureLibrary.seasons where season.seriesId == itemID {
+            deletedItemIDs.insert(season.id)
+        }
+    }
+
+    private static func isDeleted(_ itemID: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return deletedItemIDs.contains(itemID)
+    }
+
+    /// Episodes still present under a series — what the app's own
+    /// "did that leave the show empty?" check reads back as
+    /// `RecursiveItemCount`.
+    private static func remainingEpisodeCount(seriesID: String) -> Int {
+        UITestFixtureLibrary.episodes
+            .filter { $0.seriesId == seriesID && !isDeleted($0.id) }
+            .count
+    }
 
     /// Whether the posted body's password matches the fixture credential —
     /// the whole check a "bad credentials" login journey needs. Any body
@@ -135,7 +206,10 @@ final class UITestStubURLProtocol: URLProtocol {
     private static func scenarioFailure(scenario: UITestScenario, path: String) -> Int? {
         guard !isInfrastructurePath(path) else { return nil }
         switch scenario {
-        case .standard, .emptyLibrary, .offline:
+        // `.noDeletePermission` fails nothing wholesale — it's the standard
+        // catalogue with `canDelete` cleared, and only `DELETE` itself
+        // refused (handled in `startLoading`, which needs the method).
+        case .standard, .emptyLibrary, .offline, .noDeletePermission:
             return nil
         case .serverError:
             return 500
@@ -244,8 +318,19 @@ final class UITestStubURLProtocol: URLProtocol {
         case path.contains("/Users/") && path.contains("/Items/") && !path.hasSuffix("/Items"):
             let itemID = path.components(separatedBy: "/Items/").last?
                 .components(separatedBy: "/").first ?? ""
-            guard let item = library.allItems[itemID] else { throw UnroutedPath(path: path) }
-            return try encode(item)
+            guard let item = library.allItems[itemID], !isDeleted(itemID) else {
+                throw UnroutedPath(path: path)
+            }
+            var resolved = applyDeletePermission(item)
+            // The count the app re-reads after a deletion to decide whether
+            // the show still has anything in it — see
+            // `AssetDetailViewModel.resolveDeletionOutcome(for:)`. Computed
+            // live rather than baked into the fixture, so it actually falls
+            // as episodes are deleted.
+            if resolved.type == .series {
+                resolved.recursiveItemCount = remainingEpisodeCount(seriesID: itemID)
+            }
+            return try encode(resolved)
 
         case path.hasSuffix("/Items"):
             return try encode(result(items(matching: query)))
@@ -382,8 +467,27 @@ final class UITestStubURLProtocol: URLProtocol {
 
     /// `.emptyLibrary` empties every collection at the last possible moment,
     /// so each route keeps its real shape and only the contents change.
+    ///
+    /// Anything deleted this session drops out here too, for the same
+    /// reason — one choke point every list route already passes through, so
+    /// a deleted item can't reappear in a rail, grid, season list or search
+    /// result. `.noDeletePermission` additionally clears `canDelete`, which
+    /// is what makes the affordance vanish app-wide for that scenario.
     private static func scoped(_ items: [BaseItemDto]) -> [BaseItemDto] {
-        UITestConfiguration.scenario == .emptyLibrary ? [] : items
+        guard UITestConfiguration.scenario != .emptyLibrary else { return [] }
+        return items
+            .filter { !isDeleted($0.id) }
+            .map(applyDeletePermission)
+    }
+
+    /// The fixtures are built deletable (see `UITestFixtureLibrary.base`);
+    /// this is what takes that away for the no-permission scenario, so both
+    /// halves of the gate are exercised from one catalogue rather than two.
+    private static func applyDeletePermission(_ item: BaseItemDto) -> BaseItemDto {
+        guard UITestConfiguration.scenario == .noDeletePermission else { return item }
+        var copy = item
+        copy.canDelete = false
+        return copy
     }
 
     private static func result(_ items: [BaseItemDto]) -> BaseItemDtoQueryResult {

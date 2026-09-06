@@ -267,79 +267,21 @@ struct HeroActionButtons: View {
         viewModel.track(Task { await viewModel.toggleWatched(itemID: target.id, currentlyWatched: currentlyWatched) })
     }
 
-    /// Same circular chrome as `ResetFiltersButton` (`CollectionGridView`) —
-    /// real Liquid Glass on iOS 26, a plain filled circle as the pre-26
-    /// fallback — sized to match the system back button it sits opposite.
+    /// The circular glyph chrome, shared with `DeleteAssetButton` via
+    /// `HeroToolbarGlyph` — see that type's doc comment for the reasoning
+    /// behind every value in it (glyph weight, the deliberate absence of an
+    /// explicit color on iOS 26, and the fixed 44pt tap target).
+    ///
+    /// `tint`, when non-`nil`, is the one case a glyph here sets an explicit
+    /// color — see the call sites (`favoriteButton`/`watchedButton`) for
+    /// when that is: only once the glyph itself is already in its
+    /// active/filled shape (`star.fill`, watched `eye.fill`), mirroring the
+    /// same brand colours `PosterCard.watchStatusOverlay` badges rail items
+    /// with. `nil` (the inactive glyph) leaves it unset.
+    ///
     /// `isPending` swaps the glyph for a spinner, same size, without
     /// changing the surrounding chrome — see this type's doc comment for why.
-    ///
-    /// `tint`, when non-`nil`, is the one exception to "no explicit
-    /// `.foregroundStyle`" below — see the caller sites (`favoriteButton`/
-    /// `watchedButton`) for when that is: only once the glyph itself is
-    /// already in its active/filled shape (`star.fill`, watched `eye.fill`),
-    /// mirroring the same brand colours `PosterCard.watchStatusOverlay`
-    /// badges rail items with. `nil` (the inactive glyph) falls through to
-    /// the no-tint behaviour below, unchanged.
-    ///
-    /// Otherwise deliberately no explicit `.foregroundStyle`/`.tint` on the
-    /// glyph (iOS 26 branch only) — a hardcoded black glyph was tried first,
-    /// on the assumption it'd match the back button's chevron, but that
-    /// button doesn't set an explicit color either, and confirmed live
-    /// (2026-08-11) that's exactly why it — unlike this button once it *did*
-    /// hardcode black — stays legible over both a light and a dark patch of
-    /// the scrolling hero image: real `.glassEffect` content is
-    /// automatically tinted for contrast against whatever's currently
-    /// behind the glass, the same Liquid Glass vibrancy the system back
-    /// button gets for free. Forcing `.black` (or `.white`) defeats that and
-    /// pins the glyph to one color regardless of what's under it. The pre-26
-    /// fallback below has no such live-contrast mechanism to defer to —
-    /// `.primary` there just tracks light/dark *mode*, not the image behind
-    /// it — so it keeps an explicit color (overridden by `tint` when set)
-    /// chosen to read clearly against its own opaque background fill
-    /// instead.
-    ///
-    /// `.body`/`.medium` — not the `20pt`/`.semibold` this started at —
-    /// after direct feedback that the original read as too thick/heavy to
-    /// pass for native chrome: the back button's own chevron (and this
-    /// glyph's closest real-world equivalent, the favorite/watched icons in
-    /// Apple's own Podcasts/TV apps) sit closer to this weight, with more
-    /// glyph-to-circle breathing room than a bigger/bolder glyph leaves.
-    /// The 44pt frame stays fixed either way — shrinking the glyph doesn't
-    /// shrink the tap target, just how much of the circle it visually fills.
-    @ViewBuilder
     private func icon(_ systemName: String, tint: Color? = nil, isPending: Bool) -> some View {
-        if #available(iOS 26.0, *) {
-            Group {
-                if isPending {
-                    ProgressView()
-                } else if let tint {
-                    Image(systemName: systemName)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(tint)
-                } else {
-                    Image(systemName: systemName)
-                        .font(.body.weight(.medium))
-                }
-            }
-            .frame(width: 44, height: 44)
-            .glassEffect(.regular.interactive(), in: Circle())
-        } else {
-            // Matches `ResetFiltersButton`'s pre-26 fallback — a light fill
-            // a black glyph reads clearly against, not the dark fill this
-            // used before the glyph itself switched from white to black.
-            Group {
-                if isPending {
-                    ProgressView()
-                        .tint(.black)
-                } else {
-                    Image(systemName: systemName)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(tint ?? .black)
-                }
-            }
-            .frame(width: 44, height: 44)
-            .background(Color(.secondarySystemBackground))
-            .clipShape(Circle())
-        }
+        HeroToolbarGlyph(systemName: systemName, tint: tint, isPending: isPending)
     }
 }

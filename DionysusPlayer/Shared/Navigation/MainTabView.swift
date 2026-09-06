@@ -73,6 +73,11 @@ struct MainTabView: View {
                 HomeView(isActiveTab: selectedTab == .home, path: $homePath)
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
             }
+            // Only the stack's owner can unwind it — see
+            // `EnvironmentValues.popNavigationToRoot`. Emptying `homePath`
+            // also trips `HomeView`'s existing pop-to-root soft refresh, so
+            // a screen removed by a deletion doesn't linger on Home either.
+            .environment(\.popNavigationToRoot) { homePath.removeAll() }
             // See `stableContentTint()` — keeps this stack's own toolbars
             // off the tab bar's artwork-derived tint. Applied to the
             // stack, not its content: a navigation bar resolves its tint
@@ -94,6 +99,7 @@ struct MainTabView: View {
                 SearchView(path: $searchPath, resetToken: searchResetToken)
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
             }
+            .environment(\.popNavigationToRoot) { searchPath.removeAll() }
             .stableContentTint()
             .tabItem { Label("Search", systemImage: "magnifyingglass").accessibilityIdentifier(A11yID.Tabs.search) }
             .tag(MainTab.search)

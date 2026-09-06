@@ -341,6 +341,30 @@ struct MediaItem: Identifiable {
 
     var isFavorite: Bool { dto.userData?.isFavorite ?? false }
 
+    /// Whether this user may delete this item from the server — gates the
+    /// detail page's delete affordance entirely (`DeleteAssetButton`).
+    ///
+    /// Defaults to `false` when absent, and "absent" is the common case: the
+    /// underlying `CanDelete` field is only requested by
+    /// `JellyfinAPIClient.detailFields`, so any `MediaItem` built from a
+    /// rail/grid payload reports `false` until the detail fetch replaces it.
+    /// That's the deliberate direction to fail in — a delete button that
+    /// appears a beat late is a cosmetic nit, one that appears for someone
+    /// who can't actually delete is a broken promise (and, because Jellyfin
+    /// answers permission-denied with 401, an expensive one — see
+    /// `JellyfinAPIClient.deleteItem`).
+    var canDelete: Bool { dto.canDelete ?? false }
+
+    /// Total episodes beneath a Series or Season, for the deletion
+    /// confirmation's "will delete all {n} episodes" wording. `nil` when the
+    /// server didn't supply it (only `Fields=RecursiveItemCount` populates
+    /// it), which the confirmation copy falls back to count-free wording for
+    /// rather than guessing or showing a zero.
+    ///
+    /// Not interchangeable with `dto.childCount`: on a Series that's the
+    /// number of *seasons*.
+    var episodeCount: Int? { dto.recursiveItemCount }
+
     /// True when the user has started but not finished this item. For movies,
     /// that's a mid-playback position; for shows, some-but-not-all episodes
     /// watched (Jellyfin surfaces both as `playedPercentage`).

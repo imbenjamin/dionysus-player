@@ -49,6 +49,13 @@ struct CollectionGridView: View {
             ToolbarItem(placement: .topBarTrailing) { randomButton }
         }
         .task { await setUpIfNeeded() }
+        // An item deleted from its detail page shouldn't still have a tile
+        // here when the user pops back onto this grid — see
+        // `DeletedItemBroadcaster`.
+        .onChange(of: DeletedItemBroadcaster.shared.token) {
+            guard let itemID = DeletedItemBroadcaster.shared.lastDeletedItemID else { return }
+            viewModel?.removeDeletedItem(itemID: itemID)
+        }
     }
 
     /// Jumps straight to a uniformly-random item out of whatever's currently
