@@ -1316,6 +1316,18 @@ struct PlayerControlsOverlay: View {
             }
             .padding(.horizontal)
             .padding(.bottom, 12)
+            // Same `.ignore` + explicit-label shape `HeroRailView`'s card
+            // and `ProfileView`'s account row already use. Necessary here
+            // specifically because the logo *replaces* the title text when
+            // one exists: `LogoImageView`/`LocalFileImage` render a bare
+            // `Image` with no label of its own, so a VoiceOver user got no
+            // name at all for what was playing — the one thing this row
+            // exists to say. Caught by `AccessibilityAuditTests`
+            // ("missing useful accessibility information" on an unlabeled
+            // image). `accessibilityDescription` already composes the
+            // title-plus-episode line this row shows visually.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(item.accessibilityDescription)
         }
     }
 
