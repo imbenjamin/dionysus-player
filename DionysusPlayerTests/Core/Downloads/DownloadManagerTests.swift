@@ -370,7 +370,15 @@ final class DownloadManagerTests: XCTestCase {
     private func makeManagerWithFakeStarter(
         store: DownloadStore, maxConcurrentDownloads limit: Int, started: @escaping (String) -> Void = { _ in }
     ) -> DownloadManager {
-        DownloadManager(store: store, preferences: makePreferences(maxConcurrentDownloads: limit)) { itemID, _, _ in started(itemID) }
+        DownloadManager(
+            store: store,
+            preferences: makePreferences(maxConcurrentDownloads: limit),
+            // Zero backoff so the automatic-retry tests exercise the budget
+            // and the accounting without actually waiting; two steps, so the
+            // third failure is the one past the budget.
+            automaticRetryBackoff: [.zero, .zero],
+            startVideoDownloadOverride: { itemID, _, _ in started(itemID) }
+        )
     }
 
     func test_queueVideoDownload_underLimit_admitsImmediately() {
@@ -382,7 +390,8 @@ final class DownloadManagerTests: XCTestCase {
         manager.queueVideoDownload(itemID: "item-1")
 
         XCTAssertEqual(store.item(itemID: "item-1")?.status, .downloading)
-        XCTAssertNil(store.item(itemID: "item-1")?.pendingDownloadURLString, "consumed once admitted")
+        XCTAssertNotNil(store.item(itemID: "item-1")?.pendingDownloadURLString,
+                        "retained past admission so an automatic transport retry can re-arm the transfer without re-running the enqueue prep")
     }
 
     /// The core new behavior: once the limit is reached, further items stay
@@ -470,11 +479,14 @@ final class DownloadManagerTests: XCTestCase {
     /// The core regression this session fixed: deleting a row that's
     /// actually `.downloading` (a real background session started) must
     /// cancel that session, not just drop this manager's own bookkeeping —
-    /// see `DownloadManager.delete(itemID:)`'s own doc comment for the real
-    /// bug (an orphaned background session left an identifier the OS still
-    /// considered "in use", so a same-day re-download of the same item got
-    /// its brand-new session's task cancelled almost immediately).
-    func test_delete_downloadingItem_cancelsItsSession() {
+    /// see `DownloadManager.delete(itemID:)`'s own doc comment. The bug
+    /// this originally fixed (an orphaned background session left an
+    /// identifier the OS still considered "in use", so a same-day
+    /// re-download got its brand-new session's task cancelled almost
+    /// immediately) can no longer happen at all now that identifiers aren't
+    /// per-item — but a deleted row's transfer must still actually stop, or
+    /// it goes on writing bytes into a directory this deletion removed.
+    func test_delete_downloadingItem_cancelsItsTask() {
         let store = DownloadTestHelpers.makeInMemoryStore()
         var cancelledItemIDs: [String] = []
         let manager = DownloadManager(
@@ -517,23 +529,212 @@ final class DownloadManagerTests: XCTestCase {
 
     // MARK: background session configuration (Wi-Fi Only enforcement)
 
-    /// `DownloadPreferencesStore.wifiOnly` used to be surfaced in Settings
-    /// but never actually consulted anywhere in the download path — a
-    /// background session's `allowsCellularAccess` silently defaulted to
-    /// `true` regardless. `makeBackgroundConfiguration` is a pure function
-    /// over its arguments, so this covers the wiring directly without a
-    /// real background `URLSession`.
-    func test_makeBackgroundConfiguration_wifiOnly_disallowsCellularAccess() {
-        let configuration = DownloadManager.makeBackgroundConfiguration(identifier: "test-identifier", allowsCellularAccess: false)
+    /// The whole point of the single-session change: the app hands
+    /// `nsurlsessiond` exactly one background session identifier, not one
+    /// per item. A per-item identifier is what churned sessions through the
+    /// daemon and produced `NSURLErrorBackgroundSessionWasDisconnected`
+    /// (-997) — see `DownloadTaskRouter`'s doc comment. This is the
+    /// assertion that fails loudly if that ever gets reintroduced.
+    func test_makeBackgroundConfiguration_usesOneFixedIdentifierNotOnePerItem() {
+        let first = DownloadManager.makeBackgroundConfiguration()
+        let second = DownloadManager.makeBackgroundConfiguration()
 
-        XCTAssertFalse(configuration.allowsCellularAccess)
-        XCTAssertTrue(configuration.waitsForConnectivity, "a Wi-Fi-only transfer should defer until Wi-Fi is available, not fail outright")
+        XCTAssertEqual(first.identifier, second.identifier, "every download must share one background session identifier")
+        XCTAssertEqual(first.identifier, "com.dionysus.downloads")
     }
 
-    func test_makeBackgroundConfiguration_wifiOnlyDisabled_allowsCellularAccess() {
-        let configuration = DownloadManager.makeBackgroundConfiguration(identifier: "test-identifier", allowsCellularAccess: true)
+    /// Cellular is permitted at the *session* level now and gated per
+    /// request instead — a session that lives for the whole process can't
+    /// have its configuration rewritten when the Wi-Fi Only toggle flips.
+    /// See `test_makeFetchRequest_*` below for where the gate actually lives.
+    func test_makeBackgroundConfiguration_waitsForConnectivityAndDefersTheCellularGate() {
+        let configuration = DownloadManager.makeBackgroundConfiguration()
 
-        XCTAssertTrue(configuration.allowsCellularAccess)
+        XCTAssertTrue(configuration.waitsForConnectivity, "a Wi-Fi-only transfer should defer until Wi-Fi is available, not fail outright")
+        XCTAssertTrue(configuration.allowsCellularAccess, "gated per request, not per session")
+    }
+
+    // MARK: automatic retry of transient transport failures — the -997
+    // ("Lost connection to the background transfer service") bug. A
+    // background transfer can die for reasons that say nothing about
+    // whether the download can succeed; those are re-armed rather than
+    // failed. See `DownloadTaskRouter`'s doc comment for the root cause and
+    // `DownloadManager.resolveFailedDownload` for the policy.
+
+    func test_isRetryableTransportError_backgroundSessionDisconnected_isRetryable() {
+        XCTAssertTrue(DownloadManager.isRetryableTransportError(URLError(.backgroundSessionWasDisconnected)))
+        XCTAssertTrue(DownloadManager.isRetryableTransportError(URLError(.backgroundSessionInUseByAnotherProcess)))
+        XCTAssertTrue(DownloadManager.isRetryableTransportError(URLError(.networkConnectionLost)))
+        XCTAssertTrue(DownloadManager.isRetryableTransportError(URLError(.timedOut)))
+    }
+
+    /// A force-quit cancels background transfers by design. Silently
+    /// restarting a transcode the user may not still want would be worse
+    /// than reporting it, so -999 is deliberately not retryable.
+    func test_isRetryableTransportError_cancelled_isNotRetryable() {
+        XCTAssertFalse(DownloadManager.isRetryableTransportError(URLError(.cancelled)))
+    }
+
+    /// The server answered and said no — retrying just asks again.
+    func test_isRetryableTransportError_serverAndAppErrors_areNotRetryable() {
+        XCTAssertFalse(DownloadManager.isRetryableTransportError(DownloadTransferError.badStatus(404)))
+        XCTAssertFalse(DownloadManager.isRetryableTransportError(DownloadError.invalidDownloadURL))
+    }
+
+    /// The literal regression test for the reported bug: a -997 must never
+    /// reach the user as iOS's own "Lost connection to the background
+    /// transfer service" string.
+    func test_friendlyDownloadFailureMessage_backgroundSessionDisconnected_isNotTheRawSystemString() {
+        let error = URLError(.backgroundSessionWasDisconnected)
+        let message = DownloadManager.friendlyDownloadFailureMessage(for: error)
+
+        XCTAssertNotEqual(message, error.localizedDescription, "the raw system string is what users were reporting")
+        XCTAssertFalse(message.contains("background transfer service"), "an OS-internal component name means nothing to a user")
+        XCTAssertTrue(message.contains("Try downloading again."))
+    }
+
+    func test_retryableFailure_reArmsTheRowWithoutFailingIt() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        var startedOrder: [String] = []
+        let manager = makeManagerWithFakeStarter(store: store, maxConcurrentDownloads: 1) { startedOrder.append($0) }
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .queued, pendingDownloadURLString: "https://example.com/1"))
+        manager.queueVideoDownload(itemID: "item-1")
+
+        manager.test_simulateDownloadFailed(itemID: "item-1", error: URLError(.backgroundSessionWasDisconnected))
+
+        XCTAssertEqual(store.item(itemID: "item-1")?.status, .queued, "a transport failure must not surface as a failed download")
+        XCTAssertNil(store.item(itemID: "item-1")?.errorMessage)
+        await waitForRetry()
+        XCTAssertEqual(startedOrder, ["item-1", "item-1"], "the transfer must be re-armed from the URL the row still carries")
+    }
+
+    /// Once the budget is spent the row does fail — visibly, and with real
+    /// wording rather than the raw system string.
+    func test_retryableFailure_exhaustedBudget_failsWithAWrittenMessage() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = makeManagerWithFakeStarter(store: store, maxConcurrentDownloads: 1)
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .queued, pendingDownloadURLString: "https://example.com/1"))
+        manager.queueVideoDownload(itemID: "item-1")
+
+        // Two backoff steps are injected by `makeManagerWithFakeStarter`, so
+        // the third failure is the one past the budget.
+        for _ in 0..<3 {
+            manager.test_simulateDownloadFailed(itemID: "item-1", error: URLError(.backgroundSessionWasDisconnected))
+            await waitForRetry()
+        }
+
+        XCTAssertEqual(store.item(itemID: "item-1")?.status, .failed)
+        let message = store.item(itemID: "item-1")?.errorMessage ?? ""
+        XCTAssertFalse(message.isEmpty)
+        XCTAssertNotEqual(message, URLError(.backgroundSessionWasDisconnected).localizedDescription)
+        XCTAssertFalse(message.contains("background transfer service"))
+    }
+
+    func test_cancelledFailure_failsImmediatelyWithoutRetrying() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        var startedOrder: [String] = []
+        let manager = makeManagerWithFakeStarter(store: store, maxConcurrentDownloads: 1) { startedOrder.append($0) }
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .queued, pendingDownloadURLString: "https://example.com/1"))
+        manager.queueVideoDownload(itemID: "item-1")
+
+        manager.test_simulateDownloadFailed(itemID: "item-1", error: URLError(.cancelled))
+        await waitForRetry()
+
+        XCTAssertEqual(store.item(itemID: "item-1")?.status, .failed)
+        XCTAssertEqual(startedOrder, ["item-1"], "a genuine cancellation must not be re-armed")
+    }
+
+    /// The re-arm must not hold its concurrency slot across the backoff, or
+    /// a queue behind it stalls for the whole window.
+    func test_retryableFailure_freesTheSlotForTheNextQueuedItem() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        var startedOrder: [String] = []
+        let manager = makeManagerWithFakeStarter(store: store, maxConcurrentDownloads: 1) { startedOrder.append($0) }
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .queued, pendingDownloadURLString: "https://example.com/1"))
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-2", status: .queued, pendingDownloadURLString: "https://example.com/2"))
+        manager.queueVideoDownload(itemID: "item-1")
+        manager.queueVideoDownload(itemID: "item-2")
+
+        manager.test_simulateDownloadFailed(itemID: "item-1", error: URLError(.networkConnectionLost))
+
+        XCTAssertEqual(startedOrder, ["item-1", "item-2"], "the freed slot must go to the next queued item immediately")
+        await waitForRetry()
+        XCTAssertEqual(store.item(itemID: "item-1")?.status, .queued, "item-1 waits its turn behind item-2 rather than jumping the queue")
+    }
+
+    func test_deleteDuringBackoff_cancelsTheScheduledRetry() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        var startedOrder: [String] = []
+        let manager = makeManagerWithFakeStarter(store: store, maxConcurrentDownloads: 1) { startedOrder.append($0) }
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .queued, pendingDownloadURLString: "https://example.com/1"))
+        manager.queueVideoDownload(itemID: "item-1")
+        manager.test_simulateDownloadFailed(itemID: "item-1", error: URLError(.backgroundSessionWasDisconnected))
+
+        manager.delete(itemID: "item-1")
+        await waitForRetry()
+
+        XCTAssertNil(store.item(itemID: "item-1"))
+        XCTAssertEqual(startedOrder, ["item-1"], "a deleted row must not be re-armed by a retry already in flight")
+    }
+
+    /// `didFinishDownloadingTo` and `didCompleteWithError` can both fire for
+    /// one task. The failure lands second and used to win the status write,
+    /// flipping a genuinely completed download to failed — and freeing the
+    /// concurrency slot twice.
+    func test_doubleCompletionReport_doesNotFreeTheSlotTwice() {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        var startedOrder: [String] = []
+        let manager = makeManagerWithFakeStarter(store: store, maxConcurrentDownloads: 1) { startedOrder.append($0) }
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .queued, pendingDownloadURLString: "https://example.com/1"))
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-2", status: .queued, pendingDownloadURLString: "https://example.com/2"))
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-3", status: .queued, pendingDownloadURLString: "https://example.com/3"))
+        manager.queueVideoDownload(itemID: "item-1")
+        manager.queueVideoDownload(itemID: "item-2")
+        manager.queueVideoDownload(itemID: "item-3")
+
+        manager.test_simulateDownloadFinished(itemID: "item-1")
+        // The second report for the same task, arriving as a failure.
+        manager.test_simulateDownloadFailed(itemID: "item-1", error: URLError(.cancelled))
+
+        XCTAssertEqual(startedOrder, ["item-1", "item-2"], "one completion must free exactly one slot, not two")
+        XCTAssertEqual(store.item(itemID: "item-3")?.status, .queued)
+    }
+
+    /// The router derives a download's destination from its itemID rather
+    /// than capturing it, since one router now serves every download. That
+    /// derivation has to agree with what `enqueue` wrote on the row.
+    func test_videoFilePathMatchesTheRouterDerivedPath() {
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+
+        XCTAssertEqual(item.videoFilePath, DownloadFileStore.videoRelativePath(itemID: "item-1"))
+    }
+
+    /// Lets a scheduled retry `Task` (zero backoff, injected below) run.
+    private func waitForRetry() async {
+        for _ in 0..<10 { await Task.yield() }
+    }
+
+    // MARK: ad-hoc fetch requests (Wi-Fi Only enforcement, per request)
+
+    /// The artwork/subtitle/trickplay/chapter fetches alongside a download
+    /// used to be gated by rebuilding their whole `URLSession` on every
+    /// single access just to re-read `wifiOnly` — which leaked a session per
+    /// fetch. The gate moved onto the request instead, so one long-lived
+    /// session can still honor a mid-download preference change. Same
+    /// "pure function over its arguments" shape as
+    /// `makeBackgroundConfiguration` above, and covers the same wiring.
+    func test_makeFetchRequest_wifiOnly_disallowsCellularAndExpensiveAccess() {
+        let request = DownloadManager.makeFetchRequest(url: URL(string: "https://example.com/a.jpg")!, allowsCellularAccess: false)
+
+        XCTAssertFalse(request.allowsCellularAccess)
+        XCTAssertFalse(request.allowsExpensiveNetworkAccess, "a personal hotspot reports as expensive rather than cellular, and Wi-Fi Only should exclude it too")
+    }
+
+    func test_makeFetchRequest_wifiOnlyDisabled_allowsCellularAndExpensiveAccess() {
+        let request = DownloadManager.makeFetchRequest(url: URL(string: "https://example.com/a.jpg")!, allowsCellularAccess: true)
+
+        XCTAssertTrue(request.allowsCellularAccess)
+        XCTAssertTrue(request.allowsExpensiveNetworkAccess)
     }
 
     // MARK: durationValidationFailureReason — the Captain Phillips fix
