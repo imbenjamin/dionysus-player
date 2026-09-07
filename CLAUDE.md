@@ -26,6 +26,10 @@ still treat other paths (transcoding, non-Dolby-Vision HDR formats, other
 devices, seeking/scrubbing edge cases) as unverified until separately
 checked.
 
+**v1.0.0** was tagged from `stable` and submitted for Apple App Review on
+2026-09-07 — the app's first final (non-alpha/beta) release. See
+`VERSIONING.md` for the tag/promotion mechanics.
+
 ## Commands
 
 The Xcode project (`DionysusPlayer.xcodeproj`) is generated from `project.yml`
