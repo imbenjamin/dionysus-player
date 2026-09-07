@@ -1,0 +1,179 @@
+import SwiftUI
+
+/// Downloads settings, split out from `ProfileView` into its own pushed
+/// screen once the section grew a storage graph alongside its existing
+/// quality/network pickers — matches iOS Settings' own pattern of a summary
+/// row on the parent screen pushing to a dedicated sub-screen.
+///
+/// Reached only from `ProfileView`, via a plain `NavigationLink(destination:)`
+/// rather than a new `AppRoute` case — `AppRoute` is for destinations
+/// pushed from more than one feature's navigation stack, and this is only
+/// ever reached from within `ProfileView`'s own.
+///
+/// On iPad this isn't pushed at all: it's the root of the Downloads pane
+/// in `ProfileView`'s split layout, which is why `titleDisplayMode` is a
+/// parameter. A pushed sub-screen wants `.inline`, but as a detail-pane
+/// root it sits alongside Appearance/Playback/About, all of which get a
+/// large title — leaving it `.inline` there made it the odd one out.
+struct DownloadsSettingsView: View {
+    /// `.inline` when pushed (iPhone, and the row on iPad's own Downloads
+    /// pane); `.large` when it *is* the pane. See the type's doc comment.
+    var titleDisplayMode: NavigationBarItem.TitleDisplayMode = .inline
+
+    /// Default must stay in lockstep with `DownloadPreferencesStore.resolution`'s
+    /// own fallback — see that type's doc comment.
+    @AppStorage(downloadResolutionStorageKey) private var downloadResolution: DownloadResolution = .deviceClassDefault
+    @AppStorage(downloadBitratePresetStorageKey) private var downloadBitratePreset: DownloadBitratePreset = .normal
+    @AppStorage(downloadWifiOnlyStorageKey) private var downloadWifiOnly = true
+    /// Raw slider value — `0` is its own "Unlimited" position, past `10`.
+    /// Default `3`, matching `downloadMaxConcurrentStorageKey`'s own
+    /// fallback (see its doc comment for why 3, not Unlimited).
+    @AppStorage(downloadMaxConcurrentStorageKey) private var downloadMaxConcurrentRaw = 3
+
+    /// Recomputed on every `body` evaluation — a plain `FileManager`
+    /// directory scan plus a volume-capacity read, not cached or reactively
+    /// tied to `DownloadManager`. Fine for a settings screen visited
+    /// occasionally, and simpler than wiring a dedicated `@Observable` size
+    /// tracker just for this one screen.
+    private var storageBreakdown: DeviceStorageBreakdown? {
+        DeviceStorageBreakdown.current()
+    }
+
+    /// A fresh read on every access, same "cheap, always current" reasoning
+    /// as `storageBreakdown` above — picks up a ladder override made on the
+    /// pushed Advanced screen the moment this screen re-renders on return,
+    /// with no observation wiring needed.
+    private var qualityLadder: DownloadQualityLadderStore { DownloadQualityLadderStore() }
+
+    /// "Unlimited" at the slider's `0` position, else the plain count —
+    /// mirrors `DownloadPreferencesStore.maxConcurrentDownloads`'s own
+    /// `0`-means-unlimited mapping.
+    private var downloadMaxConcurrentDisplayText: String {
+        downloadMaxConcurrentRaw == 0 ? String(localized: "Unlimited") : "\(downloadMaxConcurrentRaw)"
+    }
+
+    /// Average runtimes used for the free-space estimate below — not
+    /// sourced from the server (this screen has no library loaded to
+    /// average over), just commonly-cited round figures, spelled out in the
+    /// disclaimer text next to the estimate so they're never taken as
+    /// measured fact.
+    private static let averageMovieMinutes = 114
+    private static let averageEpisodeMinutes = 45
+
+    /// How many movies/episodes of `minutes` runtime would fit in
+    /// `freeBytes` at the currently-selected resolution/quality — video +
+    /// audio bitrate (the same ladder `DownloadTranscodeCalculator`/
+    /// `JellyfinAPIClient.downloadStreamURL` actually transcode to) times
+    /// runtime, converted from bits to bytes. Deliberately doesn't account
+    /// for the "never upscale past the source" cap (`DownloadTranscodeCalculator
+    /// .target`) — this is a rough capacity estimate, not a prediction for
+    /// any specific title, so it assumes the selected tier is fully reached.
+    private func estimatedCount(minutes: Int, freeBytes: Int64) -> Int {
+        let bitsPerSecond = qualityLadder.videoBitrate(resolution: downloadResolution, preset: downloadBitratePreset) + downloadBitratePreset.audioBitrate
+        let bytesPerItem = Double(bitsPerSecond) / 8 * Double(minutes * 60)
+        guard bytesPerItem > 0 else { return 0 }
+        return Int(Double(freeBytes) / bytesPerItem)
+    }
+
+    private func freeSpaceEstimateText(freeBytes: Int64) -> String {
+        let movieCount = estimatedCount(minutes: Self.averageMovieMinutes, freeBytes: freeBytes)
+        let episodeCount = estimatedCount(minutes: Self.averageEpisodeMinutes, freeBytes: freeBytes)
+        return String(localized: "Free space for about \(movieCount) movies or \(episodeCount) TV episodes at the current download settings.")
+    }
+
+    var body: some View {
+        List {
+            Section {
+                Picker("Resolution", selection: $downloadResolution) {
+                    ForEach(DownloadResolution.allCases) { resolution in
+                        Text(resolution.pickerDisplayName).tag(resolution)
+                    }
+                }
+                Picker("Quality", selection: $downloadBitratePreset) {
+                    ForEach(DownloadBitratePreset.allCases) { preset in
+                        let bitrate = qualityLadder.videoBitrate(resolution: downloadResolution, preset: preset)
+                        Text(preset.displayName(bitrate: bitrate))
+                            .accessibilityLabel(preset.accessibilityDisplayName(bitrate: bitrate))
+                            .tag(preset)
+                    }
+                }
+                // See `ProfileView`'s own "Advanced" link: two screens
+                // share this title, and only the identifier distinguishes
+                // them.
+                NavigationLink("Advanced") {
+                    DownloadsQualityLadderView()
+                }
+                .accessibilityIdentifier(A11yID.Profile.qualityLadderLink)
+                VStack(alignment: .leading, spacing: 4) {
+                    LabeledContent("Simultaneous Downloads", value: downloadMaxConcurrentDisplayText)
+                    // `0...10`, `0` doubling as "Unlimited" (see
+                    // `downloadMaxConcurrentDisplayText`) — a `Slider`
+                    // rather than a `Stepper`/segmented control per an
+                    // explicit ask for this specific shape, offering every
+                    // integer 1-10 plus Unlimited as one continuous control.
+                    Slider(
+                        value: Binding(
+                            get: { Double(downloadMaxConcurrentRaw) },
+                            set: { downloadMaxConcurrentRaw = Int($0.rounded()) }
+                        ),
+                        in: 0...10, step: 1
+                    )
+                    // Without these, VoiceOver reads the slider's own raw
+                    // `0...10` position ("0") rather than what that
+                    // position actually means — the `LabeledContent` above
+                    // already shows "Unlimited" visually at that same
+                    // position, this is its spoken counterpart.
+                    .accessibilityLabel(String(localized: "Simultaneous Downloads"))
+                    .accessibilityValue(downloadMaxConcurrentDisplayText)
+                }
+                Toggle("Wi-Fi Only", isOn: $downloadWifiOnly)
+            } header: {
+                Text("Quality & Network")
+            } footer: {
+                // The simultaneous-downloads caveat is not a hedge: it was
+                // measured. With the limit set to 2, iOS ran up to 11
+                // transfers at once as soon as the app was suspended —
+                // `nsurlsessiond` takes ownership of every task the app has
+                // created and schedules them itself, and an app has no way
+                // to hold one back once it stops running. Saying so plainly
+                // is better than a number the app visibly fails to honor.
+                // See DOWNLOADS.md's "iOS defers the *next* queued download
+                // when the app is backgrounded".
+                Text("Downloaded videos are transcoded to fit your chosen resolution and quality, and are never upscaled past the source.\n\nSimultaneous Downloads applies while Dionysus is open. Once it moves to the background, iOS schedules downloads itself and may run more at once than the limit you set.")
+                    .readableSettingsFooter()
+            }
+
+            Section {
+                if let storageBreakdown {
+                    DeviceStorageBarView(
+                        breakdown: storageBreakdown,
+                        freeSpaceEstimateText: freeSpaceEstimateText(freeBytes: storageBreakdown.free)
+                    )
+                    .listRowSeparator(.hidden)
+                } else {
+                    // Falls back to the same plain figure `ProfileView`
+                    // showed before this screen existed, for the (not
+                    // expected on a real device) case where the volume's
+                    // capacity keys aren't readable.
+                    LabeledContent("Storage Used", value: ByteCountFormatter.string(fromByteCount: DownloadFileStore.totalSizeOnDisk(), countStyle: .file))
+                }
+            } header: {
+                Text("Storage")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("An estimate of this app's downloaded videos, artwork, and subtitles against total device storage.")
+                    if storageBreakdown != nil {
+                        Text("Based on a \(Self.averageMovieMinutes) minute movie and \(Self.averageEpisodeMinutes) minute TV episode.")
+                    }
+                }
+                .readableSettingsFooter()
+            }
+        }
+        .navigationTitle("Downloads")
+        .navigationBarTitleDisplayMode(titleDisplayMode)
+    }
+}
+
+#Preview {
+    NavigationStack { DownloadsSettingsView() }
+}

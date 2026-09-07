@@ -1,0 +1,601 @@
+# Testing Strategy
+
+This is a plain-language guide to how testing works in this repo, written for
+someone who hasn't tested a Swift/Xcode project before. It covers the tools,
+what's covered so far, and how to extend it.
+
+## The tools, briefly
+
+- **XCTest** is Apple's built-in test framework — it ships with Xcode, no
+  package to install. A test is just a method starting with `test` inside a
+  class that inherits from `XCTestCase`. You assert with functions like
+  `XCTAssertEqual(a, b)` or `XCTAssertTrue(condition)`; a failed assertion
+  fails that test and shows you the expected/actual values.
+- **Unit tests** run in-process, no simulator UI, no real network — fast
+  (the whole suite here runs in a few seconds). This repo has only unit
+  tests right now.
+- **UI tests** (`XCUITest`) drive the actual app in the Simulator, tapping
+  buttons and reading the screen. None exist yet — see "Not covered" below.
+- A **test target** is a separate build target (`DionysusPlayerTests`) that
+  compiles test code and links against the app so it can `@testable import
+  DionysusPlayer` — that `@testable` gives tests access to `internal`
+  declarations, not just `public` ones, which matters since almost nothing
+  in this codebase is marked `public`.
+
+## Running the tests
+
+Open `DionysusPlayer.xcodeproj` (regenerate first with `xcodegen generate` if
+you've pulled changes to `project.yml`), select the `DionysusPlayer` scheme,
+and press **Cmd+U**, or click the diamond next to any individual `test...`
+method/class to run just that one. Xcode's Test navigator (Cmd+6) lists
+everything and shows pass/fail per test.
+
+From the CLI, once you have a Simulator runtime installed:
+
+```sh
+xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
+  -destination 'platform=iOS Simulator,name=iPhone 17'
+```
+
+(swap `iPhone 17` for whatever's in `xcrun simctl list devices available` on your machine.)
+
+That runs the `UnitTests` plan, which is the scheme's default. There are two
+more, both UI (see "UI tests" below) — ask for one by name:
+
+```sh
+xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
+  -testPlan UITests-Smoke \
+  -destination 'platform=iOS Simulator,name=iPhone 17'
+```
+
+| Plan | Contents | Where it runs |
+| --- | --- | --- |
+| `UnitTests` | The whole `DionysusPlayerTests` target | Every PR, every release |
+| `UITests-Smoke` | Seven journeys + the keychain-reset check | Every PR (`ui-smoke` job) |
+| `UITests-Full` | Every UI test | Nightly on iPhone + iPad, and on release tags |
+
+**Verified:** the full suite has been run for real via
+`xcodebuild test` against the iOS 26.5 Simulator — all passing, 0 failures.
+The exact test count isn't tracked here — CI runs and logs it on every
+push (see the "Build and Test" check), so a hand-maintained number in
+this file only ever drifted out of date as tests were added.
+A few real issues were caught and fixed along the way, worth knowing about
+if you extend this setup:
+
+- `PRODUCT_NAME` is `Dionysus` (not `DionysusPlayer`), and Xcode derives the
+  Swift module name from `PRODUCT_NAME` by default — so the module is
+  `import Dionysus`, not `import DionysusPlayer`. XcodeGen's automatic
+  host-application wiring for the test target also assumed the bundle name
+  matched the target name, so `TEST_HOST`/`BUNDLE_LOADER` are now set
+  explicitly in `project.yml` instead of left to inference.
+- `URLSession`'s async `data(for:)` moves a request's body into
+  `httpBodyStream` before handing it to a custom `URLProtocol`, so
+  `request.httpBody` reads back `nil` there — `MockURLProtocol.swift`'s
+  `URLRequest.capturedHTTPBody` drains whichever one is actually populated.
+- `AppState`/`ServerSetupViewModel` build their own `JellyfinAPIClient`
+  internally rather than taking one by injection, always on `URLSession
+  .shared` — `URLProtocol.registerClass(MockURLProtocol.self)` intercepts
+  that process-wide instead of per-session (see `AppStateTests`).
+- A shared async-polling helper (`waitUntil`, used for debounced/detached
+  work) has to be `@MainActor`-isolated to match its callers, or Swift 6
+  flags the closure argument as an unsafe cross-actor send.
+
+## What's covered
+
+The suite focuses on the highest-value, cheapest-to-test layer: pure logic
+and the networking client, mirroring the app's own MVVM structure
+(`Core/` and `Features/*ViewModel.swift` in `project.yml`'s CLAUDE.md sense).
+
+| Area | File | What it checks |
+|---|---|---|
+| `MediaItem` | `MediaItemTests.swift` | All the display logic — year ranges, durations, episode labels, rail titles/subtitles, resume/played/favorite fractions and flags, image URLs (including the logo Episode→Season→Series fallback and the Thumb image's real-nil-when-absent behavior that `LandscapeMediaCard`'s poster fallback depends on), `usesLandscapeRailTile`'s series/episode-vs-everything-else split, `technicalDetails` (container/codec/resolution/dynamic-range formatting, including the letterboxed-video-classifies-by-width case), `tagline` (first non-empty entry of `BaseItemDto.taglines`, skipping leading empty ones, `nil` when absent — shown above the synopsis on the About tab), `mediaVersions`/`technicalDetails(forVersion:)` (the Details tab's version picker — empty for a single/no source, preferring a filename-derived edition name (e.g. "Extended Version") recovered by diffing a version's `MediaSourceInfo.name` against the canonical version's per Jellyfin's own multi-version naming convention, falling back to per-version resolution+dynamic-range labels when that relationship isn't found, disambiguating two versions that land on the same coarse label, and falling back further to the server's raw `MediaSourceInfo.name` then a generic placeholder when neither is available), `metadataBadges` (resolution/dynamic-range/audio-format/accessibility call-outs, including the Dolby Digital family's Atmos > DD+ > DD priority collapsing, TrueHD's exception to that, and the DTS-HD > DTS priority), `cast`'s role-vs-job-title fallback and unique-id-per-credit guarantee (the same person can be credited more than once on one item, sharing an underlying id — using that id alone gave `CastCrewGridView`'s `ForEach` duplicate identifiers, seen as intermittent gaps/repeated cells while scrolling), `libraryContentItemTypes`'s mapping from a library's `collectionType` to the item type(s) `LibraryRailView`'s card tap should restrict its grid to (Movies→Movie, Shows→Series, Collections→BoxSet, everything else/non-library items unrestricted), `studios` mapping `BaseItemDto`'s `NameGuidPair` array down to just the names, `decade` bucketing a production year to its start year (e.g. 2016→2010) for `CollectionGridView`'s Decade filter, `withOptimisticPlaybackPosition(seconds:duration:)` overwriting resume position/fraction while deliberately leaving `isPlayed` untouched (see `AssetDetailViewModel.applyOptimisticPlaybackPosition(_:)` below for why) and no-opping for a zero/negative duration, `withOptimisticFavoriteWatched(favorite:watched:)` overwriting only whichever of `isFavorite`/`isPlayed` is actually passed (leaving the other alone) and no-opping when neither is (see `AssetDetailViewModel.applyOptimisticFavoriteWatched(itemID:favorite:watched:)` below for why this one exists), `playbackProgressIdentity` changing whenever those userData-derived fields do (and staying equal for identical userData) — the `.id()` key `PlayResumeButtonRow`'s call sites depend on to actually re-render on a resume-position/watched change (see that property's own doc comment: a plain `let item` input on a view that also owns `@State` had already silently stopped picking up new values once before in this codebase, in `DetailTabsView`, without a `.id()` like this one forcing a fresh identity), and `accessibilityDescription` (the `railTitle`/`railSubtitle` comma-join `PosterCard`/`LandscapeMediaCard`/`HeroRailCard` read out to VoiceOver as one element). This is the single highest-value target: pure computation, no I/O, and it's exactly the kind of thing that silently breaks when a DTO field changes. |
+| `MediaCollectionRail` | `MediaCollectionRailTests.swift` | `usesLandscapeTiles`'s whole-rail-not-per-item decision — portrait only when every item is movie-like, landscape if any item is series/episode-like (so a rail mixing both, e.g. "Continue Watching", reads as one consistent tile shape instead of a jumble of two). |
+| `DynamicRailCandidate` | `DynamicRailCandidateTests.swift` | `railTitle`'s formatting for all 4 cases — "{Genre} Movies"/"{Genre} Shows", "Movies from {Studio}"/"Shows from {Studio}", "Starring {Actor}", "Directed by {Director}". Also `seeAllQuery(moviesLibraryID:showsLibraryID:)`: genre/studio cases scope to the matching movies/shows library with the genre/studio preset, actor/director cases return `nil`, and a `nil` library ID doesn't suppress the query entirely (just its `parentID`). |
+| `ImageURLBuilder` | `ImageURLBuilderTests.swift` | URL construction — query params, token inclusion, item vs. user image endpoints, and `trickplayTileURL(itemID:width:sheetIndex:)` (no `MediaSourceId` path segment, confirmed live against a real server — see that method's doc comment). |
+| `RemoteImageLoader` | `RemoteImageLoaderTests.swift` | Retry-with-backoff on transient failures (transport errors and 5xx) up to a configurable attempt limit, giving up and throwing once exhausted, in-memory caching (a second request for the same URL never hits the network), in-flight de-duplication (two concurrent requests for the same URL share one network call), and (2026-09-01) `image(for:maxAttempts:retryBaseDelay:)`'s per-call retry overrides — used by the hero backdrop/logo's extended patience budget — winning over the instance's own configured defaults — all against a fake server via `MockURLProtocol`, same as `JellyfinAPIClient`. |
+| `TrickplayMath` / `TrickplayThumbnailProvider` | `TrickplayThumbnailProviderTests.swift` | The Player scrub-preview bubble's data source — Jellyfin's server-generated Trickplay tile sheets, not AetherEngine (its own cache-backed scrub stills turned out to only serve a narrow already-decoded window near the playhead, confirmed dead on a real device — see `TrickplayThumbnailProvider`'s doc comment). `TrickplayMath.frame(atSeconds:info:)`: the first thumbnail, a mid-sheet position, a sheet-boundary crossing, clamping past the track's declared `thumbnailCount`, and a degenerate `info` (any non-positive field) returning `nil` rather than dividing by zero. `TrickplayMath.sheetCount(for:)` — how many tile-sheet JPEGs an offline download needs to fetch up front (the live path never needs this, it fetches on demand): an exact multiple of `tileWidth × tileHeight` with no partial sheet, a single under-full sheet, and the same degenerate-`info` cases returning `0`. `TrickplayMath.bestInfo(from:mediaSourceID:preferredWidth:)`: no entry for the given (or a missing) `mediaSourceID`, an exact preferred-width match, falling back to the widest available when none meet the preferred width, and picking the smallest width that still clears it when several do. `TrickplayThumbnailProvider.thumbnail(atSeconds:)` against `MockURLProtocol`: the requested URL matches the sheet the math predicts, the returned `CGImage`'s dimensions match the tile size (i.e. it actually cropped one tile out of the sheet rather than returning the whole thing), and a request failure returns `nil`. |
+| `OfflineTrickplayThumbnailProvider` | `OfflineTrickplayThumbnailProviderTests.swift` | The offline counterpart to the row above — same `TrickplayMath` seconds→tile math, but reading a sheet already written to `DownloadFileStore` (via `DownloadManager.enqueue`'s own best-effort trickplay fetch) instead of a network mock: a written sheet crops to the expected tile size, a sheet that was never successfully downloaded (a real download can fail per-sheet without failing the whole item) returns `nil` rather than throwing, and a degenerate `TrickplayInfo` returns `nil` the same way the live provider's math does. |
+| `ServerConfiguration` | `ServerConfigurationTests.swift` | `parse(rawAddress:preferHTTPS:)`: whatever a user types into server setup (bare host, host:port, full URL, garbage input) — an explicit scheme in the typed address always wins over `preferHTTPS`. `explicitScheme(in:)`: the same "does this already have a scheme" check, exposed so `ServerSetupViewModel` can keep its HTTPS toggle honest rather than silently overriding it. `correctingScheme(usingLandedURL:)` (2026-08-27): rewrites just the scheme to wherever a connection test actually landed, leaving host/port/path untouched — see `ServerSetupViewModel`'s row below for why. |
+| `JellyfinAuthorization` | `JellyfinAuthorizationTests.swift` | The `Authorization` header value (`MediaBrowser` scheme) Jellyfin expects. |
+| `JellyfinJSON` (coding) | `JellyfinCodingTests.swift` | PascalCase↔camelCase key conversion, and the date decoder's handling of Jellyfin/.NET's inconsistent fractional-second precision (including the 7-digit tick-precision case). |
+| `JellyfinAPIClient` | `JellyfinAPIClientTests.swift` | Request construction (paths, query params, auth headers), response decoding, HTTP/decoding error handling, the `collectionsContaining` fan-out logic — including its capped concurrency, its per-collection membership check omitting `defaultFields`' heavier payload (`Fields` absent from that specific request), and one collection's membership check failing not failing the whole call — `genres`/`studios`/`persons` discovery requests, `items(...)`'s `Genres`/`Studios` filters being pipe-delimited vs. `Person`/`PersonTypes` being comma-delimited (neither matches `IncludeItemTypes`/`Filters`'s own delimiter, and they don't match each other either), `searchHints(...)`'s query construction against the dedicated `/Search/Hints` endpoint and result decoding, `playbackInfo(...)`/`reportPlaybackStart`/`reportPlaybackProgress`/`reportPlaybackStopped` including an explicit `mediaSourceID` in their request bodies (the version-picker's choice) when provided and omitting it when not, `setFavorite`/`setWatched` each `POST`ing to mark and `DELETE`ing to unmark against their respective `FavoriteItems`/`PlayedItems` paths, `currentSession(deviceID:)` filtering `/Sessions` by `DeviceId` and returning `nil` when no session matches, and `subtitleURL(itemID:mediaSourceID:streamIndex:codec:)` building an external subtitle stream's URL from scratch (deliberately not from `MediaStream.deliveryUrl`, which a real server only populates given a `DeviceProfile` this app doesn't send — confirmed live, see that method's doc comment) with the `ApiKey` query item appended only when signed in, and the file extension chosen to match the stream's own codec (ass/ssa/vtt, falling back to srt) — and `nextEpisode(currentEpisodeID:seriesID:seasonID:userID:)` (the in-player "Up Next" prompt's own lookup, distinct from `nextUp(...)` — see that method's doc comment for why) finding the following episode within the same season by `indexNumber`, crossing a season boundary to the next season's first episode when the current one is last in its own, and returning `nil` once there's no next season at all (the series has finished) — all against a fake server (see below), not a real one. Also, `sendRaw`'s `ConnectivityMonitor` reporting (2026-08-18, offline detection): a transport-level `URLError` reports `isOffline == true`, an HTTP error response (still a real reply from the server) leaves it `false`, and a subsequent successful call clears a prior failure — and `healthCheck()` hitting `GET /health` (Jellyfin's own purpose-built liveness endpoint, plain text not JSON) unauthenticated, used for the app's scenePhase-driven resume probe instead of re-fetching/decoding `publicSystemInfo()` just to prove reachability. A same-day follow-up (confirmed live on a physical device, offline at launch): `.shared`'s default 60s `timeoutIntervalForRequest` was found to make an unreachable-but-routable LAN server (e.g. on cellular with Wi-Fi off, rather than genuinely no network path at all) read as an indefinite hang rather than a prompt offline screen — not separately unit-tested (a real timer-based timeout isn't practical to pin without a fake clock), fixed by racing `sendRaw`'s actual request against a 20s `Task.sleep` rather than swapping in a session with a shorter timeout, which was tried first and reverted after it broke `MockURLProtocol` interception for every test that builds its `JellyfinAPIClient` internally — see `sendRaw`'s own doc comment. A later addition (2026-08-22, confirmed live against a heavily-shared public demo server that a session token can be invalidated server-side with no action by the app): a request that 401s while its `Authorization` header carries a `Token="…"` clause — `authenticate(...)`'s own 401 at first sign-in never does, so it's unaffected — silently re-authenticates with whatever credentials last succeeded via `authenticate(...)` and retries, up to `reauthBackoffSchedule`'s bound (0.5/1/2/4s delays before each retry after the first, which is immediate) before giving up as `.notAuthenticated`; no remembered credentials at all (nothing ever called `authenticate(...)` successfully on this client) fails fast as the same error without attempting a retry; and several requests 401ing around the same moment (e.g. `HomeViewModel.load()`'s fan-out) share one re-authentication rather than each racing to hit `/Users/AuthenticateByName` independently — `reauthenticate(using:attempt:)`'s in-flight-`Task` coalescing, asserted via three concurrent requests and one counted re-auth call. `AppStateTests` separately pins that `signOut()` forgets these remembered credentials on the (reused-across-sign-out) client, so a request still in flight around sign-out can't silently re-authenticate as the just-signed-out user. A same-branch addition (2026-08-27, Jellyfin 12.0 compatibility): the app now sends a single `Authorization: MediaBrowser …` header instead of the deprecated `X-Emby-Authorization`/`X-Emby-Token` pair — 12.0 disables those by default (`EnableLegacyAuthorization`), confirmed live against a real, public 12.0.0 instance (`demo.jellyfin.org/unstable`) both for the old scheme's hard rejection and the new one's success, and against a real 10.11.11 instance (`demo.jellyfin.org/stable`, matching this project's own LAN test server's version) to confirm the switch is backward compatible, not 12.0-exclusive. `lastResponseURL` (new, 2026-08-27): records whichever URL a response actually came back from, since `URLSession` follows redirects transparently — see `ServerSetupViewModel`'s row below for the bug this exists to fix. |
+| `ConnectivityMonitor` | `ConnectivityMonitorTests.swift` | `reportFailure()`/`reportSuccess()` flipping `isOffline`, and `URLError.indicatesOffline` classifying the transport-failure codes `JellyfinAPIClient.sendRaw` matches against as `true` while `.cancelled` (an abandoned request, not an outage) stays `false`. |
+| `LibraryAvailability` | `LibraryAvailabilityTests.swift` | (2026-08-29) `update(_:)` changing `state` and no-opping when unchanged (same `@Observable`-singleton reasoning as `ConnectivityMonitor`), `retryAction` invoking whatever closure was set (`HomeView` wires this to its own `HomeViewModel.load()` once one exists — see `HomeViewModel`'s row below), and `reset()` restoring both to their defaults. `SearchView`'s landing page (before any query is typed, so it has no network activity of its own to fail) reads `state` directly instead of duplicating Home's own retry/reconnect handling — not separately unit-tested (no view tests, per "What's *not* covered yet" below), but `HomeViewModelTests` pins that `load()`/`retryLoadIfNeeded()` keep this mirrored correctly, including that the backoff loop's flicker-suppression (see `HomeViewModel`'s row) never leaves it stuck at `.unavailable` after an eventual success. |
+| `DownloadResolution`/`DownloadBitratePreset`/`DownloadTranscodeCalculator` | `DownloadTypesTests.swift` | The offline-downloads bitrate/resolution ladder table (4K/1080p/480p × High/Normal/Data Saver, video and audio bitrates) and `DownloadTranscodeCalculator.target(...)`'s capping rule — never exceeding the source's own resolution/bitrate when it's below the requested tier, falling back to the tier's own max when source metadata is missing, and `main10` vs. `main` `VideoProfile` selection based on `isSourceHDR`. Also that the bitrate itself is looked up from the *achieved* tier, not the requested one — a real bug fixed live (2026-08-19, "Pokemon"): a 480p-only source with 1080p requested correctly capped dimensions down to 480p but kept using 1080p's own bitrate rung, since `min(..., sourceBitrate)` alone doesn't catch a source whose own bitrate happens to sit above the requested tier's rung; a source falling between two named tiers (e.g. 720p) now rounds *up* to the smallest tier that still contains it (1080p) rather than clipping to a smaller one. Also `DownloadBitratePreset.displayName(in:)`'s whole-number-vs-fractional Mbps formatting for `DownloadsSettingsView`'s quality picker. Also (2026-09-02, customizable ladder): `target(...)`/`estimatedTotalBytes(...)`'s injectable `videoBitrateLadder` closure defaults to the shipped table when omitted (every test above passes none, so they keep exercising the real default), a supplied closure's return value is used instead, and it's looked up from the achieved tier, not the requested one, exactly like the default path; and `displayName(bitrate:)`/`accessibilityDisplayName(bitrate:)` — the overloads that take an already-resolved bitrate rather than deriving one from `DownloadResolution.videoBitrate(preset:)` — render identically to `displayName(in:)`/`accessibilityDisplayName(in:)` for that same default bitrate, and correctly for a bitrate that isn't on the shipped ladder at all. |
+| `DownloadQualityLadderStore` | `DownloadQualityLadderStoreTests.swift` | (2026-09-02) Per-device overrides to the bitrate ladder, editable from Downloads → Advanced (`DownloadsQualityLadderView`, whose toolbar carries a single whole-page "Reset All" action rather than a per-section one, since the setting spans all four resolution sections at once). A fresh store's `kbps(resolution:preset:)`/`videoBitrate(resolution:preset:)` fall through to `DownloadResolution.videoBitrate(preset:)`'s own shipped default (converted to/from Kbps) with `hasAnyOverride`/`isOverridden(resolution:preset:)` both `false`; `setOverride(_:resolution:preset:)` is reflected in both accessors, is visible to a second store instance constructed over the same `UserDefaults` (the mechanism that lets `DownloadsQualityLadderView`, `JellyfinAPIClient`, and `DownloadManager` each build their own store and stay in agreement with no shared reference — same shape as `DownloadPreferencesStore`'s own tests), and never perturbs any other of the twelve (resolution × preset) cells; values are clamped to `minKbps...maxKbps` rather than accepting a zero/negative/absurdly large fat-finger; `setOverride(nil, ...)` clears one cell back to its default, and `resetAll()` clears every cell in one call. Also: `setOverride(_:...)` with a (post-clamp) value that exactly equals that cell's own shipped default clears the override rather than persisting a redundant one — a real bug, found live: `DownloadsQualityLadderView` rebuilds each row's `TextField` binding fresh on every render, and SwiftUI can resync a freshly rebuilt binding by writing its currently-displayed value straight back through the new `set`, which without this rule could silently re-persist a just-cleared (or never-touched) cell as an "override" identical to its own default and show a reset affordance with nothing left to reset — covered both for a value that was never overridden and for a real override changed back down to the default. |
+| `DownloadPreferencesStore` | `DownloadPreferencesStoreTests.swift` | Falls back to documented defaults (`.hd1080p`/`.normal`/`wifiOnly == true`/`maxConcurrentDownloads == 3`) on a fresh store; reads whatever `DownloadsSettingsView`'s `@AppStorage` pickers/slider wrote to the *same* `UserDefaults` keys (the mechanism that lets `DownloadManager`, non-view code, see a live Settings change with no shared object reference); an unrecognized stored raw value falls back to the default rather than crashing; `maxConcurrentDownloads`'s `0`-means-Unlimited sentinel mapping to `nil`. |
+| `JellyfinAPIClient` (downloads) | `JellyfinAPIClientTests.swift` | `isImageBasedSubtitleCodec(_:)` recognizing every bitmap subtitle codec (PGS/VobSub/DVB, case-insensitively) and rejecting text formats/`nil`; `downloadStreamURL(...)` always requesting `Static=false`/`Container=mp4`/`VideoCodec=hevc`/`AudioCodec=aac`/`MaxAudioChannels=2`, capping resolution/bitrate to the source when it's smaller, capping to the tier when the source is larger, and setting `VideoProfile=main10` only for an HDR source; `updateUserData(...)` posting position/played/percentage to `/Users/{userId}/Items/{itemId}/UserData` — the offline sync path, distinct from the session-scoped `reportPlaybackProgress`/`Stopped` above. |
+| `DownloadFileStore` | `DownloadFileStoreTests.swift` | Relative-path construction (video/subtitle/trickplay-tile per-item, image content-addressed by `sourceItemID`-`imageType`-`tag` rather than by which download references it — the shared-artwork dedup's storage layout) and its filename sanitization of non-alphanumeric characters; `write`/`moveFile` actually landing bytes at the expected path; `imageAlreadyExists` — the fetch-time half of the dedup — false before a write, true after; `deleteItemFiles` removing an item's video+subs unconditionally; `deleteImageIfUnreferenced` — the delete-time half — leaving a shared image file in place while another `DownloadedItem` row still points at it and freeing it once nothing does (including tolerating a `nil` path as a no-op); `fileSize(forRelativePath:)` — ground truth for `DownloadedAssetDetailView`'s on-disk size readout — matching the real bytes written and `nil` for a missing file. Runs against the real `Application Support` directory (not a temp/mock one — this type hardcodes its root, per its own doc comment on why `Caches` was rejected), so every test cleans up the files/itemIDs it touches in `tearDown`. |
+| `DownloadStore` | `DownloadStoreTests.swift` | Insert/fetch/delete round-trips against an in-memory SwiftData `ModelContainer`; `visibleItems()` excluding `markedForDeletion` rows while `allItems()`/`pendingSyncItems()` still see them (a `markedForDeletion` row's whole remaining purpose is carrying a pending sync write — see the offline-downloads plan's "Delete semantics" section); `isImagePathReferenced(_:excludingItemID:)` — the shared-artwork dedup's reference check — true when another (even `markedForDeletion`) row shares the path, false when only the excluded row does, and checked across all four image fields (poster/backdrop/logo/thumb). |
+| `DownloadedItem` | `DownloadedItemTests.swift` | `estimatedTotalBytes` — the bitrate/runtime-based size estimate `DownloadManager` substitutes as the progress total when the transfer itself never reports one (Jellyfin's live-transcode stream never sends a `Content-Length`) — matches the `(videoBitrate + audioBitrate) * durationSeconds / 8` math exactly against the bitrate ladder's own real numbers, and `nil` when runtime or bitrate is missing/zero (nothing to estimate from). |
+| `DownloadManager` (delete, concurrency queue) | `DownloadManagerTests.swift` | `delete(itemID:)`'s own logic against a real `DownloadFileStore` (cleaned up in `tearDown`) and an in-memory `DownloadStore` — deliberately *not* the background `URLSessionDownloadTask`/`AppDelegate` relaunch wiring, see "What's *not* covered yet" below. Without a pending sync write, delete removes the row and its files together; *with* one, the files are freed but the row survives (`markedForDeletion == true`) and is excluded from `visibleItems()` while still showing up in `pendingSyncItems()`. Shared-image dedup on delete: a logo two episodes both reference survives deleting one of them and is only actually freed once the last reference is deleted. Also the simultaneous-downloads limit (`DownloadPreferencesStore.maxConcurrentDownloads`, injected via `DownloadManager.init(preferences:)`): `queueVideoDownload` admits immediately under the limit, further items past it stay `.queued` and are admitted strictly in the order they were queued as slots free up (`test_simulateDownloadFinished`, the `#if DEBUG` test seam pairing with `startVideoDownloadOverride` to verify this without a real network call/background session), `0` (Unlimited) admits every item at once, a `.queued` row left over from a previous launch is picked back up by `resumePendingQueue()` (called from `init`, oldest `createdAt` first) rather than stuck forever, and deleting a still-`.queued` item drops it from the pending queue too. Also `delete(itemID:)` cancelling an actually in-flight transfer (via the same `cancelVideoDownloadOverride` DI seam `startVideoDownloadOverride` uses) — originally a real bug found live (2026-08-20, "Rushmore"): deleting a `.downloading` row used to only drop this manager's own delegate reference, leaving the real background `URLSessionDownloadTask` running orphaned under `com.dionysus.downloads.<itemID>`, so a same-day re-download reused an identifier the OS still considered live and its brand-new session's task was cancelled almost instantly (`NSURLErrorCancelled`, -999). That *class* of bug is gone since identifiers stopped being per-item (2026-09-06, see DOWNLOADS.md's "A background session per download exhausted the transfer service"), but a deleted row's transfer must still actually stop; a still-`.queued`, never-actually-started row correctly triggers no cancel at all. Also `makeBackgroundConfiguration()` — a pure function, tested directly with no real `URLSession` — asserting the app uses exactly **one** background session identifier rather than one per item (the -997 regression test) and that `waitsForConnectivity` is always on; the Wi-Fi Only gate moved onto the request, so `makeFetchRequest(url:allowsCellularAccess:)` is what now asserts `DownloadPreferencesStore.wifiOnly` reaches the transfer — including `allowsExpensiveNetworkAccess`, which excludes a personal hotspot the configuration-level flag never did. Also the automatic re-arm of transient transport failures: -997/-996/`.networkConnectionLost`/`.timedOut` re-queue the row (keeping `pendingDownloadURLString`, so none of `enqueue`'s artwork/subtitle/trickplay prep re-runs) and free the concurrency slot for the next item immediately, `NSURLErrorCancelled` fails straight away without retrying, deleting during the backoff cancels the scheduled retry, and an exhausted budget lands `.failed` with written wording rather than iOS's own "Lost connection to the background transfer service" string. Also that one completion frees exactly one slot even when a task reports both `didFinishDownloadingTo` and `didCompleteWithError`. Also `pendingOrActiveDownloadsCount` (2026-09-02) — the number `MainTabView`'s Downloads tab `.badge(_:)` reads: counts `.queued`/`.downloading` rows, excludes `.completed`/`.failed` ones and (matching `visibleItems()`) a row kept alive only as `markedForDeletion`. |
+| `DownloadsViewModel` | `DownloadsViewModelTests.swift` | Row grouping (multiple episodes of the same series collapse into one `.show` row); bulk selection — `beginSelecting`/`cancelSelecting` resetting the selection, `toggleSelection` adding then removing, `toggleSelectAll`/`isAllSelected` toggling between everything and nothing selected (and reading `false` when only some rows are picked); `selectedAssetCount` — the delete confirmation's "X total assets" figure — counting a selected show row as its real episode count, not 1, alongside any selected standalone items; `deleteSelected` actually removing every episode of a selected show (not just its group row), leaving unselected items untouched, and exiting selection mode afterward. |
+| `PlayerViewModel` (offline) | `PlayerViewModelOfflineTests.swift` | Split out from `PlayerViewModelTests.swift` (already large): the `init(downloadedItem:downloadStore:...)` branch of `start()`. Loads a local `file://` URL built from the stored `videoFilePath` (not `client.streamURL`), builds `ExternalSubtitleSource`s from the stored `subtitleFiles` (local paths, not `client.subtitleURL`), seeks to the stored `resumePositionTicks` unless `startFromBeginning`, seeds `mediaSegments` from the stored `DownloadedSegment` snapshot rather than fetching `/MediaSegments`, stages Now Playing info from the stored title, and — the one thing this path must never do — makes no network call at all (asserted directly, and enforced as a hard failure in every other test in this file via a request handler that throws). `stop()`'s offline branch (`writeOfflineProgress`): writes `resumePositionTicks`/`playedPercentage` and sets `pendingSync = true` on the `DownloadedItem` row directly rather than calling `reportPlaybackStopped`, and the 90%-played threshold that marks the item watched (clearing resume position, since there's no server to defer that judgement call to the way the live path does). Also (2026-08-20): `supportsScrubThumbnails`/`scrubThumbnail(atSeconds:)` staying unsupported when `DownloadedItem.trickplayInfo` is `nil`, and reading a real cropped tile off `DownloadFileStore` (via `OfflineTrickplayThumbnailProvider`) once it's set; `isOfflinePlayback` reading `true` for a downloaded-item session; and `refreshServerVersion()`/`refreshStreamingSession()` — `PlaybackStatsOverlay`'s Streaming-section backers — no-opping entirely offline (no network call, `serverVersion`/`streamingSession` left `nil`) rather than dispatching a request that can never succeed. Also (2026-08-24, error handling): `engine.load(...)` throwing a `CancellationError` (a superseded load) leaves `errorMessage`/`failureCategory` untouched, mirroring the live path — and a thrown `PlaybackLoadFailure` carries its `message`/`category` straight through to `errorMessage`/`failureCategory` rather than falling back to a generic message. |
+| `AetherPlaybackEngine` (error classification) | `AetherPlaybackEngineClassificationTests.swift` | `category(for:)` — the one piece of `AetherPlaybackEngine`'s error handling that's a plain static function over AetherEngine's own public `PlaybackErrorKind` (a string-backed struct, no live `AetherEngine`/`AetherPlaybackEngine` instance needed to construct one), so the one piece covered directly (everything else in that file wraps a real engine — see "What's *not* covered yet" below). Every known `PlaybackErrorKind` classifies into the right `PlaybackFailure.Category` (`.sourceRateLimited` → `.rateLimited`; `.sourceRefused`/`.dolbyVisionRequiresHardware`/`.hlsPlaylistOnRawLivePath`/`.demuxedAudioLiveUnsupported` → `.refused`; everything else known → `.transient`), and a synthetic unrecognized `PlaybackErrorKind(rawValue:)` a future AetherEngine release might add also falls to `.transient` rather than being silently mis-bucketed or breaking a switch — proving the deliberately non-exhaustive `default:` actually delivers the forward-compatibility `PlaybackErrorKind`'s own doc comment calls out. |
+| `DownloadSyncManager` | `DownloadSyncManagerTests.swift` | `syncIfNeeded(client:store:)` against `MockURLProtocol` — pushes every `pendingSync` row's stored position/played/percentage (plus `lastPlayedAt` as `LastPlayedDate`, so Jellyfin's Continue Watching ordering reflects when the item was actually watched offline rather than when the sync happened to reach the server — confirmed live as a real ordering bug this fixes; a row with no recorded watch moment simply omits the field rather than sending a bogus one) to `updateUserData`, clears `pendingSync` (and stamps `lastSyncedAt`) on success, *removes the row outright* (not just clears the flag) when it was also `markedForDeletion`, leaves a row untouched on a failed request for the next trigger to retry, and skips rows with nothing pending (no network call at all) — plus syncing several pending rows independently in one pass. |
+| `KeychainStore` | `KeychainStoreTests.swift` | Save/load/delete round-trips against the real Keychain (Simulator keychain access needs no special entitlement for this). |
+| `ServerSessionStore` | `ServerSessionStoreTests.swift` | Persistence round-trips across fresh instances, and that `clearCredentials` vs. `clearAll` affect the right subset of state. |
+| `SearchHistoryStore` | `SearchHistoryStoreTests.swift` | Persistence round-trips across fresh instances, most-recent-first ordering, re-selecting an existing entry moving it to the front instead of duplicating, trimming to the max-entries cap, per-user scoping, and `remove`/`clear` only affecting the given entry/user. |
+| `SearchViewModel` | `SearchViewModelTests.swift` | Empty-query short-circuit, debounced search, error state, results loaded straight from Jellyfin's `/Search/Hints` endpoint (the sole search data source — no separate full-`BaseItemDto` grid), history loaded on `init` and kept in sync by `recordSelection`/`removeFromHistory`/`clearHistory`, `imageURL(for:)` returning `nil` until `loadImagesIfNeeded()` has resolved an `ImageURLBuilder` and then reflecting the session's *current* access token (not one baked in earlier — see `SearchResult`). |
+| `SearchResult` | `SearchResultTests.swift` | `SearchHint`→display mapping: subtitle text per item type (year for Movie/Series; for Episode, "S1:E4 · Series Name" combining both halves when present, falling back to whichever half is actually available — including omitting the "S1:E4" label entirely rather than half-filling it when only one of season/episode number is present — and "Collection" for BoxSet, so a collection result isn't mistaken for a regular title), `imageReference` extraction (Thumb preferred over Primary when both are present, falling back to Primary alone, `nil` when neither tag exists), and `imageURL(images:)` resolving that reference fresh against whichever `ImageURLBuilder` it's given — including the case that's the whole reason it's a reference and not a stored `URL`: the same `SearchResult` resolving to a *different* URL once the access token changes, so a history entry persisted under an old token doesn't 401/403 forever after a later re-login. |
+| `HomeViewModel` | `HomeViewModelTests.swift` | The multi-endpoint fan-out in `load()` — the hero rail's random-unwatched-movies-and-series query (`IncludeItemTypes`/`SortBy=Random`/`Filters=IsUnplayed`), the libraries rail straight from `/Users/{id}/Views`, rail ordering (Continue Watching, then Next Up, then Recently Added Movies/Shows), remaining rails omitted when empty, `seeAllQuery` wiring — including Recently Added Movies/Shows presetting `initialSortField: .dateAdded`/`initialSortOrder: .descending` rather than the grid's own bare default — and that `loadIfNeeded()` doesn't re-fetch once `loadState` is no longer `.idle` — including the case where every array legitimately loaded empty (a regression net for a guard that used to check `rails.isEmpty` instead, which would've kept re-fetching forever in that case). Also: all four dynamic rail types (genres, studios, actors, directors) appended after the curated set with correctly formatted titles, sharing one shuffle pool rather than being ordered separately, deterministic ordering via an injectable `shuffle` closure (identity in tests, a real shuffle in production), `loadMoreDynamicRails()`'s batching (5 candidates per batch, `hasMoreDynamicRails` tracking exhaustion), a candidate below `minimumDynamicRailItemCount` (5) being dropped the same as a genuinely empty one, `loadMoreDynamicRails()` no-opping rather than double-fetching when called while already loading, and that genre/studio rails' `seeAllQuery` carries the right title/parentID/includeItemTypes/genre-or-studio preset while actor/director rails' stays `nil`. Also (2026-08-18, offline detection): confirmed live that dynamic rail discovery — which fails silently by design, per `load()`'s own doc comment — can have one of its six fetches fail specifically in the window right after reconnecting, leaving those rails missing with no way to retry; `dynamicRailCandidatesFailed` distinguishes that from a library that legitimately has nothing to offer, and `retryDynamicRailCandidatesIfNeeded()` (called by `HomeView` on a `ConnectivityMonitor` offline→online transition) re-runs discovery only when something actually failed, confirmed not to double-fetch or duplicate rails when nothing did. Also (2026-08-24, review pass): a *partial* failure — some of the six discovery calls already turned into visible rails before a sibling call threw — followed by a fully-successful retry must not re-append those already-loaded rails a second time, since the retry re-runs all six discovery calls wholesale; `consumedDynamicRailCandidates` is what `loadDynamicRailCandidates()` filters the freshly-discovered candidates against to prevent that. Also (2026-08-29, offline-mode review): the *primary* load can hit the same reconnect-window problem `retryDynamicRailCandidatesIfNeeded()` was built for, but worse — confirmed live, a cold launch that resumed offline (see `AppState.start()`) showed "You're Offline" until Wi-Fi reconnected, then instantly flashed a stale "Something went wrong loading your library" with no retry at all, since `ConnectivityMonitor.isOffline` flipping `false` (often just a lightweight health-check succeeding) doesn't mean the heavier `/Users/{id}/Views` fan-out can succeed yet. `retryLoadIfNeeded()` (also called by `HomeView` on the same reconnect transition, before `retryDynamicRailCandidatesIfNeeded()`) retries `load()` with backoff (`reconnectRetrySchedule`, injectable so tests don't wait out the real delays) instead of a single immediate attempt, no-opping once already `.loaded`, succeeding on whichever attempt the schedule catches (asserted by counting requests to `/Users/{id}/Views` — `load()`'s first, sequentially-awaited call, so counting it can't race the concurrent siblings a successful attempt fires), and landing back on `.failed` once the schedule is exhausted against a genuinely still-unreachable server. Every `loadState` write routes through `setLoadState(_:)`, which also mirrors it onto `LibraryAvailability.shared` (`.idle`/`.loading` → `.loading`, `.loaded` → `.available`, `.failed` → `.unavailable`) — pinned directly (`test_load_success_marksLibraryAvailable`, the `.unavailable` assertion in `test_load_serverError_setsFailedStateAndLeavesRailsEmpty`) and via the retry tests confirming the mirror survives `retryLoadIfNeeded()`'s intermediate flicker-suppression writes intact. A same-day follow-up fixed a real concurrency bug found live: `retryLoadIfNeeded()` now coalesces concurrent callers (`HomeView`'s own "Try Again", `LibraryAvailability.retryAction` from Search's mirrored one, and the automatic reconnect hook) into one shared attempt via `inFlightRetry`, same idea as `JellyfinAPIClient.inFlightReauth` — previously, tapping "Try Again" while the automatic backoff loop was already mid-cycle could have the loop's own next scheduled attempt fire after the manual tap's `load()` had already succeeded, clobbering that success back down with no further attempt left to recover it, which looked like a "Try Again" tap that just spun forever. `test_retryLoadIfNeeded_concurrentCallers_coalesceIntoOneAttempt` races two calls via `async let` (same technique as `JellyfinAPIClientTests.test_401_concurrentFailures_coalesceIntoASingleReauthentication`) and asserts exactly one `/Users/{id}/Views` request fires. Another same-day follow-up: `defaultReconnectRetrySchedule` was originally 4 retries (mirroring `reauthBackoffSchedule`'s shape), but a 401 retry and a reconnect retry aren't equivalent — a 401 means the server already responded, so each retry is a fast round trip, while a reconnect retry can hit a server that's routable but not answering, costing up to `JellyfinAPIClient`'s own 20s per-request timeout *per attempt*; measured live, 4 retries multiplied that into ~100s of an unmoving spinner before finally settling back to the offline screen. Cut to a single retry (`test_defaultReconnectRetrySchedule_isBoundedToOneRetry` pins the count) to bound the worst case to roughly 2×20s+2s instead. |
+| `CollectionGridViewModel` | `CollectionGridViewModelTests.swift` | Query parameters (`parentID`/`includeItemTypes`) reach the client correctly, error state, `loadIfNeeded()` short-circuit, defaulting to `CollectionSortField.title`/`CollectionSortOrder.ascending` (`SortName`/`Ascending`) when `query` carries no presets, `init` seeding `sortField`/`sortOrder`/`selectedGenre`/`selectedStudio` from `query.initialSortField`/`initialSortOrder`/`initialGenre`/`initialStudio` when it does (and that preset sort actually reaches the request), `setSortField(...)`/`setSortOrder(...)` independently reloading with the right `sortBy`/`sortOrder` — including that flipping order doesn't change field and vice versa, and a non-Title field can go ascending too (not locked to descending) — re-selecting the already-current field/order not triggering a redundant request, `availableGenres`/`availableStudios`/`availableDecades` deriving distinct sorted option lists from the currently loaded `items` (decades newest-first) *and cascading*: selecting one facet narrows the *other two*'s option lists down to only values that still co-occur with it (e.g. selecting a genre hides studios/decades that no longer have a matching item), a facet's own selection never narrows its own list (picking a genre doesn't collapse the Genre list to just that one value), narrowing composes across multiple active facets at once, and clearing a filter (or `resetFilters()`) widens every list back out, `availableWatchStatuses`/`availableFavoriteStatuses` folding into the same cascade (watched/unwatched and favorite/non-favorite narrow and are narrowed by the other facets identically, despite being user-data-derived rather than metadata-derived), `filteredItems` narrowing by whichever of `setGenreFilter`/`setStudioFilter`/`setDecadeFilter`/`setWatchStatusFilter`/`setFavoriteStatusFilter` are active — combined with AND across facets, clearing a filter (`nil`) restoring those items, and a combination that matches nothing returning empty rather than erroring — `randomItem()` picking only from `filteredItems` and returning `nil` when nothing matches — and `hasActiveFilters`/`resetFilters` (false with none selected, true with any single one, and resetting clearing every filter and restoring the full list). Also (2026-09-02, Playlists): a Playlists-typed query (`includeItemTypes: ["Playlist"]`) filters out audio-only playlists client-side (`MediaItem.isAudioContent`) while keeping mixed-media ones, and that filter doesn't leak into an unrelated query whose own items happen to carry `mediaType: "Audio"` for other reasons. |
+| `AssetDetailViewModel` | `AssetDetailViewModelTests.swift` | The movie/series/season/episode branches in `load()` — only series/season/episode fetch `Seasons`; a Season swaps `item` to its parent Series' own DTO (a Season has no content of its own worth showing) while an Episode keeps `item` as itself, both resolving `seriesID`/`preselectedSeasonID` either way, and both ending up with a `seriesItem` too (the Show's own item — reused from `item` for Series/Season, its own extra fetch for Episode, since `item` there is the Episode, not the Show) — plus `refreshItem()` re-fetching `displayedItemID` (the Series, for a Season load, or a selected Episode — see `selectEpisode(_:)` below) rather than `itemID` afterward. `showPlaybackEpisode`'s resolution: NextUp's fallback chain (in-progress/next-up episode → first episode of first season, `nil` with no `seriesID`) for a Series tapped directly, versus always that season's own first episode (never NextUp) for a Season tapped directly — both re-resolved by `refreshItem()` too, since a playback session can change which episode is "next". `selectEpisode(_:)` swapping `item`/`displayedItemID` to a tapped episode row's full item in place, without touching `seriesID`/`seasons`. `toggleFavorite(itemID:currentlyFavorite:)`/`toggleWatched(itemID:currentlyWatched:)` — `POST`/`DELETE` chosen from the passed-in current status, applying an optimistic update (`applyOptimisticFavoriteWatched`) to every property currently holding that id (`item`, `seriesItem`, a `seasons` entry, `showPlaybackEpisode`) the moment the write itself succeeds, then re-fetching that same id (retrying on `userDataCommitPollSchedule`, shared with `refreshItem()` below, until the server actually confirms the new value, since Jellyfin's write endpoints return before the userData change is queryable — the mocked server in these toggle tests always confirms on the first attempt, so that retry loop itself isn't separately exercised here) — since a Show-content page's favorite/watched menu can target any of the Show/Season/Episode independently, not just whatever `item` currently is. `test_toggleFavorite_serverNeverConfirms_keepsOptimisticValueRatherThanRegressingToStaleData` pins the live bug (2026-08-16) this optimistic update fixes: a write that returns success immediately but doesn't actually commit server-side for several *minutes* — confirmed on a real server, an order of magnitude past the poll's ~13s budget — used to leave `item` showing the stale pre-toggle value once the poll gave up, indistinguishable from the tap having done nothing; the poll itself was also changed to only ever adopt a *confirmed* fetch, never patch `item`/etc. from an unconfirmed one, so it can no longer regress the optimistic value back to stale data mid-poll either. `currentFavoriteWatchedStatus(forItemID:)` — the same four-property lookup, exposed for `HeroActionButtons` to call fresh at the moment a toggle fires rather than trusting its own button/menu-row closure's captured `MediaItem`, which a real, separately-confirmed SwiftUI toolbar staleness bug could leave one or more renders behind its own visibly-up-to-date icon. `refreshItem()` actually retrying past a first stale poll response before picking up a changed `playbackPositionTicks` — a live regression (resume a movie, scrub, exit quickly — the new position didn't show up on the detail page within the old, shorter poll window even though the server had it right) that's what `userDataCommitPollSchedule` itself, and its sharing between both methods, is for. `applyOptimisticPlaybackPosition(_:)` — patching whichever of `item`/`showPlaybackEpisode` matches the closed session's `itemID` immediately, leaving the other untouched, and no-opping entirely for a non-matching id — plus the critical interaction between it and `refreshItem()` that a first attempt at this fix missed and shipped broken: `refreshItem()`'s poll used to capture its "did this change?" baseline *after* the optimistic update had already moved `item`, so the poll's near-guaranteed-stale first attempt looked like "a change" and got adopted immediately, silently undoing the optimistic value. Two tests pin the real fix (`optimisticPlaybackTarget`/`optimisticPositionTolerance`): a stale attempt or two get ignored until the server actually catches up, and — if it never does within the whole poll window — the known-correct optimistic value is left in place rather than falling back to whatever stale data the last attempt saw. `preloadedItem` seeding `item` before any load plus still triggering the full fetch (`loadIfNeeded()`'s guard is on `loadState`, not `item`, precisely so a preloaded item doesn't look like "already loaded" and get skipped), and `preferredMediaSourceID(forPlayableItem:)`/`setPreferredMediaSourceID(_:forPlayableItem:)` — the version-choice prompt's remembered answer for a later Resume — round-tripping through `MediaVersionPreferenceStore` and keyed by the *playable* item id, not this view model's own `itemID` (a Show's Play button resolves to a specific episode, distinct from the Series itself). `load()`'s supplementary rails (`similar`/`collections`/`seasons`) each failing independently without flipping `loadState` to `.failed` — only the primary item fetch (and, for a Season load, the Series item it swaps to) still can. `track(_:)`/`cancelBackgroundWork()` — a favorite-toggle confirmation poll that's cancelled mid-flight stops itself (via its own `Task.isCancelled` check) well short of its full retry schedule, rather than the outer `Task` being marked cancelled while the loop runs to completion regardless. `refreshItem()` changing `episodeListRefreshToken` on every call — what `SeasonEpisodeList` depends on to re-fetch a just-played episode's own row (progress bar/watched state) after returning from the player, rather than that list sitting stale until a manual season-picker change. `advanceToNextEpisodeIfCompleted(playedEpisodeID:)` — the "Up Next" auto-advance feature (2026-08-13): once the just-played episode is confirmed `played` (its own dedicated poll, not the unrelated `displayedItemID` one — see that method's doc comment for why the latter can't answer this for Show-direct content), a different NextUp result swaps `item` to it via `selectEpisode(_:)`, from *either* entry point (a Series-direct page becomes Episode content the same way an Episode-content page advances to its own next episode — same code path, `isEpisodeContent` is purely `item?.kind == .episode`) — covering both, plus NextUp-empty (series finished) and never-confirmed-played both correctly leaving `item` alone, and a season-boundary crossing updating `preselectedSeasonID` (which `selectEpisode(_:)` now also keeps current, not just `item`/`displayedItemID`) for `ShowDetailView`'s season picker to follow. Live-confirmed against a real server for the Show-direct entry point (see that method's own doc comment). `collectionItems` — a BoxSet's own children, fetched by `ParentId` alongside `similar`/`collections` in `load()` (and confirmed *not* fetched for a Movie, since the fetch shares its `/Items` path with the unrelated BoxSets-probe request inside `collectionsContaining` — the tests assert on the `ParentId` query param specifically to keep the two apart), then re-fetched again at the end of `refreshItem()` so a movie played directly from `CollectionItemList`'s own play button (which never pushes into that movie's own detail page, so never runs *its* `refreshItem()`) still picks up its new watched/progress state once the player closes. Also (2026-09-02, Playlists): `orderedPlaylistItems` — a Playlist's own member items, fetched via the dedicated `/Playlists/{id}/Items` endpoint (distinct from `collectionItems`' `ParentId`-scoped `/Items` call) alongside `similar`/`collections` in `load()`, preserving server-given order and filtering out audio/music members; `playlistResumeTarget` resolving to the first not-fully-played member, or the first member when every one is (a full replay); `refreshItem()` re-fetching it the same way `collectionItems` is for the same reason (this page's own item poll never "catches up" for a Playlist either); and `applyOptimisticPlaybackPosition(_:)` patching whichever `orderedPlaylistItems` entry matches a just-closed session's `itemID`, alongside `item`/`showPlaybackEpisode`. |
+| `AppState` | `AppStateTests.swift` | The `.serverSetup` → `.login` → `.main` phase machine: silent sign-in on launch (success and failure-falls-back-to-login), `completeServerSetup`/`signIn`/`signOut`/`changeServer` all affecting the right subset of state. Also (2026-08-18, offline detection; revised 2026-08-29): remembered credentials rejected by a real HTTP response (401) still fall back to `.login`, while the server being unreachable at all (a `URLError`) resumes the last known session from cache and lands on `.main` directly instead of stalling on a separate offline phase — `restoreSession(accessToken:username:password:)` hydrates the reused `JellyfinAPIClient` from the cached token so `sendRaw`'s existing 401 reauth machinery works once real connectivity returns, and `currentUser` stays `nil` until a real sign-in eventually succeeds (every screen that needs the signed-in user's id falls back to the cached `sessionStore.credentials?.userID` in the meantime — see `PlayerView`'s original use of that fallback). A defensive fallback (remembered credentials present but no cached token/userID — not reachable in practice, since `saveCredentials` is only ever called with both populated) still falls back to `.login`. |
+| `LoginViewModel` | `LoginViewModelTests.swift` | `canSubmit` gating, delegation to `AppState.signIn`, the user-facing error message on failure. |
+| `ServerSetupViewModel` | `ServerSetupViewModelTests.swift` | `testConnection()`'s address validation, server-name detection/fallback, and unreachable-server handling. `syncHTTPSToggle(withAddress:)` (2026-08-27): keeps the "Use HTTPS" toggle honest when the typed address already has an explicit scheme, which otherwise silently overrides the toggle with no visible sign why. A real, reliably-reproducible bug found the same day (both Simulator and physical device — see `jellyfin-12-upgrade-work-order` memory for the investigation): `testConnection()`'s `GET` ping can succeed even when the toggle never actually took effect, if the server 302-redirects HTTP→HTTPS (confirmed live against `demo.jellyfin.org`) — `URLSession` follows that transparently, masking the wrong scheme until the *non-idempotent* sign-in `POST` goes out on it and fails outright. `testConnection()` now corrects `configuration.baseURL`'s scheme to wherever the ping actually landed (`ServerConfiguration.correctingScheme(usingLandedURL:)`) rather than trusting the scheme it assumed going in — pinned by a test that returns a mock response whose own URL differs from the request's, simulating the redirect. |
+| `PlayerViewModel` | `PlayerViewModelTests.swift` | Resume-position seeking (and the `startFromBeginning` override), playback-start/-stop reporting with correctly converted tick values, transport controls delegating to the engine, engine→ViewModel state/time callbacks, version selection (`requestedMediaSourceID` scoping the `/PlaybackInfo` request and selecting the matching source over `.first`, an unrecognized requested id falling back to the server's default rather than failing, and `activeMediaSourceID` — whichever source actually got resolved — being reported alongside the start/progress/stop session calls), `setZoomMode(_:)` delegating straight through to the engine, `stats` passing through the engine's diagnostics snapshot unchanged, `sourceVideoStream` being set from the resolved media source's own video stream (not just its first stream), `refreshServerVersion()`/`refreshStreamingSession()` — the Streaming section's server-version fetch-once-and-cache behavior, and the live `/Sessions` poll populating play method and (only while transcoding) live transcode parameters, leaving the last known value in place on a failed request — `isOfflinePlayback` reading `false` for a live (non-downloaded) session, the flip side of `PlayerViewModelOfflineTests`' own `true` case — `externalSubtitleSources(from:client:)` mapping a resolved source's `isExternal == true` subtitle `MediaStream`s (Jellyfin sidecar files) onto `ExternalSubtitleSource`s passed into `engine.load(url:externalSubtitles:knownAtmosAudioTrackIndices:)`, leaving embedded streams alone (they arrive through the demuxer already) and skipping a stream whose `deliveryUrl` can't resolve into a URL rather than failing the whole load — and `atmosAudioTrackIndices(from:)` deriving the audio-track-index hint set from `MediaStream.audioSpatialFormat == "DolbyAtmos"` (server-reported, not codec/title text-matched — see that field's own doc comment), excluding a non-Atmos audio stream and a non-audio stream carrying the same field, and — a real bug found live, 2026-08-14 — correcting Jellyfin's reported `index` for any `isExternal == true` streams preceding it in the same source, since those consume slots in Jellyfin's index sequence without existing in the physical container AetherEngine actually demuxes (confirmed on a real Saving Private Ryan source: one external subtitle at index 0 shifted every embedded audio stream's reported index one higher than AetherEngine's own numbering for the identical tracks) — and, restoring a remembered track choice (`TrackPreferenceStore`), `selectAudioTrack(id:)`/`selectSubtitleTrack(id:)` looking up the selected track's own title off the engine and persisting it alongside the id (including explicit "Off", which persists unconditionally with no title to look up), `start()` re-applying a stored choice after `engine.load(...)` returns (overriding whatever default/forced-subtitle selection the load just settled on), a fresh item with nothing stored leaving that default selection untouched, a stored id no longer present in the freshly loaded track list being skipped rather than passed through, and — the case a bare id-existence check can't catch — a stored id that's still present but whose *title* no longer matches (the layout reordered without the track count changing, e.g. a different version resolved) also being skipped, since track ids are just physical container positions rather than stable identifiers — and `startPictureInPicture()` delegating to the engine, and the engine's `onPictureInPicturePossibleChange`/`onPictureInPictureActiveChange` callbacks updating `isPictureInPicturePossible`/`isPictureInPictureActive` — and `start()` staging the lock screen/Control Center Now Playing title and subtitle (`MediaItem.railTitle`/`.railSubtitle`) via `engine.setNowPlayingInfo(title:subtitle:artwork:)` synchronously, ahead of the separate `RemoteImageLoader`-backed artwork fetch that isn't exercised here — and the in-player "Up Next" prompt: `start()` resolving `nextEpisode` for `.episode` content via `JellyfinAPIClient.nextEpisode(...)` (and never even attempting the lookup for a Movie), `nextUpSecondsRemaining` staying `nil` outside the configured countdown window and reporting the correct remaining-seconds value once `duration - currentTime` falls inside it (driven by simulated `onTimeUpdate` calls, with no separate timer of its own — see that property's doc comment), `dismissNextUp()` keeping it `nil` for the rest of the item's playback even after scrubbing back into the window, and `NextUpPreferenceStore`'s `.off` setting suppressing it entirely regardless of position — and skippable segments (Jellyfin's Media Segments feature, 2026-08-17): `start()` resolving `mediaSegments` via `JellyfinAPIClient.mediaSegments(itemID:)` unconditionally (unlike `nextEpisode`, this isn't episode-only), `currentSkipSegment` returning whichever segment contains `currentTime` and `nil` outside all of them, an item with more than one `.outro` segment (a mid-content credits roll plus true end credits — Jellyfin has no separate segment type for the two) only ever deferring the *later* one to the Up Next card while the earlier one still gets its own plain "Skip Credits" button, and the end-credits override on `nextUpSecondsRemaining`/`nextUpTotalCountdownSeconds`: once such a segment exists, its own start time fully replaces the duration-relative trigger (confirmed with the user, 2026-08-17) — staying `nil` until the segment starts even if the configured preference window would have fired earlier, and firing right at the segment's start with a fixed 10s countdown even if that's earlier than the configured window would have — and `skipSegment(_:)` seeking to the tapped segment's end while immediately hiding `currentSkipSegment` — confirmed with the user (2026-08-17) this needs to happen right on tap, not once `currentTime` actually catches up to the seek target, which can lag behind by a whole buffering spell — and the end-credits countdown's scrub-landing fix (2026-08-18): scrubbing straight past where the countdown's own trigger point would already have elapsed used to compute an instantly-clamped-`0` `remaining` and silently auto-advance with no countdown UI ever shown, fixed by timing the countdown off `nextUpCountdownAnchorTime` (reset by every `seek(to:)`, not `endCreditsSegment.startSeconds` directly) so a scrub landing anywhere inside the segment always gets a fresh countdown from wherever it actually lands, capped to however much real duration remains when that's under 10 seconds — and a follow-up fix the same day: `nextUpSecondsRemaining` used to round a fractional `remaining` *up*, reading one higher than the scrubber's own truncating "time remaining" label (`PlayerControlsOverlay.endTimeText`/`formatTime`) for the entire time in between whole seconds, in both the end-credits and plain duration-relative branches — now truncates instead, matching that label exactly — and the scrub-preview bubble: `scrubThumbnail(atSeconds:)` returning `nil` before `start()` has resolved anything, `supportsScrubThumbnails` becoming `true` once `start()` resolves a `TrickplayInfo` entry keyed to the actual resolved media source, and staying `false` when the item's `trickplay` dict has no entry for it (see `TrickplayThumbnailProviderTests.swift` above for the tile-fetch/crop math itself, which lives outside this view model). Uses `FakePlaybackEngine` (Support/) rather than a real `AetherEngine`. Also (2026-08-18, offline detection during playback): a terminal `.failed` state reaching `onStateChange` — not just a thrown error from `start()` — populates `errorMessage` (previously silent: the video just froze with no message, the only visible trace being the diagnostics-only "stats for nerds" overlay), and an explicit `resumeSeconds` passed to `start(resumeSeconds:)` (the connectivity-loss retry path) seeks there, overriding both `startFromBeginning` and the server's own last-known resume position. Mid-stream reconnect UI itself (`.reconnecting`, `PlayerControlsOverlay`'s "Reconnecting…" label, and `PlayerView`'s offline-vs-generic-error overlay choice keyed on `ConnectivityMonitor`) needs manual/on-device verification — see "What's *not* covered yet" below. Also (2026-08-24, error handling): a `.failed` state now carries a `PlaybackFailure` (`message` + `category`), not a bare string — `errorMessage`/`failureCategory` both derive from it; `engine.load(...)` throwing `CancellationError` (a superseded load — rapid next-episode navigation, backing out mid-load) leaves both untouched rather than showing a spurious error, while a thrown `PlaybackLoadFailure` carries its `message`/`category` straight through instead of falling back to the generic "Playback failed to start." Also (2026-08-24, error handling, found live): `stop()` skips `reportPlaybackStopped` entirely while `ConnectivityMonitor.shared.isOffline` rather than awaiting a call already guaranteed to fail — see "What's *not* covered yet" below for the on-device stall this fixes. Also (2026-09-02, Playlist queue mode): a non-empty `playbackQueue` resolves `nextEpisode` by a plain local index lookup (`queue[currentIndex + 1]`) with no network call at all — not gated to `.episode` content the way the per-series lookup is, so a Movie's own next item resolves too — winning outright even when the current item is itself an Episode reached via a playlist (regression guard against silently falling back to the per-series `nextEpisode(...)` API path), and leaving `nextEpisode` `nil` at the last item in the queue. Live-confirmed against a real server (2026-09-02): a mixed movie/episode Playlist's grid card, detail page (no synopsis, correct per-kind item-list metadata — landscape thumbnail + "Series, SxEy · Title" for an episode member, poster + "year, duration" for a movie member), and Play/Resume button label (`PlayResumeButtonRow.titleOverride`) all confirmed on-device; the in-player Up-Next auto-advance chain itself still needs manual verification per this file's Player-screen limitation below. |
+| `PlaybackRequest` | `PlaybackRequestTests.swift` | `id`'s inclusion of `startFromBeginning` and `mediaSourceID`, so a Restart-after-Resume or a different version picked on a second Play each present a fresh sheet. |
+| `MediaVersionPreferenceStore` | `MediaVersionPreferenceStoreTests.swift` | Persistence round-trips across fresh instances, overwriting a previous choice for the same item, and per-user/per-item scoping — same shape as `SearchHistoryStore`'s tests. |
+| `TrackPreferenceStore` | `TrackPreferenceStoreTests.swift` | Same persistence-round-trip/overwrite/per-user-scoping shape as `MediaVersionPreferenceStore`'s tests, plus the audio/subtitle split: recording only an audio choice leaves `subtitlePreference` at `.unset` rather than fabricating one, and a `nil` subtitle selection persists as `.off` — a real, distinct-from-unset remembered choice — rather than clearing the entry. Each stored choice (`TrackChoice`) carries the track's title alongside its id, not just the id — `PlayerViewModel.applyStoredTrackSelection()` re-checks both before restoring, since ids alone are physical container positions that can silently point at a different track next time. Also (2026-08-31, bounding the store): a `maxEntries`-past-cap write evicts the least-recently-*updated* entry (a re-write moves an entry back to "most recent", protecting it from the next eviction) while leaving everything under the cap untouched, and `selection(forItem:userID:)` being reachable with no context/media-source parameter at all is itself asserted (`test_selection_isSharedAcrossPlaybackContexts`) as a regression guard for that keying invariant — not a claim that live/downloaded restoration actually succeeds end-to-end, which (same date, tested live on Office Space) turned out to be unreliable for subtitles and was dropped; see the store's own doc comment. |
+| `DeviceIdentity` | `DeviceIdentityTests.swift` | The generate-once-then-cache behavior of `deviceID`. |
+| `JellyfinAPIError` | `JellyfinAPIErrorTests.swift` | Exact `errorDescription` text for each case, including the optional-message branch on `.http`. |
+| `AppVersionInfo` | `AppVersionInfoTests.swift` | The build-version footer's text format and its fallback to "unknown" when the git branch/commit Info.plist keys are missing. |
+| `DeviceTiltObserver` | `DeviceTiltObserverTests.swift` | `smoothed(current:sample:factor:)`, the hero-effect's exponential low-pass filter; `uprightRelativeY(_:)`, which remaps raw `gravity.y` so a phone held upright (not lying flat) reads as the effect's centered/neutral position, clamped so reclining well past flat can't overshoot the effect's range; `start()`/`stop()`/`warmUp()`'s guard-clause early-return behavior in the Simulator (no physical sensor there) leaving `isApplyingChange` `false` rather than hanging; and `acquire()`/`release()` (the reference-counted pair `HeroHeaderView` uses instead of calling `start()`/`stop()` directly, so a same-instant push-to-another-detail-page doesn't race a real stop into leaving the sensor dead) resolving rather than hanging or crashing across balanced/unbalanced/immediately-re-acquired call patterns — the reference count/grace-period bookkeeping itself is `private` and the actual race it fixes was confirmed live on a real device, so isn't independently re-verified here — the rest is a thin `CMMotionManager` wrapper (real sensor I/O, same "not unit-testable" reasoning as `DeviceIdentity`'s `UIDevice`/`UserDefaults` calls). |
+| `BackdropLogoOverlay` | `BackdropLogoOverlayTests.swift` | `rotation(tiltX:tiltY:maxDegrees:)`, the device-tilt depth effect's angle/axis computation — zero tilt is zero angle, a single-axis tilt reaches `maxDegrees` at full magnitude and scales linearly below that, a combined diagonal tilt clamps to `maxDegrees` rather than the two components summing past it, and tilting right vs. tilting forward rotate around different (perpendicular) axes. Everything else about this view is rendering, not computation, and isn't covered (known gap, same as other SwiftUI views). |
+
+### How network calls are faked
+
+`JellyfinAPIClient` is a `actor` that owns a concrete `URLSession`, not a
+protocol — so instead of a hand-written fake client, `Support/MockURLProtocol.swift`
+provides a `URLProtocol` stub. You hand it a session
+(`MockURLProtocol.makeSession()`), inject that into a real `JellyfinAPIClient`,
+and script `MockURLProtocol.requestHandler` to return canned responses. This
+means what's under test is the client's *actual* request-building and
+decoding code, not a re-implementation of it — the same seam the real app
+would use to point at a real server. The `ViewModel` tests reuse this same
+pattern, since ViewModels are constructed with an already-built client
+(per `CLAUDE.md`'s architecture notes), not a protocol either.
+
+## What's *not* covered yet
+
+- **SwiftUI views, as views** — no snapshot tests. Views here are mostly thin
+  (`body` wired to a ViewModel's published state), so the ROI is lower than
+  the ViewModel layer underneath them. The UI suite now covers the same
+  layout regressions end-to-end across an iPhone and an iPad, which is why
+  `swift-snapshot-testing` is still deferred rather than adopted — revisit if
+  visual regressions start slipping through anyway.
+- **`AetherPlaybackEngine`** itself — still untestable in the traditional
+  sense (it wraps a real `AetherEngine` instance, which needs real media and
+  a real display to construct). `PlayerViewModel` — the thing that actually
+  has logic worth pinning down — *is* now covered, via `FakePlaybackEngine`
+  standing in for it. (2026-08-24, error handling) Two more real-engine-only
+  pieces added this pass, neither exercisable without one: the seek
+  watchdog (`seek(to:)`'s 8s timer that turns a stuck backward-seek — the
+  AetherEngine "wedge," upstream issue #93 — into a visible `.failed` state
+  instead of a silent freeze; ~50% reproducible per prior on-device
+  testing, so it's also hard to provoke *deliberately* even manually — the
+  plan is to leave its diagnostic log line in place and watch for it during
+  normal use rather than trying to force it), and Picture-in-Picture
+  failure logging (`handlePictureInPictureFailedToStart(_:)`, previously
+  discarding the `Error` entirely with no diagnostic trail). `category(for:)`
+  — the `PlaybackErrorKind → PlaybackFailure.Category` classifier — is the
+  one exception: a plain static function over a value type, no engine
+  needed, so it *is* covered directly (see the table above). `AetherPlaybackEngine`
+  also has a few more pure `private static` helpers (`describe`, `normalize`, `title(for:providedName:)`,
+  `descriptiveName`, `metadataLabel`, `audioFormatLabel`, `channelsLabel`,
+  `makeExternalSubtitleTrack` — HDR format labels, and the track picker's
+  title/language/flag-line normalization, e.g. telling a muxer's bare "ENG
+  (srt)" echo of the language apart from a genuinely descriptive name like
+  "Director's Commentary" and, in the latter case, folding the language
+  back into the metadata line so it isn't lost, plus (audio tracks only)
+  a format badge ("DD"/"DD+"/"DTS"/...) derived from the track's codec — 
+  including that FFmpeg's DTS decoder is registered as `"dca"`, not
+  `"dts"` (confirmed live) — a separate additive "Atmos" flag rather than
+  Atmos replacing the format (a Dolby Digital Plus/Atmos track is still
+  "DD+" first — the first version of this got that backwards, confirmed
+  live on a Saving Private Ryan source carrying both a TrueHD/Atmos and a
+  DD+/Atmos track), sourced from `TrackInfo.isAtmos` (EAC3-only) OR'd with
+  a `knownAtmosAudioTrackIndices` hint set the *ViewModel* layer derives
+  from Jellyfin's own `MediaStream.audioSpatialFormat` and forwards at
+  load time (deliberately not a text heuristic over the track's embedded
+  name — see `PlayerViewModel.atmosAudioTrackIndices(from:)`, which *is*
+  covered, and the `PlaybackEngine.load(url:externalSubtitles:
+  knownAtmosAudioTrackIndices:)` doc comment for why AetherEngine alone
+  can't detect TrueHD/Atmos), and channel layout
+  ("Mono"/"Stereo"/"5.1"/"7.1"/...)) that could be tested directly by
+  dropping `private`, if that logic gets more involved than it is today.
+  Same untestable-without-a-real-engine story applies to
+  `applyForcedSubtitleSelection`/`languageMatches`: right after a fresh
+  `load()`, a "forced" subtitle track (`TrackInfo.isForced`, the
+  container's own FORCED disposition — covers embedded and declared-
+  external tracks alike, no title-text matching) auto-activates without
+  waiting for an explicit pick; when more than one forced track exists,
+  whichever matches the language AetherEngine resolved as the active audio
+  track wins, else the first forced track in container order — confirmed
+  live (2026-08-14) against a real "Captain Phillips" source (English
+  Forced track alongside full subtitle tracks): the quick-controls panel
+  showed "Subtitles / Forced" already selected the instant playback
+  started, with no manual pick made.
+  Three more real bugs found live in this same untestable territory
+  (2026-08-20, pause a session without exiting the player, lock the phone,
+  wait a couple of minutes, unlock): AetherEngine's own `#127`
+  background-teardown grace window (`backgroundTeardownGraceSeconds`,
+  15s default) releases a paused session's decode pipeline for
+  suspension-safety, and its own doc comment on `reloadAtCurrentPosition()`
+  says reloading on foreground return is the *host's* job — this app never
+  did, so `play()` afterward silently no-opped against a torn-down session
+  until the player was backed out of and restarted; fixed with a
+  `didBecomeActive` observer that calls `reloadAtCurrentPosition()`
+  proactively (plus a defensive fallback inside `play()` itself for
+  whatever races past it). That reload's own `LoadOptions.autoplay`
+  (inherited from the original `load()` call, always `true` here) then
+  autostarted playback the reload was meant to *recover*, not resume — the
+  user's actual last action was pause — fixed by pausing again immediately
+  once the reload settles. And the recovered-but-paused state then showed
+  the correct playhead but a scrubber pinned at the left edge and a
+  "-0:00" remaining-time label: `onTimeUpdate` only ever fired off
+  `engine.clock.$currentTime`'s ticks, which stop the instant a session is
+  paused, so a `duration` that settled after the last tick a paused
+  session would ever produce never reached `PlayerViewModel` — fixed by
+  bridging `engine.$duration`'s own independent publisher directly,
+  instead of only sampling it opportunistically off the clock.
+- **Most user journeys.** There *is* a UI suite now (see "UI tests" below),
+  covering auth, Home, the collection grid's sort/filter/random controls,
+  all four asset-detail layouts, search, the player (transport, the track
+  picker, the chapter picker), Downloads (enqueue → complete → bulk delete),
+  Profile's two account actions, server-side deletion (the permission gate
+  in both directions, the confirmation warning, and delete → pop → gone from
+  the grid), and the `serverError`/`unauthorized`/`offline` scenarios, plus a
+  `performAccessibilityAudit()` pass over every
+  screen — 51 tests across the smoke plan and the full plan, run against
+  both an iPhone and an iPad nightly. What the audits deliberately do *not*
+  gate on is contrast, Dynamic Type and text clipping; those are real
+  findings but design-level ones, and they are recorded with counts under
+  "Accessibility audits" below rather than suppressed quietly.
+  One narrower gap inside what *is* covered: swiping a
+  search-history row away isn't automated (`SearchResultRow` wraps the whole
+  row in a `Button`, and a synthesized `.swipeLeft()` on it can register as a
+  tap instead — reopening the row instead of revealing the delete action).
+  Re-tapping the Search tab to reset it isn't automated either, but for a
+  different reason than it first looked like: on iPad, the floating tab bar
+  disappears from the accessibility tree entirely once the search field has
+  ever been engaged, and popping back to the results list doesn't bring it
+  back on its own — not a bug, tapping away from the search field (confirmed
+  live) is the real, working way out, it's just a gesture XCUITest's
+  synthetic taps couldn't be made to trigger here (status bar, empty scroll
+  content, and the nav bar's own edge were all tried and none registered as
+  resigning the field). Automating this journey needs either a different
+  synthesis approach or a device.
+- **The offline-download engine's background `URLSessionDownloadTask`/
+  `AppDelegate` relaunch wiring** (`DownloadManager.enqueue`/
+  `startVideoDownload`/`adoptInFlightDownloads`/
+  `handleBackgroundSessionEvents`, `DownloadTaskRouter`,
+  `AppDelegate.application(_:
+  handleEventsForBackgroundURLSession:completionHandler:)`) — `MockURLProtocol`
+  only intercepts `data(for:)`/`data(from:)`, not delegate-based download
+  tasks, and Simulator background-session behavior diverges from a real
+  device regardless. `DownloadManager.delete(itemID:)`'s own logic — the
+  part that actually has business rules worth pinning down — *is* covered
+  (`DownloadManagerTests.swift`, see the table above); what isn't is a real
+  download actually landing bytes, surviving backgrounding, or resuming
+  after the app relaunches mid-download. What *is* now covered through the
+  DI seams, and is worth keeping there: the single-background-session
+  identifier (`makeBackgroundConfiguration()` must never go back to one
+  identifier per item — see DOWNLOADS.md's "A background session per
+  download exhausted the transfer service"), cancel-on-delete targeting the
+  *task*, the retryable/non-retryable classification of transport errors,
+  the automatic-retry budget and its slot accounting, and that a -997 never
+  reaches a row as iOS's own "Lost connection to the background transfer
+  service" string.
+
+  **Capturing device evidence for a background-transfer bug**: reproduce on
+  a physical device, then collect the window retrospectively — `log stream
+  --device-udid` was removed in recent macOS, but `log collect` still takes
+  it (and needs `sudo`):
+
+  ```sh
+  sudo /usr/bin/log collect --device-udid <UDID> --last 15m --output before.logarchive
+  /usr/bin/log show before.logarchive --info --debug --style compact \
+    --predicate 'process == "nsurlsessiond" OR subsystem == "com.apple.CFNetwork"' \
+    | grep -E 'dionysus|-997|-996|BackgroundSession'
+  ```
+
+  Get `<UDID>` (the hardware UDID, not the CoreDevice identifier) from
+  `xcrun devicectl device info details --device <identifier> | grep udid`.
+
+  Verify this slice manually on a
+  physical device: download an item, confirm HEVC decode and the right
+  audio track/subtitles work in Airplane Mode (an HDR source downloads and
+  plays back fine here too, just tone-mapped to SDR — see the README's
+  Known limitations section, a confirmed permanent Jellyfin server
+  limitation, not something to chase further in this slice), confirm
+  background continuation when the app is backgrounded (not force-quit)
+  mid-download, and confirm reconnecting actually pushes local
+  watched/resume state via `DownloadSyncManager`.
+- **Mid-playback connectivity loss, on-device** (2026-08-18) — the
+  `PlaybackState.reconnecting` bridge, `PlayerControlsOverlay`'s
+  "Reconnecting…" label, and `PlayerView`'s offline-vs-generic-error overlay
+  choice all need a real dropped/retrying source connection (AetherEngine's
+  own HTTP reader, not `JellyfinAPIClient`) to exercise meaningfully —
+  `PlayerViewModelTests` pins the ViewModel-level logic (`.failed` →
+  `errorMessage`, `resumeSeconds` override) directly via `FakePlaybackEngine`,
+  but not the live reconnect UI. The Player screen is also the one place
+  `ios-simulator-skill`'s `idb`-based automation doesn't work at all (see
+  `CLAUDE.md`), so this needs manual verification: start playback, then cut
+  the server's network mid-stream.
+- **The Close-vs-Retry error UI, on-device** (2026-08-24, error handling) —
+  `PlayerView`'s branch on `viewModel.failureCategory == .refused` (Close
+  only, no Retry) vs. `.rateLimited`/`.transient` (Retry only) is pinned at
+  the `PlayerViewModel` level (`errorMessage`/`failureCategory` set
+  correctly per test above), but the actual rendering can't be — confirmed
+  live on a physical device (a temporary `#if DEBUG`-gated env var swapped
+  in a well-formed-but-nonexistent item id so the real server 404s the
+  stream request, driving a genuine `.sourceRefused` classification; removed
+  before merging), which caught three real bugs no unit test could have:
+  - `ErrorStateView`/`OfflineStateView` have no opaque background of their
+    own — fine everywhere else they're used (a plain content-region
+    replacement), but here `PlayerControlsOverlay`'s transport chrome is
+    still fully mounted right underneath and visibly bled through every gap
+    around the icon/text/buttons. Fixed with a dimming scrim (`Color.black
+    .opacity(0.4)`, light enough to keep the always-present top toolbar/
+    title legible — an earlier, much heavier 0.85 crushed them) plus a
+    bounded card in the same panel language `PlayerControlsOverlay`'s own
+    track picker already uses (`Color(white: 0.1)` fill, `cornerRadius: 14`,
+    `Color.white.opacity(0.12)` stroke, matching shadow) — nested `.frame`/
+    `.fixedSize` caps what would otherwise be each component's own
+    full-screen fill down to a real contained box.
+  - Inside that card, `.secondary` (icon/message) and the app's default
+    accent color (buttons) both assume they're painting onto the *system*
+    appearance, which every other screen using these components actually
+    is — against this always-dark card, a device in Light mode read as
+    illegibly low-contrast. Fixed with `.colorScheme(.dark)` on the card's
+    subtree (forces `.secondary` to its dark-appearance value regardless of
+    system setting) plus `.tint(.white)` on `ErrorStateView`'s buttons
+    specifically. That "specifically" matters: a first pass applied
+    `.tint(.white)` to the whole card indiscriminately, which also caught
+    `OfflineStateView`'s primary action — `.buttonStyle(.borderedProminent)`
+    uses tint as its *fill*, not just label/border color like `.bordered`
+    does, so forcing it white produced a white-on-white button with no
+    visible label at all. Verified via computed WCAG contrast ratios
+    against the actual colors in play (~6:1 icon/message, ~11:1 buttons) —
+    both comfortably pass AA.
+  - `stop()` unconditionally awaited `reportPlaybackStopped` regardless of
+    connectivity — harmless normally, but `sendRaw`'s own 20s timeout race
+    against a call already guaranteed to fail (there's no server to reach;
+    that's the entire reason the offline screen exists) meant *every* close
+    affordance — the top bar's X, or the offline screen's own Close button
+    — read as completely unresponsive for up to 20 seconds while genuinely
+    offline. Fixed by skipping the call outright when `ConnectivityMonitor
+    .shared.isOffline`; pinned by `test_stop_whileOffline_
+    skipsNetworkCallAndStillStopsEngine` (`PlayerViewModelTests.swift`),
+    which fails loudly — a throwing request handler, not just an assertion
+    — if a regression reintroduces the call.
+  Also added while doing this pass: `OfflineStateView` in the Player now
+  offers a Close action alongside Retry (previously Retry-only), and
+  `PlayerControlsOverlay.isBuffering` now covers `.idle` — `PlayerViewModel
+  .state` sits at `.idle` for the entire window `start()` spends fetching
+  the item/playback info/stream URL over the network, before `engine.load()`
+  is ever reached, and that window showed no loading indicator at all
+  (confirmed live, most visibly while offline: a plain, tappable-looking
+  transport row with nothing actually happening). The `setUpIfNeeded()`
+  `AetherPlaybackEngine()` construction-failure path (previously silently
+  swallowed with `try?`, now surfaces `setupError`) is still hard to
+  provoke naturally — reviewed by code inspection instead of forced live.
+
+## UI tests
+
+`DionysusPlayerUITests` drives the real app in the Simulator via XCUITest.
+It exists because the regressions this project actually ships are layout and
+navigation ones — the rotation-lock break, the Home→Detail push, the
+`LazyHStack` layout hang — and none of them are reachable from a ViewModel
+test.
+
+Three things make it deterministic. All are `#if DEBUG` and verifiably absent
+from a Release binary (`nm -a` on the Release build finds none of them).
+
+**A launch-argument harness** (`Core/UITestSupport/UITestHarness.swift`),
+invoked from `DionysusPlayerApp.init()` — before `AppState` is constructed,
+because `ServerSessionStore` reads `UserDefaults` and the Keychain in its own
+initializer. `-UITestResetState` clears both (the Keychain matters: it
+outlives the app container, so without it one test's sign-in seeds the next
+test's "first launch"); `-UITestSeedSession` plants a session so a test can
+start on Home; `-UITestDisableAnimations` and `-UITestDisableControlAutoHide`
+remove the two timing races. The hero carousel's timer and the 3D tilt effect
+are switched off through the app's own `@AppStorage` keys straight from
+`app.launchArguments`, with no app code involved at all.
+
+**A stub server in-process** (`UITestStubURLProtocol` + `UITestFixtureLibrary`),
+registered with `URLProtocol.registerClass`. That reaches `URLSession.shared`,
+which is what `JellyfinAPIClient` runs on — the same mechanism `AppStateTests`
+already uses, so no production refactor was needed. `RemoteImageLoader` and
+`DownloadManager` build their own sessions and opt in via
+`UITestHarness.decorate(_:)`. Fixtures are built as real `BaseItemDto` values
+and encoded with `JellyfinJSON.encoder` rather than checked in as JSON, so a
+DTO change is a compile error instead of a silent rot. Scenarios
+(`-UITestScenario`) cover `standard`, `emptyLibrary`, `serverError`,
+`unauthorized`, `offline` and `noDeletePermission`.
+
+`noDeletePermission` is the standard catalogue with `CanDelete` cleared on
+every item and any `DELETE` refused — the signed-in user who simply isn't
+allowed to delete anything, which is what gates `DeleteAssetButton`. It
+exists as a *scenario* rather than a second set of fixtures so both halves of
+the permission gate come from one catalogue.
+
+Deletion is also the one place the stub carries state: `DELETE /Items/{id}`
+records the id, and every list route filters deleted ids out afterwards
+(cascading to a show's seasons and episodes, as the real server does), so a
+journey can assert the item is genuinely gone rather than that one request
+returned 204. It's per-process, so each test's fresh launch starts clean. It
+is also the only route matched on HTTP *method* as well as path — without
+that, a `DELETE` would fall through to the item-lookup route and be answered
+with a JSON body.
+
+Downloads are the one path where the stub has to serve *real media bytes*
+rather than JSON, and they can't be arbitrary ones:
+`DownloadManager.validationFailureReason` opens every finished download with
+`AVURLAsset` and fails it as unverifiable if the duration won't load — the
+check that exists because a crashed transcode still closes as a clean HTTP
+200. So `UITestStubURLProtocol.syntheticMP4(durationSeconds:)`
+hand-assembles a ~600-byte MP4 declaring the fixture item's own runtime.
+Two things about it that are not guessable: the duration has to live in the
+*sample table*, because `AVAsset` derives duration from the longest track
+and a track with no samples is zero-length however long its `mvhd` claims to
+be (measured — the header-only version loaded fine and reported `0`); and
+`stco`'s chunk offset is an absolute file offset, so `moov` is built twice,
+the second pass byte-identical in size to the first. Downloads also drop
+from a background `URLSessionConfiguration` to a default one under
+`-UITestMode` (`DownloadManager.makeBackgroundConfiguration`) — a background
+session runs its transfers in a separate system daemon that `URLProtocol`
+cannot reach at all. That is a real divergence, and the reason downloads are
+covered only as far as "bytes land and the row settles": backgrounding,
+suspension and OS-relaunch resumption stay device-only checks.
+
+**A fake playback engine**, via `PlaybackEngineFactory`. With no AetherEngine
+there is no video surface, so `PlayerControlsOverlay` is plain SwiftUI that
+XCUITest can drive. What this does *not* cover is decode, HDR, transcode and
+seek — those still need real media on a real device. Note its
+`selectAudioTrack(id:)`/`selectSubtitleTrack(id:)` are no-ops that never
+flip a track's own `isSelected`, so the track-picker journey asserts that a
+leaf is reachable and that tapping a row dismisses the picker — not that the
+selection is retained.
+
+### Selectors
+
+Tests address elements by `A11yID` (`Shared/Accessibility/`), which is
+compiled into *both* targets, so a renamed identifier is a compile error
+rather than a timeout. Never select on `.accessibilityLabel`: those are
+`String(localized:)` values and would break on the first translation.
+
+Five hard-won rules, the first two documented at length in `A11yID` itself:
+
+- **Identify controls, not screen roots.** `.accessibilityIdentifier` on a
+  container sometimes scopes to that container and sometimes propagates down
+  and *overwrites* its descendants' own identifiers. Measured both ways here.
+- **The tab bar differs by device.** iPad keeps the identifier set inside
+  `.tabItem`; iPhone converts the item into a UIKit `UITabBarItem` and drops
+  it. The `TabBar` screen object falls back to tab *order* — not label, which
+  would be localized.
+- **A media tile's identifier is rarely unique on screen, and not every
+  duplicate is safe to tap.** The same item can legitimately appear twice
+  (a rail *and* the hero carousel); `Screen.onScreenMatch(identifier:in:)`
+  picks the copy XCUITest reports as actually within the screen's width.
+  Two real, measured failure modes this exists for: the hero carousel's
+  own off-screen paging duplicates (a full screen-width outside either
+  edge) synthesize a tap at whatever's really on screen at that point
+  instead — silently landing on a different item's detail page, no error —
+  and `.isHittable` doesn't catch it either. A `LazyHStack` library-rail
+  card genuinely off past the initial viewport (the later cards on
+  iPhone's narrower width) instead fails outright with "Activation point
+  invalid" rather than the auto-scroll a normal off-screen element gets;
+  `HomeScreen.openLibrary(_:)` does one bounded swipe on the rail first.
+- **`.accessibilityElement(children: .ignore)` on a row makes it report as
+  `Other`, not `Button`** — so `app.buttons[id]` silently never resolves
+  even though the identifier is right there in the tree, with the real
+  `Button` nested one level below carrying no identifier of its own.
+  Measured on `PlayerControlsOverlay`'s track-picker rows; `PlayerScreen`
+  queries them via `app.descendants(matching: .any)[id]` instead, which
+  taps fine. `ChapterPickerOverlay`'s rows are the counter-example — they
+  add `.isButton` back via `.accessibilityAddTraits`, and so *do* resolve
+  as `Button`. Prefer `.descendants(matching: .any)` for anything carrying
+  `.ignore`.
+- **A subscript lookup matches on label as readily as on identifier**, so
+  `app.buttons["Sign Out"]` finds both a confirmation dialog's button and
+  the row that raised it — giving "Multiple matching elements found" even
+  though the row has an explicit, different identifier. Scope dialog
+  buttons to their container (`app.sheets.buttons["Sign Out"]`, as
+  `ProfileScreen.signOut()` does). Adding an identifier to a control does
+  not stop its *label* from matching.
+
+When something can't be found, dump `XCUIApplication.debugDescription` and
+look at the real tree. Every one of the rules above came from doing that;
+none of them were guessable.
+
+### Accessibility audits
+
+`AccessibilityAuditTests` runs `performAccessibilityAudit()` over all twelve
+screens the app can reach. These are the cheapest coverage here — about ten
+lines per screen, and the only tests in the suite that can fail for a reason
+nobody thought to write an assertion about.
+
+**They gate on structural issues only**, and the app passes those clean:
+`.elementDetection`, `.hitRegion`, `.sufficientElementDescription` and
+`.trait`. (`.action` and `.parentChild` are in the header but are macOS-only
+— they do not compile against the iOS SDK.) These are the "this element is
+wrong" checks: an unlabeled control, a label that is not human-readable, a
+trait contradicting what the element does. A regression here is a bug on any
+reading.
+
+Two real bugs turned up the first time it ran, both now fixed:
+
+- **`ServerSetupView`'s header icon announced "server.rack".** A decorative
+  `Image(systemName:)` with no `.accessibilityHidden(true)` falls back to the
+  SF Symbol's own name, so VoiceOver read the literal string out.
+- **The player had no accessible name for what was playing.** When an item
+  has a logo, `PlayerControlsOverlay.titleRow` renders it *instead of* the
+  title text — and `LogoImageView`/`LocalFileImage` produce a bare `Image`
+  with no label, so the one thing that row exists to say was unavailable.
+  Fixed with the same `.ignore` + explicit-label shape `HeroRailView` and
+  `ProfileView` already use.
+
+**What it deliberately does not gate on**, measured across all twelve screens
+(2026-09-06): `.contrast` (36 issues), `.dynamicType` (64) and
+`.textClipped` (45) — 145 of the 154 that `.all` reports. These are not
+stray mistakes. They are consequences of deliberate, app-wide design
+choices: the secondary caption colour behind every "2019 · 1h 35m" subtitle,
+and fixed-size poster/landscape tiles whose one-line captions cannot grow
+with Dynamic Type without reflowing every grid in the app. Turning them on
+today would mean 145 suppressions, which is not a gate — it is a rubber
+stamp. Changing the underlying design is real work with real visual
+trade-offs and deserves its own change, argued on its merits.
+
+That split is the point, and it is worth preserving: **this suite refuses to
+report green on something it is not actually checking.** If you widen
+`auditedTypes`, fix the findings rather than suppressing them.
+
+Only two suppressions exist, both scoped to a specific element rather than to
+an audit type (see `isKnownAcceptable`): UIKit's own 20.5pt "Clear text"
+button inside `.searchable`, which this app does not own and cannot resize;
+and the hit-region minimum on non-interactive `StaticText` metadata lines
+("Genres: Drama"), where a 44pt floor would insert large dead gaps between
+rows purely to satisfy a rule about touch targets.
+
+### Adding a journey
+
+1. Put it in `DionysusPlayerUITests/Journeys/`, and put its selectors in a
+   screen object in `Screens/` — tests should read as user intent, with
+   every selector defined once.
+2. Add any new identifier to `A11yID` **in the same change that applies it to
+   a view**. A constant nothing uses looks like an available selector and
+   silently never resolves.
+3. Launch through `UITestCase.launch(...)`, never by building
+   `XCUIApplication` by hand — that is where the flake mitigations live.
+4. New files need `xcodegen generate`.
+5. If it belongs in the PR gate, add it to `TestPlans/UITests-Smoke.xctestplan`
+   as well. Keep that plan small; its job is fast feedback, not coverage.
+
+**Check a new test actually fails.** Break the thing it covers on purpose and
+watch it go red. This is not ceremony: `testOpeningAnItemFromHome` passed with
+`PosterCard`'s destination deliberately broken, because `.firstMatch` resolved
+to the hero carousel's tile instead — the poster rails were never being
+tapped at all. `testOpeningAnItemFromACollectionGrid` exists because of that.
+
+**An intermittent failure may be a crash, not flake.** The tell is an
+`app.debugDescription` that comes back *empty* (`Query chain: Find: Target
+Application`) alongside "Restarting after unexpected exit, crash, or test
+timeout" in the log — the app process died, so there was no tree to dump and
+no element to find. Check `~/Library/Logs/DiagnosticReports/` for a
+`Dionysus-*.ips` before touching the test; its stack names the trapping
+accessor directly, which the XCUITest log cannot.
+
+That is how this suite found its first real bug:
+`DownloadsJourneyTests.testDeletingAllDownloadsReturnsToTheEmptyState`
+failed 2 runs in 9 on iPad, and the crash logs pointed at
+`DownloadedItem.metadata.getter` reached from `DownloadsView.gridSubtitle(_:)`
+— bulk delete trapping in SwiftData because `DownloadsRow` held the live
+model. Fixed by snapshotting the row's display fields
+(`DownloadsRow.StandaloneItem`); 10/10 clean afterwards. Worth knowing the
+shape of, because a rerun-until-green habit would have buried it.
+
+## Adding a unit test
+
+1. Put it under `DionysusPlayerTests/`, mirroring the path of the file it
+   tests (e.g. a test for `Features/Foo/FooViewModel.swift` goes in
+   `DionysusPlayerTests/Features/Foo/FooViewModelTests.swift`).
+2. New *files* need `xcodegen generate` re-run so Xcode picks them up
+   (`sources:` in `project.yml` points at the whole `DionysusPlayerTests`
+   folder, so no `project.yml` edit is needed — just the regenerate).
+3. For anything that talks to `JellyfinAPIClient`, use the
+   `MockURLProtocol` pattern above rather than hitting a real server.
+4. Prefer testing ViewModels/models over views — that's where the logic
+   actually lives in this codebase (see `CLAUDE.md`'s Architecture section).

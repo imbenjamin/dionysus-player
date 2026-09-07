@@ -1,0 +1,638 @@
+import Foundation
+
+// MARK: - System
+
+struct PublicSystemInfo: Codable {
+    var localAddress: String?
+    var serverName: String?
+    var version: String?
+    var productName: String?
+    var id: String?
+}
+
+// MARK: - Auth
+
+// `Codable`, not just `Encodable` — the app only ever encodes this to send
+// it, but `UITestStubURLProtocol` decodes it back out of the request body to
+// check the posted password against the fixture credential, which is what
+// makes a "bad credentials" login journey possible to simulate at all.
+struct AuthenticateByNameRequest: Codable {
+    var username: String
+    var pw: String
+}
+
+struct AuthenticationResult: Codable {
+    var user: UserDto
+    var accessToken: String
+    var serverId: String?
+}
+
+struct UserDto: Codable, Identifiable {
+    var id: String
+    var name: String
+    var hasPassword: Bool?
+    var primaryImageTag: String?
+}
+
+// MARK: - Items
+
+/// What kind of thing a `BaseItemDto` represents. Jellyfin's `Type` field is
+/// an open-ended string in practice (plugins can add their own), so unknown
+/// values decode to `.unknown` rather than failing.
+enum BaseItemKind: String, Codable {
+    case movie = "Movie"
+    case series = "Series"
+    case season = "Season"
+    case episode = "Episode"
+    case boxSet = "BoxSet"
+    case collectionFolder = "CollectionFolder"
+    case folder = "Folder"
+    case playlist = "Playlist"
+    // AUDIO SUPPRESSION: these five cases exist so audio/music types decode
+    // to something explicit instead of falling into `.unknown` (which used
+    // to route them straight into `MovieDetailView`'s default branch — see
+    // `BaseItemDto.isAudioContent` below). Worth *keeping* once Dionysus
+    // Player supports audio/music playback — at that point they'd route to
+    // a real audio detail/playback path instead of an "unsupported" state,
+    // not get deleted. `MusicVideo` is deliberately not a case here: it's a
+    // real video file (just music-tagged) that already plays fine via the
+    // `.unknown` → `MovieDetailView` fallback.
+    case audio = "Audio"
+    case audioBook = "AudioBook"
+    case musicAlbum = "MusicAlbum"
+    case musicArtist = "MusicArtist"
+    case musicGenre = "MusicGenre"
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        self = BaseItemKind(rawValue: raw) ?? .unknown
+    }
+
+    /// The SF Symbol shown by `MediaPlaceholderBox` while this kind's own
+    /// artwork is loading or has failed to load — chosen to be
+    /// representative of the content type itself (a show's placeholder
+    /// looks like a TV, not a generic photo icon), matching the one
+    /// existing precedent for this in the app (`CastCrewGridView`'s
+    /// `"person.fill"` for a cast member with no image). `.playlist`
+    /// deliberately doesn't use a music-specific glyph — a Jellyfin
+    /// playlist can hold any media type, not just audio — and instead uses
+    /// `"list.triangle"`, Apple's own established symbol for a playback
+    /// queue ("Up Next" in Music/TV), matching existing platform
+    /// vocabulary rather than inventing new meaning. The music cases are
+    /// unreachable in practice per the app's audio-suppression policy (see
+    /// this enum's own doc comment above), but the switch stays exhaustive
+    /// rather than falling back to `default:`.
+    var placeholderSystemImage: String {
+        switch self {
+        case .movie: "film"
+        case .series, .season: "tv"
+        case .episode: "play.tv"
+        case .boxSet: "square.stack.3d.down.right"
+        case .collectionFolder, .folder: "folder"
+        case .playlist: "list.triangle"
+        case .audio, .audioBook, .musicAlbum, .musicArtist, .musicGenre: "music.note"
+        case .unknown: "photo"
+        }
+    }
+}
+
+struct BaseItemDto: Codable, Identifiable, Equatable {
+    var id: String
+    var name: String
+    var overview: String?
+    /// Marketing taglines. Jellyfin models this as an array but populates
+    /// at most one entry in practice; only requested via `Fields=Taglines`
+    /// on the detail page's own item fetch — see `MediaItem.tagline`.
+    var taglines: [String]?
+    var type: BaseItemKind
+
+    var productionYear: Int?
+    var endDate: Date?
+    var premiereDate: Date?
+
+    var communityRating: Double?
+    var officialRating: String?
+    var genres: [String]?
+    /// Unlike `genres` (plain strings), Jellyfin represents studios as
+    /// name+id pairs — used by `CollectionGridView`'s Studios filter.
+    var studios: [NameGuidPair]?
+    var runTimeTicks: Int64?
+
+    // Episode/season parentage
+    var seriesId: String?
+    var seriesName: String?
+    var seasonId: String?
+    var seasonName: String?
+    var indexNumber: Int?
+    var parentIndexNumber: Int?
+    var childCount: Int?
+    /// Total descendant count for a folder-like item — for a Series that's
+    /// every episode across every season, for a Season just its own
+    /// episodes (`childCount` is *seasons* on a Series, which is why this
+    /// separate field is needed for the deletion confirmation's episode
+    /// count). Only populated when requested via `Fields=RecursiveItemCount`
+    /// — part of `JellyfinAPIClient.detailFields`, `nil` on any lighter
+    /// rail/grid fetch.
+    var recursiveItemCount: Int?
+
+    /// Whether *this user* is allowed to delete *this item* from the server,
+    /// computed server-side and only populated when requested via
+    /// `Fields=CanDelete` (part of `JellyfinAPIClient.detailFields`; `nil`
+    /// on any lighter rail/grid fetch).
+    ///
+    /// Deliberately taken from the server rather than derived here from the
+    /// user's own policy flags. Jellyfin authorizes a delete with
+    /// `BaseItem.CanDelete(user)`, which is `IsFileProtocol` **and** either
+    /// the global `EnableContentDeletion` permission **or** the item's
+    /// collection folder appearing in the user's per-folder
+    /// `EnableContentDeletionFromFolders` list. A client-side check of
+    /// `EnableContentDeletion` alone would therefore both hide the affordance
+    /// from users granted delete on specific folders, and offer it for items
+    /// that aren't deletable at all. This flag is computed from the *same*
+    /// predicate `DELETE /Items/{id}` itself enforces, so it can't drift from
+    /// it — and it's what Jellyfin's own web client gates its delete menu on.
+    var canDelete: Bool?
+
+    // Images
+    var imageTags: [String: String]?
+    var backdropImageTags: [String]?
+    /// Server-generated scrub-preview tile sheets — outer key is the
+    /// `MediaSourceInfo.id` these thumbnails cover (a single item can have
+    /// multiple versions/sources), inner key is a tile width in pixels as a
+    /// string (e.g. `"320"`; a server can offer more than one resolution).
+    /// Only populated when requested via `Fields=Trickplay`; `nil`/empty
+    /// for content Jellyfin hasn't scanned for trickplay yet. See
+    /// `TrickplayMath` for turning a scrub position into which tile of
+    /// which sheet to show.
+    var trickplay: [String: [String: TrickplayInfo]]?
+    var parentBackdropItemId: String?
+    var parentBackdropImageTags: [String]?
+    /// Server-resolved: the nearest ancestor that actually has a logo (e.g.
+    /// an episode's own Season, or failing that its Series), same mechanism
+    /// as `parentBackdropItemId`/`parentBackdropImageTags` above.
+    var parentLogoItemId: String?
+    var parentLogoImageTag: String?
+
+    var userData: UserItemDataDto?
+
+    /// Only populated when requested via `Fields=MediaSources`; used for the
+    /// detail page's technical-info section and to build a playback URL.
+    var mediaSources: [MediaSourceInfo]?
+
+    /// Only populated when requested via `Fields=People`; cast and crew for
+    /// the detail page's "Cast & Crew" tab.
+    var people: [BaseItemPerson]?
+
+    /// Named position markers across the item's runtime, only populated when
+    /// requested via `Fields=Chapters` (part of
+    /// `JellyfinAPIClient.detailFields`). `nil` for any lighter list/rail
+    /// fetch, and empty — or a single dummy entry, which is why
+    /// `MediaItem.chapters` requires 2+ before surfacing any chapter UI —
+    /// for content Jellyfin found no real chapter data in. Entirely
+    /// unrelated to `MediaSegmentDto`/`PlaybackSegment` (Jellyfin's separate
+    /// skippable Intro/Outro feature): chapters are purely navigational and
+    /// never auto-skipped.
+    var chapters: [ChapterInfoDto]?
+
+    /// Present on library "views" (e.g. `"movies"`, `"tvshows"`, `"boxsets"`)
+    /// returned by `/Users/{id}/Views`; used to scope Home's rails.
+    var collectionType: String?
+    /// Jellyfin's own coarse content classification — `"Video"`, `"Audio"`,
+    /// `"Photo"`, `"Book"`, or `"Unknown"` (its default, notably including
+    /// the `MusicAlbum`/`MusicArtist` folder-like types, which don't carry
+    /// a meaningful `MediaType` of their own — see
+    /// `BaseItemDto.isAudioContent`, which keys off `type` for those two
+    /// rather than this field). Reliable for leaf `Audio` items and for
+    /// `Playlist` items (a playlist's own `MediaType` reflects its content).
+    var mediaType: String?
+}
+
+/// `CollectionType` values `/Users/{id}/Views` can report for a library —
+/// shared constants so `"movies"`/`"tvshows"`/`"boxsets"`/`"music"` aren't
+/// repeated as raw string literals at each call site (`MediaItem
+/// .libraryContentItemTypes`, `HomeViewModel.load()`).
+enum JellyfinCollectionType {
+    static let movies = "movies"
+    static let tvShows = "tvshows"
+    static let boxSets = "boxsets"
+    static let playlists = "playlists"
+    // AUDIO SUPPRESSION: only referenced by `MediaItem.isAudioLibrary` to
+    // hide a Music library from Home. Delete once Dionysus Player supports
+    // browsing a Music library instead of hiding it.
+    static let music = "music"
+}
+
+/// AUDIO SUPPRESSION: the one reusable source of truth for "is this item
+/// audio/music content Dionysus Player can't play yet" — every suppression
+/// check in the app (Home rails, detail screen, playback, downloads) calls
+/// this rather than re-deriving the type/mediaType logic. Worth *keeping*
+/// once audio support lands, repurposed to route to an audio player instead
+/// of gating it out — see the doc comment on the new `BaseItemKind` cases
+/// above.
+extension BaseItemDto {
+    var isAudioContent: Bool {
+        switch type {
+        case .audio, .audioBook, .musicAlbum, .musicArtist, .musicGenre:
+            return true
+        case .playlist:
+            // Best-effort: an audio playlist reports `MediaType: "Audio"`,
+            // but so does an *empty* playlist (server default with no
+            // content to infer a type from) — over-suppressing an
+            // edge-case empty non-audio playlist is the safe failure
+            // direction here, unlike under-suppressing into a broken Play
+            // button.
+            return mediaType == "Audio"
+        default:
+            return false
+        }
+    }
+}
+
+/// A single cast/crew credit. Jellyfin's `Type` is as open-ended as
+/// `BaseItemKind` (e.g. "Actor", "Director", "Writer", "GuestStar",
+/// "Composer", ...) — kept as a plain string here since it's only ever
+/// shown as a label, never branched on.
+struct BaseItemPerson: Codable, Identifiable, Hashable {
+    var id: String
+    var name: String
+    /// The character name for an "Actor"/"GuestStar" credit; usually absent
+    /// for crew, where `type` (e.g. "Director") is the meaningful label.
+    var role: String?
+    var type: String?
+    var primaryImageTag: String?
+}
+
+/// One entry of `BaseItemDto.chapters` — a named position marker, with an
+/// optional server-generated still frame.
+///
+/// `imageTag` being `nil` is Jellyfin's *only* reliable "this chapter has no
+/// image" signal (`ImagePath`/`ImageDateModified`, which the server also
+/// sends, describe a server-side file path and say nothing useful to a
+/// client), so `Chapter.imageURL` is only ever built when it's non-nil —
+/// see `ImageURLBuilder.chapterImageURL(itemID:chapterIndex:tag:maxWidth:)`.
+/// The image route is addressed by the chapter's *position* in the
+/// `Chapters` array, not by any id of its own, which is why `Chapter`
+/// carries the enumerated index alongside these fields.
+struct ChapterInfoDto: Codable, Equatable {
+    /// .NET ticks (10,000,000 per second), same unit as `runTimeTicks`.
+    var startPositionTicks: Int64
+    /// Usually already normalized server-side to "Chapter N" when the source
+    /// file's own chapter name was blank or just a timestamp
+    /// (`FFProbeVideoInfo.NormalizeChapterNames`) — `Chapter.init` still
+    /// falls back defensively rather than trusting that.
+    var name: String?
+    var imageTag: String?
+}
+
+/// Jellyfin's generic named-entity-with-id shape — used for
+/// `BaseItemDto.studios`.
+struct NameGuidPair: Codable, Hashable {
+    var name: String
+    var id: String?
+}
+
+extension BaseItemDto: Hashable {
+    /// Id-only, while `==` (synthesized on the type itself) is structural —
+    /// the legal direction for the `Hashable` contract, and what keeps
+    /// id-keyed lookups treating one server item as one entry.
+    ///
+    /// `==` must stay structural: `MediaItem` forwards its equality to this
+    /// type, and SwiftUI relies on it to decide whether a view changed. See
+    /// `MediaItem.==`.
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
+/// One resolution of a Jellyfin server-generated trickplay track — a still
+/// every `interval` ms across the item's full runtime, packed into
+/// `tileWidth × tileHeight`-still tile-sheet JPEGs (row-major from the
+/// top-left). See `TrickplayMath` for the seconds → sheet/tile lookup, and
+/// `BaseItemDto.trickplay` for how these are keyed.
+struct TrickplayInfo: Codable, Equatable {
+    var width: Int
+    var height: Int
+    var tileWidth: Int
+    var tileHeight: Int
+    var thumbnailCount: Int
+    var interval: Int
+    var bandwidth: Int
+}
+
+struct UserItemDataDto: Codable, Equatable {
+    var playbackPositionTicks: Int64?
+    var playedPercentage: Double?
+    var played: Bool?
+    var isFavorite: Bool?
+}
+
+struct BaseItemDtoQueryResult: Codable {
+    var items: [BaseItemDto]
+    var totalRecordCount: Int
+}
+
+// MARK: - Media Segments
+
+/// Jellyfin's "Media Segments" feature (skippable Intro/Outro/Recap/Preview/
+/// Commercial time ranges). Requires a Jellyfin server new enough to support
+/// it — older servers just error on the endpoint, which
+/// `PlayerViewModel.loadMediaSegments(for:)` tolerates the same way it
+/// tolerates any other optional lookup failing.
+enum MediaSegmentType: String, Codable {
+    case intro = "Intro"
+    case outro = "Outro"
+    case recap = "Recap"
+    case preview = "Preview"
+    case commercial = "Commercial"
+    case unknown = "Unknown"
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        self = MediaSegmentType(rawValue: raw) ?? .unknown
+    }
+}
+
+struct MediaSegmentDto: Codable, Identifiable {
+    var id: String
+    var itemId: String
+    var type: MediaSegmentType
+    var startTicks: Int64
+    var endTicks: Int64
+}
+
+struct MediaSegmentDtoQueryResult: Codable {
+    var items: [MediaSegmentDto]
+    var totalRecordCount: Int
+}
+
+// MARK: - Playback
+
+struct PlaybackInfoRequest: Encodable {
+    var userId: String
+    /// Scopes the response to one specific version out of the item's
+    /// `mediaSources` — the version-picker's choice on the detail page
+    /// (`PlayResumeButtonRow`), or `nil` to let the server pick its own
+    /// default (the pre-existing behavior, still used for the common
+    /// single-version case).
+    var mediaSourceId: String?
+    /// Non-nil only in "Allow Transcoding" mode (`StreamDecisionMode
+    /// .allowTranscoding`) — see `DeviceProfileBuilder`. `nil` in Direct
+    /// Play Always mode leaves this request byte-for-byte identical to the
+    /// app's original shape: synthesized `Encodable` for `Optional` omits a
+    /// `nil` field entirely rather than encoding JSON `null`.
+    var deviceProfile: DeviceProfile?
+    /// Mirrors `DeviceProfile.maxStreamingBitrate` — sent at both the top
+    /// level and inside the profile, matching reference clients (Swiftfin).
+    /// Only non-nil when the user's `StreamingMaxBitrate` setting isn't
+    /// `.unlimited`, and only in "Allow Transcoding" mode.
+    var maxStreamingBitrate: Int?
+    var startTimeTicks: Int64?
+    var allowVideoStreamCopy: Bool?
+    var allowAudioStreamCopy: Bool?
+}
+
+struct PlaybackInfoResponse: Codable {
+    var mediaSources: [MediaSourceInfo]?
+    var playSessionId: String?
+    /// Jellyfin's `PlaybackErrorCode` (e.g. `"NoCompatibleStream"`) — only
+    /// meaningful when `mediaSources` comes back empty/nil, which in
+    /// practice only happens in "Allow Transcoding" mode (a
+    /// non-negotiated, no-`DeviceProfile` request has nothing for the
+    /// server to reject).
+    var errorCode: String?
+}
+
+struct MediaSourceInfo: Codable, Identifiable, Equatable {
+    var id: String?
+    /// Server-computed, filename-derived (e.g. "[imdbid-tt8579674] -
+    /// [Bluray-2160p][HDR10][x265]-GROUP", or that same string plus
+    /// " - Extended Version"/" - 1080p" appended for an alternate cut,
+    /// per Jellyfin's multi-version naming convention). `MediaItem
+    /// .mediaVersions` diffs this against the item's other sources to
+    /// recover a filename-derived edition name (see its
+    /// `canonicalSourceName`/`editionLabel`), and falls back to using it
+    /// as a raw label only when no such relationship is found; everywhere
+    /// else, prefer a friendlier derived string over this.
+    var name: String?
+    var path: String?
+    var container: String?
+    var isRemote: Bool?
+    var supportsDirectPlay: Bool?
+    /// Advisory only, like `supportsDirectPlay`/`supportsTranscoding` —
+    /// don't branch on any of these three directly. `transcodingUrl`'s
+    /// presence/absence is the server's actual verdict; see its own doc
+    /// comment.
+    var supportsDirectStream: Bool?
+    var supportsTranscoding: Bool?
+    var runTimeTicks: Int64?
+    /// Overall bitrate in bits/sec, for the Details tab's summary row.
+    var bitrate: Int?
+    /// File size in bytes, for the Details tab's summary row.
+    var size: Int64?
+    var mediaStreams: [MediaStream]?
+    /// A relative path + query string (e.g. `"/videos/{id}/master.m3u8?
+    /// DeviceId=...&PlaySessionId=..."`) — NOT a full URL. Only populated
+    /// in "Allow Transcoding" mode, and only when the server decided direct
+    /// play/direct stream isn't possible. Resolve via
+    /// `JellyfinAPIClient.resolveTranscodingURL(_:)`. Presence/absence of
+    /// this field is the entire direct-play-vs-transcode decision —
+    /// `supportsDirectPlay`/`supportsDirectStream`/`supportsTranscoding`
+    /// above are advisory only (matches Swiftfin's reference client
+    /// behavior, `MediaPlayerItem+Build.swift`).
+    var transcodingUrl: String?
+    /// "hls" | "http" — only meaningful alongside `transcodingUrl`.
+    var transcodingSubProtocol: String?
+    var transcodingContainer: String?
+}
+
+struct MediaStream: Codable, Identifiable, Hashable {
+    var index: Int
+    var type: String
+    var codec: String?
+    var language: String?
+    /// The raw embedded stream title (e.g. "Commentary", "Audio
+    /// Description"), distinct from the server-computed `displayTitle`.
+    var title: String?
+    var displayTitle: String?
+    var isDefault: Bool?
+    var isForced: Bool?
+    var isExternal: Bool?
+    /// Server-detected, primarily for subtitle streams (SDH/closed-caption
+    /// naming conventions); occasionally set for an accessible audio track
+    /// too. One of a few signals `MediaItem.metadataBadges` checks for "AD".
+    var isHearingImpaired: Bool?
+
+    // Video-specific — used to build the Details tab's resolution/dynamic
+    // range rows. `nil` for audio/subtitle streams.
+    var width: Int?
+    var height: Int?
+    var profile: String?
+    /// Simple SDR/HDR classification.
+    var videoRange: String?
+    /// More specific than `videoRange` when present (e.g. "DOVI",
+    /// "DOVIWithHDR10", "HDR10", "HLG") — preferred when available.
+    var videoRangeType: String?
+    /// The stream's actual frame rate (e.g. `23.976`), as measured from the
+    /// file — preferred over `averageFrameRate` (a coarser, container-level
+    /// figure) when both are present. Either can be missing depending on how
+    /// the file was probed server-side.
+    var realFrameRate: Double?
+    var averageFrameRate: Double?
+    /// This stream's own bitrate in bits/sec, as opposed to
+    /// `MediaSource.bitrate`, which covers the whole container. Used by the
+    /// download path to cap a transcode against the source's *video*
+    /// bitrate rather than one inflated by however many audio tracks the
+    /// file carries. Not always populated — an older library item or a
+    /// container the server couldn't fully probe can leave it `nil`.
+    var bitRate: Int?
+
+    // Audio-specific.
+    var channelLayout: String?
+    /// Server-detected spatial audio format ("None"/"DolbyAtmos"/"DTSX") —
+    /// more reliable than text-matching the codec/title for Atmos.
+    var audioSpatialFormat: String?
+
+    var id: Int { index }
+}
+
+struct PlaybackProgressRequest: Encodable {
+    var itemId: String
+    var positionTicks: Int64
+    var isPaused: Bool = false
+    /// Which version is actually playing — the one `PlaybackInfoRequest`
+    /// resolved to in `PlayerViewModel.start()`, not necessarily what the
+    /// caller originally requested (a requested id that doesn't match any
+    /// of the item's sources falls back to the server's default). Lets the
+    /// server's active-session bookkeeping reflect the real file being
+    /// streamed.
+    var mediaSourceId: String?
+    /// Set by `DownloadManager`'s transcode keep-alive ping (see
+    /// `JellyfinAPIClient.pingDownloadTranscode`'s doc comment) and, since
+    /// "Allow Transcoding" mode, by live playback too —
+    /// `PlayerViewModel.activePlaySessionID`, sourced from
+    /// `PlaybackInfoResponse.playSessionId`, flows into
+    /// `reportPlaybackStart`/`reportPlaybackProgress`/`reportPlaybackStopped`
+    /// whenever the server negotiated a session, so it can track/kill the
+    /// right transcode job. Still `nil` for Direct Play Always mode: with
+    /// no `DeviceProfile` sent, the server never allocates a job worth
+    /// tracking.
+    var playSessionId: String?
+}
+
+/// Body for `JellyfinAPIClient.updateUserData` (`POST
+/// /Users/{userId}/Items/{itemId}/UserData`) — a direct write of a user's
+/// watched/resume state, unlike `PlaybackProgressRequest` above which is
+/// scoped to an active `/Sessions/Playing*` session. Jellyfin's real
+/// `UpdateUserItemDataDto` has more fields (`isFavorite`, etc.); only the
+/// ones the offline sync path actually needs to write are modeled here.
+struct UpdateUserDataRequest: Encodable {
+    var playbackPositionTicks: Int64
+    var played: Bool
+    var playedPercentage: Double
+    /// Jellyfin's own `UserItemDataDto.LastPlayedDate` field — without this,
+    /// the server stamps its own value as the moment it *receives* this
+    /// request, which for the offline-downloads sync path
+    /// (`DownloadSyncManager`) can be hours or days after the item was
+    /// actually watched. `nil` is omitted from the encoded request body
+    /// entirely (Swift's synthesized `Encodable` uses `encodeIfPresent`
+    /// for `Optional` properties), leaving the server's existing value
+    /// alone rather than clearing it — in practice every current caller is
+    /// the offline sync path and always supplies one.
+    var lastPlayedDate: Date?
+}
+
+/// A currently-active session, as Jellyfin's `/Sessions` endpoint reports
+/// it — used only for `PlaybackStatsOverlay`'s "Streaming" section. This is
+/// deliberately separate from `PlaybackInfoResponse`: that endpoint
+/// negotiates capabilities *before* playback starts, while a transcode's
+/// actual live parameters (current bitrate, completion percentage, ...)
+/// only exist server-side in the running ffmpeg process, so they're only
+/// ever visible through the live session Jellyfin Web's own playback-info
+/// panel polls the same way.
+struct SessionInfoDto: Codable {
+    var id: String?
+    var deviceId: String?
+    var playState: PlayStateInfoDto?
+    /// Present only while `playState.playMethod == "Transcode"`. Confirmed
+    /// live (2026-08-27): this populates for a download's plain transcode
+    /// stream too, not just real playback — but `PlayState`'s own fields
+    /// (`mediaSourceId`, `playMethod`) do NOT, since those are only set via
+    /// `/Sessions/Playing`, which downloads never call. Don't try to key
+    /// off `PlayState` to identify a download's session — see
+    /// `JellyfinAPIClient.currentSession(deviceID:)`'s doc comment for what
+    /// actually works instead.
+    var transcodingInfo: TranscodingInfoDto?
+}
+
+struct PlayStateInfoDto: Codable {
+    var mediaSourceId: String?
+    /// Jellyfin's own `PlayMethod` enum, as a raw string: `"DirectPlay"`,
+    /// `"DirectStream"`, or `"Transcode"`. Dionysus only ever requests a
+    /// static (`Static=true`) stream today (`JellyfinAPIClient.streamURL`),
+    /// so this should always come back `"DirectStream"`/`"DirectPlay"` — it
+    /// starts reflecting real transcodes automatically once transcode
+    /// negotiation is implemented, with no changes needed here.
+    var playMethod: String?
+}
+
+/// The server's live transcode diagnostics for the current session — same
+/// fields Jellyfin Web's own "Playback Info" overlay shows.
+struct TranscodingInfoDto: Codable {
+    var audioCodec: String?
+    var videoCodec: String?
+    var container: String?
+    var isVideoDirect: Bool?
+    var isAudioDirect: Bool?
+    /// Bits per second.
+    var bitrate: Int?
+    var framerate: Double?
+    var completionPercentage: Double?
+    var width: Int?
+    var height: Int?
+    var audioChannels: Int?
+    /// Why the server chose to transcode instead of direct-playing/-streaming
+    /// (e.g. `"VideoBitrateNotSupported"`, `"ContainerNotSupported"`) — an
+    /// open-ended set of Jellyfin's own reason codes, kept as raw strings
+    /// since they're only ever displayed, never branched on.
+    var transcodeReasons: [String]?
+}
+
+// MARK: - Search
+
+struct SearchHintResult: Codable {
+    var searchHints: [SearchHint]
+    var totalRecordCount: Int
+}
+
+/// A fast "search as you type" match from Jellyfin's dedicated
+/// `/Search/Hints` endpoint — distinct from the full `BaseItemDto` results
+/// the general-purpose `/Items` search returns, and much lighter (a handful
+/// of display fields, not the full item). Fast enough that `SearchView`
+/// uses it as its sole results source, not just a typeahead dropdown; kept
+/// to just the fields that results list needs.
+///
+/// `Encodable` only for `MockURLProtocol.encodedJSONResponse`'s benefit in
+/// tests — production code only ever decodes this.
+struct SearchHint: Codable, Identifiable, Equatable {
+    var id: String
+    var name: String
+    var type: BaseItemKind
+    var productionYear: Int?
+    /// The parent series' name — present only for `.episode` hints.
+    var series: String?
+    /// Episode number within its season — present only for `.episode`
+    /// hints, paired with `parentIndexNumber` to build an "S1:E4"-style
+    /// label (`SearchResult`'s doc comment on `subtitle`).
+    var indexNumber: Int?
+    /// Season number — present only for `.episode` hints. Despite the
+    /// generic-sounding name, this is Jellyfin's actual field for it here
+    /// (same as `BaseItemDto.parentIndexNumber`).
+    var parentIndexNumber: Int?
+    var primaryImageTag: String?
+    /// A `Thumb`-type image, and the item it belongs to — usually the same
+    /// item, but an episode without its own thumb inherits its series' one,
+    /// same idea as `BaseItemDto.parentBackdropItemId`.
+    var thumbImageTag: String?
+    var thumbImageItemId: String?
+}

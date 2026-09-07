@@ -1,0 +1,266 @@
+name: DionysusPlayer
+options:
+  bundleIdPrefix: com.imbenjamin.dionysusplayer
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+  # Source language for `DionysusPlayer/Resources/Localizable.xcstrings`
+  # (the app's one String Catalog — see that file's own top-of-file note).
+  # Only English is populated for now; this is the project-level setting a
+  # translation vendor's added languages would show up alongside once the
+  # catalog itself grows more `localizations` entries.
+  developmentLanguage: en
+
+configs:
+  Debug: debug
+  Release: release
+
+# MARKETING_VERSION/CURRENT_PROJECT_VERSION (-> CFBundleShortVersionString/
+# CFBundleVersion) live in a generated, checked-in xcconfig rather than as
+# literals here, so they can be refreshed mechanically from the current
+# git version tag without hand-editing this file. See
+# `Scripts/update-version.sh` and VERSIONING.md.
+configFiles:
+  Debug: Config/Version.xcconfig
+  Release: Config/Version.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_STYLE: Automatic
+    # Not sensitive — a Team ID is a plain organizational identifier, not a
+    # credential; it's already visible in any shipped build's code
+    # signature and in App Store Connect/TestFlight URLs. Safe to commit
+    # alongside the rest of this file so automatic signing survives
+    # `xcodegen generate` re-runs (the generated `.xcodeproj` is
+    # gitignored, so a team picked only in Xcode's Signing & Capabilities
+    # UI would be silently wiped on the next regenerate).
+    DEVELOPMENT_TEAM: Z27T535BXZ
+    ENABLE_PREVIEWS: true
+    # Two of Xcode's "Update to recommended settings" suggestions — applying
+    # that dialog directly would edit the generated (gitignored) .xcodeproj,
+    # which XcodeGen would silently wipe on the next `xcodegen generate`, so
+    # these live here instead.
+    #
+    # `ENABLE_USER_SCRIPT_SANDBOXING`'s own doc comment used to claim this
+    # was confirmed safe against a since-removed `postCompileScripts` entry
+    # that used to live below; that claim didn't hold up under
+    # re-verification (2026-08-12) — see
+    # `Scripts/update-aetherengine-version.sh`'s doc comment for why
+    # AetherEngine's version comes from a checked-in generated Swift
+    # constant instead of a build-time Info.plist injection, and
+    # `Scripts/update-version.sh` for the same fix later applied to the
+    # git-branch/commit and app-version info that `postCompileScripts`
+    # phase used to (unsuccessfully) inject.
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    STRING_CATALOG_GENERATE_SYMBOLS: YES
+
+packages:
+  # `version:` pins one specific tag — XcodeGen's spelling of SPM's `.exact`
+  # requirement — deliberately NOT `from:` (SPM's "up to next major" rule),
+  # which is what this used to be. `from:` meant a fresh package resolution
+  # (no prior `Package.resolved`/DerivedData SPM cache to reuse — see
+  # `.gitignore`'s blanket `*.xcodeproj` rule, which is why that resolved
+  # file is never committed) silently picked up whatever the
+  # newest available 6.x release was, with zero commit in this repo to
+  # review or even notice — confirmed live more than once (PR #147: CI
+  # resolved 6.54.0 against a checked-in 6.52.0 pin with no other
+  # AetherEngine-related change on the branch at all). An exact pin makes
+  # that structurally impossible: a cold resolve always lands on this exact
+  # version, so a build today and a build from the same commit in a year
+  # resolve identically.
+  #
+  # Bumping this is meant to be automatic but reviewed, not manual: the
+  # "Bump AetherEngine" workflow (`.github/workflows/aetherengine-bump.yml`)
+  # runs weekly, discovers the newest release within the *current* major
+  # (by temporarily resolving with `from: <major>.0.0` — the same "up to
+  # next major" rule, just scoped to a scheduled job instead of every
+  # build), and opens a PR bumping this line plus the checked-in version
+  # constant if one exists. A major bump (7.0.0) is exactly where
+  # AetherEngine's public API is allowed to break per semver, so the
+  # workflow never proposes one — that stays a deliberate manual edit here.
+  #
+  # After any bump (automated or manual), run
+  # `Scripts/update-aetherengine-version.sh` to refresh the checked-in
+  # constant `PlaybackStatsOverlay`'s "AetherEngine Version" row reads —
+  # see that script's own comment for why it's a generated file rather
+  # than something read back at build time. `pr-checks.yml` fails a PR
+  # where the two have drifted apart.
+  AetherEngine:
+    url: https://github.com/superuser404notfound/AetherEngine
+    version: 6.71.0
+  # A small (single-file), MIT-licensed, dependency-free view modifier
+  # (`.shimmering()`) — used by `MediaPlaceholderBox` for the "still
+  # loading" placeholder animation. Purely a rendering effect — no
+  # networking, no data collection.
+  SwiftUIShimmer:
+    url: https://github.com/markiv/SwiftUI-Shimmer
+    from: 1.5.1
+
+targets:
+  DionysusPlayer:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: DionysusPlayer
+      - path: dionysus.icon
+      # Extensionless files (LICENSE, symlinked in from the repo root so
+      # there's a single source of truth) aren't auto-classified as a
+      # bundle resource by the `path: DionysusPlayer` folder reference
+      # above — force it into the Copy Bundle Resources phase explicitly.
+      - path: DionysusPlayer/Resources/LICENSE
+        buildPhase: resources
+    dependencies:
+      - package: AetherEngine
+        product: AetherEngine
+      - package: SwiftUIShimmer
+        product: Shimmer
+    settings:
+      base:
+        # No platform suffix (contrast the test target below) — this is the
+        # ID Apple's Universal Purchase mechanism needs shared identically
+        # across platforms if tvOS/macOS versions later join this same App
+        # Store Connect listing under one purchase. Changed from
+        # `com.imbenjamin.dionysusplayer.ios` before the first App Store
+        # Connect app record existed, since a primary bundle ID is
+        # effectively permanent once that record is created.
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer
+        PRODUCT_NAME: Dionysus
+        # Xcode's default for a Swift target already, but set explicitly
+        # since it's what actually makes `Text("...")`/`Button("...")`/
+        # `String(localized: "...")` literals get extracted into
+        # `Localizable.xcstrings` on every build, not just when opened in
+        # the Xcode IDE — worth pinning down rather than relying on an
+        # implicit default for something this load-bearing.
+        SWIFT_EMIT_LOC_STRINGS: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: false
+        ASSETCATALOG_COMPILER_APPICON_NAME: dionysus
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: Dionysus
+        # Without these, XcodeGen writes literal "1.0"/"1" into the
+        # generated Info.plist instead of a build-setting placeholder, so
+        # MARKETING_VERSION/CURRENT_PROJECT_VERSION (Config/Version.xcconfig,
+        # see `configFiles:` above and `Scripts/update-version.sh`) would
+        # silently have no effect on the built app's actual
+        # CFBundleShortVersionString/CFBundleVersion — confirmed by
+        # building and inspecting the output. `-expandbuildsettings` (part
+        # of Xcode's normal Info.plist processing, already on by default)
+        # is what resolves these placeholders at build time.
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        # Xcode target editor's General tab "App Category" dropdown — this
+        # is the Info.plist key it actually writes. A media player belongs
+        # under Entertainment, not Xcode's default (unset, which App Store
+        # Connect would otherwise prompt for at submission time).
+        LSApplicationCategoryType: public.app-category.entertainment
+        # Standard HTTPS/TLS only (talking to the user's Jellyfin server)
+        # qualifies for Apple's standard-encryption exemption — declaring
+        # it here skips the manual "Does your app use encryption?" prompt
+        # on every App Store Connect upload.
+        ITSAppUsesNonExemptEncryption: false
+        # Static approximation of SplashView (App/SplashView.swift) for the
+        # brief window before any app code runs — a system snapshot, not a
+        # live view, so it can only offer a flat background colour + one
+        # centered image; no gradient, glass, or motion. Once SplashView
+        # mounts it takes over seamlessly with the full effect.
+        #
+        # A storyboard (Resources/LaunchScreen.storyboard), not the
+        # plist-only UILaunchScreen dict — the dict's UIImageName rendered
+        # the glyph inside a small fixed-size container regardless of the
+        # source asset's own declared point size (confirmed empirically: a
+        # 6x larger asset had zero visible effect, even after a full
+        # Simulator reboot ruled out caching). An explicit Auto Layout
+        # width/height constraint in the storyboard is the one lever that
+        # actually controls the displayed size.
+        UILaunchStoryboardName: LaunchScreen
+        UIRequiresFullScreen: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIBackgroundModes:
+          - audio
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: "Dionysus looks for and connects to your Jellyfin media server on your local network."
+        NSBonjourServices:
+          - _jellyfin._tcp
+
+  DionysusPlayerTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: DionysusPlayerTests
+    dependencies:
+      - target: DionysusPlayer
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.tests
+        # DionysusPlayer's PRODUCT_NAME is "Dionysus" (not the target name),
+        # so XcodeGen's auto-inferred host-application path is wrong —
+        # override it explicitly to match.
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Dionysus.app/Dionysus"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+  DionysusPlayerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: DionysusPlayerUITests
+      # Compiled into both targets so the tests and the app share one
+      # definition of every selector and every fixture id, rather than the
+      # test bundle carrying duplicate string literals that drift. A UI test
+      # bundle runs out-of-process and does not link the app module, so
+      # `@testable import` is not an option here the way it is for the unit
+      # target.
+      - path: DionysusPlayer/Shared/Accessibility/AccessibilityIdentifiers.swift
+      - path: DionysusPlayer/Core/UITestSupport/UITestFixtureIdentity.swift
+    dependencies:
+      - target: DionysusPlayer
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.uitests
+        # No TEST_HOST/BUNDLE_LOADER override here, unlike
+        # DionysusPlayerTests above: a UI test bundle launches the app as a
+        # separate process rather than loading into it, so it only needs to
+        # be pointed at the target by name. TEST_TARGET_NAME takes the
+        # *target*, not PRODUCT_NAME, so the "Dionysus" mismatch that trips
+        # up the unit target doesn't apply.
+        TEST_TARGET_NAME: DionysusPlayer
+
+schemes:
+  DionysusPlayer:
+    build:
+      targets:
+        DionysusPlayer: all
+        DionysusPlayerTests: [test]
+        DionysusPlayerUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      # The plan a bare `xcodebuild test` uses when none is named. Unit
+      # tests only — the UI plans are opted into explicitly, so adding the
+      # target above can't silently lengthen every existing invocation.
+      testPlans:
+        - path: TestPlans/UnitTests.xctestplan
+          defaultPlan: true
+        - path: TestPlans/UITests-Smoke.xctestplan
+        - path: TestPlans/UITests-Full.xctestplan
+    archive:
+      config: Release

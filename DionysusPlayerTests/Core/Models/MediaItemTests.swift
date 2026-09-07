@@ -1,0 +1,1086 @@
+import XCTest
+@testable import Dionysus
+
+/// `MediaItem` is where a lot of Dionysus's small "does this look right on
+/// screen" logic lives (year ranges, durations, resume fractions, rail
+/// captions). It's pure computation over a `BaseItemDto`, so it's the
+/// cheapest, highest-value thing in the app to unit test — no networking,
+/// no view hierarchy, just inputs and expected strings/numbers.
+final class MediaItemTests: XCTestCase {
+    private let images = ImageURLBuilder(baseURL: URL(string: "https://jellyfin.example.com")!, accessToken: "tok")
+
+    private func makeMovie(
+        productionYear: Int? = 2019,
+        runTimeTicks: Int64? = nil,
+        userData: UserItemDataDto? = nil
+    ) -> MediaItem {
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, productionYear: productionYear, runTimeTicks: runTimeTicks, userData: userData)
+        return MediaItem(dto: dto, images: images)
+    }
+
+    private func makeSeries(productionYear: Int? = 2019, endDate: Date? = nil) -> MediaItem {
+        let dto = BaseItemDto(id: "series-1", name: "The Wire", type: .series, productionYear: productionYear, endDate: endDate)
+        return MediaItem(dto: dto, images: images)
+    }
+
+    private func makeEpisode(
+        seriesName: String? = "The Wire",
+        indexNumber: Int? = 4,
+        parentIndexNumber: Int? = 1,
+        name: String = "Old Cases"
+    ) -> MediaItem {
+        let dto = BaseItemDto(
+            id: "ep-1", name: name, type: .episode,
+            seriesId: "series-1", seriesName: seriesName,
+            indexNumber: indexNumber, parentIndexNumber: parentIndexNumber
+        )
+        return MediaItem(dto: dto, images: images)
+    }
+
+    // MARK: yearText
+
+    func test_yearText_movie_isJustTheYear() {
+        XCTAssertEqual(makeMovie(productionYear: 2019).yearText, "2019")
+    }
+
+    func test_yearText_movie_nilWhenNoProductionYear() {
+        XCTAssertNil(makeMovie(productionYear: nil).yearText)
+    }
+
+    func test_yearText_series_stillAiring_hasTrailingDash() {
+        XCTAssertEqual(makeSeries(productionYear: 2019, endDate: nil).yearText, "2019\u{2013}")
+    }
+
+    func test_yearText_series_endedSameYear_isSingleYear() {
+        let sameYear = Calendar.current.date(from: DateComponents(year: 2019, month: 6, day: 1))!
+        XCTAssertEqual(makeSeries(productionYear: 2019, endDate: sameYear).yearText, "2019")
+    }
+
+    func test_yearText_series_endedLaterYear_isRange() {
+        let laterYear = Calendar.current.date(from: DateComponents(year: 2021, month: 6, day: 1))!
+        XCTAssertEqual(makeSeries(productionYear: 2019, endDate: laterYear).yearText, "2019\u{2013}2021")
+    }
+
+    // MARK: durationText
+
+    func test_durationText_underAnHour() {
+        XCTAssertEqual(makeMovie(runTimeTicks: 45 * 60 * 10_000_000).durationText, "45m")
+    }
+
+    func test_durationText_hoursAndMinutes() {
+        XCTAssertEqual(makeMovie(runTimeTicks: (2 * 60 + 15) * 60 * 10_000_000).durationText, "2h 15m")
+    }
+
+    func test_durationText_nilWhenMissingOrZero() {
+        XCTAssertNil(makeMovie(runTimeTicks: nil).durationText)
+        XCTAssertNil(makeMovie(runTimeTicks: 0).durationText)
+    }
+
+    // MARK: durationAccessibilityText — see its own doc comment: "1h 30m"
+    // gets misheard by VoiceOver as "one h thirty meters" (confirmed live),
+    // so this spells the units out instead.
+
+    func test_durationAccessibilityText_underAnHour() {
+        XCTAssertEqual(makeMovie(runTimeTicks: 45 * 60 * 10_000_000).durationAccessibilityText, "45 minutes")
+    }
+
+    func test_durationAccessibilityText_hoursAndMinutes() {
+        XCTAssertEqual(
+            makeMovie(runTimeTicks: (2 * 60 + 15) * 60 * 10_000_000).durationAccessibilityText, "2 hours, 15 minutes"
+        )
+    }
+
+    /// Exact-hour runtimes shouldn't announce "0 minutes" alongside the
+    /// hour count.
+    func test_durationAccessibilityText_exactHour_omitsZeroMinutes() {
+        XCTAssertEqual(makeMovie(runTimeTicks: 2 * 60 * 60 * 10_000_000).durationAccessibilityText, "2 hours")
+    }
+
+    func test_durationAccessibilityText_singularHourAndMinute() {
+        XCTAssertEqual(
+            makeMovie(runTimeTicks: (60 + 1) * 60 * 10_000_000).durationAccessibilityText, "1 hour, 1 minute"
+        )
+    }
+
+    func test_durationAccessibilityText_nilWhenMissingOrZero() {
+        XCTAssertNil(makeMovie(runTimeTicks: nil).durationAccessibilityText)
+        XCTAssertNil(makeMovie(runTimeTicks: 0).durationAccessibilityText)
+    }
+
+    // MARK: episodeLabel
+
+    func test_episodeLabel_formatsSeasonAndEpisode() {
+        XCTAssertEqual(makeEpisode(indexNumber: 4, parentIndexNumber: 1).episodeLabel, "S1:E4")
+    }
+
+    func test_episodeLabel_nilWhenNumberingMissing() {
+        XCTAssertNil(makeEpisode(indexNumber: nil).episodeLabel)
+        XCTAssertNil(makeEpisode(parentIndexNumber: nil).episodeLabel)
+    }
+
+    func test_episodeLabel_nilForNonEpisodeTypes() {
+        XCTAssertNil(makeMovie().episodeLabel)
+    }
+
+    // MARK: railTitle
+
+    func test_railTitle_episode_usesSeriesName() {
+        XCTAssertEqual(makeEpisode(seriesName: "The Wire").railTitle, "The Wire")
+    }
+
+    func test_railTitle_episode_fallsBackToOwnNameWhenSeriesNameMissing() {
+        XCTAssertEqual(makeEpisode(seriesName: nil, name: "Old Cases").railTitle, "Old Cases")
+    }
+
+    func test_railTitle_movie_usesOwnName() {
+        XCTAssertEqual(makeMovie().railTitle, "Arrival")
+    }
+
+    // MARK: railSubtitle
+
+    func test_railSubtitle_movie_joinsYearAndDuration() {
+        let item = makeMovie(productionYear: 2019, runTimeTicks: 90 * 60 * 10_000_000)
+        XCTAssertEqual(item.railSubtitle, "2019 \u{00B7} 1h 30m")
+    }
+
+    func test_railSubtitle_movie_yearOnly() {
+        let item = makeMovie(productionYear: 2019, runTimeTicks: nil)
+        XCTAssertEqual(item.railSubtitle, "2019")
+    }
+
+    func test_railSubtitle_movie_nilWhenNeitherAvailable() {
+        let item = makeMovie(productionYear: nil, runTimeTicks: nil)
+        XCTAssertNil(item.railSubtitle)
+    }
+
+    func test_railSubtitle_episode_withNumbering() {
+        let item = makeEpisode(indexNumber: 4, parentIndexNumber: 1, name: "Old Cases")
+        XCTAssertEqual(item.railSubtitle, "S1:E4 \u{00B7} Old Cases")
+    }
+
+    func test_railSubtitle_episode_withoutNumberingFallsBackToName() {
+        let item = makeEpisode(indexNumber: nil, name: "Old Cases")
+        XCTAssertEqual(item.railSubtitle, "Old Cases")
+    }
+
+    func test_railSubtitle_series_isYearText() {
+        let item = makeSeries(productionYear: 2019, endDate: nil)
+        XCTAssertEqual(item.railSubtitle, "2019\u{2013}")
+    }
+
+    // MARK: accessibilityDescription
+
+    func test_accessibilityDescription_joinsTitleAndSubtitleWithComma() {
+        let item = makeMovie(productionYear: 2019, runTimeTicks: 90 * 60 * 10_000_000)
+        // Spelled-out duration ("1 hour, 30 minutes"), not the visible
+        // "1h 30m" — VoiceOver mishears "m" as the metric unit otherwise
+        // (confirmed live). See `MediaItem.durationAccessibilityText`.
+        XCTAssertEqual(item.accessibilityDescription, "Arrival, 2019, 1 hour, 30 minutes")
+    }
+
+    func test_accessibilityDescription_isJustTheTitleWhenNoSubtitle() {
+        let item = makeMovie(productionYear: nil, runTimeTicks: nil)
+        XCTAssertEqual(item.accessibilityDescription, "Arrival")
+    }
+
+    func test_accessibilityDescription_episode_usesSeriesNameAndEpisodeLabel() {
+        let item = makeEpisode(seriesName: "The Wire", indexNumber: 4, parentIndexNumber: 1, name: "Old Cases")
+        XCTAssertEqual(item.accessibilityDescription, "The Wire, S1:E4 \u{00B7} Old Cases")
+    }
+
+    // MARK: resumePositionSeconds / playedFraction / isPlayed / isPartWatched
+
+    func test_resumePositionSeconds_convertsTicksToSeconds() {
+        let userData = UserItemDataDto(playbackPositionTicks: 30 * 10_000_000)
+        XCTAssertEqual(makeMovie(userData: userData).resumePositionSeconds, 30)
+    }
+
+    func test_resumePositionSeconds_nilWhenZeroOrMissing() {
+        XCTAssertNil(makeMovie(userData: nil).resumePositionSeconds)
+        XCTAssertNil(makeMovie(userData: UserItemDataDto(playbackPositionTicks: 0)).resumePositionSeconds)
+    }
+
+    func test_playedFraction_prefersServerReportedPercentage() {
+        let userData = UserItemDataDto(playbackPositionTicks: 10, playedPercentage: 42)
+        XCTAssertEqual(makeMovie(runTimeTicks: 100, userData: userData).playedFraction, 0.42)
+    }
+
+    func test_playedFraction_fallsBackToComputedRatioWhenPercentageMissing() {
+        let userData = UserItemDataDto(playbackPositionTicks: 25)
+        let item = makeMovie(runTimeTicks: 100, userData: userData)
+        XCTAssertEqual(item.playedFraction, 0.25)
+    }
+
+    func test_playedFraction_nilWithoutEnoughData() {
+        XCTAssertNil(makeMovie(userData: nil).playedFraction)
+    }
+
+    func test_isPlayed_reflectsUserData() {
+        XCTAssertTrue(makeMovie(userData: UserItemDataDto(played: true)).isPlayed)
+        XCTAssertFalse(makeMovie(userData: UserItemDataDto(played: false)).isPlayed)
+        XCTAssertFalse(makeMovie(userData: nil).isPlayed)
+    }
+
+    func test_isFavorite_reflectsUserData() {
+        XCTAssertTrue(makeMovie(userData: UserItemDataDto(isFavorite: true)).isFavorite)
+        XCTAssertFalse(makeMovie(userData: UserItemDataDto(isFavorite: false)).isFavorite)
+        XCTAssertFalse(makeMovie(userData: nil).isFavorite)
+    }
+
+    func test_isPartWatched_trueOnlyBetweenZeroAndOneAndNotPlayed() {
+        let midway = UserItemDataDto(playedPercentage: 50, played: false)
+        XCTAssertTrue(makeMovie(userData: midway).isPartWatched)
+
+        let finished = UserItemDataDto(playedPercentage: 100, played: true)
+        XCTAssertFalse(makeMovie(userData: finished).isPartWatched)
+
+        let untouched = UserItemDataDto(playedPercentage: 0, played: false)
+        XCTAssertFalse(makeMovie(userData: untouched).isPartWatched)
+    }
+
+    // MARK: playbackProgressIdentity
+
+    /// The whole reason this exists — see its own doc comment — is to
+    /// change value whenever `resumePositionSeconds`/`playedFraction`/
+    /// `isPlayed` would, so it can drive a `.id()` at `PlayResumeButtonRow`'s
+    /// call sites. Pin that it actually does.
+    func test_playbackProgressIdentity_changesWhenUserDataChanges() {
+        let original = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000, playedPercentage: 5, played: false))
+        let updated = original.withOptimisticPlaybackPosition(seconds: 900, duration: 3600)
+
+        XCTAssertNotEqual(original.playbackProgressIdentity, updated.playbackProgressIdentity)
+    }
+
+    func test_playbackProgressIdentity_sameForIdenticalUserData() {
+        let userData = UserItemDataDto(playbackPositionTicks: 10 * 10_000_000, playedPercentage: 5, played: false)
+        XCTAssertEqual(makeMovie(userData: userData).playbackProgressIdentity, makeMovie(userData: userData).playbackProgressIdentity)
+    }
+
+    // MARK: railRowIdentity
+
+    func test_railRowIdentity_changesWhenPlaybackProgressChanges() {
+        let original = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000, playedPercentage: 5, played: false))
+        let updated = original.withOptimisticPlaybackPosition(seconds: 900, duration: 3600)
+
+        XCTAssertNotEqual(original.railRowIdentity, updated.railRowIdentity)
+    }
+
+    func test_railRowIdentity_stableForIdenticalUserData() {
+        let userData = UserItemDataDto(playbackPositionTicks: 10 * 10_000_000, playedPercentage: 5, played: false)
+        XCTAssertEqual(makeMovie(userData: userData).railRowIdentity, makeMovie(userData: userData).railRowIdentity)
+    }
+
+    /// Two *different* items at the same progress must not collide — this
+    /// is a `ForEach` row id, and duplicate ids silently misattribute
+    /// state/identity between rows.
+    func test_railRowIdentity_differsAcrossItemsAtIdenticalProgress() {
+        let userData = UserItemDataDto(playbackPositionTicks: 10 * 10_000_000, playedPercentage: 5, played: false)
+        let first = MediaItem(dto: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, userData: userData), images: images)
+        let second = MediaItem(dto: BaseItemDto(id: "movie-2", name: "Dune", type: .movie, userData: userData), images: images)
+
+        XCTAssertNotEqual(first.railRowIdentity, second.railRowIdentity)
+    }
+
+    // MARK: Equatable / Hashable
+
+    /// `MediaItem.==` must be structural, not id-only — SwiftUI relies on
+    /// it to decide whether a view changed (see its doc comment). Each of
+    /// these four `userData` fields drives something visible on a card
+    /// (progress bar, watched eye, favorite star), so each must break
+    /// equality.
+    func test_equality_differsWhenPlaybackPositionDiffers() {
+        let original = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000))
+        let updated = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 900 * 10_000_000))
+
+        XCTAssertNotEqual(original, updated)
+    }
+
+    func test_equality_differsWhenPlayedPercentageDiffers() {
+        XCTAssertNotEqual(
+            makeMovie(userData: UserItemDataDto(playedPercentage: 5)),
+            makeMovie(userData: UserItemDataDto(playedPercentage: 80))
+        )
+    }
+
+    func test_equality_differsWhenPlayedDiffers() {
+        XCTAssertNotEqual(
+            makeMovie(userData: UserItemDataDto(played: false)),
+            makeMovie(userData: UserItemDataDto(played: true))
+        )
+    }
+
+    func test_equality_differsWhenFavoriteDiffers() {
+        XCTAssertNotEqual(
+            makeMovie(userData: UserItemDataDto(isFavorite: false)),
+            makeMovie(userData: UserItemDataDto(isFavorite: true))
+        )
+    }
+
+    func test_equality_differsWhenOneSideHasNoUserDataAtAll() {
+        XCTAssertNotEqual(makeMovie(userData: nil), makeMovie(userData: UserItemDataDto(played: true)))
+    }
+
+    /// The other half of what `==` has to catch: `AssetDetailViewModel`
+    /// renders a lightweight preloaded item first, then swaps in the full
+    /// `Fields=People,MediaSources,...` fetch under the same id. If that
+    /// doesn't break equality, `InfoMetadataRow`'s badge line and
+    /// `DetailTabsView`'s "Details"/"Cast & Crew" tabs never appear.
+    func test_equality_differsWhenTheFullItemFetchAddsMediaSources() {
+        let preloaded = makeMovie()
+        var fullDto = preloaded.dto
+        fullDto.mediaSources = [MediaSourceInfo(id: "source-1", container: "mkv")]
+        let full = MediaItem(dto: fullDto, images: images)
+
+        XCTAssertNil(preloaded.technicalDetails, "precondition: preloaded item has no Details tab")
+        XCTAssertNotNil(full.technicalDetails, "precondition: full item does")
+        XCTAssertNotEqual(preloaded, full)
+    }
+
+    func test_equality_differsWhenTheFullItemFetchAddsPeople() {
+        let preloaded = makeMovie()
+        var fullDto = preloaded.dto
+        fullDto.people = [BaseItemPerson(id: "person-1", name: "Amy Adams", role: "Louise", type: "Actor")]
+        let full = MediaItem(dto: fullDto, images: images)
+
+        XCTAssertNotEqual(preloaded, full)
+    }
+
+    func test_equality_differsWhenAPlainMetadataFieldDiffers() {
+        let preloaded = makeMovie()
+        var fullDto = preloaded.dto
+        fullDto.overview = "A linguist is recruited to communicate with extraterrestrials."
+        let full = MediaItem(dto: fullDto, images: images)
+
+        XCTAssertNotEqual(preloaded, full)
+    }
+
+    func test_equality_sameForIdenticalDTOs() {
+        let userData = UserItemDataDto(playbackPositionTicks: 10 * 10_000_000, playedPercentage: 5, played: false, isFavorite: true)
+        XCTAssertEqual(makeMovie(userData: userData), makeMovie(userData: userData))
+    }
+
+    func test_equality_differsAcrossItemsRegardlessOfUserData() {
+        let userData = UserItemDataDto(playedPercentage: 5)
+        let first = MediaItem(dto: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, userData: userData), images: images)
+        let second = MediaItem(dto: BaseItemDto(id: "movie-2", name: "Dune", type: .movie, userData: userData), images: images)
+
+        XCTAssertNotEqual(first, second)
+    }
+
+    /// What `ForEach(rail.items)` and `MediaRailView(rail:)` are actually
+    /// diffed on. `Array` equality is element-wise, so element `==` has to
+    /// hold up or a whole rail of updated items reads as unchanged.
+    func test_arrayEquality_differsWhenASingleItemsUserDataDiffers() {
+        let stale = [makeMovie(userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000))]
+        let fresh = [makeMovie(userData: UserItemDataDto(playbackPositionTicks: 900 * 10_000_000))]
+
+        XCTAssertNotEqual(stale, fresh)
+    }
+
+    /// Hashing stays id-only on purpose even though `==` is structural —
+    /// the legal direction for the `Hashable` contract, and what keeps
+    /// `AppRoute`'s synthesized hashing (and any id-keyed lookup) treating
+    /// one server item as one entry rather than one per revision of it.
+    func test_hashing_isIDOnlyEvenWhenUserDataDiffers() {
+        let original = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000))
+        let updated = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 900 * 10_000_000))
+
+        XCTAssertNotEqual(original, updated, "precondition: these are genuinely unequal")
+        XCTAssertEqual(original.hashValue, updated.hashValue)
+    }
+
+    // MARK: withOptimisticPlaybackPosition
+
+    func test_withOptimisticPlaybackPosition_overwritesTicksAndPercentage() {
+        let original = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000, playedPercentage: 5, played: false))
+
+        let updated = original.withOptimisticPlaybackPosition(seconds: 900, duration: 3600)
+
+        XCTAssertEqual(updated.resumePositionSeconds, 900)
+        XCTAssertEqual(updated.playedFraction, 0.25)
+    }
+
+    /// Deliberately untouched — see that method's own doc comment for why
+    /// (a server-side threshold judgement this isn't trying to replicate).
+    func test_withOptimisticPlaybackPosition_leavesIsPlayedAlone() {
+        let original = makeMovie(userData: UserItemDataDto(played: true))
+
+        let updated = original.withOptimisticPlaybackPosition(seconds: 30, duration: 3600)
+
+        XCTAssertTrue(updated.isPlayed)
+    }
+
+    func test_withOptimisticPlaybackPosition_noOpForZeroOrNegativeDuration() {
+        let original = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000))
+
+        XCTAssertEqual(original.withOptimisticPlaybackPosition(seconds: 900, duration: 0).resumePositionSeconds, 10)
+        XCTAssertEqual(original.withOptimisticPlaybackPosition(seconds: 900, duration: -1).resumePositionSeconds, 10)
+    }
+
+    // MARK: withOptimisticFavoriteWatched
+
+    func test_withOptimisticFavoriteWatched_overwritesOnlyThePassedField() {
+        let original = makeMovie(userData: UserItemDataDto(played: false, isFavorite: false))
+
+        let favoritedOnly = original.withOptimisticFavoriteWatched(favorite: true)
+        XCTAssertTrue(favoritedOnly.isFavorite)
+        XCTAssertFalse(favoritedOnly.isPlayed, "watched wasn't passed, so it should be untouched")
+
+        let watchedOnly = original.withOptimisticFavoriteWatched(watched: true)
+        XCTAssertTrue(watchedOnly.isPlayed)
+        XCTAssertFalse(watchedOnly.isFavorite, "favorite wasn't passed, so it should be untouched")
+
+        let both = original.withOptimisticFavoriteWatched(favorite: true, watched: true)
+        XCTAssertTrue(both.isFavorite)
+        XCTAssertTrue(both.isPlayed)
+    }
+
+    func test_withOptimisticFavoriteWatched_noOpWhenNeitherFieldPassed() {
+        let original = makeMovie(userData: UserItemDataDto(played: false, isFavorite: false))
+        XCTAssertEqual(original, original.withOptimisticFavoriteWatched())
+    }
+
+    // MARK: technicalDetails
+
+    func test_technicalDetails_buildsContainerCodecResolutionAndDynamicRange() {
+        let source = MediaSourceInfo(
+            id: "src-1", container: "mkv",
+            mediaStreams: [
+                MediaStream(index: 0, type: "Video", codec: "hevc", width: 3840, height: 2160, videoRangeType: "DOVI")
+            ]
+        )
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        let item = MediaItem(dto: dto, images: images)
+        let details = item.technicalDetails
+        XCTAssertEqual(details?.container, "MKV")
+        XCTAssertEqual(details?.videoCodec, "H.265 (HEVC)")
+        XCTAssertEqual(details?.resolution, "3840\u{00D7}2160 (4K)")
+        XCTAssertEqual(details?.dynamicRange, "Dolby Vision")
+    }
+
+    /// A letterboxed, very-wide-aspect release (e.g. 2.39:1) has a reduced
+    /// height for a genuinely 4K-width source — classifying by height would
+    /// misidentify this as 1440p or lower.
+    func test_technicalDetails_resolutionClassifiesByWidthNotHeightForLetterboxedVideo() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", width: 3840, height: 1606)])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        XCTAssertEqual(MediaItem(dto: dto, images: images).technicalDetails?.resolution, "3840\u{00D7}1606 (4K)")
+    }
+
+    func test_technicalDetails_dolbyVisionWithHDR10PlusLayer() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", videoRangeType: "DOVIWithHDR10Plus")])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        XCTAssertEqual(MediaItem(dto: dto, images: images).technicalDetails?.dynamicRange, "Dolby Vision \u{00B7} HDR10+")
+    }
+
+    func test_technicalDetails_fallsBackFromVideoRangeTypeToVideoRange() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", videoRange: "HDR")])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        XCTAssertEqual(MediaItem(dto: dto, images: images).technicalDetails?.dynamicRange, "HDR")
+    }
+
+    func test_technicalDetails_omitsUnknownDynamicRange() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", videoRangeType: "Unknown")])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        XCTAssertNil(MediaItem(dto: dto, images: images).technicalDetails?.dynamicRange)
+    }
+
+    func test_technicalDetails_frameRateTrimsTrailingZerosAndPrefersRealOverAverage() {
+        let source = MediaSourceInfo(
+            mediaStreams: [MediaStream(index: 0, type: "Video", realFrameRate: 23.976, averageFrameRate: 24)]
+        )
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        XCTAssertEqual(MediaItem(dto: dto, images: images).technicalDetails?.frameRate, "23.976 fps")
+    }
+
+    func test_technicalDetails_frameRateFallsBackToAverageAndFormatsWholeNumberCleanly() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", averageFrameRate: 60)])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        XCTAssertEqual(MediaItem(dto: dto, images: images).technicalDetails?.frameRate, "60 fps")
+    }
+
+    func test_technicalDetails_omitsFrameRateWhenAbsent() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video")])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        XCTAssertNil(MediaItem(dto: dto, images: images).technicalDetails?.frameRate)
+    }
+
+    func test_technicalDetails_audioAndSubtitleTracksPreferDisplayTitle() {
+        let source = MediaSourceInfo(mediaStreams: [
+            MediaStream(index: 0, type: "Video"),
+            MediaStream(index: 1, type: "Audio", language: "eng", displayTitle: "English (AAC 5.1)"),
+            MediaStream(index: 2, type: "Audio", codec: "aac"), // no displayTitle -> falls back
+            MediaStream(index: 3, type: "Subtitle", displayTitle: "English (SRT - Forced)")
+        ])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        let details = MediaItem(dto: dto, images: images).technicalDetails
+        XCTAssertEqual(details?.audioTracks, ["English (AAC 5.1)", "AAC"])
+        XCTAssertEqual(details?.subtitleTracks, ["English (SRT - Forced)"])
+    }
+
+    func test_technicalDetails_includesBitrateAndFileSize() {
+        let source = MediaSourceInfo(bitrate: 8_500_000, size: 4_200_000_000, mediaStreams: [])
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
+        let details = MediaItem(dto: dto, images: images).technicalDetails
+        XCTAssertEqual(details?.bitrate, "8.5 Mbps")
+        XCTAssertEqual(details?.fileSize, ByteCountFormatter.string(fromByteCount: 4_200_000_000, countStyle: .file))
+    }
+
+    func test_technicalDetails_nilWhenNoMediaSources() {
+        XCTAssertNil(makeMovie().technicalDetails)
+    }
+
+    // MARK: tagline
+
+    private func makeMovie(taglines: [String]?) -> MediaItem {
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", taglines: taglines, type: .movie)
+        return MediaItem(dto: dto, images: images)
+    }
+
+    func test_tagline_firstEntry() {
+        XCTAssertEqual(makeMovie(taglines: ["Not alone.", "A second, unused tagline"]).tagline, "Not alone.")
+    }
+
+    func test_tagline_nilWhenMissing() {
+        XCTAssertNil(makeMovie(taglines: nil).tagline)
+    }
+
+    func test_tagline_nilWhenOnlyEmptyStringsPresent() {
+        XCTAssertNil(makeMovie(taglines: [""]).tagline)
+    }
+
+    /// A leading empty entry shouldn't shadow a real tagline after it.
+    func test_tagline_skipsLeadingEmptyEntries() {
+        XCTAssertEqual(makeMovie(taglines: ["", "Some assembly required."]).tagline, "Some assembly required.")
+    }
+
+    // MARK: mediaVersions / technicalDetails(forVersion:)
+    // `makeMovie(mediaSources:)` below is shared with the "metadataBadges"
+    // section further down.
+
+    private func make4KSource(id: String = "src-4k") -> MediaSourceInfo {
+        MediaSourceInfo(
+            id: id, container: "mkv",
+            mediaStreams: [MediaStream(index: 0, type: "Video", codec: "hevc", width: 3840, height: 1606, videoRangeType: "HDR10")]
+        )
+    }
+
+    private func make1080pSource(id: String = "src-1080p") -> MediaSourceInfo {
+        MediaSourceInfo(
+            id: id, container: "mkv",
+            mediaStreams: [MediaStream(index: 0, type: "Video", codec: "h264", width: 1920, height: 804)]
+        )
+    }
+
+    func test_mediaVersions_emptyForASingleVersion() {
+        XCTAssertEqual(makeMovie(mediaSources: [make4KSource()]).mediaVersions, [])
+    }
+
+    func test_mediaVersions_emptyWhenNoMediaSourcesAtAll() {
+        XCTAssertEqual(makeMovie().mediaVersions, [])
+    }
+
+    func test_mediaVersions_labelsCombineResolutionAndDynamicRange() {
+        let item = makeMovie(mediaSources: [make4KSource(), make1080pSource()])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["4K HDR10", "1080p"])
+        XCTAssertEqual(item.mediaVersions.map(\.id), ["src-4k", "src-1080p"])
+    }
+
+    /// Two sources that land on the same coarse label (e.g. two plain 1080p
+    /// SDR encodes) still need to read as distinguishable menu entries.
+    func test_mediaVersions_disambiguatesIdenticalLabels() {
+        let item = makeMovie(mediaSources: [
+            make1080pSource(id: "src-a"), make1080pSource(id: "src-b")
+        ])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["1080p", "1080p (2)"])
+    }
+
+    /// No recognizable resolution/dynamic range to build a label from (e.g.
+    /// an audio-only or metadata-less source) falls back to the server's
+    /// own raw `Name`, then finally a generic placeholder.
+    func test_mediaVersions_fallsBackToSourceNameThenGenericPlaceholder() {
+        let named = MediaSourceInfo(id: "src-1", name: "Director's Cut", mediaStreams: [])
+        let unnamed = MediaSourceInfo(id: "src-2", mediaStreams: [])
+        let item = makeMovie(mediaSources: [named, unnamed])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["Director's Cut", "Version 2"])
+    }
+
+    /// Jellyfin's own multi-version naming convention: an alternate cut's
+    /// raw `name` is the canonical source's `name` with " - <edition>"
+    /// appended (confirmed against a real multi-version item on a test
+    /// server). `mediaVersions` prefers that filename-derived edition name
+    /// over the resolution/dynamic-range bucket — the two sources here have
+    /// *identical* technical specs, so the bucket alone couldn't even tell
+    /// them apart.
+    func test_mediaVersions_prefersFilenameDerivedEditionNameOverTechnicalBucket() {
+        let canonicalName = "[imdbid-tt8579674] - [Bluray-2160p][HDR10][x265]-GROUP"
+        let original = MediaSourceInfo(id: "src-original", name: canonicalName, mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "hevc", width: 3840, height: 1606, videoRangeType: "HDR10")
+        ])
+        let extended = MediaSourceInfo(id: "src-extended", name: canonicalName + " - Extended Version", mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "hevc", width: 3840, height: 1606, videoRangeType: "HDR10")
+        ])
+        let item = makeMovie(mediaSources: [original, extended])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["Original", "Extended Version"])
+    }
+
+    /// A purely technical alternate (no edition name of its own) still gets
+    /// its label read straight off the filename — Jellyfin uses the exact
+    /// same " - <suffix>" convention for a plain resolution alternate as it
+    /// does for a named cut. The canonical version is still labeled
+    /// "Original", not a resolution/HDR guess, even though in this
+    /// particular case a technical bucket would've been just as accurate —
+    /// `mediaVersions` doesn't special-case that, since it has no way to
+    /// tell a technical suffix from a descriptive one in general.
+    func test_mediaVersions_editionSuffixCanItselfBeATechnicalLabel() {
+        let canonicalName = "[imdbid-tt8579674] - [Bluray-2160p][HDR10][x265]-GROUP"
+        let original = MediaSourceInfo(id: "src-4k", name: canonicalName, mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "hevc", width: 3840, height: 1606, videoRangeType: "HDR10")
+        ])
+        let downscaled = MediaSourceInfo(id: "src-1080p", name: canonicalName + " - 1080p", mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "h264", width: 1920, height: 804)
+        ])
+        let item = makeMovie(mediaSources: [original, downscaled])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["Original", "1080p"])
+    }
+
+    /// Names that don't share the "canonical + ' - ' + suffix" relationship
+    /// (independently-named files that don't follow Jellyfin's convention)
+    /// fall back to the resolution/dynamic-range bucket exactly as before —
+    /// a real dash inside one of the names (a release-group tag) must not
+    /// be mistaken for an edition separator.
+    func test_mediaVersions_fallsBackToTechnicalBucketWhenNamesDontShareACommonPrefix() {
+        let unrelatedA = MediaSourceInfo(id: "src-a", name: "[Bluray-2160p]-GROUPONE", mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "hevc", width: 3840, height: 1606, videoRangeType: "HDR10")
+        ])
+        let unrelatedB = MediaSourceInfo(id: "src-b", name: "[WEBDL-1080p]-GROUPTWO", mediaStreams: [
+            MediaStream(index: 0, type: "Video", codec: "h264", width: 1920, height: 804)
+        ])
+        let item = makeMovie(mediaSources: [unrelatedA, unrelatedB])
+        XCTAssertEqual(item.mediaVersions.map(\.label), ["4K HDR10", "1080p"])
+    }
+
+    func test_technicalDetailsForVersion_selectsTheMatchingSource() {
+        let item = makeMovie(mediaSources: [make4KSource(), make1080pSource()])
+        XCTAssertEqual(item.technicalDetails(forVersion: "src-4k")?.resolution, "3840\u{00D7}1606 (4K)")
+        XCTAssertEqual(item.technicalDetails(forVersion: "src-1080p")?.resolution, "1920\u{00D7}804 (1080p)")
+    }
+
+    func test_technicalDetailsForVersion_fallsBackToFirstSourceForNilOrUnknownID() {
+        let item = makeMovie(mediaSources: [make4KSource(), make1080pSource()])
+        XCTAssertEqual(item.technicalDetails(forVersion: nil)?.resolution, item.technicalDetails?.resolution)
+        XCTAssertEqual(item.technicalDetails(forVersion: "no-such-id")?.resolution, item.technicalDetails?.resolution)
+    }
+
+    // MARK: metadataBadges
+
+    private func makeMovie(mediaSources: [MediaSourceInfo]) -> MediaItem {
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: mediaSources)
+        return MediaItem(dto: dto, images: images)
+    }
+
+    func test_metadataBadges_4KForUltraHDWidth() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", width: 3840, height: 2160)])
+        XCTAssertTrue(makeMovie(mediaSources: [source]).metadataBadges.contains("4K"))
+    }
+
+    func test_metadataBadges_HDForHDWidths() {
+        for width in [1280, 1920, 2560] {
+            let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", width: width, height: 720)])
+            XCTAssertTrue(makeMovie(mediaSources: [source]).metadataBadges.contains("HD"), "width \(width) should be HD")
+        }
+    }
+
+    func test_metadataBadges_noResolutionBadgeBelowHD() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", width: 640, height: 480)])
+        let badges = makeMovie(mediaSources: [source]).metadataBadges
+        XCTAssertFalse(badges.contains("4K"))
+        XCTAssertFalse(badges.contains("HD"))
+    }
+
+    func test_metadataBadges_dolbyVisionForAnyDOVIVariant() {
+        for variant in ["DOVI", "DOVIWithHDR10", "DOVIWithHDR10Plus", "DOVIWithHLG", "DOVIWithSDR"] {
+            let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", videoRangeType: variant)])
+            XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["Dolby Vision"], "variant \(variant)")
+        }
+    }
+
+    func test_metadataBadges_pureHDR10() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", videoRangeType: "HDR10")])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["HDR10"])
+    }
+
+    func test_metadataBadges_pureHDR10Plus() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", videoRangeType: "HDR10Plus")])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["HDR10+"])
+    }
+
+    func test_metadataBadges_hlgIsGenericHDRBadge() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", videoRangeType: "HLG")])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["HDR"])
+    }
+
+    func test_metadataBadges_noBadgeForSDR() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", videoRangeType: "SDR")])
+        XCTAssertTrue(makeMovie(mediaSources: [source]).metadataBadges.isEmpty)
+    }
+
+    // Dolby Digital family collapses to one badge: Atmos > DD+ > DD.
+
+    func test_metadataBadges_ddWhenOnlyPlainDolbyDigitalPresent() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Audio", codec: "AC3")])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["DD"])
+    }
+
+    func test_metadataBadges_ddPlusWinsOverPlainDDWhenBothPresent() {
+        let source = MediaSourceInfo(mediaStreams: [
+            MediaStream(index: 0, type: "Audio", codec: "ac3"),
+            MediaStream(index: 1, type: "Audio", codec: "eac3")
+        ])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["DD+"])
+    }
+
+    func test_metadataBadges_atmosWinsOverDDAndDDPlusWhenAllPresent() {
+        let source = MediaSourceInfo(mediaStreams: [
+            MediaStream(index: 0, type: "Audio", codec: "ac3"),
+            MediaStream(index: 1, type: "Audio", codec: "eac3"),
+            MediaStream(index: 2, type: "Audio", audioSpatialFormat: "DolbyAtmos")
+        ])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["Dolby Atmos"])
+    }
+
+    func test_metadataBadges_noAtmosBadgeForOtherSpatialFormats() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Audio", audioSpatialFormat: "DTSX")])
+        XCTAssertFalse(makeMovie(mediaSources: [source]).metadataBadges.contains("Dolby Atmos"))
+    }
+
+    // Dolby TrueHD is the exception to that collapsing: always shown
+    // alongside whichever Dolby Digital family badge wins.
+
+    func test_metadataBadges_trueHDShownAlongsideAtmosWhenBothOnSameTrack() {
+        // A TrueHD track commonly also carries an Atmos layer.
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Audio", codec: "truehd", audioSpatialFormat: "DolbyAtmos")])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["Dolby Atmos", "Dolby TrueHD"])
+    }
+
+    func test_metadataBadges_trueHDShownAlongsideDDPlusWhenNoAtmos() {
+        let source = MediaSourceInfo(mediaStreams: [
+            MediaStream(index: 0, type: "Audio", codec: "truehd"),
+            MediaStream(index: 1, type: "Audio", codec: "eac3")
+        ])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["DD+", "Dolby TrueHD"])
+    }
+
+    // DTS family collapses to one badge the same way: DTS-HD > plain DTS.
+    // Jellyfin/ffprobe report every DTS variant as codec "dts"; only the
+    // `profile` field ("DTS-HD MA"/"DTS-HD HRA") distinguishes HD from core.
+
+    func test_metadataBadges_plainDTSWhenNoHDProfile() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Audio", codec: "dts")])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["DTS"])
+    }
+
+    func test_metadataBadges_dtsHDDetectedViaProfile() {
+        for profile in ["DTS-HD MA", "DTS-HD HRA"] {
+            let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Audio", codec: "dts", profile: profile)])
+            XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["DTS-HD"], "profile \(profile)")
+        }
+    }
+
+    func test_metadataBadges_dtsHDWinsOverPlainDTSWhenBothPresent() {
+        let source = MediaSourceInfo(mediaStreams: [
+            MediaStream(index: 0, type: "Audio", codec: "dts"),
+            MediaStream(index: 1, type: "Audio", codec: "dts", profile: "DTS-HD MA")
+        ])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["DTS-HD"])
+    }
+
+    /// The example from the request this was built against: Atmos, TrueHD,
+    /// and DTS-HD can all appear together, with no other Dolby/DTS badges,
+    /// even though there are three separate audio tracks contributing.
+    func test_metadataBadges_atmosTrueHDAndDTSHDCanAllAppearWithNoOtherAudioBadges() {
+        let source = MediaSourceInfo(mediaStreams: [
+            MediaStream(index: 0, type: "Audio", codec: "truehd", audioSpatialFormat: "DolbyAtmos"),
+            MediaStream(index: 1, type: "Audio", codec: "dts", profile: "DTS-HD MA")
+        ])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["Dolby Atmos", "Dolby TrueHD", "DTS-HD"])
+    }
+
+    func test_metadataBadges_ccWhenANonForcedSubtitleTrackExists() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Subtitle", isForced: false)])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["CC"])
+    }
+
+    func test_metadataBadges_noCCWhenAllSubtitlesAreForced() {
+        let source = MediaSourceInfo(mediaStreams: [
+            MediaStream(index: 0, type: "Subtitle", isForced: true),
+            MediaStream(index: 1, type: "Subtitle", isForced: true)
+        ])
+        XCTAssertFalse(makeMovie(mediaSources: [source]).metadataBadges.contains("CC"))
+    }
+
+    func test_metadataBadges_noCCWhenNoSubtitleTracks() {
+        XCTAssertFalse(makeMovie(mediaSources: [MediaSourceInfo()]).metadataBadges.contains("CC"))
+    }
+
+    func test_metadataBadges_adFromIsHearingImpairedFlag() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Audio", isHearingImpaired: true)])
+        XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["AD"])
+    }
+
+    func test_metadataBadges_adFromAudioTrackTitleText() {
+        for title in ["Audio Description", "English SDH", "For the Hard of Hearing"] {
+            let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Audio", title: title)])
+            XCTAssertEqual(makeMovie(mediaSources: [source]).metadataBadges, ["AD"], "title \(title)")
+        }
+    }
+
+    func test_metadataBadges_emptyWhenNoMediaSources() {
+        XCTAssertEqual(makeMovie().metadataBadges, [])
+    }
+
+    func test_metadataBadges_combinedOrderMatchesResolutionRangeAudioSubtitleAD() {
+        let source = MediaSourceInfo(mediaStreams: [
+            MediaStream(index: 0, type: "Video", width: 3840, height: 2160, videoRangeType: "DOVI"),
+            MediaStream(index: 1, type: "Audio", codec: "eac3", audioSpatialFormat: "DolbyAtmos"),
+            MediaStream(index: 2, type: "Audio", isHearingImpaired: true),
+            MediaStream(index: 3, type: "Subtitle", isForced: false)
+        ])
+        XCTAssertEqual(
+            makeMovie(mediaSources: [source]).metadataBadges,
+            ["4K", "Dolby Vision", "Dolby Atmos", "CC", "AD"]
+        )
+    }
+
+    // MARK: cast
+
+    func test_cast_actorUsesRoleAsCharacterName() {
+        let person = BaseItemPerson(id: "p1", name: "Timothée Chalamet", role: "Paul Atreides", type: "Actor")
+        let dto = BaseItemDto(id: "movie-1", name: "Dune", type: .movie, people: [person])
+        XCTAssertEqual(MediaItem(dto: dto, images: images).cast, [
+            CastMember(id: "p1-0", name: "Timothée Chalamet", role: "Paul Atreides", imageURL: nil)
+        ])
+    }
+
+    /// The bug this guards against: the same real person can be credited
+    /// more than once on the same item (e.g. an actor who also directed),
+    /// sharing the same underlying `person.id` across those entries. Using
+    /// that id alone for `CastMember.id` gave `CastCrewGridView`'s `ForEach`
+    /// duplicate identifiers — SwiftUI's diffing has no reliable way to
+    /// tell two same-id cells apart while scrolling, which showed up as
+    /// intermittent gaps and repeated cells in the grid.
+    func test_cast_idsAreUniquePerCreditEvenWhenTheSamePersonAppearsTwice() {
+        let actingCredit = BaseItemPerson(id: "p1", name: "Ben Affleck", role: "Batman", type: "Actor")
+        let directingCredit = BaseItemPerson(id: "p1", name: "Ben Affleck", role: nil, type: "Director")
+        let dto = BaseItemDto(id: "movie-1", name: "Justice League", type: .movie, people: [actingCredit, directingCredit])
+        let ids = MediaItem(dto: dto, images: images).cast.map(\.id)
+        XCTAssertEqual(ids.count, Set(ids).count, "duplicate ids: \(ids)")
+    }
+
+    func test_cast_crewFallsBackToJobTitleWhenNoRole() {
+        let person = BaseItemPerson(id: "p2", name: "Denis Villeneuve", role: nil, type: "Director")
+        let dto = BaseItemDto(id: "movie-1", name: "Dune", type: .movie, people: [person])
+        XCTAssertEqual(MediaItem(dto: dto, images: images).cast.first?.role, "Director")
+    }
+
+    func test_cast_buildsImageURLWhenTagPresent() {
+        let person = BaseItemPerson(id: "p1", name: "Timothée Chalamet", primaryImageTag: "tag123")
+        let dto = BaseItemDto(id: "movie-1", name: "Dune", type: .movie, people: [person])
+        let url = MediaItem(dto: dto, images: images).cast.first?.imageURL
+        XCTAssertNotNil(url)
+        XCTAssertTrue(url!.absoluteString.contains("Items/p1/Images/Primary"))
+        XCTAssertTrue(url!.absoluteString.contains("tag=tag123"))
+    }
+
+    func test_cast_emptyWhenNoPeople() {
+        XCTAssertEqual(makeMovie().cast, [])
+    }
+
+    // MARK: image URLs
+
+    func test_primaryImageURL_includesTagAndToken() {
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, imageTags: ["Primary": "abc123"])
+        let item = MediaItem(dto: dto, images: images)
+        let url = item.primaryImageURL
+        XCTAssertNotNil(url)
+        XCTAssertTrue(url!.absoluteString.contains("Items/movie-1/Images/Primary"))
+        XCTAssertTrue(url!.absoluteString.contains("tag=abc123"))
+        XCTAssertTrue(url!.absoluteString.contains("ApiKey=tok"))
+    }
+
+    func test_thumbImageURL_includesTagAndToken() {
+        let dto = BaseItemDto(id: "ep-1", name: "Old Cases", type: .episode, imageTags: ["Thumb": "thumb123"])
+        let item = MediaItem(dto: dto, images: images)
+        let url = item.thumbImageURL
+        XCTAssertNotNil(url)
+        XCTAssertTrue(url!.absoluteString.contains("Items/ep-1/Images/Thumb"))
+        XCTAssertTrue(url!.absoluteString.contains("tag=thumb123"))
+    }
+
+    func test_thumbImageURL_nilWhenNoThumbTag() {
+        XCTAssertNil(makeMovie().thumbImageURL)
+    }
+
+    func test_backdropImageURL_fallsBackToParentBackdropWhenOwnMissing() {
+        let dto = BaseItemDto(
+            id: "ep-1", name: "Old Cases", type: .episode,
+            parentBackdropItemId: "series-1", parentBackdropImageTags: ["zzz"]
+        )
+        let item = MediaItem(dto: dto, images: images)
+        let url = item.backdropImageURL
+        XCTAssertNotNil(url)
+        XCTAssertTrue(url!.absoluteString.contains("Items/series-1/Images/Backdrop"))
+        XCTAssertTrue(url!.absoluteString.contains("tag=zzz"))
+    }
+
+    func test_backdropImageURL_nilWhenNoBackdropAvailable() {
+        XCTAssertNil(makeMovie().backdropImageURL)
+    }
+
+    /// Mirrors `backdropImageURL`'s fallback — an episode without its own
+    /// logo should show its Season's (or, if that's also missing, its
+    /// Series') logo rather than nothing. Jellyfin resolves which ancestor
+    /// actually has one server-side via `parentLogoItemId`/
+    /// `parentLogoImageTag`, so this only needs to prefer "own" over that.
+    func test_logoImageURL_usesOwnLogoWhenPresent() {
+        let dto = BaseItemDto(id: "series-1", name: "The Wire", type: .series, imageTags: ["Logo": "own-logo-tag"])
+        let item = MediaItem(dto: dto, images: images)
+        let url = item.logoImageURL
+        XCTAssertNotNil(url)
+        XCTAssertTrue(url!.absoluteString.contains("Items/series-1/Images/Logo"))
+        XCTAssertTrue(url!.absoluteString.contains("tag=own-logo-tag"))
+    }
+
+    func test_logoImageURL_fallsBackToParentLogoWhenOwnMissing() {
+        let dto = BaseItemDto(
+            id: "ep-1", name: "Old Cases", type: .episode,
+            parentLogoItemId: "season-1", parentLogoImageTag: "season-logo-tag"
+        )
+        let item = MediaItem(dto: dto, images: images)
+        let url = item.logoImageURL
+        XCTAssertNotNil(url)
+        XCTAssertTrue(url!.absoluteString.contains("Items/season-1/Images/Logo"), "Should use whichever ancestor the server resolved (Season or Series), not hardcode one")
+        XCTAssertTrue(url!.absoluteString.contains("tag=season-logo-tag"))
+    }
+
+    func test_logoImageURL_prefersOwnLogoOverParent() {
+        let dto = BaseItemDto(
+            id: "ep-1", name: "Old Cases", type: .episode,
+            imageTags: ["Logo": "own-logo-tag"],
+            parentLogoItemId: "season-1", parentLogoImageTag: "season-logo-tag"
+        )
+        let item = MediaItem(dto: dto, images: images)
+        XCTAssertTrue(item.logoImageURL!.absoluteString.contains("tag=own-logo-tag"))
+    }
+
+    func test_logoImageURL_nilWhenNoLogoAnywhereInHierarchy() {
+        XCTAssertNil(makeMovie().logoImageURL)
+    }
+
+    // MARK: usesLandscapeRailTile
+
+    func test_usesLandscapeRailTile_trueForSeriesAndEpisode() {
+        XCTAssertTrue(makeSeries().usesLandscapeRailTile)
+        XCTAssertTrue(makeEpisode().usesLandscapeRailTile)
+    }
+
+    func test_usesLandscapeRailTile_falseForMovie() {
+        XCTAssertFalse(makeMovie().usesLandscapeRailTile)
+    }
+
+    func test_usesLandscapeRailTile_falseForBoxSet() {
+        let dto = BaseItemDto(id: "box-1", name: "Trilogy", type: .boxSet)
+        XCTAssertFalse(MediaItem(dto: dto, images: images).usesLandscapeRailTile)
+    }
+
+    // MARK: libraryContentItemTypes
+
+    private func makeLibrary(collectionType: String?) -> MediaItem {
+        let dto = BaseItemDto(id: "lib-1", name: "Library", type: .collectionFolder, collectionType: collectionType)
+        return MediaItem(dto: dto, images: images)
+    }
+
+    func test_libraryContentItemTypes_moviesLibrary_restrictsToMovie() {
+        XCTAssertEqual(makeLibrary(collectionType: "movies").libraryContentItemTypes, ["Movie"])
+    }
+
+    func test_libraryContentItemTypes_showsLibrary_restrictsToSeries() {
+        // The whole point: a recursive `/Items?ParentId=` walk under a
+        // Shows library returns every Season/Episode too, not just each
+        // Series — this is what keeps a tvshows library's grid to just
+        // the shows themselves.
+        XCTAssertEqual(makeLibrary(collectionType: "tvshows").libraryContentItemTypes, ["Series"])
+    }
+
+    func test_libraryContentItemTypes_collectionsLibrary_restrictsToBoxSet() {
+        XCTAssertEqual(makeLibrary(collectionType: "boxsets").libraryContentItemTypes, ["BoxSet"])
+    }
+
+    func test_libraryContentItemTypes_unrecognizedOrMissingCollectionType_isUnrestricted() {
+        XCTAssertEqual(makeLibrary(collectionType: "music").libraryContentItemTypes, [])
+        XCTAssertEqual(makeLibrary(collectionType: nil).libraryContentItemTypes, [])
+        XCTAssertEqual(makeMovie().libraryContentItemTypes, [], "Not a library at all — collectionType is nil")
+    }
+
+    // MARK: isAudioContent / isAudioLibrary — AUDIO SUPPRESSION
+
+    private func makeItem(type: BaseItemKind, mediaType: String? = nil) -> MediaItem {
+        let dto = BaseItemDto(id: "item-1", name: "Some Item", type: type, mediaType: mediaType)
+        return MediaItem(dto: dto, images: images)
+    }
+
+    func test_isAudioContent_trueForEachAudioKind() {
+        for kind: BaseItemKind in [.audio, .audioBook, .musicAlbum, .musicArtist, .musicGenre] {
+            XCTAssertTrue(makeItem(type: kind).isAudioContent, "\(kind) should be audio content")
+        }
+    }
+
+    func test_isAudioContent_falseForVideoKinds() {
+        XCTAssertFalse(makeMovie().isAudioContent)
+        // `.unknown` stands in for `MusicVideo` — deliberately not its own
+        // `BaseItemKind` case, since it's real video Dionysus Player
+        // already plays correctly.
+        XCTAssertFalse(makeItem(type: .unknown).isAudioContent)
+    }
+
+    func test_isAudioContent_playlist_dependsOnMediaType() {
+        XCTAssertTrue(makeItem(type: .playlist, mediaType: "Audio").isAudioContent)
+        XCTAssertFalse(makeItem(type: .playlist, mediaType: "Video").isAudioContent)
+        // An empty playlist also defaults to `MediaType: "Audio"` on a real
+        // server — over-suppressing that edge case is the accepted
+        // trade-off (see `BaseItemDto.isAudioContent`'s doc comment).
+        XCTAssertFalse(makeItem(type: .playlist, mediaType: nil).isAudioContent)
+    }
+
+    func test_isAudioLibrary_trueOnlyForMusicCollectionType() {
+        XCTAssertTrue(makeLibrary(collectionType: "music").isAudioLibrary)
+        XCTAssertFalse(makeLibrary(collectionType: "musicvideos").isAudioLibrary, "real playable video, deliberately not treated as an audio library")
+        XCTAssertFalse(makeLibrary(collectionType: "movies").isAudioLibrary)
+        XCTAssertFalse(makeLibrary(collectionType: nil).isAudioLibrary)
+    }
+
+    // MARK: studios / decade — CollectionGridView's Studios/Decade filters
+
+    func test_studios_mapsNameGuidPairsToJustTheNames() {
+        let dto = BaseItemDto(
+            id: "movie-1", name: "Arrival", type: .movie,
+            studios: [NameGuidPair(name: "Paramount", id: "studio-1"), NameGuidPair(name: "20th Century", id: "studio-2")]
+        )
+        XCTAssertEqual(MediaItem(dto: dto, images: images).studios, ["Paramount", "20th Century"])
+    }
+
+    func test_studios_emptyWhenNoneOnTheDto() {
+        XCTAssertEqual(makeMovie().studios, [])
+    }
+
+    func test_decade_bucketsProductionYearToItsStartYear() {
+        XCTAssertEqual(makeMovie(productionYear: 2016).decade, 2010)
+        XCTAssertEqual(makeMovie(productionYear: 2010).decade, 2010)
+        XCTAssertEqual(makeMovie(productionYear: 1999).decade, 1990)
+        XCTAssertEqual(makeMovie(productionYear: 2000).decade, 2000)
+    }
+
+    func test_decade_nilWhenNoProductionYear() {
+        XCTAssertNil(makeMovie(productionYear: nil).decade)
+    }
+}
