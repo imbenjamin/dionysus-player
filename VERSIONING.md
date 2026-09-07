@@ -345,6 +345,16 @@ string isn't user-visible anyway.
   opens (or finds) the `develop` → `stable` PR that a final release is tagged
   from. Never merges; see that file's header for why.
 
+- **`.github/workflows/aetherengine-bump.yml`** — runs weekly (plus
+  `workflow_dispatch`): discovers the newest AetherEngine release within the
+  currently-pinned major version and, if it's newer than `project.yml`'s
+  `version:` pin (XcodeGen's spelling of an exact/SPM `.exact`
+  requirement), opens a PR bumping that pin and the generated version
+  constant together. Never proposes a major-version bump. Goes through the
+  normal `pr-checks.yml` gate like any other PR — see CLAUDE.md's "Keeping
+  the AetherEngine version display current" for why the pin is exact
+  rather than a `from:` range in the first place.
+
 - **`.github/workflows/codeql.yml`** — CodeQL security scanning, split into
   two jobs because their gating differs. `analyze-actions` (this repo's own
   workflow YAML) is cheap (~40s) and blocks PRs into both `stable` and

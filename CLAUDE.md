@@ -65,40 +65,43 @@ pinned `AetherEngine` version, read from a checked-in generated constant
 hand-maintained literal or a build-time injection — the latter was tried and
 doesn't actually work reliably (see `Scripts/update-version.sh`'s comment,
 which hit and documents the same problem for the app's own version display).
-**Whenever `Package.resolved`'s `aetherengine` pin changes** — a
-fresh package resolution, `File > Packages > Update to Latest Package
-Versions` in Xcode, or a `packages:` bump in `project.yml` — regenerate it:
+**Whenever `project.yml`'s `packages: AetherEngine:` pin changes** —
+regenerate it:
 
 ```sh
 ./Scripts/update-aetherengine-version.sh
 ```
 
-`packages: AetherEngine: from: 6.5.5` in `project.yml` is already SPM's "up
-to next major" rule, so any `6.x.x` (not just `6.5.5`) satisfies it — a
-fresh package resolution (no prior `Package.resolved` to reuse) picks up
-whatever's newest automatically. An *already-resolved* local checkout won't
-re-resolve on its own, though: Xcode/`xcodebuild` reuse whatever's already
-pinned once resolved (reproducible builds mid-session, by design), so
-picking up a newer `6.x` release still needs an explicit refresh — Xcode's
-`File > Packages > Update to Latest Package Versions`, or deleting
-DerivedData's SPM state — followed by the script above.
+**`project.yml` pins AetherEngine with `version: 6.71.0` (XcodeGen's
+spelling of SPM's `.exact` requirement), not a `from:`
+range.** This used to be `from: 6.5.5` (SPM's "up to next major" rule), which
+meant a cold resolve — every CI run, since `Package.resolved` is gitignored
+along with the rest of the generated `.xcodeproj` (see above) — could
+silently land on whatever the newest `6.x` release happened to be, with zero
+commit in this repo to review or even notice. Confirmed live more than once
+(PR #147, 2026-08-28: CI resolved `6.54.0` against a checked-in `6.52.0` pin
+with no other AetherEngine-related change on the branch at all). An exact
+pin makes that structurally impossible: a cold resolve always lands on this
+exact version, so there's nothing left to drift *by accident*.
 
-**Check this before opening a PR, not just when you know you touched
-packages.** `Package.resolved` is gitignored (the whole `.xcodeproj` is,
-per the generated-not-committed policy above), so every CI run does an
-uncached resolve and can pick up a newly-released AetherEngine version
-with zero local trigger — no `project.yml` change, no manual Xcode
-action, nothing about the PR's own diff. `pr-checks.yml`'s
-"Verify AetherEngine version display is up to date" step exists to catch
-that drift, but discovering it there costs a red CI check and a
-follow-up commit (confirmed live, PR #147, 2026-08-28: CI resolved
-`6.54.0` against a checked-in `6.52.0` pin with no other
-AetherEngine-related change on the branch at all). A plain `xcodebuild
--resolvePackageDependencies` isn't enough to check for this locally
-either — it silently reuses whatever's cached and won't reproduce what
-CI's uncached resolve sees.
+**Bumping the pin is automated but still reviewed.** The "Bump AetherEngine"
+workflow (`.github/workflows/aetherengine-bump.yml`) runs weekly, discovers
+the newest release within the *current* major (by temporarily resolving
+with `from: <major>.0.0` — the same "up to next major" rule the old pin
+used, just scoped to this one scheduled job instead of every build), and if
+that's newer than the current pin, opens a PR bumping `project.yml` and the
+generated constant together. It never proposes a major bump (7.0.0) — that's
+exactly where AetherEngine's public API is allowed to break per semver, so
+project.yml's own comment on the `packages:` block treats it as a deliberate
+manual edit, and the workflow's `from: <major>.0.0` discovery step can't
+cross that boundary even if it tried. A bump PR goes through the same
+`pr-checks.yml` gate as any other PR before it can merge — nothing lands
+unbuilt/untested.
 
-To actually check before pushing, run:
+**Still worth checking before opening a PR that touches `project.yml` or
+the generated constant by hand**, since the two can still drift from each
+other via a manual edit (not from an uncached CI resolve moving on its own,
+the way the old `from:` range let it). To check:
 
 ```sh
 ./Scripts/update-aetherengine-version.sh
