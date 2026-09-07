@@ -526,3 +526,54 @@ library (e.g. MarkdownUI) is worth the added dependency once there's more
 than one document's worth of rendering to maintain, or once a document
 needs constructs the hand-written renderer doesn't handle (nested lists,
 code blocks, tables).
+
+## Store screenshots
+
+`store-screenshots/` (repo root) holds the finished App Store Connect
+screenshot sets; `Scripts/store-screenshots/{gen.py,shot.swift}` plus the
+`Scripts/render-store-screenshots.sh` wrapper is the tool that produces
+them from raw Simulator captures. See README.md's "Store screenshots"
+section for the two-step workflow (capture, then render) — this section is
+only the parts that aren't obvious from reading the scripts themselves.
+
+**Capture against the Jellyfin demo server
+(`demo.jellyfin.org/stable`, user `demo`, no password), never a personal
+server.** The screenshots are checked into the repo and published to App
+Store Connect, so anything they show is effectively public; the demo
+server's whole catalogue is public-domain/Creative Commons for exactly
+this reason. This was a live correction mid-session once already — default
+to the demo server for any future screenshot refresh rather than whatever
+server the Simulator happens to already be signed into.
+
+**The demo server has no HDR, multi-track, or chaptered content.** Its
+`Movie`/`Episode` items are all SDR H.264, single audio track, no
+subtitles, zero chapters (confirmed via a `/Users/{id}/Items` probe across
+its ~140 items). A slide claiming Dolby Vision/HDR10/Atmos or showing
+chapters/track-picker UI can't be captured live there — either accept the
+copy describing the app's real capability (verified elsewhere, see the
+top of this file) rather than what's on screen in that one frame, or skip
+the claim. Don't invent HDR-looking source video to fake it.
+
+**`xcrun simctl` has no orientation control.** The player slide needs a
+landscape capture (a portrait screenshot of the player is ~70% black
+bars). Rotate via Simulator's own UI — `osascript` driving Simulator's
+Device ▸ Orientation menu works from a script — screenshot, then `sips -r
+270 <file>` to correct the PNG's rotation before handing it to the render
+step (`gen.py`'s landscape frame expects an already-upright image).
+
+**iOS defers a download task created while the Simulator is
+backgrounded** (same mechanism as `ios-defers-background-created-download-tasks`
+in the downloads feature itself) — a Downloads-tab capture queued while
+scripting another window will sit at "Preparing…" indefinitely. Foreground
+the target Simulator window (`osascript` `perform action "AXRaise"`) and
+give it real wall-clock time before capturing that slide.
+
+**The demo server's own transcode jobs restart mid-download** for larger
+titles (a `Downloading… 86%` row can drop back to "Preparing download…"
+minutes later, unrelated to anything this app does) — expect it, and
+either wait out another cycle or pick a shorter title for that slide
+rather than treating it as a capture bug.
+
+`gen.py`'s brand colors (`MAGENTA`/`AMBER`) are copied constants, not
+computed from `BrandColors.swift` — if that palette changes, update both
+by hand.
