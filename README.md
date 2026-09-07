@@ -259,6 +259,44 @@ Adding a language later is a matter of adding it to the catalog's
 `localizations` in Xcode and importing the vendor's translations — no code
 changes.
 
+## Store screenshots
+
+[`store-screenshots/`](store-screenshots) holds the App Store Connect
+screenshot sets — one folder per required size (`appstore-iphone-69`,
+`appstore-iphone-65`, `appstore-ipad-13`), six PNGs each at exact store
+pixel dimensions. Every slide is a real screenshot of the running app
+(against the [Jellyfin demo server](https://demo.jellyfin.org/stable), so
+no personal library content or credentials appear in them) framed and
+captioned to match the brand palette in
+[`BrandColors.swift`](DionysusPlayer/Shared/BrandColors.swift).
+
+Producing a set is two steps:
+
+1. **Capture the raw screenshots** — manual, via Simulator. For each of
+   iPhone and iPad, in both light and dark appearance where the slide calls
+   for it: boot a Simulator, `xcrun simctl status_bar <udid> override
+   --time "9:41" --batteryLevel 100 ...` for a clean status bar, sign in
+   against the demo server, and capture Home, the Movies grid, an asset
+   detail page, the player (landscape — `xcrun simctl` has no orientation
+   flag, so rotate via Simulator's Device ▸ Orientation menu, screenshot,
+   then `sips -r 270` the PNG back to landscape), Downloads with a mix of
+   complete/in-progress items, and Home again in the opposite appearance.
+   Name them to match `Scripts/store-screenshots/gen.py`'s `SLIDES` list
+   (`01-home.png` … `06-light.png`) into `<raw>/iphone/` and `<raw>/ipad/`.
+2. **Render the store PNGs**:
+   ```sh
+   ./Scripts/render-store-screenshots.sh <raw-dir> store-screenshots
+   ```
+   This builds `Scripts/store-screenshots/shot.swift` (a headless WKWebView
+   snapshot tool — no Chrome/Node dependency) and runs `gen.py` to lay each
+   raw screenshot into a CSS-drawn device frame over a brand-gradient
+   background with a headline/subcopy pair, then renders each slide to a
+   PNG at the exact size App Store Connect expects.
+
+Update the headline/subcopy text or the backdrop palette in `gen.py`
+directly; re-run the render script to regenerate. See that file's own
+comments for the slide list and layout parameters.
+
 ## License
 
 GPLv3 (see [LICENSE](LICENSE)), with an added App Store/DRM exception
