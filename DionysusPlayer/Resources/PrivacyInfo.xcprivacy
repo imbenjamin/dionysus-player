@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Dionysus does no cross-app/cross-site tracking and links no data to
+	     a third party's identity for advertising — everything the app reads
+	     or writes goes to the user's own configured Jellyfin server or stays
+	     on-device (UserDefaults, Keychain). -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<!-- No data types collected by the developer — playback/library data is
+	     exchanged directly with the user's own self-hosted Jellyfin server,
+	     not with Dionysus or any third party the developer controls. -->
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<!-- UserDefaults: ServerSessionStore and ~20 other call sites read/write
+		     only the app's own defaults (server config, feature toggles,
+		     preferences) — never another app's or a shared container's. -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+		<!-- Disk space: DeviceStorageBreakdown reads
+		     volumeAvailableCapacityForImportantUsageKey to show the user how
+		     much free space they have before/while downloading. -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>85F4.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
