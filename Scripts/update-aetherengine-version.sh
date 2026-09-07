@@ -6,9 +6,17 @@
 # Package.resolved is NOT checked in — it lives inside the .xcodeproj
 # (`project.xcworkspace/xcshareddata/swiftpm/`), and .gitignore's blanket
 # `*.xcodeproj` rule covers it, same as the rest of the generated project.
-# That's precisely why this script clears the caches below and resolves
-# fresh: there is no committed lock file, so every CI run resolves cold and
-# can legitimately land on a newer 6.x than the last one did.
+#
+# `project.yml` pins AetherEngine with `version:` (XcodeGen's spelling of
+# an exact/SPM `.exact` requirement), not `from:`, so a cold
+# resolve can no longer silently land on a newer release the way it used to
+# (see project.yml's own comment on why that changed) — this script's job
+# is now to confirm the checked-in constant actually matches that exact
+# pin, not to catch upstream drift. It still clears the caches below and
+# resolves genuinely fresh rather than trusting a local cache, though: an
+# exact pin is only as trustworthy as the artifact actually fetched for it,
+# and a stale/corrupted local SPM cache is still worth ruling out rather
+# than assuming.
 #
 # Why a checked-in generated Swift file rather than stamping the version
 # into the built Info.plist at build time (the same trick this project

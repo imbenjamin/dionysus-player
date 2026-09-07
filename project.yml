@@ -57,27 +57,39 @@ settings:
     STRING_CATALOG_GENERATE_SYMBOLS: YES
 
 packages:
-  # `from:` is XcodeGen/SPM's "up to next major" rule — any 6.x.x satisfies
-  # this (6.5.5 was simply whatever was latest when this was first pinned),
-  # so a fresh package resolution (no prior `Package.resolved`/DerivedData
-  # SPM cache to reuse — see `.gitignore`'s blanket `*.xcodeproj` rule,
-  # which is why that resolved file is never committed) always picks up the
-  # newest available 6.x release automatically. It only stops doing that at
-  # a 7.0.0 major bump, which needs a deliberate `from:` bump here (a major
-  # version is exactly where AetherEngine's public API is allowed to break,
-  # per semver, so that's the one case that *shouldn't* happen silently).
-  # An already-resolved local checkout won't re-resolve on its own, though
-  # — Xcode/`xcodebuild` reuse whatever's already pinned once resolved, by
-  # design (reproducible builds mid-session); periodically force a refresh
-  # locally with Xcode's File > Packages > Update to Latest Package
-  # Versions (or delete DerivedData's SPM state), then run
+  # `version:` pins one specific tag — XcodeGen's spelling of SPM's `.exact`
+  # requirement — deliberately NOT `from:` (SPM's "up to next major" rule),
+  # which is what this used to be. `from:` meant a fresh package resolution
+  # (no prior `Package.resolved`/DerivedData SPM cache to reuse — see
+  # `.gitignore`'s blanket `*.xcodeproj` rule, which is why that resolved
+  # file is never committed) silently picked up whatever the
+  # newest available 6.x release was, with zero commit in this repo to
+  # review or even notice — confirmed live more than once (PR #147: CI
+  # resolved 6.54.0 against a checked-in 6.52.0 pin with no other
+  # AetherEngine-related change on the branch at all). An exact pin makes
+  # that structurally impossible: a cold resolve always lands on this exact
+  # version, so a build today and a build from the same commit in a year
+  # resolve identically.
+  #
+  # Bumping this is meant to be automatic but reviewed, not manual: the
+  # "Bump AetherEngine" workflow (`.github/workflows/aetherengine-bump.yml`)
+  # runs weekly, discovers the newest release within the *current* major
+  # (by temporarily resolving with `from: <major>.0.0` — the same "up to
+  # next major" rule, just scoped to a scheduled job instead of every
+  # build), and opens a PR bumping this line plus the checked-in version
+  # constant if one exists. A major bump (7.0.0) is exactly where
+  # AetherEngine's public API is allowed to break per semver, so the
+  # workflow never proposes one — that stays a deliberate manual edit here.
+  #
+  # After any bump (automated or manual), run
   # `Scripts/update-aetherengine-version.sh` to refresh the checked-in
   # constant `PlaybackStatsOverlay`'s "AetherEngine Version" row reads —
   # see that script's own comment for why it's a generated file rather
-  # than something read back at build time.
+  # than something read back at build time. `pr-checks.yml` fails a PR
+  # where the two have drifted apart.
   AetherEngine:
     url: https://github.com/superuser404notfound/AetherEngine
-    from: 6.5.5
+    version: 6.71.0
   # A small (single-file), MIT-licensed, dependency-free view modifier
   # (`.shimmering()`) — used by `MediaPlaceholderBox` for the "still
   # loading" placeholder animation. Purely a rendering effect — no

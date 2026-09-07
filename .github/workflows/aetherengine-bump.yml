@@ -1,0 +1,164 @@
+name: Bump AetherEngine
+
+# Weekly check for a newer AetherEngine release within the currently-pinned
+# major version. `project.yml` pins AetherEngine with `version:` — XcodeGen's
+# spelling of an exact/SPM `.exact` requirement (see that file's own
+# comment, and CLAUDE.md's "Keeping the AetherEngine version display
+# current") — specifically so a cold package resolve can never pick
+# up a new release by surprise — this workflow is the deliberate,
+# reviewable replacement for that: it discovers what the newest compatible
+# release is, and opens a PR bumping the pin if there is one, rather than
+# leaving upgrades to whoever next happens to run
+# `Scripts/update-aetherengine-version.sh`.
+#
+# Never proposes a major-version bump (7.0.0) — that's exactly where
+# AetherEngine's public API is allowed to break per semver, so it stays a
+# deliberate manual edit to `project.yml`. The discovery step below can't
+# cross that boundary even if it tried: it resolves with `from:
+# <current-major>.0.0`, SPM's own "up to next major" rule — the same rule
+# this pin used before it was made exact.
+on:
+  schedule:
+    # Monday 09:00 UTC — an arbitrary low-traffic slot, not a hard
+    # requirement; adjust freely.
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+# Needs to push a new branch and open a PR from it. This repo's default
+# GITHUB_TOKEN permissions are read-only (see release.yml's own comment on
+# this), so both need scoping here rather than flipping the repo-wide
+# default. Pushing a *new* branch is unaffected by develop/stable's
+# branch-protection rulesets, which only restrict pushes to those specific
+# branch names — same as any human contributor pushing a feature branch.
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  # A manual re-run while last week's scheduled run is still going would
+  # otherwise race on the same scratch branch name.
+  group: aetherengine-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Check for a newer AetherEngine release
+    runs-on: macos-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # Explicit rather than relying on `schedule`/`workflow_dispatch`'s
+          # implicit "checkout the repo's default branch" behavior, which
+          # would silently break this workflow's `--base develop` PRs if
+          # the default branch setting ever changed without this file being
+          # touched — same reasoning `release.yml` applies to its own
+          # branch checks.
+          ref: develop
+
+      - name: Set up iOS project
+        uses: ./.github/actions/setup-ios-project
+
+      - name: Discover the newest release in the current major, and bump if there is one
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          CURRENT=$(awk '/^  AetherEngine:/{f=1; next} f && /version:/{print $2; exit}' project.yml)
+          if [ -z "$CURRENT" ]; then
+            echo "::error::couldn't find AetherEngine's version: pin in project.yml" >&2
+            exit 1
+          fi
+          MAJOR=${CURRENT%%.*}
+          echo "Currently pinned: $CURRENT (major $MAJOR)"
+
+          # Temporarily widen the pin to ask SPM what its own "up to next
+          # major" rule would resolve to today, then revert — neither edit
+          # below gets committed, this is purely to discover the answer.
+          # Reuses Scripts/update-aetherengine-version.sh rather than
+          # hand-parsing Package.resolved a second way: that script already
+          # does the from-scratch, cache-cleared resolve this needs, and
+          # writes the resolved version into AetherEngineVersion.swift,
+          # which is read back out below.
+          sed -i '' "s/version: $CURRENT/from: $MAJOR.0.0/" project.yml
+          xcodegen generate
+          ./Scripts/update-aetherengine-version.sh
+          LATEST=$(sed -n 's/.*current = "\(.*\)"/\1/p' DionysusPlayer/Core/Playback/AetherEngineVersion.swift)
+          git checkout -- project.yml DionysusPlayer/Core/Playback/AetherEngineVersion.swift
+
+          if [ -z "$LATEST" ]; then
+            echo "::error::couldn't read the discovered version back out of AetherEngineVersion.swift" >&2
+            exit 1
+          fi
+          echo "Newest in major $MAJOR: $LATEST"
+
+          if [ "$LATEST" = "$CURRENT" ]; then
+            echo "Already on the newest $MAJOR.x release — nothing to do."
+            echo "AetherEngine is already current at $CURRENT — no PR opened." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # If last week's bump PR is still open (unreviewed, or the
+          # discovery below found something even newer since), leave it
+          # alone rather than superseding it out from under a reviewer —
+          # the next scheduled run will catch whatever's newest once it
+          # merges or gets closed.
+          BRANCH="infra/aetherengine-bump"
+          EXISTING=$(gh pr list --base develop --head "$BRANCH" --state open --json url --jq '.[0].url // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "A bump PR is already open: $EXISTING — leaving it for review rather than superseding it."
+            echo "AetherEngine $LATEST is available, but a bump PR is already open: $EXISTING" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+
+          sed -i '' "s/version: $CURRENT/version: $LATEST/" project.yml
+          xcodegen generate
+          ./Scripts/update-aetherengine-version.sh
+
+          git add project.yml DionysusPlayer/Core/Playback/AetherEngineVersion.swift
+          git commit \
+            -m "Bump pinned AetherEngine version to $LATEST" \
+            -m "Discovered by the weekly Bump AetherEngine workflow: the newest release within the currently-pinned major (${MAJOR}.x) is $LATEST, vs. the previously-pinned $CURRENT."
+          # --force: safe here because a still-open PR on this branch was
+          # already ruled out above: the only thing this can overwrite is a
+          # stale branch left behind by a previous run whose PR was closed
+          # without deleting it.
+          git push --force origin "$BRANCH"
+
+          # A heredoc here would need its terminator flush-left with no
+          # indentation, which falls below this step's YAML block-scalar
+          # indentation floor and breaks the workflow file's own YAML
+          # parsing (hit this live while writing the script — verify any
+          # future edit here with `python3 -c "import yaml; yaml.safe_load(open('...'))"`
+          # or equivalent). `printf` with one argument per line sidesteps
+          # that entirely: every line is an ordinary, normally-indented
+          # shell continuation, not a specially-terminated block.
+          printf '%s\n' \
+            "Bumps the pinned AetherEngine version from \`$CURRENT\` to \`$LATEST\`." \
+            "" \
+            "Opened by the [Bump AetherEngine](https://github.com/${{ github.repository }}/actions/workflows/aetherengine-bump.yml)" \
+            "workflow — see that file, or CLAUDE.md's \"Keeping the AetherEngine version" \
+            "display current\", for why this is automated rather than left to a cold" \
+            "CI resolve." \
+            "" \
+            "Never proposes a major-version bump; this only ever moves within \`${MAJOR}.x\`." \
+            "Release notes: https://github.com/superuser404notfound/AetherEngine/releases/tag/$LATEST" \
+            "" \
+            "This still needs to pass \`pr-checks.yml\` like any other PR before merging." \
+            "A future scheduled run may force-push over commits pushed to this branch" \
+            "directly — review/merge/close it rather than adding to it." \
+            > "$RUNNER_TEMP/body.md"
+
+          URL=$(gh pr create --base develop --head "$BRANCH" \
+            --title "Bump pinned AetherEngine version to $LATEST" \
+            --body-file "$RUNNER_TEMP/body.md")
+
+          echo "Opened $URL"
+          echo "Opened AetherEngine bump PR: $URL" >> "$GITHUB_STEP_SUMMARY"
