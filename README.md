@@ -119,6 +119,9 @@ unit tests. Areas still resting on unit-test coverage alone rather than
 confirmed live: non-Dolby-Vision HDR formats on other devices, and some
 seeking/scrubbing edge cases.
 
+**v1.0.0**, the first final release, was tagged and submitted for Apple App
+Review on 2026-09-07.
+
 ## Known limitations
 
 - **Downloads always come out HDR→SDR and AAC-LC stereo**, regardless of the
