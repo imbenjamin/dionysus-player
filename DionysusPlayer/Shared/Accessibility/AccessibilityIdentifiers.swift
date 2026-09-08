@@ -157,6 +157,27 @@ enum A11yID {
 
     }
 
+    enum Playlist {
+        /// A playlist member row itself — what a UI test long-presses to
+        /// reveal `removeMenuItem(_:)`'s context menu, since there's no
+        /// reliable way to select one specific row among several by
+        /// accessibility label (localized, and shared across rows of the
+        /// same kind of content). Keyed the same way as
+        /// `removeMenuItem(_:)`.
+        static func row(_ playlistItemID: String) -> String { "playlist.row.\(playlistItemID)" }
+
+        /// A playlist member row's `.contextMenu` "Remove from Playlist"
+        /// action — the *only* removal path (see `PlaylistItemList
+        /// .onRemove`'s doc comment for why a hand-rolled swipe gesture
+        /// was tried and reverted), present only when the server says this
+        /// user may edit this playlist (`AssetDetailViewModel
+        /// .canEditPlaylist`), same "absence gates the permission check"
+        /// shape `AssetDetail.deleteButton` uses. Keyed by
+        /// `MediaItem.playlistItemID`, not the item's own `id` — the same
+        /// item can appear in a playlist more than once.
+        static func removeMenuItem(_ playlistItemID: String) -> String { "playlist.removeMenuItem.\(playlistItemID)" }
+    }
+
     enum Player {
         static let closeButton = "player.closeButton"
         static let playPauseButton = "player.playPauseButton"

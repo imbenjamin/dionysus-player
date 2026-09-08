@@ -184,8 +184,20 @@ enum UITestFixtureLibrary {
         return item
     }()
 
+    /// Each member gets its own `playlistItemId`, distinct from the
+    /// underlying item's `id` — `MediaItem.playlistItemID`'s doc comment
+    /// has the full reasoning; `PlaylistItemList`/`AssetDetailViewModel
+    /// .removeFromPlaylist` both key rows on it. Safe to stamp here rather
+    /// than on the shared `movies`/`episodes` fixtures themselves:
+    /// `BaseItemDto` is a value type, so `Array(movies.prefix(3))` already
+    /// copies before this mutates, leaving the originals (shown elsewhere,
+    /// e.g. the Movies grid) untouched.
     static var playlistMembers: [BaseItemDto] {
-        Array(movies.prefix(3)) + [episodes[0]]
+        var members = Array(movies.prefix(3)) + [episodes[0]]
+        for index in members.indices {
+            members[index].playlistItemId = "playlist-entry-\(index + 1)"
+        }
+        return members
     }
 
     // MARK: - Flat lookup

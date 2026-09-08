@@ -42,6 +42,12 @@ struct PlaylistItemList: View {
     var client: JellyfinAPIClient?
     var userID: String?
     var downloadManager: DownloadManager?
+    /// Owns `canEditPlaylist`/`removeFromPlaylist(_:)`/`track(_:)` for the
+    /// per-row remove affordances below — see `PlaylistItemRow`'s doc
+    /// comment. Passed as the whole view model rather than loose
+    /// closures/flags, matching `HeroActionButtons(viewModel:)`'s existing
+    /// precedent in this same view hierarchy (`PlaylistDetailView`).
+    let viewModel: AssetDetailViewModel
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -50,6 +56,13 @@ struct PlaylistItemList: View {
     /// `.onGeometryChange` rather than read from `UIScreen`/`keyWindow`,
     /// and why starting at 0 is safe.
     @State private var availableWidth: CGFloat = 0
+
+    /// Set when a swipe/context-menu removal fails (notably
+    /// `.notPermitted`, if edit access was revoked mid-session — see
+    /// `AssetDetailViewModel.removeFromPlaylist`) — one shared alert for
+    /// the whole list rather than per-row state, since only one removal is
+    /// ever realistically in flight at a time.
+    @State private var removalErrorMessage: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -90,17 +103,41 @@ struct PlaylistItemList: View {
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
+        .alert(
+            "Couldn't remove item",
+            isPresented: .init(get: { removalErrorMessage != nil }, set: { if !$0 { removalErrorMessage = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(removalErrorMessage ?? "")
+        }
     }
 
     /// Shared by both branches above so the single- and multi-column
     /// lists can never drift apart in what a row actually is.
+    ///
+    /// `id: \.playlistItemID` rather than the default `Identifiable`
+    /// keying — a playlist can contain the same item more than once, so
+    /// `item.id` isn't unique per row here (see `MediaItem.playlistItemID`'s
+    /// doc comment); every item in `items` always has one, since it's only
+    /// ever populated from `AssetDetailViewModel.orderedPlaylistItems`.
     @ViewBuilder
     private func itemRows(metrics: DetailRowGridMetrics) -> some View {
-        ForEach(items) { item in
+        ForEach(items, id: \.playlistItemID) { item in
             PlaylistItemRow(
                 item: item, onPlay: { onPlayItem(item.id) },
                 thumbnailWidth: metrics.artworkWidth, thumbnailHeight: metrics.artworkHeight,
-                client: client, userID: userID, downloadManager: downloadManager
+                client: client, userID: userID, downloadManager: downloadManager,
+                canRemove: viewModel.canEditPlaylist,
+                onRemove: {
+                    viewModel.track(Task {
+                        do {
+                            try await viewModel.removeFromPlaylist(item)
+                        } catch {
+                            removalErrorMessage = error.localizedDescription
+                        }
+                    })
+                }
             )
         }
     }
@@ -138,6 +175,26 @@ private struct PlaylistItemRow: View {
     var client: JellyfinAPIClient?
     var userID: String?
     var downloadManager: DownloadManager?
+    /// Whether the current user may edit the playlist this row belongs
+    /// to — gates both `onRemove` triggers below entirely (mirrors
+    /// `DeleteAssetButton`'s "render nothing, never a disabled control"
+    /// philosophy). See `AssetDetailViewModel.canEditPlaylist`'s doc
+    /// comment for why this can't be a per-row server field the way
+    /// `canDelete` is.
+    var canRemove: Bool
+    /// Fires the actual removal — owned by `PlaylistItemList`, which wraps
+    /// it in `viewModel.track(Task { ... })` and surfaces any failure via
+    /// its own shared alert. Called from the `.contextMenu` item below —
+    /// the deliberate choice over a hand-rolled swipe gesture (tried and
+    /// reverted, 2026-09-08: reads as an ordinary tap against the Play
+    /// `Button`/`NavigationLink` on a physical device, clunky compared to
+    /// a native swipe). A long-press menu is a well-established platform
+    /// pattern in its own right, and its entries are already exposed to
+    /// VoiceOver's rotor, Switch Control, and Voice Control automatically —
+    /// answering "delete without the gesture" with no extra visible UI at
+    /// all, which is the whole reason this wasn't paired with
+    /// `.swipeActions`-style chrome in the first place.
+    var onRemove: () -> Void
 
     /// Measured height of the title/subtitle block above the synopsis —
     /// see `overviewLineLimit`. 0 until the first layout pass reports.
@@ -312,8 +369,40 @@ private struct PlaylistItemRow: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(item.accessibilityDescription)
                     .accessibilityAddTraits(.isButton)
+                    // What a UI test long-presses to reveal this row's
+                    // `.contextMenu` — see `A11yID.Playlist.row(_:)`'s doc
+                    // comment for why a row needs one at all (its
+                    // accessibility label alone can't disambiguate one row
+                    // among several).
+                    .accessibilityIdentifier(A11yID.Playlist.row(item.playlistItemID ?? item.id))
                 }
                 .buttonStyle(.plain)
+            }
+        }
+        .contextMenu {
+            // The non-gesture answer this feature specifically needs:
+            // `.contextMenu` items are exposed to VoiceOver's rotor,
+            // Switch Control, and Voice Control automatically, so this is
+            // reachable without any gesture at all — with no extra visible
+            // chrome on a row that's already dense. Omitted entirely
+            // rather than shown disabled when `canRemove` is false, same
+            // "render nothing" rule `DeleteAssetButton` follows for
+            // `canDelete`.
+            //
+            // A hand-rolled swipe-to-remove gesture sat alongside this
+            // once (2026-09-08) — reverted after on-device testing: it
+            // read as an ordinary tap against the Play `Button`/
+            // `NavigationLink` here and felt clunky even once that was
+            // fixed (`.highPriorityGesture`), compared to a native swipe.
+            // The long-press menu alone is a well-established platform
+            // pattern in its own right, so this is the only removal path.
+            if canRemove {
+                Button(role: .destructive) {
+                    onRemove()
+                } label: {
+                    Label("Remove from Playlist", systemImage: "minus.circle")
+                }
+                .accessibilityIdentifier(A11yID.Playlist.removeMenuItem(item.playlistItemID ?? item.id))
             }
         }
     }

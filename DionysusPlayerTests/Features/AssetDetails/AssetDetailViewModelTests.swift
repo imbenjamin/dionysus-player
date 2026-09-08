@@ -349,6 +349,8 @@ final class AssetDetailViewModelTests: XCTestCase {
                 return try MockURLProtocol.encodedJSONResponse(
                     for: request, value: BaseItemDtoQueryResult(items: [movieDto, trackDto, episodeDto], totalRecordCount: 3)
                 )
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: false))
             default:
                 XCTFail("unexpected request to \(request.url?.path ?? "?")")
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
@@ -378,6 +380,8 @@ final class AssetDetailViewModelTests: XCTestCase {
                 return try MockURLProtocol.encodedJSONResponse(
                     for: request, value: BaseItemDtoQueryResult(items: [watched, unwatched], totalRecordCount: 2)
                 )
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: false))
             default:
                 XCTFail("unexpected request to \(request.url?.path ?? "?")")
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
@@ -404,6 +408,8 @@ final class AssetDetailViewModelTests: XCTestCase {
                 return try MockURLProtocol.encodedJSONResponse(
                     for: request, value: BaseItemDtoQueryResult(items: [first, second], totalRecordCount: 2)
                 )
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: false))
             default:
                 XCTFail("unexpected request to \(request.url?.path ?? "?")")
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
@@ -927,6 +933,8 @@ final class AssetDetailViewModelTests: XCTestCase {
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             case "/Playlists/playlist-1/Items":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [movieDto], totalRecordCount: 1))
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: false))
             default:
                 XCTFail("unexpected request to \(request.url?.path ?? "?")")
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
@@ -944,6 +952,8 @@ final class AssetDetailViewModelTests: XCTestCase {
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: refreshedPlaylistDto)
             case "/Playlists/playlist-1/Items":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [updatedMovieDto], totalRecordCount: 1))
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: true))
             default:
                 XCTFail("unexpected request to \(request.url?.path ?? "?")")
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
@@ -954,6 +964,143 @@ final class AssetDetailViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.orderedPlaylistItems.map(\.id), ["movie-1"])
         XCTAssertEqual(viewModel.orderedPlaylistItems.first?.isPlayed, true)
+    }
+
+    // MARK: canEditPlaylist / removeFromPlaylist
+
+    func test_load_playlist_fetchesCanEditPlaylist() async {
+        let playlistDto = BaseItemDto(id: "playlist-1", name: "Movie Night", type: .playlist, mediaType: "Video")
+        let viewModel = makeViewModel(itemID: "playlist-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/playlist-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: playlistDto)
+            case "/Items/playlist-1/Similar", "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Playlists/playlist-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: true))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertTrue(viewModel.canEditPlaylist)
+    }
+
+    /// A 404 ("no permission record") should read as "not permitted" —
+    /// the same fail-closed direction `MediaItem.canDelete` defaults to
+    /// when its own field is absent.
+    func test_load_playlist_noPermissionRecord_canEditPlaylistIsFalse() async {
+        let playlistDto = BaseItemDto(id: "playlist-1", name: "Movie Night", type: .playlist, mediaType: "Video")
+        let viewModel = makeViewModel(itemID: "playlist-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/playlist-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: playlistDto)
+            case "/Items/playlist-1/Similar", "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Playlists/playlist-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Playlists/playlist-1/Users/user-1":
+                return MockURLProtocol.jsonResponse(for: request, status: 404, body: Data())
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertFalse(viewModel.canEditPlaylist)
+    }
+
+    /// Removes the row keyed to `playlistItemID`, not the shared
+    /// underlying item `id` — the same item appearing in the playlist
+    /// twice must let one copy be removed independently of the other.
+    func test_removeFromPlaylist_success_removesOnlyTheTargetedEntry() async throws {
+        let playlistDto = BaseItemDto(id: "playlist-1", name: "Movie Night", type: .playlist, mediaType: "Video")
+        let first = BaseItemDto(id: "movie-1", name: "Toy Story", type: .movie, playlistItemId: "entry-1")
+        let second = BaseItemDto(id: "movie-1", name: "Toy Story", type: .movie, playlistItemId: "entry-2")
+        let viewModel = makeViewModel(itemID: "playlist-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/playlist-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: playlistDto)
+            case "/Items/playlist-1/Similar", "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Playlists/playlist-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [first, second], totalRecordCount: 2))
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: true))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        await viewModel.load()
+        XCTAssertEqual(viewModel.orderedPlaylistItems.count, 2, "sanity check — same item, two distinct playlist rows")
+
+        // Asserted afterwards via `MockURLProtocol.lastRequest`, not a
+        // local var captured by this closure — the closure runs off the
+        // main actor (see that type's own doc comment), and capturing a
+        // local from this `@MainActor` test function here hangs the test
+        // (confirmed live: the closure never returns, and the run times
+        // out with no crash message at all).
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+
+        try await viewModel.removeFromPlaylist(viewModel.orderedPlaylistItems[1])
+
+        XCTAssertEqual(MockURLProtocol.lastRequest?.queryDictionary["entryIds"], "entry-2")
+        XCTAssertEqual(viewModel.orderedPlaylistItems.map(\.playlistItemID), ["entry-1"], "only the removed row is gone; the duplicate survives")
+    }
+
+    /// The "optimistic update that can never regress" shape: a failed
+    /// removal reinserts the item rather than leaving the row gone with
+    /// nothing to show for it.
+    func test_removeFromPlaylist_serverFailure_reinsertsAndRethrows() async throws {
+        let playlistDto = BaseItemDto(id: "playlist-1", name: "Movie Night", type: .playlist, mediaType: "Video")
+        let first = BaseItemDto(id: "movie-1", name: "Toy Story", type: .movie, playlistItemId: "entry-1")
+        let second = BaseItemDto(id: "movie-2", name: "Cars", type: .movie, playlistItemId: "entry-2")
+        let viewModel = makeViewModel(itemID: "playlist-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/playlist-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: playlistDto)
+            case "/Items/playlist-1/Similar", "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Playlists/playlist-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [first, second], totalRecordCount: 2))
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: true))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        await viewModel.load()
+
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 403, body: Data())
+        }
+
+        let target = viewModel.orderedPlaylistItems[0]
+        do {
+            try await viewModel.removeFromPlaylist(target)
+            XCTFail("Expected .notPermitted")
+        } catch JellyfinAPIError.notPermitted {
+            // expected
+        } catch {
+            XCTFail("Expected .notPermitted, got \(error)")
+        }
+
+        XCTAssertEqual(viewModel.orderedPlaylistItems.map(\.playlistItemID), ["entry-1", "entry-2"], "the removed row is put back")
     }
 
     /// Regression test for a live bug report (2026-08-13): resuming a
@@ -1156,6 +1303,8 @@ final class AssetDetailViewModelTests: XCTestCase {
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             case "/Playlists/playlist-1/Items":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [movieDto], totalRecordCount: 1))
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: false))
             default:
                 XCTFail("unexpected request to \(request.url?.path ?? "?")")
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))

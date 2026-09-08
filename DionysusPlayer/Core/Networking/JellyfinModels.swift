@@ -155,6 +155,19 @@ struct BaseItemDto: Codable, Identifiable, Equatable {
     /// it — and it's what Jellyfin's own web client gates its delete menu on.
     var canDelete: Bool?
 
+    /// This entry's identity *within a specific playlist* — distinct from
+    /// `id`, which identifies the underlying media item and is **not**
+    /// unique per playlist row (the same item can appear in a playlist more
+    /// than once). Only populated by `GET /Playlists/{id}/Items`
+    /// (`JellyfinAPIClient.playlistItems`) — Jellyfin's
+    /// `PlaylistsController.GetPlaylistItems` sets it explicitly on that one
+    /// endpoint's response and nowhere else. Required by
+    /// `DELETE /Playlists/{id}/Items?entryIds=...`
+    /// (`JellyfinAPIClient.removePlaylistItems`), which removes by this id,
+    /// not by `id` — removing "the second copy" of a duplicated item by its
+    /// shared `id` would be ambiguous.
+    var playlistItemId: String?
+
     // Images
     var imageTags: [String: String]?
     var backdropImageTags: [String]?
@@ -329,6 +342,23 @@ struct UserItemDataDto: Codable, Equatable {
 struct BaseItemDtoQueryResult: Codable {
     var items: [BaseItemDto]
     var totalRecordCount: Int
+}
+
+// MARK: - Playlists
+
+/// The calling user's own edit permission on one playlist, from
+/// `GET /Playlists/{id}/Users/{userId}`
+/// (`JellyfinAPIClient.playlistUserPermissions`) — the playlist equivalent
+/// of `BaseItemDto.canDelete`: a single server-computed verdict, not
+/// something derived client-side from `Shares`/ownership. Jellyfin's own
+/// `PlaylistDto` never exposes a playlist's `OwnerUserId` to any client, so
+/// there's no way to reconstruct this locally; the owner querying their own
+/// permission always gets `canEdit: true` back, a shared-with-edit-rights
+/// user gets their real value, and anyone else gets a 404 (mapped to `nil`
+/// by the client method, not this type — see its doc comment).
+struct PlaylistUserPermissions: Codable {
+    var userId: String
+    var canEdit: Bool
 }
 
 // MARK: - Media Segments

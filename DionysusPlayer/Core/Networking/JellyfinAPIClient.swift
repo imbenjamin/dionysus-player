@@ -405,6 +405,48 @@ actor JellyfinAPIClient {
         ])
     }
 
+    /// Whether *this user* may edit *this playlist* (add/remove/reorder its
+    /// members) — the playlist equivalent of `BaseItemDto.canDelete`, and
+    /// deliberately fetched the same way: from the server, not derived
+    /// here from policy flags. Jellyfin's mutating playlist endpoints all
+    /// gate on `OwnerUserId == caller || Shares.Any(CanEdit && caller)`,
+    /// but `OwnerUserId` is never exposed in any DTO this app can read — so
+    /// unlike `canDelete`, there's no field to request that answers this
+    /// directly. Calling this endpoint (as the caller querying their own
+    /// permission) is how Jellyfin's own web client resolves it instead
+    /// (`itemHelper.js`'s `canEditPlaylist`): an owner always gets
+    /// `canEdit: true` back, a share gets their real value, and anyone else
+    /// gets a 404 ("permissions not found"), which this method maps to
+    /// `nil` rather than throwing — a missing permissions record means "no
+    /// permission", not a request failure.
+    func playlistUserPermissions(playlistID: String, userID: String) async throws -> PlaylistUserPermissions? {
+        do {
+            return try await get("/Playlists/\(playlistID)/Users/\(userID)")
+        } catch JellyfinAPIError.http(status: 404, message: _) {
+            return nil
+        }
+    }
+
+    /// Removes one or more entries from a playlist — `entryIDs` are each
+    /// entry's own `PlaylistItemId` (`MediaItem.playlistItemID`), **not**
+    /// the underlying item's `id`, since the same item can appear in a
+    /// playlist more than once (`BaseItemDto.playlistItemId`'s doc comment
+    /// has the full reasoning).
+    ///
+    /// Unlike `deleteItem`'s ambiguous 401, Jellyfin reports "not allowed to
+    /// edit this playlist" as a clean **403** here, so there's no need for
+    /// `deleteItem`'s reduced-reauth-budget trick — a 403 is never mistaken
+    /// for an expired token, so it's remapped to `.notPermitted` directly.
+    func removePlaylistItems(playlistID: String, entryIDs: [String]) async throws {
+        do {
+            try await sendNoContent(path: "/Playlists/\(playlistID)/Items", method: "DELETE", query: [
+                .init(name: "entryIds", value: entryIDs.joined(separator: ","))
+            ])
+        } catch JellyfinAPIError.http(status: 403, message: _) {
+            throw JellyfinAPIError.notPermitted
+        }
+    }
+
     /// "More Like This" for a detail page.
     func similarItems(itemID: String, userID: String, limit: Int = 12) async throws -> BaseItemDtoQueryResult {
         try await get("/Items/\(itemID)/Similar", query: [

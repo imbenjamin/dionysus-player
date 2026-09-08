@@ -330,6 +330,32 @@ struct AssetDetailScreen: Screen {
         awaitLoaded(file: file, line: line)
         playButton.tap()
     }
+
+    /// One playlist member row — see `A11yID.Playlist.row(_:)`'s doc
+    /// comment for why this needs its own identifier rather than being
+    /// found by label.
+    func playlistRow(_ playlistItemID: String) -> XCUIElement {
+        app.buttons[A11yID.Playlist.row(playlistItemID)]
+    }
+
+    /// The row's `.contextMenu` "Remove from Playlist" action — the only
+    /// removal path (see `PlaylistItemList.onRemove`'s doc comment), so
+    /// this needs a long-press to reveal it, same as on a real device.
+    func playlistRemoveMenuItem(_ playlistItemID: String) -> XCUIElement {
+        app.buttons[A11yID.Playlist.removeMenuItem(playlistItemID)]
+    }
+
+    /// Long-presses `playlistItemID`'s row to reveal its context menu, then
+    /// taps "Remove from Playlist" — the only removal path this feature
+    /// has (see `PlaylistItemList.onRemove`'s doc comment for why).
+    func removePlaylistItem(_ playlistItemID: String, file: StaticString = #filePath, line: UInt = #line) {
+        let row = playlistRow(playlistItemID)
+        row.awaitExistence("playlist row \(playlistItemID)", file: file, line: line)
+        row.press(forDuration: 1.0)
+        let removeItem = playlistRemoveMenuItem(playlistItemID)
+        removeItem.awaitExistence("the Remove from Playlist context menu item", file: file, line: line)
+        removeItem.tap()
+    }
 }
 
 // MARK: - Search

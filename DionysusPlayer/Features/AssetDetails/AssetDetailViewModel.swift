@@ -61,6 +61,20 @@ final class AssetDetailViewModel {
     /// empty playlist), and re-fetched at the end of `refreshItem()` so
     /// resuming/watched state stays current after a playback session.
     private(set) var orderedPlaylistItems: [MediaItem] = []
+
+    /// Whether *this user* may edit this playlist — gates
+    /// `PlaylistItemList`'s remove affordances entirely (both the swipe
+    /// gesture and its `.contextMenu` accessible alternative), the same
+    /// "render nothing, never a disabled control" philosophy `canDelete`
+    /// uses for `DeleteAssetButton`.
+    ///
+    /// Computed once per `load()`/`refreshItem()` from
+    /// `JellyfinAPIClient.playlistUserPermissions` — see that method's doc
+    /// comment for why this can't be derived locally the way `canDelete`
+    /// is. Playlist-wide, not per-row: every member of one playlist shares
+    /// the same edit permission. Defaults to `false`, the same fail-closed
+    /// direction `canDelete` takes.
+    private(set) var canEditPlaylist: Bool = false
     private(set) var loadState: LoadState = .idle
 
     /// The Show's own item — always set alongside `seriesID` for a
@@ -287,6 +301,12 @@ final class AssetDetailViewModel {
             async let orderedPlaylistItemsResult: BaseItemDtoQueryResult? = dto.type == .playlist
                 ? try? client.playlistItems(playlistID: itemID, userID: userID)
                 : nil
+            // `canEditPlaylist`'s own fetch — see that property's doc
+            // comment. Gated on `.playlist` the same way the fetch above
+            // is; a non-playlist page never calls this endpoint at all.
+            async let canEditPlaylistResult: PlaylistUserPermissions? = dto.type == .playlist
+                ? try? client.playlistUserPermissions(playlistID: itemID, userID: userID)
+                : nil
 
             if let seriesID, let seasonsResult = try? await client.seasons(seriesID: seriesID, userID: userID) {
                 seasons = seasonsResult.items.map { MediaItem(dto: $0, images: images) }
@@ -320,6 +340,7 @@ final class AssetDetailViewModel {
                     .map { MediaItem(dto: $0, images: images) }
                     .filter { !$0.isAudioContent }
             }
+            canEditPlaylist = await canEditPlaylistResult?.canEdit ?? false
 
             loadState = .loaded
         } catch {
@@ -412,6 +433,38 @@ final class AssetDetailViewModel {
             await repairPageAfterDeletion(of: target)
         }
         return outcome
+    }
+
+    /// Removes `item` from this playlist — **optimistic**, unlike
+    /// `delete(_:)`'s wait-for-server-success: removing a playlist
+    /// *membership* doesn't touch the underlying file and is trivially
+    /// reversible (re-add later), so it doesn't need that heavier caution.
+    /// `orderedPlaylistItems` is updated immediately, before the network
+    /// call even starts, so `PlaylistItemList`'s swipe/context-menu action
+    /// animates the row away right away; on failure, `item` is reinserted
+    /// at its original index and the error is rethrown for the caller to
+    /// surface (mirroring `DeleteAssetButton`'s own catch-and-alert
+    /// pattern) — the same "optimistic update that can never regress"
+    /// shape already used elsewhere in this app for server-latency-prone
+    /// writes.
+    ///
+    /// No-ops if `item.playlistItemID` is `nil` or no longer present in
+    /// `orderedPlaylistItems` — shouldn't happen for a row `PlaylistItemList`
+    /// actually renders, but guards against a stale/duplicate invocation
+    /// (e.g. the swipe action and the context menu firing for the same row
+    /// in quick succession) silently double-removing or resurrecting an
+    /// already-gone item.
+    func removeFromPlaylist(_ item: MediaItem) async throws {
+        guard let entryID = item.playlistItemID,
+              let index = orderedPlaylistItems.firstIndex(where: { $0.playlistItemID == entryID }) else { return }
+
+        orderedPlaylistItems.remove(at: index)
+        do {
+            try await client.removePlaylistItems(playlistID: itemID, entryIDs: [entryID])
+        } catch {
+            orderedPlaylistItems.insert(item, at: min(index, orderedPlaylistItems.count))
+            throw error
+        }
     }
 
     private func resolveDeletionOutcome(for target: MediaItem) async -> DeletionOutcome {
@@ -900,6 +953,12 @@ final class AssetDetailViewModel {
             orderedPlaylistItems = playlistItemsResult.items
                 .map { MediaItem(dto: $0, images: images) }
                 .filter { !$0.isAudioContent }
+            // `canEditPlaylist`'s own refresh — see that property's doc
+            // comment; permission rarely changes mid-session, but this
+            // keeps it current the same way the fetch just above does.
+            canEditPlaylist = (try? await client.playlistUserPermissions(
+                playlistID: displayedItemID, userID: userID
+            ))?.canEdit ?? false
         }
 
         // See `episodeListRefreshToken`'s own doc comment. Bumped

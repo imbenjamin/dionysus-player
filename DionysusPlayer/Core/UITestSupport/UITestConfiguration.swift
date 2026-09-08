@@ -35,6 +35,17 @@ enum UITestScenario: String {
     /// "not permitted" path in `JellyfinAPIClient.deleteItem`.
     case noDeletePermission
 
+    /// The same catalogue as `.standard`, but `GET /Playlists/{id}/Users/
+    /// {userID}` (`JellyfinAPIClient.playlistUserPermissions`) answers 404
+    /// — Jellyfin's own "permissions not found" for a user who is neither
+    /// the playlist's owner nor shared on it — and any playlist-item
+    /// removal is refused with 403. Covers the permission gate on
+    /// `PlaylistItemList`'s remove affordances (`AssetDetailViewModel
+    /// .canEditPlaylist`), which renders neither the swipe action nor the
+    /// `.contextMenu` item in this state, same "render nothing" shape
+    /// `.noDeletePermission` above uses for `DeleteAssetButton`.
+    case noPlaylistEditPermission
+
     /// The same catalogue as `.standard`, but a hero item's `Logo` image
     /// specifically is delayed past `LogoImageView`'s own fallback-reveal
     /// delay — every other image (posters, backdrops, thumbnails) resolves
