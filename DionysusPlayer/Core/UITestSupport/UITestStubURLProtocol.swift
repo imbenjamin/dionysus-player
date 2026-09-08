@@ -99,6 +99,46 @@ final class UITestStubURLProtocol: URLProtocol {
             return
         }
 
+        // Playlist item removal is likewise method-sensitive — without this,
+        // `DELETE /Playlists/{id}/Items` would fall into the *GET*
+        // `/Playlists/{id}/Items` case below (`body(forPath:)` doesn't look
+        // at the method at all) and answer a removal with the full,
+        // unmodified member list rather than actually removing anything.
+        if request.httpMethod == "DELETE", path.contains("/Playlists/"), path.hasSuffix("/Items") {
+            // Mirrors the real server's own status for this refusal —
+            // unlike whole-item deletion's 401 above, Jellyfin reports a
+            // playlist-edit refusal as a clean 403 (see
+            // `JellyfinAPIClient.removePlaylistItems`).
+            guard scenario != .noPlaylistEditPermission else {
+                finish(.success((403, Data("{}".utf8), "application/json")))
+                return
+            }
+            let entryIDs = (query.first { $0.name == "entryIds" }?.value ?? "")
+                .split(separator: ",").map(String.init)
+            Self.recordPlaylistRemoval(of: entryIDs)
+            finish(.success((204, Data(), "application/json")))
+            return
+        }
+
+        // Playlist permission lookup needs a non-200 status for "no
+        // permission" — Jellyfin's own 404 "permissions not found" (see
+        // `JellyfinAPIClient.playlistUserPermissions`) — which
+        // `body(forPath:)` can't express, since every one of its routes
+        // answers 200.
+        if path.contains("/Playlists/"), path.contains("/Users/") {
+            guard scenario != .noPlaylistEditPermission else {
+                finish(.success((404, Data("{}".utf8), "application/json")))
+                return
+            }
+            do {
+                let permissions = PlaylistUserPermissions(userId: UITestConfiguration.stubUserID, canEdit: true)
+                finish(.success((200, try Self.encode(permissions), "application/json")))
+            } catch {
+                finish(.failure(error))
+            }
+            return
+        }
+
         do {
             let body = try Self.body(forPath: path, query: query, request: request)
             finish(.success((200, body, "application/json")))
@@ -175,6 +215,28 @@ final class UITestStubURLProtocol: URLProtocol {
         return deletedItemIDs.contains(itemID)
     }
 
+    /// Playlist entries (`BaseItemDto.playlistItemId`, not the underlying
+    /// item's own `id` — see that field's doc comment) removed during this
+    /// app session. Same "process-lifetime set filtered out of every
+    /// subsequent response" shape as `deletedItemIDs` above, kept separate
+    /// from it: a playlist-item removal doesn't delete the underlying
+    /// item, so it must never make that item disappear from anywhere else
+    /// (a library grid, another playlist it also belongs to, ...).
+    nonisolated(unsafe) private static var removedPlaylistEntryIDs: Set<String> = []
+
+    private static func recordPlaylistRemoval(of entryIDs: [String]) {
+        lock.lock()
+        defer { lock.unlock() }
+        removedPlaylistEntryIDs.formUnion(entryIDs)
+    }
+
+    private static func isPlaylistEntryRemoved(_ entryID: String?) -> Bool {
+        guard let entryID else { return false }
+        lock.lock()
+        defer { lock.unlock() }
+        return removedPlaylistEntryIDs.contains(entryID)
+    }
+
     /// Episodes still present under a series — what the app's own
     /// "did that leave the show empty?" check reads back as
     /// `RecursiveItemCount`.
@@ -223,7 +285,7 @@ final class UITestStubURLProtocol: URLProtocol {
         // `.noDeletePermission` fails nothing wholesale — it's the standard
         // catalogue with `canDelete` cleared, and only `DELETE` itself
         // refused (handled in `startLoading`, which needs the method).
-        case .standard, .emptyLibrary, .offline, .noDeletePermission, .slowLogoImage:
+        case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission, .slowLogoImage:
             return nil
         case .serverError:
             return 500
@@ -295,7 +357,8 @@ final class UITestStubURLProtocol: URLProtocol {
             return try encode(searchHints(term: term))
 
         case path.contains("/Playlists/") && path.hasSuffix("/Items"):
-            return try encode(result(scoped(library.playlistMembers)))
+            let remaining = library.playlistMembers.filter { !isPlaylistEntryRemoved($0.playlistItemId) }
+            return try encode(result(scoped(remaining)))
 
         case path.contains("/MediaSegments"):
             // Decoded as a query result, not a bare array — see

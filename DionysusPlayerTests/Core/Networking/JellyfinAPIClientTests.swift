@@ -1228,6 +1228,74 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertTrue(fields.contains("RecursiveItemCount"), "Fields was \(fields)")
     }
 
+    // MARK: - Playlists
+
+    func test_playlistUserPermissions_ownerGetsCanEditTrue() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.url?.path, "/Playlists/playlist-1/Users/user-1")
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: true)
+            )
+        }
+
+        let permissions = try await client.playlistUserPermissions(playlistID: "playlist-1", userID: "user-1")
+        XCTAssertEqual(permissions?.canEdit, true)
+    }
+
+    /// A 404 ("permissions not found") means "no permission", not a
+    /// request failure — Jellyfin returns this for a user who is neither
+    /// the owner nor shared on the playlist at all (see
+    /// `PlaylistsController.GetPlaylistUser`), and this app's own web
+    /// counterpart (`itemHelper.js`'s `canEditPlaylist`) treats it the
+    /// same way.
+    func test_playlistUserPermissions_404_returnsNilRatherThanThrowing() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 404, body: Data())
+        }
+
+        let permissions = try await client.playlistUserPermissions(playlistID: "playlist-1", userID: "user-1")
+        XCTAssertNil(permissions)
+    }
+
+    func test_removePlaylistItems_sendsDeleteWithCommaJoinedEntryIds() async throws {
+        let client = makeClient(accessToken: "tok")
+        var capturedRequest: URLRequest?
+        MockURLProtocol.requestHandler = { request in
+            capturedRequest = request
+            return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+
+        try await client.removePlaylistItems(playlistID: "playlist-1", entryIDs: ["entry-1", "entry-2"])
+
+        XCTAssertEqual(capturedRequest?.httpMethod, "DELETE")
+        XCTAssertEqual(capturedRequest?.url?.path, "/Playlists/playlist-1/Items")
+        let components = capturedRequest?.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        XCTAssertEqual(components?.queryItems?.first { $0.name == "entryIds" }?.value, "entry-1,entry-2")
+    }
+
+    /// Unlike `deleteItem`'s ambiguous 401, Jellyfin reports a playlist
+    /// permission refusal as a clean 403 — remapped to `.notPermitted`
+    /// directly here, with no reauth-budget dance needed the way
+    /// `deleteItem` needs for its own ambiguous 401.
+    func test_removePlaylistItems_403_throwsNotPermitted() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 403, body: Data())
+        }
+
+        do {
+            try await client.removePlaylistItems(playlistID: "playlist-1", entryIDs: ["entry-1"])
+            XCTFail("Expected .notPermitted")
+        } catch JellyfinAPIError.notPermitted {
+            // expected
+        } catch {
+            XCTFail("Expected .notPermitted, got \(error)")
+        }
+    }
+
     // MARK: Genres & Studios (Home's dynamic rail discovery)
 
     func test_genres_requestsExpectedPathAndScopesByIncludeItemTypes() async throws {

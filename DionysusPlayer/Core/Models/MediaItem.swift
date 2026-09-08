@@ -355,6 +355,15 @@ struct MediaItem: Identifiable {
     /// `JellyfinAPIClient.deleteItem`).
     var canDelete: Bool { dto.canDelete ?? false }
 
+    /// This item's identity *within the specific playlist it was fetched
+    /// as a member of* — `nil` for a `MediaItem` built from anything other
+    /// than `JellyfinAPIClient.playlistItems`'s response (rail/grid/detail
+    /// fetches never populate `BaseItemDto.playlistItemId`). Used to key
+    /// `PlaylistItemList`'s `ForEach` (this item's own `id` isn't unique
+    /// per row — the same item can appear in a playlist twice) and as the
+    /// `entryIds` argument to `JellyfinAPIClient.removePlaylistItems`.
+    var playlistItemID: String? { dto.playlistItemId }
+
     /// Total episodes beneath a Series or Season, for the deletion
     /// confirmation's "will delete all {n} episodes" wording. `nil` when the
     /// server didn't supply it (only `Fields=RecursiveItemCount` populates

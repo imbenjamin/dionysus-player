@@ -98,7 +98,8 @@ struct PlaylistDetailView: View {
                         PlaylistItemList(
                             items: viewModel.orderedPlaylistItems,
                             onPlayItem: { itemID in playbackRequest = PlaybackRequest(itemID: itemID) },
-                            client: viewModel.apiClient, userID: viewModel.currentUserID, downloadManager: appState.downloadManager
+                            client: viewModel.apiClient, userID: viewModel.currentUserID, downloadManager: appState.downloadManager,
+                            viewModel: viewModel
                         )
                     }
 

@@ -223,4 +223,67 @@ final class AssetDetailJourneyTests: UITestCase {
             "The deleted movie should no longer have a tile."
         )
     }
+
+    // MARK: - Playlist item removal
+
+    /// The only removal path this feature has: long-press a row, tap
+    /// "Remove from Playlist" in the resulting context menu, and the row
+    /// is gone. `UITestFixtureLibrary.playlistMembers` stamps
+    /// `"playlist-entry-1"` on its first member — see that property's doc
+    /// comment. (A hand-rolled swipe gesture sat alongside this once —
+    /// see `PlaylistItemList.onRemove`'s doc comment for why it was
+    /// reverted.)
+    func testRemovingAPlaylistItemViaContextMenu() {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openLibrary(UITestFixtureIdentity.playlistsLibraryID)
+
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.playlistID)
+        collection.card(UITestFixtureIdentity.playlistID).tap()
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.playlistRow("playlist-entry-1").awaitExistence("the first playlist row")
+
+        detail.removePlaylistItem("playlist-entry-1")
+
+        XCTAssertFalse(
+            detail.playlistRow("playlist-entry-1").exists,
+            "The removed row should be gone from the playlist."
+        )
+        // A different row is untouched — this removed one entry, not the
+        // whole list.
+        XCTAssertTrue(
+            detail.playlistRow("playlist-entry-2").exists,
+            "Removing one row must not affect the others."
+        )
+    }
+
+    /// The permission gate. `.noPlaylistEditPermission` serves the same
+    /// catalogue but answers this playlist's own permission lookup with
+    /// "not permitted" — the remove action must be entirely absent from
+    /// the context menu, not merely disabled.
+    func testPlaylistRemoveMenuItemAbsentWithoutEditPermission() {
+        launch(scenario: "noPlaylistEditPermission")
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openLibrary(UITestFixtureIdentity.playlistsLibraryID)
+
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.playlistID)
+        collection.card(UITestFixtureIdentity.playlistID).tap()
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        let row = detail.playlistRow("playlist-entry-1")
+        row.awaitExistence("the first playlist row")
+        row.press(forDuration: 1.0)
+
+        XCTAssertFalse(
+            detail.playlistRemoveMenuItem("playlist-entry-1").waitForExistence(timeout: 2),
+            "Remove from Playlist must not be offered without edit permission on this playlist."
+        )
+    }
 }
