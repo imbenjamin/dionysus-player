@@ -330,11 +330,11 @@ struct ShowDetailView: View {
                 if #available(iOS 26.0, *) {
                     ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 }
-                // Offers Show/Season/Episode independently, each only if
-                // the server says this user may delete it; see
-                // `DeleteAssetButton`.
+                // Offers Show/Season/Episode independently for both Add to
+                // Playlist and Delete — the latter only where the server
+                // says this user may delete it; see `AssetActionsButton`.
                 ToolbarItem(placement: .topBarTrailing) {
-                    DeleteAssetButton(
+                    AssetActionsButton(
                         viewModel: viewModel,
                         downloadManager: appState.downloadManager,
                         selectedSeasonID: selectedSeasonID

@@ -151,10 +151,12 @@ struct MovieDetailView: View {
             if #available(iOS 26.0, *) {
                 ToolbarSpacer(.fixed, placement: .topBarTrailing)
             }
-            // Renders nothing unless the server says this user may delete
-            // this item; see `DeleteAssetButton`.
+            // Add to Playlist, plus Delete when the server says this user
+            // may delete this item — as one `ellipsis` overflow if both
+            // apply, or whichever single action does; see
+            // `AssetActionsButton`.
             ToolbarItem(placement: .topBarTrailing) {
-                DeleteAssetButton(viewModel: viewModel, downloadManager: appState.downloadManager)
+                AssetActionsButton(viewModel: viewModel, downloadManager: appState.downloadManager)
             }
         }
         .fullScreenCover(

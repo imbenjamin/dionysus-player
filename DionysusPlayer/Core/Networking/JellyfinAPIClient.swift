@@ -327,12 +327,19 @@ actor JellyfinAPIClient {
     /// comes straight from `item.dto.people`, and it was silently always
     /// empty for episodes before this, unlike a movie's own detail fetch
     /// (`item(userID:itemID:)`), which already defaults to `detailFields`.
-    func episodes(seriesID: String, seasonID: String, userID: String, fields: String = defaultFields) async throws -> BaseItemDtoQueryResult {
-        try await get("/Shows/\(seriesID)/Episodes", query: [
-            .init(name: "seasonId", value: seasonID),
+    /// `seasonID` is optional: omitting it returns *every* episode in the
+    /// series across all seasons, which is what
+    /// `AddToPlaylistViewModel.load()` needs to know which items a
+    /// "add the whole show" would actually add.
+    func episodes(
+        seriesID: String, seasonID: String? = nil, userID: String, fields: String = defaultFields
+    ) async throws -> BaseItemDtoQueryResult {
+        var query: [URLQueryItem] = [
             .init(name: "userId", value: userID),
             .init(name: "Fields", value: fields)
-        ])
+        ]
+        if let seasonID { query.insert(.init(name: "seasonId", value: seasonID), at: 0) }
+        return try await get("/Shows/\(seriesID)/Episodes", query: query)
     }
 
     /// With `seriesID` omitted, returns next-up episodes across every show
@@ -419,12 +426,162 @@ actor JellyfinAPIClient {
     /// gets a 404 ("permissions not found"), which this method maps to
     /// `nil` rather than throwing — a missing permissions record means "no
     /// permission", not a request failure.
+    ///
+    /// A **403** is mapped to `nil` alongside the 404. A self-query can't
+    /// actually produce one — the controller permits the request outright
+    /// when the route's `userId` equals the caller's, which is the only way
+    /// this app ever calls it — so this is purely defensive, and exists so
+    /// that `editablePlaylists(userID:)`' fan-out over a whole library of
+    /// playlists can't be derailed by one unexpected refusal.
     func playlistUserPermissions(playlistID: String, userID: String) async throws -> PlaylistUserPermissions? {
         do {
             return try await get("/Playlists/\(playlistID)/Users/\(userID)")
         } catch JellyfinAPIError.http(status: 404, message: _) {
             return nil
+        } catch JellyfinAPIError.http(status: 403, message: _) {
+            return nil
         }
+    }
+
+    /// Every playlist this user may *add items to*, for the "Add to
+    /// Playlist" picker.
+    ///
+    /// Structurally the same problem as `collectionsContaining` below, and
+    /// solved the same way: Jellyfin exposes no bulk "which playlists can I
+    /// edit" query and no `OwnerUserId` on any readable DTO, so the only
+    /// way to answer it is to browse every playlist and ask about each one
+    /// individually via `playlistUserPermissions`. Jellyfin's own web
+    /// client does exactly this (`playlisteditor.ts`'s `populatePlaylists`
+    /// fires one `getPlaylistUser` per playlist and filters the dropdown to
+    /// `CanEdit`), so the N+1 is inherent to the API rather than a shortcut
+    /// taken here.
+    ///
+    /// Both of `collectionsContaining`'s hard-won protections are carried
+    /// over deliberately — capped concurrency rather than one request per
+    /// playlist all at once, and a fail-soft `try?` per check so a single
+    /// flaky response reads as "not editable" instead of failing the whole
+    /// picker. Only the initial browse can throw.
+    ///
+    /// Audio playlists are dropped before the fan-out, not after: this app
+    /// doesn't play them at all (see `BaseItemDto.isAudioContent`, and the
+    /// same filter in `CollectionGridViewModel`), so offering one as a
+    /// destination for a movie would be a dead end — and skipping them up
+    /// front is also the cheapest way to shrink the fan-out on a server
+    /// with a large music library.
+    func editablePlaylists(userID: String) async throws -> [EditablePlaylist] {
+        // `fields: ""` — the picker renders a name and nothing else, so
+        // none of `defaultFields`' heavier payload (Overview/Genres/
+        // Studios/...) is worth fetching. `MediaType`, which
+        // `isAudioContent` reads, is a plain `BaseItemDto` property that
+        // Jellyfin always serializes; it isn't one of the `ItemFields`
+        // extras this parameter controls.
+        let playlists = try await items(
+            userID: userID, includeItemTypes: ["Playlist"], sortBy: "SortName", fields: ""
+        ).items.filter { !$0.isAudioContent }
+        guard !playlists.isEmpty else { return [] }
+
+        let maxConcurrency = 5
+        return await withTaskGroup(of: EditablePlaylist?.self) { group in
+            var remaining = playlists[...]
+            var editable: [EditablePlaylist] = []
+
+            func addNext() {
+                guard let playlist = remaining.popFirst() else { return }
+                group.addTask {
+                    // Two distinct ways to be "not editable" collapse into
+                    // the same `nil` here, which is the intent: the request
+                    // failed (`try?`), or it succeeded and the server has no
+                    // permissions record for this user
+                    // (`playlistUserPermissions`' own `nil`). Swift flattens
+                    // `try?` over an already-optional result, so this is a
+                    // single optional rather than a nested one.
+                    guard let permissions = try? await self.playlistUserPermissions(
+                        playlistID: playlist.id, userID: userID
+                    ), permissions.canEdit else { return nil }
+                    // Membership fails *open* — an empty set on a failed
+                    // request leaves the row enabled. This only drives
+                    // whether the picker greys a row out as "already
+                    // added", so a lost request should cost the user a
+                    // possible duplicate, never the ability to add at all.
+                    let memberIDs = (try? await self.playlistMemberIDs(playlistID: playlist.id)) ?? []
+                    return EditablePlaylist(item: playlist, memberItemIDs: memberIDs)
+                }
+            }
+
+            for _ in 0..<min(maxConcurrency, playlists.count) { addNext() }
+            while let result = await group.next() {
+                if let result { editable.append(result) }
+                addNext()
+            }
+            // Re-ordered against the original array rather than returned as
+            // accumulated: the task group yields in *completion* order, so
+            // the picker's rows would otherwise shuffle between openings
+            // instead of holding the `SortName` order the browse asked for.
+            let byID = Dictionary(editable.map { ($0.item.id, $0) }, uniquingKeysWith: { first, _ in first })
+            return playlists.compactMap { byID[$0.id] }
+        }
+    }
+
+    /// Which items a playlist already holds, for the picker's "already
+    /// added" state.
+    ///
+    /// `GET /Playlists/{id}` is a different endpoint from
+    /// `playlistItems(playlistID:userID:)` above and deliberately used here
+    /// instead: it returns Jellyfin's `PlaylistDto` — bare item ids and
+    /// nothing else — where the other returns fully hydrated `BaseItemDto`s
+    /// with artwork, user data and media sources, all of which this call
+    /// would immediately discard. That difference matters because this runs
+    /// once per editable playlist.
+    func playlistMemberIDs(playlistID: String) async throws -> Set<String> {
+        let dto: PlaylistDto = try await get("/Playlists/\(playlistID)")
+        return Set(dto.itemIds ?? [])
+    }
+
+    /// Adds one or more items to an existing playlist.
+    ///
+    /// `itemIDs` are ordinary item ids, unlike `removePlaylistItems`' entry
+    /// ids — an item that isn't in the playlist yet has no `PlaylistItemId`
+    /// to name it by.
+    ///
+    /// **Passing a Series or Season id adds every episode beneath it**, in
+    /// one request: Jellyfin expands any folder-shaped item recursively into
+    /// its non-folder children server-side (`Playlist.GetPlaylistItems`), so
+    /// "add the whole show" must *not* be implemented here by enumerating
+    /// episodes client-side and sending them all.
+    ///
+    /// Refused with the same clean 403 as `removePlaylistItems`, remapped
+    /// the same way and for the same reason.
+    func addItemsToPlaylist(playlistID: String, itemIDs: [String], userID: String) async throws {
+        do {
+            try await sendNoContent(path: "/Playlists/\(playlistID)/Items", method: "POST", query: [
+                .init(name: "ids", value: itemIDs.joined(separator: ",")),
+                .init(name: "userId", value: userID)
+            ])
+        } catch JellyfinAPIError.http(status: 403, message: _) {
+            throw JellyfinAPIError.notPermitted
+        }
+    }
+
+    /// Creates a playlist, optionally seeded with items in the same request
+    /// — which is why there's no separate create-then-add round trip here.
+    ///
+    /// Unlike every other playlist call in this section, this one has **no
+    /// permission gate at all**: Jellyfin's `POST /Playlists` is
+    /// `[Authorize]`-only, and no user-policy flag governs it (`UserPolicy`
+    /// has `EnableCollectionManagement`, which covers collections, not
+    /// playlists). Any signed-in user can always create one, which is why
+    /// `AssetActionsButton` offers "Add to Playlist" unconditionally.
+    ///
+    /// `isPublic` is always sent explicitly rather than omitted: Jellyfin's
+    /// `CreatePlaylistDto.IsPublic` defaults to **true** server-side, so
+    /// leaving it out would silently publish every playlist this app
+    /// creates to every other user on the server.
+    func createPlaylist(
+        name: String, itemIDs: [String], userID: String, isPublic: Bool
+    ) async throws -> PlaylistCreationResult {
+        try await post("/Playlists", body: CreatePlaylistRequest(
+            name: name, ids: itemIDs, userId: userID, isPublic: isPublic
+        ))
     }
 
     /// Removes one or more entries from a playlist — `entryIDs` are each

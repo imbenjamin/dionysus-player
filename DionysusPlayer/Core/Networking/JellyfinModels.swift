@@ -361,6 +361,66 @@ struct PlaylistUserPermissions: Codable {
     var canEdit: Bool
 }
 
+/// `GET /Playlists/{id}` — Jellyfin's own `PlaylistDto`, which is a much
+/// smaller thing than its name suggests: the playlist's shares, its
+/// open-access flag, and the ids of the items it holds. Notably **not** its
+/// `OwnerUserId`, which is why `PlaylistUserPermissions` above has to exist
+/// at all.
+///
+/// Only `itemIds` is modelled here, since that's all
+/// `JellyfinAPIClient.playlistMemberIDs` needs; `Shares` can't answer the
+/// ownership question on its own, so there's nothing to gain from decoding
+/// it. Optional because a playlist with no members omits the key entirely.
+/// `Codable` rather than `Decodable`-only so `UITestStubURLProtocol` can
+/// encode one, the same reason `CreatePlaylistRequest` below is.
+struct PlaylistDto: Codable {
+    var itemIds: [String]?
+}
+
+/// One row in the "Add to Playlist" picker's destination list: a playlist
+/// this user may edit, paired with what it already holds.
+///
+/// Composed by `JellyfinAPIClient.editablePlaylists` from two separate
+/// requests per playlist rather than decoded from any single response —
+/// Jellyfin has no endpoint that answers both "may I edit this?" and
+/// "what's in it?" at once.
+struct EditablePlaylist: Equatable {
+    var item: BaseItemDto
+    var memberItemIDs: Set<String>
+}
+
+/// `POST /Playlists`' body (`JellyfinAPIClient.createPlaylist`).
+///
+/// No `CodingKeys`: `JellyfinJSON`'s `CodingKeyCasing` uppercases each key's
+/// first letter on the way out, which is exactly Jellyfin's
+/// `CreatePlaylistDto` spelling — `Name`/`Ids`/`UserId`/`IsPublic`.
+///
+/// **`isPublic` is deliberately non-optional**, unlike the optional fields on
+/// the other request bodies in this file, which rely on the synthesized
+/// `encodeIfPresent` to be omitted entirely. Omitting this one is not a safe
+/// default: Jellyfin's `CreatePlaylistDto.IsPublic` initializes to `true`
+/// server-side, so a body without it silently creates a playlist visible to
+/// every other user on the server.
+///
+/// `Codable` rather than `Encodable`-only — the extra half is for
+/// `UITestStubURLProtocol`, which has to *decode* this body to answer a
+/// create with a playlist of the right name, the same reason
+/// `AuthenticateByNameRequest` above is `Codable`.
+struct CreatePlaylistRequest: Codable {
+    var name: String
+    var ids: [String]
+    var userId: String
+    var isPublic: Bool
+}
+
+/// `POST /Playlists`' response — Jellyfin's `PlaylistCreationResult`, which
+/// carries the new playlist's id and nothing else. `Codable` for the mirror-
+/// image reason `CreatePlaylistRequest` above is: the UI-test stub encodes
+/// what the app decodes.
+struct PlaylistCreationResult: Codable {
+    var id: String
+}
+
 // MARK: - Media Segments
 
 /// Jellyfin's "Media Segments" feature (skippable Intro/Outro/Recap/Preview/

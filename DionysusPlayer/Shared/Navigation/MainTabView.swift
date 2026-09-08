@@ -163,6 +163,10 @@ struct MainTabView: View {
         // registers this view's Observation dependency on the model.
         // Without any tint at all, the tab bar inherits the app-wide
         // `AccentColor` asset, which is a static burgundy.
+        // Applied here, above every tab and every pushed screen, because a
+        // toast outlives the thing that raised it — adding to a playlist
+        // confirms *after* its own sheet has closed. See `ToastHost`.
+        .overlay { ToastHost() }
         .tint(TabBarTintModel.shared.tint)
         .task(id: appState.currentUser?.id) { await loadProfileTabIcon() }
         // Cold launch can reach `.main` with `currentUser` still `nil` —

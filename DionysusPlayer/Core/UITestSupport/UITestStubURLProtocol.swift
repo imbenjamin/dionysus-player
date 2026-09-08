@@ -120,13 +120,61 @@ final class UITestStubURLProtocol: URLProtocol {
             return
         }
 
+        // Adding to a playlist is method-sensitive for the same reason
+        // removal above is: `POST /Playlists/{id}/Items` shares its path
+        // with the GET that lists members, and `body(forPath:)` never looks
+        // at the method.
+        if request.httpMethod == "POST", path.contains("/Playlists/"), path.hasSuffix("/Items") {
+            guard scenario != .noPlaylistEditPermission else {
+                finish(.success((403, Data("{}".utf8), "application/json")))
+                return
+            }
+            let playlistID = path
+                .replacingOccurrences(of: "/Playlists/", with: "")
+                .replacingOccurrences(of: "/Items", with: "")
+            let itemIDs = (query.first { $0.name == "ids" }?.value ?? "")
+                .split(separator: ",").map(String.init)
+            Self.recordPlaylistAddition(of: itemIDs, to: playlistID)
+            finish(.success((204, Data(), "application/json")))
+            return
+        }
+
+        // `POST /Playlists` (create). Matched here rather than in
+        // `body(forPath:)` for two reasons: that function's `default:` arm
+        // answers any unmatched POST with an empty `Data()`, which the app
+        // would then fail to decode as a `PlaylistCreationResult`; and this
+        // one needs the request *body*, which only `startLoading` has.
+        //
+        // Deliberately not gated on `.noPlaylistEditPermission` — creating a
+        // playlist needs no permission on a real Jellyfin server either (see
+        // `JellyfinAPIClient.createPlaylist`), which is exactly what that
+        // scenario's journey asserts.
+        if request.httpMethod == "POST", path == "/Playlists" {
+            do {
+                let created = Self.recordPlaylistCreation(from: request)
+                finish(.success((200, try Self.encode(PlaylistCreationResult(id: created.id)), "application/json")))
+            } catch {
+                finish(.failure(error))
+            }
+            return
+        }
+
         // Playlist permission lookup needs a non-200 status for "no
         // permission" — Jellyfin's own 404 "permissions not found" (see
         // `JellyfinAPIClient.playlistUserPermissions`) — which
         // `body(forPath:)` can't express, since every one of its routes
         // answers 200.
         if path.contains("/Playlists/"), path.contains("/Users/") {
-            guard scenario != .noPlaylistEditPermission else {
+            let playlistID = path
+                .replacingOccurrences(of: "/Playlists/", with: "")
+                .components(separatedBy: "/Users/").first ?? ""
+            // `readOnlyPlaylist` is refused even in `.standard`: it's the
+            // one playlist in the catalogue this user is neither owner of
+            // nor shared on, so the "Add to Playlist" picker filtering it
+            // out is a real assertion about `editablePlaylists` rather than
+            // a filter that never has anything to reject.
+            let isReadOnly = playlistID == UITestFixtureIdentity.readOnlyPlaylistID
+            guard scenario != .noPlaylistEditPermission, !isReadOnly else {
                 finish(.success((404, Data("{}".utf8), "application/json")))
                 return
             }
@@ -235,6 +283,104 @@ final class UITestStubURLProtocol: URLProtocol {
         lock.lock()
         defer { lock.unlock() }
         return removedPlaylistEntryIDs.contains(entryID)
+    }
+
+    /// Items added to a playlist during this app session, keyed by playlist
+    /// id. Same process-lifetime shape as `removedPlaylistEntryIDs` above,
+    /// and read back at the same single choke point (the
+    /// `/Playlists/{id}/Items` GET route) so an add is observable
+    /// end-to-end: a journey can add a movie to a playlist and then open
+    /// that playlist and see it.
+    nonisolated(unsafe) private static var playlistAdditions: [String: [String]] = [:]
+
+    private static func recordPlaylistAddition(of itemIDs: [String], to playlistID: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        playlistAdditions[playlistID, default: []].append(contentsOf: itemIDs)
+    }
+
+    /// The extra members a playlist has picked up, resolved back into real
+    /// fixture items and stamped with a `playlistItemId` of their own —
+    /// without which `PlaylistItemList`'s `ForEach(items, id: \.playlistItemID)`
+    /// would key every added row on `nil`.
+    ///
+    /// A Series or Season id expands into its episodes here, mirroring what
+    /// the real server does with a folder-shaped item (see
+    /// `JellyfinAPIClient.addItemsToPlaylist`) — otherwise "add the whole
+    /// show" would show up as a single un-openable series row.
+    private static func addedMembers(forPlaylist playlistID: String) -> [BaseItemDto] {
+        lock.lock()
+        let addedIDs = playlistAdditions[playlistID] ?? []
+        lock.unlock()
+
+        var members: [BaseItemDto] = []
+        for itemID in addedIDs {
+            guard let item = UITestFixtureLibrary.allItems[itemID] else { continue }
+            switch item.type {
+            case .series:
+                members.append(contentsOf: UITestFixtureLibrary.episodes.filter { $0.seriesId == itemID })
+            case .season:
+                members.append(contentsOf: UITestFixtureLibrary.episodes.filter { $0.seasonId == itemID })
+            default:
+                members.append(item)
+            }
+        }
+        for index in members.indices {
+            members[index].playlistItemId = UITestFixtureIdentity.addedPlaylistEntryID(
+                playlistID: playlistID, index: index + 1
+            )
+        }
+        return members
+    }
+
+    /// Playlists created during this app session. Appended to every
+    /// `Playlist`-typed browse afterwards, so re-opening the "Add to
+    /// Playlist" picker shows what a create journey just made — the only
+    /// observable evidence the create actually reached the server.
+    nonisolated(unsafe) private static var createdPlaylists: [BaseItemDto] = []
+
+    @discardableResult
+    private static func recordPlaylistCreation(from request: URLRequest) -> BaseItemDto {
+        let decoded = requestBody(of: request).flatMap {
+            try? JellyfinJSON.decoder.decode(CreatePlaylistRequest.self, from: $0)
+        }
+        lock.lock()
+        let ordinal = createdPlaylists.count + 1
+        lock.unlock()
+
+        var playlist = UITestFixtureLibrary.createdPlaylist(
+            id: UITestFixtureIdentity.createdPlaylistID(index: ordinal),
+            name: decoded?.name ?? "Untitled"
+        )
+        playlist.childCount = decoded?.ids.count ?? 0
+
+        lock.lock()
+        defer { lock.unlock() }
+        createdPlaylists.append(playlist)
+        // The seeded items are recorded against the new playlist directly,
+        // rather than through `recordPlaylistAddition` — the lock is already
+        // held here, and re-entering it would deadlock.
+        playlistAdditions[playlist.id, default: []].append(contentsOf: decoded?.ids ?? [])
+        return playlist
+    }
+
+    /// The underlying *item* ids a playlist currently holds — what
+    /// `GET /Playlists/{id}` reports, and deliberately not the same thing as
+    /// `addedMembers`' `playlistItemId` entry ids: this is membership, that
+    /// is per-row identity within one playlist.
+    private static func currentMemberIDs(forPlaylist playlistID: String) -> [String] {
+        let seeded = playlistID == UITestFixtureIdentity.playlistID
+            ? UITestFixtureLibrary.playlistMembers
+            : []
+        let members = seeded.filter { !isPlaylistEntryRemoved($0.playlistItemId) }
+            + addedMembers(forPlaylist: playlistID)
+        return members.map(\.id)
+    }
+
+    private static func createdPlaylistsOnly() -> [BaseItemDto] {
+        lock.lock()
+        defer { lock.unlock() }
+        return createdPlaylists
     }
 
     /// Episodes still present under a series — what the app's own
@@ -356,9 +502,28 @@ final class UITestStubURLProtocol: URLProtocol {
             let term = query.first(where: { $0.name.caseInsensitiveCompare("SearchTerm") == .orderedSame })?.value ?? ""
             return try encode(searchHints(term: term))
 
+        // `GET /Playlists/{id}` — Jellyfin's `PlaylistDto`, which the picker
+        // reads to grey out playlists that already hold the target
+        // (`JellyfinAPIClient.playlistMemberIDs`). Matched before the
+        // `/Items` case below, which would otherwise not fire for it anyway
+        // — but the ordering makes the two obviously distinct rather than
+        // relying on the suffix check.
+        case path.hasPrefix("/Playlists/") && !path.contains("/Items") && !path.contains("/Users"):
+            let playlistID = String(path.dropFirst("/Playlists/".count))
+            return try encode(PlaylistDto(itemIds: currentMemberIDs(forPlaylist: playlistID)))
+
         case path.contains("/Playlists/") && path.hasSuffix("/Items"):
-            let remaining = library.playlistMembers.filter { !isPlaylistEntryRemoved($0.playlistItemId) }
-            return try encode(result(scoped(remaining)))
+            let playlistID = path
+                .replacingOccurrences(of: "/Playlists/", with: "")
+                .replacingOccurrences(of: "/Items", with: "")
+            // Only the one fixture playlist ships with members; every other
+            // playlist (the second editable one, the read-only one, and
+            // anything a create journey made) starts empty and gains
+            // whatever an add journey put in it.
+            let seeded = playlistID == UITestFixtureIdentity.playlistID ? library.playlistMembers : []
+            let members = (seeded + addedMembers(forPlaylist: playlistID))
+                .filter { !isPlaylistEntryRemoved($0.playlistItemId) }
+            return try encode(result(scoped(members)))
 
         case path.contains("/MediaSegments"):
             // Decoded as a query result, not a bare array — see
@@ -444,7 +609,11 @@ final class UITestStubURLProtocol: URLProtocol {
             value(name)?.split(separator: separator).map(String.init) ?? []
         }
 
-        var items = UITestFixtureLibrary.browsableItems
+        // Playlists a create journey made are browsable from the moment
+        // they exist, exactly as they would be on a real server — which is
+        // what lets a journey re-open the "Add to Playlist" picker and see
+        // the one it just created.
+        var items = UITestFixtureLibrary.browsableItems + createdPlaylistsOnly()
 
         if let parentID = value("ParentId") {
             items = items.filter { belongs($0, toLibrary: parentID) }

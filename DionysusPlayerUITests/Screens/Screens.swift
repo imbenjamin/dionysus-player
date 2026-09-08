@@ -289,10 +289,58 @@ struct AssetDetailScreen: Screen {
     var favoriteButton: XCUIElement { app.buttons[A11yID.AssetDetail.favoriteButton] }
     var watchedButton: XCUIElement { app.buttons[A11yID.AssetDetail.watchedButton] }
 
+    /// `AssetActionsButton`'s `ellipsis` overflow — present only when *both*
+    /// of its groups apply, which in practice means "this user may also
+    /// delete". With no delete rights it collapses to `addToPlaylistButton`
+    /// and this is absent, which is how the permission journeys assert the
+    /// gate.
+    var moreButton: XCUIElement { app.buttons[A11yID.AssetDetail.moreButton] }
+
     /// Present only when the server says this user may delete this item, so
     /// asserting its *absence* is asserting the permission gate — see
-    /// `A11yID.AssetDetail.deleteButton`.
+    /// `A11yID.AssetDetail.deleteButton`. Note that when it *is* present it
+    /// lives inside `moreButton`'s menu, not in the toolbar directly — use
+    /// `openDelete()` rather than tapping this straight off the page.
     var deleteButton: XCUIElement { app.buttons[A11yID.AssetDetail.deleteButton] }
+
+    /// Always present on a movie/show/episode page — adding to a playlist
+    /// needs no server permission, since a user with no editable playlist
+    /// can still create one.
+    var addToPlaylistButton: XCUIElement { app.buttons[A11yID.AssetDetail.addToPlaylistButton] }
+
+    /// Opens the toolbar overflow when there is one, so the caller can then
+    /// tap `deleteButton`/`addToPlaylistButton` inside it. A no-op when
+    /// `AssetActionsButton` has collapsed to a single control, which is what
+    /// makes this safe to call from either kind of journey.
+    func openActionsOverflow(file: StaticString = #filePath, line: UInt = #line) {
+        guard moreButton.waitForExistence(timeout: 2) else { return }
+        moreButton.tap()
+    }
+
+    /// Reaches the delete affordance wherever `AssetActionsButton` has put
+    /// it — behind the overflow when the user can also add to a playlist
+    /// (the normal case), or straight in the toolbar otherwise.
+    func openDelete(file: StaticString = #filePath, line: UInt = #line) {
+        openActionsOverflow(file: file, line: line)
+        deleteButton.awaitExistence("the delete action", file: file, line: line)
+        deleteButton.tap()
+    }
+
+    /// Reaches "Add to Playlist" and taps it, opening `AddToPlaylistSheet`.
+    /// On a show/episode page this instead opens the Show/Season/Episode
+    /// submenu — see `addToPlaylistScope(_:)`.
+    func openAddToPlaylist(file: StaticString = #filePath, line: UInt = #line) {
+        openActionsOverflow(file: file, line: line)
+        addToPlaylistButton.awaitExistence("the Add to Playlist action", file: file, line: line)
+        addToPlaylistButton.tap()
+    }
+
+    /// One row of the Add to Playlist submenu on a show/episode page, keyed
+    /// by the entity's display name (the submenu names entities, not types —
+    /// see `AssetActionsButton.menuRowLabel(for:)`).
+    func addToPlaylistScope(_ entityName: String) -> XCUIElement {
+        app.buttons[entityName]
+    }
 
     /// The confirmation dialog's own destructive action. Scoped to
     /// `app.sheets` because a bare `app.buttons[...]` subscript matches
@@ -355,6 +403,104 @@ struct AssetDetailScreen: Screen {
         let removeItem = playlistRemoveMenuItem(playlistItemID)
         removeItem.awaitExistence("the Remove from Playlist context menu item", file: file, line: line)
         removeItem.tap()
+    }
+}
+
+/// `ToastHost`'s transient confirmation, which lives above every tab and
+/// every pushed screen — so it is its own screen object rather than a
+/// property of whichever one raised it.
+struct ToastScreen: Screen {
+    let app: XCUIApplication
+
+    /// The whole capsule, collapsed to one accessibility element. Read its
+    /// `label` for the message.
+    var message: XCUIElement {
+        app.descendants(matching: .any)[A11yID.Toast.message]
+    }
+
+    /// Waits for a toast and returns what it said. Toasts self-dismiss after
+    /// `ToastCenter.visibleDuration`, so a test that wants to read one has
+    /// to look promptly — hence a short, explicit wait rather than the
+    /// suite's default 15s.
+    @discardableResult
+    func awaitMessage(file: StaticString = #filePath, line: UInt = #line) -> String {
+        message.awaitExistence("a confirmation toast", timeout: 5, file: file, line: line)
+        return message.label
+    }
+}
+
+/// `AddToPlaylistSheet` — the destination picker presented from
+/// `AssetDetailScreen.openAddToPlaylist()`, plus its pushed "New Playlist"
+/// form.
+struct AddToPlaylistScreen: Screen {
+    let app: XCUIApplication
+
+    /// Always present, which is why it's what `awaitLoaded` waits on: the
+    /// playlist rows below are absent whenever this user can edit none.
+    var newPlaylistButton: XCUIElement { app.buttons[A11yID.AddToPlaylist.newPlaylistButton] }
+    var emptyState: XCUIElement { app.staticTexts[A11yID.AddToPlaylist.emptyState] }
+    var nameField: XCUIElement { app.textFields[A11yID.AddToPlaylist.nameField] }
+    var visibilityToggle: XCUIElement { app.switches[A11yID.AddToPlaylist.visibilityToggle] }
+    var createButton: XCUIElement { app.buttons[A11yID.AddToPlaylist.createButton] }
+
+    /// Both confirmations are `.alert`s, not `confirmationDialog`s — the
+    /// dialog form dropped its Cancel action inside this sheet, so
+    /// `AddToPlaylistSheet` uses alerts to guarantee both buttons. Hence
+    /// `app.alerts` rather than the `app.sheets` scoping
+    /// `AssetDetailScreen.deleteConfirmButton` needs. The scoping itself is
+    /// for the same reason either way: a bare `app.buttons[...]` subscript
+    /// matches labels too, so an unscoped "Add" or "Create" lookup collides
+    /// with the control that raised the dialog.
+    var addConfirmButton: XCUIElement {
+        app.alerts.buttons.matching(identifier: A11yID.AddToPlaylist.addConfirmButton).firstMatch
+    }
+    var addCancelButton: XCUIElement {
+        app.alerts.buttons.matching(identifier: A11yID.AddToPlaylist.addCancelButton).firstMatch
+    }
+    var createConfirmButton: XCUIElement {
+        app.alerts.buttons.matching(identifier: A11yID.AddToPlaylist.createConfirmButton).firstMatch
+    }
+    var createCancelButton: XCUIElement {
+        app.alerts.buttons.matching(identifier: A11yID.AddToPlaylist.createCancelButton).firstMatch
+    }
+
+    func playlistRow(_ playlistID: String) -> XCUIElement {
+        app.buttons[A11yID.AddToPlaylist.playlistRow(playlistID)]
+    }
+
+    func awaitLoaded(file: StaticString = #filePath, line: UInt = #line) {
+        newPlaylistButton.awaitExistence("the Add to Playlist picker", file: file, line: line)
+    }
+
+    /// Picks an existing playlist, confirming if the sheet stops to ask.
+    /// A single movie or episode is added straight away; a show or season
+    /// raises a confirmation first (see
+    /// `AddToPlaylistViewModel.requiresConfirmation`), so this handles both
+    /// rather than making every caller know which it is.
+    func choose(_ playlistID: String, file: StaticString = #filePath, line: UInt = #line) {
+        let row = playlistRow(playlistID)
+        row.awaitExistence("playlist row \(playlistID)", file: file, line: line)
+        row.tap()
+        if addConfirmButton.waitForExistence(timeout: 2) {
+            addConfirmButton.tap()
+        }
+    }
+
+    /// Walks the whole create flow: open the form, type a name, tap Create,
+    /// then confirm. Creating always confirms, whatever the target.
+    func createPlaylist(named name: String, file: StaticString = #filePath, line: UInt = #line) {
+        newPlaylistButton.awaitExistence("the New Playlist row", file: file, line: line)
+        newPlaylistButton.tap()
+
+        nameField.awaitExistence("the playlist name field", file: file, line: line)
+        nameField.tap()
+        nameField.typeText(name)
+
+        createButton.awaitExistence("the Create button", file: file, line: line)
+        createButton.tap()
+
+        createConfirmButton.awaitExistence("the create confirmation", file: file, line: line)
+        createConfirmButton.tap()
     }
 }
 

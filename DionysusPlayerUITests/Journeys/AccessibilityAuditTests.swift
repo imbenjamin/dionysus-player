@@ -83,6 +83,43 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen()
     }
 
+    /// The "Add to Playlist" picker, audited as its own screen because it is
+    /// one — a presented sheet with its own navigation stack, toolbar and
+    /// list, none of which the detail-page audits above can see.
+    func testAddToPlaylistPickerHasNoAccessibilityIssues() throws {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.openAddToPlaylist()
+        AddToPlaylistScreen(app: app).awaitLoaded()
+
+        try auditCurrentScreen()
+    }
+
+    /// The pushed "New Playlist" form, likewise: a text field, a toggle and
+    /// a toolbar action that exist on no other screen.
+    func testNewPlaylistFormHasNoAccessibilityIssues() throws {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.openAddToPlaylist()
+
+        let picker = AddToPlaylistScreen(app: app)
+        picker.awaitLoaded()
+        picker.newPlaylistButton.tap()
+        picker.nameField.awaitExistence("the playlist name field")
+
+        try auditCurrentScreen()
+    }
+
     func testSearchHasNoAccessibilityIssues() throws {
         launch()
         HomeScreen(app: app).awaitLoaded()
