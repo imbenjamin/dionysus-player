@@ -30,6 +30,10 @@ enum UITestFixtureLibrary {
     static let seriesID = UITestFixtureIdentity.seriesID
     static let boxSetID = UITestFixtureIdentity.boxSetID
     static let playlistID = UITestFixtureIdentity.playlistID
+    static let secondPlaylistID = UITestFixtureIdentity.secondPlaylistID
+    static let secondPlaylistName = UITestFixtureIdentity.secondPlaylistName
+    static let readOnlyPlaylistID = UITestFixtureIdentity.readOnlyPlaylistID
+    static let readOnlyPlaylistName = UITestFixtureIdentity.readOnlyPlaylistName
 
     // MARK: - Libraries
 
@@ -184,6 +188,46 @@ enum UITestFixtureLibrary {
         return item
     }()
 
+    /// A second editable playlist, so the "Add to Playlist" picker has a
+    /// real choice to make rather than a single row. Left empty (no
+    /// `playlistMembers` equivalent) — nothing needs to browse into it.
+    static let secondPlaylist: BaseItemDto = {
+        var item = base(id: secondPlaylistID, name: secondPlaylistName, type: .playlist)
+        item.overview = "A second destination for the Add to Playlist picker."
+        item.childCount = 0
+        item.mediaType = "Video"
+        item.userData = UserItemDataDto(playbackPositionTicks: 0, playedPercentage: 0, played: false, isFavorite: false)
+        return item
+    }()
+
+    /// A playlist this user can see but **not** edit — the stub answers
+    /// `GET /Playlists/{this}/Users/{me}` with Jellyfin's own 404, so it must
+    /// be filtered out of the picker by
+    /// `JellyfinAPIClient.editablePlaylists`. Deliberately still present in
+    /// the catalogue (and so in the Playlists library grid): a filter that
+    /// only ever sees editable playlists proves nothing.
+    static let readOnlyPlaylist: BaseItemDto = {
+        var item = base(id: readOnlyPlaylistID, name: readOnlyPlaylistName, type: .playlist)
+        item.overview = "Shared with this user, but read-only."
+        item.childCount = 0
+        item.mediaType = "Video"
+        item.userData = UserItemDataDto(playbackPositionTicks: 0, playedPercentage: 0, played: false, isFavorite: false)
+        return item
+    }()
+
+    /// A playlist the app itself created during a UI test run, built to look
+    /// like anything else in the catalogue so the picker and the Playlists
+    /// grid can both render it. Called by `UITestStubURLProtocol` on
+    /// `POST /Playlists`, which owns the id and the recorded list — this is
+    /// only the shape.
+    static func createdPlaylist(id: String, name: String) -> BaseItemDto {
+        var item = base(id: id, name: name, type: .playlist)
+        item.childCount = 0
+        item.mediaType = "Video"
+        item.userData = UserItemDataDto(playbackPositionTicks: 0, playedPercentage: 0, played: false, isFavorite: false)
+        return item
+    }
+
     /// Each member gets its own `playlistItemId`, distinct from the
     /// underlying item's `id` — `MediaItem.playlistItemID`'s doc comment
     /// has the full reasoning; `PlaylistItemList`/`AssetDetailViewModel
@@ -205,13 +249,18 @@ enum UITestFixtureLibrary {
     /// Every addressable item, keyed by id — what `/Users/{id}/Items/{itemID}`
     /// resolves against.
     static let allItems: [String: BaseItemDto] = {
-        let everything = libraries + movies + [series] + seasons + episodes + [boxSet, playlist]
+        let everything = libraries + movies + [series] + seasons + episodes + [boxSet] + playlists
         return Dictionary(uniqueKeysWithValues: everything.map { ($0.id, $0) })
     }()
 
+    /// Every playlist in the catalogue, in the `SortName` order a browse
+    /// returns them in — which is also the order the "Add to Playlist"
+    /// picker lists them in, minus `readOnlyPlaylist`.
+    static let playlists: [BaseItemDto] = [secondPlaylist, readOnlyPlaylist, playlist]
+
     /// Everything a recursive, unscoped browse should be able to return —
     /// libraries excluded, since Jellyfin doesn't return views from `/Items`.
-    static let browsableItems: [BaseItemDto] = movies + [series] + seasons + episodes + [boxSet, playlist]
+    static let browsableItems: [BaseItemDto] = movies + [series] + seasons + episodes + [boxSet] + playlists
 
     // MARK: - Server identity
 

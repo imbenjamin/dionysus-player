@@ -135,6 +135,11 @@ final class AssetDetailJourneyTests: UITestCase {
     /// with `CanDelete: false` on every item, and the affordance must be
     /// absent entirely — not merely disabled, which would advertise a
     /// permission the user hasn't got.
+    ///
+    /// The *toolbar item* doesn't disappear with it: `AssetActionsButton`
+    /// collapses to its lone "Add to Playlist" control, which needs no
+    /// server permission. So this asserts both halves of the collapse —
+    /// no overflow, no delete, but the add action still there.
     func testDeleteButtonIsHiddenWithoutServerPermission() {
         launch(scenario: "noDeletePermission")
         let home = HomeScreen(app: app)
@@ -143,13 +148,16 @@ final class AssetDetailJourneyTests: UITestCase {
 
         let detail = AssetDetailScreen(app: app)
         detail.awaitLoaded()
-        // `awaitLoaded` already waited for the page, so the button has had
-        // its chance to appear — no separate wait needed before asserting
+        // `awaitLoaded` already waited for the page, so the buttons have had
+        // their chance to appear — no separate wait needed before asserting
         // absence.
+        XCTAssertFalse(detail.moreButton.exists, "With only one action available there is nothing to overflow.")
         XCTAssertFalse(detail.deleteButton.exists, "Delete must not be offered without server permission.")
+        detail.addToPlaylistButton.awaitExistence("the Add to Playlist button")
     }
 
-    /// The same page, with permission, does offer it.
+    /// The same page, with permission, does offer it — one tap deeper, since
+    /// two available actions collapse into the `ellipsis` overflow.
     func testDeleteButtonIsShownWithServerPermission() {
         launch()
         let home = HomeScreen(app: app)
@@ -158,7 +166,9 @@ final class AssetDetailJourneyTests: UITestCase {
 
         let detail = AssetDetailScreen(app: app)
         detail.awaitLoaded()
-        detail.deleteButton.awaitExistence("the delete button")
+        detail.moreButton.awaitExistence("the actions overflow")
+        detail.moreButton.tap()
+        detail.deleteButton.awaitExistence("the delete action")
     }
 
     /// Raising the dialog must not itself delete anything, and the warning
@@ -179,7 +189,7 @@ final class AssetDetailJourneyTests: UITestCase {
 
         let detail = AssetDetailScreen(app: app)
         detail.awaitLoaded()
-        detail.deleteButton.tap()
+        detail.openDelete()
         detail.deleteConfirmButton.awaitExistence("the delete confirmation")
 
         let warning = app.sheets.staticTexts.containing(
@@ -213,7 +223,7 @@ final class AssetDetailJourneyTests: UITestCase {
 
         let detail = AssetDetailScreen(app: app)
         detail.awaitLoaded()
-        detail.deleteButton.tap()
+        detail.openDelete()
         detail.confirmDelete()
 
         // Back on the grid, with the tile gone.

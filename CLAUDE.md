@@ -430,6 +430,59 @@ funnel down to zero results. When adding another facet here, follow that
 same "exclude yourself, apply the rest" shape rather than a flat AND filter,
 or the funnel guarantee breaks.
 
+### Transient confirmations (`Shared/Components/Toast.swift`)
+
+`ToastCenter.shared.post(Toast(message:))` shows a brief, self-dismissing
+capsule; `ToastHost` renders it, applied once as an overlay in `MainTabView`
+so a toast outlives whatever raised it. That indirection is the point — the
+first thing to use it (adding to a playlist) finishes by *dismissing its own
+sheet*, so a confirmation owned by that sheet would be torn down in the same
+frame it appeared.
+
+**Use it for "that worked" on an action whose own UI has already gone**, not
+as a general notification channel: it can't be dismissed by anything but a
+tap or its own timer, and a second post replaces the first rather than
+queueing. A haptic alongside it is fine (`AddToPlaylistSheet` does both), but
+a haptic alone is not — it says nothing to a user who has them off. Posting
+also fires a VoiceOver announcement, since a view that disappears on its own
+can't be found by focus.
+
+### Playlist editing, and what Jellyfin actually gates
+
+The app can add items to a playlist (`AssetActionsButton` →
+`AddToPlaylistSheet`) and remove them (`PlaylistItemList`'s long-press menu).
+Three facts about the server side are load-bearing and none are guessable
+from the API docs — all were read out of `jellyfin/jellyfin`'s
+`PlaylistsController.cs`/`PlaylistManager.cs` and cross-checked against
+`jellyfin-web`'s `playlisteditor.ts`:
+
+- **Creating a playlist has no permission gate at all.** `POST /Playlists`
+  is `[Authorize]`-only; `UserPolicy` has `EnableCollectionManagement`, which
+  governs *collections*, not playlists. So every signed-in user can always
+  create one — which is why "Add to Playlist" renders unconditionally, and
+  why the toolbar's `ellipsis` overflow appears exactly when the user *also*
+  has delete rights. Don't add a permission check for it.
+- **Adding to and removing from an existing playlist share one gate**:
+  `OwnerUserId == caller || Shares.Any(CanEdit && caller)`, refused as a
+  clean 403. There is no bulk "which playlists may I edit" query and no DTO
+  that exposes `OwnerUserId`, so the only way to answer it is one
+  `GET /Playlists/{id}/Users/{me}` per playlist — an N+1 that Jellyfin's own
+  web client also performs. `JellyfinAPIClient.editablePlaylists` does it
+  with capped concurrency and a fail-soft per check, the same shape
+  `collectionsContaining` settled on.
+- **Posting a Series or Season id adds every episode beneath it**, in one
+  request: `Playlist.GetPlaylistItems` expands any folder-shaped item
+  recursively server-side. "Add the whole show" must therefore send the
+  show's own id — never a client-side enumeration of episodes, which would
+  both duplicate the server's work and be wrong for a show whose episodes
+  this client hasn't fetched.
+
+One more, easy to get wrong silently: `CreatePlaylistDto.IsPublic`
+initializes to **`true`** server-side, so `CreatePlaylistRequest.isPublic` is
+non-optional and always encoded. Omitting it publishes the playlist to every
+user on the server. New playlists default to private here, matching
+`jellyfin-web`'s own unchecked "Public" box.
+
 ### Navigation (`Shared/Navigation/`)
 
 Single shared `AppRoute` enum (`collection`, `assetDetail`, `downloadedAsset`,

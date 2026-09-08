@@ -66,7 +66,7 @@ final class AssetDetailViewModel {
     /// `PlaylistItemList`'s remove affordances entirely (both the swipe
     /// gesture and its `.contextMenu` accessible alternative), the same
     /// "render nothing, never a disabled control" philosophy `canDelete`
-    /// uses for `DeleteAssetButton`.
+    /// uses for `AssetActionsButton`.
     ///
     /// Computed once per `load()`/`refreshItem()` from
     /// `JellyfinAPIClient.playlistUserPermissions` — see that method's doc
@@ -384,7 +384,7 @@ final class AssetDetailViewModel {
 
     /// Where the UI should go once a server-side deletion has landed.
     /// Resolved by the view model (which is what knows how this page was
-    /// reached) and acted on by `DeleteAssetButton`, which owns the
+    /// reached) and acted on by `AssetActionsButton`, which owns the
     /// `dismiss`/`popNavigationToRoot` environment values needed to carry
     /// it out.
     enum DeletionOutcome: Equatable {
@@ -443,7 +443,7 @@ final class AssetDetailViewModel {
     /// call even starts, so `PlaylistItemList`'s swipe/context-menu action
     /// animates the row away right away; on failure, `item` is reinserted
     /// at its original index and the error is rethrown for the caller to
-    /// surface (mirroring `DeleteAssetButton`'s own catch-and-alert
+    /// surface (mirroring `AssetActionsButton`'s own catch-and-alert
     /// pattern) — the same "optimistic update that can never regress"
     /// shape already used elsewhere in this app for server-latency-prone
     /// writes.

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The circular glyph chrome shared by every trailing-toolbar control on the
 /// asset detail page — `HeroActionButtons`' favorite/watched pair and
-/// `DeleteAssetButton`.
+/// `AssetActionsButton`.
 ///
 /// Extracted so a second control can't drift from the first. Everything here
 /// was tuned against the live hero image and is easy to "tidy" back into a

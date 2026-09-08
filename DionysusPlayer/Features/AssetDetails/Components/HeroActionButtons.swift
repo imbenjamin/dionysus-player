@@ -267,7 +267,7 @@ struct HeroActionButtons: View {
         viewModel.track(Task { await viewModel.toggleWatched(itemID: target.id, currentlyWatched: currentlyWatched) })
     }
 
-    /// The circular glyph chrome, shared with `DeleteAssetButton` via
+    /// The circular glyph chrome, shared with `AssetActionsButton` via
     /// `HeroToolbarGlyph` — see that type's doc comment for the reasoning
     /// behind every value in it (glyph weight, the deliberate absence of an
     /// explicit color on iOS 26, and the fixed 44pt tap target).

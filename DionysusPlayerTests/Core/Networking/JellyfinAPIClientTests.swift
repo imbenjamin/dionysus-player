@@ -1296,6 +1296,338 @@ final class JellyfinAPIClientTests: XCTestCase {
         }
     }
 
+    // MARK: Playlists — the "Add to Playlist" picker's data
+
+    /// Builds a `Playlist`-typed DTO for the `editablePlaylists` tests.
+    private func playlistDTO(_ id: String, mediaType: String = "Video") -> BaseItemDto {
+        var dto = BaseItemDto(id: id, name: id.capitalized, type: .playlist)
+        dto.mediaType = mediaType
+        return dto
+    }
+
+    /// Routes the three request shapes `editablePlaylists` makes: one
+    /// browse, then — per playlist — a permission lookup and a membership
+    /// lookup. `canEditByPlaylistID` decides each permission answer (a
+    /// missing entry becomes Jellyfin's own 404 "permissions not found");
+    /// `memberIDsByPlaylistID` decides what each playlist reports holding.
+    ///
+    /// The handler is installed once and never reassigned, and captures
+    /// nothing mutable: the fan-out calls it from several threads at once,
+    /// and mutating a captured local from an `@MainActor` test here is the
+    /// documented way to hang the whole run with no crash message. Every
+    /// assertion below is therefore made on the returned value.
+    private func installEditablePlaylistsHandler(
+        browse: [BaseItemDto],
+        canEditByPlaylistID: [String: Bool],
+        memberIDsByPlaylistID: [String: [String]] = [:]
+    ) {
+        MockURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            if path.hasSuffix("/Items") {
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: BaseItemDtoQueryResult(items: browse, totalRecordCount: browse.count)
+                )
+            }
+            // `GET /Playlists/{id}` — membership, no "/Users/" segment.
+            guard path.contains("/Users/") else {
+                let playlistID = String(path.dropFirst("/Playlists/".count))
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: PlaylistDto(itemIds: memberIDsByPlaylistID[playlistID])
+                )
+            }
+            let playlistID = path
+                .replacingOccurrences(of: "/Playlists/", with: "")
+                .components(separatedBy: "/Users/").first ?? ""
+            guard let canEdit = canEditByPlaylistID[playlistID] else {
+                return MockURLProtocol.jsonResponse(for: request, status: 404, body: Data())
+            }
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: canEdit)
+            )
+        }
+    }
+
+    /// The picker's whole permission gate: a playlist the user can see is
+    /// not necessarily one they can add to. Also pins the *order* — the
+    /// concurrent fan-out yields in completion order, so the result has to
+    /// be re-derived from the browse order or the picker's rows would
+    /// shuffle between openings.
+    func test_editablePlaylists_keepsOnlyEditableOnesInBrowseOrder() async throws {
+        let client = makeClient(accessToken: "tok")
+        let browse = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"].map { playlistDTO($0) }
+        installEditablePlaylistsHandler(
+            browse: browse,
+            canEditByPlaylistID: [
+                "alpha": true,
+                // "bravo" has no record at all — a 404.
+                "charlie": false,
+                "delta": true,
+                "echo": false,
+                "foxtrot": true
+            ]
+        )
+
+        let editable = try await client.editablePlaylists(userID: "user-1")
+
+        XCTAssertEqual(editable.map(\.item.id), ["alpha", "delta", "foxtrot"])
+    }
+
+    /// Audio playlists are dropped before the permission fan-out even runs.
+    /// Asserted on the result rather than by counting requests: this handler
+    /// would happily answer `canEdit: true` for the audio one, so its
+    /// absence can only be the filter.
+    func test_editablePlaylists_dropsAudioPlaylistsEvenWhenEditable() async throws {
+        let client = makeClient(accessToken: "tok")
+        let browse = [playlistDTO("video-list"), playlistDTO("music-list", mediaType: "Audio")]
+        installEditablePlaylistsHandler(
+            browse: browse,
+            canEditByPlaylistID: ["video-list": true, "music-list": true]
+        )
+
+        let editable = try await client.editablePlaylists(userID: "user-1")
+
+        XCTAssertEqual(editable.map(\.item.id), ["video-list"])
+    }
+
+    /// One flaky permission check must not take down the whole picker — it
+    /// reads as "not editable", the same fail-soft rule
+    /// `collectionsContaining` settled on after a single bad response there
+    /// failed an entire detail page's rail.
+    func test_editablePlaylists_permissionCheckFailure_treatsThatPlaylistAsNotEditable() async throws {
+        let client = makeClient(accessToken: "tok")
+        let browse = [playlistDTO("good"), playlistDTO("flaky")]
+        MockURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            if path.hasSuffix("/Items") {
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: BaseItemDtoQueryResult(items: browse, totalRecordCount: browse.count)
+                )
+            }
+            if path.contains("flaky") {
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: true)
+            )
+        }
+
+        let editable = try await client.editablePlaylists(userID: "user-1")
+
+        XCTAssertEqual(editable.map(\.item.id), ["good"])
+    }
+
+    /// The initial browse is the one request that *can* fail the call —
+    /// there's nothing to fail soft to when there's no list at all.
+    func test_editablePlaylists_browseFailure_throws() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+        }
+
+        do {
+            _ = try await client.editablePlaylists(userID: "user-1")
+            XCTFail("Expected the browse failure to propagate")
+        } catch {
+            // expected
+        }
+    }
+
+    func test_editablePlaylists_requestsOnlyPlaylistTypedItems() async throws {
+        let client = makeClient(accessToken: "tok")
+        installEditablePlaylistsHandler(browse: [], canEditByPlaylistID: [:])
+
+        _ = try await client.editablePlaylists(userID: "user-1")
+
+        let request = MockURLProtocol.lastRequest
+        XCTAssertEqual(request?.url?.path, "/Users/user-1/Items")
+        XCTAssertEqual(request?.queryDictionary["IncludeItemTypes"], "Playlist")
+        XCTAssertEqual(request?.queryDictionary["SortBy"], "SortName")
+    }
+
+    /// Each editable playlist comes back paired with what it already holds,
+    /// which is what lets the picker grey out a destination the target is
+    /// already in.
+    func test_editablePlaylists_reportsWhatEachPlaylistAlreadyHolds() async throws {
+        let client = makeClient(accessToken: "tok")
+        installEditablePlaylistsHandler(
+            browse: [playlistDTO("alpha"), playlistDTO("bravo")],
+            canEditByPlaylistID: ["alpha": true, "bravo": true],
+            memberIDsByPlaylistID: ["alpha": ["movie-1", "movie-2"]]
+        )
+
+        let editable = try await client.editablePlaylists(userID: "user-1")
+
+        XCTAssertEqual(editable.first { $0.item.id == "alpha" }?.memberItemIDs, ["movie-1", "movie-2"])
+        // A playlist with no members at all omits the key entirely.
+        XCTAssertEqual(editable.first { $0.item.id == "bravo" }?.memberItemIDs, [])
+    }
+
+    /// Membership fails **open** — the opposite direction to the permission
+    /// check beside it. A lost membership request should cost the user a
+    /// possible duplicate, never the ability to add at all, so the playlist
+    /// stays in the list with an empty member set rather than dropping out.
+    func test_editablePlaylists_membershipFailure_keepsThePlaylistWithNoKnownMembers() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            if path.hasSuffix("/Items") {
+                let browse = [BaseItemDto(id: "alpha", name: "Alpha", type: .playlist)]
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: BaseItemDtoQueryResult(items: browse, totalRecordCount: browse.count)
+                )
+            }
+            guard path.contains("/Users/") else {
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: true)
+            )
+        }
+
+        let editable = try await client.editablePlaylists(userID: "user-1")
+
+        XCTAssertEqual(editable.map(\.item.id), ["alpha"])
+        XCTAssertEqual(editable.first?.memberItemIDs, [])
+    }
+
+    func test_playlistMemberIDs_readsThePlaylistDtoRatherThanItsFullItemList() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request, value: PlaylistDto(itemIds: ["a", "b"])
+            )
+        }
+
+        let ids = try await client.playlistMemberIDs(playlistID: "playlist-1")
+
+        XCTAssertEqual(ids, ["a", "b"])
+        // The lightweight `PlaylistDto` endpoint, not `/Items` — see that
+        // method's doc comment for why the distinction matters.
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.path, "/Playlists/playlist-1")
+    }
+
+    /// Omitting `seasonID` widens the request to the whole series, which is
+    /// how `AddToPlaylistViewModel` learns what "add the whole show" covers.
+    func test_episodes_withoutASeasonID_omitsTheSeasonQueryItem() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0)
+            )
+        }
+
+        _ = try await client.episodes(seriesID: "series-1", userID: "user-1", fields: "")
+
+        let request = MockURLProtocol.lastRequest
+        XCTAssertEqual(request?.url?.path, "/Shows/series-1/Episodes")
+        XCTAssertNil(request?.queryDictionary["seasonId"])
+    }
+
+    func test_addItemsToPlaylist_sendsPostWithCommaJoinedIdsAndUserId() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+
+        try await client.addItemsToPlaylist(
+            playlistID: "playlist-1", itemIDs: ["item-1", "item-2"], userID: "user-1"
+        )
+
+        let request = MockURLProtocol.lastRequest
+        XCTAssertEqual(request?.httpMethod, "POST")
+        XCTAssertEqual(request?.url?.path, "/Playlists/playlist-1/Items")
+        XCTAssertEqual(request?.queryDictionary["ids"], "item-1,item-2")
+        XCTAssertEqual(request?.queryDictionary["userId"], "user-1")
+    }
+
+    /// Same clean 403 as `removePlaylistItems`, remapped the same way.
+    func test_addItemsToPlaylist_403_throwsNotPermitted() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 403, body: Data())
+        }
+
+        do {
+            try await client.addItemsToPlaylist(
+                playlistID: "playlist-1", itemIDs: ["item-1"], userID: "user-1"
+            )
+            XCTFail("Expected .notPermitted")
+        } catch JellyfinAPIError.notPermitted {
+            // expected
+        } catch {
+            XCTFail("Expected .notPermitted, got \(error)")
+        }
+    }
+
+    func test_createPlaylist_postsNameIdsAndUserIdAndDecodesTheNewID() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request, value: PlaylistCreationResult(id: "playlist-new")
+            )
+        }
+
+        let result = try await client.createPlaylist(
+            name: "Weeknights", itemIDs: ["item-1"], userID: "user-1", isPublic: false
+        )
+
+        XCTAssertEqual(result.id, "playlist-new")
+        let request = MockURLProtocol.lastRequest
+        XCTAssertEqual(request?.httpMethod, "POST")
+        XCTAssertEqual(request?.url?.path, "/Playlists")
+        let body = try XCTUnwrap(request?.capturedHTTPBody)
+        let decoded = try JellyfinJSON.decoder.decode(CreatePlaylistRequest.self, from: body)
+        XCTAssertEqual(decoded.name, "Weeknights")
+        XCTAssertEqual(decoded.ids, ["item-1"])
+        XCTAssertEqual(decoded.userId, "user-1")
+    }
+
+    /// The one field that must never be omitted: Jellyfin's
+    /// `CreatePlaylistDto.IsPublic` initializes to `true` server-side, so a
+    /// body missing it publishes the playlist to every user on the server.
+    /// Asserted against the raw JSON, not the round-tripped struct, since a
+    /// decode would happily supply a default for an absent key.
+    func test_createPlaylist_alwaysSendsIsPublicEvenWhenFalse() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request, value: PlaylistCreationResult(id: "playlist-new")
+            )
+        }
+
+        _ = try await client.createPlaylist(
+            name: "Private", itemIDs: ["item-1"], userID: "user-1", isPublic: false
+        )
+
+        let body = try XCTUnwrap(MockURLProtocol.lastRequest?.capturedHTTPBody)
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        XCTAssertEqual(json["IsPublic"] as? Bool, false, "IsPublic was \(json["IsPublic"] ?? "absent")")
+    }
+
+    func test_createPlaylist_sendsIsPublicTrueWhenAsked() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request, value: PlaylistCreationResult(id: "playlist-new")
+            )
+        }
+
+        _ = try await client.createPlaylist(
+            name: "Shared", itemIDs: ["item-1"], userID: "user-1", isPublic: true
+        )
+
+        let body = try XCTUnwrap(MockURLProtocol.lastRequest?.capturedHTTPBody)
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        XCTAssertEqual(json["IsPublic"] as? Bool, true)
+    }
+
     // MARK: Genres & Studios (Home's dynamic rail discovery)
 
     func test_genres_requestsExpectedPathAndScopesByIncludeItemTypes() async throws {

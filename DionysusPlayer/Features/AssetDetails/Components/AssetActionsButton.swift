@@ -1,29 +1,62 @@
 import SwiftUI
 
-/// Deletes an item from the Jellyfin server, from the asset detail page's
-/// trailing toolbar.
+/// The asset detail page's trailing-toolbar control for the two actions that
+/// aren't reversible metadata toggles: **deleting** an item from the Jellyfin
+/// server, and **adding** it to a playlist.
 ///
 /// Placed as its own `ToolbarItem` *after* `HeroActionButtons` rather than as
 /// a third glyph inside that group: favorite and watched are reversible
-/// metadata toggles that belong together, and this is neither reversible nor
-/// metadata. It shares their chrome (`HeroToolbarGlyph`) so it still reads as
-/// part of the same toolbar, but sits outside their `GlassEffectContainer` so
-/// it doesn't merge into one capsule with them.
+/// metadata toggles that belong together, and neither of these is one. It
+/// shares their chrome (`HeroToolbarGlyph`) so it still reads as part of the
+/// same toolbar, but sits outside their `GlassEffectContainer` so it doesn't
+/// merge into one capsule with them.
 ///
-/// **Everything here is gated on `MediaItem.canDelete`**, which is the
-/// server's own per-item verdict rather than anything derived locally — see
+/// ## Which control gets drawn
+///
+/// The two actions have *independent* availability, so this collapses rather
+/// than always drawing an overflow:
+///
+/// | available | drawn |
+/// |---|---|
+/// | both | one `ellipsis` `Menu` — the overflow (`A11yID.AssetDetail.moreButton`) |
+/// | add only | the add control alone (`text.badge.plus`) |
+/// | delete only | the delete control alone (`trash`) |
+/// | neither | nothing at all |
+///
+/// In practice the third row is unreachable today and the first means
+/// "this user may also delete": **adding to a playlist is always available**,
+/// because Jellyfin's `POST /Playlists` has no permission gate whatsoever
+/// (see `JellyfinAPIClient.createPlaylist`) — a user with no editable
+/// playlist can still always create one. The branch stays because the
+/// collapse rule is about the two groups, not about delete specifically, and
+/// a future host that offers only deletion would otherwise draw a
+/// one-item overflow menu.
+///
+/// Within each group the same collapse applies one level down: a single
+/// target is a flat row/button, and two or three become a submenu naming each
+/// entity, exactly as `HeroActionButtons` collapses its own menu on a Movie
+/// page.
+///
+/// ## Permissions
+///
+/// **Deletion is gated on `MediaItem.canDelete`**, which is the server's own
+/// per-item verdict rather than anything derived locally — see
 /// `BaseItemDto.canDelete` for why that distinction matters, and
 /// `JellyfinAPIClient.deleteItem` for what happens when the gate is wrong.
 /// Nothing renders at all when it's false, so a user without delete rights
 /// never sees an affordance they can't use (as opposed to a disabled one,
-/// which would just advertise a permission they don't have).
+/// which would just advertise a permission they don't have). The
+/// *destination* side of adding to a playlist is gated the same way, but one
+/// level in — `AddToPlaylistSheet` lists only playlists the server says this
+/// user may edit.
 ///
 /// Scoped to movies, episodes, seasons and shows. Collections and playlists
 /// are deliberately excluded — `CollectionDetailView`/`PlaylistDetailView`
 /// don't host this view at all — since deleting either would need different
 /// semantics (a playlist owns no media of its own; a collection's members
-/// live in other libraries).
-struct DeleteAssetButton: View {
+/// live in other libraries), and adding a playlist to a playlist is not a
+/// thing this app offers.
+struct AssetActionsButton: View {
     let viewModel: AssetDetailViewModel
     let downloadManager: DownloadManager
     /// `ShowDetailView`'s season-picker selection — same prop, and the same
@@ -37,6 +70,10 @@ struct DeleteAssetButton: View {
 
     @State private var pendingTarget: MediaItem?
     @State private var errorMessage: String?
+    /// The entity whose "Add to Playlist" sheet is open. Drives
+    /// `.sheet(item:)` directly rather than pairing a `Bool` with a separate
+    /// stored target, for the same reason `confirmationBinding` does below.
+    @State private var playlistTarget: MediaItem?
 
     private var item: MediaItem? { viewModel.item }
     private var isEpisodeContent: Bool { viewModel.item?.kind == .episode }
@@ -62,9 +99,40 @@ struct DeleteAssetButton: View {
         return [show, season, episode].compactMap { $0 }.filter(\.canDelete)
     }
 
+    /// Every entity this page could offer to add to a playlist, most specific
+    /// last.
+    ///
+    /// The same shape as `deletableTargets`, including its restriction to
+    /// genuine episode content rather than `viewModel.showPlaybackEpisode`.
+    /// That restriction exists for a *destructive* reason there, which
+    /// doesn't apply here — but the two menus sit inside one overflow, so
+    /// they have to agree on what "this episode" means; offering the two
+    /// groups different episodes under the same button would be worse than
+    /// either rule on its own.
+    ///
+    /// No permission filter, unlike `deletableTargets`' `.filter(\.canDelete)`
+    /// — every target is always addable somewhere, since a user with no
+    /// editable playlist can still create one.
+    private var playlistTargets: [MediaItem] {
+        guard let item else { return [] }
+        guard let show = viewModel.seriesItem else {
+            return [item]
+        }
+        let season = viewModel.seasons.first { $0.id == selectedSeasonID }
+        let episode = isEpisodeContent ? item : nil
+        return [show, season, episode].compactMap { $0 }
+    }
+
     var body: some View {
-        if !deletableTargets.isEmpty {
+        if !deletableTargets.isEmpty || !playlistTargets.isEmpty {
             control
+                .sheet(item: $playlistTarget) { target in
+                    AddToPlaylistSheet(
+                        client: viewModel.apiClient,
+                        userID: viewModel.currentUserID,
+                        target: target
+                    )
+                }
                 .confirmationDialog(
                     confirmationTitle,
                     isPresented: confirmationBinding,
@@ -88,6 +156,34 @@ struct DeleteAssetButton: View {
 
     @ViewBuilder
     private var control: some View {
+        if !deletableTargets.isEmpty && !playlistTargets.isEmpty {
+            Menu {
+                addToPlaylistMenuContent
+                // Destructive action last and visually separated, the iOS
+                // convention — and the thing standing between a mis-tap on
+                // "Add to Playlist" and one on "Delete".
+                Divider()
+                deleteMenuContent
+            } label: {
+                HeroToolbarGlyph(systemName: "ellipsis", isPending: isPending)
+            }
+            // Plain "More" — the actions themselves are the menu's own rows,
+            // and VoiceOver reads those on opening it.
+            .accessibilityLabel(String(localized: "More Actions"))
+            .accessibilityIdentifier(A11yID.AssetDetail.moreButton)
+        } else if !playlistTargets.isEmpty {
+            addToPlaylistControl
+        } else {
+            deleteControl
+        }
+    }
+
+    // MARK: - Delete
+
+    /// The delete action drawn as the toolbar's own control, for a page that
+    /// has nothing else to offer alongside it.
+    @ViewBuilder
+    private var deleteControl: some View {
         // A single target collapses to a plain button, exactly as
         // `HeroActionButtons` collapses its menu on a Movie page — a menu
         // with one row is a pointless extra tap.
@@ -103,18 +199,7 @@ struct DeleteAssetButton: View {
             .accessibilityIdentifier(A11yID.AssetDetail.deleteButton)
         } else {
             Menu {
-                ForEach(deletableTargets, id: \.id) { target in
-                    Button(role: .destructive) {
-                        pendingTarget = target
-                    } label: {
-                        Label {
-                            Text(menuRowLabel(for: target))
-                        } icon: {
-                            Image(systemName: "trash")
-                        }
-                    }
-                    .disabled(viewModel.deletingItemIDs.contains(target.id))
-                }
+                deleteTargetRows
             } label: {
                 HeroToolbarGlyph(systemName: "trash", tint: .red, isPending: isPending)
             }
@@ -122,6 +207,107 @@ struct DeleteAssetButton: View {
             // rows, and VoiceOver reads those on opening it.
             .accessibilityLabel(String(localized: "Delete"))
             .accessibilityIdentifier(A11yID.AssetDetail.deleteButton)
+        }
+    }
+
+    /// The delete action drawn as rows *inside* the overflow menu. Same
+    /// collapse rule as `deleteControl`, one level down: a lone target is a
+    /// flat row, several become a submenu.
+    @ViewBuilder
+    private var deleteMenuContent: some View {
+        if deletableTargets.count == 1, let only = deletableTargets.first {
+            Button(role: .destructive) {
+                pendingTarget = only
+            } label: {
+                Label(deleteActionLabel(for: only), systemImage: "trash")
+            }
+            .disabled(isPending)
+            .accessibilityIdentifier(A11yID.AssetDetail.deleteButton)
+        } else {
+            Menu {
+                deleteTargetRows
+            } label: {
+                Label(String(localized: "Delete"), systemImage: "trash")
+            }
+            .accessibilityIdentifier(A11yID.AssetDetail.deleteButton)
+        }
+    }
+
+    @ViewBuilder
+    private var deleteTargetRows: some View {
+        ForEach(deletableTargets, id: \.id) { target in
+            Button(role: .destructive) {
+                pendingTarget = target
+            } label: {
+                Label {
+                    Text(menuRowLabel(for: target))
+                } icon: {
+                    Image(systemName: "trash")
+                }
+            }
+            .disabled(viewModel.deletingItemIDs.contains(target.id))
+        }
+    }
+
+    // MARK: - Add to playlist
+
+    /// The add action drawn as the toolbar's own control — what a user
+    /// without delete rights sees, which is the common case on a shared
+    /// server.
+    @ViewBuilder
+    private var addToPlaylistControl: some View {
+        if playlistTargets.count == 1, let only = playlistTargets.first {
+            Button {
+                playlistTarget = only
+            } label: {
+                HeroToolbarGlyph(systemName: "text.badge.plus", isPending: false)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "Add to Playlist"))
+            .accessibilityIdentifier(A11yID.AssetDetail.addToPlaylistButton)
+        } else {
+            Menu {
+                playlistTargetRows
+            } label: {
+                HeroToolbarGlyph(systemName: "text.badge.plus", isPending: false)
+            }
+            .accessibilityLabel(String(localized: "Add to Playlist"))
+            .accessibilityIdentifier(A11yID.AssetDetail.addToPlaylistButton)
+        }
+    }
+
+    /// The add action drawn as rows inside the overflow menu.
+    @ViewBuilder
+    private var addToPlaylistMenuContent: some View {
+        if playlistTargets.count == 1, let only = playlistTargets.first {
+            Button {
+                playlistTarget = only
+            } label: {
+                Label(String(localized: "Add to Playlist"), systemImage: "text.badge.plus")
+            }
+            .accessibilityIdentifier(A11yID.AssetDetail.addToPlaylistButton)
+        } else {
+            Menu {
+                playlistTargetRows
+            } label: {
+                Label(String(localized: "Add to Playlist"), systemImage: "text.badge.plus")
+            }
+            .accessibilityIdentifier(A11yID.AssetDetail.addToPlaylistButton)
+        }
+    }
+
+    @ViewBuilder
+    private var playlistTargetRows: some View {
+        ForEach(playlistTargets, id: \.id) { target in
+            Button {
+                playlistTarget = target
+            } label: {
+                Label {
+                    Text(menuRowLabel(for: target))
+                } icon: {
+                    Image(systemName: "text.badge.plus")
+                }
+            }
         }
     }
 

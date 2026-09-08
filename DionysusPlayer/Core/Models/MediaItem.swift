@@ -342,7 +342,7 @@ struct MediaItem: Identifiable {
     var isFavorite: Bool { dto.userData?.isFavorite ?? false }
 
     /// Whether this user may delete this item from the server — gates the
-    /// detail page's delete affordance entirely (`DeleteAssetButton`).
+    /// detail page's delete affordance entirely (`AssetActionsButton`).
     ///
     /// Defaults to `false` when absent, and "absent" is the common case: the
     /// underlying `CanDelete` field is only requested by
@@ -363,6 +363,14 @@ struct MediaItem: Identifiable {
     /// per row — the same item can appear in a playlist twice) and as the
     /// `entryIds` argument to `JellyfinAPIClient.removePlaylistItems`.
     var playlistItemID: String? { dto.playlistItemId }
+
+    /// The parent Series' id for a Season or Episode, `nil` for anything
+    /// else. Distinct from `AssetDetailViewModel.seriesID`, which is that
+    /// view model's own resolved page context — this is just the field the
+    /// server put on this one item, which is what a caller holding a lone
+    /// `MediaItem` (e.g. `AddToPlaylistViewModel`, resolving a Season's
+    /// episodes) has to work from.
+    var seriesID: String? { dto.seriesId }
 
     /// Total episodes beneath a Series or Season, for the deletion
     /// confirmation's "will delete all {n} episodes" wording. `nil` when the

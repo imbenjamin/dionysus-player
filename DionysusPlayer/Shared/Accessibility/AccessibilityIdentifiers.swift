@@ -135,12 +135,15 @@ enum A11yID {
         /// `playButton` above already uses for Play/Resume.
         static let downloadButton = "assetDetail.downloadButton"
 
-        /// `DeleteAssetButton`'s tap target — present only when the server
-        /// says this user may delete this item (`MediaItem.canDelete`), so a
-        /// UI test asserting its *absence* is asserting the permission gate,
-        /// not just a missing view. One identifier covers both its forms:
-        /// the plain button on a movie, and the Show/Season/Episode menu on
-        /// a show page.
+        /// `AssetActionsButton`'s delete affordance — present only when the
+        /// server says this user may delete this item (`MediaItem.canDelete`),
+        /// so a UI test asserting its *absence* is asserting the permission
+        /// gate, not just a missing view. One identifier covers all four of
+        /// its forms: the plain toolbar button on a movie, the toolbar
+        /// Show/Season/Episode menu on a show page, and the equivalent row
+        /// or submenu inside `moreButton`'s overflow. Note that when the
+        /// user *can* delete, this now sits one tap deep behind
+        /// `moreButton` rather than in the toolbar directly.
         static let deleteButton = "assetDetail.deleteButton"
 
         /// The destructive confirm action inside the deletion dialog. Needed
@@ -155,6 +158,65 @@ enum A11yID {
         /// only when a local download of the target actually exists.
         static let deleteWithDownloadButton = "assetDetail.deleteWithDownloadButton"
 
+        /// `AssetActionsButton`'s overflow — present only when *both* of its
+        /// action groups have something to offer, which in practice means
+        /// "this user may also delete this item" (adding to a playlist is
+        /// always available; see `JellyfinAPIClient.createPlaylist`). When
+        /// only one group applies, that group's own control is drawn
+        /// directly and this identifier is absent, so a test asserting its
+        /// absence is asserting the collapse rule, not a missing view.
+        static let moreButton = "assetDetail.moreButton"
+
+        /// The "Add to Playlist" affordance, in every one of its three
+        /// forms: the standalone button on a movie page without delete
+        /// rights, the standalone scope menu on a show page without them,
+        /// and the row (or submenu) inside `moreButton`'s overflow. One
+        /// identifier covers all three by design, the same rule
+        /// `deleteButton` above follows.
+        static let addToPlaylistButton = "assetDetail.addToPlaylistButton"
+    }
+
+    /// `AddToPlaylistSheet` — the destination picker, and its pushed
+    /// "New Playlist" form.
+    enum AddToPlaylist {
+        /// One existing, editable playlist's row, keyed by the playlist's own
+        /// item id. Rows are named by server-supplied playlist names, which a
+        /// test can't select on.
+        static func playlistRow(_ playlistID: String) -> String { "addToPlaylist.row.\(playlistID)" }
+
+        /// Always present, including when the user can edit no existing
+        /// playlist at all — creating one needs no server permission.
+        static let newPlaylistButton = "addToPlaylist.newPlaylistButton"
+
+        /// The footer shown in place of the playlist list when this user can
+        /// edit none of them. Its presence is how a test asserts the
+        /// `canEdit` filter actually filtered.
+        static let emptyState = "addToPlaylist.emptyState"
+
+        /// The confirmation dialog's destructive-free "Add" action, raised
+        /// only for a show/season target (see `AddToPlaylistViewModel
+        /// .requiresConfirmation`). Needed separately from `playlistRow(_:)`
+        /// because an `app.buttons[...]` subscript matches labels as well as
+        /// identifiers — see `Screens.swift`.
+        static let addConfirmButton = "addToPlaylist.addConfirmButton"
+
+        /// Both confirmations' Cancel actions carry identifiers, unlike the
+        /// deletion dialog's — that one is toolbar-anchored, so iOS renders
+        /// it as a popover and drops Cancel entirely. These are `.alert`s
+        /// raised from inside a sheet precisely *because* the dialog form
+        /// dropped Cancel there too, so their Cancel is a real element worth
+        /// asserting on.
+        static let addCancelButton = "addToPlaylist.addCancelButton"
+        static let createCancelButton = "addToPlaylist.createCancelButton"
+
+        static let nameField = "addToPlaylist.nameField"
+        static let visibilityToggle = "addToPlaylist.visibilityToggle"
+        /// The create form's toolbar action, which raises the confirmation.
+        static let createButton = "addToPlaylist.createButton"
+        /// The confirmation dialog's own action, distinct from
+        /// `createButton` for the same label-collision reason as
+        /// `addConfirmButton`.
+        static let createConfirmButton = "addToPlaylist.createConfirmButton"
     }
 
     enum Playlist {
@@ -249,6 +311,14 @@ enum A11yID {
         /// fixes documented on those types), so this is the only element a
         /// UI test can actually query to observe that timing.
         static let heroLogoFallbackVisible = "media.heroLogoFallbackVisible"
+    }
+
+    /// `ToastHost`'s transient confirmation. One identifier for the whole
+    /// capsule, which collapses to a single accessibility element by design
+    /// — a test reads its *label* for the message, since the message itself
+    /// is localized copy.
+    enum Toast {
+        static let message = "toast.message"
     }
 
     /// Loading / error / offline placeholders, which several screens share.

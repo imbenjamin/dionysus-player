@@ -177,7 +177,7 @@ private struct PlaylistItemRow: View {
     var downloadManager: DownloadManager?
     /// Whether the current user may edit the playlist this row belongs
     /// to — gates both `onRemove` triggers below entirely (mirrors
-    /// `DeleteAssetButton`'s "render nothing, never a disabled control"
+    /// `AssetActionsButton`'s "render nothing, never a disabled control"
     /// philosophy). See `AssetDetailViewModel.canEditPlaylist`'s doc
     /// comment for why this can't be a per-row server field the way
     /// `canDelete` is.
@@ -386,7 +386,7 @@ private struct PlaylistItemRow: View {
             // reachable without any gesture at all — with no extra visible
             // chrome on a row that's already dense. Omitted entirely
             // rather than shown disabled when `canRemove` is false, same
-            // "render nothing" rule `DeleteAssetButton` follows for
+            // "render nothing" rule `AssetActionsButton` follows for
             // `canDelete`.
             //
             // A hand-rolled swipe-to-remove gesture sat alongside this

@@ -30,20 +30,36 @@ enum UITestScenario: String {
     /// The same catalogue as `.standard`, but every item comes back with
     /// `CanDelete: false` and any `DELETE` is refused — the signed-in user
     /// who simply isn't allowed to delete anything. Covers the permission
-    /// gate on `DeleteAssetButton`, which renders nothing at all in this
-    /// state, and (via a deliberately forced request) the 401-means-
-    /// "not permitted" path in `JellyfinAPIClient.deleteItem`.
+    /// gate on `AssetActionsButton`, which drops its delete affordance
+    /// entirely in this state rather than disabling it, and (via a
+    /// deliberately forced request) the 401-means-"not permitted" path in
+    /// `JellyfinAPIClient.deleteItem`.
+    ///
+    /// Note this leaves the *button* present, not absent: with delete gone,
+    /// `AssetActionsButton` collapses from its `ellipsis` overflow to the
+    /// lone "Add to Playlist" control, which is always available (see
+    /// `JellyfinAPIClient.createPlaylist`). A journey asserting the gate
+    /// therefore asserts the absence of `moreButton`/`deleteButton`, not of
+    /// the toolbar item as a whole.
     case noDeletePermission
 
     /// The same catalogue as `.standard`, but `GET /Playlists/{id}/Users/
     /// {userID}` (`JellyfinAPIClient.playlistUserPermissions`) answers 404
-    /// — Jellyfin's own "permissions not found" for a user who is neither
-    /// the playlist's owner nor shared on it — and any playlist-item
-    /// removal is refused with 403. Covers the permission gate on
-    /// `PlaylistItemList`'s remove affordances (`AssetDetailViewModel
-    /// .canEditPlaylist`), which renders neither the swipe action nor the
-    /// `.contextMenu` item in this state, same "render nothing" shape
-    /// `.noDeletePermission` above uses for `DeleteAssetButton`.
+    /// for *every* playlist — Jellyfin's own "permissions not found" for a
+    /// user who is neither the playlist's owner nor shared on it — and any
+    /// playlist-item add or removal is refused with 403.
+    ///
+    /// Covers two permission gates that read the same server answer:
+    /// `PlaylistItemList`'s remove affordance (`AssetDetailViewModel
+    /// .canEditPlaylist`), which renders no `.contextMenu` item at all in
+    /// this state; and `AddToPlaylistSheet`'s destination list
+    /// (`JellyfinAPIClient.editablePlaylists`), which comes back empty so
+    /// the picker offers only "New Playlist". Creating one still works here,
+    /// deliberately — that needs no server permission either.
+    ///
+    /// Note `.standard` is *not* a blanket "everything is editable": the
+    /// `readOnlyPlaylist` fixture answers 404 there too, so the picker's
+    /// filter has something real to reject in the normal case.
     case noPlaylistEditPermission
 
     /// The same catalogue as `.standard`, but a hero item's `Logo` image
