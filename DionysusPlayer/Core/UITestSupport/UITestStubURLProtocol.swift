@@ -47,8 +47,22 @@ final class UITestStubURLProtocol: URLProtocol {
 
         // Images resolve before any scenario gating: an error scenario is
         // about the *data* endpoints, and failing artwork too would just
-        // park every assertion on a placeholder.
+        // park every assertion on a placeholder. `.slowLogoImage` is the
+        // one deliberate exception — see `slowLogoImageDelay`.
         if path.contains("/Images/") {
+            if scenario == .slowLogoImage, path.hasSuffix("/Images/Logo") {
+                // Blocks whatever thread `URLSession` runs this request's
+                // `startLoading()` on, rather than dispatching the
+                // completion asynchronously — sidesteps Swift 6's
+                // `Sendable` requirements on a cross-queue closure
+                // entirely, and is safe here specifically because
+                // `URLSession` gives concurrent requests their own
+                // threads: this only ever delays the one Logo fetch, never
+                // any other in-flight request.
+                Thread.sleep(forTimeInterval: Self.slowLogoImageDelay)
+                finish(.success((200, Self.placeholderPNG, "image/png")))
+                return
+            }
             finish(.success((200, Self.placeholderPNG, "image/png")))
             return
         }
@@ -209,7 +223,7 @@ final class UITestStubURLProtocol: URLProtocol {
         // `.noDeletePermission` fails nothing wholesale — it's the standard
         // catalogue with `canDelete` cleared, and only `DELETE` itself
         // refused (handled in `startLoading`, which needs the method).
-        case .standard, .emptyLibrary, .offline, .noDeletePermission:
+        case .standard, .emptyLibrary, .offline, .noDeletePermission, .slowLogoImage:
             return nil
         case .serverError:
             return 500
@@ -658,6 +672,12 @@ final class UITestStubURLProtocol: URLProtocol {
     }
 
     // MARK: - Artwork
+
+    /// How long `.slowLogoImage` holds a `Logo` image response — longer
+    /// than `LogoImageView.fallbackRevealDelay` (1s) so the reveal is
+    /// deterministically observable, short enough that a UI test's own
+    /// `waitForExistence` budget doesn't need to be unusually generous.
+    static let slowLogoImageDelay: TimeInterval = 2
 
     /// A single flat-colour PNG standing in for every poster, backdrop, logo
     /// and cast photo. Generated once rather than bundled, so nothing about

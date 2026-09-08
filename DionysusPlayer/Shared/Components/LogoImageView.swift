@@ -4,9 +4,14 @@ import UIKit
 /// Loads a logo image via `RemoteImageLoader` (retry-with-backoff, caching —
 /// same rationale as `AsyncRemoteImage`, not reused directly here since this
 /// needs its own fade-in-on-success and custom fallback behavior rather than
-/// a placeholder rectangle). Shows `fallback` immediately while the logo is
-/// loading (not a blank gap) and cross-fades to the real logo once it
-/// resolves, staying on `fallback` for good if every retry fails.
+/// a placeholder rectangle). Rather than showing `fallback` the instant
+/// loading starts, holds off for `fallbackRevealDelay` to give a fast
+/// (cached or fast-network) load a chance to resolve invisibly first —
+/// only fading `fallback` in if the logo genuinely isn't ready by then, or
+/// immediately if every retry fails outright before the delay elapses.
+/// Once the logo does resolve, it cross-fades in over whatever `fallback`
+/// is currently showing (or straight onto nothing, if the delay hadn't
+/// elapsed yet).
 ///
 /// Shared by `BackdropLogoOverlay` (hero header/rail — text-title fallback)
 /// and `LandscapeMediaCard`'s episode logo overlay (no fallback — an episode
@@ -19,9 +24,39 @@ struct LogoImageView<Fallback: View>: View {
     /// rather than a duplicate type, since the concept (and the
     /// hero-only `.extended` use case) is identical.
     var retryPatience: AsyncRemoteImage.RetryPatience = .standard
+    /// Fires whenever `showFallback` actually changes value — a plain
+    /// observability hook, not used by any production call site.
+    /// `fallback` normally sits inside an accessibility-hidden or
+    /// `.ignore`-collapsed subtree (see `BackdropLogoOverlay`/
+    /// `PlayerControlsOverlay`'s own accessibility layers), so this is the
+    /// only way `DionysusPlayerUITests` can observe the delayed-reveal
+    /// timing at all; callers wire it to a `UITestConfiguration.isActive`-gated
+    /// signal on their own already-accessible layer rather than exposing
+    /// this view's internals directly.
+    var onFallbackVisibilityChange: ((Bool) -> Void)?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var phase: Phase
+    /// Whether `fallback` is allowed to render yet — independent of
+    /// `phase`, which tracks "what data do we have" rather than "what are
+    /// we showing right now". Starts `false` even once `phase` is
+    /// `.loading`; see `fallbackRevealDelay`.
+    @State private var showFallback: Bool
+
+    /// How long a logo gets to resolve silently before `fallback` is
+    /// allowed to appear at all, so a fast (cached or fast-network) load
+    /// never flashes the fallback first. Skipped entirely — revealed
+    /// immediately — the moment the fetch definitively fails; see
+    /// `fetchImage()`'s `catch` branch.
+    // Computed rather than stored `static let` — `LogoImageView` is
+    // generic over `Fallback`, and Swift doesn't support static *stored*
+    // properties on a generic type.
+    private static var fallbackRevealDelay: Duration { .seconds(1) }
+    /// Matches `FadeInLogoImage`'s own fade-in duration, so the delayed
+    /// fallback reveal and the eventual logo reveal share the same
+    /// "how briskly things settle in" feel rather than introducing a
+    /// second, differently-tuned timing in this view.
+    private static var fallbackFadeDuration: Double { 0.35 }
 
     /// Seeds `phase` synchronously from whatever's already in
     /// `RemoteImageLoader`'s in-memory cache, rather than always starting
@@ -37,15 +72,20 @@ struct LogoImageView<Fallback: View>: View {
     /// before the first paint, since a `Task` schedules its body rather
     /// than running it inline — replayed the full fade-in, reading as the
     /// logo flashing/reloading even though nothing had actually changed.
-    init(url: URL, fallback: Fallback, retryPatience: AsyncRemoteImage.RetryPatience = .standard) {
+    init(
+        url: URL, fallback: Fallback, retryPatience: AsyncRemoteImage.RetryPatience = .standard,
+        onFallbackVisibilityChange: ((Bool) -> Void)? = nil
+    ) {
         self.url = url
         self.fallback = fallback
         self.retryPatience = retryPatience
+        self.onFallbackVisibilityChange = onFallbackVisibilityChange
         if let cached = RemoteImageLoader.shared.cachedImage(for: url) {
             _phase = State(initialValue: .success(cached, animated: false))
         } else {
             _phase = State(initialValue: .loading)
         }
+        _showFallback = State(initialValue: false)
     }
 
     private enum Phase {
@@ -54,23 +94,36 @@ struct LogoImageView<Fallback: View>: View {
         case failure
     }
 
+    private var isSuccess: Bool {
+        if case .success = phase { return true }
+        return false
+    }
+
+    /// The *effective* visibility `body` actually renders — `showFallback`
+    /// alone isn't enough, since it stays `true` once set and only `phase`
+    /// reaching `.success` hides `fallback` again (see `body`'s own doc
+    /// comment). `onFallbackVisibilityChange` has to track this combined
+    /// value, not raw `showFallback`, or it would fire once on the way up
+    /// and never again on the way back down.
+    private var isFallbackVisible: Bool { showFallback && !isSuccess }
+
     /// A `ZStack`, not a hard-switching `Group`, so `fallback` and the
     /// incoming logo can cross-fade rather than pop from one to the other.
-    /// `fallback` renders for both `.loading` and `.failure` — showing it
-    /// immediately while the logo is still in flight (rather than the
-    /// previous `Color.clear`, fully invisible loading state) means a
-    /// caller's text-title fallback (`BackdropLogoOverlay`) or `EmptyView`
-    /// (`LandscapeMediaCard`'s episode overlay, where the title's already
-    /// shown as text below) is what the user sees the whole time a logo
-    /// hasn't resolved yet, not a lengthening blank gap.
+    /// `fallback` only renders once `showFallback` has been allowed to
+    /// turn on (see `fallbackRevealDelay`) *and* the logo hasn't already
+    /// resolved — the moment `phase` reaches `.success`, `fallback` is
+    /// hidden again on the spot even if it was already showing.
     var body: some View {
         ZStack {
-            if case .success = phase {} else { fallback }
+            if showFallback, !isSuccess { fallback }
             if case .success(let image, let animated) = phase {
                 FadeInLogoImage(image: Image(uiImage: image), animated: animated, reduceMotion: reduceMotion)
             }
         }
         .task(id: url) { await load() }
+        .onChange(of: isFallbackVisible) { _, newValue in
+            onFallbackVisibilityChange?(newValue)
+        }
     }
 
     private func load() async {
@@ -82,9 +135,36 @@ struct LogoImageView<Fallback: View>: View {
         // frame before landing on the exact same result.
         if let cached = RemoteImageLoader.shared.cachedImage(for: url) {
             phase = .success(cached, animated: false)
+            setShowFallback(false)
             return
         }
         phase = .loading
+        setShowFallback(false)
+
+        // Races the fallback-reveal delay against the actual fetch: an
+        // explicit `Task` handle, cancelled via `defer` the moment
+        // `fetchImage()` returns (success or failure), rather than
+        // `async let` — an un-cancelled `async let` is *awaited to
+        // completion* at end of scope on a normal return, not
+        // auto-cancelled, which would block this function for the full
+        // remaining delay even after a fast/cached success.
+        let revealTask = Task { await revealFallbackAfterDelay() }
+        defer { revealTask.cancel() }
+        await fetchImage()
+    }
+
+    private func revealFallbackAfterDelay() async {
+        do {
+            try await Task.sleep(for: Self.fallbackRevealDelay)
+        } catch {
+            // Cancelled — `fetchImage()` already resolved, or this
+            // view/url is going away. Either way, nothing to reveal.
+            return
+        }
+        revealFallback()
+    }
+
+    private func fetchImage() async {
         do {
             let image: UIImage
             switch retryPatience {
@@ -107,11 +187,41 @@ struct LogoImageView<Fallback: View>: View {
             }
         } catch {
             guard !Task.isCancelled else { return }
-            // No visual change needed here — `fallback` was already
-            // showing throughout `.loading`, so nothing needs to animate
-            // when retries quietly exhaust.
+            // Retries exhausted (or a genuine 404 — indistinguishable,
+            // see `RemoteImageLoader`'s own doc comment) before the
+            // reveal delay elapsed: skip the rest of the timer and
+            // reveal `fallback` right away, with the same brief fade as
+            // the timeout-triggered reveal, rather than an instant pop —
+            // kept visually consistent regardless of *why* fallback is
+            // appearing.
             phase = .failure
+            revealFallback()
         }
+    }
+
+    /// Single entry point for making `fallback` visible, used by both the
+    /// delay timing out and a fetch failing outright — guarantees both
+    /// paths animate identically and neither double-fires.
+    private func revealFallback() {
+        guard !showFallback else { return }
+        if reduceMotion {
+            setShowFallback(true)
+        } else {
+            withAnimation(.easeIn(duration: Self.fallbackFadeDuration)) {
+                setShowFallback(true)
+            }
+        }
+    }
+
+    /// Every `showFallback` write funnels through here purely to skip a
+    /// redundant `withAnimation` call when the value isn't actually
+    /// changing — `onFallbackVisibilityChange` is driven separately, by
+    /// `body`'s `.onChange(of: isFallbackVisible)`, since *that* combined
+    /// value (not raw `showFallback`) is what actually goes back to
+    /// `false` on success.
+    private func setShowFallback(_ value: Bool) {
+        guard showFallback != value else { return }
+        showFallback = value
     }
 }
 

@@ -219,6 +219,15 @@ enum A11yID {
     /// address one specific item wherever it appears.
     enum Media {
         static func card(_ itemID: String) -> String { "media.card.\(itemID)" }
+
+        /// A test-only marker (see `LogoImageView.onFallbackVisibilityChange`)
+        /// present in the tree exactly while a hero logo's text fallback is
+        /// showing — `BackdropLogoOverlay` and `PlayerControlsOverlay`'s
+        /// title row both wrap their real logo/fallback content in an
+        /// accessibility-hidden or `.ignore`-collapsed layer (VoiceOver
+        /// fixes documented on those types), so this is the only element a
+        /// UI test can actually query to observe that timing.
+        static let heroLogoFallbackVisible = "media.heroLogoFallbackVisible"
     }
 
     /// Loading / error / offline placeholders, which several screens share.

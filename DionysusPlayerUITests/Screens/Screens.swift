@@ -54,6 +54,17 @@ extension Screen {
         }
         return matches.firstMatch
     }
+
+    /// `LogoImageView`'s otherwise accessibility-hidden/`.ignore`-collapsed
+    /// fallback-text reveal, surfaced only under the UI test harness — see
+    /// `A11yID.Media.heroLogoFallbackVisible`'s doc comment. Shared across
+    /// screens rather than duplicated per screen object since the same
+    /// identifier means the same thing wherever `LogoImageView` renders a
+    /// text fallback (`AssetDetailScreen`'s hero header,
+    /// `PlayerScreen`'s title row).
+    var heroLogoFallbackVisible: XCUIElement {
+        app.descendants(matching: .any)[A11yID.Media.heroLogoFallbackVisible]
+    }
 }
 
 // MARK: - Server setup

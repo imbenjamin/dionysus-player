@@ -34,6 +34,15 @@ enum UITestScenario: String {
     /// state, and (via a deliberately forced request) the 401-means-
     /// "not permitted" path in `JellyfinAPIClient.deleteItem`.
     case noDeletePermission
+
+    /// The same catalogue as `.standard`, but a hero item's `Logo` image
+    /// specifically is delayed past `LogoImageView`'s own fallback-reveal
+    /// delay — every other image (posters, backdrops, thumbnails) resolves
+    /// immediately as usual. Exists so a UI test can observe the
+    /// timeout-triggered fallback-text reveal deterministically, without
+    /// depending on real network timing. See `UITestStubURLProtocol
+    /// .slowLogoImageDelay`.
+    case slowLogoImage
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a

@@ -84,6 +84,17 @@ struct BackdropLogoOverlay: View {
     /// `statusBarInset` instead.
     var accessibilityTopInset: CGFloat = 0
 
+    #if DEBUG
+    /// Mirrors `LogoImageView`'s otherwise-invisible `showFallback` state,
+    /// purely so `body` can expose it to `DionysusPlayerUITests` — see
+    /// `A11yID.Media.heroLogoFallbackVisible`'s doc comment for why nothing
+    /// inside `visualContent` (accessibility-hidden) can be queried
+    /// directly. Compiled out of Release entirely, alongside the rest of
+    /// the UI test harness (`UITestConfiguration`, `UITestStubURLProtocol`,
+    /// …).
+    @State private var isLogoFallbackVisible = false
+    #endif
+
     /// The backdrop's rotation at full tilt, and how far behind the screen
     /// plane it pivots (`anchorZ`, in points — negative pushes it away from
     /// the viewer). Together with `perspective` these are what make tilting
@@ -178,6 +189,18 @@ struct BackdropLogoOverlay: View {
                 .padding(.top, accessibilityTopInset)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(accessibilityLabelText)
+
+            #if DEBUG
+            // Test-only — see `isLogoFallbackVisible`'s doc comment.
+            // `UITestConfiguration.isActive` is never true outside a UI
+            // test launch, so this never renders (or gets found by
+            // VoiceOver) in any real session.
+            if UITestConfiguration.isActive, isLogoFallbackVisible {
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityIdentifier(A11yID.Media.heroLogoFallbackVisible)
+            }
+            #endif
         }
     }
 
@@ -236,8 +259,16 @@ struct BackdropLogoOverlay: View {
                                 LocalFileImage(url: logoURL, contentMode: .fit)
                                     .frame(maxWidth: 240, maxHeight: 80, alignment: Alignment(horizontal: alignment, vertical: .center))
                             } else {
+                                #if DEBUG
+                                LogoImageView(
+                                    url: logoURL, fallback: titleText, retryPatience: .extended,
+                                    onFallbackVisibilityChange: { isLogoFallbackVisible = $0 }
+                                )
+                                .frame(maxWidth: 240, maxHeight: 80, alignment: Alignment(horizontal: alignment, vertical: .center))
+                                #else
                                 LogoImageView(url: logoURL, fallback: titleText, retryPatience: .extended)
                                     .frame(maxWidth: 240, maxHeight: 80, alignment: Alignment(horizontal: alignment, vertical: .center))
+                                #endif
                             }
                         } else {
                             titleText
