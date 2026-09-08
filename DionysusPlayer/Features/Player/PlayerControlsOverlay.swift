@@ -85,6 +85,15 @@ struct PlayerControlsOverlay: View {
     /// flipped by tapping that timestamp. Local `@State`: nothing outside
     /// this overlay needs to know which mode is showing.
     @State private var showRemainingTime = true
+
+    #if DEBUG
+    /// Mirrors `LogoImageView`'s otherwise-invisible `showFallback` state
+    /// for `titleRow`'s logo — same reasoning as `BackdropLogoOverlay
+    /// .isLogoFallbackVisible`, needed here too since this row's own
+    /// `.accessibilityElement(children: .ignore)` collapses its children
+    /// the same way. Compiled out of Release entirely.
+    @State private var isLogoFallbackVisible = false
+    #endif
     /// Whether the info-circle button below (which toggles
     /// `PlaybackStatsOverlay`) should be shown at all — a persisted
     /// setting (Profile → Playback → Advanced), read directly via its own
@@ -1292,42 +1301,63 @@ struct PlayerControlsOverlay: View {
     @ViewBuilder
     private var titleRow: some View {
         if let item = viewModel.item {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    if let logoURL = viewModel.offlineLogoURL ?? item.logoImageURL {
-                        if logoURL.isFileURL {
-                            LocalFileImage(url: logoURL, contentMode: .fit)
+            ZStack(alignment: .topLeading) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        if let logoURL = viewModel.offlineLogoURL ?? item.logoImageURL {
+                            if logoURL.isFileURL {
+                                LocalFileImage(url: logoURL, contentMode: .fit)
+                                    .frame(maxWidth: 240, maxHeight: 60, alignment: .leading)
+                            } else {
+                                #if DEBUG
+                                LogoImageView(
+                                    url: logoURL, fallback: titleText(item.railTitle),
+                                    onFallbackVisibilityChange: { isLogoFallbackVisible = $0 }
+                                )
                                 .frame(maxWidth: 240, maxHeight: 60, alignment: .leading)
+                                #else
+                                LogoImageView(url: logoURL, fallback: titleText(item.railTitle))
+                                    .frame(maxWidth: 240, maxHeight: 60, alignment: .leading)
+                                #endif
+                            }
+                        } else if item.kind == .episode {
+                            titleText(item.railTitle)
                         } else {
-                            LogoImageView(url: logoURL, fallback: titleText(item.railTitle))
-                                .frame(maxWidth: 240, maxHeight: 60, alignment: .leading)
+                            titleText(item.name)
                         }
-                    } else if item.kind == .episode {
-                        titleText(item.railTitle)
-                    } else {
-                        titleText(item.name)
-                    }
 
-                    if item.kind == .episode, let episodeSubtitle = item.railSubtitle {
-                        episodeSubtitleText(episodeSubtitle)
+                        if item.kind == .episode, let episodeSubtitle = item.railSubtitle {
+                            episodeSubtitleText(episodeSubtitle)
+                        }
                     }
+                    Spacer()
                 }
-                Spacer()
+                .padding(.horizontal)
+                .padding(.bottom, 12)
+                // Same `.ignore` + explicit-label shape `HeroRailView`'s card
+                // and `ProfileView`'s account row already use. Necessary here
+                // specifically because the logo *replaces* the title text when
+                // one exists: `LogoImageView`/`LocalFileImage` render a bare
+                // `Image` with no label of its own, so a VoiceOver user got no
+                // name at all for what was playing — the one thing this row
+                // exists to say. Caught by `AccessibilityAuditTests`
+                // ("missing useful accessibility information" on an unlabeled
+                // image). `accessibilityDescription` already composes the
+                // title-plus-episode line this row shows visually.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(item.accessibilityDescription)
+
+                #if DEBUG
+                // Test-only — a sibling of the `.ignore`-collapsed `HStack`
+                // above, not a descendant of it, so it isn't swallowed the
+                // same way. See `A11yID.Media.heroLogoFallbackVisible`.
+                if UITestConfiguration.isActive, isLogoFallbackVisible {
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .accessibilityIdentifier(A11yID.Media.heroLogoFallbackVisible)
+                }
+                #endif
             }
-            .padding(.horizontal)
-            .padding(.bottom, 12)
-            // Same `.ignore` + explicit-label shape `HeroRailView`'s card
-            // and `ProfileView`'s account row already use. Necessary here
-            // specifically because the logo *replaces* the title text when
-            // one exists: `LogoImageView`/`LocalFileImage` render a bare
-            // `Image` with no label of its own, so a VoiceOver user got no
-            // name at all for what was playing — the one thing this row
-            // exists to say. Caught by `AccessibilityAuditTests`
-            // ("missing useful accessibility information" on an unlabeled
-            // image). `accessibilityDescription` already composes the
-            // title-plus-episode line this row shows visually.
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(item.accessibilityDescription)
         }
     }
 
