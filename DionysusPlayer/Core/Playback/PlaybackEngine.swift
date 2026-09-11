@@ -4,96 +4,72 @@ import UIKit
 
 /// Everything `PlayerViewModel` needs from a playback engine.
 ///
-/// This sits between the app and AetherEngine so feature code depends on a
-/// small, stable surface instead of a third-party library directly — useful
-/// both for isolating an unverified API (see `AetherPlaybackEngine`) and for
-/// swapping in a fake implementation in SwiftUI previews.
+/// Sits between the app and AetherEngine so feature code depends on a small,
+/// stable surface rather than a third-party library, and so a fake can be
+/// swapped in for SwiftUI previews.
 @MainActor
 protocol PlaybackEngine: AnyObject {
     var onStateChange: ((PlaybackState) -> Void)? { get set }
     /// Called at the engine's own cadence with `(currentTime, duration)`, in seconds.
     var onTimeUpdate: ((TimeInterval, TimeInterval) -> Void)? { get set }
-    /// Called whenever the decoded subtitle cue list changes — see
-    /// `SubtitleCueDisplay`'s doc comment. Not filtered to "active now":
-    /// the list covers a window ahead of the playhead, so `SubtitleOverlayView`
-    /// filters against `onSourceTimeUpdate` itself.
+    /// Called whenever the decoded subtitle cue list changes. Not filtered to
+    /// the current moment — the list covers a window ahead of the playhead, and
+    /// `SubtitleOverlayView` filters it against `onSourceTimeUpdate`.
     var onSubtitleCuesChange: (([SubtitleCueDisplay]) -> Void)? { get set }
-    /// Called at the engine's own clock cadence with the source-PTS playhead
-    /// — the axis subtitle cue `startTime`/`endTime` are stamped in, which
-    /// can diverge from `onTimeUpdate`'s item/AVPlayer-axis time across
-    /// producer restarts. Kept as its own callback (rather than folded into
-    /// `onTimeUpdate`) so subtitle-only observers don't need to unpack a
-    /// tuple they'd ignore half of.
+    /// The source-PTS playhead, at the engine's clock cadence. Subtitle cue
+    /// times are stamped on this axis, which diverges from `onTimeUpdate`'s
+    /// AVPlayer axis across producer restarts. Its own callback so subtitle
+    /// observers don't unpack a tuple they half ignore.
     var onSourceTimeUpdate: ((TimeInterval) -> Void)? { get set }
-    /// Mirrors `AVPictureInPictureController.isPictureInPicturePossible` —
-    /// drives the PiP button's enabled state. Stays permanently `false` for a
-    /// session on AetherEngine's software (non-AVPlayer) route: PiP here is
-    /// built around `AVPictureInPictureController(playerLayer:)`, which needs
-    /// a native player layer that route never has — see
-    /// `AetherPlaybackEngine`'s PiP section for why that's enough to make the
-    /// button self-disable with no separate route check.
+    /// Mirrors `AVPictureInPictureController.isPictureInPicturePossible`,
+    /// driving the PiP button's enabled state. Permanently `false` on
+    /// AetherEngine's software route, which has no native player layer for
+    /// `AVPictureInPictureController(playerLayer:)` — enough to make the button
+    /// self-disable with no separate route check.
     var onPictureInPicturePossibleChange: ((Bool) -> Void)? { get set }
-    /// Whether a PiP window is currently showing this session's video —
-    /// `PlayerView` swaps the video surface for a "Playing in Picture in
-    /// Picture" placeholder while this is `true`.
+    /// Whether a PiP window is showing this session's video. `PlayerView` swaps
+    /// the video surface for a placeholder while it is `true`.
     var onPictureInPictureActiveChange: ((Bool) -> Void)? { get set }
 
     var audioTracks: [PlaybackTrack] { get }
     var subtitleTracks: [PlaybackTrack] { get }
-    /// A short description of the detected video format (e.g. "Dolby Vision
-    /// P8.1", "HDR10"), for display only. `nil` for SDR or before load.
+    /// The detected video format ("Dolby Vision P8.1", "HDR10"), for display.
+    /// `nil` for SDR and before load.
     var videoFormatDescription: String? { get }
 
-    /// Coded pixel dimensions of the source video, `nil` before they're
-    /// known (still loading, or an audio-only source) — `SubtitleOverlayView`
-    /// needs this to work out the actual on-screen picture rect (as opposed
-    /// to the surface's own, possibly letterboxed, container) for placing
-    /// image cues and `\pos`-anchored text cues. Read on demand rather than
-    /// pushed, same treatment as `stats` — it settles once per load and
-    /// nothing needs it before the first subtitle cue can possibly arrive.
+    /// Coded pixel dimensions of the source video; `nil` while loading and for
+    /// audio-only sources. `SubtitleOverlayView` needs it to derive the
+    /// on-screen picture rect, as opposed to the surface's possibly letterboxed
+    /// container, when placing image and `\pos`-anchored cues. Pulled rather
+    /// than pushed: it settles once per load, before the first cue can arrive.
     var videoNaturalSize: CGSize? { get }
 
-    /// How the video surface returned by `makeSurface()` fills its space.
-    /// Settable at any time, including before `load(url:)` — AetherEngine's
-    /// own `videoGravity` (what `AetherPlaybackEngine` bridges this to)
-    /// applies to whichever render layer is bound, independent of whether a
-    /// source is currently loaded.
+    /// How `makeSurface()`'s surface fills its space. Settable at any time,
+    /// including before `load(url:)`: the underlying `videoGravity` applies to
+    /// whichever render layer is bound, loaded or not.
     var zoomMode: VideoZoomMode { get set }
 
-    /// A fresh diagnostics snapshot, read straight from live engine state —
-    /// see `PlaybackStats`. Not cached: callers (`PlaybackStatsOverlay`)
-    /// poll this on their own timer rather than this being pushed, so every
-    /// read should reflect the engine's current state, not whatever it was
-    /// when playback started.
+    /// A diagnostics snapshot read from live engine state. Not cached —
+    /// `PlaybackStatsOverlay` polls it on its own timer, so every read must
+    /// reflect the engine now rather than at playback start.
     var stats: PlaybackStats { get }
 
-    /// `externalSubtitles` are sidecar files (Jellyfin's `isExternal ==
-    /// true` `MediaStream`s) to register alongside the load, so they show up
-    /// in `subtitleTracks` next to the embedded ones — see
-    /// `ExternalSubtitleSource`'s doc comment.
+    /// `externalSubtitles` are sidecar files to register alongside the load, so
+    /// they appear in `subtitleTracks` beside the embedded ones.
     ///
-    /// `knownAtmosAudioTrackIndices` are audio track indices (matching
-    /// `PlaybackTrack.id`/`MediaStream.index`) Jellyfin's own
-    /// `MediaStream.audioSpatialFormat == "DolbyAtmos"` already identified
-    /// as carrying Atmos — that field's own doc comment calls it "more
-    /// reliable than text-matching the codec/title for Atmos", which is
-    /// exactly why this exists: AetherEngine's own `TrackInfo.isAtmos` only
-    /// fires for the EAC3 JOC profile marker, with no equivalent detection
-    /// for TrueHD's Atmos (MAT 2.0) extension, so a TrueHD/Atmos track
-    /// needs this server-reported hint to be flagged at all — see
-    /// `AetherPlaybackEngine.audioFormatLabel(for:)`'s doc comment for the
-    /// full nuance this exists to fix.
+    /// `knownAtmosAudioTrackIndices` are track indices Jellyfin's
+    /// `MediaStream.audioSpatialFormat` already identified as carrying Atmos.
+    /// AetherEngine's `TrackInfo.isAtmos` fires only for the EAC3 JOC profile
+    /// marker and has no equivalent for TrueHD's MAT 2.0 extension, so a
+    /// TrueHD/Atmos track is flagged only via this server-reported hint.
     ///
-    /// Pass `[]`/`Set()` for either when there's nothing to register/hint —
-    /// the default-argument overloads below cover callers that don't deal
-    /// with either at all (previews, most tests).
+    /// `isRemoteHLS` is `true` only for a server-chosen HLS transcode, which
+    /// maps to `LoadOptions.nativeRemoteHLS` and hands the playlist to AVPlayer
+    /// instead of AetherEngine's FFmpeg demuxer. `false` for every other load,
+    /// including offline.
     ///
-    /// `isRemoteHLS` is `true` only when `url` is a server-chosen HLS
-    /// transcode (`MediaSourceInfo.transcodingUrl`, "Allow Transcoding"
-    /// mode) rather than a direct-play file — `AetherPlaybackEngine` maps
-    /// it to `LoadOptions.nativeRemoteHLS`, which hands the playlist
-    /// straight to AVPlayer instead of AetherEngine's own FFmpeg demuxer.
-    /// `false` for every other load, including the offline path.
+    /// The overloads below default the arguments callers may have nothing to
+    /// pass for.
     func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool) async throws
     func play()
     func pause()
@@ -105,23 +81,17 @@ protocol PlaybackEngine: AnyObject {
     /// `nil` disables subtitles.
     func selectSubtitleTrack(id: Int?)
 
-    /// No-op when PiP isn't currently possible (see
-    /// `onPictureInPicturePossibleChange`) — callers don't need to guard the
-    /// call themselves.
+    /// A no-op when PiP isn't possible, so callers need no guard of their own.
     func startPictureInPicture()
     func stopPictureInPicture()
 
-    /// Populates the system Now Playing info (lock screen / Control Center)
-    /// for this session — `title`/`subtitle` are plain display strings
-    /// (`PlayerViewModel` supplies `MediaItem.railTitle`/`.railSubtitle`, the
-    /// same pair a rail card's own label already uses), and `artwork` is
-    /// used as-is: this layer has no image-loading of its own, so a caller
-    /// that wants artwork fetches/decodes it itself (see
-    /// `RemoteImageLoader`) and passes the result in. Elapsed time/duration
-    /// aren't parameters here — the system session merges those from the
-    /// player directly. Safe to call before or after `load()`; harmless
-    /// (just never surfaced anywhere) on a route with no Now-Playing session
-    /// to write into.
+    /// Populates the system Now Playing info for this session.
+    ///
+    /// `artwork` is used as-is: this layer loads no images, so a caller wanting
+    /// artwork fetches it (see `RemoteImageLoader`) and passes the result.
+    /// Elapsed time and duration are not parameters — the system session merges
+    /// those from the player. Safe before or after `load()`, and harmless on a
+    /// route with no Now-Playing session.
     func setNowPlayingInfo(title: String, subtitle: String?, artwork: UIImage?)
 
     /// Type-erased SwiftUI surface that renders this engine's video output.
@@ -129,23 +99,19 @@ protocol PlaybackEngine: AnyObject {
 }
 
 extension PlaybackEngine {
-    /// Convenience for callers with no external subtitles or Atmos hints to
-    /// register — protocol requirements can't carry default argument
-    /// values, so this covers what would otherwise be every pre-existing
-    /// `load(url:)` call site.
+    /// Protocol requirements can't carry default arguments, so these overloads
+    /// stand in for them.
     func load(url: URL) async throws {
         try await load(url: url, externalSubtitles: [], knownAtmosAudioTrackIndices: [], isRemoteHLS: false)
     }
 
-    /// Convenience for callers with external subtitles but no Atmos hints —
-    /// same reasoning as `load(url:)` above.
+    /// External subtitles, no Atmos hints.
     func load(url: URL, externalSubtitles: [ExternalSubtitleSource]) async throws {
         try await load(url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: [], isRemoteHLS: false)
     }
 
-    /// Convenience for callers with no server-transcode hint to pass —
-    /// covers every pre-existing 3-arg call site (offline playback, tests
-    /// not exercising the transcode path) without needing to change them.
+    /// No server-transcode hint: offline playback, and tests not exercising the
+    /// transcode path.
     func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws {
         try await load(url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: knownAtmosAudioTrackIndices, isRemoteHLS: false)
     }
