@@ -3,25 +3,20 @@ import Foundation
 
 /// The deterministic catalogue `UITestStubURLProtocol` serves.
 ///
-/// Built as `BaseItemDto` values and encoded with the app's own
-/// `JellyfinJSON.encoder` rather than checked in as raw JSON. That trade is
-/// deliberate: hand-written JSON files would be closer to a real server's
-/// wire format, but they rot silently — a DTO gains a field and nothing
-/// fails until a test does, confusingly. Constructing the DTOs makes a shape
-/// change a *compile* error, and the shared encoder guarantees the bytes on
-/// the wire are exactly what the shared decoder expects (PascalCase keys,
-/// ISO-8601 dates).
+/// Built as `BaseItemDto` values encoded with `JellyfinJSON.encoder` rather than
+/// checked in as raw JSON. Hand-written JSON would be closer to a real server's
+/// wire format but rots silently — a DTO gains a field and nothing fails until
+/// a test does, confusingly. Constructing DTOs makes a shape change a compile
+/// error, and the shared encoder guarantees the decoder's expected bytes.
 ///
-/// What this deliberately does not cover is wire-format fidelity — an
-/// unexpected shape from a real Jellyfin. That belongs to the unit suite's
-/// raw-JSON fixtures (`MockURLProtocol`), which test decoding; these fixtures
-/// exist to give the *UI* stable data to render.
+/// This does not cover wire-format fidelity, an unexpected shape from a real
+/// Jellyfin. That belongs to the unit suite's raw-JSON fixtures; these exist to
+/// give the UI stable data to render.
 enum UITestFixtureLibrary {
     // MARK: - Identity
 
-    // Sourced from `UITestFixtureIdentity`, which is compiled into the UI
-    // test target too — the tests and the stub have to agree on these, and a
-    // second copy of the list is exactly how they would stop agreeing.
+    // From `UITestFixtureIdentity`, compiled into the UI test target too: the
+    // tests and the stub must agree, and a second copy is how they stop.
     static let moviesLibraryID = UITestFixtureIdentity.moviesLibraryID
     static let showsLibraryID = UITestFixtureIdentity.showsLibraryID
     static let boxSetsLibraryID = UITestFixtureIdentity.boxSetsLibraryID
@@ -46,11 +41,11 @@ enum UITestFixtureLibrary {
 
     // MARK: - Movies
 
-    /// Twelve movies spanning four genres, three studios and three decades,
-    /// with a deliberate spread of watched/favourite state. The spread is
-    /// what makes `CollectionGridView`'s five cascading facets testable: any
-    /// combination the UI offers has to leave at least one result, and that
-    /// guarantee is only meaningful over data with real cardinality.
+    /// Twelve movies across four genres, three studios and three decades, with a
+    /// spread of watched and favourite state. That spread makes
+    /// `CollectionGridView`'s cascading facets testable: every combination the
+    /// UI offers must leave a result, which is only meaningful over data with
+    /// real cardinality.
     static let movies: [BaseItemDto] = {
         let specs: [(title: String, year: Int, genre: String, studio: String, watched: Bool, favorite: Bool)] = [
             ("The Quiet Ascent",      2021, "Drama",  "Aurora Pictures",    false, true),
@@ -85,16 +80,12 @@ enum UITestFixtureLibrary {
             item.userData = UserItemDataDto(
                 playbackPositionTicks: index == 1 ? ticks(minutes: 20) : 0,
                 playedPercentage: index == 1 ? 21 : (spec.watched ? 100 : 0),
-                // `index == 1` (Signal Fire, `UITestFixtureIdentity
-                // .partWatchedMovieID`) is forced unplayed regardless of
-                // its own `spec.watched` — `MediaItem.isPartWatched`
-                // requires `!isPlayed`, so leaving this as `spec.watched`
-                // (`true` for Signal Fire) made the fixture claim a
-                // position 21% through the film while simultaneously
-                // marking it fully watched, which the app reads as neither
-                // part-watched nor showing Restart — confirmed live, the
-                // detail page rendered a bare "Play" with no Restart
-                // button at all.
+                // The part-watched fixture is forced unplayed regardless of its
+                // own `spec.watched`: `MediaItem.isPartWatched` requires
+                // `!isPlayed`, so a fixture claiming both a mid-film position
+                // and full watched state reads as neither part-watched nor
+                // eligible for Restart, and the detail page renders a bare
+                // "Play".
                 played: index == 1 ? false : spec.watched,
                 isFavorite: spec.favorite
             )
@@ -149,8 +140,8 @@ enum UITestFixtureLibrary {
             item.parentIndexNumber = seasonNumber
             item.runTimeTicks = ticks(minutes: 48)
             item.premiereDate = date(year: 2019 + seasonNumber, month: number, day: 5)
-            // Season 1 episode 1 is part-watched, so Continue Watching and
-            // Next Up both have something real to show.
+            // Part-watched, so Continue Watching and Next Up both have
+            // something to show.
             let isPartWatched = seasonNumber == 1 && number == 1
             item.userData = UserItemDataDto(
                 playbackPositionTicks: isPartWatched ? ticks(minutes: 12) : 0,
@@ -188,9 +179,8 @@ enum UITestFixtureLibrary {
         return item
     }()
 
-    /// A second editable playlist, so the "Add to Playlist" picker has a
-    /// real choice to make rather than a single row. Left empty (no
-    /// `playlistMembers` equivalent) — nothing needs to browse into it.
+    /// A second editable playlist, so the picker offers a real choice rather
+    /// than one row. Left empty; nothing browses into it.
     static let secondPlaylist: BaseItemDto = {
         var item = base(id: secondPlaylistID, name: secondPlaylistName, type: .playlist)
         item.overview = "A second destination for the Add to Playlist picker."
@@ -200,12 +190,10 @@ enum UITestFixtureLibrary {
         return item
     }()
 
-    /// A playlist this user can see but **not** edit — the stub answers
-    /// `GET /Playlists/{this}/Users/{me}` with Jellyfin's own 404, so it must
-    /// be filtered out of the picker by
-    /// `JellyfinAPIClient.editablePlaylists`. Deliberately still present in
-    /// the catalogue (and so in the Playlists library grid): a filter that
-    /// only ever sees editable playlists proves nothing.
+    /// A playlist this user can see but not edit: the stub answers its
+    /// permissions lookup with Jellyfin's 404, so `editablePlaylists` must
+    /// filter it out. Still present in the catalogue, and so in the Playlists
+    /// grid — a filter that only ever sees editable playlists proves nothing.
     static let readOnlyPlaylist: BaseItemDto = {
         var item = base(id: readOnlyPlaylistID, name: readOnlyPlaylistName, type: .playlist)
         item.overview = "Shared with this user, but read-only."
@@ -215,11 +203,10 @@ enum UITestFixtureLibrary {
         return item
     }()
 
-    /// A playlist the app itself created during a UI test run, built to look
-    /// like anything else in the catalogue so the picker and the Playlists
-    /// grid can both render it. Called by `UITestStubURLProtocol` on
-    /// `POST /Playlists`, which owns the id and the recorded list — this is
-    /// only the shape.
+    /// A playlist the app created during a run, shaped like anything else in
+    /// the catalogue so the picker and the Playlists grid both render it.
+    /// `UITestStubURLProtocol` owns the id and the recorded list; this is only
+    /// the shape.
     static func createdPlaylist(id: String, name: String) -> BaseItemDto {
         var item = base(id: id, name: name, type: .playlist)
         item.childCount = 0
@@ -228,14 +215,11 @@ enum UITestFixtureLibrary {
         return item
     }
 
-    /// Each member gets its own `playlistItemId`, distinct from the
-    /// underlying item's `id` — `MediaItem.playlistItemID`'s doc comment
-    /// has the full reasoning; `PlaylistItemList`/`AssetDetailViewModel
-    /// .removeFromPlaylist` both key rows on it. Safe to stamp here rather
-    /// than on the shared `movies`/`episodes` fixtures themselves:
-    /// `BaseItemDto` is a value type, so `Array(movies.prefix(3))` already
-    /// copies before this mutates, leaving the originals (shown elsewhere,
-    /// e.g. the Movies grid) untouched.
+    /// Each member gets its own `playlistItemId`, distinct from the item's `id`
+    /// (see `MediaItem.playlistItemID`), which `PlaylistItemList` and
+    /// `removeFromPlaylist` key rows on. Safe to stamp here rather than on the
+    /// shared fixtures: `BaseItemDto` is a value type, so the slice already
+    /// copies and the originals stay untouched.
     static var playlistMembers: [BaseItemDto] {
         var members = Array(movies.prefix(3)) + [episodes[0]]
         for index in members.indices {
@@ -246,20 +230,19 @@ enum UITestFixtureLibrary {
 
     // MARK: - Flat lookup
 
-    /// Every addressable item, keyed by id — what `/Users/{id}/Items/{itemID}`
-    /// resolves against.
+    /// Every addressable item by id, which `/Users/{id}/Items/{itemID}` resolves
+    /// against.
     static let allItems: [String: BaseItemDto] = {
         let everything = libraries + movies + [series] + seasons + episodes + [boxSet] + playlists
         return Dictionary(uniqueKeysWithValues: everything.map { ($0.id, $0) })
     }()
 
-    /// Every playlist in the catalogue, in the `SortName` order a browse
-    /// returns them in — which is also the order the "Add to Playlist"
-    /// picker lists them in, minus `readOnlyPlaylist`.
+    /// Every playlist in `SortName` order, which is also the picker's order
+    /// minus `readOnlyPlaylist`.
     static let playlists: [BaseItemDto] = [secondPlaylist, readOnlyPlaylist, playlist]
 
-    /// Everything a recursive, unscoped browse should be able to return —
-    /// libraries excluded, since Jellyfin doesn't return views from `/Items`.
+    /// Everything a recursive unscoped browse can return. Libraries are
+    /// excluded, since Jellyfin doesn't return views from `/Items`.
     static let browsableItems: [BaseItemDto] = movies + [series] + seasons + episodes + [boxSet] + playlists
 
     // MARK: - Server identity
@@ -295,18 +278,16 @@ enum UITestFixtureLibrary {
 
     private static func base(id: String, name: String, type: BaseItemKind) -> BaseItemDto {
         var item = BaseItemDto(id: id, name: name, type: type)
-        // Every tile in the app asks `ImageURLBuilder` for artwork keyed off
-        // these tags; the stub answers each image request with a generated
-        // PNG, so populating them exercises the real image path rather than
-        // parking every tile on `MediaPlaceholderBox`.
+        // Every tile asks `ImageURLBuilder` for artwork keyed off these tags,
+        // and the stub answers with a generated PNG, so populating them
+        // exercises the real image path rather than `MediaPlaceholderBox`.
         item.imageTags = ["Primary": "\(id)-primary", "Thumb": "\(id)-thumb", "Logo": "\(id)-logo"]
         item.backdropImageTags = ["\(id)-backdrop"]
         item.mediaType = "Video"
         // The fixture user can delete everything, so a deletion journey has
-        // something to act on. `UITestStubURLProtocol` clears this for the
-        // `.noDeletePermission` scenario, which is how the "button is hidden
-        // without permission" half of the gate is covered from this one
-        // catalogue rather than a parallel set of fixtures.
+        // something to act on. `UITestStubURLProtocol` clears this for
+        // `.noDeletePermission`, covering both halves of the gate from one
+        // catalogue.
         item.canDelete = true
         return item
     }
@@ -318,9 +299,9 @@ enum UITestFixtureLibrary {
         return item
     }
 
-    /// Stable across launches, unlike `hashValue` — Swift seeds string
-    /// hashing per-process, so a hash-derived id would differ between the
-    /// app and any test that tried to predict it.
+    /// Stable across launches, unlike `hashValue`: Swift seeds string hashing
+    /// per process, so a hash-derived id would differ between the app and any
+    /// test predicting it.
     private static func studioID(_ name: String) -> String {
         "studio-" + name.lowercased().replacingOccurrences(of: " ", with: "-")
     }
@@ -397,9 +378,9 @@ enum UITestFixtureLibrary {
         }
     }
 
-    /// Four evenly-spaced chapters. `MediaItem.chapters` requires 2+ before
-    /// any chapter UI appears at all, so anything smaller would silently
-    /// disable the rail, the picker and the scrubber snapping.
+    /// Four evenly spaced chapters. `MediaItem.chapters` needs at least two
+    /// before any chapter UI appears, so fewer would silently disable the rail,
+    /// the picker and scrubber snapping.
     private static func chapters(runtimeMinutes: Int) -> [ChapterInfoDto] {
         (0..<4).map { index in
             ChapterInfoDto(
