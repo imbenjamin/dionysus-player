@@ -1,157 +1,122 @@
 import CoreGraphics
 import SwiftUI
 
-/// Both this default and `ProfileView`'s own `@AppStorage` default must be
-/// declared identically by hand — nothing enforces they stay in sync (same
-/// discipline as `showPlaybackStatsButtonEnabledStorageKey`'s documented
-/// gotcha, `PlaybackStatsOverlay.swift`).
+/// This default and `ProfileView`'s `@AppStorage` default are declared by hand
+/// in both places, with nothing enforcing they stay in sync.
 let chaptersInScrubberEnabledStorageKey = "chaptersInScrubberEnabled"
-/// Default `true` — chapters in the scrubber (boundary dividers + magnetic
-/// snap) are opt-out, not opt-in, matching every other chapter-UI surface
-/// in the app (the rail, the current-chapter button, the picker) being
-/// unconditionally on whenever chapters exist. This is the one exception a
-/// user can turn off, for anyone who finds the snap distracting while
-/// scrubbing — not because chapters-in-general default to hidden.
+/// Chapters in the scrubber are opt-out, matching every other chapter surface —
+/// the rail, the current-chapter button, the picker — being on whenever chapters
+/// exist. This one is escapable for anyone who finds the snap distracting.
 let chaptersInScrubberEnabledDefault = true
 
 struct PlayerControlsOverlay: View {
     let viewModel: PlayerViewModel
     @Binding var isScrubbing: Bool
     @Binding var scrubTime: TimeInterval
-    /// Whether the audio/subtitle track picker (`trackSelectionButton`) is
-    /// showing — a `@Binding`, not local `@State` like the picker's other
-    /// state (`trackPickerPage`), because `PlayerView`'s auto-hide timer
-    /// needs to know about it too: without this, the timer had no way to
-    /// tell the picker was open and would fade the whole controls row out
-    /// from under it a few seconds in, panel and all. See
-    /// `PlayerView.scheduleAutoHide()`.
+    /// Whether the track picker is showing. A `@Binding` rather than local
+    /// `@State` because `PlayerView`'s auto-hide timer needs it too: otherwise
+    /// the timer can't tell the picker is open and fades the controls row out
+    /// from under it, panel and all.
     @Binding var isShowingTrackPicker: Bool
-    /// Whether the chapter picker is showing — a `@Binding` for the same
-    /// reason `isShowingTrackPicker` above is.
+    /// Whether the chapter picker is showing, a `@Binding` for the same reason
+    /// `isShowingTrackPicker` is.
     @Binding var isShowingChapterPicker: Bool
     var onClose: () -> Void
-    /// The three toggle buttons below all take plain state in and report
-    /// taps out through a closure, rather than binding: `PlayerView` owns
-    /// each toggle, and none of them has a continuous in-overlay gesture
-    /// that needs to write back the way the scrubber does.
+    /// The three toggle buttons take state in and report taps out through a
+    /// closure rather than binding: `PlayerView` owns each, and none has a
+    /// continuous in-overlay gesture needing to write back as the scrubber does.
     var isRotationLocked: Bool
     var onToggleRotationLock: () -> Void
     var isPlaybackStatsVisible: Bool
     var onTogglePlaybackStats: () -> Void
-    /// Zoom is landscape-only app-wide — the button below is gated on
-    /// `isLandscapeWindow`, matching the double-tap and pinch gestures in
-    /// `PlayerView` that offer the same thing.
+    /// Zoom is landscape-only, so this button is gated on `isLandscapeWindow`
+    /// like `PlayerView`'s double-tap and pinch gestures.
     var zoomMode: VideoZoomMode
     var onToggleZoomMode: () -> Void
-    /// Whether the player's window is currently wider than it is tall,
-    /// measured by `PlayerView` via `.onGeometryChange` and handed down as
-    /// plain state — the same "value in, closure out" shape `zoomMode`
-    /// itself uses just above.
+    /// Whether the window is wider than tall, measured by `PlayerView` via
+    /// `.onGeometryChange`.
     ///
-    /// Distinct from this file's own `isLandscape` (`verticalSizeClass ==
-    /// .compact`), which is still the right signal for the two places that
-    /// really mean "is this window short" — the chapter picker's bottom
-    /// padding here, and `ChapterPickerOverlay.maxHeight`. This one means
-    /// "is this window landscape-shaped", which on iPad the size class
-    /// cannot answer. See the zoom button in `topSection` for the full
-    /// reasoning.
+    /// Distinct from this file's `isLandscape` (`verticalSizeClass == .compact`),
+    /// which answers "is this window short" — what the chapter picker's bottom
+    /// padding needs. This answers "is it landscape-shaped", which the size class
+    /// cannot on iPad.
     var isLandscapeWindow: Bool
-    /// A one-shot action, unlike the two toggle buttons above — there's no
-    /// "currently in PiP" state to mirror here, `viewModel
-    /// .isPictureInPicturePossible` alone decides whether the button is
-    /// enabled at all, and once tapped there's nothing left for this overlay
-    /// to reflect (the "Playing in Picture in Picture" placeholder lives in
-    /// `PlayerView`, keyed off `viewModel.isPictureInPictureActive`).
+    /// One-shot, unlike the toggle buttons: `isPictureInPicturePossible` alone
+    /// decides whether the button is enabled, and once tapped there is nothing
+    /// for this overlay to reflect — the "Playing in Picture in Picture"
+    /// placeholder lives in `PlayerView`.
     var onEnterPictureInPicture: () -> Void
-    /// Called on every button tap and scrubber-drag tick — `PlayerView`
-    /// uses this to reset its auto-hide countdown, so a button press or an
-    /// in-progress drag doesn't get cut off by the fade mid-interaction. Not
-    /// called from `onClose` (playback is ending) or the timestamp-toggle
-    /// button (doesn't affect anything visible enough to warrant resetting
-    /// the timer over).
+    /// Called on every button tap and scrubber-drag tick, resetting
+    /// `PlayerView`'s auto-hide countdown so an interaction isn't cut off
+    /// mid-way. Not called from `onClose`, where playback is ending, or the
+    /// timestamp toggle, which changes too little to warrant it.
     var onInteract: () -> Void
-    /// A tap that landed on blank space within this overlay — not on any
-    /// button/scrubber/picker — while the controls are visible. `PlayerView`
-    /// hides them immediately (with the same fade `scheduleAutoHide()`'s
-    /// timer uses) rather than making the user wait out the full auto-hide
-    /// delay. See `body`'s own full-overlay blank-space tap catcher for why
-    /// a plain tap gesture there is enough to only catch *blank* taps —
-    /// actual buttons/the scrubber/the track picker's own backdrop all sit
-    /// above it and claim their own taps first.
+    /// A tap on blank space within this overlay while the controls are visible.
+    /// `PlayerView` hides them at once rather than making the user wait out the
+    /// auto-hide delay. A plain tap gesture on the full-overlay catcher suffices
+    /// to catch only blank taps: buttons, the scrubber and the picker's backdrop
+    /// all sit above it and claim their own.
     var onDismissControls: () -> Void
 
-    /// Whether the scrubber's trailing timestamp reads as a `-`-prefixed
-    /// countdown to the end (the default) or the asset's total duration —
-    /// flipped by tapping that timestamp. Local `@State`: nothing outside
-    /// this overlay needs to know which mode is showing.
+    /// Whether the trailing timestamp counts down to the end, the default, or
+    /// shows total duration. Flipped by tapping it; local, since nothing outside
+    /// this overlay needs to know.
     @State private var showRemainingTime = true
 
     #if DEBUG
-    /// Mirrors `LogoImageView`'s otherwise-invisible `showFallback` state
-    /// for `titleRow`'s logo — same reasoning as `BackdropLogoOverlay
-    /// .isLogoFallbackVisible`, needed here too since this row's own
-    /// `.accessibilityElement(children: .ignore)` collapses its children
-    /// the same way. Compiled out of Release entirely.
+    /// Mirrors `LogoImageView`'s otherwise-invisible `showFallback` for
+    /// `titleRow`'s logo, needed because this row's
+    /// `.accessibilityElement(children: .ignore)` collapses its children.
+    /// Compiled out of Release.
     @State private var isLogoFallbackVisible = false
     #endif
-    /// Whether the info-circle button below (which toggles
-    /// `PlaybackStatsOverlay`) should be shown at all — a persisted
-    /// setting (Profile → Playback → Advanced), read directly via its own
-    /// `@AppStorage` rather than threaded down from `PlayerView`, same
-    /// "the view that displays a persisted setting reads it directly"
-    /// shape `HeroHeaderView`'s `hero3DDepthEnabled` already uses. Default
-    /// must stay in lockstep with `AdvancedPlaybackSettingsView`'s own read
-    /// of this key — see `showPlaybackStatsButtonEnabledDefault`'s doc
-    /// comment (`PlaybackStatsOverlay.swift`).
+    /// Whether the info-circle button that toggles `PlaybackStatsOverlay` is
+    /// shown. A persisted setting read directly here rather than threaded down
+    /// from `PlayerView`. Its default must match
+    /// `AdvancedPlaybackSettingsView`'s read of the same key.
     @AppStorage(showPlaybackStatsButtonEnabledStorageKey) private var isPlaybackStatsButtonEnabled = showPlaybackStatsButtonEnabledDefault
 
-    /// Means "is this window short", not "is it landscape" — `.compact` is
-    /// iPhone's landscape signal and stays `.regular` on iPad in both
-    /// orientations. Only the chapter picker's bottom padding reads it now;
-    /// the zoom button uses `isLandscapeWindow`, which is a different
-    /// question. See `PlayerView.isLandscape` for the same caveat.
+    /// "Is this window short", not "is it landscape": `.compact` is iPhone's
+    /// landscape signal and stays `.regular` on iPad either way. Only the chapter
+    /// picker's bottom padding reads it; the zoom button uses
+    /// `isLandscapeWindow`.
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
 
-    /// Every colour in this overlay is a hardcoded white or
-    /// white-at-an-opacity, so the player used to ignore Increase Contrast
-    /// outright — on the screen where it's most likely to be on. Used below
-    /// to raise the low-opacity values toward opaque and deepen
-    /// `controlScrim`, rather than to swap palettes: there's no colour here
-    /// to re-tint, only contrast to add.
+    /// Every colour here is white at some opacity, so without this the player
+    /// ignores Increase Contrast on the screen most likely to have it on. Raises
+    /// the low-opacity values toward opaque and deepens `controlScrim` rather
+    /// than swapping palettes: there is no colour to re-tint, only contrast to
+    /// add.
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     private var isIncreasedContrast: Bool { colorSchemeContrast == .increased }
 
-    /// Secondary text (timestamps, the episode subtitle) — `0.8` white
-    /// normally, opaque under Increase Contrast.
+    /// Secondary text — timestamps, the episode subtitle — at `0.8` white, or
+    /// opaque under Increase Contrast.
     private var secondaryTextOpacity: Double { isIncreasedContrast ? 1 : 0.8 }
 
-    /// A dark halo behind a white glyph. `backgroundGradient` covers only
-    /// the top-left corner and a bottom fade, so the transport cluster and
-    /// the top-trailing buttons sit on unmodified video: measured on a bright
-    /// frame, only 2% of the positions around a glyph cleared HIG's 3:1
-    /// non-text minimum (median 1.64:1, floor 1.00:1 — invisible). With this,
-    /// 89% and median 6.31:1.
+    /// A dark halo behind a white glyph. `backgroundGradient` covers only the
+    /// top-left corner and a bottom fade, so the transport cluster and
+    /// top-trailing buttons sit on unmodified video: on a bright frame only 2%
+    /// of positions around a glyph cleared HIG's 3:1 non-text minimum, median
+    /// 1.64:1 and a floor of 1.00:1. With this, 89% and median 6.31:1.
     ///
-    /// A shadow rather than a plate or material: it costs nothing on dark
-    /// frames that are already fine, so the chrome-free look survives. Note
-    /// it buys *perceptual* separation via an edge rather than raising the
-    /// glyph's own ratio against the backdrop — the honest ceiling for
-    /// white-on-arbitrary-video short of an opaque plate under every control.
+    /// A shadow rather than a plate: it costs nothing on dark frames that are
+    /// already fine, so the chrome-free look survives. It buys perceptual
+    /// separation from an edge rather than raising the glyph's own ratio — the
+    /// ceiling for white-on-arbitrary-video short of an opaque plate.
     private var controlScrim: some ViewModifier {
         ControlScrim(opacity: isIncreasedContrast ? 1 : 0.8,
                      radius: isIncreasedContrast ? 7 : 5)
     }
 
-    /// Top-row sizing — tap target, on-state badge, glyph — in the 44 : 36 :
-    /// 22 ratio they've always had. All three scale together: only the glyph
-    /// did before, so at AX3XL it outgrew its fixed 36pt badge and spilled
-    /// out on all sides, reading as a rendering fault rather than an active
-    /// state.
+    /// Top-row tap target, on-state badge and glyph, in a 44 : 36 : 22 ratio.
+    /// All three scale together: scaling only the glyph made it outgrow its
+    /// fixed badge at AX3XL and spill out, reading as a rendering fault.
     ///
-    /// Clamped, unlike the picker row heights — this row carries up to six
+    /// Clamped, unlike the picker row heights: this row carries up to six
     /// buttons, and unbounded growth overflows a narrow phone long before an
-    /// iPad runs out of room. The caps hold the same ratio.
+    /// iPad runs out of room. The caps hold the ratio.
     @ScaledMetric(relativeTo: .title2) private var scaledTopControlSize: CGFloat = 44
     private var topControlSize: CGFloat { min(scaledTopControlSize, 60) }
     @ScaledMetric(relativeTo: .title2) private var scaledTopBadgeSize: CGFloat = 36
@@ -159,12 +124,10 @@ struct PlayerControlsOverlay: View {
     @ScaledMetric(relativeTo: .title2) private var scaledTopGlyphSize: CGFloat = 22
     private var topGlyphSize: CGFloat { min(scaledTopGlyphSize, 30) }
 
-    /// Transport-row sizing, same shape as the top row: tap target, skip
-    /// glyph, play/pause glyph, in their existing 44 : 28 : 44 ratio.
-    /// Scaling them *together* is the point — the skip buttons used `.title`
-    /// (scales) and play/pause `.system(size: 44)` (doesn't), so at AX3XL the
-    /// secondary controls rendered larger than the primary one, and both
-    /// overflowed their fixed 44pt frames.
+    /// Transport-row tap target, skip glyph and play/pause glyph, in a
+    /// 44 : 28 : 44 ratio. Scaling together is the point: `.title` scales and
+    /// `.system(size: 44)` doesn't, so at AX3XL the skip buttons rendered larger
+    /// than play/pause and both overflowed their frames.
     @ScaledMetric(relativeTo: .title) private var scaledTransportSize: CGFloat = 44
     private var transportSize: CGFloat { min(scaledTransportSize, 72) }
     @ScaledMetric(relativeTo: .title) private var scaledSkipGlyphSize: CGFloat = 28
@@ -172,28 +135,18 @@ struct PlayerControlsOverlay: View {
     @ScaledMetric(relativeTo: .title) private var scaledPlayGlyphSize: CGFloat = 44
     private var playGlyphSize: CGFloat { min(scaledPlayGlyphSize, 72) }
 
-    /// Whether the scrubber shows chapter boundary dividers and magnetically
-    /// snaps to them — a persisted setting (Profile → Playback, "Chapters in
-    /// Scrubber"), read directly via its own `@AppStorage` for the same
-    /// "the view that displays it reads it directly" reason
-    /// `isPlaybackStatsButtonEnabled` above does. Default `true` must stay
-    /// in lockstep with `ProfileView`'s own read of this key — see
-    /// `chaptersInScrubberEnabledDefault`'s doc comment just below.
+    /// Whether the scrubber shows chapter dividers and snaps to them. A persisted
+    /// setting read directly here, whose default must match `ProfileView`'s read
+    /// of the same key.
     ///
-    /// Deliberately does **not** gate the current-chapter button or
-    /// `ChapterPickerOverlay` — per the setting's own description, those
-    /// stay available regardless. Only the two behaviors this key is named
-    /// for: the track's boundary dividers, and the magnetic snap (soft pull
-    /// + haptic) in the drag handler below.
+    /// Does not gate the current-chapter button or `ChapterPickerOverlay`, which
+    /// stay available regardless — only the dividers and the magnetic snap.
     @AppStorage(chaptersInScrubberEnabledStorageKey) private var isChaptersInScrubberEnabled = chaptersInScrubberEnabledDefault
 
-    /// Whether a touch is actively down on the scrubber track, as opposed to
-    /// `isScrubbing` (the binding), which now stays `true` a little longer —
-    /// through the just-issued seek landing, not just through the drag
-    /// itself. See `scrubberTrack`'s gesture and the `onChange`s below for
-    /// why the two need to be separate. Local: nothing outside this overlay
-    /// needs to know a touch is down specifically, only that scrubbing (in
-    /// the broader sense) is in progress.
+    /// Whether a touch is down on the scrubber track, as opposed to the
+    /// `isScrubbing` binding, which stays `true` through the issued seek landing
+    /// rather than only the drag. Local: nothing outside needs to know a touch is
+    /// down specifically, only that scrubbing is in progress.
     @State private var isDraggingScrubber = false
 
     /// Latest resolved scrub-preview still, shown by `ScrubThumbnailPreview`
@@ -226,96 +179,73 @@ struct PlayerControlsOverlay: View {
     /// *transition* detector for the haptic below; the snapped *time* itself
     /// is written straight to `scrubTime` and needs no separate state.
     @State private var snappedChapterIndex: Int?
-    /// Flipped (never read directly) on each transition *into* a new snapped
-    /// chapter — `.sensoryFeedback(_:trigger:)` fires on each change of its
-    /// trigger, not on a particular value, matching the convention
-    /// `DownloadButton.advancedOptionsHapticTrigger` established. Not
-    /// flipped on leaving a snap zone, and never on a repeat frame within
-    /// one: a continuous drag through a boundary should tick exactly once,
-    /// not buzz for as long as the finger lingers there.
+    /// Flipped, never read, on each transition into a new snapped chapter:
+    /// `.sensoryFeedback(_:trigger:)` fires on any change of its trigger. Not
+    /// flipped on leaving a snap zone or on repeat frames within one, so a drag
+    /// through a boundary ticks once rather than buzzing while the finger
+    /// lingers.
     @State private var chapterSnapHapticTrigger = false
 
-    /// A fixed cap, *not* a measured fraction of the screen — every attempt
-    /// to read the real height via `GeometryReader`/`PreferenceKey` ended
-    /// with the panel rendering nowhere at all, the same dead end
-    /// `estimatedHeight(for:)` documents. Sized for landscape iPhone, this
-    /// player's primary orientation; an iPad has far more room than this
-    /// allows for.
+    /// A fixed cap rather than a measured fraction of the screen: reading the
+    /// real height via `GeometryReader` or a `PreferenceKey` left the panel
+    /// rendering nowhere, the dead end `estimatedHeight(for:)` also documents.
+    /// Sized for landscape iPhone, this player's primary orientation.
     private static let trackPickerMaxHeight: CGFloat = 320
-    /// The panel's own width — named alongside `trackPickerMaxHeight` rather
-    /// than left as bare literals on `trackPickerContent`'s `.frame(...)`,
-    /// matching every other picker sizing constant here.
+    /// The panel's width, named alongside `trackPickerMaxHeight` rather than
+    /// left as a literal on `trackPickerContent`'s frame.
     private static let trackPickerIdealWidth: CGFloat = 320
     private static let trackPickerMaxWidth: CGFloat = 360
 
-    /// Shared open/close transition for the track picker panel — one
-    /// constant so the open and close feel identical rather than drifting
-    /// apart across the several call sites that toggle `isShowingTrackPicker`
-    /// (the button, the backdrop tap, each row's selection). Reintroduced
-    /// after confirming the panel reliably shows *without* it — see
-    /// `trackSelectionButton`'s doc comment on why a `.transition` was the
-    /// first thing stripped out while diagnosing that.
+    /// One constant so the panel's open and close feel identical across the
+    /// several sites that toggle `isShowingTrackPicker`: the button, the backdrop
+    /// tap, and each row's selection.
     private static let trackPickerAnimation: Animation = .easeOut(duration: 0.18)
 
-    /// Drill-down/back navigation between picker pages, distinct from
-    /// `trackPickerAnimation` above — slower and `.easeInOut` rather than
-    /// `.easeOut`, matching `UINavigationController`'s own push/pop timing
-    /// (~0.3s, symmetric acceleration) rather than the snappier pop-open
-    /// feel appropriate for the panel itself appearing/disappearing.
+    /// Drill-down and back between picker pages: slower and `.easeInOut`, matching
+    /// `UINavigationController`'s push and pop, rather than
+    /// `trackPickerAnimation`'s snappier pop-open.
     private static let trackPickerNavigationAnimation: Animation = .easeInOut(duration: 0.3)
 
     var body: some View {
         ZStack {
-            // Purely decorative, and the backmost sibling on purpose: a
-            // `.background()`'s drawn content occludes hit-testing for
-            // whatever sits behind it, so attaching this gradient to
-            // `content` blocked every tap meant for the catcher below —
-            // across the whole overlay, not just where it reads as opaque.
+            // Decorative, and backmost on purpose: a `.background()`'s drawn
+            // content occludes hit-testing behind it, so attaching this gradient
+            // to `content` blocks every tap meant for the catcher below, across
+            // the whole overlay rather than only where it reads as opaque.
             backgroundGradient
 
-            // Blank-space tap catcher, covering the whole overlay: every
-            // real control in `content` is drawn in front of it and claims
-            // its own tap first, so this only receives taps that landed on
-            // space nothing else wanted.
+            // Blank-space tap catcher covering the whole overlay: every control
+            // in `content` draws in front and claims its own tap, so this
+            // receives only taps nothing else wanted.
             //
-            // Covering everything, rather than just the middle band, is
-            // deliberate — `topSection`/`scrubberBar` have no
-            // `.contentShape` of their own, so blank taps within them used
-            // to fall through to `PlayerView`'s video gesture, which only
-            // *toggles* and only after the double-tap window elapses. That
-            // ate a much bigger share of the screen in landscape, which is
-            // why "tap blank space to dismiss" felt unreliable there.
-            // Z-order plus every control's guaranteed ≥44×44pt
-            // `.contentShape` now gives that for free, with no hand-carved
-            // protected band.
+            // Covering everything rather than a middle band matters:
+            // `topSection` and `scrubberBar` have no `.contentShape`, so blank
+            // taps within them fall through to `PlayerView`'s video gesture,
+            // which only toggles, and only after the double-tap window. In
+            // landscape that is most of the screen. Z-order plus every control's
+            // ≥44×44pt `.contentShape` covers it with no hand-carved band.
             //
-            // Needs a nearly-invisible fill rather than `.clear`: SwiftUI
-            // won't hit-test a fully clear shape.
+            // Needs a nearly-invisible fill: SwiftUI won't hit-test a fully
+            // clear shape.
             Color.black.opacity(0.001)
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    // Defensive: either picker's own backdrop (below,
-                    // added via a later `.overlay` and therefore already
-                    // on top) should always claim a tap first while open,
-                    // but guard here too rather than rely solely on
-                    // z-order.
+                    // Defensive: either picker's backdrop is added by a later
+                    // `.overlay` and so claims a tap first while open, but don't
+                    // rely on z-order alone.
                     guard !isShowingTrackPicker, !isShowingChapterPicker else { return }
                     onDismissControls()
                 }
 
             content
         }
-        // Full-screen, effectively-invisible tap catcher — placed in its own
-        // `.overlay` *before* the panel's below, so the panel (added after,
-        // and therefore on top) still receives its own taps while any tap
-        // elsewhere on screen falls through to this and closes the picker.
-        // Needs its own opaque-enough-to-hit-test fill (SwiftUI won't
-        // hit-test a fully `.clear` shape) but visually reads as nothing —
-        // without it, a tap meant to dismiss the picker would instead reach
-        // the blank-space catcher above (or, before this overlay ever
-        // mounted, `PlayerView`'s own single-tap gesture on the video
-        // surface underneath) and close the whole controls overlay on top
-        // of closing the picker.
+        // Full-screen invisible tap catcher, in its own `.overlay` before the
+        // panel's, so the panel sits on top and keeps its own taps while
+        // anything elsewhere falls through here and closes the picker. Needs a
+        // hit-testable fill, since SwiftUI ignores a fully clear shape. Without
+        // it a dismissing tap reaches the blank-space catcher above, or
+        // `PlayerView`'s video gesture, and closes the whole controls overlay
+        // too.
         .overlay {
             if isShowingTrackPicker {
                 Color.black.opacity(0.001)
@@ -328,23 +258,20 @@ struct PlayerControlsOverlay: View {
         .overlay(alignment: .topTrailing) {
             if isShowingTrackPicker {
                 trackPickerContent
-                    // Clearance for the top button row: its own height plus
-                    // the 16pt `.padding()` above and below it in
-                    // `topSection`. Derived from `topControlSize` rather
-                    // than the flat `76` this used to be — that literal was
-                    // right only at the default text size, and at AX3XL the
-                    // grown button row pushed straight through the panel's
-                    // top edge.
+                    // Clearance for the top button row: its height plus
+                    // `topSection`'s 16pt padding above and below. Derived from
+                    // `topControlSize` rather than a literal, which holds only
+                    // at the default text size — at AX3XL the grown row pushes
+                    // through the panel's top edge.
                     .padding(.top, topControlSize + 32)
                     .padding(.trailing, 20)
                     .transition(.scale(scale: 0.92, anchor: .topTrailing).combined(with: .opacity))
             }
         }
-        // The chapter picker's own tap-catcher/panel pair, mounted after the
-        // track picker's so it sits above it in z-order. The two are never
-        // open at once in practice (opening either is a tap that would have
-        // dismissed the other first), so this ordering is belt-and-braces
-        // rather than load-bearing.
+        // The chapter picker's catcher and panel, mounted after the track
+        // picker's so they sit above it. The two are never open at once —
+        // opening either is a tap that dismisses the other — so the ordering is
+        // defensive.
         .overlay {
             if isShowingChapterPicker {
                 Color.black.opacity(0.001)
@@ -354,14 +281,11 @@ struct PlayerControlsOverlay: View {
                     }
             }
         }
-        // Anchored bottom-leading, under the current-chapter button that
-        // opens it (which sits at the leading edge just below the scrubber),
-        // rather than top-trailing like the track picker under *its* button.
-        // The bottom padding clears the scrubber row and the chapter button
-        // itself — an approximate anchor, same as the track picker's own
-        // `.padding(.top, 76)`, not a measured one. Smaller in landscape,
-        // matching `ChapterPickerOverlay.maxHeight`'s own reduced cap there
-        // — see its doc comment for why landscape needs this at all.
+        // Anchored bottom-leading under the current-chapter button that opens
+        // it, rather than top-trailing like the track picker. The bottom padding
+        // clears the scrubber row and that button — approximate, like the track
+        // picker's, not measured. Smaller in landscape, matching
+        // `ChapterPickerOverlay.maxHeight`'s reduced cap.
         .overlay(alignment: .bottomLeading) {
             if isShowingChapterPicker {
                 ChapterPickerOverlay(
@@ -378,20 +302,16 @@ struct PlayerControlsOverlay: View {
                 .transition(.scale(scale: 0.92, anchor: .bottomLeading).combined(with: .opacity))
             }
         }
-        // No container identifier here either — see `PlayerView`'s note.
-        // This overlay is inside the same `.fullScreenCover`, so an
-        // identifier on its root propagates down and overwrites every
-        // control's own.
+        // No container identifier: this overlay is inside the same
+        // `.fullScreenCover`, so one on its root propagates down and overwrites
+        // every control's own.
     }
 
-    /// `topSection`/`transportControls`/`scrubberBar` stacked as before —
-    /// pulled out of `body` only so the new blank-space tap catcher there
-    /// can sit behind it as a `ZStack` sibling. Deliberately carries no
-    /// `.background()` of its own anymore — see `backgroundGradient`'s doc
-    /// comment for why that moved out to its own layer — so this is purely
-    /// the real, interactive content: wherever it has nothing drawn (the
-    /// `Spacer()` gaps), a tap correctly falls straight through to the
-    /// catcher behind it, same as it always has for a bare `VStack`.
+    /// `topSection`, `transportControls` and `scrubberBar` stacked, separate from
+    /// `body` so the blank-space tap catcher can sit behind them as a `ZStack`
+    /// sibling. Carries no `.background()` of its own (see `backgroundGradient`),
+    /// so it is purely interactive content: a tap on a `Spacer()` gap falls
+    /// through to the catcher behind.
     private var content: some View {
         VStack {
             topSection
@@ -406,45 +326,25 @@ struct PlayerControlsOverlay: View {
         }
     }
 
-    /// The corner-anchored logo gradient + bottom darkening, previously
-    /// attached to `content` via `.background()`. Moved out to be its own
-    /// backmost `ZStack` sibling in `body` rather than staying attached
-    /// there — see `body`'s own doc comment for why: a `.background()`'s
-    /// drawn content (this is real gradient pixels, not `Color.clear`)
-    /// occludes hit-testing for whatever's behind *it*, which silently
-    /// blocked the blank-space tap catcher across the whole overlay once
-    /// that catcher became a `ZStack` sibling rather than something inside
-    /// `content` itself. As its own backmost layer here, nothing sits
-    /// between the screen and this decoration, so it can no longer occlude
-    /// anything.
+    /// The corner-anchored logo gradient and bottom darkening, as `body`'s
+    /// backmost `ZStack` sibling rather than a `.background()` on `content`.
+    /// These are real gradient pixels, and a `.background()`'s drawn content
+    /// occludes hit-testing behind it, which silently blocked the blank-space
+    /// catcher across the whole overlay. Backmost, it can occlude nothing.
     private var backgroundGradient: some View {
         ZStack {
-            // Corner-anchored, sitting mainly under the logo — see
-            // `topSection`'s doc comment for why this lives here, on
-            // the *whole* overlay, rather than scoped to that section's
-            // own (much shorter) frame. A flat plateau out to 45% of
-            // the radius, rather than fading immediately from the
-            // corner, is deliberate: `.topLeading` is the *screen's*
-            // true corner (this background ignores the safe area — see
-            // below), which sits some distance above/left of the
-            // logo's own safe-area-respecting position. A simple
-            // 2-stop fade was already noticeably dimmer by the time it
-            // reached that far, undershooting exactly the area this is
-            // meant to cover; holding near-full opacity out past where
-            // the logo actually sits, before tapering off, fixes that
-            // without reintroducing a hard-edged cutoff — it still
-            // reaches `.clear` well within the endRadius.
+            // Corner-anchored, sitting mainly under the logo. The flat plateau
+            // out to 45% of the radius is deliberate: `.topLeading` is the
+            // screen's true corner, since this ignores the safe area, and sits
+            // above and left of the logo's safe-area-respecting position. A
+            // 2-stop fade was already dim by the time it reached there,
+            // undershooting the area this covers. Holding near-full opacity past
+            // the logo before tapering still reaches `.clear` inside endRadius.
             //
-            // Stretched wider than tall via `.scaleEffect` — a logo
-            // wordmark is typically much wider than it is high (e.g.
-            // "Office Space"), so a plain circular `RadialGradient`
-            // left its right half sitting on unfaded video well before
-            // the gradient's own falloff caught up, confirmed against a
-            // real wide logo. Scaling from `.topLeading` keeps the
-            // anchor corner fixed and stretches the circle into an
-            // ellipse that reaches proportionally further right than
-            // down, matching a wordmark's own proportions instead of a
-            // uniform circle's.
+            // Stretched wider than tall: a wordmark is much wider than high, so
+            // a circular `RadialGradient` left its right half on unfaded video
+            // before the falloff caught up. Scaling from `.topLeading` fixes the
+            // anchor corner and reaches proportionally further right than down.
             RadialGradient(
                 gradient: Gradient(stops: [
                     .init(color: .black.opacity(0.85), location: 0),
@@ -457,106 +357,74 @@ struct PlayerControlsOverlay: View {
             )
             .scaleEffect(x: 1.8, y: 1, anchor: .topLeading)
 
-            // Bottom-only — the scrubber's own legibility now comes
-            // from `scrubberTrack`'s explicit track colors, not from
-            // darkening behind it further.
+            // Bottom-only: the scrubber's legibility comes from
+            // `scrubberTrack`'s explicit colors, not from darkening behind it.
             LinearGradient(
                 colors: [.clear, .clear, .black.opacity(0.6)],
                 startPoint: .top,
                 endPoint: .bottom
             )
         }
-        // Without this, the gradient is sized/positioned to this view's own
-        // safe-area-respecting frame, not the true screen bounds — same
-        // video-surface treatment `PlayerView` already gives the player's
-        // video layer. Left off, the gradient falls short of the physical
-        // edges (most visible in landscape, where the safe-area inset is on
-        // the corner side this gradient is meant to bleed into). The
-        // buttons/logo/scrubber themselves stay out of this — only this
-        // decorative layer ignores the safe area, so controls still avoid
-        // the sensor housing/home indicator the way they should.
+        // Without this the gradient is sized to this view's safe-area-respecting
+        // frame rather than the screen, falling short of the physical edges —
+        // most visible in landscape, where the inset is on the corner side this
+        // is meant to bleed into. Only this decorative layer ignores the safe
+        // area; the controls still avoid the sensor housing and home indicator.
         .ignoresSafeArea()
-        // Purely decorative — explicitly not part of hit-testing (belt and
-        // braces alongside moving it behind the catcher above; harmless
-        // either way since nothing here has a gesture attached).
+        // Decorative, so excluded from hit-testing alongside sitting behind the
+        // catcher above.
         .allowsHitTesting(false)
     }
 
-    /// Close/track-selection buttons and the logo/title row. The
-    /// corner-anchored gradient behind them lives on the *whole overlay's*
-    /// background (the `ZStack` in `body`), not scoped to this section's
-    /// own `VStack` — that was tried first and clipped the gradient hard:
-    /// `.background()` clips its content to the view it's attached to, and
-    /// this section's own frame (button row + logo, no `Spacer()`s) is only
-    /// as tall as its content — well under the gradient's 320pt radius — so
-    /// the fade got cut off mid-way instead of reaching `.clear`, visible
-    /// as a hard horizontal line right under the logo. The *whole* overlay
-    /// is comfortably taller than 320pt, so anchoring it there instead lets
-    /// the same gradient actually finish fading out inside its own bounds.
+    /// Close and track-selection buttons plus the logo row. The corner-anchored
+    /// gradient behind them lives on the whole overlay's background rather than
+    /// this section's `VStack`: `.background()` clips to the view it is attached
+    /// to, and this section is only as tall as its content — well under the
+    /// gradient's 320pt radius — so the fade was cut off mid-way, visible as a
+    /// hard line under the logo.
     private var topSection: some View {
         VStack {
             HStack {
-                // A proper close button, not a minimize/collapse affordance —
-                // `onClose` always stops playback and reports a resume point
-                // to the server (`PlayerViewModel.stop()`), it never leaves
-                // the session running in the background, so the icon should
-                // read as "exit playback" rather than "tuck this away".
+                // A close button, not a minimize: `onClose` always stops playback
+                // and reports a resume point, never leaving the session running,
+                // so the icon should read as exit rather than tuck away.
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        // `.system(size: topGlyphSize)` rather than
-                        // `.title2` — identical at the default text size
-                        // (Title 2 *is* 22pt), but clamped at the top of
-                        // the Dynamic Type range so this row can't outgrow
-                        // its own width. See `topControlSize`.
+                        // `.system(size:)` rather than `.title2`: identical at
+                        // the default text size, but clamped at the top of the
+                        // Dynamic Type range so the row can't outgrow its width.
                         .font(.system(size: topGlyphSize))
-                        // Pads the drawn glyph out to HIG's 44×44 minimum
-                        // touch target — see `body`'s blank-space tap
-                        // catcher doc comment for why every real control
-                        // here now needs an explicit, reliable tap target:
-                        // once blank space anywhere is tappable-to-dismiss,
-                        // a control with a smaller-than-drawn hit area is
-                        // easy to narrowly miss and misfire a dismiss
-                        // instead. Same pattern `ProfileView.swift`'s
-                        // GitHub link uses.
+                        // Pads the glyph to HIG's 44×44 minimum. Once blank space
+                        // is tappable-to-dismiss, a control with a small hit area
+                        // is easy to narrowly miss and misfire a dismiss.
                         .frame(width: topControlSize, height: topControlSize)
                         .contentShape(Rectangle())
                 }
-                // No explicit `.accessibilityLabel` here: the system already
-                // names an "xmark" glyph "Close", which is what VoiceOver
-                // reads. The identifier is the stable handle a test uses.
+                // No explicit label: the system names an "xmark" glyph "Close".
+                // The identifier is the stable handle a test uses.
                 .accessibilityIdentifier(A11yID.Player.closeButton)
 
                 Spacer()
 
-                // Grouped with its own spacing rather than relying on the
-                // outer `HStack`'s (there's only ever been one trailing
-                // button until now) — matches the touch-target spacing
-                // `transportControls` already uses between its three
-                // buttons.
+                // Its own spacing rather than the outer `HStack`'s, matching the
+                // touch-target spacing `transportControls` uses.
                 HStack(spacing: 20) {
-                    // Omitted where the system won't act on the lock at all
-                    // — see `RotationLock.isSupported`, which is `false` on
-                    // a multitasking-capable iPad. Omitted rather than shown
-                    // disabled, matching the PiP and playback-stats buttons
-                    // below: this one used to render, toggle its own icon to
-                    // the locked badge, and have no effect whatsoever, which
-                    // reads as a broken feature rather than an unavailable
-                    // one.
+                    // Omitted where the system won't act on the lock at all (see
+                    // `RotationLock.isSupported`, false on a multitasking iPad),
+                    // rather than shown disabled like the PiP and stats buttons:
+                    // a button that toggles its icon and does nothing reads as
+                    // broken rather than unavailable.
                     if RotationLock.isSupported {
                         Button {
                             onInteract()
                             onToggleRotationLock()
                         } label: {
-                            // The open/closed padlock swap alone (no background
-                            // change) turned out too subtle to notice at a
-                            // glance against a busy, constantly-changing video
-                            // frame — confirmed against a real device. Locked
-                            // now also gets a solid white "badge" behind it
-                            // (glyph flips to black for contrast on top of
-                            // that), the same active/on-state affordance a
-                            // system control center toggle uses; unlocked stays
-                            // a plain icon with no chrome, matching every other
-                            // button in this row.
+                            // The padlock swap alone is too subtle against a busy
+                            // video frame, so locked also gets a solid white
+                            // badge with the glyph flipped to black — the
+                            // on-state affordance a Control Center toggle uses.
+                            // Unlocked stays a plain icon like the rest of the
+                            // row.
                             Image(systemName: isRotationLocked ? "lock.rotation" : "lock.rotation.open")
                                 .font(.system(size: topGlyphSize))
                                 .foregroundStyle(isRotationLocked ? .black : .white)
@@ -566,12 +434,8 @@ struct PlayerControlsOverlay: View {
                                         Circle().fill(Color.white)
                                     }
                                 }
-                                // The visible badge stays smaller than the tap
-                                // target — an outer frame the badge is centered
-                                // in carries the ≥44pt target. See the close
-                                // button above for why that matters now, and
-                                // `topControlSize` for why all three sizes are
-                                // scaled together rather than pinned.
+                                // The badge stays smaller than the tap target: an
+                                // outer frame it centres in carries the ≥44pt.
                                 .frame(width: topControlSize, height: topControlSize)
                                 .contentShape(Rectangle())
                         }
@@ -582,12 +446,9 @@ struct PlayerControlsOverlay: View {
 
                     trackSelectionButton
 
-                    // Omitted entirely rather than shown disabled — PiP is
-                    // only ever unavailable because the active session is on
-                    // AetherEngine's software route (see `PlaybackEngine
-                    // .onPictureInPicturePossibleChange`'s doc comment) or
-                    // because AVKit hasn't yet reported the layer ready, and
-                    // neither is a state worth surfacing an inert button for.
+                    // Omitted rather than disabled: PiP is unavailable only on
+                    // AetherEngine's software route, or before AVKit reports the
+                    // layer ready, and neither warrants an inert button.
                     if viewModel.isPictureInPicturePossible {
                         Button {
                             onInteract()
@@ -637,32 +498,23 @@ struct PlayerControlsOverlay: View {
                         .animation(.easeInOut(duration: 0.15), value: isPlaybackStatsVisible)
                     }
 
-                    // Landscape-only — but keyed off `isLandscapeWindow`
-                    // (the window's own shape, measured by `PlayerView`)
-                    // rather than the `isLandscape` size-class check the
-                    // rest of this file uses. `verticalSizeClass ==
-                    // .compact` is iPhone's landscape signal and stays
-                    // `.regular` on iPad in *both* orientations, so gating
-                    // this on it meant iPad never got a zoom affordance at
-                    // all — not this button, and not the double-tap or
-                    // pinch in `PlayerView` that share the gate. That left
-                    // 2.40:1 content in iPad portrait rendering 349pt tall
-                    // inside an 1180pt screen with no way to fill it.
+                    // Landscape-only, keyed off `isLandscapeWindow` rather than
+                    // the `isLandscape` size class the rest of this file uses:
+                    // `verticalSizeClass == .compact` is iPhone's landscape
+                    // signal and stays `.regular` on iPad in both orientations,
+                    // so gating on it left iPad with no zoom affordance at all —
+                    // not this button, nor the double-tap or pinch sharing the
+                    // gate. 2.40:1 content in iPad portrait then rendered 349pt
+                    // tall inside an 1180pt screen with no way to fill it.
                     //
-                    // Window shape rather than `interfaceOrientation`
-                    // deliberately: it's the app's established pattern
-                    // (`HomeView`, `SeasonEpisodeList`, `CollectionItemList`
-                    // all prefer `.onGeometryChange` over a `UIScreen`/
-                    // key-window read), it re-evaluates on its own, it can't
-                    // be fooled by this screen's own rotation lock, and in
-                    // Split View it describes the window the video is
-                    // actually in rather than the device around it.
+                    // Window shape rather than `interfaceOrientation`: it is the
+                    // app's established pattern, re-evaluates on its own, can't
+                    // be fooled by this screen's rotation lock, and in Split View
+                    // describes the window the video is in.
                     //
-                    // No on-state badge the way rotation-lock/stats above
-                    // get one — unlike "locked"/"visible", the glyph itself
-                    // already swaps direction to show which state a tap
-                    // leads to, so a second, redundant indicator (per direct
-                    // feedback) wasn't needed here.
+                    // No on-state badge, unlike rotation lock and stats: the
+                    // glyph already swaps direction to show which state a tap
+                    // leads to.
                     if isLandscapeWindow {
                         Button {
                             onInteract()
@@ -684,10 +536,9 @@ struct PlayerControlsOverlay: View {
                 }
             }
             .foregroundStyle(.white)
-            // These buttons sit outside `backgroundGradient`'s corner
-            // ellipse (measured: it's down to ~9% opacity by the time it
-            // reaches the trailing edge), so in landscape — where the video
-            // reaches the top of the screen — they're white on unmodified
+            // These sit outside `backgroundGradient`'s corner ellipse, which is
+            // down to ~9% opacity at the trailing edge, so in landscape — where
+            // video reaches the top of the screen — they are white on unmodified
             // video. See `controlScrim`.
             .modifier(controlScrim)
             .padding()
@@ -696,13 +547,10 @@ struct PlayerControlsOverlay: View {
         }
     }
 
-    /// Which page of the track picker is showing — `.root` (the
-    /// "Audio"/"Subtitles" entry rows) when both categories have a choice to
-    /// make, one of the leaf pages otherwise (see `trackSelectionButton`,
-    /// which skips straight to the one applicable leaf rather than showing a
-    /// `.root` page with a single row on it). Reset by
-    /// `trackSelectionButton`'s tap handler every time the picker opens, so
-    /// it never reopens mid-drill-down from wherever it was left last time.
+    /// Which picker page is showing: `.root` when both categories offer a
+    /// choice, else the one applicable leaf — `trackSelectionButton` skips a
+    /// root page with a single row. Reset each time the picker opens, so it
+    /// never reopens mid-drill-down.
     private enum TrackPickerPage: Equatable {
         case root
         case audio
@@ -711,11 +559,9 @@ struct PlayerControlsOverlay: View {
 
     @State private var trackPickerPage: TrackPickerPage = .root
 
-    /// A leaf page's identity — narrower than `TrackPickerPage`, which also
-    /// has a `.root` case with no equivalent here. `displayedLeafPage` below
-    /// is never root (see its own doc comment), so this type makes that
-    /// invariant structural rather than relying on an "unreachable" `switch`
-    /// case that has to be trusted by inspection.
+    /// A leaf page's identity, narrower than `TrackPickerPage` and its `.root`
+    /// case. `displayedLeafPage` is never root, and this makes that structural
+    /// rather than an unreachable `switch` case taken on trust.
     private enum TrackPickerLeaf {
         case audio
         case subtitle
@@ -728,37 +574,27 @@ struct PlayerControlsOverlay: View {
         }
     }
 
-    /// Which leaf page's *content* is currently built, independent of
-    /// `trackPickerPage` — see `leafPage`'s doc comment for why this needs
-    /// to be tracked separately rather than just switching on
-    /// `trackPickerPage` directly.
+    /// Which leaf page's content is built, independent of `trackPickerPage` (see
+    /// `leafPage`).
     @State private var displayedLeafPage: TrackPickerLeaf = .audio
 
-    /// The picker panel's current height, driving `trackPickerContent`'s
-    /// outer `.frame(height:)` directly — a plain `@State` rather than a
-    /// value computed reactively from `trackPickerPage` inside the view
-    /// body, so it's a genuinely independent, ordinary animatable property
-    /// with no `.transition`/`.animation(_:value:)` modifier anywhere near
-    /// it to interact badly with (see `navigateToTrackPickerPage`'s doc
-    /// comment for why that mattered enough to structure it this way).
+    /// The panel's height, driving `trackPickerContent`'s `.frame(height:)`. A
+    /// plain `@State` rather than a value computed from `trackPickerPage` in the
+    /// body, so it is an ordinary animatable property with no `.transition` or
+    /// `.animation(_:value:)` nearby to interact with.
     @State private var trackPickerHeight: CGFloat = 0
 
-    /// The one place that changes `trackPickerPage` after the picker's
-    /// initial open (`trackSelectionButton` sets the *first* page directly,
-    /// before anything is on screen to animate). `displayedLeafPage` updates
-    /// first, outside the animated block, and only for a real leaf — going
-    /// back to `.root` leaves whatever leaf was last shown in place, so it
-    /// still has real content to slide away with instead of going blank
-    /// mid-exit. `trackPickerHeight` and `trackPickerPage` then change
-    /// together inside the *same* `withAnimation`, so the panel's resize and
-    /// `leafPage`'s slide (driven by `trackPickerPage`, via its `.offset` in
-    /// `trackPickerContent`) play in sync as one motion, the same way a
-    /// native `UINavigationController` push both slides the new page in and
-    /// resizes its own nav bar together rather than as two separately-timed
-    /// steps. Both are plain `@State` writes with nothing else watching
-    /// them, unlike the `.transition`-based approaches tried before this —
-    /// see `trackPickerContent`'s doc comment — so there's no ambient
-    /// animation-cascading risk in combining them here.
+    /// The only place that changes `trackPickerPage` after the initial open;
+    /// `trackSelectionButton` sets the first page directly, with nothing on
+    /// screen to animate.
+    ///
+    /// `displayedLeafPage` updates first, outside the animated block and only for
+    /// a real leaf: going back to `.root` leaves the last leaf in place so it has
+    /// content to slide away with rather than going blank mid-exit.
+    /// `trackPickerHeight` and `trackPickerPage` then change inside one
+    /// `withAnimation`, so the resize and the slide play as a single motion, the
+    /// way a `UINavigationController` push slides the page and resizes its nav
+    /// bar together.
     private func navigateToTrackPickerPage(_ page: TrackPickerPage) {
         switch page {
         case .audio: displayedLeafPage = .audio
@@ -774,37 +610,24 @@ struct PlayerControlsOverlay: View {
     private var hasAudioChoice: Bool { viewModel.audioTracks.count > 1 }
     private var hasSubtitleChoice: Bool { !viewModel.subtitleTracks.isEmpty }
 
-    /// Audio/subtitle track picker. A compact panel — not the full sheet
-    /// (`TrackSelectionSheet`) this used to present, for what's really just
-    /// a small in-place choice, not a task that ever warranted a dedicated
-    /// screen. The root page's "Audio"/"Subtitles" rows only appear when
-    /// there's an actual choice to make there: `hasAudioChoice` requires
-    /// more than one audio track (a single-track asset has nothing to pick
-    /// between), and `hasSubtitleChoice` requires at least one subtitle
-    /// track at all. When only one of the two applies, the tap handler below
-    /// skips the root page and opens straight into that one leaf — no point
-    /// showing a picker whose only choice is which single row to tap. When
-    /// *neither* applies — e.g. a single-audio-track asset with no
-    /// subtitles — the button disables itself and dims rather than opening
-    /// an empty picker.
+    /// Audio and subtitle track picker: a compact panel rather than a full
+    /// sheet, for a small in-place choice.
     ///
-    /// Hand-rolled overlay content (see `body`'s two `.overlay`s), not a
-    /// plain `Menu`, `List`-in-`.popover`, or even a bare `.popover` (all
-    /// tried first): a native `Menu`'s width/font are entirely
-    /// system-controlled, which left long commentary-track titles wrapping
-    /// across 3+ cramped lines with no way to widen the popup or shrink the
-    /// text to compensate. Swapping that for a `List` fixed the sizing but
-    /// not the legibility — `List` brings its own translucent system
-    /// background that read poorly here. Moving that same content into a
-    /// plain `.popover` (an explicit `.presentationBackground` in place of
-    /// `List`'s) fixed *that*, but introduced a new problem: the system's
-    /// own popover chrome — the arrow/rounded-rect border `UIPopoverBackgroundView`
-    /// draws, independent of `.presentationBackground` — kept its own
-    /// default light fill, so during the open/close transition that light
-    /// chrome and this view's dark content visibly animated as two
-    /// separate layers moving slightly out of step. A plain view positioned
-    /// with `.overlay(alignment:)` is one single layer with one transition,
-    /// so there's nothing left for it to visibly desync against.
+    /// The root page's rows appear only where there is a choice —
+    /// `hasAudioChoice` needs more than one audio track, `hasSubtitleChoice` at
+    /// least one subtitle track. With only one applicable, the tap handler opens
+    /// straight into that leaf; with neither, the button disables itself rather
+    /// than opening an empty picker.
+    ///
+    /// Hand-rolled overlay content rather than a `Menu`, a `List` in a
+    /// `.popover`, or a bare `.popover`. A `Menu`'s width and font are
+    /// system-controlled, wrapping long commentary titles across several cramped
+    /// lines. A `List` fixes the sizing but brings a translucent system
+    /// background that reads poorly. A `.popover` with an explicit
+    /// `.presentationBackground` fixes that, but `UIPopoverBackgroundView`'s
+    /// chrome keeps its light fill independently, so the chrome and this view's
+    /// dark content animate as two layers slightly out of step. One
+    /// `.overlay(alignment:)` layer has nothing to desync against.
     @ViewBuilder
     private var trackSelectionButton: some View {
         let hasAnyChoice = hasAudioChoice || hasSubtitleChoice
@@ -820,19 +643,17 @@ struct PlayerControlsOverlay: View {
                 trackPickerPage = .subtitle
                 displayedLeafPage = .subtitle
             }
-            // Set directly (not via `navigateToTrackPickerPage`) — this is
-            // the picker's very first page, appearing together with the
-            // whole panel via its own open/close transition below, not a
-            // drill-down with anything to slide.
+            // Set directly, not via `navigateToTrackPickerPage`: this is the
+            // first page, appearing with the panel's own open transition rather
+            // than a drill-down with anything to slide.
             trackPickerHeight = min(estimatedHeight(for: trackPickerPage), Self.trackPickerMaxHeight)
             withAnimation(Self.trackPickerAnimation) { isShowingTrackPicker = true }
         } label: {
             Image(systemName: "captions.bubble")
                 .font(.system(size: topGlyphSize))
                 // The dimmed unavailable state is exempt from the contrast
-                // floor, but Increase Contrast is still the setting of
-                // someone who needs the difference between "dim" and
-                // "gone" to be readable — so lift it rather than leave it.
+                // floor, but someone with Increase Contrast on still needs the
+                // difference between dim and gone to be readable.
                 .opacity(hasAnyChoice ? 1 : (isIncreasedContrast ? 0.6 : 0.4))
                 .frame(width: topControlSize, height: topControlSize)
                 .contentShape(Rectangle())
@@ -841,26 +662,19 @@ struct PlayerControlsOverlay: View {
         .accessibilityIdentifier(A11yID.Player.tracksButton)
     }
 
-    /// A deterministic, synchronous *estimate* of a page's content height,
-    /// not a measurement — **don't replace it with one.** Two
-    /// `GeometryReader`+`PreferenceKey` approaches were tried (measuring the
-    /// visible `ScrollView` in place, then a hidden `.fixedSize` copy) and
-    /// both left the panel rendering at zero size, in this view's
-    /// conditionally-mounted, animated-transition, nested-in-`.overlay`
-    /// context. Row counts are known synchronously, so arithmetic has no
-    /// equivalent stuck-at-zero failure mode.
+    /// A synchronous estimate of a page's content height, not a measurement.
+    /// **Don't replace it with one:** both `GeometryReader`+`PreferenceKey`
+    /// approaches — measuring the visible `ScrollView`, then a hidden
+    /// `.fixedSize` copy — left the panel at zero size in this
+    /// conditionally-mounted, animated, `.overlay`-nested context. Row counts are
+    /// known synchronously, so arithmetic has no stuck-at-zero failure mode.
     ///
-    /// The trade-off is precision: a title that wraps to two lines makes its
-    /// row taller than estimated, which just means a little extra scroll
-    /// headroom inside a `ScrollView` that already scrolls.
+    /// The cost is precision: a title wrapping to two lines makes its row taller
+    /// than estimated, which is extra scroll headroom in a view that scrolls.
     private func estimatedHeight(for page: TrackPickerPage) -> CGFloat {
-        // Root's two rows are taller than a leaf row — each carries a title
-        // *and* a current-selection subtitle line (see `navigationRow`)
-        // where a leaf row is normally one line (see `selectionRow`). A
-        // leaf's own height also has to add its header (`leafHeaderHeight`)
-        // now that header and rows move together as a single sliding unit
-        // (see `leafPage`'s doc comment) rather than living outside the
-        // animated area the way `.root` never needed one to.
+        // Root's rows are taller than a leaf's: each carries a title and a
+        // current-selection subtitle where a leaf row is normally one line. A
+        // leaf also adds its header, since header and rows slide as one unit.
         switch page {
         case .root:
             return navigationRowHeight * 2 + Self.dividerHeight
@@ -869,45 +683,36 @@ struct PlayerControlsOverlay: View {
             let rows = selectionRowHeight * CGFloat(count) + Self.dividerHeight * CGFloat(max(0, count - 1))
             return leafHeaderHeight + Self.dividerHeight + rows
         case .subtitle:
-            // +1 for the "Off" row, which isn't in `subtitleTracks`.
+            // +1 for "Off", which isn't in `subtitleTracks`.
             let count = viewModel.subtitleTracks.count + 1
             let rows = selectionRowHeight * CGFloat(count) + Self.dividerHeight * CGFloat(max(0, count - 1))
             return leafHeaderHeight + Self.dividerHeight + rows
         }
     }
 
-    /// `navigationRow`'s two-line (title + current-selection subtitle) rows
-    /// — `.padding(.vertical, 10)` (×2) plus roughly a `.subheadline` and a
-    /// `.footnote` line stacked with 2pt spacing.
+    /// `navigationRow`'s two-line rows: 10pt vertical padding either side plus a
+    /// `.subheadline` and a `.footnote` line with 2pt spacing.
     ///
-    /// `@ScaledMetric`, not a plain constant — same for the two below.
-    /// `estimatedHeight(for:)` sizes the whole panel from these, and the rows
-    /// they estimate grow with Dynamic Type, so fixed points drift further
-    /// from the truth the larger the text gets: at AX3XL a root row renders
-    /// 133.5pt against this 56, which sized the panel at 113pt, clipped its
-    /// first row mid-word and put the "Subtitles" row outside the panel
-    /// entirely. Scaling the estimate keeps the arithmetic shape — a real
-    /// measurement is a documented dead end, see `estimatedHeight(for:)`.
+    /// `@ScaledMetric`, like the two below: `estimatedHeight(for:)` sizes the
+    /// panel from these and the rows grow with Dynamic Type, so fixed points
+    /// drift. At AX3XL a root row renders 133.5pt against a fixed 56, sizing the
+    /// panel at 113pt, clipping the first row mid-word and pushing "Subtitles"
+    /// outside the panel.
     @ScaledMetric(relativeTo: .subheadline) private var navigationRowHeight: CGFloat = 56
-    /// `selectionRow`'s rows — `.padding(.vertical, 10)` (×2) plus a
-    /// `.subheadline` title and, for most tracks, a `.footnote` metadata
-    /// line underneath (see `PlaybackTrack.metadata`). Sized for that
-    /// two-line case since it's the common one; a track with no flags at
-    /// all renders one line shorter than estimated, same acceptable-gap
-    /// trade-off as a title long enough to wrap (see `estimatedHeight(for:)`
-    /// 's doc comment).
+    /// `selectionRow`'s rows: 10pt vertical padding either side plus a
+    /// `.subheadline` title and, for most tracks, a `.footnote` metadata line.
+    /// Sized for that common two-line case; a track with no flags renders a line
+    /// shorter, the same acceptable gap as a wrapped title.
     @ScaledMetric(relativeTo: .subheadline) private var selectionRowHeight: CGFloat = 56
-    /// `backRow`/`leafTitleRow`'s own height — `.padding(.vertical, 12)`
-    /// (×2) plus roughly one `.subheadline` line.
+    /// `backRow`/`leafTitleRow`: 12pt vertical padding either side plus one
+    /// `.subheadline` line.
     @ScaledMetric(relativeTo: .subheadline) private var leafHeaderHeight: CGFloat = 44
-    /// Stays fixed, unlike the three above — it's a hairline rule, not text.
+    /// Fixed, unlike the three above: a hairline rule, not text.
     private static let dividerHeight: CGFloat = 1
 
-    /// The root page — "Audio"/"Subtitles" navigation rows. Always mounted,
-    /// at its own fixed height, regardless of `trackPickerPage` — see
-    /// `trackPickerContent`'s doc comment for why this is structured as an
-    /// always-present base layer rather than one case of a `switch` that
-    /// swaps in and out.
+    /// The root page's "Audio"/"Subtitles" navigation rows. Always mounted at a
+    /// fixed height regardless of `trackPickerPage`, as a base layer rather than
+    /// one case of a swapping `switch` — see `trackPickerContent`.
     private var rootPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -925,18 +730,16 @@ struct PlayerControlsOverlay: View {
         .frame(height: estimatedHeight(for: .root))
     }
 
-    /// Slides `leafPage` fully clear of the panel's own bounds when parked
-    /// off-screen — bigger than `trackPickerMaxWidth` on purpose, so it's
-    /// unambiguously outside the panel regardless of which width between
-    /// `trackPickerIdealWidth` and `trackPickerMaxWidth` actually gets used.
+    /// Slides `leafPage` clear of the panel when parked off-screen. Larger than
+    /// `trackPickerMaxWidth`, so it is outside whichever width between ideal and
+    /// max is used.
     private static let trackPickerSlideOffset: CGFloat = 400
 
-    /// A leaf page (`.audio`/`.subtitle`) for whichever page
-    /// `displayedLeafPage` names — *not* `trackPickerPage` directly, and
-    /// always mounted rather than conditionally; see `trackPickerContent`.
-    /// Its back/title header is stacked inside this view rather than outside
-    /// it, so header and list slide as one unit — an independently
-    /// cross-fading header was part of what made this read as a fade.
+    /// A leaf page for whichever page `displayedLeafPage` names — not
+    /// `trackPickerPage` — always mounted rather than conditionally (see
+    /// `trackPickerContent`). Its header is stacked inside this view so header
+    /// and list slide as one unit; an independently cross-fading header was part
+    /// of what made this read as a fade.
     private var leafPage: some View {
         VStack(alignment: .leading, spacing: 0) {
             if hasAudioChoice && hasSubtitleChoice {
@@ -978,30 +781,25 @@ struct PlayerControlsOverlay: View {
             }
         }
         .frame(height: min(estimatedHeight(for: displayedLeafPage.page), Self.trackPickerMaxHeight))
-        // Opaque, matching the panel's own fill — without this, both this
-        // leaf and `rootPage` underneath are transparent apart from their
-        // own text/icons, so root's rows would show through wherever this
-        // leaf's rows don't happen to cover the exact same pixels mid-slide.
+        // Opaque, matching the panel's fill: otherwise both this leaf and
+        // `rootPage` are transparent apart from their text, and root's rows show
+        // through wherever this leaf's don't cover the same pixels mid-slide.
         .background(Color(white: 0.1))
     }
 
-    /// The picker's content: `rootPage` as a permanent base layer, with
-    /// `leafPage` always mounted on top but pushed off to
-    /// `trackPickerSlideOffset` (clipped by the panel's bounds) while
-    /// `trackPickerPage == .root`, animated back to `0` otherwise.
+    /// `rootPage` as a permanent base layer with `leafPage` always mounted above
+    /// it, pushed to `trackPickerSlideOffset` and clipped by the panel's bounds
+    /// while `trackPickerPage == .root`, animated back to `0` otherwise.
     ///
-    /// Plain `.offset(x:)` rather than `.transition`, which was tried twice
-    /// and abandoned: `.id()` + `.transition` animates outgoing and incoming
-    /// as a matched pair with no "this one stays still" option (read as a
-    /// cross-dissolve), and a conditionally-mounted leaf needs
-    /// `.animation(nil, value:)` on the container to stop its height
-    /// animating — which cascades down as the ambient transaction and
-    /// silently kills the leaf's own transition too. `.offset` has no
-    /// insert/remove pairing and nothing to cascade.
+    /// Plain `.offset(x:)` rather than `.transition`: `.id()` plus `.transition`
+    /// animates outgoing and incoming as a matched pair with no way to hold one
+    /// still, reading as a cross-dissolve, and a conditionally-mounted leaf needs
+    /// `.animation(nil, value:)` on the container to stop its height animating,
+    /// which cascades as the ambient transaction and kills the leaf's own
+    /// transition. `.offset` has no insert/remove pairing and nothing to cascade.
     ///
     /// `trackPickerHeight` changes in the same `withAnimation` as
-    /// `trackPickerPage` (see `navigateToTrackPickerPage`), so the resize and
-    /// the slide play as one motion.
+    /// `trackPickerPage`, so the resize and slide play as one motion.
     @ViewBuilder
     private var trackPickerContent: some View {
         ZStack(alignment: .topLeading) {
@@ -1009,9 +807,9 @@ struct PlayerControlsOverlay: View {
 
             leafPage
                 .offset(x: trackPickerPage == .root ? Self.trackPickerSlideOffset : 0)
-                // Belt-and-suspenders alongside the panel's own `.clipped()`
-                // below — without this, the leaf parked off-screen could
-                // still intercept taps meant for `rootPage` underneath it.
+                // Alongside the panel's `.clipped()` below: without this the
+                // parked-off-screen leaf still intercepts taps meant for
+                // `rootPage`.
                 .allowsHitTesting(trackPickerPage != .root)
         }
         .frame(idealWidth: Self.trackPickerIdealWidth, maxWidth: Self.trackPickerMaxWidth)
@@ -1041,10 +839,8 @@ struct PlayerControlsOverlay: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        // `.ignore`, not `.combine` — the leading chevron is purely
-        // decorative wayfinding, not information VoiceOver should read on
-        // its own; the plain "Back" label already conveys what this button
-        // does regardless of which leaf it's read from.
+        // `.ignore`, not `.combine`: the leading chevron is decorative
+        // wayfinding, and "Back" already conveys what the button does.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(String(localized: "Back"))
     }
@@ -1056,15 +852,12 @@ struct PlayerControlsOverlay: View {
             .padding(.vertical, 12)
     }
 
-    /// A root-page row that drills into a leaf page rather than selecting
-    /// anything itself — its trailing chevron (vs. a leaf row's checkmark)
-    /// is what signals that, and `value` previews the leaf's current
-    /// selection so it's visible without the extra tap. `systemImage`
-    /// (`"waveform"` for Audio, `"captions.bubble"` for Subtitles — the
-    /// latter shared with `trackSelectionButton`'s own icon deliberately,
-    /// since it's Apple's canonical captions/subtitles glyph) gives the two
-    /// rows the same "leading icon, title, chevron" shape as a native
-    /// Settings row.
+    /// A root-page row that drills into a leaf rather than selecting anything.
+    /// Its trailing chevron, against a leaf row's checkmark, signals that, and
+    /// `value` previews the leaf's current selection without the extra tap. The
+    /// leading icon gives both rows a native Settings row's shape;
+    /// `"captions.bubble"` is shared with `trackSelectionButton` as Apple's
+    /// canonical subtitles glyph.
     private func navigationRow(
         systemImage: String, title: String, value: String, identifier: String, action: @escaping () -> Void
     ) -> some View {
@@ -1091,22 +884,18 @@ struct PlayerControlsOverlay: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        // `.ignore` — the leading icon and trailing chevron are decorative;
-        // `value` (the current selection, e.g. "Default"/"Off") is folded
-        // into the label since there's no separate `.accessibilityValue`
-        // reader for a row that navigates rather than adjusts in place.
+        // `.ignore`: the icon and chevron are decorative, and `value` is folded
+        // into the label, there being no `.accessibilityValue` reader for a row
+        // that navigates rather than adjusts in place.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(String(localized: "\(title), \(value)"))
         .accessibilityIdentifier(identifier)
     }
 
-    /// A leaf-page row's list of tracks, dividers interleaved between
-    /// entries (not after the last) — the same separator `List` would draw
-    /// for free, hand-rolled here since this view doesn't use `List` (see
-    /// `trackSelectionButton`'s doc comment for why). `kind` ("audio"/
-    /// "subtitle") feeds `A11yID.Player.trackOption(_:_:)` — the same
-    /// string `rootPage`'s own navigation row above uses for the leaf it
-    /// drills into.
+    /// A leaf page's track list, with dividers between entries but not after the
+    /// last — the separator `List` would draw, hand-rolled since this view
+    /// doesn't use `List`. `kind` feeds `A11yID.Player.trackOption(_:_:)`, the
+    /// same string `rootPage`'s navigation row uses.
     @ViewBuilder
     private func trackRows(_ tracks: [PlaybackTrack], kind: String, onSelect: @escaping (PlaybackTrack) -> Void) -> some View {
         ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
@@ -1120,18 +909,14 @@ struct PlayerControlsOverlay: View {
         }
     }
 
-    /// `metadata` (Default/Forced/Hearing Impaired/Commentary/External, see
-    /// `AetherPlaybackEngine.metadataLabel(for:)`) renders as a second,
-    /// `.footnote`-styled line under `title` when present — same "title +
-    /// secondary line" shape as `navigationRow` above, just with a
-    /// selection checkmark leading instead of a chevron trailing. `nil`
-    /// collapses back to a single line rather than leaving an empty gap.
+    /// `metadata` renders as a `.footnote` line under `title` when present —
+    /// `navigationRow`'s shape with a leading checkmark instead of a trailing
+    /// chevron. `nil` collapses to one line rather than leaving a gap.
     private func selectionRow(title: String, metadata: String?, isSelected: Bool, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack {
-                // Reserves the checkmark's width whether selected or not
-                // (`.opacity` rather than an `if`) so the title doesn't
-                // shift left/right as selection changes between rows.
+                // `.opacity` rather than an `if`, reserving the checkmark's width
+                // so titles don't shift as selection moves between rows.
                 Image(systemName: "checkmark")
                     .font(.subheadline.weight(.semibold))
                     .opacity(isSelected ? 1 : 0)
