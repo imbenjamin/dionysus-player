@@ -444,14 +444,11 @@ actor JellyfinAPIClient {
     /// ids — an item that isn't in the playlist yet has no `PlaylistItemId`
     /// to name it by.
     ///
-    /// **Passing a Series or Season id adds every episode beneath it**, in
-    /// one request: Jellyfin expands any folder-shaped item recursively into
-    /// its non-folder children server-side (`Playlist.GetPlaylistItems`), so
-    /// "add the whole show" must *not* be implemented here by enumerating
-    /// episodes client-side and sending them all.
+    /// Passing a Series or Season id adds every episode beneath it in one
+    /// request: `Playlist.GetPlaylistItems` expands folder-shaped items
+    /// recursively server-side. Never enumerate episodes client-side for this.
     ///
-    /// Refused with the same clean 403 as `removePlaylistItems`, remapped
-    /// the same way and for the same reason.
+    /// Refused with a clean 403, remapped as in `removePlaylistItems`.
     func addItemsToPlaylist(playlistID: String, itemIDs: [String], userID: String) async throws {
         do {
             try await sendNoContent(path: "/Playlists/\(playlistID)/Items", method: "POST", query: [
@@ -463,20 +460,18 @@ actor JellyfinAPIClient {
         }
     }
 
-    /// Creates a playlist, optionally seeded with items in the same request
-    /// — which is why there's no separate create-then-add round trip here.
+    /// Creates a playlist, optionally seeded with items in the same request, so
+    /// no create-then-add round trip is needed.
     ///
-    /// Unlike every other playlist call in this section, this one has **no
-    /// permission gate at all**: Jellyfin's `POST /Playlists` is
-    /// `[Authorize]`-only, and no user-policy flag governs it (`UserPolicy`
-    /// has `EnableCollectionManagement`, which covers collections, not
-    /// playlists). Any signed-in user can always create one, which is why
-    /// `AssetActionsButton` offers "Add to Playlist" unconditionally.
+    /// Alone among the playlist calls here, this has no permission gate:
+    /// `POST /Playlists` is `[Authorize]`-only, and `UserPolicy`'s
+    /// `EnableCollectionManagement` covers collections, not playlists. Every
+    /// signed-in user can create one, which is why `AssetActionsButton` offers
+    /// "Add to Playlist" unconditionally.
     ///
-    /// `isPublic` is always sent explicitly rather than omitted: Jellyfin's
-    /// `CreatePlaylistDto.IsPublic` defaults to **true** server-side, so
-    /// leaving it out would silently publish every playlist this app
-    /// creates to every other user on the server.
+    /// `isPublic` is always sent: `CreatePlaylistDto.IsPublic` defaults to
+    /// `true` server-side, so omitting it would publish every playlist this app
+    /// creates to every user on the server.
     func createPlaylist(
         name: String, itemIDs: [String], userID: String, isPublic: Bool
     ) async throws -> PlaylistCreationResult {
@@ -485,16 +480,13 @@ actor JellyfinAPIClient {
         ))
     }
 
-    /// Removes one or more entries from a playlist — `entryIDs` are each
-    /// entry's own `PlaylistItemId` (`MediaItem.playlistItemID`), **not**
-    /// the underlying item's `id`, since the same item can appear in a
-    /// playlist more than once (`BaseItemDto.playlistItemId`'s doc comment
-    /// has the full reasoning).
+    /// Removes entries from a playlist. `entryIDs` are each entry's
+    /// `PlaylistItemId`, not the underlying item's `id`, since one item can
+    /// appear in a playlist more than once (see `BaseItemDto.playlistItemId`).
     ///
-    /// Unlike `deleteItem`'s ambiguous 401, Jellyfin reports "not allowed to
-    /// edit this playlist" as a clean **403** here, so there's no need for
-    /// `deleteItem`'s reduced-reauth-budget trick — a 403 is never mistaken
-    /// for an expired token, so it's remapped to `.notPermitted` directly.
+    /// Jellyfin refuses this with a clean 403 rather than `deleteItem`'s
+    /// ambiguous 401, so it needs none of that method's reduced-reauth-budget
+    /// handling and remaps straight to `.notPermitted`.
     func removePlaylistItems(playlistID: String, entryIDs: [String]) async throws {
         do {
             try await sendNoContent(path: "/Playlists/\(playlistID)/Items", method: "DELETE", query: [
@@ -514,24 +506,15 @@ actor JellyfinAPIClient {
         ])
     }
 
-    /// The stock Jellyfin API has no direct "which collections contain this
-    /// item" lookup, so this fetches every BoxSet, then checks each one's
-    /// membership with its own request. Two things kept this from scaling
-    /// past a personal server's modest collection count, found live once a
-    /// server actually had a couple dozen: firing all `boxSets.count`
-    /// membership checks at once could mean upwards of 100 concurrent
-    /// requests for one detail page's "Included In" rail, and a single
-    /// flaky one among them (`withThrowingTaskGroup`, `try await` inside
-    /// each task) failed the *entire* call — which `load()` then let take
-    /// down the whole page, not just this one rail. Fixed two ways: capped
-    /// concurrency (`maxConcurrency` in-flight at once, not the whole list),
-    /// and each membership check now fails soft (`try?` — a hiccup reads as
-    /// "not a match," not a thrown error) via a plain `withTaskGroup`
-    /// instead of the throwing variant. The one request this *can* still
-    /// throw for is the initial BoxSets probe itself — `load()` treats this
-    /// whole call as non-fatal regardless (see its own doc comment), so
-    /// that's still safe to propagate rather than pretend to have an answer
-    /// for.
+    /// Jellyfin has no "which collections contain this item" lookup, so this
+    /// fetches every BoxSet and checks each one's membership individually.
+    ///
+    /// Concurrency is capped rather than firing all `boxSets.count` checks at
+    /// once, which on a server with a few dozen collections meant upwards of
+    /// 100 concurrent requests for one "Included In" rail. Each check is also
+    /// fail-soft, so a hiccup reads as "not a match" rather than failing the
+    /// call and, through `load()`, the whole page. Only the initial BoxSets
+    /// probe can throw, which `load()` treats as non-fatal.
     func collectionsContaining(itemID: String, userID: String) async throws -> [BaseItemDto] {
         let boxSets = try await items(userID: userID, includeItemTypes: ["BoxSet"], limit: 100).items
         guard !boxSets.isEmpty else { return [] }
@@ -544,11 +527,9 @@ actor JellyfinAPIClient {
             func addNext() {
                 guard let boxSet = remaining.popFirst() else { return }
                 group.addTask {
-                    // `fields: ""` — this only needs each child's `id` to
-                    // check membership, none of `defaultFields`' heavier
-                    // payload (Overview/Genres/Studios/...) that would
-                    // otherwise be fetched and immediately discarded for
-                    // every item in every collection.
+                    // Membership needs only each child's `id`; `defaultFields`
+                    // would be fetched and discarded for every item in every
+                    // collection.
                     guard let children = try? await self.items(
                         userID: userID, parentID: boxSet.id, recursive: false, fields: ""
                     ) else { return nil }
@@ -567,10 +548,9 @@ actor JellyfinAPIClient {
 
     // MARK: - Media Segments
 
-    /// Skippable Intro/Outro/Recap/Preview/Commercial time ranges for an
-    /// item — see `MediaSegmentType`'s doc comment for the server-version
-    /// caveat. Unfiltered (includes `.unknown`-typed segments, if any); the
-    /// caller (`PlaybackSegment.init?(dto:)`) drops those.
+    /// Skippable Intro/Outro/Recap/Preview/Commercial ranges (see
+    /// `MediaSegmentType` for the server-version caveat). Unfiltered;
+    /// `PlaybackSegment.init?(dto:)` drops `.unknown`-typed segments.
     func mediaSegments(itemID: String) async throws -> [MediaSegmentDto] {
         let result: MediaSegmentDtoQueryResult = try await get("/MediaSegments/\(itemID)")
         return result.items
@@ -578,13 +558,11 @@ actor JellyfinAPIClient {
 
     // MARK: - Playback
 
-    /// `deviceProfile`/`maxStreamingBitrate`/`startTimeTicks` are all `nil`
-    /// by default, which reproduces the app's original, non-negotiated
-    /// request body exactly — `PlayerViewModel` only passes them when the
-    /// user's `StreamDecisionMode` is `.allowTranscoding` (see
-    /// `DeviceProfileBuilder`). `DownloadManager`'s own call never passes
-    /// them at all; downloads negotiate nothing and always transcode via
-    /// the separate `downloadStreamURL` path.
+    /// With `deviceProfile`/`maxStreamingBitrate`/`startTimeTicks` nil, this
+    /// sends a non-negotiated request body. `PlayerViewModel` passes them only
+    /// in `.allowTranscoding` mode (see `DeviceProfileBuilder`);
+    /// `DownloadManager` never does, since downloads negotiate nothing and
+    /// always transcode via `downloadStreamURL`.
     func playbackInfo(
         itemID: String, userID: String, mediaSourceID: String? = nil,
         deviceProfile: DeviceProfile? = nil, maxStreamingBitrate: Int? = nil, startTimeTicks: Int64? = nil
@@ -597,10 +575,9 @@ actor JellyfinAPIClient {
         ))
     }
 
-    /// Builds a direct-play stream URL. Sufficient for content the device
-    /// can decode natively — the fallback `PlayerViewModel` uses whenever
+    /// A direct-play stream URL, for content the device decodes natively.
+    /// `PlayerViewModel` falls back to this whenever
     /// `MediaSourceInfo.transcodingUrl` is absent, in both streaming modes.
-    /// See `resolveTranscodingURL(_:)` for the other branch.
     func streamURL(itemID: String, mediaSourceID: String?, container: String?) -> URL? {
         guard var components = URLComponents(
             url: baseURL.appendingPathComponent("Videos/\(itemID)/stream"),
@@ -616,24 +593,16 @@ actor JellyfinAPIClient {
         return components.url
     }
 
-    /// Resolves `MediaSourceInfo.transcodingUrl` (a relative path + query
-    /// string the server hands back already query-complete — DeviceId/
-    /// api_key/PlaySessionId baked in) against this client's own
-    /// `baseURL`. Only used in "Allow Transcoding" mode, when the server
-    /// decided direct play isn't possible.
+    /// Resolves `MediaSourceInfo.transcodingUrl` — a root-relative path with
+    /// DeviceId, api_key and PlaySessionId already in its query — against
+    /// `baseURL`. Used in "Allow Transcoding" mode when the server rules out
+    /// direct play.
     ///
-    /// Deliberately NOT `URL(string:relativeTo:)` — confirmed live
-    /// (2026-08-28) against a server reverse-proxied under a subpath (e.g.
-    /// `https://host/flix`): RFC 3986 resolution treats a path starting
-    /// with `/` (which `transcodingUrl` always does — Jellyfin returns
-    /// server-root-relative paths with no awareness of any subpath a
-    /// deployment's reverse proxy adds) as replacing the base URL's entire
-    /// path, silently dropping `/flix` and producing a 404 the base server
-    /// has no route for. `streamURL` above never hit this because
-    /// `appendingPathComponent` always appends rather than replaces —
-    /// mirror that here: split `transcodingPath` into its path/query,
-    /// append the path (leading slash stripped) onto `baseURL`, and keep
-    /// the query string as-is.
+    /// Not `URL(string:relativeTo:)`: RFC 3986 resolution treats a path
+    /// starting with `/`, which `transcodingUrl` always does, as replacing the
+    /// base URL's entire path. Against a server reverse-proxied under a subpath
+    /// (`https://host/flix`) that drops `/flix` and 404s. So split the path
+    /// from the query, append the path as `streamURL` does, and keep the query.
     func resolveTranscodingURL(_ transcodingPath: String) -> URL? {
         guard let parsed = URLComponents(string: transcodingPath) else { return nil }
         let relativePathComponent = parsed.path.hasPrefix("/") ? String(parsed.path.dropFirst()) : parsed.path
@@ -644,20 +613,16 @@ actor JellyfinAPIClient {
         return components.url
     }
 
-    /// Builds a direct-fetch URL for an external subtitle stream (a
-    /// `MediaStream` with `isExternal == true`). Deliberately does NOT read
-    /// `MediaStream.deliveryUrl` — confirmed live against a real server that
-    /// Jellyfin only populates that field when the `/PlaybackInfo` request
-    /// carries a `DeviceProfile` negotiating subtitle delivery, which this
-    /// app's direct-play-only `playbackInfo(itemID:userID:mediaSourceID:)`
-    /// doesn't send, so the field comes back `nil` for every external
-    /// stream in practice. Instead this builds Jellyfin's own well-known
-    /// subtitle route directly (`/Videos/{itemId}/{mediaSourceId}/
-    /// Subtitles/{streamIndex}/Stream.{format}`), same as `streamURL`
-    /// builds the video route by hand. AetherEngine's side-demuxer fetches
-    /// this directly over HTTP itself — outside this actor, with no
-    /// `Authorization` header — so the token has to travel as the
-    /// same `ApiKey` query item `streamURL` uses.
+    /// A direct-fetch URL for an external subtitle stream (`isExternal == true`),
+    /// built against Jellyfin's well-known route
+    /// (`/Videos/{itemId}/{mediaSourceId}/Subtitles/{streamIndex}/Stream.{format}`)
+    /// the way `streamURL` builds the video route.
+    ///
+    /// Not `MediaStream.deliveryUrl`: Jellyfin populates that only when
+    /// `/PlaybackInfo` carried a `DeviceProfile` negotiating subtitle delivery,
+    /// so it is nil for every external stream here. The token travels as an
+    /// `ApiKey` query item because AetherEngine's side-demuxer fetches this
+    /// itself, outside this actor and with no `Authorization` header.
     func subtitleURL(itemID: String, mediaSourceID: String, streamIndex: Int, codec: String?) -> URL? {
         let ext = Self.subtitleFileExtension(forCodec: codec)
         guard var components = URLComponents(
@@ -671,13 +636,11 @@ actor JellyfinAPIClient {
         return components.url
     }
 
-    /// Maps a `MediaStream.codec` to the file extension Jellyfin's subtitle
-    /// route needs to serve the sidecar file byte-for-byte rather than
-    /// running it through a server-side format conversion. Unknown/absent
-    /// codecs fall back to "srt" — by far the most common external
-    /// subtitle format, and Jellyfin serves *something* for it rather than
-    /// a 404. Not `private` — `DownloadManager` also needs this to name a
-    /// downloaded subtitle sidecar file correctly.
+    /// The extension Jellyfin's subtitle route needs to serve a sidecar
+    /// byte-for-byte instead of converting it server-side. Unknown codecs fall
+    /// back to "srt", the commonest external format, which Jellyfin serves
+    /// something for rather than 404ing. Non-`private`: `DownloadManager` names
+    /// downloaded sidecar files with it.
     static func subtitleFileExtension(forCodec codec: String?) -> String {
         switch codec?.lowercased() {
         case "ass": return "ass"
@@ -687,15 +650,12 @@ actor JellyfinAPIClient {
         }
     }
 
-    /// True for bitmap/image-based subtitle formats (PGS, VobSub, DVB) —
-    /// AetherEngine can render these live during normal playback just fine,
-    /// but they genuinely can't be brought into an offline download:
-    /// Jellyfin's subtitle-extraction endpoint (`subtitleURL`) has no
-    /// server-side OCR to convert them to text, and MP4 has no way to embed
-    /// a bitmap subtitle track either. Download-building callers must skip
-    /// these rather than falling through `subtitleFileExtension(forCodec:)`'s
-    /// `default: "srt"` case, which would otherwise silently mis-request a
-    /// bitmap stream as a (garbage) `.srt` file.
+    /// True for bitmap subtitle formats (PGS, VobSub, DVB). AetherEngine renders
+    /// these live, but they can't be downloaded: `subtitleURL` has no
+    /// server-side OCR to convert them to text, and MP4 can't embed a bitmap
+    /// track. Download callers must skip them rather than fall through
+    /// `subtitleFileExtension(forCodec:)`'s `default: "srt"`, which would
+    /// request a bitmap stream as a garbage `.srt`.
     static func isImageBasedSubtitleCodec(_ codec: String?) -> Bool {
         switch codec?.lowercased() {
         case "pgssub", "hdmv_pgs_subtitle", "dvdsub", "dvd_subtitle", "dvbsub", "dvb_subtitle", "xsub":
@@ -705,53 +665,33 @@ actor JellyfinAPIClient {
         }
     }
 
-    /// Builds a device-transcoded download URL for offline storage —
-    /// H.265/HEVC MP4, resolution/bitrate capped to `resolution`/`preset`
-    /// and never exceeding the source's own values (see
-    /// `DownloadTranscodeCalculator.target`, which computes the actual
-    /// `MaxWidth`/`MaxHeight`/`VideoBitrate`/`VideoProfile`/`MaxFramerate`
-    /// sent below). Unlike `streamURL` (`Static=true`, direct play), this is
-    /// never a plain file copy (`Static=false`): the whole point of a
-    /// download is a device-friendly capped copy, so even a source already
-    /// within the tier's bounds still gets re-muxed to MP4/AAC, which
-    /// `Static=true` wouldn't do. Audio is always transcoded to AAC-LC
-    /// stereo (`MaxAudioChannels=2`) regardless of the source's channel
-    /// layout — a deliberate v1 simplification (see the offline-downloads
-    /// plan).
+    /// A device-transcoded download URL: HEVC MP4, capped to
+    /// `resolution`/`preset` and never above the source's own values (see
+    /// `DownloadTranscodeCalculator.target`). Always `Static=false`, unlike
+    /// `streamURL`, so even a source within the tier's bounds is re-muxed to
+    /// MP4/AAC. Audio is always AAC-LC stereo regardless of the source layout.
     ///
-    /// The *video* track, though, is only re-encoded when it actually needs
-    /// to be. When the source already satisfies the requested tier
-    /// (`DownloadTranscodeTarget.videoStreamCopyEligible` — see its
-    /// conditions), this asks Jellyfin to copy the video stream into the
-    /// output MP4 untouched via `AllowVideoStreamCopy`, rather than paying
-    /// for a pointless second generation of lossy encoding. Audio is still
-    /// transcoded either way, so the output shape is unchanged.
+    /// Video is re-encoded only when it must be: a source already satisfying
+    /// the tier (`DownloadTranscodeTarget.videoStreamCopyEligible`) is copied
+    /// into the output via `AllowVideoStreamCopy` rather than paying for a
+    /// second generation of lossy encoding.
     ///
-    /// Two non-obvious details, both established by testing against a real
-    /// server rather than from the API docs:
+    /// Two details established by testing rather than from the API docs:
     ///
-    /// 1. **`VideoCodec` must list the source's own codec**, which is why
-    ///    `requestedVideoCodecs` can be `"hevc,h264"`. Jellyfin only copies
-    ///    a stream whose codec is among those the client said it wants; ask
-    ///    for `hevc` alone against an H.264 source and the copy is silently
-    ///    declined.
-    /// 2. **The resolution/bitrate caps are still sent** on the copy path.
-    ///    Jellyfin ignores them when it does copy, and they are the only
-    ///    thing standing between a declined copy and a completely
-    ///    unconstrained transcode. Omitting them (the first version of this)
-    ///    turned a 1280×720 source into a **416×234, 343 Kbps** file, because
-    ///    the copy was refused and nothing was left to bound the fallback.
+    /// 1. `VideoCodec` must list the source's own codec, which is why
+    ///    `requestedVideoCodecs` can be `"hevc,h264"`. Jellyfin copies only a
+    ///    stream whose codec the client asked for; requesting `hevc` alone
+    ///    against an H.264 source declines the copy silently.
+    /// 2. The caps are still sent on the copy path. Jellyfin ignores them when
+    ///    it copies, and they are all that bounds a declined copy's fallback
+    ///    transcode. Without them a 1280×720 source came back 416×234 at
+    ///    343 Kbps.
     ///
-    /// `ApiKey` travels as a query param, not a header, for the same reason
-    /// `streamURL`/`subtitleURL` do: this URL is handed to a plain
-    /// `URLSessionDownloadTask` outside this actor's own request pipeline.
+    /// `ApiKey` travels as a query param because this URL goes to a plain
+    /// `URLSessionDownloadTask` outside this actor's request pipeline.
     ///
-    /// `playSessionId`, when supplied, is what lets `DownloadManager`'s
-    /// keep-alive ping (`JellyfinAPIClient.pingDownloadTranscode`) find this
-    /// exact transcode job again later — see that method's doc comment for
-    /// why a download needs one at all, unlike a plain `streamURL` request.
-    ///
-    /// See `DOWNLOADS.md` for how the tiers and bitrates were chosen.
+    /// `playSessionId` is how `pingDownloadTranscode` finds this transcode job
+    /// again. See `DOWNLOADS.md` for how the tiers and bitrates were chosen.
     func downloadStreamURL(
         itemID: String,
         mediaSourceID: String?,
@@ -788,10 +728,8 @@ actor JellyfinAPIClient {
             .init(name: "AudioCodec", value: "aac"),
             .init(name: "AudioBitrate", value: String(preset.audioBitrate)),
             .init(name: "MaxAudioChannels", value: "2"),
-            // Sent even when a stream copy is expected. Jellyfin ignores
-            // these on the copy path, and if it decides to transcode after
-            // all they're the difference between a correctly-capped file and
-            // an unconstrained one — see the doc comment above.
+            // Sent even when a stream copy is expected: ignored on the copy
+            // path, and the only bound on the fallback if the copy is declined.
             .init(name: "MaxWidth", value: String(target.maxWidth)),
             .init(name: "MaxHeight", value: String(target.maxHeight)),
             .init(name: "VideoBitrate", value: String(target.videoBitrate)),
@@ -812,22 +750,16 @@ actor JellyfinAPIClient {
         return components.url
     }
 
-    /// The live session Jellyfin's server is tracking for this device —
-    /// diagnostics-only, for `PlaybackStatsOverlay`'s "Streaming" section
-    /// (server-reported play method, and live transcode parameters when
-    /// applicable). Filtered by `DeviceId`, which every request already
-    /// identifies itself with via the `Authorization` header (see
-    /// `JellyfinAuthorization`), so this is normally exactly one entry.
-    /// The one live session Jellyfin tracks for this device — used both for
-    /// `PlaybackStatsOverlay`'s "Streaming" section and for
-    /// `DownloadManager`'s live transcode-progress polling. Confirmed live
-    /// (2026-08-27): a device keeps exactly one session row no matter how
-    /// many concurrent transcode requests it's actually driving — Jellyfin
-    /// doesn't expose per-request granularity here, so a caller juggling
-    /// more than one active transcode from this device can't disambiguate
-    /// which job `transcodingInfo` currently reflects (see
-    /// `DownloadManager.startTranscodeProgressPolling`'s doc comment for how
-    /// it handles that).
+    /// The live session Jellyfin tracks for this device: server-reported play
+    /// method and live transcode parameters, used by `PlaybackStatsOverlay`'s
+    /// "Streaming" section and `DownloadManager`'s transcode-progress polling.
+    /// Filtered by the `DeviceId` every request already sends in its
+    /// `Authorization` header.
+    ///
+    /// A device keeps exactly one session row however many concurrent transcode
+    /// requests it drives, so a caller with more than one active transcode
+    /// cannot tell which job `transcodingInfo` reflects (see
+    /// `DownloadManager.startTranscodeProgressPolling`).
     func currentSession(deviceID: String) async throws -> SessionInfoDto? {
         let sessions: [SessionInfoDto] = try await get("/Sessions", query: [.init(name: "DeviceId", value: deviceID)])
         return sessions.first
@@ -841,9 +773,8 @@ actor JellyfinAPIClient {
 
     // MARK: - Playback progress reporting
 
-    /// `playSessionID` is only non-nil in "Allow Transcoding" mode, sourced
-    /// from `PlaybackInfoResponse.playSessionId` — see
-    /// `PlaybackProgressRequest.playSessionId`'s doc comment.
+    /// `playSessionID` is non-nil only in "Allow Transcoding" mode, from
+    /// `PlaybackInfoResponse.playSessionId`.
     func reportPlaybackStart(itemID: String, mediaSourceID: String? = nil, playSessionID: String? = nil) async throws {
         try await postNoContent(
             "/Sessions/Playing",
@@ -869,46 +800,31 @@ actor JellyfinAPIClient {
         )
     }
 
-    /// Keeps a download's server-side transcode job alive — confirmed live
-    /// (2026-08-27): Jellyfin arms a 10-second kill timer on a progressive
-    /// (non-HLS) transcode job the moment it thinks the client disconnected
-    /// (`ActiveRequestCount` reaching zero — which a real, transient stall
-    /// under concurrent-download CPU contention can trigger even though the
-    /// download is still very much wanted), and nothing refreshes that timer
-    /// unless a ping arrives on the *same* `PlaySessionId` the stream was
-    /// requested with. A `streamURL`/plain playback request never needed
-    /// this — only a download's long-lived, unattended transfer does.
+    /// Keeps a download's server-side transcode job alive. Jellyfin arms a
+    /// 10-second kill timer on a progressive transcode job as soon as
+    /// `ActiveRequestCount` reaches zero — which a transient stall under
+    /// concurrent-download CPU contention can cause — and only a ping on the
+    /// same `PlaySessionId` refreshes it. Plain playback never needs this; a
+    /// download's long-lived unattended transfer does.
     ///
-    /// Hits `/Sessions/Playing/Ping` — a dedicated keep-alive endpoint,
-    /// *not* `reportPlaybackProgress`'s `/Sessions/Playing/Progress` (an
-    /// earlier version of this used that, which read as reasonable since
-    /// `positionTicks: 0` sounds harmless, but downloads then showed up in
-    /// Home's Continue Watching rail at a nonzero watched percentage despite
-    /// never being played — see `DOWNLOADS.md`'s "A finished-but-never-played
-    /// download could appear watched" for the investigation). Confirmed
-    /// against Jellyfin server source (`PlaystateController
-    /// .PingPlaybackSession` → `ITranscodeManager.PingTranscodingJob`) that
-    /// this dedicated endpoint touches *only* the transcode job's kill-timer
-    /// — no session/`NowPlayingItem`/`UserData` interaction of any kind — so
-    /// it can't cause that class of bug at all, rather than merely avoiding
-    /// it through a careful choice of position value. It also only takes a
-    /// `PlaySessionId`, not an item/position, which is why this no longer
-    /// does either.
+    /// Uses `/Sessions/Playing/Ping`, not `/Sessions/Playing/Progress`. Per
+    /// Jellyfin's source (`PlaystateController.PingPlaybackSession` →
+    /// `ITranscodeManager.PingTranscodingJob`) this touches only the kill
+    /// timer, with no session, `NowPlayingItem` or `UserData` interaction, so
+    /// it cannot make a never-played download appear watched in Continue
+    /// Watching (see `DOWNLOADS.md`). It takes only a `PlaySessionId`.
     func pingDownloadTranscode(playSessionId: String) async throws {
         try await sendNoContent(path: "/Sessions/Playing/Ping", method: "POST", query: [.init(name: "playSessionId", value: playSessionId)])
     }
 
-    /// Directly sets a user's watched/resume state for an item — `POST
-    /// /Users/{userId}/Items/{itemId}/UserData`. Used by the offline
-    /// `DownloadSyncManager` instead of `reportPlaybackProgress`/
-    /// `reportPlaybackStopped` above, both of which assume a live
-    /// `PlaySessionId` an offline-recorded position won't have. This
-    /// endpoint has no active-session requirement, which is exactly what
-    /// "post an update hours or days later, once reconnected" needs.
-    /// `lastPlayedDate` should be the real, on-device moment this actually
-    /// happened (`DownloadedItem.lastPlayedAt`) — see
-    /// `UpdateUserDataRequest.lastPlayedDate`'s doc comment for why this
-    /// can't just be left for the server to infer.
+    /// Sets a user's watched/resume state directly. `DownloadSyncManager` uses
+    /// this rather than `reportPlaybackProgress`/`reportPlaybackStopped`, which
+    /// assume a live `PlaySessionId` an offline-recorded position lacks. This
+    /// endpoint has no active-session requirement, which is what posting an
+    /// update days later needs.
+    ///
+    /// `lastPlayedDate` must be the real on-device moment
+    /// (`DownloadedItem.lastPlayedAt`); see `UpdateUserDataRequest`.
     func updateUserData(itemID: String, userID: String, positionTicks: Int64, isPlayed: Bool, playedPercentage: Double, lastPlayedDate: Date? = nil) async throws {
         try await postNoContent(
             "/Users/\(userID)/Items/\(itemID)/UserData",
@@ -920,58 +836,45 @@ actor JellyfinAPIClient {
 
     // MARK: - Favorite / watched status
 
-    /// `POST`s to favorite, `DELETE`s to unfavorite —
-    /// `/Users/{userId}/FavoriteItems/{itemId}`, Jellyfin's standard toggle
-    /// shape (no request body either way). Used by `PlayResumeButtonRow`'s
-    /// favorite button — a plain toggle on a Movie/Episode-content page, or
-    /// one of up to three independent targets (Show/Season/Episode) on a
-    /// Show-content page's extended menu.
+    /// `POST` to favorite, `DELETE` to unfavorite, Jellyfin's toggle shape with
+    /// no request body either way.
     func setFavorite(_ isFavorite: Bool, itemID: String, userID: String) async throws {
         try await sendNoContent(path: "/Users/\(userID)/FavoriteItems/\(itemID)", method: isFavorite ? "POST" : "DELETE")
     }
 
-    /// Same `POST`-to-mark/`DELETE`-to-unmark shape as `setFavorite`, for
-    /// `/Users/{userId}/PlayedItems/{itemId}` (Jellyfin's "watched" status).
-    /// Marking a Series or Season played cascades server-side to every
-    /// episode beneath it — this just issues the one request Jellyfin
-    /// already expects for that; nothing client-side needs to fan it out.
+    /// Watched status, with `setFavorite`'s toggle shape. Marking a Series or
+    /// Season played cascades to every episode server-side; nothing client-side
+    /// needs to fan it out.
     func setWatched(_ isWatched: Bool, itemID: String, userID: String) async throws {
         try await sendNoContent(path: "/Users/\(userID)/PlayedItems/\(itemID)", method: isWatched ? "POST" : "DELETE")
     }
 
     // MARK: - Deletion
 
-    /// Deletes an item from the server — **the media file itself, not just
-    /// the library entry**. Jellyfin's `LibraryController.DeleteItem` calls
-    /// `DeleteItem(item, new DeleteOptions { DeleteFileLocation = true })`,
-    /// so this is irreversible from both this app and the server.
+    /// Deletes an item from the server, including the media file itself:
+    /// `LibraryController.DeleteItem` passes `DeleteFileLocation = true`, so
+    /// this is irreversible.
     ///
-    /// Note this is `/Items/{id}` and takes no `userId` — unlike
-    /// `setFavorite`/`setWatched` above, which are per-user state under
-    /// `/Users/{userId}/...`. The user is identified by the auth header
-    /// alone, and the server authorizes against it per-item; see
-    /// `BaseItemDto.canDelete`, which is the flag the UI gates on and is
-    /// computed from the very same predicate this endpoint enforces.
+    /// `/Items/{id}` takes no `userId`, unlike the per-user `setFavorite`/
+    /// `setWatched`. The auth header identifies the user and the server
+    /// authorizes per item against the same predicate `BaseItemDto.canDelete`
+    /// reports, which is what the UI gates on.
     ///
-    /// `maxReauthAttempts: 1` is load-bearing, not a tuning choice. Jellyfin
-    /// reports "you may not delete this" as HTTP **401**, the same status as
-    /// an expired token, so the default reauth-and-retry behavior would
-    /// re-sign-in four times over ~7.5s and then report `.notAuthenticated`,
-    /// sending the user to the login screen for pressing a button they
-    /// weren't allowed to press. One attempt still recovers a genuinely
-    /// stale token; a 401 that survives it surfaces as `.notPermitted`.
+    /// `maxReauthAttempts: 1` is load-bearing. Jellyfin reports "you may not
+    /// delete this" as a 401, indistinguishable from an expired token, so the
+    /// default budget would re-sign-in four times over ~7.5s and then bounce
+    /// the user to the login screen for pressing a button they weren't allowed
+    /// to press. One attempt still recovers a stale token; a 401 surviving it
+    /// surfaces as `.notPermitted`.
     func deleteItem(itemID: String) async throws {
         try await sendNoContent(path: "/Items/\(itemID)", method: "DELETE", maxReauthAttempts: 1)
     }
 
     // MARK: - Search
 
-    /// Jellyfin's dedicated `/Search/Hints` endpoint — SearchView's sole
-    /// source of search results (a lighter-weight, purpose-built lookup,
-    /// not the general-purpose `items(...)`/`/Items` used everywhere else).
-    /// `includeItemTypes` is comma-delimited here, same as `items(...)`'s
-    /// (confirmed against the real `SearchController.GetSearchHints`
-    /// signature).
+    /// Jellyfin's `/Search/Hints`, `SearchView`'s sole source of results — a
+    /// lighter lookup than the general-purpose `items(...)`. `includeItemTypes`
+    /// is comma-delimited, as in `items(...)`.
     func searchHints(userID: String, term: String, limit: Int = 50) async throws -> SearchHintResult {
         try await get("/Search/Hints", query: [
             .init(name: "searchTerm", value: term),
@@ -998,13 +901,12 @@ actor JellyfinAPIClient {
         _ = try await sendRaw(request)
     }
 
-    /// Like `postNoContent`, but for an endpoint that also needs no request
-    /// body at all (`setFavorite`/`setWatched`'s `POST`/`DELETE` toggle
-    /// shape, and `pingDownloadTranscode`'s query-param-only ping) — `method`
-    /// rather than always `"POST"`, and an optional `query`, are the only
-    /// differences.
-    /// `maxReauthAttempts` is forwarded to `sendRaw` — `nil` (the default)
-    /// keeps the full backoff schedule every other caller relies on.
+    /// `postNoContent` for endpoints that also need no request body: the
+    /// `setFavorite`/`setWatched` toggles and `pingDownloadTranscode`'s
+    /// query-only ping. Adds a `method` and an optional `query`.
+    ///
+    /// `maxReauthAttempts` is forwarded to `sendRaw`; `nil` keeps the full
+    /// backoff schedule.
     private func sendNoContent(
         path: String,
         method: String,
@@ -1033,23 +935,18 @@ actor JellyfinAPIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = method
-        // Never serve a cached response. Jellyfin's item endpoints reflect
-        // fast-moving user state (resume position, played %, etc.) that has
-        // to be fresh — the default `useProtocolCachePolicy` was letting the
-        // detail-page refresh after playback show stale progress.
+        // Never cached: item endpoints carry fast-moving user state (resume
+        // position, played %), and `useProtocolCachePolicy` let the detail page
+        // show stale progress after playback.
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        // Per-request override of `.shared`'s default 60s
-        // `timeoutIntervalForRequest` — see `requestTimeout`'s doc comment.
+        // Per-request override of `.shared`'s 60s default.
         request.timeoutInterval = Self.requestTimeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         // Jellyfin 12.0 disables the legacy `X-Emby-Authorization`/
-        // `X-Emby-Token` headers by default (`EnableLegacyAuthorization`) —
-        // confirmed live that a request carrying only those headers gets a
-        // hard 400 there. `Authorization` with the `MediaBrowser` scheme is
-        // the non-deprecated form, and isn't 12.0-specific — it's accepted
-        // by 10.x servers too (confirmed live against demo.jellyfin.org's
-        // stable 10.11.11 and the LAN test server, same version), so this
-        // is sent unconditionally rather than branching on server version.
+        // `X-Emby-Token` headers by default, 400ing a request carrying only
+        // those. `Authorization` with the `MediaBrowser` scheme is the
+        // non-deprecated form and is accepted by 10.x too, so it is sent
+        // unconditionally rather than branching on server version.
         request.setValue(
             JellyfinAuthorization.headerValue(token: requiresAuth ? accessToken : nil),
             forHTTPHeaderField: "Authorization"
@@ -1071,28 +968,20 @@ actor JellyfinAPIClient {
         }
     }
 
-    /// `.shared`'s default `timeoutIntervalForRequest` is 60s — fine
-    /// generally, but far too slow for offline detection: when *some*
-    /// network path exists (cellular, a different Wi-Fi network, ...) but
-    /// it can't actually route to a LAN-only server, the OS attempts a
-    /// real connection and only gives up after the full timeout elapses,
-    /// which read as an indefinite hang (the launch splash screen never
-    /// resolving — confirmed live, 2026-08-18) rather than a prompt
-    /// "you're offline". Enforced via `URLRequest.timeoutInterval`, set
-    /// per-request in `makeRequest` — that's honored by `URLSession`
-    /// regardless of which session dispatches the request, so this doesn't
-    /// need a session with a shorter `timeoutIntervalForRequest`, which
-    /// broke every test that builds its `JellyfinAPIClient` internally
-    /// (`AppState`/`LoginViewModel`/`ServerSetupViewModel`) and relies on
-    /// `URLProtocol.registerClass` hooking `.shared` specifically; a
-    /// freshly constructed session doesn't pick up that registration. (An
-    /// earlier version of this enforced the timeout via an explicit race
-    /// against `Task.sleep` in a `withThrowingTaskGroup` instead, for the
-    /// same reason — that worked too, but spun up an extra `Task` on every
-    /// single request in the app just to get a timeout `URLRequest` already
-    /// supports natively.) Matches `RemoteImageLoader`'s own 20s session
-    /// timeout for consistency — short enough to fail fast, long enough not
-    /// to misfire on a real but momentarily slow/loaded local server.
+    /// `.shared`'s 60s default is too slow for offline detection: when a network
+    /// path exists but can't route to a LAN-only server, the OS attempts a real
+    /// connection and gives up only after the full timeout, which reads as the
+    /// launch splash hanging rather than a prompt "you're offline".
+    ///
+    /// Applied via `URLRequest.timeoutInterval` in `makeRequest`, which
+    /// `URLSession` honors whichever session dispatches the request. A session
+    /// with a shorter `timeoutIntervalForRequest` would not work here: tests
+    /// that build a `JellyfinAPIClient` internally rely on
+    /// `URLProtocol.registerClass` hooking `.shared`, which a freshly
+    /// constructed session doesn't pick up.
+    ///
+    /// Matches `RemoteImageLoader`'s 20s — short enough to fail fast, long
+    /// enough not to misfire on a slow local server.
     private static let requestTimeout: TimeInterval = 20
 
     @discardableResult
@@ -1100,21 +989,16 @@ actor JellyfinAPIClient {
         try await sendRaw(request, reauthAttempt: 0, maxReauthAttempts: maxReauthAttempts ?? Self.reauthBackoffSchedule.count)
     }
 
-    /// `reauthAttempt` counts how many re-authentication attempts this
-    /// specific logical request has already gone through (0 the first
-    /// time) — bounds the recursion against `maxReauthAttempts` rather
-    /// than retrying forever, and picks that attempt's backoff delay.
+    /// `reauthAttempt` counts this logical request's re-authentications so far,
+    /// bounding the recursion against `maxReauthAttempts` and selecting the
+    /// backoff delay.
     ///
-    /// `maxReauthAttempts` defaults to the full `reauthBackoffSchedule` for
-    /// every ordinary request. A caller hitting an endpoint that answers
-    /// *permission denied* with 401 rather than 403 — Jellyfin's
-    /// `DELETE /Items/{id}` being the one in the app today — passes a
-    /// smaller budget so a genuine permission failure is reported as
-    /// `.notPermitted` promptly instead of being mistaken for an expired
-    /// token, retried four times over ~7.5s, and finally surfaced as
-    /// `.notAuthenticated` (which bounces the user to the login screen).
-    /// One attempt is still allowed there, so a token that really has
-    /// expired mid-session recovers transparently exactly as before.
+    /// `maxReauthAttempts` defaults to the full `reauthBackoffSchedule`. A
+    /// caller whose endpoint answers permission-denied with 401 rather than 403
+    /// — `DELETE /Items/{id}` today — passes a smaller budget so a real
+    /// permission failure reports `.notPermitted` promptly instead of being
+    /// retried as an expired token and surfacing as `.notAuthenticated`. One
+    /// attempt remains, so a genuinely expired token still recovers.
     private func sendRaw(_ request: URLRequest, reauthAttempt: Int, maxReauthAttempts: Int) async throws -> Data {
         let data: Data
         let response: URLResponse
@@ -1126,40 +1010,30 @@ actor JellyfinAPIClient {
         }
         guard let http = response as? HTTPURLResponse else { throw JellyfinAPIError.invalidResponse }
         lastResponseURL = response.url
-        // Reaching a real HTTP response — success or an error status — means
-        // the server was reachable, so this is what clears offline state.
+        // Any HTTP response, success or error, proves the server reachable.
         await ConnectivityMonitor.shared.reportSuccess()
         guard (200..<300).contains(http.statusCode) else {
-            // Only a request built with `requiresAuth: true` *and* an
-            // existing `accessToken` puts a `Token="…"` clause in its
-            // `Authorization` header (see `makeRequest`/`JellyfinAuthorization
-            // .headerValue`) — `authenticate(...)`'s own 401 (a genuinely
-            // wrong password, at first sign-in) is sent with `requiresAuth:
-            // false`, so its header never has one and this never reaches
-            // either branch below, keeping the raw `.http(401, ...)` as before.
+            // Only `requiresAuth: true` with an existing `accessToken` puts a
+            // `Token="…"` clause in the header. `authenticate(...)`'s own 401 —
+            // a wrong password at first sign-in — is sent with
+            // `requiresAuth: false`, so it skips both branches below and keeps
+            // its raw `.http(401, ...)`.
             let isTokenBearing401 = http.statusCode == 401
                 && (request.value(forHTTPHeaderField: "Authorization")?.contains("Token=\"") ?? false)
             guard isTokenBearing401 else {
                 throw JellyfinAPIError.http(status: http.statusCode, message: String(data: data, encoding: .utf8))
             }
 
-            // A token-bearing 401 doesn't necessarily mean these
-            // credentials are actually bad: confirmed live against a
-            // heavily-shared public demo server that a session token can
-            // be invalidated server-side for reasons entirely outside this
-            // app's control. Try to recover transparently — re-authenticate
-            // with whatever credentials last succeeded and retry this same
-            // request — before giving up.
+            // A token-bearing 401 doesn't mean the credentials are bad: a
+            // server can invalidate a session token on its own. Re-authenticate
+            // with the last-successful credentials and retry before giving up.
             if let reauthCredentials, reauthAttempt < maxReauthAttempts {
                 do {
                     try await reauthenticate(using: reauthCredentials, attempt: reauthAttempt)
                 } catch {
-                    // Re-authentication itself failed (offline, or the
-                    // credentials genuinely no longer work) — fall through
-                    // to .notAuthenticated below rather than surfacing this
-                    // secondary failure, which would just be confusing
-                    // ("couldn't reach the server" for what the user
-                    // experiences as "got logged out").
+                    // Re-authentication itself failed. Fall through to
+                    // `.notAuthenticated` rather than reporting "couldn't reach
+                    // the server" for what the user experiences as a logout.
                     throw JellyfinAPIError.notAuthenticated
                 }
                 var retried = request
@@ -1167,32 +1041,24 @@ actor JellyfinAPIClient {
                 return try await sendRaw(retried, reauthAttempt: reauthAttempt + 1, maxReauthAttempts: maxReauthAttempts)
             }
 
-            // A caller that deliberately reduced its reauth budget did so
-            // because this endpoint uses 401 for "not allowed" as well as
-            // "not signed in" (see `maxReauthAttempts`' doc comment). Having
-            // re-authenticated successfully and *still* been refused, the
-            // credentials are demonstrably fine and this is a permission
-            // failure — report it as one rather than as a session problem.
+            // A reduced reauth budget means this endpoint uses 401 for "not
+            // allowed" too. Re-authentication succeeded and the request was
+            // still refused, so the credentials are fine and this is a
+            // permission failure, not a session problem.
             if maxReauthAttempts < Self.reauthBackoffSchedule.count, reauthAttempt > 0 {
                 throw JellyfinAPIError.notPermitted
             }
 
-            // Nothing left to retry with (no remembered credentials, or the
-            // backoff schedule is exhausted). A raw `.http(401, ...)` here
-            // used to surface the server's own HTML error page verbatim
-            // (Jellyfin's default 401 response is a full branded HTML
-            // document, not JSON); `.notAuthenticated` gives a clean,
-            // actionable message instead.
+            // Nothing left to retry with. A raw `.http(401, ...)` would surface
+            // Jellyfin's default 401 body, a full branded HTML document.
             throw JellyfinAPIError.notAuthenticated
         }
         return data
     }
 
-    /// Coalesces concurrent re-authentication attempts into one in-flight
-    /// `Task` — see `inFlightReauth`'s doc comment for why. `attempt`
-    /// selects this call's backoff delay from `reauthBackoffSchedule`
-    /// (skipped on the very first retry, `attempt == 0`, so a one-off
-    /// transient 401 recovers immediately rather than waiting).
+    /// Coalesces concurrent re-authentications into one `Task` (see
+    /// `inFlightReauth`). `attempt` selects the backoff delay, skipped at
+    /// `attempt == 0` so a one-off 401 recovers immediately.
     private func reauthenticate(using credentials: (username: String, password: String), attempt: Int) async throws {
         if let inFlightReauth {
             try await inFlightReauth.value
