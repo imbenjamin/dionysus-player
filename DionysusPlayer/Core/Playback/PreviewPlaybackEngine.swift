@@ -5,11 +5,10 @@ import UIKit
 /// Fake `PlaybackEngine` for SwiftUI previews and UI tests, so `PlayerView`
 /// can run without a real AetherEngine instance or network access.
 ///
-/// Shared between the two on purpose. A UI test needs exactly what a preview
-/// needs — canned tracks, canned stats, no decode — plus a clock, so this
-/// grew `advancesTime` rather than the app gaining a third fake alongside
-/// this one and `DionysusPlayerTests`' `FakePlaybackEngine`. See
-/// `PlaybackEngineFactory`, which is what hands this to `PlayerView`.
+/// Shared between the two: a UI test needs what a preview needs — canned tracks
+/// and stats, no decode — plus a clock, so this grew `advancesTime` rather than
+/// the app gaining a third fake. `PlaybackEngineFactory` hands it to
+/// `PlayerView`.
 @MainActor
 final class PreviewPlaybackEngine: PlaybackEngine {
     var onStateChange: ((PlaybackState) -> Void)?
@@ -30,20 +29,17 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     var videoFormatDescription: String? = "Dolby Vision P8.1"
     var videoNaturalSize: CGSize? = CGSize(width: 3840, height: 1600)
     var zoomMode: VideoZoomMode = .fit
-    /// Set before triggering a preview's `load(...)` to preview the error
-    /// UI (`ErrorStateView`'s Retry-vs-Close branch in `PlayerView`)
-    /// instead of the default always-succeeds behavior below.
+    /// Set before a preview's `load(...)` to render the error UI —
+    /// `ErrorStateView`'s Retry-versus-Close branch — instead of succeeding.
     var simulatedFailure: PlaybackFailure?
 
-    /// Drives a real clock while playing, so `PlayerViewModel` receives the
-    /// time updates the scrubber and the elapsed/remaining labels render
-    /// from. Off by default: a preview wants a still frame, and a repeating
-    /// timer in a preview canvas is just churn.
+    /// Drives a real clock while playing, so `PlayerViewModel` gets the time
+    /// updates the scrubber and labels render from. Off by default: a preview
+    /// wants a still frame, not a repeating timer in the canvas.
     var advancesTime = false
 
-    /// Wall-clock seconds between ticks. Matches roughly what AetherEngine's
-    /// own clock publisher emits, so a test that waits on the label changing
-    /// waits about as long as it would against the real engine.
+    /// Wall-clock seconds between ticks, roughly AetherEngine's own cadence, so
+    /// a test waiting on a label change waits about as long as it would live.
     private static let tickInterval: TimeInterval = 0.25
 
     private var currentTime: TimeInterval = 0
@@ -112,9 +108,9 @@ final class PreviewPlaybackEngine: PlaybackEngine {
 
     // MARK: - Clock
 
-    /// The fixed runtime this fake reports. Long enough that a scrub test
-    /// has somewhere to scrub to, and unrelated to whatever item the app
-    /// thinks it loaded — nothing here reads the URL.
+    /// The fixed runtime this fake reports: long enough for a scrub test to have
+    /// somewhere to scrub to, and unrelated to the loaded item — nothing here
+    /// reads the URL.
     private var duration: TimeInterval { 5400 }
 
     private func startTickingIfNeeded() {

@@ -3,10 +3,9 @@ import Foundation
 import UIKit
 #endif
 
-/// A stable device identifier and human-readable name, used to identify this
-/// installation to Jellyfin (the `Authorization` header). Generated
-/// once and cached in `UserDefaults` — it isn't a secret, just needs to be
-/// stable across launches.
+/// A stable identifier and readable name identifying this installation to
+/// Jellyfin in the `Authorization` header. Generated once and cached in
+/// `UserDefaults`: not a secret, just stable across launches.
 enum DeviceIdentity {
     private static let deviceIDKey = "device.identifier"
 
@@ -19,21 +18,16 @@ enum DeviceIdentity {
         return generated
     }
 
-    /// `UIDevice.current`-derived values, cached once by `primeCache()`
-    /// rather than read live: recent SDKs mark `UIDevice.current`
-    /// `@MainActor`-isolated, but this app reads `deviceName` from a
-    /// nonisolated context (`JellyfinAuthorization.headerValue`, called from
-    /// the `JellyfinAPIClient` actor to build every request's header). A
-    /// device's name/idiom aren't expected to change mid-session, so a
-    /// single main-actor snapshot at launch is safe — same "single writer,
-    /// no real synchronization needed" reasoning `RotationLock.mask`
-    /// documents for its own `nonisolated(unsafe)` flag.
+    /// Cached by `primeCache()` rather than read live: recent SDKs mark
+    /// `UIDevice.current` `@MainActor`-isolated, while `deviceName` is read from
+    /// the nonisolated `JellyfinAuthorization.headerValue` on every request.
+    /// A device's name and idiom don't change mid-session, so one main-actor
+    /// snapshot at launch is safe.
     nonisolated(unsafe) private static var cachedDeviceName: String?
     nonisolated(unsafe) private static var cachedIsPad: Bool?
 
-    /// Called once from `AppDelegate.application(_:didFinishLaunchingWithOptions:)`
-    /// — a callback UIKit always invokes on the main thread, well before the
-    /// first network request or downloads-settings read.
+    /// Called once from `AppDelegate`'s launch callback, which UIKit invokes on
+    /// the main thread well before the first network request.
     @MainActor
     static func primeCache() {
         #if canImport(UIKit)
@@ -44,18 +38,16 @@ enum DeviceIdentity {
 
     static var deviceName: String {
         #if canImport(UIKit)
-        // Falls back to a placeholder rather than touching UIDevice.current
-        // directly if read before primeCache() has run — this should never
-        // happen in practice, but a generic name beats a crash.
+        // A placeholder rather than touching `UIDevice.current` if read before
+        // `primeCache()`, which shouldn't happen but beats a crash.
         cachedDeviceName ?? "Unknown Device"
         #else
         Host.current().localizedName ?? "Mac"
         #endif
     }
 
-    /// `true` on iPad. Used by `DownloadResolution.deviceClassDefault` so
-    /// every UIKit device read lives behind this one already-cache-aware
-    /// type instead of touching `UIDevice.current` in two places.
+    /// `true` on iPad, for `DownloadResolution.deviceClassDefault`, so every
+    /// UIKit device read stays behind this cache-aware type.
     static var isPad: Bool {
         #if os(iOS)
         cachedIsPad ?? false

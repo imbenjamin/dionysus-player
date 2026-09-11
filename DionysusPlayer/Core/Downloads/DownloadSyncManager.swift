@@ -1,34 +1,24 @@
 import Foundation
 
-/// Pushes local offline watched/resume state back to the server once
-/// reconnected. Wired into the **existing** reconnect-detection point —
-/// `DionysusPlayerApp.swift`'s `.onChange(of: scenePhase)` block, which
-/// already fires `client.healthCheck()` on every foreground transition —
-/// gated on `!ConnectivityMonitor.shared.isOffline`. No `BGTaskScheduler`;
-/// see the offline-downloads plan's "Sync manager" section.
+/// Pushes local offline watched and resume state back to the server once
+/// reconnected, from `DionysusPlayerApp`'s existing scenePhase handler — which
+/// already fires `healthCheck()` on every foreground transition — gated on
+/// `!ConnectivityMonitor.shared.isOffline`. No `BGTaskScheduler`.
 @MainActor
 enum DownloadSyncManager {
-    /// Guards against overlapping passes — every scenePhase-driven
-    /// foreground transition in `DionysusPlayerApp` spawns its own
-    /// untracked call to `syncIfNeeded` below, with nothing else
-    /// coordinating between separate calls, so rapid foreground/background
-    /// cycling could otherwise fire overlapping passes that each re-read
-    /// `store.pendingSyncItems()` before an earlier pass clears them,
-    /// sending the same `updateUserData` POST redundantly. A second call
-    /// arriving while one's already running is a no-op — the in-flight
-    /// pass already covers whatever was pending when it started, and
-    /// anything that becomes pending during that pass gets picked up by
-    /// the next trigger.
+    /// Guards against overlapping passes. Each foreground transition spawns its
+    /// own untracked `syncIfNeeded` call, so rapid cycling would fire passes
+    /// that each re-read `store.pendingSyncItems()` before an earlier one clears
+    /// them, sending the same POST repeatedly. A call arriving mid-pass is a
+    /// no-op: the in-flight pass covers what was pending when it started, and
+    /// anything newer is picked up by the next trigger.
     private static var isSyncing = false
 
-    /// Queries `store` for `pendingSync` rows, calls `updateUserData(...)`
-    /// per row, and on success either flips `pendingSync = false` (the row
-    /// still has files, the user is still "using" the download) or, if
-    /// `markedForDeletion == true`, deletes the row outright — its only
-    /// remaining purpose was carrying this sync payload, and that payload
-    /// has now landed. A failure just leaves the row as-is for the next
-    /// trigger either way — no retry backoff of its own, since the next
-    /// reconnect (or app foreground) calls this again regardless.
+    /// Calls `updateUserData(...)` for each `pendingSync` row. On success either
+    /// clears `pendingSync`, or deletes a `markedForDeletion` row outright,
+    /// since carrying this payload was its only remaining purpose. A failure
+    /// leaves the row for the next trigger; no backoff of its own, since the
+    /// next foreground transition calls this again.
     static func syncIfNeeded(client: JellyfinAPIClient, store: DownloadStore) async {
         guard !isSyncing else { return }
         isSyncing = true
@@ -38,8 +28,7 @@ enum DownloadSyncManager {
                 try await client.updateUserData(
                     itemID: item.itemID, userID: item.userID,
                     positionTicks: item.resumePositionTicks, isPlayed: item.isPlayed, playedPercentage: item.playedPercentage,
-                    // The real, on-device offline-watch moment, not now —
-                    // see `DownloadedItem.lastPlayedAt`'s doc comment.
+                    // The on-device offline-watch moment, not now.
                     lastPlayedDate: item.lastPlayedAt
                 )
                 if item.markedForDeletion {
