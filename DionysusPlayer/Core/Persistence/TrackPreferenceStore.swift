@@ -1,80 +1,48 @@
 import Foundation
 
-/// Remembers the audio/subtitle tracks a user explicitly picked for an item
-/// during a previous playback session, so returning to it later restores
-/// those choices instead of falling through the engine's own default/
-/// forced-subtitle selection every time — see `PlayerViewModel
-/// .applyStoredTrackSelection()`'s doc comment for how this interacts with
-/// `AetherPlaybackEngine`'s forced-subtitle auto-select.
+/// Remembers the audio and subtitle tracks a user explicitly picked for an item,
+/// so returning to it restores those choices rather than falling through the
+/// engine's default and forced-subtitle selection each time.
 ///
-/// Local to the device only, like `MediaVersionPreferenceStore`: plain
-/// `UserDefaults`, not sensitive, never round-tripped through the server —
-/// investigated and deliberately rejected using Jellyfin's own server-side
-/// equivalent (`UserItemData.AudioStreamIndex`/`SubtitleStreamIndex`) for
-/// this instead: its `MediaSourceInfo.DefaultAudioStreamIndex`/
-/// `DefaultSubtitleStreamIndex` fields are always populated by a
-/// language-preference/forced-subtitle fallback even when the user never
-/// made a real choice, and the one field that would tell a client which
-/// case it's looking at (`AudioIndexSource`) is `[JsonIgnore]`d server-side
-/// and never sent over the API at all (no subtitle equivalent exists even
-/// internally) — a client can't trust it without doing the same local
-/// validation this store already does, at which point the round-trip adds
-/// cost without adding safety. Scoped per user for the same shared-device
-/// reasoning as the sibling stores.
+/// Device-local `UserDefaults`, never round-tripped through the server.
+/// Jellyfin's own `UserItemData.AudioStreamIndex`/`SubtitleStreamIndex` was
+/// rejected for this: the corresponding `MediaSourceInfo.Default*StreamIndex`
+/// fields are always populated by a language-preference fallback even when the
+/// user chose nothing, and the field distinguishing the two cases
+/// (`AudioIndexSource`) is `[JsonIgnore]`d server-side with no subtitle
+/// equivalent at all. A client would still need the local validation this store
+/// does, so the round-trip adds cost without safety.
 ///
-/// Keyed by item id alone (not media source, not "live" vs. "downloaded")
-/// — same scoping as `MediaVersionPreferenceStore`, and it's *the same
-/// item* either way, so this store makes no distinction between a choice
-/// made while streaming live and one made while playing a downloaded copy;
-/// `PlayerViewModel.start()`/`.startOffline()` both read and write through
-/// the exact same entry (see `test_selection_isSharedAcrossPlaybackContexts`
-/// below — do not add a `mediaSourceID`/context parameter to this store's
-/// API, which would fragment that further).
+/// Keyed by item id alone — not media source, not live versus downloaded. It is
+/// the same item either way, and `PlayerViewModel.start()`/`.startOffline()`
+/// share one entry. Do not add a `mediaSourceID` or context parameter.
 ///
-/// That sharing does **not**, in practice, mean a subtitle choice reliably
-/// restores across the live/downloaded boundary — investigated live
-/// 2026-08-31 (Office Space) and dropped as not worth pursuing further: a
-/// download always transcodes to a different, more limited media source
-/// than the live one (down to a single baked-in audio track;
-/// `DownloadedItem.selectedAudioTrackIndex`), and a downloaded subtitle
-/// track's title (`DownloadedSubtitleFile.displayTitle`, sourced from
-/// Jellyfin's server-computed `MediaStream.displayTitle`) frequently
-/// doesn't match the same track's title as seen live (an *embedded*
-/// subtitle's title there comes from AetherEngine's own container
-/// metadata, with no Jellyfin field involved at all — and even for an
-/// *external* one, `MediaStream.title`, the field live playback uses,
-/// turned out to disagree with `.displayTitle` often enough that swapping
-/// to it didn't fix the repro either). `PlayerViewModel
-/// .applyStoredTrackSelection()`'s exact id+title match (deliberately
-/// strict — see its own doc comment) just quietly declines to restore
-/// when this happens, same as any other stale/mismatched entry — not a
-/// crash or a corrupted choice, just an unfulfilled nice-to-have. Fixing
-/// it for real would mean plumbing a title-independent identity (language
-/// code, most likely) through both `PlaybackTrack` and the download
-/// pipeline — out of scope unless this becomes worth revisiting.
+/// That sharing does not mean a subtitle choice reliably restores across the
+/// live/downloaded boundary. A download transcodes to a more limited source, and
+/// a downloaded track's title comes from Jellyfin's `MediaStream.displayTitle`
+/// while an embedded track's live title comes from AetherEngine's container
+/// metadata, so the two often disagree.
+/// `PlayerViewModel.applyStoredTrackSelection()`'s strict id-and-title match
+/// then declines to restore, as it would for any stale entry. Fixing it would
+/// mean plumbing a title-independent identity — a language code — through both
+/// `PlaybackTrack` and the download pipeline.
 final class TrackPreferenceStore {
-    /// A track as it looked at the moment it was chosen. `id` alone isn't
-    /// enough to safely restore later: AetherEngine/Jellyfin track ids are
-    /// just physical container positions, not stable identifiers, so the
-    /// same id next time could belong to a completely different track (a
-    /// different version resolved, a re-mux, reordered streams — no track
-    /// count needs to change for this to happen). `title` is carried
-    /// alongside as a cheap sanity check — `PlayerViewModel
-    /// .applyStoredTrackSelection()` only restores an id whose current
-    /// track still has this same title, and skips (falls back to the
-    /// engine's own default) on a mismatch, same as an id gone missing
-    /// outright.
+    /// A track as it looked when chosen. `id` alone can't safely restore it:
+    /// track ids are physical container positions, not stable identifiers, so
+    /// the same id can later belong to a different track after a re-mux,
+    /// reordered streams, or a different version resolving — with no change in
+    /// track count. `title` is the sanity check
+    /// `PlayerViewModel.applyStoredTrackSelection()` matches on, skipping to the
+    /// engine's default on a mismatch as it would for a missing id.
     struct TrackChoice: Codable, Equatable {
         var id: Int
         var title: String
     }
 
-    /// One item's remembered choice. `audioTrack == nil` means audio was
-    /// never explicitly picked (leave the engine's own default alone).
-    /// `subtitlePreference` is a real tri-state rather than a nested
-    /// optional: no explicit choice yet, deliberately turned off, or a
-    /// specific track — "off" is as meaningful a remembered choice as any
-    /// track, distinct from "nothing recorded."
+    /// One item's remembered choice. A `nil` `audioTrack` means audio was never
+    /// picked, leaving the engine's default alone. `subtitlePreference` is a
+    /// tri-state rather than a nested optional: "off" is as meaningful a
+    /// remembered choice as any track, and distinct from nothing recorded.
     struct TrackSelection: Codable, Equatable {
         enum SubtitlePreference: Codable, Equatable {
             case unset
@@ -84,28 +52,22 @@ final class TrackPreferenceStore {
 
         var audioTrack: TrackChoice?
         var subtitlePreference: SubtitlePreference = .unset
-        /// When this entry was last written to (not last read/applied at
-        /// playback) — the recency signal `trimIfNeeded` evicts by once
-        /// `maxEntries` is exceeded. `Optional` rather than defaulted to
-        /// `Date()` so decoding data written before this field existed
-        /// doesn't fail outright (a `Decodable` synthesized initializer
-        /// ignores property defaults for missing keys — only `Optional`
-        /// properties tolerate an absent key) and silently wipe every
-        /// existing user's remembered tracks on upgrade. A `nil` sorts as
-        /// the oldest possible entry — first to be evicted — which is the
-        /// right conservative default for a choice this store can't date.
+        /// When this entry was last written, not last applied: the recency
+        /// signal eviction uses once `maxEntries` is exceeded.
+        ///
+        /// `Optional` rather than defaulted, because a synthesized `Decodable`
+        /// ignores property defaults for missing keys and would fail outright on
+        /// data written before this field existed, wiping every user's
+        /// remembered tracks on upgrade. A `nil` sorts oldest and is evicted
+        /// first, the conservative default for an undatable choice.
         var lastUpdated: Date?
     }
 
-    /// A real ceiling, not a realistic one: a personal Jellyfin library
-    /// touched by track selection this many times over would be enormous.
-    /// Each entry is a few dozen bytes, so even a full store stays well
-    /// under a megabyte — this exists to guarantee a bound at all, not
-    /// because the unbounded version was observed to be a practical
-    /// problem. Mirrors `SearchHistoryStore.maxEntries`'s trim-on-write
-    /// shape, just evicting by recency-of-write rather than always
-    /// trimming to the tail of an ordered list, since entries here aren't
-    /// naturally ordered the way a linear search history is.
+    /// A ceiling rather than a realistic limit: entries are a few dozen bytes
+    /// each, so even a full store stays under a megabyte. It exists to guarantee
+    /// a bound, not because the unbounded version caused trouble. Trims on write
+    /// like `SearchHistoryStore`, but evicts by recency since these entries have
+    /// no natural order.
     private static let defaultMaxEntries = 1000
 
     private let defaults: UserDefaults
@@ -133,8 +95,8 @@ final class TrackPreferenceStore {
         save(trimmed(prefs), userID: userID)
     }
 
-    /// `nil` records "off" as a deliberate choice, same as
-    /// `PlaybackEngine.selectSubtitleTrack(id:)`'s own `nil` meaning.
+    /// `nil` records "off" as a deliberate choice, as it does for
+    /// `PlaybackEngine.selectSubtitleTrack(id:)`.
     func recordSubtitleSelection(_ track: TrackChoice?, forItem itemID: String, userID: String) {
         var prefs = preferences(userID: userID)
         var selection = prefs[itemID] ?? TrackSelection()
@@ -144,12 +106,9 @@ final class TrackPreferenceStore {
         save(trimmed(prefs), userID: userID)
     }
 
-    /// Evicts the least-recently-*written* entries once `prefs` exceeds
-    /// `maxEntries` — a read (a plain re-watch that never changes the
-    /// stored track) doesn't refresh an entry's position, same as
-    /// `SearchHistoryStore`'s history only reordering on `record`, not on
-    /// `history(userID:)` reads. `nil` (pre-cap data written before
-    /// `lastUpdated` existed) sorts oldest, so it's evicted first.
+    /// Evicts the least recently written entries once `prefs` exceeds
+    /// `maxEntries`. A read — a re-watch that changes no track — doesn't refresh
+    /// an entry's position. A `nil` `lastUpdated` sorts oldest and goes first.
     private func trimmed(_ prefs: [String: TrackSelection]) -> [String: TrackSelection] {
         guard prefs.count > maxEntries else { return prefs }
         let keep = prefs
