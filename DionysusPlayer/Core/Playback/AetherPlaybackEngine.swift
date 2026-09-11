@@ -7,45 +7,38 @@ import UIKit
 import AetherEngine
 import os
 
-/// `PlaybackEngine` implemented on top of AetherEngine.
+/// `PlaybackEngine` implemented on AetherEngine.
 ///
-/// Adapts AetherEngine's Combine publishers and its `TrackInfo` / `VideoFormat`
-/// / `PlaybackState` shapes onto the app's own smaller `PlaybackEngine`
-/// protocol so feature code (the player view model and controls overlay)
-/// never touches AetherEngine's types directly.
+/// Adapts its Combine publishers and `TrackInfo`/`VideoFormat`/`PlaybackState`
+/// shapes onto the app's smaller protocol, so feature code never touches
+/// AetherEngine's types directly.
 @MainActor
 final class AetherPlaybackEngine: PlaybackEngine {
     private static let logger = Logger(subsystem: "com.dionysus.player", category: "AetherPlaybackEngine")
 
     private let engine: AetherEngine
     private var cancellables: Set<AnyCancellable> = []
-    /// See `observeAppLifecycle()`'s doc comment — repairs a paused session
-    /// AetherEngine's own background grace-window teardown left without a
-    /// pipeline to resume.
+    /// Repairs a paused session that AetherEngine's background grace-window
+    /// teardown left with no pipeline to resume (see `observeAppLifecycle()`).
     private var didBecomeActiveObserver: NSObjectProtocol?
-    /// Whichever end-state `recoverSessionIfNeeded(desiredState:)`'s single
-    /// in-flight reload should apply once it resolves — see that method's
-    /// own doc comment for the race this and `sessionRecoveryTask` together
-    /// fix.
+    /// The end state `recoverSessionIfNeeded(desiredState:)`'s in-flight reload
+    /// applies once it resolves.
     private enum SessionRecoveryDesiredState { case play, pause }
     private var sessionRecoveryDesiredState: SessionRecoveryDesiredState = .pause
     private var sessionRecoveryTask: Task<Void, Never>?
-    /// Set right before `load(...)` re-throws a source-open/probe/route
-    /// failure as `PlaybackLoadFailure` — AetherEngine's own docs note that
-    /// failure *also* publishes a matching `.error` on `$playbackPhase`
-    /// ("counts as two failures, on purpose"), so without this the same
-    /// failure would reach `PlayerViewModel` twice. Consumed (and reset) by
-    /// the very next `.error` phase `observeEngine()`'s sink sees.
+    /// Set before `load(...)` re-throws a source-open, probe or route failure as
+    /// `PlaybackLoadFailure`. AetherEngine also publishes a matching `.error` on
+    /// `$playbackPhase` for the same failure, which would otherwise reach
+    /// `PlayerViewModel` twice. Consumed by the next `.error` phase
+    /// `observeEngine()` sees.
     private var suppressNextErrorPhase = false
     /// Guards the seek watchdog below — see `seek(to:)`.
     private var seekWatchdogTask: Task<Void, Never>?
     private var seekWatchdogGeneration = 0
-    /// How long a seek can sit in `.seeking`/`.rebuffering` with the
-    /// playhead stuck near the seek target before this is treated as a
-    /// wedge (the AetherEngine backward-seek freeze, upstream issue #93 —
-    /// mitigated but not eliminated as of the pinned 6.30.1) rather than
-    /// ordinary rebuffering. A starting value, not a measured one — tune
-    /// after on-device observation if it fires too eagerly/late.
+    /// How long a seek may sit in `.seeking`/`.rebuffering` with the playhead
+    /// stuck near the target before it counts as wedged rather than rebuffering
+    /// — AetherEngine's backward-seek freeze (upstream issue #93), mitigated but
+    /// not eliminated. An estimate, not a measured value.
     private static let seekWatchdogTimeout: TimeInterval = 8
 
     var onStateChange: ((PlaybackState) -> Void)?
@@ -55,28 +48,23 @@ final class AetherPlaybackEngine: PlaybackEngine {
     var onPictureInPicturePossibleChange: ((Bool) -> Void)?
     var onPictureInPictureActiveChange: ((Bool) -> Void)?
 
-    /// Built around `engine.nativePlayerLayer` — the native (AVPlayer) route
-    /// only, see `PlaybackEngine.onPictureInPicturePossibleChange`'s doc
-    /// comment. (Re)built from the `engine.$currentAVPlayer` sink below,
-    /// which is documented as "re-emitted on every reload" — exactly when a
-    /// stale layer needs replacing with a fresh one, or a session that just
-    /// went native for the first time gets one at all.
+    /// Built around `engine.nativePlayerLayer`, so the native AVPlayer route
+    /// only. Rebuilt from the `engine.$currentAVPlayer` sink below, which
+    /// re-emits on every reload — when a stale layer needs replacing, or a
+    /// session that has just gone native needs one at all.
     private var pipController: AVPictureInPictureController?
     private var pipPossibleObservation: NSKeyValueObservation?
-    /// `AVPictureInPictureControllerDelegate` is an Objective-C protocol
-    /// (`NSObjectProtocol`-bound), which this plain Swift class can't
-    /// conform to directly without giving up its own throwing, argument-less
-    /// `init()` (NSObject's own non-throwing `init()` would occupy that same
-    /// signature) — a tiny dedicated `NSObject` proxy sidesteps that instead
-    /// of retrofitting inheritance onto this class for one protocol.
+    /// `AVPictureInPictureControllerDelegate` is `NSObjectProtocol`-bound, and
+    /// conforming directly would cost this class its throwing argument-less
+    /// `init()`, whose signature `NSObject.init()` occupies. A small proxy
+    /// avoids retrofitting inheritance for one protocol.
     private let pipDelegateProxy = PictureInPictureDelegateProxy()
 
     private(set) var audioTracks: [PlaybackTrack] = []
     private(set) var subtitleTracks: [PlaybackTrack] = []
     private(set) var videoFormatDescription: String?
 
-    /// Read straight off `engine`'s own stored properties, same reasoning as
-    /// `stats` above — they're set once per source and rarely re-read.
+    /// Read off `engine`'s stored properties, which are set once per source.
     var videoNaturalSize: CGSize? {
         guard engine.sourceVideoWidth > 0, engine.sourceVideoHeight > 0 else { return nil }
         return CGSize(width: Int(engine.sourceVideoWidth), height: Int(engine.sourceVideoHeight))
@@ -84,29 +72,22 @@ final class AetherPlaybackEngine: PlaybackEngine {
 
     private var selectedAudioTrackID: Int?
     private var selectedSubtitleTrackID: Int?
-    /// Set once per `load(url:externalSubtitles:knownAtmosAudioTrackIndices:)`
-    /// call, read by the `$audioTracks` subscription below every time
-    /// AetherEngine republishes the list — see that parameter's doc comment
-    /// on the protocol for why this exists.
+    /// Set once per `load(...)`, read by the `$audioTracks` subscription each
+    /// time AetherEngine republishes the list.
     private var knownAtmosAudioTrackIndices: Set<Int> = []
 
-    /// Bridges to AetherEngine's own `videoGravity`, which drives whichever
-    /// `AVPlayerLayer`/`AVSampleBufferDisplayLayer` is currently bound —
-    /// `.resizeAspect` (letterboxed, nothing cropped) for `.fit`,
-    /// `.resizeAspectFill` (fills the layer's bounds, cropping any excess)
-    /// for `.fill`. Read back from `engine.videoGravity` rather than
-    /// mirrored in a stored property, so this can't drift from what's
-    /// actually applied to the render layer.
+    /// Bridges to AetherEngine's `videoGravity`, which drives whichever render
+    /// layer is bound: `.resizeAspect` for `.fit`, `.resizeAspectFill` for
+    /// `.fill`. Read back rather than mirrored in stored state, so it can't
+    /// drift from what is applied.
     var zoomMode: VideoZoomMode {
         get { engine.videoGravity == .resizeAspectFill ? .fill : .fit }
         set { engine.videoGravity = newValue == .fill ? .resizeAspectFill : .resizeAspect }
     }
 
-    /// Reads straight off `engine`'s own published/stored properties on
-    /// every access rather than mirroring them into stored state — this is
-    /// only ever read a couple times a second by `PlaybackStatsOverlay`'s
-    /// poll, so there's no reason to duplicate AetherEngine's own bookkeeping
-    /// just to save a handful of property reads.
+    /// Reads `engine`'s properties on every access rather than mirroring them:
+    /// `PlaybackStatsOverlay` polls this a couple of times a second, which
+    /// doesn't justify duplicating AetherEngine's bookkeeping.
     var stats: PlaybackStats {
         PlaybackStats(
             videoSize: engine.sourceVideoWidth > 0 ? "\(engine.sourceVideoWidth)×\(engine.sourceVideoHeight)" : nil,
@@ -119,41 +100,27 @@ final class AetherPlaybackEngine: PlaybackEngine {
             audioChannels: Self.describeChannels(engine.audioTracks.first { $0.id == engine.activeAudioTrackIndex }),
             backend: engine.playbackBackend.rawValue.capitalized,
             route: Self.describeVideoRoute(engine.videoRoute),
-            // Native-only — see `PlaybackStats.bufferedSeconds`'s doc
-            // comment. Confirmed live against a real server/title:
-            // AetherEngine's own internal diagnostics (its 30 s memprobe
-            // log) showed a software-decode session with every native-path
-            // counter (`cacheCount`, `avioFetchedMB`, ...) sitting at a
-            // flat 0 while `swFrames` climbed steadily — i.e. genuinely on
-            // the software backend, where `bufferedPosition` tracks the
-            // playhead by definition rather than any real read-ahead, so
-            // diffing it (against either `currentTime` or `sourceTime` —
-            // both were tried) can only ever read ~0.
+            // Native-only, per `PlaybackStats.bufferedSeconds`. On the software
+            // backend `bufferedPosition` tracks the playhead rather than any
+            // read-ahead, so diffing it against `currentTime` or `sourceTime`
+            // only ever reads ~0.
             //
-            // Prefer reading `engine.currentAVPlayerItem.loadedTimeRanges`
-            // directly when available — confirmed live, 2026-08-28:
-            // `engine.bufferedPosition` sat permanently at (or barely
-            // above) `sourceTime` on the `nativeRemoteHLS` route, reading
-            // as a constant "Buffered: 0.0s" for the whole session.
-            // Matches `LoadOptions.forwardBufferSegments`'s own doc
-            // comment ("Ignored on nativeRemoteHLS") — that route has no
-            // local segment cache for `bufferedPosition`'s clock to
-            // measure at all; AVPlayer manages its own buffering directly
-            // against the origin instead, which `loadedTimeRanges` reads
-            // regardless of route. Falls back to the original
-            // `bufferedPosition` diff when no AVPlayerItem is available
-            // (shouldn't happen on `.native`, but avoids ever returning
-            // nothing where the old calculation still would have).
+            // Prefers `loadedTimeRanges` where available: on the
+            // `nativeRemoteHLS` route `bufferedPosition` sits permanently at
+            // `sourceTime`, reading as a constant "Buffered: 0.0s". That route
+            // has no local segment cache for its clock to measure — AVPlayer
+            // buffers against the origin itself — which is why
+            // `LoadOptions.forwardBufferSegments` is documented as ignored
+            // there. Falls back to the `bufferedPosition` diff when no
+            // AVPlayerItem exists.
             bufferedSeconds: engine.playbackBackend == .native
                 ? (engine.currentAVPlayerItem.flatMap { Self.bufferedAheadSeconds(item: $0, currentTime: engine.sourceTime) }
                     ?? max(0, engine.bufferedPosition - engine.sourceTime))
                 : nil,
-            // `liveTelemetry`'s 1 Hz sampler runs for every session despite
-            // the "live" name (started unconditionally alongside the memory
-            // probe, not gated on `isLive`) — `cachedBytes` on it is the
-            // resident size of the exact same segment cache `bufferedSeconds`
-            // above reads the read-ahead frontier from, so it's `nil` in
-            // the same native-only case for the same reason.
+            // `liveTelemetry`'s 1 Hz sampler runs for every session despite its
+            // name. Its `cachedBytes` measures the same segment cache
+            // `bufferedSeconds` reads above, so it is native-only for the same
+            // reason.
             bufferedBytes: engine.liveTelemetry?.cachedBytes,
             currentTime: engine.currentTime,
             duration: engine.duration
@@ -163,22 +130,18 @@ final class AetherPlaybackEngine: PlaybackEngine {
     init() throws {
         self.engine = try AetherEngine()
         pipDelegateProxy.engine = self
-        // Opts into owning the system Now-Playing session on the native
-        // video path — off by default in AetherEngine because it's also
-        // consumed by `AVPlayerViewController` hosts, where AVKit owns
-        // Now-Playing itself. This app renders its own transport chrome
-        // (`makeSurface()` + `PlayerControlsOverlay`, never AVKit's own
-        // player UI), so it's exactly the "custom UI" case that's meant to
-        // opt in. Must be set before `load()` — see `AetherEngine
-        // .ownsVideoNowPlayingSession`'s doc comment.
+        // Takes ownership of the system Now-Playing session on the native video
+        // path. AetherEngine defaults this off for `AVPlayerViewController`
+        // hosts, where AVKit owns Now-Playing; this app renders its own
+        // transport chrome, so it is the custom-UI case meant to opt in. Must
+        // precede `load()`.
         engine.ownsVideoNowPlayingSession = true
         observeEngine()
         observeAppLifecycle()
     }
 
-    // `isolated deinit` — `didBecomeActiveObserver` is `@MainActor`-isolated
-    // state (this whole class is `@MainActor`), which a plain `nonisolated
-    // deinit` can't touch directly under Swift 6 strict concurrency.
+    // `isolated deinit`: `didBecomeActiveObserver` is `@MainActor` state, which
+    // a `nonisolated deinit` can't touch under Swift 6 strict concurrency.
     isolated deinit {
         if let didBecomeActiveObserver {
             NotificationCenter.default.removeObserver(didBecomeActiveObserver)
@@ -186,30 +149,23 @@ final class AetherPlaybackEngine: PlaybackEngine {
     }
 
     private func observeEngine() {
-        // `$playbackPhase`, not the narrower `$state` this used to watch.
-        // AetherEngine can report a mid-playback buffer underrun
-        // (`.rebuffering`) or a dropped/retrying source connection
-        // (`.stalled(reconnecting:)`) while `state` itself is still
-        // `.playing` — see AetherEngine's own `PlaybackPhase.derive(...)` —
-        // so `state` alone can't distinguish "actually playing" from
-        // "frames stopped, working on it". That gap showed up concretely as
-        // the buffering spinner never appearing when a scrub landed
-        // somewhere that then needed to rebuffer: `state` stayed `.playing`
-        // throughout, so `isBuffering` in `PlayerControlsOverlay` (which
-        // only ever saw this bridged value) had nothing to key off.
-        // `.rebuffering` and `.stalled` are bridged to *separate* app-level
-        // states (`.buffering` vs. `.reconnecting`) rather than folded
-        // together, so the UI can tell a healthy buffer underrun apart from
-        // an actual dropped source connection — and so PlayerViewModel can
-        // consult `ConnectivityMonitor` specifically when a `.reconnecting`
-        // spell ends in `.failed`, not when an ordinary rebuffer does.
+        // `$playbackPhase`, not the narrower `$state`: AetherEngine reports a
+        // buffer underrun (`.rebuffering`) or a dropped source connection
+        // (`.stalled`) while `state` stays `.playing`, so `state` alone can't
+        // distinguish playing from "frames stopped, working on it". That left
+        // `PlayerControlsOverlay.isBuffering` with nothing to key off when a
+        // scrub landed somewhere that needed to rebuffer.
+        //
+        // The two bridge to separate app states (`.buffering` and
+        // `.reconnecting`) so the UI can tell a healthy underrun from a dropped
+        // connection, and so `PlayerViewModel` consults `ConnectivityMonitor`
+        // only when a `.reconnecting` spell ends in `.failed`.
         engine.$playbackPhase
             .receive(on: DispatchQueue.main)
             .sink { [weak self] phase in
                 guard let self else { return }
-                // Genuine forward progress disarms the seek watchdog — see
-                // `seek(to:)`. Left armed only while stuck on `.seeking`/
-                // `.rebuffering`, which is exactly what a wedge looks like.
+                // Forward progress disarms the seek watchdog (see `seek(to:)`),
+                // leaving it armed only while stuck on `.seeking`/`.rebuffering`.
                 switch phase {
                 case .seeking, .rebuffering: break
                 default: self.seekWatchdogTask?.cancel()
@@ -225,15 +181,12 @@ final class AetherPlaybackEngine: PlaybackEngine {
                 case .stalled:           bridged = .reconnecting
                 case .ended:             bridged = .ended
                 case .error(let message):
-                    // `load(...)` already re-threw this exact failure as
-                    // `PlaybackLoadFailure` when it's a source-open/probe/
-                    // route failure — AetherEngine's own docs note that
-                    // case both throws *and* publishes `.error` for the
-                    // same failure, "on purpose". Skip re-bridging it here
-                    // so `PlayerViewModel` hears about it exactly once; any
-                    // other `.error` (a session dying *after* load already
-                    // returned — reload/track-switch failure — which never
-                    // throws) still needs bridging normally.
+                    // A source-open, probe or route failure both throws and
+                    // publishes `.error`, and `load(...)` already re-threw it as
+                    // `PlaybackLoadFailure`. Skipping it here keeps
+                    // `PlayerViewModel` hearing it once. Any other `.error` — a
+                    // session dying after load returned — never throws and
+                    // still needs bridging.
                     if self.suppressNextErrorPhase {
                         self.suppressNextErrorPhase = false
                         return
@@ -259,11 +212,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
             }
             .store(in: &cancellables)
 
-        // `engine.duration` is `@Published` on AetherEngine and settles from
-        // its own dedicated sink, independent of `clock.$currentTime`'s
-        // ticks above — there's no tick at all while paused, so a duration
-        // that settles after the last tick a paused session ever produces
-        // needs its own bridge to reach `PlayerViewModel` at all.
+        // `engine.duration` settles from its own sink, independent of
+        // `clock.$currentTime`. A paused session produces no ticks, so a
+        // duration settling after the last one needs this bridge to arrive.
         engine.$duration
             .receive(on: DispatchQueue.main)
             .sink { [weak self] duration in
@@ -274,10 +225,8 @@ final class AetherPlaybackEngine: PlaybackEngine {
             }
             .store(in: &cancellables)
 
-        // Separate from `clock.$currentTime` above on purpose — subtitle
-        // cues are stamped in source PTS, which can diverge from the item/
-        // AVPlayer-axis clock across producer restarts (see
-        // `PlaybackEngine.onSourceTimeUpdate`'s doc comment).
+        // Separate from `clock.$currentTime`: cues are stamped in source PTS,
+        // which diverges from the AVPlayer-axis clock across producer restarts.
         engine.clock.$sourceTime
             .receive(on: DispatchQueue.main)
             .sink { [weak self] sourceTime in
@@ -287,12 +236,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
             }
             .store(in: &cancellables)
 
-        // AetherEngine draws nothing itself ("the engine emits SubtitleCue;
-        // your UI paints them") — this is the only place cues cross into
-        // the app, normalized to `SubtitleCueDisplay` so the rest of the
-        // app never touches AetherEngine's `SubtitleCue`/`SubtitleTextRun`/
-        // `SubtitleImage` directly, same as `audioTracks`/`subtitleTracks`
-        // above do for `TrackInfo`.
+        // AetherEngine emits cues but paints nothing. This is the only place
+        // they cross into the app, normalized to `SubtitleCueDisplay` so
+        // nothing else touches AetherEngine's subtitle types.
         engine.$subtitleCues
             .receive(on: DispatchQueue.main)
             .sink { [weak self] cues in
@@ -335,20 +281,15 @@ final class AetherPlaybackEngine: PlaybackEngine {
             }
             .store(in: &cancellables)
 
-        // `selectedAudioTrackID`/`selectedSubtitleTrackID` used to be written
-        // *only* from `selectAudioTrack(id:)`/`selectSubtitleTrack(id:)` — an
-        // explicit user pick — which left both `nil` (so nothing showed a
-        // checkmark) for the entire stretch between load and the first
-        // manual selection, even though AetherEngine had already resolved
-        // and was actively playing a default track the whole time. These two
-        // subscriptions pick up that resolved default (and any other
-        // engine-internal change to the active track, e.g. after the
-        // `reloadWithAudioOverride` a track switch triggers) directly from
-        // AetherEngine's own published `activeAudioTrackIndex`/
-        // `activeSubtitleTrackIndex`, independent of firing order against
-        // the `$audioTracks`/`$subtitleTracks` subscriptions above — whichever
-        // of the two arrives second is what actually paints the checkmark,
-        // and either order lands on the same result.
+        // Picks up the default track AetherEngine resolves at load, and any
+        // engine-internal change after it, from `activeAudioTrackIndex`/
+        // `activeSubtitleTrackIndex`. Without these, both selections stay `nil`
+        // — no checkmark anywhere — from load until the first manual pick, even
+        // though a default track is already playing.
+        //
+        // Independent of firing order against the `$audioTracks` subscriptions
+        // above: whichever arrives second paints the checkmark, and either
+        // order reaches the same result.
         engine.$activeAudioTrackIndex
             .receive(on: DispatchQueue.main)
             .sink { [weak self] index in
@@ -371,39 +312,33 @@ final class AetherPlaybackEngine: PlaybackEngine {
             }
             .store(in: &cancellables)
 
-        // Re-emitted on every reload (per its own doc comment) — exactly
-        // when `engine.nativePlayerLayer` can go from nil to a fresh layer,
-        // or from one layer to a newly-rebuilt one, so this is the signal to
-        // (re)build the PiP controller around whatever layer exists now.
+        // Re-emitted on every reload, which is exactly when
+        // `engine.nativePlayerLayer` gains or replaces a layer, so it is the
+        // signal to rebuild the PiP controller around the current one.
         engine.$currentAVPlayer
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.updatePictureInPictureController()
-                    // Same signal, same reasoning: `engine.videoNowPlayingSession`
-                    // only exists once a native host does, and a rebuilt host
-                    // means a fresh `remoteCommandCenter` with no targets on
-                    // it yet.
+                    // Same signal: `engine.videoNowPlayingSession` exists only
+                    // once a native host does, and a rebuilt host brings a fresh
+                    // `remoteCommandCenter` with no targets.
                     self?.updateNowPlayingCommands()
                 }
             }
             .store(in: &cancellables)
     }
 
-    /// A session left paused for long enough in the background gets torn
-    /// down by AetherEngine's own grace-window teardown (releases the
-    /// decode session to stay suspension-safe) — it reports `state ==
-    /// .paused` but `isSessionReady == false`, and AetherEngine's own
-    /// `play()` just forwards to the now-torn-down transport host and
-    /// silently no-ops. `reloadAtCurrentPosition()` is documented as the
-    /// host's own responsibility to call on background return — AetherEngine
-    /// doesn't do it itself. Reloading proactively here, on foreground
-    /// return, means the repair is invisible by the time the user is
-    /// looking at the screen; `play()`'s own `desiredState: .play` call is
-    /// a defensive fallback for whatever races past this. A session that's
-    /// still alive (a quick app switch, or one AetherEngine kept playing
-    /// through the background) is untouched. See
-    /// `recoverSessionIfNeeded(desiredState:)` for the shared repair logic.
+    /// A session paused long enough in the background is torn down by
+    /// AetherEngine's grace-window teardown, which releases the decode session
+    /// to stay suspension-safe. It then reports `state == .paused` with
+    /// `isSessionReady == false`, and `play()` forwards to the torn-down
+    /// transport host and no-ops.
+    ///
+    /// Calling `reloadAtCurrentPosition()` on background return is the host's
+    /// responsibility. Doing it here makes the repair invisible by the time the
+    /// user is looking; `play()`'s own `desiredState: .play` call is the
+    /// fallback for whatever races past. A still-live session is untouched.
     private func observeAppLifecycle() {
         didBecomeActiveObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
@@ -431,24 +366,20 @@ final class AetherPlaybackEngine: PlaybackEngine {
             // — hands the playlist straight to AVPlayer instead of
             // AetherEngine's own FFmpeg demuxer/loopback path.
             nativeRemoteHLS: isRemoteHLS,
-            // Needed for `setNativeSubtitleRendering(_:)` (called on PiP
-            // entry/exit below) to have a native WebVTT rendition to select
-            // at all — see that method's doc comment in AetherEngine.
+            // Gives `setNativeSubtitleRendering(_:)`, called on PiP entry and
+            // exit below, a native WebVTT rendition to select.
             prepareNativeSubtitles: true,
             externalSubtitles: externalSubtitles.map(Self.makeExternalSubtitleTrack)
         )
         do {
             _ = try await engine.load(url: url, options: options)
         } catch is CancellationError {
-            // A superseded `load()`/`stop()` — AetherEngine's own docs are
-            // explicit this is not a playback failure. Untouched, so
-            // `PlayerViewModel`'s catch can filter it the same way.
+            // A superseded `load()`/`stop()`, not a playback failure. Left
+            // untouched so `PlayerViewModel`'s catch can filter it.
             throw CancellationError()
         } catch {
-            // A source-open/probe/route failure both throws *and* publishes
-            // a matching `.error` on `$playbackPhase` — see
-            // `observeEngine()`'s own comment on `suppressNextErrorPhase`
-            // for why that duplicate bridge is skipped once this fires.
+            // Such a failure also publishes a matching `.error` on
+            // `$playbackPhase`; `suppressNextErrorPhase` skips that duplicate.
             suppressNextErrorPhase = true
             let fallbackMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             throw PlaybackLoadFailure(failure: PlaybackFailure(
@@ -459,51 +390,38 @@ final class AetherPlaybackEngine: PlaybackEngine {
         applyForcedSubtitleSelection()
     }
 
-    /// Maps AetherEngine's own `PlaybackErrorKind` onto the recovery
-    /// category `PlayerView` acts on. `PlaybackErrorKind` is deliberately a
-    /// string-backed struct rather than an enum (per its own doc comment,
-    /// so a host's switch never breaks on a minor AetherEngine release) —
-    /// this mirrors that with a non-exhaustive `default:` rather than
-    /// listing every case, so an unrecognized future kind falls safely to
-    /// `.transient` (Retry, today's existing behavior for everything)
-    /// instead of a compile break. `internal`, not `private`, so unit tests
-    /// can call it directly against AetherEngine's plain public
-    /// `PlaybackErrorKind` values with no live engine instance needed.
+    /// Maps `PlaybackErrorKind` onto the recovery category `PlayerView` acts on.
+    /// That type is a string-backed struct rather than an enum so a host's
+    /// switch survives minor AetherEngine releases, which this mirrors with a
+    /// `default:` sending unrecognized kinds to `.transient`. Non-`private` so
+    /// tests can call it without a live engine.
     static func category(for kind: PlaybackErrorKind) -> PlaybackFailure.Category {
         switch kind {
         case .sourceRateLimited:
-            // Origin is metering us (429/503/509) — expected to work again
-            // later, per AetherEngine's own docs. Retry, no Close.
+            // Origin metering (429/503/509), expected to recover. Retry.
             return .rateLimited
         case .sourceRefused, .dolbyVisionRequiresHardware, .hlsPlaylistOnRawLivePath, .demuxedAudioLiveUnsupported:
-            // An access refusal, or content this build/device can never
-            // play regardless of how many times it's retried.
+            // An access refusal, or content this device can never play.
             return .refused
         default:
             return .transient
         }
     }
 
-    /// A "forced" subtitle track exists specifically to caption content the audio track doesn't
-    /// already carry in the viewer's language (foreign-language dialogue, on-screen signs) — real
-    /// players activate one on load regardless of the viewer's general subtitles-on/off preference,
-    /// rather than waiting for an explicit pick. Runs once, right after a fresh `load()`; a later
-    /// user pick (`selectSubtitleTrack(id:)`) is untouched by this — there's nothing left for it to
-    /// do once the host (this call) has already made an explicit choice, same as any other
-    /// `hostExplicitSubtitleAction`.
+    /// A forced subtitle track captions content the audio doesn't carry in the
+    /// viewer's language — foreign dialogue, on-screen signs — so players
+    /// activate one on load regardless of the general subtitles preference.
+    /// Runs once after a fresh `load()`; a later `selectSubtitleTrack(id:)`
+    /// pick is unaffected, since this call has already made the host's explicit
+    /// choice.
     ///
-    /// Source is `TrackInfo.isForced` — the container's own FORCED disposition — covering embedded
-    /// *and* declared-external tracks alike (both are seated in `engine.subtitleTracks` by the time
-    /// `engine.load()` returns; see `registerDeclaredExternalSubtitles`'s doc comment). No title/name
-    /// text-matching, same principle as `knownAtmosAudioTrackIndices` above.
+    /// Keys off `TrackInfo.isForced`, the container's FORCED disposition, which
+    /// covers embedded and declared-external tracks alike. No title matching.
     ///
-    /// Selection when more than one forced track exists (rare — most sources carry at most one, but
-    /// nothing stops a multi-language disc/rip from carrying several): prefer whichever forced
-    /// track's language matches the audio track AetherEngine resolved as active for this load,
-    /// keeping the first match in container order if more than one still ties; fall back to the
-    /// first forced track in container order if none match (or the active audio track's language is
-    /// unknown). Confirmed live (2026-08-14) against a real "Captain Phillips" source carrying an
-    /// English Forced track alongside full subtitle tracks.
+    /// With more than one forced track — rare, but possible on a multi-language
+    /// rip — prefers the one whose language matches the active audio track,
+    /// keeping container order among ties, and falls back to the first forced
+    /// track when none match or the audio language is unknown.
     private func applyForcedSubtitleSelection() {
         let forcedTracks = engine.subtitleTracks.filter(\.isForced)
         guard !forcedTracks.isEmpty else { return }
@@ -512,44 +430,38 @@ final class AetherPlaybackEngine: PlaybackEngine {
         selectSubtitleTrack(id: best.id)
     }
 
-    /// Case-insensitive, trimmed equality — deliberately simpler than AetherEngine's own internal
-    /// language matcher (which also folds ISO 639-1/639-2 B/T variants and English names together,
-    /// e.g. "en"/"eng"/"english"), since that helper isn't exposed outside the package. A non-issue
-    /// in practice: the forced subtitle track and the audio track it's compared against come from the
-    /// same container, which tags both with the same language-code convention (almost always plain
-    /// ISO 639-2), so an exact match after trimming/casing is enough. `nil` on either side never
-    /// matches, same as AetherEngine's own rule.
+    /// Case-insensitive trimmed equality, simpler than AetherEngine's internal
+    /// matcher — which folds ISO 639-1/639-2 B/T variants and English names
+    /// together but isn't exposed outside the package. Sufficient here: both
+    /// tracks come from the same container, which tags them with the same
+    /// convention. `nil` on either side never matches.
     private static func languageMatches(_ trackLanguage: String?, _ other: String?) -> Bool {
         guard let trackLanguage = trackLanguage?.trimmingCharacters(in: .whitespaces), !trackLanguage.isEmpty,
               let other = other?.trimmingCharacters(in: .whitespaces), !other.isEmpty else { return false }
         return trackLanguage.caseInsensitiveCompare(other) == .orderedSame
     }
 
-    /// Defensive fallback for `observeAppLifecycle()`'s proactive reload —
-    /// catches whatever race left that reload undone by the time the user
-    /// actually taps Play, instead of a silently-dead button.
+    /// Fallback for `observeAppLifecycle()`'s reload, catching a race that left
+    /// it undone by the time the user taps Play, instead of a dead button.
     func play() {
         recoverSessionIfNeeded(desiredState: .play)
     }
 
-    /// Shared by `observeAppLifecycle()`'s proactive foreground-return
-    /// repair (`desiredState: .pause`) and `play()`'s own defensive
-    /// fallback (`desiredState: .play`) — both react to the same "paused
-    /// session torn down by AetherEngine's background grace window"
-    /// condition. When the guard is already satisfied, applies
-    /// `desiredState` immediately. Otherwise records `desiredState` as
-    /// what this single in-flight reload should apply once it resolves —
-    /// a second caller arriving mid-reload doesn't start a competing
-    /// reload, it just overwrites which end-state wins, so the *last*
-    /// caller's intent always applies. This matters because
-    /// `reloadAtCurrentPosition()` always resumes playback (its autostart
-    /// is inherited from the original `load()`'s `LoadOptions.autoplay`,
-    /// not overridable per-reload, and AetherEngine has no "reload but
-    /// stay paused" entry point) — so `desiredState` has to be reapplied
-    /// explicitly after every reload, and two independent reloads racing
-    /// each other over the same session's `.play()`/`.pause()` call is
-    /// exactly what silently re-paused a session the user just tapped Play
-    /// on before this shared-task guard existed.
+    /// Shared by `observeAppLifecycle()`'s foreground-return repair and
+    /// `play()`'s fallback, which both react to a paused session torn down by
+    /// AetherEngine's background grace window.
+    ///
+    /// Applies `desiredState` immediately when the session is already ready.
+    /// Otherwise it records what the single in-flight reload should apply, so a
+    /// second caller overwrites the end state rather than starting a competing
+    /// reload and the last caller's intent wins.
+    ///
+    /// `reloadAtCurrentPosition()` always resumes playback — its autostart comes
+    /// from the original `load()`'s `LoadOptions.autoplay` and AetherEngine has
+    /// no "reload but stay paused" entry point — so `desiredState` must be
+    /// reapplied after every reload. Two reloads racing over one session's
+    /// `play()`/`pause()` is what silently re-paused a session the user had
+    /// just resumed.
     private func recoverSessionIfNeeded(desiredState: SessionRecoveryDesiredState) {
         guard engine.state == .paused, !engine.isSessionReady else {
             if desiredState == .play { engine.play() }
@@ -562,11 +474,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
             do {
                 try await self.engine.reloadAtCurrentPosition()
             } catch {
-                // Surfaced through the same `onStateChange` path
-                // `PlayerViewModel` already listens to for every other
-                // terminal engine failure — swallowing this would silently
-                // reproduce the dead-Play-button bug with no diagnostic
-                // trail.
+                // Surfaced through the `onStateChange` path `PlayerViewModel`
+                // uses for every other terminal failure; swallowing it would
+                // reproduce the dead Play button with no diagnostic trail.
                 self.onStateChange?(.failed(PlaybackFailure(
                     message: String(localized: "Playback couldn't resume after being paused in the background.")
                 )))
@@ -584,19 +494,15 @@ final class AetherPlaybackEngine: PlaybackEngine {
     func togglePlayPause() { engine.togglePlayPause() }
     func stop() { engine.stop() }
 
-    /// Arms a watchdog after each seek that turns a stuck backward-seek —
-    /// the AetherEngine "wedge" (upstream issue #93; mitigated in the
-    /// currently-pinned 6.30.1 via byte-budgeted segment retention, but
-    /// still partially reproducible per the changelog's own documented
-    /// residual) — into a visible, actionable error instead of a silent
-    /// freeze with no spinner and no error. `engine.seek(to:)` itself never
-    /// throws and AetherEngine reports no dedicated failure state for this
-    /// case (the phase just never leaves `.seeking`/`.rebuffering`), so
-    /// detecting it is this host's own responsibility.
+    /// Arms a watchdog after each seek, turning a stuck backward seek —
+    /// AetherEngine's wedge, upstream issue #93, mitigated but still partially
+    /// reproducible — into a visible error rather than a silent freeze with no
+    /// spinner. `engine.seek(to:)` never throws and there is no dedicated
+    /// failure state; the phase simply never leaves `.seeking`/`.rebuffering`,
+    /// so detecting it is the host's responsibility.
     ///
-    /// `seekWatchdogGeneration` guards against a later seek's own watchdog
-    /// firing against a now-stale `time` after this one already landed —
-    /// only the *latest* call's watchdog is allowed to act.
+    /// `seekWatchdogGeneration` stops a superseded seek's watchdog firing
+    /// against a stale `time`: only the latest call's may act.
     func seek(to time: TimeInterval) async {
         seekWatchdogGeneration += 1
         let generation = seekWatchdogGeneration
@@ -645,22 +551,16 @@ final class AetherPlaybackEngine: PlaybackEngine {
     func startPictureInPicture() { pipController?.startPictureInPicture() }
     func stopPictureInPicture() { pipController?.stopPictureInPicture() }
 
-    /// (Re)builds `pipController` around whatever `engine.nativePlayerLayer`
-    /// currently is — called from the `engine.$currentAVPlayer` subscription
-    /// in `observeEngine()`, see that call site's comment for why that's the
-    /// right signal. The old controller (if any) is just dropped: AVKit
-    /// tolerates a controller going out of scope mid-session, and there's no
-    /// "swap the layer" API for a `playerLayer`-based controller the way
-    /// there is for a sample-buffer `ContentSource`.
+    /// Rebuilds `pipController` around the current `engine.nativePlayerLayer`,
+    /// from the `engine.$currentAVPlayer` subscription. The old controller is
+    /// dropped: AVKit tolerates one going out of scope mid-session, and a
+    /// `playerLayer`-based controller has no swap-the-layer API.
     ///
-    /// If the outgoing controller was mid-PiP-session (a same-host reload —
-    /// e.g. a stall/reconnect folded into `.buffering` — can re-emit
-    /// `$currentAVPlayer` while a PiP window is still up), dropping it
-    /// without first mirroring `handlePictureInPictureDidStop()`'s cleanup
-    /// would leave `engine.pictureInPictureActive`/`onPictureInPictureActiveChange`
-    /// stuck at `true` forever: AVKit never calls the old delegate's
-    /// `didStopPictureInPicture` for a controller that simply went out of
-    /// scope on the host's side, so nothing else would ever reset it.
+    /// A same-host reload can re-emit `$currentAVPlayer` while a PiP window is
+    /// up, so an outgoing mid-session controller needs
+    /// `handlePictureInPictureDidStop()`'s cleanup mirrored first. AVKit never
+    /// calls `didStopPictureInPicture` on a controller the host dropped, so
+    /// nothing else would reset `engine.pictureInPictureActive`.
     private func updatePictureInPictureController() {
         if pipController?.isPictureInPictureActive == true {
             handlePictureInPictureDidStop()
@@ -674,9 +574,8 @@ final class AetherPlaybackEngine: PlaybackEngine {
         }
         let controller = AVPictureInPictureController(playerLayer: layer)
         controller?.delegate = pipDelegateProxy
-        // The one flag that makes backgrounding while this session is
-        // playing auto-start PiP, with no app-level scene-phase observing
-        // needed anywhere in the app.
+        // Auto-starts PiP when the app backgrounds mid-playback, with no
+        // scene-phase observing needed anywhere in the app.
         controller?.canStartPictureInPictureAutomaticallyFromInline = true
         pipController = controller
         pipPossibleObservation = controller?.observe(\.isPictureInPicturePossible, options: [.initial, .new]) { [weak self] _, change in
@@ -689,35 +588,31 @@ final class AetherPlaybackEngine: PlaybackEngine {
         }
     }
 
-    /// `engine.pictureInPictureActive` drives AetherEngine's own background
-    /// keepalive policy (see that property's doc comment) — this is the one
-    /// place in the app that ever sets it, kept in lockstep with AVKit's own
-    /// notion of "a PiP window is showing" rather than inferred from
-    /// anything else. `setNativeSubtitleRendering(true)` hands whichever
-    /// subtitle track is currently selected to AVKit as a native WebVTT
-    /// rendition, since the app's own `SubtitleOverlayView` isn't visible
-    /// inside the captured layer.
+    /// `engine.pictureInPictureActive` drives AetherEngine's background
+    /// keepalive policy. This is the only place that sets it, kept in lockstep
+    /// with AVKit rather than inferred.
+    ///
+    /// `setNativeSubtitleRendering(true)` hands the selected subtitle track to
+    /// AVKit as a native WebVTT rendition, since the app's own
+    /// `SubtitleOverlayView` isn't visible inside the captured layer.
     fileprivate func handlePictureInPictureDidStart() {
         engine.pictureInPictureActive = true
         engine.setNativeSubtitleRendering(true)
         onPictureInPictureActiveChange?(true)
     }
 
-    /// Mirrors `handlePictureInPictureDidStart` — deselects the native
-    /// rendition so a subsequent in-app frame doesn't double-draw the app's
-    /// own overlay cues on top of AVKit's burned-in ones.
+    /// Mirrors `handlePictureInPictureDidStart`, deselecting the native
+    /// rendition so an in-app frame doesn't draw the app's overlay cues on top
+    /// of AVKit's burned-in ones.
     fileprivate func handlePictureInPictureDidStop() {
         engine.pictureInPictureActive = false
         engine.setNativeSubtitleRendering(false)
         onPictureInPictureActiveChange?(false)
     }
 
-    /// No user-facing UI on purpose — PiP failing to start isn't fatal to
-    /// in-app playback, and the `onPictureInPictureActiveChange?(false)`
-    /// reset below is enough recovery (the button already self-disables via
-    /// `onPictureInPicturePossibleChange`). Just logged, where before this
-    /// the underlying `Error` was discarded entirely with no diagnostic
-    /// trail at all.
+    /// Logged only: PiP failing to start isn't fatal to in-app playback, the
+    /// reset below is enough recovery, and the button self-disables via
+    /// `onPictureInPicturePossibleChange`.
     fileprivate func handlePictureInPictureFailedToStart(_ error: Error) {
         Self.logger.error("Picture in Picture failed to start: \(error.localizedDescription, privacy: .public)")
         onPictureInPictureActiveChange?(false)
@@ -734,42 +629,29 @@ final class AetherPlaybackEngine: PlaybackEngine {
         engine.setVideoNowPlayingInfo(info)
     }
 
-    /// `nonisolated`, not just factored out — the crash this fixed (device,
-    /// 2026-08-16): `MPMediaItemArtwork`'s request handler is called back
-    /// later, off-main, by MediaPlayer's own Now-Playing serialization
-    /// (`-[MPMediaItemArtwork jpegDataWithSize:]` on a background dispatch
-    /// queue) to actually render the JPEG for Control Center/the lock
-    /// screen. A closure literal written directly in `setNowPlayingInfo`
-    /// (a `@MainActor` method, since the whole class is) infers `@MainActor`
-    /// isolation from that enclosing context even though its declared type —
-    /// a plain synchronous `(CGSize) -> UIImage`, nothing async or
-    /// `@MainActor` in `MPMediaItemArtwork`'s own signature — never asked
-    /// for that; Swift's runtime isolation check then traps the instant
-    /// MediaPlayer calls it from anywhere but the main actor, which is
-    /// unconditionally what it does. Defining the closure inside a
-    /// `nonisolated` function instead means it has no enclosing isolation to
-    /// inherit, so it can run on whatever thread the caller uses, which is
-    /// exactly what this handler needs to tolerate.
+    /// `nonisolated` to avoid a crash. MediaPlayer calls
+    /// `MPMediaItemArtwork`'s request handler off-main, from its own
+    /// Now-Playing serialization, to render the JPEG for Control Center. A
+    /// closure literal written inside `setNowPlayingInfo` would infer
+    /// `@MainActor` from that enclosing context — despite a declared type of
+    /// plain `(CGSize) -> UIImage` — and Swift's runtime isolation check then
+    /// traps on the first call. Defined in a `nonisolated` function, the
+    /// closure has no isolation to inherit and runs on the caller's thread.
     private nonisolated static func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
         MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 
     /// Registers play/pause/skip against `engine.videoNowPlayingSession`'s
-    /// own `remoteCommandCenter` — required once `ownsVideoNowPlayingSession`
-    /// is on (set in `init`): AetherEngine's own doc comment is explicit that
-    /// owning the session means the host, not the system, is responsible for
-    /// wiring commands, and the session auto-publishing elapsed/rate/duration
-    /// only covers *info*, not *handling* taps.
+    /// `remoteCommandCenter`, required once `ownsVideoNowPlayingSession` is set:
+    /// owning the session makes the host responsible for wiring commands, and
+    /// the session's auto-published elapsed/rate/duration covers info only.
     ///
-    /// `removeTarget(nil)` before every `addTarget` guards against stacking
-    /// duplicate handlers if this runs again against the same still-live
-    /// `remoteCommandCenter` (a same-host reload also re-emits
-    /// `$currentAVPlayer` — see the call site) — harmless on a freshly built
-    /// one, where there's nothing to remove yet.
+    /// `removeTarget(nil)` before each `addTarget` stops handlers stacking if
+    /// this runs again against a still-live command center, which a same-host
+    /// reload can cause.
     ///
-    /// Skip intervals (15s back / 30s forward) match the in-app transport
-    /// controls' own `gobackward.15`/`goforward.30` buttons, so Control
-    /// Center/the lock screen behaves the same as the app itself.
+    /// The 15s/30s skip intervals match the in-app transport controls, so
+    /// Control Center behaves the same as the app.
     private func updateNowPlayingCommands() {
         guard let center = engine.videoNowPlayingSession?.remoteCommandCenter else { return }
 
@@ -841,10 +723,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
         }
     }
 
-    /// Same cases as `describe(_:)` above, but for `PlaybackStats` rather
-    /// than the scrubber's format badge: always returns a label (including
-    /// "SDR", where `describe(_:)` returns `nil` so the badge just doesn't
-    /// show), and folds in the Dolby Vision profile number when known.
+    /// `describe(_:)`'s cases for `PlaybackStats` rather than the scrubber
+    /// badge: always returns a label, including "SDR" where `describe(_:)`
+    /// returns `nil`, and folds in the Dolby Vision profile number when known.
     private static func describeColorFormat(_ format: VideoFormat, dvProfile: Int?) -> String {
         switch format {
         case .sdr: return "SDR"
@@ -859,8 +740,8 @@ final class AetherPlaybackEngine: PlaybackEngine {
         String(format: "%.1f Mbps", Double(bitsPerSecond) / 1_000_000)
     }
 
-    /// `VideoRoute.rawValue.capitalized` would mangle the camelCase cases
-    /// ("remoteBypass" → "Remotebypass") — spell each one out instead.
+    /// `rawValue.capitalized` mangles the camelCase cases ("remoteBypass" →
+    /// "Remotebypass"), so each is spelled out.
     private static func describeVideoRoute(_ route: VideoRoute) -> String {
         switch route {
         case .none: return "None"
@@ -871,13 +752,10 @@ final class AetherPlaybackEngine: PlaybackEngine {
         }
     }
 
-    /// `stats.bufferedSeconds`'s route-agnostic path — see that doc
-    /// comment for why this exists alongside `bufferedPosition`. Finds
-    /// whichever loaded range currently contains the playhead (the common
-    /// case) and reports how far its far edge sits ahead of it; falls back
-    /// to the last loaded range if none contains the playhead exactly
-    /// (e.g. a range boundary lines up with the playhead down to
-    /// floating-point precision) rather than reporting nothing.
+    /// `stats.bufferedSeconds`' route-agnostic path. Reports how far ahead the
+    /// far edge of the loaded range containing the playhead sits, falling back
+    /// to the last range when none contains it exactly — a boundary can land on
+    /// the playhead to floating-point precision.
     private static func bufferedAheadSeconds(item: AVPlayerItem, currentTime: Double) -> Double? {
         let ranges = item.loadedTimeRanges.map(\.timeRangeValue)
         let range = ranges.first { range in
@@ -891,11 +769,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
         return max(0, end - currentTime)
     }
 
-    /// `TrackInfo.channels` is a plain count (2/6/8/...) meant, per its own
-    /// doc comment, "for Stats-for-Nerds" — this is that label. `isAtmos`
-    /// takes priority over the raw count, same as AetherEngine's own doc
-    /// comment on that field recommends ("surface 'Atmos' instead of the
-    /// bed channel count, typically 5.1").
+    /// The Stats-for-Nerds label for `TrackInfo.channels`, a plain count.
+    /// `isAtmos` takes priority over the raw count, as AetherEngine recommends:
+    /// surface "Atmos" rather than the bed channel count.
     private static func describeChannels(_ track: TrackInfo?) -> String? {
         guard let track, track.channels > 0 else { return nil }
         if track.isAtmos { return "Atmos" }
@@ -913,11 +789,10 @@ final class AetherPlaybackEngine: PlaybackEngine {
         knownAtmosAudioTrackIndices: Set<Int> = []
     ) -> [PlaybackTrack] {
         tracks.map { track in
-            // Computed once and threaded through both `title(for:)` and
-            // `metadataLabel(for:)` — the latter needs to know whether the
-            // former is *about* to show the provided name rather than the
-            // language, so it can put the language back on the metadata
-            // line instead of losing it entirely (see that doc comment).
+            // Threaded through both `title(for:)` and `metadataLabel(for:)`:
+            // the latter needs to know whether the former will show the
+            // provided name instead of the language, so it can put the
+            // language back on the metadata line.
             let providedName = descriptiveName(track)
             return PlaybackTrack(
                 id: track.id,
@@ -932,15 +807,11 @@ final class AetherPlaybackEngine: PlaybackEngine {
         }
     }
 
-    /// The row's main line: `providedName` (`track.name`, when it reads as
-    /// a genuinely descriptive title, e.g. "Director's Commentary") when
-    /// there is one, otherwise a user-friendly language name built from
-    /// `track.language`. Muxers commonly set `name` to a bare, none-too-
-    /// friendly echo of the language field ("ENG", "ENG (srt)") that adds
-    /// no information beyond what `metadataLabel(for:)` and the language
-    /// itself already cover — `descriptiveName(_:)` filters those out so
-    /// this falls through to the friendly language name instead of showing
-    /// the raw label verbatim.
+    /// The row's main line: `providedName` when `track.name` is a descriptive
+    /// title ("Director's Commentary"), else a friendly name from
+    /// `track.language`. Muxers commonly set `name` to a bare echo of the
+    /// language ("ENG", "ENG (srt)"), which `descriptiveName(_:)` filters out so
+    /// this falls through to the language name.
     private static func title(for track: TrackInfo, providedName: String?) -> String {
         if let providedName { return providedName }
         if let language = track.language, let friendly = friendlyLanguageName(language) { return friendly }
@@ -948,14 +819,10 @@ final class AetherPlaybackEngine: PlaybackEngine {
         return String(localized: "Track \(track.id)")
     }
 
-    /// `nil` when `track.name` is empty, or — once a trailing "(...)"
-    /// parenthetical is stripped (the "(srt)" in "ENG (srt)") — is just the
-    /// raw language code or its own friendly name wearing different
-    /// capitalization ("ENG"/"eng"/"English" for an `.language` of "eng").
-    /// Non-nil (and returned verbatim) only for a name that's actually
-    /// carrying information beyond the language, like "Director's
-    /// Commentary" or "Director's Commentary with Brad Pitt, Edward Norton
-    /// & Helena Bonham Carter".
+    /// `nil` when `track.name` is empty, or when — after stripping a trailing
+    /// parenthetical like the "(srt)" in "ENG (srt)" — it is just the language
+    /// code or its friendly name in different casing. Returned verbatim only
+    /// for a name carrying information beyond the language.
     private static func descriptiveName(_ track: TrackInfo) -> String? {
         guard !track.name.isEmpty else { return nil }
         guard let language = track.language, !language.isEmpty else { return track.name }
@@ -973,33 +840,24 @@ final class AetherPlaybackEngine: PlaybackEngine {
         Locale.current.localizedString(forIdentifier: languageCode)
     }
 
-    /// The row's secondary line: whichever flags apply, in this fixed
-    /// order, space-dot-joined — `nil` when none do, so `selectionRow`
-    /// shows a single-line row rather than an empty second line.
+    /// The row's secondary line: the applicable flags in fixed order,
+    /// dot-joined. `nil` when none apply, so `selectionRow` shows a single-line
+    /// row rather than an empty second one.
     ///
-    /// When `providedName` is non-nil, `title(for:providedName:)` is about
-    /// to show it instead of the language — the language would otherwise
-    /// not appear anywhere on the row at all, so it leads the flag list
-    /// here instead (e.g. "English · Commentary" under "Director's
-    /// Commentary").
+    /// A non-nil `providedName` means `title(for:providedName:)` will show it
+    /// instead of the language, which would then appear nowhere on the row, so
+    /// the language leads the flag list — "English · Commentary" under
+    /// "Director's Commentary".
     ///
-    /// Audio tracks additionally get the format (e.g. "DD+"), an "Atmos"
-    /// flag when applicable, and channel layout (e.g. "5.1") right after
-    /// the language, ahead of the boolean flags — see
-    /// `audioFormatLabel`/`channelsLabel`. None of the three apply to
-    /// subtitle tracks (`channels`/codec-as-audio-format are meaningless
-    /// there), hence `kind` gating them.
+    /// Audio tracks also get format, an "Atmos" flag, and channel layout after
+    /// the language and ahead of the boolean flags. None apply to subtitles,
+    /// hence the `kind` gate.
     ///
-    /// "Atmos" is deliberately its own flag, additive to `audioFormatLabel`
-    /// rather than replacing it (that was the original, wrong shape here —
-    /// see that function's doc comment): a Dolby Digital Plus/Atmos track
-    /// is still a DD+ track first and foremost, same as the file's own
-    /// embedded title reads "Dolby TrueHD Atmos"/"Dolby Digital Plus
-    /// Atmos" — format *and* Atmos together, never just one. Its source is
-    /// `track.isAtmos` OR `knownAtmosAudioTrackIndices` (Jellyfin's own
-    /// `MediaStream.audioSpatialFormat`, forwarded at load time) — see the
-    /// `PlaybackEngine.load(url:externalSubtitles:knownAtmosAudioTrackIndices:)`
-    /// doc comment for why both are needed rather than just the former.
+    /// "Atmos" is additive to `audioFormatLabel` rather than replacing it: a
+    /// Dolby Digital Plus/Atmos track is a DD+ track first, the way the file's
+    /// own title reads "Dolby Digital Plus Atmos". Its source is `track.isAtmos`
+    /// or `knownAtmosAudioTrackIndices`, forwarded from Jellyfin's
+    /// `MediaStream.audioSpatialFormat` at load.
     private static func metadataLabel(
         for track: TrackInfo, kind: PlaybackTrack.Kind, providedName: String?,
         knownAtmosAudioTrackIndices: Set<Int>
@@ -1021,37 +879,23 @@ final class AetherPlaybackEngine: PlaybackEngine {
         return flags.isEmpty ? nil : flags.joined(separator: " \u{00B7} ")
     }
 
-    /// The metadata line's audio-format entry — the underlying codec
-    /// family, same shorthand `MediaItem.metadataBadges` uses for the
-    /// Details tab ("DD"/"DD+"/"Dolby TrueHD"/"DTS"), kept consistent
-    /// across the app rather than inventing a second vocabulary here.
-    /// Unlike that badge (server-side `MediaStream.profile`, which can
-    /// tell DTS-HD apart from core DTS), `TrackInfo.codec` is just the bare
-    /// libavcodec name with no profile info, so every DTS-family track
-    /// reads as plain "DTS" here — an accepted simplification, not a bug,
-    /// for this data source. `nil` for a codec with no established
-    /// shorthand (rare in practice) rather than showing a raw, none-too-
-    /// friendly libavcodec name verbatim.
+    /// The metadata line's audio-format entry: the codec family, in the same
+    /// shorthand `MediaItem.metadataBadges` uses for the Details tab. Unlike
+    /// that badge, which reads server-side `MediaStream.profile` and can tell
+    /// DTS-HD from core DTS, `TrackInfo.codec` carries no profile, so every
+    /// DTS-family track reads as plain "DTS". `nil` for a codec with no
+    /// established shorthand, rather than a raw libavcodec name.
     ///
-    /// Deliberately does NOT special-case `track.isAtmos` — `metadataLabel`
-    /// appends "Atmos" as its own separate flag instead. A first version of
-    /// this returned "Dolby Atmos" here in place of the codec's own format
-    /// (e.g. hiding "DD+"), which silently lost real information: a Dolby
-    /// Digital Plus/Atmos track and a Dolby TrueHD/Atmos track both
-    /// legitimately carry Atmos, but they're not interchangeable — TrueHD's
-    /// lossless core is the higher-quality carrier of the two — and
-    /// collapsing both to a bare "Dolby Atmos" made them indistinguishable
-    /// (found live, 2026-08-14, on a Saving Private Ryan source with both).
+    /// Does not special-case `track.isAtmos`; `metadataLabel` appends "Atmos"
+    /// separately. Returning "Dolby Atmos" in place of the codec would lose
+    /// real information: DD+/Atmos and TrueHD/Atmos both carry Atmos but are
+    /// not interchangeable, TrueHD's lossless core being the better carrier.
     ///
-    /// `"dca"` (not just `"dts"`) matches DTS: `Demuxer.trackInfo(from:)`
-    /// sets `codec` from `avcodec_find_decoder(...).pointee.name` — the
-    /// FFmpeg *decoder's* own registered name, not the codec's canonical
-    /// short name — and FFmpeg's DTS decoder has historically been
-    /// registered as `"dca"` (`ffmpeg -codecs` shows `dts ... (decoders:
-    /// dca) (encoders: dca)`); confirmed live (2026-08-14) that every DTS
-    /// track's `codec` actually reads `"dca"`, not `"dts"`. `"dts"` stays
-    /// as a fallback for the rarer case `trackInfo(from:)` falls back to
-    /// the codec-descriptor name (no decoder built).
+    /// `"dca"` matches DTS because `Demuxer.trackInfo(from:)` takes `codec`
+    /// from the FFmpeg decoder's registered name rather than the codec's
+    /// canonical short name, and FFmpeg registers its DTS decoder as `dca`.
+    /// `"dts"` remains for the case where no decoder is built and the
+    /// codec-descriptor name is used.
     private static func audioFormatLabel(for track: TrackInfo) -> String? {
         switch track.codec.lowercased() {
         case "ac3": return "DD"
@@ -1068,13 +912,11 @@ final class AetherPlaybackEngine: PlaybackEngine {
         }
     }
 
-    /// The metadata line's channel-layout entry — friendlier labels
-    /// ("Mono"/"Stereo") than `describeChannels` above uses for Stats-for-
-    /// Nerds ("1.0"/"2.0"), which is a denser diagnostics readout rather
-    /// than a picker row a user reads at a glance. Deliberately does NOT
-    /// collapse to "Atmos" for an Atmos track the way `describeChannels`
-    /// does — `audioFormatLabel` already surfaces that, and the bed channel
-    /// count (typically 5.1) is still useful alongside it here.
+    /// The metadata line's channel layout, in friendlier labels
+    /// ("Mono"/"Stereo") than `describeChannels`' denser diagnostics readout
+    /// ("1.0"/"2.0"). Does not collapse to "Atmos" the way that one does:
+    /// `audioFormatLabel` surfaces it, and the bed channel count is still
+    /// useful alongside.
     private static func channelsLabel(for track: TrackInfo) -> String? {
         guard track.channels > 0 else { return nil }
         switch track.channels {
@@ -1121,10 +963,8 @@ final class AetherPlaybackEngine: PlaybackEngine {
 
 // MARK: - AVPictureInPictureControllerDelegate
 
-/// See `AetherPlaybackEngine.pipDelegateProxy`'s doc comment for why this is
-/// a separate object rather than a delegate conformance on that class
-/// directly. Pure forwarding — all the actual behavior lives on
-/// `AetherPlaybackEngine.handlePictureInPicture...` methods.
+/// Pure forwarding to `AetherPlaybackEngine.handlePictureInPicture...`. See
+/// `AetherPlaybackEngine.pipDelegateProxy` for why this is a separate object.
 @MainActor
 private final class PictureInPictureDelegateProxy: NSObject, @MainActor AVPictureInPictureControllerDelegate {
     weak var engine: AetherPlaybackEngine?
@@ -1143,9 +983,9 @@ private final class PictureInPictureDelegateProxy: NSObject, @MainActor AVPictur
         engine?.handlePictureInPictureFailedToStart(error)
     }
 
-    /// `PlayerView` is never dismissed to start PiP (the manual button just
-    /// shows a placeholder over the still-presented player), so there's
-    /// nothing to re-present here — complete immediately.
+    /// `PlayerView` is never dismissed to start PiP — the button shows a
+    /// placeholder over the still-presented player — so there is nothing to
+    /// re-present.
     func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
         restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
