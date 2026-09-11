@@ -1,22 +1,18 @@
 import Foundation
 
-/// Both this default and `ProfileView`'s own `@AppStorage` default must be
-/// declared identically by hand — nothing enforces they stay in sync (same
-/// discipline as `DownloadPreferencesStore`'s documented gotcha).
+/// This default and `ProfileView`'s `@AppStorage` default are declared by hand
+/// in both places, with nothing enforcing they stay in sync.
 let streamDecisionModeStorageKey = "streamDecisionModePreference"
 let streamingMaxBitrateStorageKey = "streamingMaxBitratePreference"
 
-/// Allow Transcoding (default — sends a real `DeviceProfile`, per
-/// `DeviceProfileBuilder`, and lets the server fall back to an HLS
-/// transcode when it decides direct play isn't possible) vs. Direct Play
-/// Always (no `/PlaybackInfo` negotiation, always a `Static=true` stream
-/// URL — the app's original, more fragile behavior before Allow
-/// Transcoding existed; still available for anyone who wants to force it).
-/// Allow Transcoding became the default on 2026-08-28 once the transcode
-/// target itself moved to fMP4 (see `DeviceProfile.swift`'s `hlsTranscode`
-/// doc comment) — the earlier MPEG-TS/H.264-only target's HEVC black-screen
-/// bug was the reason Direct Play Always had been the safer default before
-/// that fix.
+/// Allow Transcoding, the default, sends a real `DeviceProfile` and lets the
+/// server fall back to an HLS transcode when direct play isn't possible. Direct
+/// Play Always skips `/PlaybackInfo` negotiation for a `Static=true` stream URL
+/// — more fragile, and kept only for anyone who wants to force it.
+///
+/// Allow Transcoding could only become the default once the transcode target
+/// moved to fMP4; the earlier MPEG-TS, H.264-only target's HEVC black-screen bug
+/// (see `DeviceProfile.swift`) made Direct Play Always the safer choice.
 enum StreamDecisionMode: String, Codable, CaseIterable, Identifiable {
     case directPlayAlways
     case allowTranscoding
@@ -31,25 +27,18 @@ enum StreamDecisionMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-/// Caps `DeviceProfile.maxStreamingBitrate` when `StreamDecisionMode ==
-/// .allowTranscoding` — meaningless in Direct Play Always mode, where no
-/// `DeviceProfile` is ever sent. Named for what it actually gates, not for
-/// *when* it happens to matter: this is a ceiling on the delivered
-/// stream's bitrate full stop, not just a cap applied once a transcode is
-/// already happening for some other reason — confirmed live (2026-08-28) a
-/// source whose own bitrate exceeds the chosen cap gets forced to
-/// transcode specifically *because of* this setting, even though it's
-/// otherwise perfectly direct-playable (codec/container/tag all fine).
-/// Direct play can't be throttled — the file goes out byte-for-byte at its
-/// original bitrate or not at all — so this is the only lever that can
-/// turn "would have direct played" into "must transcode."
+/// Caps `DeviceProfile.maxStreamingBitrate` in Allow Transcoding mode, and is
+/// meaningless in Direct Play Always, where no profile is sent.
 ///
-/// The visible label ("40 Mbps") and its VoiceOver counterpart ("40
-/// megabits per second") deliberately differ — "Mbps" read letter-by-letter
-/// ("M B P S") is how VoiceOver reads it by default, same problem
-/// `DownloadBitratePreset.accessibilityDisplayName(in:)`
-/// (`DownloadTypes.swift`) already solves for the downloads quality picker;
-/// this repeats that pattern rather than introducing a new one.
+/// A ceiling on the delivered stream's bitrate outright, not a cap applied once
+/// a transcode is happening for some other reason: an otherwise direct-playable
+/// source whose bitrate exceeds this is forced to transcode because of it.
+/// Direct play can't be throttled — the file goes out at its original bitrate or
+/// not at all — so this is the only lever that turns "would have direct played"
+/// into "must transcode".
+///
+/// The visible label and its VoiceOver counterpart differ because VoiceOver
+/// reads "Mbps" letter by letter.
 enum StreamingMaxBitrate: String, Codable, CaseIterable, Identifiable {
     case unlimited
     case mbps40
@@ -79,11 +68,10 @@ enum StreamingMaxBitrate: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// `nil` means "no user-imposed cap" — `DeviceProfileBuilder.build(_:)`
-    /// is responsible for turning that into whatever concrete value
-    /// actually reaches the server (NOT simply omitting the field: see
-    /// its own doc comment on why absence doesn't mean "unlimited" to
-    /// Jellyfin in practice). This enum only expresses the user's intent.
+    /// `nil` means no user-imposed cap. This enum expresses intent only;
+    /// `DeviceProfileBuilder.build(_:)` turns it into the value that reaches the
+    /// server, which is never an omitted field — absence doesn't mean unlimited
+    /// to Jellyfin.
     var bitsPerSecond: Int? {
         switch self {
         case .unlimited: return nil
@@ -95,18 +83,14 @@ enum StreamingMaxBitrate: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-/// Streaming-mode/bitrate-cap settings for live playback. Local to the
-/// device only, like `DownloadPreferencesStore`/`NextUpPreferenceStore`:
-/// plain `UserDefaults`, not sensitive, never round-tripped through the
-/// server — and, like `DownloadPreferencesStore`, device-wide rather than
-/// scoped per Jellyfin user, since which streaming strategy/bandwidth cap
-/// to use is a property of the device/network, not of whoever's currently
-/// signed in.
+/// Streaming-mode and bitrate-cap settings for live playback. Device-local
+/// `UserDefaults`, never round-tripped through the server, and device-wide
+/// rather than per Jellyfin user: which streaming strategy and bandwidth cap to
+/// use is a property of the device and network.
 ///
-/// Read-only and injectable, same shape as `DownloadPreferencesStore` —
-/// `ProfileView`'s own `@AppStorage` pickers are the only writer, using the
-/// exact same keys, so non-view code (`PlayerViewModel`) can read the live
-/// setting without a SwiftUI environment of their own.
+/// Read-only and injectable. `ProfileView`'s `@AppStorage` pickers are the only
+/// writer, using the same keys, so non-view code can read the live setting with
+/// no SwiftUI environment.
 struct StreamPreferenceStore {
     private let defaults: UserDefaults
 
