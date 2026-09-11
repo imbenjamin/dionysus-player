@@ -6,13 +6,12 @@ import UIKit
 /// Puts the app into the deterministic state a UI test expects, before any
 /// of it has been read.
 ///
-/// Ordering is the whole point of this type. `DionysusPlayerApp` builds its
-/// `AppState` eagerly, and `AppState.init` builds a `ServerSessionStore`,
-/// which reads `UserDefaults` and the Keychain in its own initializer. Reset
-/// and seeding therefore have to happen in `DionysusPlayerApp.init()` —
-/// before `AppState()` is constructed, not in a `.task` or `.onAppear`,
-/// which run long after the store has already loaded whatever the previous
-/// test run left behind.
+/// Ordering is the point of this type. `DionysusPlayerApp` builds `AppState`
+/// eagerly, and `AppState.init` builds a `ServerSessionStore` that reads
+/// `UserDefaults` and the Keychain in its own initializer. Reset and seeding
+/// must therefore happen in `DionysusPlayerApp.init()`, not in a `.task` or
+/// `.onAppear` that runs after the store has already loaded the previous run's
+/// leftovers.
 @MainActor
 enum UITestHarness {
     /// Call once, first thing in `DionysusPlayerApp.init()`.
@@ -36,33 +35,30 @@ enum UITestHarness {
 
     /// Inserts the stub into a session configuration the app builds itself.
     ///
-    /// `URLProtocol.registerClass` only reaches `URLSession.shared`, which
-    /// covers `JellyfinAPIClient` but not `RemoteImageLoader` or
-    /// `DownloadManager` — both configure their own sessions. Those call
-    /// this instead. A no-op outside a UI test run, so the call sites stay
-    /// unconditional and there is nothing to forget.
-    /// `nonisolated`: called from `RemoteImageLoader`'s actor init and from
-    /// `DownloadManager`'s static configuration builder, neither of which is
-    /// on the main actor. Touches only the configuration passed in.
+    /// `URLProtocol.registerClass` only reaches `URLSession.shared`, which covers
+    /// `JellyfinAPIClient` but not `RemoteImageLoader` or `DownloadManager`, both
+    /// of which configure their own sessions and call this instead. A no-op
+    /// outside a UI test run, so call sites stay unconditional.
+    ///
+    /// `nonisolated` because those callers aren't on the main actor. Touches only
+    /// the configuration passed in.
     nonisolated static func decorate(_ configuration: URLSessionConfiguration) {
         guard UITestConfiguration.isActive else { return }
         configuration.protocolClasses = [UITestStubURLProtocol.self] + (configuration.protocolClasses ?? [])
     }
 
-    /// True when the player should keep its controls on screen. Read by
-    /// `PlayerView`'s auto-hide timer, which otherwise races every
-    /// assertion: the overlay hides itself 3s after the last interaction
-    /// unless VoiceOver is running, and XCUITest does not turn VoiceOver on.
+    /// Keeps the player's controls on screen. `PlayerView`'s auto-hide timer
+    /// otherwise races every assertion: the overlay hides 3s after the last
+    /// interaction unless VoiceOver is running, which XCUITest doesn't enable.
     nonisolated static var keepsPlayerControlsVisible: Bool {
         UITestConfiguration.isActive && UITestConfiguration.disablesControlAutoHide
     }
 
     // MARK: - State
 
-    /// Clears everything that survives an app *reinstall-less* relaunch, so
-    /// one test cannot see another's leftovers. The Keychain matters most
-    /// here: it outlives the app container, so without this a signed-in run
-    /// would silently seed every later "first launch" test.
+    /// Clears everything surviving a relaunch, so one test can't see another's
+    /// leftovers. The Keychain matters most: it outlives the app container, so a
+    /// signed-in run would otherwise seed every later first-launch test.
     private static func resetPersistentState() {
         ServerSessionStore().clearAll()
 
@@ -70,7 +66,7 @@ enum UITestHarness {
             UserDefaults.standard.removePersistentDomain(forName: domain)
         }
 
-        // Downloaded media lives outside `UserDefaults` — SwiftData rows in
+        // Downloaded media lives outside `UserDefaults`: SwiftData rows in
         // Application Support, plus the files themselves.
         removeDownloadArtifacts()
     }
@@ -88,18 +84,15 @@ enum UITestHarness {
         }
     }
 
-    /// Plants a server and a signed-in session so a test can start at
+    /// Plants a server and signed-in session so a test starts at
     /// `AppState.Phase.main`.
     ///
-    /// Has to run in-process: the server configuration is plain
-    /// `UserDefaults` and could in principle be planted from outside, but
-    /// the credentials are in the Keychain under this app's own access
-    /// group, which the XCUITest runner cannot write to.
+    /// In-process because the credentials live in the Keychain under this app's
+    /// access group, which the XCUITest runner can't write to.
     ///
-    /// `accessToken` and `userID` are both populated deliberately —
-    /// `AppState.start()` needs both before it will resume a cached session
-    /// offline, so seeding only the username would make the `.offline`
-    /// scenario fall through to the login screen instead.
+    /// Both `accessToken` and `userID` are populated: `AppState.start()` needs
+    /// both to resume a cached session offline, so seeding only the username
+    /// would drop the `.offline` scenario to the login screen.
     private static func seedSession() {
         let store = ServerSessionStore()
         store.saveServer(ServerConfiguration(
