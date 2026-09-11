@@ -1,53 +1,36 @@
 import Foundation
 
-/// Thin async/await REST client for the endpoints Dionysus Player needs,
-/// following the public Jellyfin API (https://api.jellyfin.org/).
+/// Thin async/await REST client for the Jellyfin endpoints this app needs
+/// (https://api.jellyfin.org/).
 ///
-/// This talks to the documented HTTP/JSON API directly rather than depending
-/// on a generated SDK, so the surface here is intentionally small: just
-/// enough for server setup, sign-in, browsing, search, and basic playback
-/// (direct play, no transcode/device-profile negotiation yet).
+/// Hand-written against the documented HTTP/JSON API rather than a generated
+/// SDK, so the surface is deliberately small: server setup, sign-in, browsing,
+/// search, and playback.
 actor JellyfinAPIClient {
     private(set) var baseURL: URL
     private(set) var accessToken: String?
     private let session: URLSession
 
-    /// The URL the most recent response actually came back from — `URLSession`
-    /// follows HTTP redirects transparently, so this can differ from the
-    /// request's own URL (and therefore from `baseURL`) without callers ever
-    /// seeing an explicit redirect. `ServerSetupViewModel.testConnection()`
-    /// reads this to self-correct a server's configured scheme (e.g. a
-    /// public server 302-redirecting a plain-HTTP ping to HTTPS) rather than
-    /// silently recording the wrong one — see its doc comment for why that
-    /// matters (a `POST` sent later on the wrong scheme isn't itself
-    /// redirect-safe the way this GET-based ping is).
+    /// The URL the most recent response came back from. `URLSession` follows
+    /// redirects transparently, so this can differ from the request's own URL
+    /// without callers seeing one. `ServerSetupViewModel.testConnection()` reads
+    /// it to correct a configured scheme — a later `POST` is not
+    /// redirect-safe the way that GET-based ping is.
     private(set) var lastResponseURL: URL?
 
-    /// Whatever credentials most recently succeeded via `authenticate(...)`
-    /// — kept only so a request that comes back 401 mid-session (confirmed
-    /// live against a heavily-shared public demo server: the session token
-    /// this client was issued got invalidated server-side with no action
-    /// by this app at all) can silently re-authenticate and retry, rather
-    /// than surfacing a raw HTTP error for something the app can just
-    /// recover from. `nil` before any successful sign-in, and explicitly
-    /// cleared by `forgetReauthCredentials()` on sign-out — see `sendRaw`'s
-    /// 401 handling for where this is actually used.
+    /// The credentials that last succeeded via `authenticate(...)`, kept so a
+    /// mid-session 401 can re-authenticate and retry rather than surfacing an
+    /// error. A server can invalidate a session token with no action by this
+    /// app. `nil` before sign-in, cleared by `forgetReauthCredentials()`.
     private var reauthCredentials: (username: String, password: String)?
-    /// Coalesces concurrent re-authentication attempts into one in-flight
-    /// `Task` — several requests can 401 around the same moment (e.g.
-    /// `HomeViewModel.load()`'s multi-endpoint fan-out), and each
-    /// independently racing to re-authenticate would spam
-    /// `/Users/AuthenticateByName` for no benefit. Safe to check-then-set
-    /// without an explicit lock: this is actor-isolated state and neither
-    /// line suspends, so nothing else can interleave between them.
+    /// Coalesces concurrent re-authentications into one `Task`: a fan-out like
+    /// `HomeViewModel.load()` can 401 several times at once, and each racing
+    /// independently would spam `/Users/AuthenticateByName`. Check-then-set
+    /// needs no lock — actor-isolated state, and neither line suspends.
     private var inFlightReauth: Task<Void, Error>?
-    /// Delays before each re-authentication attempt after a 401 (the first
-    /// attempt is immediate — index 0 is the delay *before the second*
-    /// attempt) — same array-of-delays convention as `AssetDetailViewModel
-    /// .userDataCommitPollSchedule`. Bounded rather than infinite: a
-    /// genuinely revoked/stale credential must still surface
-    /// `.notAuthenticated` and send the user back to the login screen
-    /// instead of retrying forever.
+    /// Delays before each re-authentication attempt after a 401; the first is
+    /// immediate, so index 0 precedes the second attempt. Bounded so a revoked
+    /// credential surfaces `.notAuthenticated` and returns the user to login.
     private static let reauthBackoffSchedule: [Double] = [0.5, 1.0, 2.0, 4.0]
 
     init(baseURL: URL, accessToken: String? = nil, session: URLSession = .shared) {
@@ -56,10 +39,9 @@ actor JellyfinAPIClient {
         self.session = session
     }
 
-    /// Called on sign-out so this client (which `AppState` reuses across a
-    /// sign-out/sign-back-in on the same server rather than reconstructing)
-    /// doesn't keep the previous user's credentials around to silently
-    /// re-authenticate with if something still 401s in flight.
+    /// Called on sign-out. `AppState` reuses this client across a
+    /// sign-out/sign-back-in on the same server, so without this a request
+    /// still in flight could re-authenticate as the previous user.
     func forgetReauthCredentials() {
         reauthCredentials = nil
     }
@@ -70,14 +52,10 @@ actor JellyfinAPIClient {
         try await get("/System/Info/Public")
     }
 
-    /// Jellyfin's lightweight, purpose-built liveness endpoint (`GET
-    /// /health` — plain "Healthy" text, not JSON) — used for the app's own
-    /// connectivity probes (see `DionysusPlayerApp`'s scenePhase-driven
-    /// resume check) rather than `publicSystemInfo()` above, which fetches
-    /// and JSON-decodes a full payload just to prove reachability.
-    /// Unauthenticated, same as `publicSystemInfo()`. The result is
-    /// discarded by callers — the point is `sendRaw`'s side effect on
-    /// `ConnectivityMonitor`, not anything in the response body.
+    /// Jellyfin's liveness endpoint — plain "Healthy" text, not JSON — used for
+    /// connectivity probes instead of `publicSystemInfo()`, which decodes a
+    /// full payload to prove reachability. Unauthenticated. Callers discard the
+    /// result; the point is `sendRaw`'s side effect on `ConnectivityMonitor`.
     func healthCheck() async throws {
         let request = try makeRequest(path: "/health", method: "GET")
         _ = try await sendRaw(request)
@@ -90,23 +68,16 @@ actor JellyfinAPIClient {
         let body = AuthenticateByNameRequest(username: username, pw: password)
         let result: AuthenticationResult = try await post("/Users/AuthenticateByName", body: body, requiresAuth: false)
         accessToken = result.accessToken
-        // Remember these for `sendRaw`'s 401 auto-retry — see
-        // `reauthCredentials`'s doc comment. Only updated on success, so a
-        // failed sign-in (or a failed reauth attempt — see `reauthenticate
-        // (attempt:)`) never overwrites a still-good previous credential
-        // with a broken one.
+        // For `sendRaw`'s 401 auto-retry. Only on success, so a failed sign-in
+        // never overwrites a still-good credential with a broken one.
         reauthCredentials = (username, password)
         return result
     }
 
-    /// Hydrates this client from a previously-successful sign-in's cached
-    /// credentials, without a network round-trip — used when a fresh
-    /// `authenticate(...)` call can't be made (server unreachable at
-    /// launch) but `ServerSessionStore` already holds a token from an
-    /// earlier session. Sets the same state `authenticate(...)` sets on
-    /// success, so `sendRaw`'s existing 401 retry/reauth machinery works
-    /// identically once real connectivity returns — see
-    /// `reauthCredentials`'s doc comment.
+    /// Hydrates this client from cached credentials with no network round-trip,
+    /// for a launch where the server is unreachable but `ServerSessionStore`
+    /// holds a token. Sets the same state as a successful `authenticate(...)`,
+    /// so `sendRaw`'s 401 retry works once connectivity returns.
     func restoreSession(accessToken: String, username: String, password: String) {
         self.accessToken = accessToken
         reauthCredentials = (username, password)
@@ -114,35 +85,26 @@ actor JellyfinAPIClient {
 
     // MARK: - Browsing
 
-    // `Studios` added for CollectionGridView's Studios filter — without it
-    // in `Fields`, the server omits `BaseItemDto.studios` entirely (same
-    // reason `Genres` is already listed here rather than assumed default).
+    // `Genres`/`Studios` must be named explicitly or the server omits them;
+    // `CollectionGridView`'s filters need both.
     private static let defaultFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,BasicSyncInfo"
-    /// Not `private` — `episodes(seriesID:seasonID:userID:fields:)` needs an
-    /// external caller able to opt into this heavier field list (see that
-    /// method's own doc comment for why `SeasonEpisodeList` does).
-    /// `Chapters` sits here rather than behind an opt-in like `Trickplay`
-    /// below — it's cheap metadata already in the item's own database row
-    /// (a handful of name/tick/tag triples), the same tier as
-    /// `Genres`/`Studios`, and both consumers of this constant need it:
-    /// `AssetDetailViewModel` for the detail page's Chapters rail *and*
-    /// `PlayerViewModel.start()`, which fetches its own DTO independently
-    /// for the player's chapter scrubber/picker.
+    /// Non-`private` so `episodes(seriesID:seasonID:userID:fields:)` callers can
+    /// opt into this heavier list.
     ///
-    /// `CanDelete` and `RecursiveItemCount` are here rather than in
-    /// `defaultFields` on purpose: only the detail page can delete anything,
-    /// and `CanDelete` costs the server a per-item collection-folder lookup
-    /// (`DtoService` carries its own N+1 guard around exactly that) which a
-    /// rail or grid of dozens of items shouldn't be paying for. The cost of
-    /// that choice is that a preloaded `MediaItem` handed over from a rail
-    /// carries `canDelete == nil` until the detail fetch lands — which
-    /// `MediaItem.canDelete` deliberately reads as `false`, so the delete
-    /// affordance appears a beat late rather than appearing when it
-    /// shouldn't.
+    /// `Chapters` is included rather than opt-in like `Trickplay`: it is cheap
+    /// metadata already in the item's row, and both consumers need it —
+    /// `AssetDetailViewModel` for the Chapters rail and `PlayerViewModel.start()`
+    /// for the chapter scrubber.
+    ///
+    /// `CanDelete` and `RecursiveItemCount` stay out of `defaultFields` because
+    /// `CanDelete` costs a per-item collection-folder lookup that a rail of
+    /// dozens of items shouldn't pay. A preloaded `MediaItem` therefore carries
+    /// `canDelete == nil` until the detail fetch lands, which
+    /// `MediaItem.canDelete` reads as `false` so the affordance appears late
+    /// rather than wrongly.
     static let detailFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,MediaSources,People,Taglines,Chapters,BasicSyncInfo,CanDelete,RecursiveItemCount"
-    /// `detailFields` plus `Trickplay` — `PlayerViewModel.start()`'s own
-    /// item fetch passes this explicitly (see `item(userID:itemID:fields:)`'s
-    /// doc comment for why `detailFields` itself doesn't carry this).
+    /// `detailFields` plus `Trickplay`, passed explicitly by the callers that
+    /// need it (see `item(userID:itemID:fields:)`).
     static let detailFieldsWithTrickplay = detailFields + ",Trickplay"
 
     func userViews(userID: String) async throws -> BaseItemDtoQueryResult {
@@ -172,34 +134,23 @@ actor JellyfinAPIClient {
         /// Jellyfin's `ItemFilter` values, e.g. `"IsUnplayed"`, `"IsFavorite"`
         /// — joined into a single comma-separated `Filters` query param.
         filters: [String] = [],
-        /// Genre/studio *names* (as returned by `genres(...)`/`studios(...)`
-        /// below), joined with `"|"` — Jellyfin's `Genres`/`Studios` params
-        /// are pipe-delimited, unlike every other joined param on this
-        /// method (`IncludeItemTypes`/`Filters` are comma-delimited). Don't
-        /// "fix" this to match those by pattern-matching the rest of the
-        /// method — it's pipe on purpose, confirmed against the real
-        /// `ItemsController` signature.
+        /// Genre/studio names from `genres(...)`/`studios(...)`, joined with
+        /// `"|"`. These two params are pipe-delimited while every other joined
+        /// param here is comma-delimited — per `ItemsController`, not an
+        /// oversight.
         genres: [String] = [],
         studios: [String] = [],
-        /// A single person's *name* (Jellyfin's `Person` param takes one
-        /// name, not a delimited list) — pair with `personTypes` to narrow
-        /// to a specific role, e.g. `person: "Tom Hanks", personTypes:
-        /// ["Actor"]`. `personTypes` alone (no `person`) isn't meaningful
-        /// and is ignored by Jellyfin, so callers always set both together.
+        /// One name — Jellyfin's `Person` param takes a single value, not a
+        /// list. Pair with `personTypes` to narrow to a role; `personTypes`
+        /// alone is ignored, so callers set both together.
         person: String? = nil,
-        /// Comma-delimited, unlike `genres`/`studios` above — confirmed
-        /// against the real `ItemsController` signature.
+        /// Comma-delimited, unlike `genres`/`studios` above.
         personTypes: [String] = [],
         searchTerm: String? = nil,
         limit: Int? = nil,
-        /// Overridable so a caller that only needs `id`/`name`/`type` (e.g.
-        /// `collectionsContaining`'s per-collection membership check) can
-        /// pass `""` to skip `defaultFields`' heavier payload
-        /// (Overview/Genres/Studios/...) entirely rather than paying for
-        /// data it's just going to throw away — Jellyfin already returns
-        /// those three fields with no `Fields` param at all. Every existing
-        /// caller keeps getting `defaultFields` unchanged since it's the
-        /// default here too.
+        /// Overridable so a caller needing only `id`/`name`/`type` can pass
+        /// `""` and skip `defaultFields`' heavier payload; Jellyfin returns
+        /// those three with no `Fields` param at all.
         fields: String = defaultFields
     ) async throws -> BaseItemDtoQueryResult {
         var query: [URLQueryItem] = [
@@ -228,12 +179,10 @@ actor JellyfinAPIClient {
         return try await get("/Users/\(userID)/Items", query: query)
     }
 
-    /// Genres actually present in the user's library, scoped by content
-    /// type (`includeItemTypes: ["Movie"]` vs `["Series"]`) — Jellyfin only
-    /// returns a genre here if something of that type actually has it, so
-    /// this doubles as existence-checking for Home's dynamic genre rails
-    /// (`HomeViewModel.loadDynamicRailCandidates`) without a separate
-    /// per-genre count query.
+    /// Genres present in the library, scoped by content type. Jellyfin returns
+    /// a genre only if something of that type has it, so this also serves as
+    /// the existence check for Home's dynamic genre rails, with no per-genre
+    /// count query.
     func genres(userID: String, includeItemTypes: [String]) async throws -> BaseItemDtoQueryResult {
         var query = [URLQueryItem(name: "userId", value: userID)]
         if !includeItemTypes.isEmpty {
@@ -242,11 +191,10 @@ actor JellyfinAPIClient {
         return try await get("/Genres", query: query)
     }
 
-    /// Same as `genres(...)` but for studios — Jellyfin has no separate
-    /// "Network" concept, a show's originating network and a movie's
-    /// production studio are both stored as `Studios`, so the movie/show
-    /// split for Home's "Movies from X"/"Shows from X" rails comes purely
-    /// from `includeItemTypes` here, not a different endpoint.
+    /// As `genres(...)`, for studios. Jellyfin has no separate Network concept —
+    /// a show's network and a movie's studio share the `Studios` field — so the
+    /// split for Home's "Movies from X"/"Shows from X" rails comes from
+    /// `includeItemTypes`, not a different endpoint.
     func studios(userID: String, includeItemTypes: [String]) async throws -> BaseItemDtoQueryResult {
         var query = [URLQueryItem(name: "userId", value: userID)]
         if !includeItemTypes.isEmpty {
@@ -255,21 +203,15 @@ actor JellyfinAPIClient {
         return try await get("/Studios", query: query)
     }
 
-    /// People credited with the given role(s) (`personTypes`, e.g.
-    /// `["Actor"]`/`["Director"]`) anywhere in the user's library — unlike
-    /// `genres(...)`/`studios(...)`, Jellyfin's `/Persons` has no
-    /// `IncludeItemTypes` param, so this can't be (and isn't, by design —
-    /// see `DynamicRailCandidate.actor`/`.director`) scoped to movies vs.
-    /// shows separately the way genre/studio rails are.
+    /// People credited in the given roles anywhere in the library. `/Persons`
+    /// has no `IncludeItemTypes`, so unlike genre and studio rails this cannot
+    /// be scoped to movies versus shows.
     ///
-    /// `limit`, unlike `genres(...)`/`studios(...)`, is worth actually
-    /// passing here rather than always fetching everything — genre/studio
-    /// counts are naturally small (a few dozen at most), but a library's
-    /// full cast/crew corpus can run into the thousands of distinct
-    /// people, each a full `BaseItemDto`, on every single Home load just to
-    /// seed rail *candidates* (most of which won't even clear the
-    /// minimum-item-count bar to become a rail — see
-    /// `HomeViewModel.minimumDynamicRailItemCount`).
+    /// `limit` matters here where it doesn't for `genres(...)`/`studios(...)`:
+    /// those return a few dozen values, but a library's cast and crew can run
+    /// to thousands of full `BaseItemDto`s, fetched on every Home load to seed
+    /// candidates most of which never clear
+    /// `HomeViewModel.minimumDynamicRailItemCount`.
     func persons(userID: String, personTypes: [String], limit: Int? = nil) async throws -> BaseItemDtoQueryResult {
         var query = [URLQueryItem(name: "userId", value: userID)]
         if !personTypes.isEmpty {
@@ -279,14 +221,10 @@ actor JellyfinAPIClient {
         return try await get("/Persons", query: query)
     }
 
-    /// `fields` overridable, same shape/reasoning as `items(...)`'s own
-    /// `fields:` param — a caller that needs more than `detailFields`
-    /// (e.g. `PlayerViewModel.start()`, which also wants `Trickplay`) can
-    /// ask for it without widening the default every other caller of this
-    /// method pays for too. `AssetDetailViewModel` alone calls this at
-    /// several sites, some of them polling loops that fire repeatedly —
-    /// none of them need trickplay data, so `detailFields` itself stays
-    /// lean.
+    /// `fields` is overridable so a caller needing more than `detailFields` —
+    /// `PlayerViewModel.start()` also wants `Trickplay` — can ask without
+    /// widening the default. `AssetDetailViewModel` calls this from several
+    /// sites, some of them polling loops, and none need trickplay.
     func item(userID: String, itemID: String, fields: String = detailFields) async throws -> BaseItemDto {
         try await get("/Users/\(userID)/Items/\(itemID)", query: [.init(name: "Fields", value: fields)])
     }
@@ -317,20 +255,16 @@ actor JellyfinAPIClient {
         try await get("/Shows/\(seriesID)/Seasons", query: [.init(name: "userId", value: userID)])
     }
 
-    /// `fields:` defaults to `defaultFields`, same as `item(userID:itemID:fields:)`
-    /// — `AssetDetailViewModel`'s own two callers (a quick "does this show
-    /// have episodes at all" lookup) don't need anything heavier. Pass
-    /// `detailFields` explicitly when the caller actually needs `People`:
-    /// `SeasonEpisodeList` does, since its `episodes` array is also what
-    /// backs `DownloadButton`/`SeasonDownloadButton`'s `enqueue(item:...)`
-    /// calls — episode downloads' `metadata.people` (offline Cast & Crew)
-    /// comes straight from `item.dto.people`, and it was silently always
-    /// empty for episodes before this, unlike a movie's own detail fetch
-    /// (`item(userID:itemID:)`), which already defaults to `detailFields`.
-    /// `seasonID` is optional: omitting it returns *every* episode in the
-    /// series across all seasons, which is what
-    /// `AddToPlaylistViewModel.load()` needs to know which items a
-    /// "add the whole show" would actually add.
+    /// `fields:` defaults to `defaultFields`, enough for
+    /// `AssetDetailViewModel`'s "does this show have episodes" lookups. Pass
+    /// `detailFields` when `People` is needed: `SeasonEpisodeList` does, because
+    /// its `episodes` array also backs `DownloadButton`'s `enqueue(item:...)`,
+    /// and an episode download's offline Cast & Crew comes from
+    /// `item.dto.people`.
+    ///
+    /// Omitting `seasonID` returns every episode across all seasons, which is
+    /// what `AddToPlaylistViewModel.load()` needs to know what "add the whole
+    /// show" would add.
     func episodes(
         seriesID: String, seasonID: String? = nil, userID: String, fields: String = defaultFields
     ) async throws -> BaseItemDtoQueryResult {
@@ -342,13 +276,11 @@ actor JellyfinAPIClient {
         return try await get("/Shows/\(seriesID)/Episodes", query: query)
     }
 
-    /// With `seriesID` omitted, returns next-up episodes across every show
-    /// the user's watching — Home's "Next Up" rail. With it set, narrows to
-    /// just that series — `AssetDetailViewModel.resolveShowPlaybackEpisode`
-    /// uses this to find a Series-direct page's Play/Resume target, and
-    /// doesn't need `limit`/`Fields` (it only reads the first result), so
-    /// both stay optional/omitted for that call site rather than forcing
-    /// them on it.
+    /// Without `seriesID`, next-up episodes across every show the user is
+    /// watching — Home's "Next Up" rail. With it, just that series, which is how
+    /// `AssetDetailViewModel.resolveShowPlaybackEpisode` finds a Series page's
+    /// Play/Resume target; that caller reads only the first result, so `limit`
+    /// and `fields` stay optional.
     func nextUp(userID: String, seriesID: String? = nil, limit: Int? = nil) async throws -> BaseItemDtoQueryResult {
         var query = [
             URLQueryItem(name: "UserId", value: userID),
@@ -359,21 +291,14 @@ actor JellyfinAPIClient {
         return try await get("/Shows/NextUp", query: query)
     }
 
-    /// The episode immediately following `currentEpisodeID`, regardless of
-    /// watched state — unlike `nextUp(userID:seriesID:)` above, which keeps
-    /// returning the *current* episode until the server has confirmed it
-    /// `played` (see `AssetDetailViewModel.advanceToNextEpisodeIfCompleted`'s
-    /// own poll-and-wait dance for that, and `[[jellyfin-userdata-commit-
-    /// latency]]`). `PlayerViewModel`'s in-player "Up Next" countdown needs
-    /// the real next episode instantly, mid-playback, well before any of
-    /// that can settle, so it uses this instead.
+    /// The episode following `currentEpisodeID`, regardless of watched state.
+    /// `nextUp(userID:seriesID:)` keeps returning the current episode until the
+    /// server confirms it `played`, which is too slow for `PlayerViewModel`'s
+    /// in-player "Up Next" countdown.
     ///
-    /// Fetches the current season's episode list, sorts by `indexNumber`,
-    /// and returns whatever follows `currentEpisodeID`. If that episode is
-    /// last in its season (or, degenerately, not found in the list at all),
-    /// falls through to the next *season*'s first episode instead of
-    /// stopping at the season boundary. Returns `nil` when there's no next
-    /// season or it's empty — the series has finished.
+    /// Sorts the current season by `indexNumber` and returns what follows. If
+    /// that episode is last, or absent from the list, falls through to the next
+    /// season's first episode. `nil` once the series has finished.
     func nextEpisode(currentEpisodeID: String, seriesID: String, seasonID: String, userID: String) async throws -> BaseItemDto? {
         let currentSeasonEpisodes = try await episodes(seriesID: seriesID, seasonID: seasonID, userID: userID).items
             .sorted { ($0.indexNumber ?? 0) < ($1.indexNumber ?? 0) }
@@ -395,16 +320,12 @@ actor JellyfinAPIClient {
 
     // MARK: - Playlists
 
-    /// A playlist's member items, in the playlist's own stored order — no
-    /// `SortBy` param exists on this endpoint, unlike the generic
-    /// `items(...)` browse call, because there's nothing to sort: Jellyfin
-    /// already returns the explicit order the playlist was authored in,
-    /// which is exactly what `PlaylistDetailView`'s Play-through-the-
-    /// whole-playlist button and Up Next queueing depend on. `userId` is
-    /// passed explicitly even though this app always authenticates as a
-    /// real user — a live Jellyfin issue (jellyfin/jellyfin#15600) reports
-    /// this endpoint 400ing without it under API-key auth, and there's no
-    /// downside to including it defensively.
+    /// A playlist's members in its authored order. The endpoint takes no
+    /// `SortBy`: Jellyfin returns the stored order, which is what
+    /// `PlaylistDetailView`'s play-through button and Up Next queueing need.
+    ///
+    /// `userId` is passed defensively — jellyfin/jellyfin#15600 reports this
+    /// endpoint 400ing without it under API-key auth.
     func playlistItems(playlistID: String, userID: String, fields: String = defaultFields) async throws -> BaseItemDtoQueryResult {
         try await get("/Playlists/\(playlistID)/Items", query: [
             .init(name: "userId", value: userID),
@@ -412,27 +333,19 @@ actor JellyfinAPIClient {
         ])
     }
 
-    /// Whether *this user* may edit *this playlist* (add/remove/reorder its
-    /// members) — the playlist equivalent of `BaseItemDto.canDelete`, and
-    /// deliberately fetched the same way: from the server, not derived
-    /// here from policy flags. Jellyfin's mutating playlist endpoints all
-    /// gate on `OwnerUserId == caller || Shares.Any(CanEdit && caller)`,
-    /// but `OwnerUserId` is never exposed in any DTO this app can read — so
-    /// unlike `canDelete`, there's no field to request that answers this
-    /// directly. Calling this endpoint (as the caller querying their own
-    /// permission) is how Jellyfin's own web client resolves it instead
-    /// (`itemHelper.js`'s `canEditPlaylist`): an owner always gets
-    /// `canEdit: true` back, a share gets their real value, and anyone else
-    /// gets a 404 ("permissions not found"), which this method maps to
-    /// `nil` rather than throwing — a missing permissions record means "no
-    /// permission", not a request failure.
+    /// Whether this user may edit this playlist — the playlist equivalent of
+    /// `BaseItemDto.canDelete`, and likewise answered by the server rather than
+    /// derived from policy flags. The mutating endpoints gate on
+    /// `OwnerUserId == caller || Shares.Any(CanEdit && caller)`, and
+    /// `OwnerUserId` appears in no readable DTO, so there is no field to
+    /// request. Self-querying this endpoint is how jellyfin-web resolves it
+    /// (`itemHelper.js`'s `canEditPlaylist`).
     ///
-    /// A **403** is mapped to `nil` alongside the 404. A self-query can't
-    /// actually produce one — the controller permits the request outright
-    /// when the route's `userId` equals the caller's, which is the only way
-    /// this app ever calls it — so this is purely defensive, and exists so
-    /// that `editablePlaylists(userID:)`' fan-out over a whole library of
-    /// playlists can't be derailed by one unexpected refusal.
+    /// An owner gets `canEdit: true`, a share its real value, anyone else a
+    /// 404, mapped to `nil`: a missing permissions record means no permission,
+    /// not a failed request. A 403 maps to `nil` too — a self-query can't
+    /// produce one, but `editablePlaylists(userID:)`' fan-out must not be
+    /// derailed by an unexpected refusal.
     func playlistUserPermissions(playlistID: String, userID: String) async throws -> PlaylistUserPermissions? {
         do {
             return try await get("/Playlists/\(playlistID)/Users/\(userID)")
@@ -443,38 +356,26 @@ actor JellyfinAPIClient {
         }
     }
 
-    /// Every playlist this user may *add items to*, for the "Add to
-    /// Playlist" picker.
+    /// Every playlist this user may add items to, for the "Add to Playlist"
+    /// picker.
     ///
-    /// Structurally the same problem as `collectionsContaining` below, and
-    /// solved the same way: Jellyfin exposes no bulk "which playlists can I
-    /// edit" query and no `OwnerUserId` on any readable DTO, so the only
-    /// way to answer it is to browse every playlist and ask about each one
-    /// individually via `playlistUserPermissions`. Jellyfin's own web
-    /// client does exactly this (`playlisteditor.ts`'s `populatePlaylists`
-    /// fires one `getPlaylistUser` per playlist and filters the dropdown to
-    /// `CanEdit`), so the N+1 is inherent to the API rather than a shortcut
-    /// taken here.
+    /// The same problem as `collectionsContaining` below: no bulk "which
+    /// playlists can I edit" query and no `OwnerUserId` on any readable DTO, so
+    /// the only answer is one `playlistUserPermissions` call per playlist.
+    /// jellyfin-web does the same (`playlisteditor.ts`'s `populatePlaylists`),
+    /// so the N+1 is inherent to the API.
     ///
-    /// Both of `collectionsContaining`'s hard-won protections are carried
-    /// over deliberately — capped concurrency rather than one request per
-    /// playlist all at once, and a fail-soft `try?` per check so a single
-    /// flaky response reads as "not editable" instead of failing the whole
-    /// picker. Only the initial browse can throw.
+    /// Concurrency is capped, and each check is fail-soft, so one flaky
+    /// response reads as "not editable" rather than failing the picker. Only
+    /// the initial browse can throw.
     ///
-    /// Audio playlists are dropped before the fan-out, not after: this app
-    /// doesn't play them at all (see `BaseItemDto.isAudioContent`, and the
-    /// same filter in `CollectionGridViewModel`), so offering one as a
-    /// destination for a movie would be a dead end — and skipping them up
-    /// front is also the cheapest way to shrink the fan-out on a server
-    /// with a large music library.
+    /// Audio playlists are dropped before the fan-out: the app can't play them,
+    /// so one would be a dead end as a destination, and skipping them early is
+    /// also the cheapest way to shrink the fan-out on a music-heavy server.
     func editablePlaylists(userID: String) async throws -> [EditablePlaylist] {
-        // `fields: ""` — the picker renders a name and nothing else, so
-        // none of `defaultFields`' heavier payload (Overview/Genres/
-        // Studios/...) is worth fetching. `MediaType`, which
-        // `isAudioContent` reads, is a plain `BaseItemDto` property that
-        // Jellyfin always serializes; it isn't one of the `ItemFields`
-        // extras this parameter controls.
+        // The picker renders a name and nothing else. `MediaType`, which
+        // `isAudioContent` reads, is always serialized and not one of the
+        // `ItemFields` extras this parameter controls.
         let playlists = try await items(
             userID: userID, includeItemTypes: ["Playlist"], sortBy: "SortName", fields: ""
         ).items.filter { !$0.isAudioContent }
