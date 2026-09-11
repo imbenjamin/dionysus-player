@@ -991,8 +991,8 @@ struct PlayerControlsOverlay: View {
                         .foregroundStyle(.white.opacity(secondaryTextOpacity))
                 }
             }
-            // Matches the play/pause button's own footprint, so nothing
-            // else in the layout shifts when this swaps in and out.
+            // Matches the play/pause button's footprint, so nothing shifts when
+            // this swaps in and out.
             .frame(height: transportSize)
         } else {
             HStack(spacing: 40) {
@@ -1001,17 +1001,12 @@ struct PlayerControlsOverlay: View {
                     viewModel.seek(to: max(0, displayedTime - 15))
                 } label: {
                     Image(systemName: "gobackward.15")
-                        // `.system(size: skipGlyphSize)` rather than
-                        // `.title` — identical at the default text size
-                        // (Title 1 *is* 28pt) but scaled in lockstep with
-                        // the play/pause glyph and with the frame below, so
-                        // the skip buttons can neither overtake the primary
-                        // control nor outgrow their own tap target. See
-                        // `transportSize`.
+                        // `.system(size:)` rather than `.title`: identical at
+                        // the default text size but scaled in lockstep with the
+                        // play/pause glyph and the frame, so skip can neither
+                        // overtake the primary control nor outgrow its target.
                         .font(.system(size: skipGlyphSize))
-                        // Same HIG-44pt tap-target padding as every other
-                        // icon button in this overlay — see the close
-                        // button's doc comment in `topSection`.
+                        // The same 44pt tap target every icon button here uses.
                         .frame(width: transportSize, height: transportSize)
                         .contentShape(Rectangle())
                 }
@@ -1043,10 +1038,9 @@ struct PlayerControlsOverlay: View {
                 .accessibilityIdentifier(A11yID.Player.skipForwardButton)
             }
             .foregroundStyle(.white)
-            // The middle of the screen is the one region `backgroundGradient`
-            // covers neither end of, so these three sit on raw video. This
-            // is where the contrast measurement was worst — see
-            // `controlScrim`.
+            // The middle of the screen is the region `backgroundGradient` covers
+            // neither end of, so these sit on raw video — where the contrast
+            // measurement was worst.
             .modifier(controlScrim)
         }
     }
@@ -1056,33 +1050,22 @@ struct PlayerControlsOverlay: View {
             || viewModel.state == .buffering || viewModel.state == .reconnecting
     }
 
-    /// Logo preferred, pinned top-left — the same "logo over text-title
-    /// fallback" convention `BackdropLogoOverlay` uses on the detail pages.
-    /// Falls back to the plain title text when the item has no logo image at
-    /// all, or when `LogoImageView` fails to load the one it has (a 404, a
-    /// timeout after retries — see that type's doc comment). Contrast
-    /// against the video behind it comes from the overlay's own background
-    /// gradient (see `topSection`'s doc comment), not from anything owned
-    /// here.
+    /// Logo preferred, pinned top-left, as `BackdropLogoOverlay` does on the
+    /// detail pages. Falls back to plain title text when the item has no logo or
+    /// `LogoImageView` fails to load it. Contrast against the video comes from
+    /// the overlay's background gradient.
     ///
-    /// `viewModel.offlineLogoURL ?? item.logoImageURL`: for a downloaded
-    /// item `item.logoImageURL` is always `nil` (its synthetic `BaseItemDto`
-    /// carries no `imageTags` — see `PlayerViewModel.startOffline`'s doc
-    /// comment), so the offline logo travels separately as a local file URL
-    /// instead. Same `isFileURL` branch to `LocalFileImage` vs.
-    /// `LogoImageView` that `BackdropLogoOverlay` uses, for the same reason:
-    /// a local read is synchronous and already cached, so there's no load
-    /// latency for `LogoImageView`'s fade-in to hide.
+    /// A downloaded item's `logoImageURL` is always `nil`, its synthetic
+    /// `BaseItemDto` carrying no `imageTags`, so the offline logo travels
+    /// separately as a file URL. `isFileURL` branches to `LocalFileImage`: a
+    /// local read is synchronous, so there is no load latency for a fade-in to
+    /// hide.
     ///
-    /// For episodes, an "S1:E4 · Episode Name" line (`MediaItem.railSubtitle`
-    /// — falls back to just the episode name if the numbering isn't present)
-    /// always appears below whatever's on the first line, so the episode
-    /// itself stays identifiable even when the logo/title above it only
-    /// names the show. What's on that first line still follows the
-    /// logo-preferred rule above: the show's logo when there is one, or —
-    /// only for episodes, since a movie/series' own title already *is* the
-    /// name that would go here — the show's plain title text when there
-    /// isn't.
+    /// Episodes always get an "S1:E4 · Episode Name" line below the first,
+    /// falling back to the episode name alone without numbering, so the episode
+    /// stays identifiable when the logo above names only the show. The first
+    /// line still prefers the logo, falling back — for episodes only, since a
+    /// movie's title already is that name — to the show's title text.
     @ViewBuilder
     private var titleRow: some View {
         if let item = viewModel.item {
@@ -1119,23 +1102,17 @@ struct PlayerControlsOverlay: View {
                 }
                 .padding(.horizontal)
                 .padding(.bottom, 12)
-                // Same `.ignore` + explicit-label shape `HeroRailView`'s card
-                // and `ProfileView`'s account row already use. Necessary here
-                // specifically because the logo *replaces* the title text when
-                // one exists: `LogoImageView`/`LocalFileImage` render a bare
-                // `Image` with no label of its own, so a VoiceOver user got no
-                // name at all for what was playing — the one thing this row
-                // exists to say. Caught by `AccessibilityAuditTests`
-                // ("missing useful accessibility information" on an unlabeled
-                // image). `accessibilityDescription` already composes the
-                // title-plus-episode line this row shows visually.
+                // `.ignore` plus an explicit label, as the card views use.
+                // Necessary because the logo replaces the title text, and
+                // `LogoImageView` renders a bare `Image` with no label — leaving
+                // a VoiceOver user no name for what is playing, the one thing
+                // this row exists to say. `AccessibilityAuditTests` catches it.
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(item.accessibilityDescription)
 
                 #if DEBUG
-                // Test-only — a sibling of the `.ignore`-collapsed `HStack`
-                // above, not a descendant of it, so it isn't swallowed the
-                // same way. See `A11yID.Media.heroLogoFallbackVisible`.
+                // Test-only, and a sibling of the `.ignore`-collapsed `HStack`
+                // rather than a descendant, so it isn't swallowed the same way.
                 if UITestConfiguration.isActive, isLogoFallbackVisible {
                     Color.clear
                         .frame(width: 1, height: 1)
@@ -1160,9 +1137,8 @@ struct PlayerControlsOverlay: View {
             .lineLimit(1)
     }
 
-    /// Progress track with its timestamps at either end, rather than on
-    /// their own row below it. The trailing timestamp doubles as a button —
-    /// see `showRemainingTime`.
+    /// Progress track with timestamps at either end rather than on a row below.
+    /// The trailing timestamp doubles as a button (see `showRemainingTime`).
     private var scrubberBar: some View {
         VStack(spacing: 4) {
             if let format = viewModel.videoFormatDescription {
@@ -1171,38 +1147,28 @@ struct PlayerControlsOverlay: View {
                     .foregroundStyle(.white.opacity(isIncreasedContrast ? 1 : 0.7))
             }
 
-            // 16, not 8: the thumb is a 20pt circle straddling the track's
-            // edge, so it overflows past the declared bounds at either
-            // extreme and used to overlap the timestamps. Applied here
-            // symmetrically rather than as one-sided padding on
-            // `scrubberTrack`, so both ends keep equal spacing.
+            // 16, not 8: the 20pt thumb straddles the track's edge and overflows
+            // the declared bounds at either extreme, overlapping the timestamps.
+            // Symmetric here rather than one-sided on `scrubberTrack`, so both
+            // ends keep equal spacing.
             HStack(spacing: 16) {
-                // Both labels reserve space for the widest string
-                // `formatTime`/`endTimeText` can ever produce (an invisible
-                // `"-9:59:59"`/`"9:59:59"` reference inside a `ZStack`,
-                // rather than a hardcoded point width, so this still tracks
-                // Dynamic Type) — without this, crossing an hour/minute
-                // digit-count boundary (e.g. the countdown ticking from
-                // "-1:00:00" to "-59:59") changed each label's natural
-                // width, which pushed `scrubberTrack`'s own bounds around
-                // with it. Each label is aligned toward the scrubber (the
-                // leading one trailing-aligned, the trailing one
-                // leading-aligned) so its digits grow away from the track
-                // rather than shifting it. Fixing the track's own width
-                // this way is also what keeps `ScrubThumbnailPreview`'s
-                // drag-to-x-offset math stable while scrubbing.
+                // Both labels reserve the widest string `formatTime` can
+                // produce, via an invisible reference inside a `ZStack` rather
+                // than a hardcoded width, so it still tracks Dynamic Type.
+                // Without it, crossing an hour/minute digit boundary changes
+                // each label's natural width and pushes `scrubberTrack`'s bounds
+                // with it. Each label aligns toward the scrubber so its digits
+                // grow away from the track, which also keeps
+                // `ScrubThumbnailPreview`'s drag-to-offset math stable.
                 ZStack(alignment: .trailing) {
                     Text("9:59:59").monospacedDigit().hidden()
                     Text(Self.formatTime(displayedTime)).monospacedDigit()
                 }
-                // Bare "1:23:45" reads as disconnected digits with no
-                // indication of what they mean — confirmed live (VoiceOver,
-                // real device) this needs a spoken-out "current position"
-                // lead-in, not just the value. `.updatesFrequently` stops
-                // VoiceOver from re-announcing this out loud on every one of
-                // `displayedTime`'s ~10-times-a-second ticks while it's the
-                // focused element — the standard trait for exactly this
-                // (a live-updating clock/timer), not something to leave off.
+                // A bare "1:23:45" reads as disconnected digits, so this needs a
+                // spoken "current position" lead-in rather than the value alone.
+                // `.updatesFrequently` is the standard trait for a live-updating
+                // timer and stops VoiceOver re-announcing on every one of
+                // `displayedTime`'s ~10Hz ticks while focused.
                 .accessibilityLabel(String(localized: "Current position: \(Self.spokenTime(displayedTime))"))
                 .accessibilityIdentifier(A11yID.Player.elapsedLabel)
                 .accessibilityAddTraits(.updatesFrequently)
@@ -1216,12 +1182,11 @@ struct PlayerControlsOverlay: View {
                         Text("-9:59:59").monospacedDigit().hidden()
                         Text(endTimeText).monospacedDigit()
                     }
-                    // Pads the drawn timestamp out to HIG's 44pt minimum
-                    // — it measured 51×14.5pt, under even the 28pt floor.
-                    // Has to go on the *label*: a button hit-tests where its
-                    // label paints, so a frame outside the `Button` grows the
-                    // layout and the measured accessibility frame while
-                    // leaving the real target text-sized. Layout-neutral —
+                    // Pads the timestamp to 44pt; it measured 51×14.5pt, under
+                    // even the 28pt floor. Must go on the label: a button
+                    // hit-tests where its label paints, so a frame outside the
+                    // `Button` grows the layout and the accessibility frame while
+                    // leaving the real target text-sized. Layout-neutral, since
                     // `scrubberTrack` already makes this row 44pt tall.
                     .frame(minHeight: 44)
                     .contentShape(Rectangle())
@@ -1234,9 +1199,8 @@ struct PlayerControlsOverlay: View {
             .font(.caption)
             .foregroundStyle(.white.opacity(secondaryTextOpacity))
 
-            // Only for content that actually has chapters — see
-            // `MediaItem.chapters`, which already collapses Jellyfin's
-            // single-dummy-chapter case to empty.
+            // Only for content with chapters; `MediaItem.chapters` already
+            // collapses Jellyfin's single-dummy-chapter case to empty.
             if !viewModel.chapters.isEmpty {
                 HStack {
                     chapterButton
@@ -1245,21 +1209,16 @@ struct PlayerControlsOverlay: View {
             }
         }
         .padding()
-        // Fires once per transition into a new magnetically-snapped chapter
-        // while dragging the scrubber — see `chapterSnapHapticTrigger`.
-        // `.light`, matching the "a boundary just passed under your finger"
-        // scale of the event rather than `DownloadButton`'s heavier default
-        // `.impact` for a long-press committing to an action.
+        // Once per transition into a newly snapped chapter while dragging.
+        // `.light` matches a boundary passing under a finger, against the
+        // heavier `.impact` used for a long-press committing to an action.
         .sensoryFeedback(.impact(weight: .light), trigger: chapterSnapHapticTrigger)
     }
 
-    /// The current chapter's name as a button, opening `ChapterPickerOverlay`
-    /// — the same "what am I looking at, and where else can I go" affordance
-    /// a YouTube chapter title serves. Falls back to a plain "Chapters"
-    /// label in the one case `currentChapter` can be `nil` with chapters
-    /// present: a playhead sitting before the first chapter's own start
-    /// (rare — Jellyfin's first chapter is normally at 00:00 — but possible
-    /// for a file whose chapter track starts late).
+    /// The current chapter's name as a button opening `ChapterPickerOverlay`.
+    /// Falls back to a plain "Chapters" label in the one case `currentChapter`
+    /// can be `nil` with chapters present: a playhead before the first chapter's
+    /// start, possible for a file whose chapter track begins late.
     private var chapterButton: some View {
         Button {
             onInteract()
@@ -1278,20 +1237,15 @@ struct PlayerControlsOverlay: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(Color.white.opacity(isIncreasedContrast ? 0.32 : 0.15), in: Capsule())
-            // Pads the drawn capsule out to HIG's 44pt minimum touch
-            // target height — same reasoning as every other control in
-            // this overlay (see the close button's doc comment): once
-            // blank space is tappable-to-dismiss, a narrowly-missed
-            // control misfires a dismiss instead.
+            // Pads the capsule to a 44pt target height, as every control here
+            // does: a narrowly-missed control misfires a dismiss.
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
-        // The current chapter is folded into the label rather than exposed
-        // as a separate `.accessibilityValue` — this button *navigates* (it
-        // opens a picker) rather than adjusting a value in place, the same
-        // distinction `navigationRow` above draws for the track picker's
-        // own root rows. An empty value string would otherwise read as a
-        // stray pause whenever `currentChapter` is nil.
+        // Folded into the label rather than exposed as `.accessibilityValue`:
+        // this button navigates rather than adjusting in place, the distinction
+        // `navigationRow` draws. An empty value would read as a stray pause
+        // whenever `currentChapter` is nil.
         .accessibilityLabel(
             viewModel.currentChapter.map { String(localized: "Chapters, currently \($0.name)") }
                 ?? String(localized: "Chapters")
@@ -1300,29 +1254,21 @@ struct PlayerControlsOverlay: View {
         .accessibilityIdentifier(A11yID.Player.chaptersButton)
     }
 
-    /// A hand-drawn track rather than a plain `Slider` — SwiftUI's `Slider`
-    /// only lets `.tint()` style the *elapsed* (filled) portion; the
-    /// *remaining* (unfilled) portion always renders in the system's own
-    /// low-opacity gray regardless of tint, which read as barely-there
-    /// against a dark video frame. Drawing both segments directly gives
-    /// control over the remaining segment's color too — `.opacity(0.35)`
-    /// here vs. full white for elapsed, a deliberate step up from the
-    /// system default rather than another background layer behind the
-    /// whole bar.
+    /// Hand-drawn rather than a `Slider`, whose `.tint()` styles only the
+    /// elapsed portion — the remaining portion always renders in a low-opacity
+    /// system gray that reads as barely there against a dark video frame.
+    /// Drawing both segments allows `.opacity(0.35)` against full white for
+    /// elapsed, rather than another background layer behind the whole bar.
     private var scrubberTrack: some View {
         GeometryReader { geometry in
             let width = max(geometry.size.width, 1)
             let fraction = viewModel.duration > 0 ? min(1, max(0, displayedTime / viewModel.duration)) : 0
 
             ZStack(alignment: .leading) {
-                // Both segments get their own explicit `height: 4` directly
-                // — rather than relying on a `.frame(height: 4)` up on the
-                // enclosing `ZStack` to propose that size down to them —
-                // specifically so the 20pt thumb `Circle` below can't drag
-                // the whole track taller with it. A shared parent frame
-                // sizes to fit its *largest* child before the frame value
-                // is applied to the children individually; pinning each
-                // shape's own size is unambiguous regardless.
+                // Each segment declares `height: 4` itself rather than taking it
+                // from the enclosing `ZStack`, so the 20pt thumb below can't drag
+                // the track taller: a shared parent frame sizes to its largest
+                // child before applying the frame to children individually.
                 Capsule()
                     .fill(Color.white.opacity(isIncreasedContrast ? 0.6 : 0.35))
                     .frame(height: 4)
@@ -1331,19 +1277,13 @@ struct PlayerControlsOverlay: View {
                     .fill(Color.white)
                     .frame(width: width * fraction, height: 4)
 
-                // Chapter boundaries, drawn over both track segments and
-                // under the thumb — purely additive to the drawing above.
-                // Filtered on `startSeconds > 0` rather than by dropping
-                // index 0: it's normally the first chapter that sits at
-                // 0:00, but the thing actually worth skipping is a divider
-                // at the track's own leading edge (which reads as a
-                // rendering artifact, not a boundary) whichever chapter
-                // happens to be there. Dark rather than a lighter white, so
-                // it stays visible against the *filled* (solid white)
-                // segment as well as the unfilled one. Gated on
-                // `isChaptersInScrubberEnabled` — the current-chapter
-                // button/picker stay available either way, only this visual
-                // segmentation (and the magnetic snap below) are optional.
+                // Chapter boundaries, over both track segments and under the
+                // thumb. Filtered on `startSeconds > 0` rather than by index:
+                // what's worth skipping is a divider at the track's leading edge,
+                // which reads as a rendering artifact, whichever chapter is
+                // there. Dark rather than white so it stays visible against the
+                // filled segment too. Gated on `isChaptersInScrubberEnabled`,
+                // which leaves the current-chapter button and picker available.
                 if isChaptersInScrubberEnabled {
                     ForEach(viewModel.chapters.filter { $0.startSeconds > 0 }) { chapter in
                         Rectangle()
@@ -1353,16 +1293,11 @@ struct PlayerControlsOverlay: View {
                     }
                 }
 
-                // Deliberately much larger than the 4pt track it sits on
-                // top of — a native `Slider`'s thumb is the same way, a
-                // sizable circle overlapping a thin line, rather than
-                // matching the track's own thickness. Matters more here
-                // than it would on a mouse-driven UI: on a real device this
-                // is the actual finger touch target. The shadow (rather
-                // than, say, a stroke) is what actually separates it from
-                // the elapsed segment visually — both are solid white, so
-                // without it the thumb only read as the track's leading
-                // end looking slightly fatter, not as a distinct handle.
+                // Much larger than the 4pt track, as a native `Slider`'s thumb
+                // is: on a real device this is the finger target. The shadow,
+                // rather than a stroke, is what separates it from the elapsed
+                // segment — both are solid white, so without it the thumb reads
+                // as the track's leading end looking fatter, not as a handle.
                 Circle()
                     .fill(Color.white)
                     .frame(width: 20, height: 20)
@@ -1370,36 +1305,25 @@ struct PlayerControlsOverlay: View {
                     .offset(x: width * fraction - 10)
             }
             .frame(maxHeight: .infinity)
-            // `.overlay`, not a 4th `ZStack` sibling above — a `ZStack`
-            // sizes itself to its *largest* child (see the Capsules' own
-            // doc comment just above for the same lesson learned the hard
-            // way about the 20pt thumb), so the bubble's own much taller
-            // natural size (~114pt: 90pt image + spacing + the timestamp
-            // pill) was inflating this whole track's reported height even
-            // though `.offset` only moves where it *renders* — confirmed
-            // live (2026-08-17): the scrubber row visibly dropped every
-            // time a drag started. An `.overlay` is layout-inert by
-            // definition — its content can never affect the base view's
-            // own reported size, however tall it is — so this is the
-            // correct tool here, not just a workaround.
+            // `.overlay`, not a fourth `ZStack` sibling: a `ZStack` sizes to its
+            // largest child, so the bubble's ~114pt natural height inflated the
+            // track's reported height even though `.offset` only moves where it
+            // renders, visibly dropping the scrubber row on every drag. An
+            // `.overlay` is layout-inert and can't affect the base view's size.
             .overlay(alignment: .leading) {
-                // Gated on `isDraggingScrubber`, not `isScrubbing` — the
-                // latter deliberately stays `true` past finger-lift while a
-                // seek lands (see that property's own doc comment above),
-                // which would otherwise leave a stale bubble hanging on
-                // screen after the finger's already gone. Clamped so its
-                // own 160pt width stays fully inside the track even when
-                // dragging to either extreme — unlike the 20pt thumb above,
-                // it would otherwise clip off-screen there.
+                // Gated on `isDraggingScrubber`, not `isScrubbing`, which stays
+                // `true` past finger-lift while a seek lands and would leave a
+                // stale bubble on screen. Clamped so its 160pt width stays inside
+                // the track at either extreme, where — unlike the thumb — it
+                // would otherwise clip off-screen.
                 if isDraggingScrubber, viewModel.supportsScrubThumbnails {
                     ScrubThumbnailPreview(
                         image: scrubThumbnailImage,
                         timeText: Self.formatTime(scrubTime),
-                        // Reads off `scrubTime` (already snapped, when a
-                        // snap is active) rather than tracking
-                        // `snappedChapterIndex` separately — the two agree
-                        // by construction, and this also names the chapter
-                        // while merely dragging *through* one.
+                        // Reads `scrubTime`, already snapped when a snap is
+                        // active, rather than tracking `snappedChapterIndex`:
+                        // the two agree by construction, and this also names the
+                        // chapter while dragging through one.
                         chapterName: viewModel.chapters.chapter(at: scrubTime)?.name
                     )
                         .offset(
@@ -1407,44 +1331,33 @@ struct PlayerControlsOverlay: View {
                                 max(width * fraction - ScrubThumbnailPreview.width / 2, 0),
                                 width - ScrubThumbnailPreview.width
                             ),
-                            // Clears both the thumb and a finger actually
-                            // touching it — `.overlay(alignment: .leading)`
-                            // keeps the same vertically-centered-on-the-
-                            // track baseline the old `ZStack(alignment:
-                            // .leading)` gave it, so this offset needs no
-                            // change from what that vertical centering
-                            // already required: roughly half the bubble's
-                            // own height plus the thumb's half-height.
+                            // Clears the thumb and the finger on it: roughly half
+                            // the bubble's height plus the thumb's half-height,
+                            // measured from the track-centered baseline
+                            // `.overlay(alignment: .leading)` gives.
                             y: -90
                         )
                 }
             }
-            // The visible track is a thin 4pt line, but the drag target
-            // spans this whole `GeometryReader` frame (see `.frame(height:
-            // 44)` below) — matches a plain `Slider`'s actual tap target,
-            // which is much taller than what it visually draws.
+            // The visible track is 4pt but the drag target spans the whole
+            // `GeometryReader` frame, matching a `Slider`'s real tap target.
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
-                        // Every move resets `PlayerView`'s auto-hide
-                        // countdown — without this, a long, slow drag could
-                        // outlast the 3-second timer and have the controls
-                        // (scrubber included, mid-touch) fade out from under
-                        // the user's finger.
+                        // Resets `PlayerView`'s auto-hide countdown: a long slow
+                        // drag would otherwise outlast the 3-second timer and
+                        // fade the scrubber out from under the finger.
                         onInteract()
                         isDraggingScrubber = true
                         isScrubbing = true
-                        // Magnetic snap — a *soft pull*, not a detent:
-                        // within `chapterSnapRadius` of a boundary the
-                        // displayed/seek time locks to that chapter's exact
-                        // start, but the finger keeps driving the raw
-                        // position with no added resistance, so leaving the
-                        // zone resumes free scrubbing immediately. The test
-                        // is in pixel space, not time, so the pull feels the
-                        // same on a 20-minute episode and a 3-hour film
-                        // (where an equivalent time radius would be either
-                        // unusably tight or absurdly wide).
+                        // A soft pull, not a detent: within `chapterSnapRadius`
+                        // of a boundary the displayed and seek time lock to that
+                        // chapter's start, while the finger keeps driving the raw
+                        // position with no added resistance, so leaving the zone
+                        // resumes free scrubbing. Tested in pixel space rather
+                        // than time, so the pull feels the same on a 20-minute
+                        // episode and a 3-hour film.
                         if let snapped = snappedChapter(forDragX: drag.location.x, width: width) {
                             scrubTime = snapped.chapter.startSeconds
                             if snappedChapterIndex != snapped.index {
@@ -1454,21 +1367,18 @@ struct PlayerControlsOverlay: View {
                         } else {
                             let newFraction = min(1, max(0, drag.location.x / width))
                             scrubTime = newFraction * viewModel.duration
-                            // Cleared without firing the haptic — a tick on
-                            // the way *out* of a boundary would double every
-                            // pass-through into a buzz-buzz.
+                            // Cleared without the haptic: a tick on the way out
+                            // would double every pass-through into a buzz-buzz.
                             snappedChapterIndex = nil
                         }
                         requestScrubThumbnail(at: scrubTime)
                     }
                     .onEnded { _ in
-                        // So the next drag's first frame inside the same
-                        // boundary counts as a fresh entry and ticks again.
+                        // So the next drag's first frame inside the same boundary
+                        // counts as a fresh entry and ticks again.
                         snappedChapterIndex = nil
-                        // `isScrubbing` deliberately stays `true` here — see
-                        // the `onChange`s below for why, and `displayedTime`'s
-                        // doc comment for what this keeps showing in the
-                        // meantime.
+                        // `isScrubbing` stays `true` here; see the `onChange`s
+                        // below.
                         onInteract()
                         isDraggingScrubber = false
                         scrubThumbnailTask?.cancel()
@@ -1477,9 +1387,8 @@ struct PlayerControlsOverlay: View {
             )
         }
         .frame(height: 44)
-        // A plain `Slider` gets VoiceOver adjustability for free; this
-        // hand-rolled replacement needs it spelled out explicitly so
-        // scrubbing isn't a regression for VoiceOver users.
+        // A `Slider` gets VoiceOver adjustability for free; this hand-rolled
+        // replacement must spell it out so scrubbing isn't a regression.
         .accessibilityElement()
         .accessibilityLabel(Text("Playback position"))
         .accessibilityIdentifier(A11yID.Player.scrubber)
@@ -1572,12 +1481,9 @@ struct PlayerControlsOverlay: View {
     /// `x` is clamped to the track before measuring, so dragging past either
     /// end doesn't drift out of the first/last chapter's snap zone.
     ///
-    /// Returns `nil` unconditionally when `isChaptersInScrubberEnabled` is
-    /// off — the single choke point for the setting on the drag side, so
-    /// `.onChanged` doesn't need its own separate check: with snapping
-    /// disabled this always reports "nothing to snap to" and the drag
-    /// handler's existing `else` branch (plain, unsnapped scrubbing) runs
-    /// exactly as it did before chapters existed.
+    /// `nil` unconditionally when `isChaptersInScrubberEnabled` is off: the one
+    /// choke point for that setting on the drag side, so `.onChanged` needs no
+    /// check of its own and falls into its plain unsnapped `else` branch.
     private func snappedChapter(forDragX x: CGFloat, width: CGFloat) -> (index: Int, chapter: Chapter)? {
         guard isChaptersInScrubberEnabled, viewModel.duration > 0, !viewModel.chapters.isEmpty else { return nil }
         let clampedX = min(max(x, 0), width)
@@ -1597,26 +1503,19 @@ struct PlayerControlsOverlay: View {
     /// fire during a continuous drag.
     private static let scrubThumbnailThrottleInterval: TimeInterval = 0.12
 
-    /// Throttled scrub-thumbnail fetch, called from every `scrubberTrack`
-    /// drag tick. Deliberately a *throttle*, not a debounce (the shape this
-    /// replaced, matching `SearchViewModel`'s search-as-you-type debounce):
-    /// a debounce only fires once input goes quiet, which for a scrubber
-    /// drag means a sufficiently fast, sustained, continuous gesture could
-    /// in principle never let it fire at all until the finger actually
-    /// pauses. A throttle instead guarantees a fetch roughly every
-    /// `scrubThumbnailThrottleInterval` throughout continuous movement:
-    /// fires immediately if that long has already passed since the last
-    /// fetch *started* (not since the last tick — this is wall-clock time
-    /// via `lastScrubThumbnailFireDate`, unrelated to how often
-    /// `.onChanged` itself fires), otherwise schedules exactly one trailing
-    /// fetch for whenever the window is up. Every tick in between just
-    /// updates `pendingScrubSeconds`, which that already-scheduled fetch
-    /// reads when it actually runs — so a whole burst of ticks collapses
-    /// into a single fetch at the drag's *latest* position, not a stale
-    /// one from partway through the burst.
+    /// Throttled scrub-thumbnail fetch, called from every drag tick.
     ///
-    /// No-ops when `supportsScrubThumbnails` is false, matching
-    /// `scrubberTrack`'s own gate on rendering the bubble at all.
+    /// A throttle rather than a debounce: a debounce fires only once input goes
+    /// quiet, so a fast sustained drag could never fire until the finger pauses.
+    /// This fires immediately when `scrubThumbnailThrottleInterval` has passed
+    /// since the last fetch started — wall-clock time, unrelated to tick
+    /// frequency — and otherwise schedules one trailing fetch for when the window
+    /// is up. Ticks in between only update `pendingScrubSeconds`, which that
+    /// scheduled fetch reads, so a burst collapses into one fetch at the drag's
+    /// latest position rather than a stale one.
+    ///
+    /// A no-op when `supportsScrubThumbnails` is false, matching
+    /// `scrubberTrack`'s gate on rendering the bubble.
     private func requestScrubThumbnail(at seconds: TimeInterval) {
         guard viewModel.supportsScrubThumbnails else { return }
         pendingScrubSeconds = seconds
@@ -1635,9 +1534,8 @@ struct PlayerControlsOverlay: View {
             lastScrubThumbnailFireDate = Date()
             let requested = pendingScrubSeconds ?? seconds
             let image = await viewModel.scrubThumbnail(atSeconds: requested)
-            // `nil` means "not available yet", not "no thumbnail exists" —
-            // see `TrickplayThumbnailProvider`'s doc comment — so only a
-            // successful result overwrites what's already showing.
+            // `nil` means not yet available rather than no thumbnail, so only a
+            // successful result overwrites what is showing.
             if !Task.isCancelled, let image {
                 scrubThumbnailImage = image
             }
@@ -1645,22 +1543,17 @@ struct PlayerControlsOverlay: View {
         }
     }
 
-    /// The scrubber's trailing timestamp — the asset's total duration by
-    /// default, or a countdown to the end once `showRemainingTime` is
-    /// toggled on. Reads off `displayedTime` (the scrub-in-progress position
-    /// while dragging, otherwise live playback position — see
-    /// `displayedTime`), so the countdown keeps counting down as the user
-    /// scrubs, not just during normal playback.
+    /// The trailing timestamp: total duration, or a countdown to the end once
+    /// `showRemainingTime` is on. Reads `displayedTime`, so the countdown tracks
+    /// a scrub in progress as well as normal playback.
     private var endTimeText: String {
         guard showRemainingTime else { return Self.formatTime(viewModel.duration) }
         return "-" + Self.formatTime(max(0, viewModel.duration - displayedTime))
     }
 
-    /// `endTimeText`'s spoken-out counterpart — same "needs a context
-    /// lead-in, not just digits" fix as `displayedTime`'s own label above,
-    /// with the lead-in itself switching between the button's two states
-    /// (remaining vs. total) rather than reading as the same phrase either
-    /// way.
+    /// `endTimeText`'s spoken counterpart, with a context lead-in that switches
+    /// between the button's remaining and total states rather than reading the
+    /// same either way.
     private var endTimeAccessibilityLabel: String {
         guard showRemainingTime else {
             return String(localized: "Total duration: \(Self.spokenTime(viewModel.duration))")
@@ -1668,11 +1561,10 @@ struct PlayerControlsOverlay: View {
         return String(localized: "Remaining time: \(Self.spokenTime(max(0, viewModel.duration - displayedTime)))")
     }
 
-    /// The scrub-in-progress position while `isScrubbing`, otherwise live
-    /// playback position. `isScrubbing` now covers more than the drag touch
-    /// itself — it stays on through the just-issued seek landing too (see
-    /// `scrubberTrack`'s gesture/`onChange`s) — so this keeps reading
-    /// `scrubTime` for that whole window, not just while a finger is down.
+    /// The scrub-in-progress position while `isScrubbing`, else the live playback
+    /// position. `isScrubbing` covers more than the drag touch — it stays on
+    /// through the issued seek landing — so this reads `scrubTime` for that whole
+    /// window, not only while a finger is down.
     private var displayedTime: TimeInterval {
         isScrubbing ? scrubTime : viewModel.currentTime
     }
@@ -1687,14 +1579,10 @@ struct PlayerControlsOverlay: View {
         return String(format: "%d:%02d", minutes, seconds)
     }
 
-    /// `formatTime`'s spoken-out counterpart, e.g. "1 hour, 23 minutes, 45
-    /// seconds" instead of "1:23:45" — used only inside an
-    /// `.accessibilityLabel`, never on screen. Unlike a colon-separated
-    /// clock (which VoiceOver reads as digits reasonably well), this is
-    /// specifically for the two scrubber timestamps, which need a "current
-    /// position"/"remaining time"/"total duration" lead-in VoiceOver users
-    /// confirmed live they were missing — see `Design Guideline —
-    /// Accessibility`: values need to be perceivable, not just present.
+    /// `formatTime`'s spoken counterpart, "1 hour, 23 minutes, 45 seconds" rather
+    /// than "1:23:45", used only in an `.accessibilityLabel`. VoiceOver reads a
+    /// colon-separated clock as digits well enough; what the two scrubber
+    /// timestamps need is the position-versus-remaining-versus-total lead-in.
     private static func spokenTime(_ time: TimeInterval) -> String {
         guard time.isFinite, time >= 0 else { return String(localized: "0 seconds") }
         let formatter = DateComponentsFormatter()
@@ -1708,27 +1596,23 @@ struct PlayerControlsOverlay: View {
     }
 }
 
-/// A dark halo behind a white glyph, so it stays legible over whatever
-/// video frame happens to be underneath it — see
-/// `PlayerControlsOverlay.controlScrim`, which is the only thing that
-/// builds one and carries the full reasoning and the measurements.
+/// A dark halo keeping a white glyph legible over whatever video frame is
+/// underneath. `PlayerControlsOverlay.controlScrim` is its only builder and
+/// carries the measurements.
 ///
-/// A `ViewModifier` rather than a plain `.shadow(...)` at each call site so
-/// the two clusters that need it (the top button row and the transport row)
-/// can't drift apart, and so the Increase Contrast branch lives in exactly
-/// one place.
+/// A `ViewModifier` rather than a `.shadow(...)` per call site so the top button
+/// row and transport row can't drift apart, and the Increase Contrast branch
+/// lives in one place.
 private struct ControlScrim: ViewModifier {
     let opacity: Double
     let radius: CGFloat
 
-    /// Two stacked passes, not one. A single `.shadow` is a blur, so its
-    /// effective alpha right at the glyph's edge — the only place that
-    /// decides legibility — is far below the nominal opacity. Measured on a
-    /// bright frame, one pass at 0.65/4 lifted the adjacent pixel from 198
-    /// to 167 (2.41:1 against the white glyph), short of the 3:1 non-text
-    /// floor, which needs ≤149. Compositing the same shadow twice roughly
-    /// squares the transmission at the edge without widening the halo into
-    /// something visible as a smudge.
+    /// Two stacked passes. A `.shadow` is a blur, so its effective alpha at the
+    /// glyph's edge — the only place legibility is decided — is far below its
+    /// nominal opacity: on a bright frame, one pass at 0.65/4 lifted the adjacent
+    /// pixel from 198 to 167, a 2.41:1 ratio against the white glyph where the
+    /// 3:1 floor needs ≤149. Compositing twice roughly squares the transmission
+    /// at the edge without widening the halo into a visible smudge.
     func body(content: Content) -> some View {
         content
             .shadow(color: .black.opacity(opacity), radius: radius)
