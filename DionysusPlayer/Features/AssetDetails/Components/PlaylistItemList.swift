@@ -1,80 +1,60 @@
 import SwiftUI
 
-/// A Playlist's own member items, in the playlist's own stored order —
-/// `PlaylistDetailView`'s counterpart to `CollectionDetailView`'s
-/// `CollectionItemList`, same two-independent-tap-targets row shape and the
-/// same `NavigationLink`-push-per-row navigation (a Playlist's members
-/// already have their own full detail pages, same as a BoxSet's — see
-/// `PlaylistItemRow`'s doc comment). Unlike a BoxSet's members, though, a
-/// Playlist can mix Movies and Episodes together — every row uses the same
-/// landscape thumbnail shape regardless of kind (a deliberate uniformity
-/// choice, unlike `PosterCard`/`LandscapeMediaCard`'s kind-dependent split
-/// elsewhere in the app — see `PlaylistItemRow`'s doc comment), with
-/// `railTitle`/`railSubtitle` handling the metadata difference instead, so
-/// nothing here needs to special-case which kind a given row actually is.
+/// A Playlist's member items in stored order — `PlaylistDetailView`'s
+/// counterpart to `CollectionItemList`, with the same two-tap-target row shape
+/// and `NavigationLink` push per row, since a playlist member has its own
+/// detail page.
 ///
-/// Doesn't fetch its own data — `items` is
-/// `AssetDetailViewModel.orderedPlaylistItems`, already fetched (and
-/// audio/music-filtered) alongside `similar`/`collections` in `load()`/
-/// `refreshItem()`.
+/// Unlike a BoxSet, a Playlist can mix Movies and Episodes, and every row uses
+/// the same landscape thumbnail regardless of kind (see `PlaylistItemRow`).
+/// `railTitle`/`railSubtitle` absorb the metadata difference, so nothing here
+/// branches on kind.
 ///
-/// Lays out over two columns on regular width, via the same
-/// `DetailRowGridMetrics` the episode and collection lists use — see that
-/// type for why, and for the measurements behind it. Every row here is
-/// landscape-shaped whatever kind it holds (see this type's doc comment
-/// above), so it sizes from `.landscapeThumbnail` even for a Movie
-/// member, where `CollectionItemList` would use `.poster`. Owns its own
-/// horizontal padding rather than taking it from `PlaylistDetailView`
-/// (which is how it used to work), so that what `.onGeometryChange`
-/// measures below is the full width the list has to divide, matching what
-/// the metrics type expects.
+/// Doesn't fetch its own data: `items` is
+/// `AssetDetailViewModel.orderedPlaylistItems`, already fetched and
+/// music-filtered in `load()`/`refreshItem()`.
+///
+/// Lays out over two columns on regular width via `DetailRowGridMetrics`,
+/// sizing from `.landscapeThumbnail` even for a Movie member where
+/// `CollectionItemList` would use `.poster`. Owns its horizontal padding rather
+/// than inheriting it from `PlaylistDetailView`, so `.onGeometryChange` below
+/// measures the full width the list divides.
 struct PlaylistItemList: View {
     let items: [MediaItem]
-    /// Plays that item, joining the same Up Next chain as every other row
-    /// and the page's own Play/Resume button — see `PlaylistDetailView`'s
-    /// doc comment for why a single shared queue covers all three. Distinct
-    /// from tapping the row's text, which pushes into that item's own
-    /// detail page instead.
+    /// Plays that item, joining the same Up Next chain as every other row and
+    /// the page's Play/Resume button (see `PlaylistDetailView`). Distinct from
+    /// tapping the row's text, which pushes into its detail page.
     var onPlayItem: (String) -> Void
-    /// `nil` (no live session) omits every row's `DownloadButton` overlay
-    /// entirely — same graceful-degradation shape `SeasonEpisodeList.EpisodeRow`
-    /// already uses for the same reason.
+    /// `nil` (no live session) omits every row's `DownloadButton` overlay, like
+    /// `SeasonEpisodeList.EpisodeRow`.
     var client: JellyfinAPIClient?
     var userID: String?
     var downloadManager: DownloadManager?
     /// Owns `canEditPlaylist`/`removeFromPlaylist(_:)`/`track(_:)` for the
-    /// per-row remove affordances below — see `PlaylistItemRow`'s doc
-    /// comment. Passed as the whole view model rather than loose
-    /// closures/flags, matching `HeroActionButtons(viewModel:)`'s existing
-    /// precedent in this same view hierarchy (`PlaylistDetailView`).
+    /// per-row remove affordances. Passed whole rather than as loose
+    /// closures, matching `HeroActionButtons(viewModel:)` in the same hierarchy.
     let viewModel: AssetDetailViewModel
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    /// This list's own width, fed to `DetailRowGridMetrics` below. See
-    /// `SeasonEpisodeList.availableWidth` for why this is measured with
-    /// `.onGeometryChange` rather than read from `UIScreen`/`keyWindow`,
-    /// and why starting at 0 is safe.
+    /// This list's width, fed to `DetailRowGridMetrics`. See
+    /// `SeasonEpisodeList.availableWidth` for why it's measured with
+    /// `.onGeometryChange` rather than read off the window, and why 0 is a safe
+    /// start.
     @State private var availableWidth: CGFloat = 0
 
-    /// Set when a swipe/context-menu removal fails (notably
-    /// `.notPermitted`, if edit access was revoked mid-session — see
-    /// `AssetDetailViewModel.removeFromPlaylist`) — one shared alert for
-    /// the whole list rather than per-row state, since only one removal is
-    /// ever realistically in flight at a time.
+    /// Set when a removal fails, notably `.notPermitted` if edit access was
+    /// revoked mid-session (see `AssetDetailViewModel.removeFromPlaylist`). One
+    /// shared alert rather than per-row state, since only one removal is in
+    /// flight at a time.
     @State private var removalErrorMessage: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // The count carries real information here that "Items" alone
-            // doesn't — a Playlist has no other length cue on the page
-            // (the metadata row shows total duration, not how many things
-            // make it up), and unlike the sibling lists this one can't say
-            // *what* they are: a Playlist mixes Movies and Episodes, which
-            // is why this header is the vague "Items" where
-            // `CollectionItemList`'s is "Movies". Uninflected past one, the
-            // same shape `DownloadsView`'s "\(count) Episodes" already
-            // uses.
+            // The count is the page's only length cue — the metadata row shows
+            // total duration, not item count. "Items" rather than
+            // `CollectionItemList`'s "Movies" because a Playlist mixes kinds.
+            // Uninflected past one, like `DownloadsView`'s "\(count) Episodes".
             Text("\(items.count) Items")
                 .font(.title3.bold())
                 .padding(.horizontal)
@@ -84,12 +64,9 @@ struct PlaylistItemList: View {
                 artwork: .landscapeThumbnail
             )
 
-            // A `LazyVGrid` only once there's genuinely more than one
-            // column to lay out — the single-column case stays on the
-            // `LazyVStack` it has always used, so compact width is
-            // byte-identical to before this existed. Same split, same
-            // reasoning, as `SeasonEpisodeList`'s and
-            // `CollectionItemList`'s.
+            // A `LazyVGrid` only when there's more than one column; the
+            // single-column case stays on a `LazyVStack`. Same split as
+            // `SeasonEpisodeList` and `CollectionItemList`.
             if metrics.columnCount > 1 {
                 LazyVGrid(columns: metrics.columns, alignment: .leading, spacing: 16) {
                     itemRows(metrics: metrics)
@@ -113,14 +90,13 @@ struct PlaylistItemList: View {
         }
     }
 
-    /// Shared by both branches above so the single- and multi-column
-    /// lists can never drift apart in what a row actually is.
+    /// Shared by both branches above so the single- and multi-column lists
+    /// can't drift apart.
     ///
-    /// `id: \.playlistItemID` rather than the default `Identifiable`
-    /// keying — a playlist can contain the same item more than once, so
-    /// `item.id` isn't unique per row here (see `MediaItem.playlistItemID`'s
-    /// doc comment); every item in `items` always has one, since it's only
-    /// ever populated from `AssetDetailViewModel.orderedPlaylistItems`.
+    /// `id: \.playlistItemID`, not the default `Identifiable` keying: a playlist
+    /// can contain the same item twice, so `item.id` isn't unique per row (see
+    /// `MediaItem.playlistItemID`). Every item here has one, coming only from
+    /// `AssetDetailViewModel.orderedPlaylistItems`.
     @ViewBuilder
     private func itemRows(metrics: DetailRowGridMetrics) -> some View {
         ForEach(items, id: \.playlistItemID) { item in
@@ -143,100 +119,75 @@ struct PlaylistItemList: View {
     }
 }
 
-/// One playlist member — mirrors `CollectionItemList.CollectionItemRow`'s
-/// two-independent-tap-targets shape (thumbnail plays this item directly;
-/// title/metadata/synopsis text pushes into its own detail page via
-/// `NavigationLink`, since a movie or episode inside a playlist already has
-/// its own full detail page, same reasoning as a BoxSet's member row) —
-/// just always landscape-shaped (the "Thumb" image, `item.thumbImageURL`,
-/// falling back to the poster image cropped to fill the same 16:9 frame
-/// when no Thumb exists — same fallback `LandscapeMediaCard` uses) rather
-/// than switching to a poster for a Movie member the way a rail tile does
-/// elsewhere in the app (`MediaItem.usesLandscapeRailTile`). Confirmed with
-/// the user (2026-09-02): a uniform shape reads better in this specific
-/// list than the kind-dependent split. `railTitle`/`railSubtitle` still
-/// handle the metadata difference with no further branching needed here: a
-/// Movie member shows its own name + "year · duration"; an Episode member
-/// shows its series name + "S1:E4 · Episode Name" — exactly what
-/// distinguishes rows from different shows/movies in a mixed playlist.
+/// One playlist member, mirroring `CollectionItemList.CollectionItemRow`'s two
+/// independent tap targets: the thumbnail plays the item, the text pushes into
+/// its detail page.
+///
+/// Always landscape-shaped — `item.thumbImageURL`, falling back to the poster
+/// cropped to the same 16:9 frame like `LandscapeMediaCard` — rather than
+/// switching to a poster for a Movie member the way rail tiles do
+/// (`MediaItem.usesLandscapeRailTile`); a uniform shape reads better in this
+/// list. `railTitle`/`railSubtitle` absorb the kind difference: a Movie shows
+/// its name and "year · duration", an Episode its series name and "S1:E4 ·
+/// Episode Name".
 private struct PlaylistItemRow: View {
     let item: MediaItem
     var onPlay: () -> Void
-    /// Supplied by `DetailRowGridMetrics` rather than fixed on this type —
-    /// see that type for why a row in a two-column grid can't keep the
-    /// same 160x90 thumbnail a full-width row uses.
+    /// Supplied by `DetailRowGridMetrics` rather than fixed here — see that type
+    /// for why a two-column row can't keep a full-width row's 160x90 thumbnail.
     let thumbnailWidth: CGFloat
     let thumbnailHeight: CGFloat
-    /// `nil` (no live session — shouldn't happen in practice on a screen
-    /// that already requires one, but degrades gracefully) omits the
-    /// per-item download button entirely rather than showing one that
-    /// can't actually resolve `playbackInfo` — same as `EpisodeRow`'s
-    /// identical trio.
+    /// `nil` (no live session) omits the download button rather than showing one
+    /// that can't resolve `playbackInfo`, like `EpisodeRow`'s identical trio.
     var client: JellyfinAPIClient?
     var userID: String?
     var downloadManager: DownloadManager?
-    /// Whether the current user may edit the playlist this row belongs
-    /// to — gates both `onRemove` triggers below entirely (mirrors
-    /// `AssetActionsButton`'s "render nothing, never a disabled control"
-    /// philosophy). See `AssetDetailViewModel.canEditPlaylist`'s doc
-    /// comment for why this can't be a per-row server field the way
-    /// `canDelete` is.
+    /// Whether the user may edit this row's playlist; gates `onRemove` entirely
+    /// rather than showing a disabled control, like `AssetActionsButton`. See
+    /// `AssetDetailViewModel.canEditPlaylist` for why it can't be a per-row
+    /// server field the way `canDelete` is.
     var canRemove: Bool
-    /// Fires the actual removal — owned by `PlaylistItemList`, which wraps
-    /// it in `viewModel.track(Task { ... })` and surfaces any failure via
-    /// its own shared alert. Called from the `.contextMenu` item below —
-    /// the deliberate choice over a hand-rolled swipe gesture (tried and
-    /// reverted, 2026-09-08: reads as an ordinary tap against the Play
-    /// `Button`/`NavigationLink` on a physical device, clunky compared to
-    /// a native swipe). A long-press menu is a well-established platform
-    /// pattern in its own right, and its entries are already exposed to
-    /// VoiceOver's rotor, Switch Control, and Voice Control automatically —
-    /// answering "delete without the gesture" with no extra visible UI at
-    /// all, which is the whole reason this wasn't paired with
-    /// `.swipeActions`-style chrome in the first place.
+    /// Fires the removal. Owned by `PlaylistItemList`, which wraps it in
+    /// `viewModel.track(Task { ... })` and surfaces failures through its shared
+    /// alert. Called from the `.contextMenu` item below rather than a swipe
+    /// gesture: a hand-rolled swipe read as an ordinary tap against the Play
+    /// `Button`/`NavigationLink` on device. A long-press menu is also already
+    /// exposed to VoiceOver's rotor, Switch Control and Voice Control, so it
+    /// needs no extra visible chrome.
     var onRemove: () -> Void
 
-    /// Measured height of the title/subtitle block above the synopsis —
-    /// see `overviewLineLimit`. 0 until the first layout pass reports.
+    /// Measured height of the title/subtitle block above the synopsis; see
+    /// `overviewLineLimit`. 0 until the first layout pass reports.
     @State private var headerHeight: CGFloat = 0
 
     /// Line heights of the text styles this row stacks, used by
-    /// `overviewLineLimit` below. See `CollectionItemRow`'s identical pair
-    /// for why these are `@ScaledMetric` rather than plain literals.
+    /// `overviewLineLimit`. See `CollectionItemRow`'s identical pair for why
+    /// they're `@ScaledMetric`.
     @ScaledMetric(relativeTo: .subheadline) private var titleLineHeight: CGFloat = 20
     @ScaledMetric(relativeTo: .caption) private var captionLineHeight: CGFloat = 16
 
     /// How many lines of synopsis fit under the title and subtitle within
     /// `thumbnailHeight`.
     ///
-    /// Derived rather than the flat `lineLimit(6)` this used to carry: six
-    /// lines never came close to fitting a 16:9 thumbnail's 90pt at this
-    /// row's single-column size, so the `.clipped()` below was slicing a
-    /// line through its x-height on every row with a synopsis rather than
-    /// letting `Text` truncate it.
+    /// Derived rather than a flat `lineLimit(6)`: six lines don't fit a 16:9
+    /// thumbnail's 90pt at single-column size, so `.clipped()` sliced a line
+    /// through its x-height instead of letting `Text` truncate.
     ///
-    /// What's reserved is *measured* (`headerHeight`), not estimated from
-    /// the title's own `lineLimit(2)`. Estimating cost two lines: nearly
-    /// every title here is one line — `railTitle` is a series name for an
-    /// episode member — so budgeting two reserved 60pt of a 90pt row
-    /// where the header actually measures ~35pt, and showed a single
-    /// line with a third of the row left empty. Measuring is also
-    /// self-correcting in the direction that matters: a title that *does*
-    /// wrap shrinks the synopsis by a line rather than pushing it under
-    /// the clip.
+    /// The reserved header is measured (`headerHeight`), not estimated from the
+    /// title's `lineLimit(2)`. Estimating cost two lines: nearly every title
+    /// here is one line (`railTitle` is a series name for an episode), so
+    /// budgeting two reserved 60pt of a 90pt row against an actual ~35pt.
+    /// Measuring also self-corrects — a title that does wrap shrinks the
+    /// synopsis rather than pushing it under the clip.
     ///
-    /// The fallback covers the first frame only, before
-    /// `.onGeometryChange` has reported; it's the conservative estimate,
-    /// so a row can only ever gain lines as it settles, never flash more
-    /// than it can hold.
+    /// The fallback covers the first frame only, before `.onGeometryChange`
+    /// reports, and is conservative, so a row only gains lines as it settles.
     ///
-    /// Measured live, 2026-09-04: 3 lines at 90pt (iPhone 17, and any
-    /// compact-width row), 1 at the 68pt of an iPad portrait two-column
-    /// row, 3 at the 96pt of an iPad landscape one. `CollectionItemRow`
-    /// deliberately still uses the flat estimate — switching it too would
-    /// take its rows from 4 lines to the 6-line cap, which is a call
-    /// about how much prose that page wants rather than a bug fix, and
-    /// isn't part of this change.
+    /// This yields 3 lines at 90pt (compact width), 1 at an iPad portrait
+    /// two-column row's 68pt, 3 at an iPad landscape row's 96pt.
+    /// `CollectionItemRow` still uses the flat estimate: switching it would take
+    /// its rows from 4 lines to the 6-line cap, a question about that page's
+    /// prose rather than a bug.
     private var overviewLineLimit: Int {
         let reserved = headerHeight > 0
             ? headerHeight
@@ -246,19 +197,14 @@ private struct PlaylistItemRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            // A `ZStack`, not the download button nested inside the Play
-            // `Button`'s own label — same reasoning as `EpisodeRow`'s
-            // identical split: a button nested in another button's label
-            // risks having its taps swallowed by the outer one instead of
-            // reaching it. This keeps the two as independent sibling tap
-            // targets layered on the same thumbnail instead.
+            // A `ZStack`, not the download button inside the Play `Button`'s
+            // label: a nested button risks its taps being swallowed by the
+            // outer one. Same split as `EpisodeRow`.
             //
-            // `.bottomTrailing`, not `.topTrailing` — the corner scheme this
-            // thumbnail follows is favorite (top-left) / watched (top-right)
-            // / show logo (bottom-left) / download (bottom-right), so the
-            // download badge below doesn't land on top of
-            // `watchStatusOverlay`'s watched-eye badge, which already owns
-            // top-right.
+            // `.bottomTrailing` because this thumbnail's corner scheme is
+            // favorite (top-left) / watched (top-right) / show logo
+            // (bottom-left) / download (bottom-right), and `watchStatusOverlay`
+            // already owns top-right.
             ZStack(alignment: .bottomTrailing) {
                 Button(action: onPlay) {
                     ZStack {
@@ -267,14 +213,11 @@ private struct PlaylistItemRow: View {
                             placeholderSystemImage: item.kind.placeholderSystemImage
                         )
                         .frame(width: thumbnailWidth, height: thumbnailHeight)
-                        // Same show-logo treatment Home's own episode rail
-                        // tiles use (`LandscapeMediaCard`) — self-gated to
-                        // `.episode` items with a logo, so a Movie member's
-                        // thumbnail is untouched. Applied before the Play
-                        // button's circle+glyph below (a `ZStack` sibling, not
+                        // Same show-logo treatment as `LandscapeMediaCard`,
+                        // self-gated to `.episode` items with a logo. Applied
+                        // before the Play button's glyph (a `ZStack` sibling, not
                         // part of this `.overlay` chain), so the logo sits
-                        // bottom-left underneath it rather than competing for
-                        // the same center spot.
+                        // bottom-left underneath it.
                         .episodeLogoOverlay(for: item)
                         .watchStatusOverlay(for: item)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -290,17 +233,13 @@ private struct PlaylistItemRow: View {
                     }
                 }
                 .buttonStyle(.plain)
-                // Same treatment as `CollectionItemRow`'s identical thumbnail
-                // `Button` — a plain `Button` already reads as one VoiceOver
-                // element with the `.isButton` trait, so just a label is needed.
+                // A plain `Button` already reads as one VoiceOver element with
+                // the `.isButton` trait, so only a label is needed.
                 .accessibilityLabel(String(localized: "Play \(item.railTitle)"))
 
-                // Same component the detail page's own Play/Resume row
-                // uses — full parity (idle/preparing/downloading/
-                // downloaded states, audio-track prompt, subtitle
-                // warning), not a slimmed-down copy. `item.episodeLabel`
-                // is `nil` for a Movie member, same "bare state word"
-                // fallback `EpisodeRow`'s identical call site documents.
+                // The same component the detail page's Play/Resume row uses, at
+                // full parity, not a slimmed-down copy. `item.episodeLabel` is
+                // `nil` for a Movie member, falling back to the bare state word.
                 if let client, let userID, let downloadManager {
                     DownloadButton(
                         item: item, client: client, userID: userID, downloadManager: downloadManager, style: .overlay,
@@ -310,22 +249,17 @@ private struct PlaylistItemRow: View {
                 }
             }
 
-            // See `PosterCard.body`'s doc comment for why the
-            // `NavigationLink` needs its own `ZStack` wrapper, not just
-            // sitting bare inside this row's `HStack`, when this row
-            // renders inside a `LazyVStack` (`PlaylistItemList` above).
+            // See `PosterCard.body` for why the `NavigationLink` needs its own
+            // `ZStack` wrapper inside a `LazyVStack` rather than sitting bare in
+            // this `HStack`.
             ZStack(alignment: .topLeading) {
                 NavigationLink(value: AppRoute.assetDetail(itemID: item.id, preloadedItem: item)) {
                     HStack(spacing: 8) {
                         VStack(alignment: .leading, spacing: 4) {
-                            // Title and subtitle measured together as one
-                            // block, so `overviewLineLimit` divides what's
-                            // genuinely left rather than what a worst-case
-                            // estimate assumed — see that property. Only
-                            // these two: the synopsis is deliberately
-                            // outside this stack, since measuring it too
-                            // would make the limit depend on its own
-                            // result.
+                            // Title and subtitle measured as one block, so
+                            // `overviewLineLimit` divides what's actually left.
+                            // The synopsis stays outside this stack: measuring
+                            // it would make the limit depend on its own result.
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(item.railTitle)
                                     .font(.subheadline.bold())
@@ -350,19 +284,17 @@ private struct PlaylistItemRow: View {
 
                         Spacer(minLength: 0)
 
-                        // Purely decorative "this opens something" cue —
-                        // same reasoning as `CollectionItemRow`'s identical
-                        // chevron.
+                        // Decorative "this opens something" cue.
                         Image(systemName: "chevron.right")
                             .font(.caption.bold())
                             .foregroundStyle(.tertiary)
                             .accessibilityHidden(true)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    // Caps the text column to the thumbnail's own height,
-                    // top-aligned — see `CollectionItemRow`'s identical
-                    // `.frame`/`.clipped()` pair for why this (not a fixed
-                    // `lineLimit` alone) is what actually enforces it.
+                    // Caps the text column to the thumbnail's height,
+                    // top-aligned. See `CollectionItemRow`'s identical
+                    // `.frame`/`.clipped()` pair for why a `lineLimit` alone
+                    // doesn't enforce it.
                     .frame(height: thumbnailHeight, alignment: .top)
                     .clipped()
                     .contentShape(Rectangle())
@@ -370,32 +302,25 @@ private struct PlaylistItemRow: View {
                     .accessibilityLabel(item.accessibilityDescription)
                     .accessibilityAddTraits(.isButton)
                     // What a UI test long-presses to reveal this row's
-                    // `.contextMenu` — see `A11yID.Playlist.row(_:)`'s doc
-                    // comment for why a row needs one at all (its
-                    // accessibility label alone can't disambiguate one row
-                    // among several).
+                    // `.contextMenu` — see `A11yID.Playlist.row(_:)` for why a
+                    // label alone can't disambiguate one row among several.
                     .accessibilityIdentifier(A11yID.Playlist.row(item.playlistItemID ?? item.id))
                 }
                 .buttonStyle(.plain)
             }
         }
         .contextMenu {
-            // The non-gesture answer this feature specifically needs:
-            // `.contextMenu` items are exposed to VoiceOver's rotor,
-            // Switch Control, and Voice Control automatically, so this is
-            // reachable without any gesture at all — with no extra visible
-            // chrome on a row that's already dense. Omitted entirely
-            // rather than shown disabled when `canRemove` is false, same
-            // "render nothing" rule `AssetActionsButton` follows for
-            // `canDelete`.
+            // The only removal path. `.contextMenu` items are exposed to
+            // VoiceOver's rotor, Switch Control and Voice Control
+            // automatically, so removal is reachable without a gesture and
+            // without extra chrome on an already-dense row. Omitted rather
+            // than disabled when `canRemove` is false, like
+            // `AssetActionsButton` does for `canDelete`.
             //
-            // A hand-rolled swipe-to-remove gesture sat alongside this
-            // once (2026-09-08) — reverted after on-device testing: it
-            // read as an ordinary tap against the Play `Button`/
-            // `NavigationLink` here and felt clunky even once that was
-            // fixed (`.highPriorityGesture`), compared to a native swipe.
-            // The long-press menu alone is a well-established platform
-            // pattern in its own right, so this is the only removal path.
+            // A hand-rolled swipe-to-remove was tried and reverted: it read as
+            // an ordinary tap against the Play `Button`/`NavigationLink`, and
+            // felt clunky next to a native swipe even with
+            // `.highPriorityGesture`.
             if canRemove {
                 Button(role: .destructive) {
                     onRemove()
