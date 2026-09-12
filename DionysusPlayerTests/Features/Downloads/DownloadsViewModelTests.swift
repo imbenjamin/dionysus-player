@@ -296,7 +296,7 @@ final class DownloadsViewModelTests: XCTestCase {
     }
 
     // MARK: retry(itemID:client:) — the Downloads-list row's own retry
-    // button (2026-08-27), wired to `DownloadManager.retry(itemID:client:)`.
+    // button, wired to `DownloadManager.retry(itemID:client:)`.
     // As with `DownloadManagerTests`' own `retry` coverage, only the
     // branches that don't require `enqueue()`'s network-heavy internals to
     // run to completion are covered here.

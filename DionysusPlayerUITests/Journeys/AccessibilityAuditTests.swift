@@ -226,9 +226,9 @@ private extension AccessibilityAuditTests {
     /// suite rots.
     /// The audit types this suite gates on.
     ///
-    /// Deliberately **not** `.all`. Measured across all twelve screens
-    /// (2026-09-06), `.all` reports 154 issues, and they fall into two very
-    /// different groups:
+    /// Deliberately **not** `.all`. Measured across all twelve screens,
+    /// `.all` reports 154 issues, and they fall into two very different
+    /// groups:
     ///
     /// - **Structural problems, which this gates on and the app now passes
     ///   clean**: `.elementDetection`, `.hitRegion`,

@@ -629,7 +629,7 @@ final class HomeViewModelTests: XCTestCase {
         )
     }
 
-    // MARK: Dynamic rail discovery failure/recovery (2026-08-18, offline detection)
+    // MARK: Dynamic rail discovery failure/recovery (offline detection)
 
     /// Confirmed live: dynamic rail discovery landing in the brief window
     /// right after the app reconnects can have one of its six fetches fail
@@ -801,8 +801,8 @@ final class HomeViewModelTests: XCTestCase {
     /// `HomeView` calls this on the same reconnect transition as
     /// `retryDynamicRailCandidatesIfNeeded()`, but for the primary load
     /// itself — a single request failing right as connectivity flips back
-    /// on (confirmed live, 2026-08-29: Wi-Fi reassociating can report
-    /// "connected" before the server is actually reachable) shouldn't leave
+    /// on (confirmed live: Wi-Fi reassociating can report "connected"
+    /// before the server is actually reachable) shouldn't leave
     /// `loadState` stuck at `.failed` when a later attempt would have
     /// succeeded.
     func test_retryLoadIfNeeded_succeedsOnRetryAfterInitialFailure() async {
@@ -858,8 +858,8 @@ final class HomeViewModelTests: XCTestCase {
         XCTAssertEqual(LibraryAvailability.shared.state, .unavailable)
     }
 
-    /// Regression net for a real bug found live (2026-08-29): each attempt
-    /// can cost up to `JellyfinAPIClient`'s own 20s per-request timeout
+    /// Regression net for a real bug found live: each attempt can cost up
+    /// to `JellyfinAPIClient`'s own 20s per-request timeout
     /// against a routable-but-unresponsive server, not a quick failure —
     /// the original 4-retry default multiplied that into ~100s of an
     /// unmoving spinner before finally settling back to the offline
@@ -897,8 +897,8 @@ final class HomeViewModelTests: XCTestCase {
         await viewModel.retryLoadIfNeeded()
     }
 
-    /// Regression test for a real bug found live (2026-08-29): tapping
-    /// Search's mirrored "Try Again" (via `LibraryAvailability.retryAction`)
+    /// Regression test for a real bug found live: tapping Search's
+    /// mirrored "Try Again" (via `LibraryAvailability.retryAction`)
     /// while `HomeView`'s own automatic reconnect hook already had a
     /// `retryLoadIfNeeded()` in flight fired a second, independent `load()`
     /// racing the first — whichever finished last could clobber the other's
@@ -1095,9 +1095,9 @@ final class HomeViewModelTests: XCTestCase {
 
     // MARK: Optimistic playback position (RecentPlaybackBroadcaster)
 
-    /// Regression test for the real bug this was built for (confirmed live,
-    /// 2026-09-02): Home → Details → Playback → scrub forward → back to
-    /// Details (accurate) → back to Home (stale) — Home's `softRefresh()`
+    /// Regression test for the real bug this was built for (confirmed
+    /// live): Home → Details → Playback → scrub forward → back to Details
+    /// (accurate) → back to Home (stale) — Home's `softRefresh()`
     /// used to do one unguarded fetch with no way to know the server hadn't
     /// committed the scrub yet. `RecentPlaybackBroadcaster` closes that gap:
     /// the just-known position is applied immediately, and a fetch that
