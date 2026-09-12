@@ -1,66 +1,49 @@
 import SwiftUI
 
-/// Detail page for a TV Show — and, via `AssetDetailViewModel`'s
-/// Series/Season/Episode consolidation, also what renders for a Season or
-/// Episode tapped directly (a deep link, search result, or an episode from
-/// Home's Continue Watching rail): synopsis, seasons/episodes, and a Play
-/// button that resumes where the user left off.
+/// Detail page for a TV Show, and — via `AssetDetailViewModel`'s
+/// Series/Season/Episode consolidation — for a Season or Episode tapped
+/// directly: synopsis, seasons/episodes, and a Play button that resumes where
+/// the user left off.
 ///
-/// `viewModel.item` is the Show's own item for a Series or Season tap, but
-/// an *Episode's* own item for an Episode tap — see
-/// `AssetDetailViewModel.item`'s doc comment for why. `isEpisodeContent`
-/// below is what the body branches on to tell those two shapes apart: with
-/// Episode content, this page still shows the Show's season picker/episode
-/// list for browsing, but the hero/synopsis/metadata/Play button/tabs all
-/// reflect that specific episode instead of the Show — its own overview,
-/// artwork, technical details, and versions are what's actually playable,
-/// the same way `MovieDetailView` treats a Movie. `item` can become an
-/// Episode this way *without* a fresh push, too — see
-/// `SeasonEpisodeList.onSelectEpisode`'s wiring below.
+/// `viewModel.item` is the Show's item for a Series or Season tap but the
+/// Episode's own for an Episode tap (see `AssetDetailViewModel.item`), and
+/// `isEpisodeContent` is what the body branches on. With Episode content the
+/// season picker and episode list still show for browsing, but the
+/// hero/synopsis/metadata/Play button/tabs reflect that episode, whose
+/// artwork, technical details and versions are what's playable — the same way
+/// `MovieDetailView` treats a Movie. `item` can become an Episode without a
+/// fresh push; see `SeasonEpisodeList.onSelectEpisode` below.
 struct ShowDetailView: View {
     let viewModel: AssetDetailViewModel
     @Environment(AppState.self) private var appState
     @State private var playbackRequest: PlaybackRequest?
-    /// The "Up Next" prompt's chosen next episode, staged here by
-    /// `PlayerView`'s `onRequestNextItem` rather than opened immediately —
-    /// see that property's doc comment for why setting `playbackRequest`
-    /// straight to it while the current `.fullScreenCover` is still
-    /// presented doesn't reliably work. Applied from `onDismiss` below,
-    /// once the cover has genuinely gone through `nil` first.
+    /// The "Up Next" prompt's chosen next episode, staged by `PlayerView`'s
+    /// `onRequestNextItem` rather than opened immediately: setting
+    /// `playbackRequest` while the current `.fullScreenCover` is still
+    /// presented doesn't reliably work. Applied from `onDismiss` below, once
+    /// the cover has gone through `nil`.
     @State private var pendingNextEpisodeID: String?
     @State private var selectedSeasonID: String?
-    /// See `MovieDetailView.refreshTrigger`'s doc comment — identical
-    /// reasoning and fix, needed here too since this view has the exact
-    /// same shape (`viewModel` held as a plain `let`, plus its own `@State`).
-    /// Scoped even more narrowly here than there: this view also presents
-    /// `SeasonEpisodeList`, whose own `@State` (`episodes`/`isLoading`)
-    /// would get discarded and its list-fetch re-triggered *with* the
-    /// loading spinner showing if `.id(refreshTrigger)` wrapped it —
-    /// exactly the flash `episodeListRefreshToken`'s separate silent-refresh
-    /// path exists to avoid (see that property's doc comment). Keeping this
-    /// `.id()` scoped to just the metadata block below sidesteps that.
+    /// Same reasoning and fix as `MovieDetailView.refreshTrigger`, needed here
+    /// for the same view shape (`viewModel` as a plain `let` plus `@State`).
+    /// Scoped more narrowly than there: wrapping `SeasonEpisodeList` in
+    /// `.id(refreshTrigger)` would discard its `@State` and re-trigger its
+    /// list fetch with the spinner showing — the flash
+    /// `episodeListRefreshToken`'s silent-refresh path exists to avoid — so this
+    /// `.id()` covers only the metadata block below.
     ///
-    /// The rescoping itself (2026-08-13) was confirmed live on
-    /// `MovieDetailView`'s equivalent (resume progress bar still updates,
-    /// scroll position now survives the return) — the additional
-    /// `SeasonEpisodeList`-flash reasoning above is deduction from the
-    /// narrower `VStack` scope excluding it, not independently re-observed
-    /// against a real Show page. Worth an eyes-on check with a real Show if
-    /// this area gets touched again.
+    /// The narrower scope was verified on `MovieDetailView`'s equivalent
+    /// (progress bar still updates, scroll position survives the return); the
+    /// `SeasonEpisodeList` half follows from the scope excluding it rather than
+    /// from a separate observation on a real Show page.
     @State private var refreshTrigger = UUID()
 
-    /// `.id()`'d by a small marker overlaid near the bottom of the hero
-    /// (roughly where its logo sits — see the `HeroHeaderView` call site
-    /// below), so selecting a different episode from the list further down
-    /// the page can scroll back up near it — otherwise the user would have
-    /// no visual confirmation their tap actually did anything until they
-    /// scrolled up themselves. Deliberately not the very top of the page
-    /// (the hero's own top, behind the status bar/notch, is mostly wasted
-    /// space) and not as low as the metadata block right below the hero
-    /// either (tried first — read as scrolling too far, hiding the hero
-    /// entirely) — anchoring near the logo splits the difference: still a
-    /// smaller jump than all the way to the top, but leaves the hero
-    /// (mostly) in view rather than skipping past it.
+    /// `.id()`'d by a marker near the bottom of the hero, roughly where its logo
+    /// sits, so selecting an episode from the list further down can scroll back
+    /// to it — otherwise the tap has no visible effect until the user scrolls up
+    /// themselves. Not the page's top, which is behind the status bar/notch, and
+    /// not the metadata block below the hero, which scrolled far enough to hide
+    /// the hero entirely.
     private let heroAnchorID = "ShowDetailView.heroAnchor"
 
     /// See this type's doc comment.
@@ -71,14 +54,11 @@ struct ShowDetailView: View {
             ScrollView {
                 if let item = viewModel.item {
                     VStack(alignment: .leading, spacing: 20) {
-                        // `railTitle` is the show's own name for episode
-                        // content (`dto.seriesName ?? name`) and just
-                        // `item.name` otherwise — see its own doc comment;
-                        // `episodeTitle` is only ever non-nil for episode
-                        // content, which is what actually puts the episode's
-                        // own name in the hero at all (confirmed live,
-                        // 2026-08-19: neither the logo nor the no-logo
-                        // fallback named the specific episode before this).
+                        // `railTitle` is the show's name for episode content
+                        // (`dto.seriesName ?? name`) and `item.name` otherwise.
+                        // `episodeTitle` is non-nil only for episode content,
+                        // and is the only thing that names the episode in the
+                        // hero — neither the logo nor its no-logo fallback does.
                         HeroHeaderView(
                             backdropURL: item.backdropImageURL ?? item.primaryImageURL,
                             logoURL: item.logoImageURL,
@@ -87,17 +67,13 @@ struct ShowDetailView: View {
                             episodeNumberAccessibilityText: isEpisodeContent ? item.episodeLabelAccessibilityText : nil,
                             kind: item.kind
                         )
-                            // The scroll anchor itself — see `heroAnchorID`'s
-                            // doc comment. `BackdropLogoOverlay` bottom-aligns
-                            // the logo with its own default `.padding()`
-                            // (~16pt) inside a max-80pt-tall box, so ~100pt
-                            // up from the hero's bottom edge lands roughly at
-                            // the logo's own top edge regardless of the
-                            // hero's total height (which varies by screen
-                            // size — see `HeroHeaderView.heroHeight`), close
-                            // enough for a scroll target without needing to
-                            // reach into that shared component for its exact
-                            // internal layout.
+                            // The scroll anchor; see `heroAnchorID`.
+                            // `BackdropLogoOverlay` bottom-aligns the logo with
+                            // ~16pt padding inside a max-80pt box, so ~100pt up
+                            // from the hero's bottom edge lands near the logo's
+                            // top whatever the hero's height — close enough for
+                            // a scroll target without reaching into that
+                            // component's internal layout.
                             .overlay(alignment: .bottom) {
                                 Color.clear
                                     .frame(height: 1)
@@ -108,25 +84,21 @@ struct ShowDetailView: View {
                         VStack(alignment: .leading, spacing: 16) {
                             InfoMetadataRow(item: item)
 
-                            // Show content (Series/Season): the button targets
-                            // `viewModel.showPlaybackEpisode` (resolved during
-                            // `load()` — see that property's doc comment for
-                            // exactly which episode and why), which is also what
-                            // gives the button its "Play SXX:EYY"/"Resume
-                            // SXX:EYY" label via `PlayResumeButtonRow`'s
-                            // `targetEpisode`. It's built from a lightweight
-                            // list-fetch DTO (not the detail page's own
-                            // `Fields=MediaSources` fetch), so its
-                            // `mediaVersions` is always empty in practice —
-                            // `onPlay`/`onRestart`'s version-id argument stays
-                            // `nil` there, a known, pre-existing gap (see
-                            // `PlayResumeButtonRow`'s doc comment) rather than
-                            // new behavior. Episode content plays directly
-                            // instead, identical to `MovieDetailView`'s
-                            // handlers — that episode *does* have real
-                            // `mediaVersions` to prompt over and a preferred
-                            // version worth remembering; `targetEpisode` stays
-                            // `nil` there since `item` already *is* the episode.
+                            // Show content (Series/Season) targets
+                            // `viewModel.showPlaybackEpisode`, resolved during
+                            // `load()`, which also gives the button its
+                            // "Play SXX:EYY" label via
+                            // `PlayResumeButtonRow`'s `targetEpisode`. That
+                            // episode comes from a lightweight list fetch, not
+                            // the detail page's `Fields=MediaSources` one, so
+                            // its `mediaVersions` is always empty and the
+                            // version-id argument stays `nil` — a known gap,
+                            // see `PlayResumeButtonRow`.
+                            //
+                            // Episode content plays directly, like
+                            // `MovieDetailView`: it has real `mediaVersions` to
+                            // prompt over, and `targetEpisode` stays `nil`
+                            // because `item` already is the episode.
                             HStack(spacing: 8) {
                                 PlayResumeButtonRow(
                                     item: item,
@@ -151,24 +123,19 @@ struct ShowDetailView: View {
                                         playbackRequest = PlaybackRequest(itemID: targetID, startFromBeginning: true, mediaSourceID: versionID)
                                     }
                                 )
-                                // See `MediaItem.playbackProgressIdentity`'s doc
-                                // comment. Covers both `item` and
-                                // `showPlaybackEpisode` — either one can be
-                                // what `PlayResumeButtonRow`'s `effectiveItem`
-                                // actually resolves to (see that type's own doc
-                                // comment), so either changing needs to force a
-                                // fresh identity here.
+                                // See `MediaItem.playbackProgressIdentity`.
+                                // Covers both `item` and `showPlaybackEpisode`,
+                                // since `PlayResumeButtonRow`'s `effectiveItem`
+                                // can resolve to either, so either changing must
+                                // force a fresh identity.
                                 .id("\(item.playbackProgressIdentity)-\(viewModel.showPlaybackEpisode?.playbackProgressIdentity ?? "")")
 
-                                // Only for Episode content — a Series/Season
-                                // page has no single file to download (the
-                                // main button instead resolves to whichever
-                                // episode `showPlaybackEpisode` picks, which
-                                // isn't a stable "the thing this page
-                                // represents" the way a Movie or Episode's
-                                // own `item` is). Downloading a whole show
-                                // isn't supported in v1 — see the
-                                // offline-downloads plan.
+                                // Episode content only: a Series/Season page has
+                                // no single file to download, since
+                                // `showPlaybackEpisode` isn't a stable "the
+                                // thing this page represents" the way a Movie or
+                                // Episode's `item` is. Downloading a whole show
+                                // isn't supported in v1.
                                 if isEpisodeContent {
                                     DownloadButton(item: item, client: viewModel.apiClient, userID: viewModel.currentUserID, downloadManager: appState.downloadManager)
                                 }
@@ -178,44 +145,33 @@ struct ShowDetailView: View {
                                 .detailTabsPanel()
                         }
                         .padding(.horizontal)
-                        // Caps this column — metadata, Play/Download, tabs —
-                        // to a readable measure on regular width, leaving the
-                        // hero above and the episode list/rails below
-                        // full-bleed. See `ReadableDetailColumn` for what goes
-                        // wrong without it at 820pt/1180pt; every number in
-                        // that doc comment was measured on `MovieDetailView`
-                        // and reproduces here unchanged.
+                        // Caps metadata, Play/Download and tabs to a readable
+                        // measure on regular width, leaving the hero above and
+                        // the episode list below full-bleed. See
+                        // `ReadableDetailColumn` for what goes wrong without it
+                        // at 820pt/1180pt.
                         //
-                        // Series content's lone Play button fills the column
-                        // (568pt) rather than matching the 500pt the Movie and
-                        // Episode variants land on, where a `DownloadButton`
-                        // takes the remainder. Deliberate: a Series/Season has
-                        // no single file to download (see the `isEpisodeContent`
-                        // gate above), so there is no second button to leave
-                        // room for, and a lone primary action filling its
-                        // container is the standard pattern.
+                        // Series content's lone Play button fills the column at
+                        // 568pt rather than the 500pt the Movie and Episode
+                        // variants leave for a `DownloadButton`: there's no
+                        // second button here (see the `isEpisodeContent` gate
+                        // above).
                         .readableDetailColumn()
-                        // See `refreshTrigger`'s own doc comment. Scoped to
-                        // just this metadata block, not the whole
-                        // `ScrollView` (nor, especially, `SeasonEpisodeList`
-                        // below) — a hard identity reset here is enough to
-                        // guarantee this content picks up a post-playback
-                        // `viewModel.item`/`showPlaybackEpisode` change;
-                        // scoping it any wider only adds side effects
-                        // (resetting scroll position, re-flashing the
-                        // episode list's loading spinner) with no benefit.
+                        // See `refreshTrigger`. Scoped to this metadata block,
+                        // not the whole `ScrollView` and especially not
+                        // `SeasonEpisodeList`: an identity reset here is enough
+                        // to pick up a post-playback
+                        // `item`/`showPlaybackEpisode` change, and anything
+                        // wider only resets scroll position and re-flashes the
+                        // episode list's spinner.
                         .id(refreshTrigger)
 
-                        // Episode-only, and in the same slot
-                        // `MovieDetailView` puts it (straight after the
-                        // tabs, ahead of anything pointing at *other*
-                        // items): chapters describe whichever single item
-                        // this page's hero/Play button already represent,
-                        // which for Series/Season content is a browsing
-                        // target rather than one playable file. `chapters`
-                        // would be empty for those anyway — a Series DTO
-                        // carries none — so this gate is about intent, not
-                        // correctness.
+                        // Episode-only, in the same slot `MovieDetailView` uses
+                        // (after the tabs, before anything pointing at other
+                        // items): chapters describe the single item the hero and
+                        // Play button represent, which Series/Season content
+                        // doesn't have. A Series DTO carries no chapters anyway,
+                        // so the gate is about intent, not correctness.
                         if isEpisodeContent, !item.chapters.isEmpty {
                             ChapterRailView(chapters: item.chapters) { chapter in
                                 playbackRequest = PlaybackRequest(
@@ -256,49 +212,32 @@ struct ShowDetailView: View {
                         }
                     }
                     .padding(.bottom, 32)
-                    // `initial: true`, not `.onAppear` — this view renders (and
-                    // `.onAppear` would fire) as soon as `viewModel.item` is
-                    // non-nil, which happens immediately on a preloaded item
-                    // (see `AssetDetailViewModel.init`'s doc comment), well
-                    // before `load()`'s network round trip actually populates
-                    // `viewModel.seasons`. `.onAppear` only runs once, so it was
-                    // racing that fetch: it read `seasons` while still `[]`,
-                    // set `selectedSeasonID` to `nil`, and never got a second
-                    // chance once the real seasons arrived — leaving the picker
-                    // unselected and `SeasonEpisodeList`'s own `.task(id:
-                    // selectedSeasonID)` permanently un-fired until the user
-                    // manually chose a season. `onChange(of:initial:)` instead
-                    // re-runs this check every time `seasons` actually changes
-                    // (plus once up front for the case it's already populated
-                    // by the time this view appears), so it can't miss the
-                    // update however the timing falls.
+                    // `initial: true`, not `.onAppear`: this view renders as
+                    // soon as `viewModel.item` is non-nil, immediately for a
+                    // preloaded item, well before `load()` populates
+                    // `viewModel.seasons`. `.onAppear` runs once, so it read
+                    // `seasons` while still `[]`, left `selectedSeasonID` nil,
+                    // and never fired again — the picker stayed unselected and
+                    // `SeasonEpisodeList`'s `.task(id: selectedSeasonID)` never
+                    // ran until the user chose a season by hand.
+                    // `onChange(of:initial:)` re-runs on every `seasons` change,
+                    // plus once up front if it's already populated.
                     //
-                    // Prefers `viewModel.preselectedSeasonID` (a Season tapped
-                    // directly, or an Episode's own parent season) over the
-                    // first season — see that property's doc comment. It's set
-                    // synchronously in `load()` alongside `seasons` itself, so
-                    // it's already in place by the time this fires for the
-                    // real (post-fetch) `seasons` value.
+                    // Prefers `viewModel.preselectedSeasonID` — a Season tapped
+                    // directly, or an Episode's parent season — over the first
+                    // season. It's set synchronously in `load()` alongside
+                    // `seasons`, so it's in place by the time this fires.
                     .onChange(of: viewModel.seasons, initial: true) { _, seasons in
                         if selectedSeasonID == nil { selectedSeasonID = viewModel.preselectedSeasonID ?? seasons.first?.id }
                     }
-                    // Keeps the season picker following whichever episode is
-                    // actually displayed. Was never needed before
-                    // `AssetDetailViewModel.advanceToNextEpisodeIfCompleted()`
-                    // existed — every prior way `item` could become a
-                    // different episode (`selectEpisode(_:)`'s only other
-                    // caller, `SeasonEpisodeList.onSelectEpisode`) could only
-                    // ever pick one from whichever season was *already*
-                    // selected. Advancing to the next episode after finishing
-                    // one can cross a season boundary, though, so this is the
-                    // first case that actually needs the picker to react.
-                    // Guarded to Episode content and an actual mismatch, so
-                    // it's a no-op for every other `item` change (a Movie, a
-                    // Series-direct load, or same-season `selectEpisode`
-                    // calls, where `preselectedSeasonID` is already correct).
-                    // Confirmed live (2026-08-13) crossing a real season
-                    // boundary: finishing a season's last episode correctly
-                    // landed on the next season's first, picker included.
+                    // Keeps the season picker following the displayed episode.
+                    // Only `AssetDetailViewModel.advanceToNextEpisodeIfCompleted()`
+                    // needs it: `SeasonEpisodeList.onSelectEpisode`, the other
+                    // caller of `selectEpisode(_:)`, can only pick from the
+                    // already-selected season, while advancing past a season's
+                    // last episode crosses a boundary. Guarded to Episode
+                    // content and an actual mismatch, so it no-ops for every
+                    // other `item` change.
                     .onChange(of: viewModel.item?.id) { _, _ in
                         if isEpisodeContent, let preselectedSeasonID = viewModel.preselectedSeasonID,
                            selectedSeasonID != preselectedSeasonID {
@@ -308,31 +247,26 @@ struct ShowDetailView: View {
                 }
             }
             .ignoresSafeArea(edges: .top)
-            // Trailing toolbar items float in the nav bar opposite the
-            // system back button — same floating-over-the-hero behavior at
-            // rest, same pinned-in-place behavior once the page scrolls —
-            // rather than a hand-placed `.overlay` on the hero, which
-            // scrolled away with it instead of staying put. See
-            // `HeroActionButtons`' doc comment for the rest of the reasoning.
+            // Trailing toolbar items float in the nav bar opposite the system
+            // back button, staying pinned once the page scrolls, unlike a
+            // hand-placed `.overlay` on the hero, which scrolled away with it.
+            // See `HeroActionButtons`.
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     HeroActionButtons(viewModel: viewModel, selectedSeasonID: selectedSeasonID)
                 }
-                // `ToolbarSpacer(.fixed)`, not just a second `ToolbarItem`:
-                // on iOS 26 adjacent trailing items share one Liquid Glass
-                // capsule by default, so declaring delete as its own item
-                // still drew it as a third glyph inside the favorite/
-                // watched group (confirmed on device). The spacer is the
-                // actual API for forcing the visual break — same fix, and
-                // same reasoning, as `CollectionGridView`'s sort/random
-                // pair. A destructive action must not read as a member of
-                // the metadata group.
+                // `ToolbarSpacer(.fixed)`, not just a second `ToolbarItem`: on
+                // iOS 26 adjacent trailing items share one Liquid Glass capsule,
+                // so delete drew as a third glyph inside the favorite/watched
+                // group. The spacer is the API for forcing the break, as in
+                // `CollectionGridView`'s sort/random pair — a destructive action
+                // must not read as part of the metadata group.
                 if #available(iOS 26.0, *) {
                     ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 }
-                // Offers Show/Season/Episode independently for both Add to
-                // Playlist and Delete — the latter only where the server
-                // says this user may delete it; see `AssetActionsButton`.
+                // Offers Show/Season/Episode independently for Add to Playlist
+                // and Delete, the latter only where the server permits it; see
+                // `AssetActionsButton`.
                 ToolbarItem(placement: .topBarTrailing) {
                     AssetActionsButton(
                         viewModel: viewModel,
@@ -344,19 +278,17 @@ struct ShowDetailView: View {
         }
         .fullScreenCover(
             item: $playbackRequest,
-            // Registered via `viewModel.track(_:)` — see its doc comment —
-            // so `AssetDetailView`'s `.onDisappear` can cancel this if the
-            // user backs out of the page again before it finishes.
+            // Registered via `viewModel.track(_:)` so `AssetDetailView`'s
+            // `.onDisappear` can cancel it if the user backs out first.
             onDismiss: {
                 refreshTrigger = UUID()
                 viewModel.track(Task {
                     await viewModel.refreshItem()
                     refreshTrigger = UUID()
                 })
-                // Only reached once `playbackRequest` has genuinely gone
-                // through `nil` (this dismiss) — see `pendingNextEpisodeID`'s
-                // doc comment for why this can't just be set directly from
-                // `onRequestNextItem` instead.
+                // Only reached once `playbackRequest` has gone through `nil`;
+                // see `pendingNextEpisodeID` for why `onRequestNextItem` can't
+                // set it directly.
                 if let pendingNextEpisodeID {
                     self.pendingNextEpisodeID = nil
                     playbackRequest = PlaybackRequest(itemID: pendingNextEpisodeID)
