@@ -4,12 +4,11 @@ import SwiftUI
 /// re-attempts one that previously failed) — placed next to
 /// `SeasonEpisodeList`'s season picker (or in its place, for a single-season
 /// show). Unlike the single-item `DownloadButton`, this never prompts:
-/// bulk-queuing N episodes can't reasonably ask an audio-track/subtitle
-/// question per episode, so it auto-picks each episode's own default audio
-/// track (falling back to its first) and downloads anyway when the default
-/// subtitle track would be missing (the same "skippedSubtitleTracks" note
-/// `DownloadedAssetDetailView` already surfaces per item covers that case
-/// without needing an upfront warning here).
+/// bulk-queuing N episodes can't ask an audio-track/subtitle question per
+/// episode, so it auto-picks each episode's default audio track (falling
+/// back to its first) and downloads anyway when the default subtitle track
+/// is missing — `DownloadedAssetDetailView`'s `skippedSubtitleTracks`
+/// surfaces that per item.
 struct SeasonDownloadButton: View {
     let seriesID: String
     let seasonID: String
@@ -29,15 +28,13 @@ struct SeasonDownloadButton: View {
     /// One batched SwiftData fetch for every episode in this season, keyed
     /// by itemID — `body` fetches this once and threads it through the
     /// parameterized forms of `missingEpisodes`/`isAnyInProgress`/
-    /// `isFullyDownloaded`/`aggregateProgress`, rather than each
-    /// independently querying per episode. The plain zero-arg
-    /// `missingEpisodes` survives for `startBulkDownload()`'s own use,
-    /// which runs asynchronously after the tap and wants a fresh re-fetch
-    /// at that later moment, not a stale render-time snapshot.
+    /// `isFullyDownloaded`/`aggregateProgress` instead of querying per
+    /// episode. The plain zero-arg `missingEpisodes` survives for
+    /// `startBulkDownload()`, which runs after the tap and needs a fresh
+    /// re-fetch rather than a stale render-time snapshot.
     private var rowsByEpisodeID: [String: DownloadedItem] {
-        // `_ = downloadManager.store.changeCount` — see `DownloadStore
-        // .changeCount`'s own doc comment; `store.items(itemIDs:)` itself
-        // is a raw SwiftData fetch, not an Observation-tracked read.
+        // Reads `changeCount` to stay an Observation-tracked dependency —
+        // `store.items(itemIDs:)` itself is a raw SwiftData fetch.
         _ = downloadManager.store.changeCount
         return Dictionary(uniqueKeysWithValues: downloadManager.store.items(itemIDs: Set(episodes.map(\.id))).map { ($0.itemID, $0) })
     }
@@ -65,14 +62,12 @@ struct SeasonDownloadButton: View {
     }
 
     /// Combined byte progress across every episode of this season
-    /// currently downloading/queued — `nil` when none are (so `body` falls
-    /// back to a plain spinner rather than an empty ring), which also
-    /// covers the very first moment after tapping, before any episode has
-    /// its own row yet. An episode that hasn't started reporting real
-    /// bytes yet (`DownloadButton.isPreparing`'s own "preparing" window)
-    /// still contributes its own estimated total to the denominator —
-    /// otherwise the ring would jump backward as each new episode's
-    /// download actually starts and enlarges the season's overall total.
+    /// currently downloading/queued — `nil` when none are, so `body` falls
+    /// back to a plain spinner instead of an empty ring (also covers the
+    /// moment right after tapping, before any episode has a row yet). An
+    /// episode still in `DownloadButton.isPreparing`'s window contributes
+    /// its estimated total to the denominator anyway, so the ring doesn't
+    /// jump backward as each new episode starts and enlarges the total.
     private func aggregateProgress(in rows: [String: DownloadedItem]) -> DownloadProgress? {
         var totalDownloaded: Int64 = 0
         var totalExpected: Int64 = 0
@@ -92,14 +87,11 @@ struct SeasonDownloadButton: View {
 
     var body: some View {
         let rows = rowsByEpisodeID
-        // Not `.borderedProminent` — `DownloadButton`'s own heavy
-        // rectangular chip reads as too heavy beside the season `Picker`,
-        // but a bare icon with no chrome under-reads as tappable. This
-        // splits the difference: a filled circular badge using
-        // `dionysusPrimaryLight` (the same "related to the primary action,
-        // but visibly secondary" tint the Restart button uses), with
-        // `.padding(8)` around the icon rather than sizing the circle
-        // tight to it for a larger tap target.
+        // Not `.borderedProminent` — too heavy beside the season `Picker`,
+        // but a bare icon under-reads as tappable. Splits the difference:
+        // a filled circular badge in `dionysusPrimaryLight` (the Restart
+        // button's "secondary but related" tint), with `.padding(8)`
+        // around the icon for a larger tap target than the circle alone.
         Button(action: startBulkDownload) {
             Group {
                 if let progress = aggregateProgress(in: rows) {
@@ -157,20 +149,14 @@ struct SeasonDownloadButton: View {
             let resolution = preferences.resolution
             let preset = preferences.bitratePreset
             // Each episode's `DownloadManager.enqueue(...)` only inserts its
-            // `DownloadedItem` row (what the Downloads tab badge and this
-            // season's own per-episode rows count) after its own
-            // `playbackInfo` round trip resolves — awaiting the episodes one
-            // at a time meant every episode *after* the first sat with no
-            // row at all, still waiting its turn, until the one ahead of it
-            // finished its *entire* enqueue (including the image/segment/
-            // trickplay/subtitle prep that follows the row insert). That
-            // undercounted an in-progress season download by "however many
-            // episodes haven't been reached yet" rather than 0. Bounded to
-            // `maxConcurrentDownloads` — the same limit real video transfers
-            // respect — so a large season doesn't fire every episode's
-            // playbackInfo/image/segment/trickplay/subtitle requests at the
-            // server all at once; `nil` (Unlimited) runs the whole season at
-            // once, same as an unbounded video-transfer limit already would.
+            // `DownloadedItem` row after its own `playbackInfo` round trip
+            // resolves — awaiting episodes one at a time left every episode
+            // after the first with no row until the one ahead finished its
+            // entire enqueue (image/segment/trickplay/subtitle prep
+            // included), undercounting an in-progress download. Bounded to
+            // `maxConcurrentDownloads` so a large season doesn't fire every
+            // episode's requests at the server at once; `nil` (Unlimited)
+            // runs the whole season concurrently.
             let limit = max(1, preferences.maxConcurrentDownloads ?? toDownload.count)
             var failureCount = 0
             await withTaskGroup(of: Bool.self) { group in
