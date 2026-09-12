@@ -68,8 +68,8 @@ final class JellyfinAPIClientTests: XCTestCase {
 
     // MARK: 401 auto re-authentication
     //
-    // Confirmed live (2026-08-22) against a heavily-shared public demo
-    // server: a session token this client was issued can be invalidated
+    // Confirmed live against a heavily-shared public demo server: a
+    // session token this client was issued can be invalidated
     // server-side with no action by this app at all. `sendRaw`'s 401
     // handling tries to recover from that transparently — see its own doc
     // comment for the full reasoning; these tests pin the observable
@@ -514,8 +514,8 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(URLRequest(url: url!).queryDictionary["PlaySessionId"], "sess-1")
     }
 
-    /// Confirmed live (2026-08-28) against a server reverse-proxied under a
-    /// subpath: `transcodingUrl` always comes back server-root-relative
+    /// Confirmed live against a server reverse-proxied under a subpath:
+    /// `transcodingUrl` always comes back server-root-relative
     /// (Jellyfin has no awareness of a reverse proxy's own subpath), so a
     /// naive `URL(string:relativeTo:)` resolution — which treats a
     /// leading-`/` path as replacing the base URL's entire path per RFC
@@ -979,7 +979,7 @@ final class JellyfinAPIClientTests: XCTestCase {
     }
 
     func test_currentSession_populatesTranscodingInfoCompletionPercentage() async throws {
-        // Confirmed live (2026-08-27) that `TranscodingInfo.CompletionPercentage`
+        // Confirmed live that `TranscodingInfo.CompletionPercentage`
         // populates for a plain download transcode stream, not just real
         // playback — this just pins the decode of that field so a schema
         // regression doesn't silently break `DownloadManager`'s polling.

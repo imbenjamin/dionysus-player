@@ -62,8 +62,8 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: DownloadFileStore.url(forRelativePath: DownloadFileStore.videoRelativePath(itemID: "item-1")).path))
     }
 
-    // MARK: onRowMarkedForDeletion (2026-08-20) — the "spinner stuck
-    // indefinitely" bug: a deleted-but-pending-sync row used to only ever
+    // MARK: onRowMarkedForDeletion — the "spinner stuck indefinitely" bug:
+    // a deleted-but-pending-sync row used to only ever
     // clear on the next scenePhase foreground/reconnect trigger; this
     // fires immediately instead so whoever's listening (`AppState`) can
     // nudge `DownloadSyncManager` right away.
@@ -217,7 +217,7 @@ final class DownloadManagerTests: XCTestCase {
     }
 
     // MARK: retry(itemID:client:) — the one-tap "redownload a failed item"
-    // action (2026-08-20), added per direct feedback. Only the branches
+    // action. Only the branches
     // that don't require `enqueue()`'s own network-heavy internals
     // (image/trickplay/subtitle side-fetches, all via `URLSession.shared`,
     // not this test's mocked client session) to actually run to completion
@@ -284,8 +284,8 @@ final class DownloadManagerTests: XCTestCase {
     }
 
     // MARK: init sweeps orphaned files (the "13 GB with an empty Downloads
-    // list" bug, 2026-08-20) — see `DownloadFileStore
-    // .deleteOrphanedItemDirectories`'s own doc comment for the full story.
+    // list" bug) — see `DownloadFileStore
+    // .deleteOrphanedItemDirectories`'s doc comment for the full story.
 
     func test_init_sweepsOrphanedItemDirectoriesWithNoMatchingRow() throws {
         let store = DownloadTestHelpers.makeInMemoryStore()
@@ -299,9 +299,9 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: DownloadFileStore.url(forRelativePath: DownloadFileStore.videoRelativePath(itemID: "item-1")).path))
     }
 
-    // MARK: init reattaches in-flight downloads on a plain relaunch
-    // (2026-08-20 branch review) — see `DownloadManager
-    // .reattachInFlightDownloads`'s own doc comment for the bug this fixes:
+    // MARK: init reattaches in-flight downloads on a plain relaunch — see
+    // `DownloadManager.reattachInFlightDownloads`'s doc comment for the
+    // bug this fixes:
     // a `.downloading` row surviving an ordinary relaunch (not an
     // OS-triggered background-events launch) never got a session recreated
     // for it at all, leaving it stuck forever.
@@ -474,12 +474,12 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(startedOrder, ["item-1"])
     }
 
-    // MARK: cancel-on-delete (the "Rushmore" -999 bug, 2026-08-20)
+    // MARK: cancel-on-delete (the "Rushmore" -999 bug)
 
-    /// The core regression this session fixed: deleting a row that's
-    /// actually `.downloading` (a real background session started) must
-    /// cancel that session, not just drop this manager's own bookkeeping —
-    /// see `DownloadManager.delete(itemID:)`'s own doc comment. The bug
+    /// The core regression this pins: deleting a row that's actually
+    /// `.downloading` (a real background session started) must cancel
+    /// that session, not just drop this manager's own bookkeeping — see
+    /// `DownloadManager.delete(itemID:)`'s doc comment. The bug
     /// this originally fixed (an orphaned background session left an
     /// identifier the OS still considered "in use", so a same-day
     /// re-download got its brand-new session's task cancelled almost
@@ -557,8 +557,8 @@ final class DownloadManagerTests: XCTestCase {
     // MARK: releasing the queue when the app leaves the foreground.
     // iOS forces any background-session task created while the app isn't in
     // the foreground to be discretionary and defers it, so a queue can't
-    // advance once suspended — measured on device 2026-09-06, see
-    // DOWNLOADS.md. Everything still queued therefore has to be started
+    // advance once suspended — measured on device, see DOWNLOADS.md.
+    // Everything still queued therefore has to be started
     // before the app stops running.
 
     func test_releaseQueueForBackgroundExecution_startsEveryQueuedItemPastTheLimit() {
@@ -795,9 +795,9 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertTrue(request.allowsExpensiveNetworkAccess)
     }
 
-    // MARK: durationValidationFailureReason — the Captain Phillips fix
-    // (2026-08-27): a transcode's chunked HTTP response closes the same way
-    // whether ffmpeg finished normally or crashed partway through, so
+    // MARK: durationValidationFailureReason — a transcode's chunked HTTP
+    // response closes the same way whether ffmpeg finished normally or
+    // crashed partway through, so
     // `URLSessionDownloadTask` alone can't tell a truncated transfer from a
     // complete one. `validationFailureReason(relativePath:expectedRuntimeTicks:)`
     // itself isn't covered here — loading a real `AVURLAsset` is exactly the
@@ -862,7 +862,7 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(reason, "The downloaded video couldn't be verified. Try downloading again.")
     }
 
-    // MARK: DownloadProgress — live transcode-completion percentage (2026-08-27)
+    // MARK: DownloadProgress — live transcode-completion percentage
 
     func test_downloadProgress_noTranscodePercentage_usesByteFraction() {
         let progress = DownloadProgress(bytesDownloaded: 50, totalBytesExpected: 100)

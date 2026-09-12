@@ -129,7 +129,7 @@ final class DownloadFileStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: DownloadFileStore.url(forRelativePath: DownloadFileStore.videoRelativePath(itemID: itemID)).path))
     }
 
-    // MARK: deleteOrphanedItemDirectories — the launch-time orphan sweep (2026-08-20)
+    // MARK: deleteOrphanedItemDirectories — the launch-time orphan sweep
 
     func test_deleteOrphanedItemDirectories_removesDirectoriesWithNoKnownItemID() throws {
         let orphanID = uniqueItemID()
