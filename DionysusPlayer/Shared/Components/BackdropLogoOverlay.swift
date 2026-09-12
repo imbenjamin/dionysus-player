@@ -17,11 +17,10 @@ import SwiftUI
 /// wall of a diorama) and the logo is pulled *in front* of it (rotates
 /// around a pivot closer to the viewer, plus a shadow it casts onto the
 /// backdrop below), so tilting the device reads as looking into a recessed
-/// scene with the logo genuinely hovering above its surface. An earlier
-/// version instead offset the two layers sideways by different amounts
-/// (classic 2D parallax) — it read as flat and arbitrary rather than
-/// physically grounded, per direct feedback trying it on a real device;
-/// this 3D-rotation approach replaced it entirely.
+/// scene with the logo genuinely hovering above its surface. A 2D parallax
+/// approach (offsetting the two layers sideways by different amounts) was
+/// tried first — it read as flat and arbitrary rather than physically
+/// grounded on a real device — and this 3D-rotation approach replaced it.
 ///
 /// All default to off/`0` (identical to this view's pre-effect rendering)
 /// — only `HeroHeaderView` opts in; `HeroRailCard`'s auto-advancing
@@ -154,8 +153,8 @@ struct BackdropLogoOverlay: View {
     /// to the physical top edge (see `HeroHeaderView`'s doc comment on
     /// `.ignoresSafeArea(edges: .top)`), which is purely a rendering choice
     /// for the full-bleed look — but an *accessibility* element sharing that
-    /// same frame turned out to matter too: confirmed live (VoiceOver, real
-    /// device) that whenever this element's frame overlapped the status
+    /// same frame turned out to matter too: confirmed live that whenever
+    /// this element's frame overlapped the status
     /// bar's own screen region, VoiceOver's reading of it pulled in
     /// unrelated content alongside the real label — a clock-shaped number
     /// and a varying system-icon-shaped word, framed by an iOS "content
@@ -292,7 +291,7 @@ struct BackdropLogoOverlay: View {
                     x: -tiltX * Self.logoShadowRange, y: -tiltY * Self.logoShadowRange * 0.5 + 4
                 )
             }
-            // Root-causes a live-reproduced bug (2026-08-18): "the hero rail
+            // Root-causes a live-reproduced bug: "the hero rail
             // item is hard to tap; right-hand taps register as the *next*
             // item instead." `AsyncRemoteImage`'s backdrop is `.resizable()
             // .aspectRatio(contentMode: .fill)`, which — by definition of

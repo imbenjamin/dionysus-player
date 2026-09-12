@@ -34,9 +34,9 @@ enum RotationLock {
     /// iPad app (which `UIRequiresFullScreen: false` opts into, for Split
     /// View and Stage Manager) must support every orientation its Info.plist
     /// declares, and the mask above is ignored. Everything here still runs;
-    /// the system just doesn't act on it. Verified both ways on an iPad A16
-    /// (2026-09-05): flipping the flag to `true` makes the same lock hold,
-    /// and it works on a physical iPhone.
+    /// the system just doesn't act on it. Verified both ways on a physical
+    /// iPad and iPhone: flipping the flag to `true` makes the same lock
+    /// hold on iPad too.
     ///
     /// `PlayerControlsOverlay` omits its rotation-lock button entirely where
     /// this is `false` — a control that visibly engages and does nothing is

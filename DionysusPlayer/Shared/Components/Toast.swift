@@ -99,7 +99,7 @@ final class ToastCenter {
 /// would vanish the moment that screen did.
 ///
 /// **Anchored to the top, and deliberately so** (changed from the bottom
-/// after on-device review, 2026-09-08). Top is the iOS convention for a
+/// after on-device review). Top is the iOS convention for a
 /// transient banner — AirPods connection, Apple Pay, incoming
 /// notifications all drop from there; a bottom-anchored toast is the
 /// Android/Material snackbar pattern, which is the only reason it was tried
@@ -136,8 +136,8 @@ struct ToastHost: View {
     /// `MainTabView`, above every `NavigationStack`, so there is nothing in
     /// scope that knows how tall the current screen's bar is. 8pt was tried
     /// first and put the capsule squarely *in* the toolbar row, between the
-    /// back button and the trailing actions (seen on device, 2026-09-08) —
-    /// covering the very control the user just tapped.
+    /// back button and the trailing actions (seen on device) — covering the
+    /// very control the user just tapped.
     private static let navigationBarClearance: CGFloat = 52
 
     private func content(for toast: Toast) -> some View {

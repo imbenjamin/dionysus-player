@@ -99,7 +99,7 @@ extension Color {
 
     /// Favorite (star) icon colour — deliberately amber in *both*
     /// appearances, breaking from `dionysusHighlight`'s "no amber in dark"
-    /// rule on purpose: confirmed live (2026-08-26) that a favorite star
+    /// rule on purpose: confirmed live that a favorite star
     /// reads better staying the same gold/amber a user already associates
     /// with "favorited" everywhere else (Mail, Podcasts, Files, ...) than it
     /// does swapping to magenta in dark mode along with every other accent.
@@ -116,7 +116,7 @@ extension Color {
 
     /// Watched (eye) icon colour — deliberately magenta in *both*
     /// appearances, the mirror-image deviation of `dionysusFavorite` above:
-    /// confirmed live (2026-08-26) on a physical device that the watched eye
+    /// confirmed live that the watched eye
     /// (toolbar button on `HeroActionButtons` and the badge on rail items,
     /// `PosterCard.watchStatusOverlay`) read as inconsistent between the two
     /// once `dionysusPrimary`'s usual light/dark swap put it at burgundy in
