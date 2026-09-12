@@ -6,14 +6,12 @@ import SwiftUI
 /// Self-cleans back to the previous screen once its last episode is
 /// deleted.
 ///
-/// Bulk delete: same Cancel-top-left/Select-All-top-right/trash-icon shape
-/// as `DownloadsView`'s own bulk delete. What one selected row actually
-/// deletes depends on which layout is showing — a season row (grouped
-/// case) represents every episode within that season, an episode row
-/// (flat case) represents just itself. `selectedRowIDs` is safely reused
-/// as either a set of season IDs or episode IDs, since the two never mix
-/// mid-selection: `deleteSelected()`/`cancelSelecting()` both clear it,
-/// and grouped-vs-flat only changes as a `refresh()` follows one of those.
+/// Bulk delete uses the same shape as `DownloadsView`'s. What a selected row
+/// deletes depends on the layout: a season row stands for every episode in that
+/// season, an episode row for itself. `selectedRowIDs` holds either season or
+/// episode ids, which never mix mid-selection — `deleteSelected()` and
+/// `cancelSelecting()` both clear it, and grouped-versus-flat only changes on a
+/// `refresh()` following one of those.
 struct DownloadedShowView: View {
     let seriesID: String
     let downloadManager: DownloadManager
@@ -24,12 +22,11 @@ struct DownloadedShowView: View {
     @State private var selectedRowIDs: Set<String> = []
     @State private var showDeleteConfirmation = false
 
-    /// Same `.regular` gate as `DownloadsView.usesGridLayout` — see
-    /// `DownloadsGrid`'s doc comment. Only the flat, single-season episode
-    /// layout gets a grid: the grouped-by-season layout's rows are pure text
-    /// ("Season 2", "8 Episodes") with no artwork to build a tile around, and
-    /// a grid of text tiles reads worse than the list does, the same way
-    /// Files shows folders as rows.
+    /// Same `.regular` gate as `DownloadsView.usesGridLayout` (see
+    /// `DownloadsGrid`). Only the flat, single-season layout gets a grid: the
+    /// grouped rows are pure text with no artwork to build a tile around, and a
+    /// grid of text tiles reads worse than the list, as Files shows folders as
+    /// rows.
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private var usesGridLayout: Bool { horizontalSizeClass == .regular && !isGroupedBySeason }
 
@@ -51,11 +48,9 @@ struct DownloadedShowView: View {
             }
         }
         .navigationTitle(episodes.first?.seriesTitle ?? String(localized: "Show"))
-        // Selection mode owns the whole bar: Photos and Files both replace
-        // Back with Cancel rather than showing both. Leaving Back in place
-        // gave two competing "get out of here" affordances, and popping mid-
-        // selection abandoned the selection silently (iPad HIG review,
-        // 2026-09-03).
+        // Selection mode owns the whole bar, as Photos and Files do: leaving Back
+        // in place gave two competing "get out of here" affordances, and popping
+        // mid-selection abandoned the selection silently.
         .navigationBarBackButtonHidden(isSelecting)
         .onAppear(perform: refresh)
         .toolbar { toolbarContent }
@@ -67,9 +62,8 @@ struct DownloadedShowView: View {
         }
     }
 
-    /// `.regular`-size-class counterpart to the flat episode list — see
-    /// `usesGridLayout`. Always landscape-shaped: every tile here is an
-    /// episode.
+    /// `.regular` counterpart to the flat episode list (see `usesGridLayout`).
+    /// Always landscape-shaped, since every tile is an episode.
     private var episodeGrid: some View {
         DownloadsGrid(items: sortedEpisodes.map(DownloadedEpisodeSummary.init), isLandscape: true) { episode, width in
             DownloadsGridCard(
@@ -101,8 +95,8 @@ struct DownloadedShowView: View {
         (episode.status == .downloading || episode.status == .queued) && progress(for: episode) == nil
     }
 
-    /// Mirrors `DownloadedEpisodeRow.statusLine` — `nil` once completed
-    /// (`metaText` already carries the air date/duration by then).
+    /// Mirrors `DownloadedEpisodeRow.statusLine`; `nil` once completed, where
+    /// `metaText` carries the air date and duration.
     private func statusText(for episode: DownloadedEpisodeSummary) -> String? {
         switch episode.status {
         case .downloading: return progress(for: episode)?.statusText ?? String(localized: "Preparing download\u{2026}")
@@ -198,9 +192,8 @@ struct DownloadedShowView: View {
                     count: items.count
                 )
             }
-            // By season number, not `title` — a plain string sort put
-            // "Season 10" before "Season 2" for any show with 10+
-            // downloaded seasons.
+            // By season number, not `title`: a string sort put "Season 10" before
+            // "Season 2".
             .sorted { ($0.seasonNumber ?? Int.max) < ($1.seasonNumber ?? Int.max) }
     }
 
@@ -216,33 +209,24 @@ struct DownloadedShowView: View {
         if episodes.isEmpty { dismiss() }
     }
 
-    /// Removes from `episodes` first, synchronously, and only *then*
-    /// schedules the real `DownloadManager.delete(itemID:)` (which deletes
-    /// the underlying SwiftData object) for the next run-loop turn — not
-    /// inline, and not via an immediate `refresh()`. Confirmed live
-    /// (2026-08-27): deleting a download crashed inside SwiftData's own
-    /// generated `DownloadedItem` property accessors, reached from a `List`
-    /// row still mid-removal-transition. A one-run-loop-turn defer alone
-    /// turned out **not** to be enough on its own — `List`'s default
-    /// row-removal animation comfortably outlasts a single `DispatchQueue
-    /// .main.async` hop, so the transitioning-out row's `body` (still
-    /// holding the model reference it was built with) got a chance to touch
-    /// it again before the animation finished. The defer here is kept as
-    /// cheap insurance, but the actual fix is `DownloadedEpisodeSummary`
-    /// (see its doc comment): rows now never hold a live model reference in
-    /// the first place, so there's nothing left to trap on regardless of
-    /// how long the transition runs.
+    /// Removes from `episodes` synchronously, then schedules the real
+    /// `DownloadManager.delete(itemID:)` for the next run-loop turn rather than
+    /// running it inline or via an immediate `refresh()`. Deleting a download
+    /// crashed inside SwiftData's generated `DownloadedItem` accessors, reached
+    /// from a `List` row mid-removal-transition.
     ///
-    /// `dismiss()` — when this was the last episode — happens **inside**
-    /// this same deferred block, after the real deletion, not right away.
-    /// Confirmed live (2026-08-27): dismissing immediately let `DownloadsView`'s
-    /// `onAppear`-triggered `refresh()` (which re-reads the SwiftData store
-    /// from scratch) run *before* the deferred delete above had actually
-    /// landed, so it rebuilt its row list from a store that still had this
-    /// episode — leaving a stale "Preparing download…" row visible on the
-    /// main Downloads list until an unrelated navigation elsewhere (and
-    /// back) happened to trigger another `refresh()` late enough to see the
-    /// real state. Deferring the pop past the deletion closes that window.
+    /// A one-turn defer wasn't enough on its own: `List`'s row-removal animation
+    /// outlasts a single main-queue hop, so the transitioning row's `body`, still
+    /// holding the model it was built with, could touch it again. The defer stays
+    /// as cheap insurance, but the real fix is `DownloadedEpisodeSummary`, whose
+    /// rows hold no live model at all.
+    ///
+    /// `dismiss()`, when this was the last episode, happens inside the same
+    /// deferred block after the deletion. Dismissing immediately let
+    /// `DownloadsView`'s `onAppear` `refresh()` re-read the store before the
+    /// deferred delete landed, rebuilding its rows from a store that still had
+    /// this episode and leaving a stale "Preparing download…" row until some
+    /// unrelated navigation triggered another `refresh()`.
     private func delete(itemID: String) {
         episodes.removeAll { $0.itemID == itemID }
         let shouldDismiss = episodes.isEmpty
@@ -252,11 +236,10 @@ struct DownloadedShowView: View {
         }
     }
 
-    /// Same ordering as `delete(itemID:)` — see its doc comment, including
-    /// for why `dismiss()` waits inside the deferred block. All of this
-    /// season's deletions land in the *same* deferred closure (not one per
-    /// item) specifically so `dismiss()` can't fire after only some of them
-    /// have actually run.
+    /// Same ordering as `delete(itemID:)`, including why `dismiss()` waits inside
+    /// the deferred block. All of this season's deletions land in one deferred
+    /// closure rather than one per item, so `dismiss()` can't fire after only
+    /// some have run.
     private func deleteSeason(_ row: SeasonRow) {
         let itemIDs = episodes.filter { $0.seasonID == row.seasonID }.map(\.itemID)
         episodes.removeAll { $0.seasonID == row.seasonID }
@@ -269,8 +252,8 @@ struct DownloadedShowView: View {
 
     // MARK: Bulk selection
 
-    /// Whichever ids the current layout makes selectable — season ids when
-    /// grouped, episode ids when flat (see this type's own doc comment).
+    /// Whichever ids the current layout makes selectable: season ids when
+    /// grouped, episode ids when flat.
     private var selectableRowIDs: [String] {
         isGroupedBySeason ? seasonRows.map(\.seasonID) : sortedEpisodes.map(\.itemID)
     }
@@ -301,10 +284,8 @@ struct DownloadedShowView: View {
         selectedRowIDs = isAllSelected ? [] : Set(selectableRowIDs)
     }
 
-    /// Total individual episodes the current selection covers — a selected
-    /// season row counts its own episode count, a selected episode row
-    /// (flat, single-season case) counts 1 — mirrors `DownloadsViewModel
-    /// .selectedAssetCount`'s same reasoning for a selected show row there.
+    /// Episodes the selection covers: a season row counts its episode count, an
+    /// episode row counts 1. Mirrors `DownloadsViewModel.selectedAssetCount`.
     private var selectedAssetCount: Int {
         if isGroupedBySeason {
             return seasonRows.filter { selectedRowIDs.contains($0.seasonID) }.reduce(0) { $0 + $1.count }
@@ -318,19 +299,15 @@ struct DownloadedShowView: View {
             : String(localized: "Delete \(selectedAssetCount) Downloads?")
     }
 
-    /// Deletes everything the current selection covers — every episode of a
-    /// selected season, not just that one row, when grouped — then exits
-    /// selection mode. Same "remove from `episodes` first, delete the real
-    /// objects after, `dismiss()` only once they actually have" order as
-    /// `delete(itemID:)` — see its doc comment for both the crash and the
-    /// stale-row bug this avoids, either of which a multi-item bulk delete
-    /// hits even more easily (more simultaneous row-removal transitions to
-    /// race, and a full-season delete is exactly the "several episodes at
-    /// once" case that surfaced the stale-row bug live).
+    /// Deletes everything the selection covers, including every episode of a
+    /// selected season, then exits selection mode. Same ordering as
+    /// `delete(itemID:)` — remove from `episodes` first, delete after,
+    /// `dismiss()` only once they have — whose crash and stale-row bug a bulk
+    /// delete hits even more easily.
     private func deleteSelected() {
         let itemIDs: [String]
         if isGroupedBySeason {
-            // One pass over the already-in-memory `episodes`, not a
+            // One pass over the in-memory `episodes`, not a
             // `store.visibleItems()` re-fetch per selected season.
             itemIDs = episodes.filter { selectedRowIDs.contains($0.seasonID ?? "") }.map(\.itemID)
         } else {
@@ -348,19 +325,15 @@ struct DownloadedShowView: View {
     }
 }
 
-/// A plain-value snapshot of the display data `DownloadedEpisodeRow` needs,
-/// captured once from a live `DownloadedItem` at the moment the row is
-/// built. Deliberately holds **no** reference to the model itself. Confirmed
-/// live (2026-08-27): a `List` row's `body` can still be re-invoked while
-/// its own removal transition is animating out, even after the item has
-/// been dropped from the source array and even with the real SwiftData
-/// delete deferred a run-loop turn — a `DownloadedEpisodeRow` that captured
-/// the live `@Model` reference directly would touch it again during that
-/// window and trap the instant the backing row was actually gone (SwiftData
-/// has no supported "is this still valid" check — any property access on a
-/// deleted model instance, stored or computed, crashes). A value-type
-/// snapshot has nothing left to touch, so the row survives its own
-/// animation regardless of exactly when the real deletion lands.
+/// A plain-value snapshot of what `DownloadedEpisodeRow` displays, captured from a
+/// live `DownloadedItem` when the row is built, holding no reference to the model.
+///
+/// A `List` row's `body` can be re-invoked while its removal transition animates
+/// out, even after the item has left the source array and with the SwiftData
+/// delete deferred a run-loop turn. A row capturing the `@Model` directly would
+/// touch it then and trap once the backing row was gone: SwiftData has no "is
+/// this still valid" check, and any property access on a deleted instance
+/// crashes. A snapshot has nothing left to touch.
 struct DownloadedEpisodeSummary: Identifiable {
     var id: String { itemID }
     var itemID: String
@@ -369,17 +342,15 @@ struct DownloadedEpisodeSummary: Identifiable {
     var thumbImagePath: String?
     var posterImagePath: String?
     var status: DownloadStatus
-    /// Precomputed here rather than left as a computed property read from
-    /// the row's `body` — see this type's own doc comment for why that
-    /// distinction is the whole point.
+    /// Precomputed rather than left as a computed property read from the row's
+    /// `body` — the point of this type.
     var metaText: String?
     var metaAccessibilityText: String?
 
-    /// "S1:E1, Choosing the Right Project, 1 Jul 2005, 23 minutes" — the
-    /// same sentence `DownloadedEpisodeRow`'s stacked `Text`s already
-    /// produce for VoiceOver, spelled out for `DownloadsGridCard`, whose
-    /// tile collapses to a single accessibility element. Uses
-    /// `metaAccessibilityText` (worded-out durations), not `metaText`.
+    /// "S1:E1, Choosing the Right Project, 1 Jul 2005, 23 minutes" — the sentence
+    /// `DownloadedEpisodeRow`'s stacked `Text`s produce for VoiceOver, spelled out
+    /// for `DownloadsGridCard`, whose tile is one accessibility element. Uses
+    /// `metaAccessibilityText`, not `metaText`.
     var gridAccessibilityLabel: String {
         [episodeLabel, title, metaAccessibilityText].compactMap { $0 }.joined(separator: ", ")
     }
@@ -398,13 +369,12 @@ struct DownloadedEpisodeSummary: Identifiable {
     }
 }
 
-/// A single downloaded episode row — shared by `DownloadedShowView`'s
-/// single-season flat list and `DownloadedSeasonView`. In selection mode
-/// (`isSelecting`), a plain tappable row with a leading checkbox instead of
-/// its usual `NavigationLink`, toggling `onToggleSelection` rather than
-/// navigating — same branch shape as `DownloadsView`'s own row. Takes a
-/// `DownloadedEpisodeSummary`, not a `DownloadedItem` — see that type's doc
-/// comment for why holding the live model directly is unsafe here.
+/// A single downloaded episode row, shared by `DownloadedShowView`'s flat list and
+/// `DownloadedSeasonView`. In selection mode, a tappable row with a leading
+/// checkbox instead of its `NavigationLink`, toggling `onToggleSelection` — the
+/// same branch shape as `DownloadsView`'s row. Takes a `DownloadedEpisodeSummary`
+/// rather than a `DownloadedItem`; see that type for why holding the live model
+/// is unsafe.
 struct DownloadedEpisodeRow: View {
     let episode: DownloadedEpisodeSummary
     let downloadManager: DownloadManager
@@ -461,9 +431,8 @@ struct DownloadedEpisodeRow: View {
                 DownloadProgressRing(progress: progress)
                     .frame(width: 28, height: 28)
             } else if episode.status == .downloading || episode.status == .queued {
-                // See `DownloadButton.isPreparing`'s doc comment — no
-                // byte progress yet, but a plain spinner beats blank
-                // space.
+                // See `DownloadButton.isPreparing`: no byte progress yet, but a
+                // spinner beats blank space.
                 ProgressView().controlSize(.small)
             }
         }
@@ -479,8 +448,8 @@ struct DownloadedEpisodeRow: View {
                 Text("Preparing download…").font(.caption2).foregroundStyle(.secondary)
             }
         case .queued:
-            // Waiting for a concurrency slot — see `DownloadedAssetDetailView
-            // .downloadStatusRow`'s doc comment on the same distinction.
+            // Waiting for a concurrency slot; see
+            // `DownloadedAssetDetailView.downloadStatusRow`.
             Text("Queued…").font(.caption2).foregroundStyle(.secondary)
         case .failed:
             Text("Download Failed").font(.caption2).foregroundStyle(.red)
