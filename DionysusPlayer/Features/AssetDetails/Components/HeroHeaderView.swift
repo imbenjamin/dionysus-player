@@ -1,101 +1,66 @@
 import SwiftUI
 import UIKit
 
-/// Backdrop image with a logo (or title text fallback) overlaid at the
-/// bottom, Disney+-style — see `BackdropLogoOverlay` for the shared visual
-/// composition (also used by Home's hero rail) and its `enable3DDepth`/
-/// `tiltX`/`tiltY` parameters for the gyro-driven 3D depth effect this view
-/// opts into (backed by `DeviceTiltObserver`, below) — the one place in the
-/// app that does, since a per-page detail hero (static once you're looking
-/// at it) is where a subtle tilt-driven depth effect reads as a nice touch
-/// rather than fighting something else already animating on screen (Home's
-/// hero rail auto-advances on its own timer).
+/// Backdrop image with a logo (or title text fallback) overlaid at the bottom.
+/// See `BackdropLogoOverlay` for the shared composition, also used by Home's
+/// hero rail, and its `enable3DDepth`/`tiltX`/`tiltY` parameters for the
+/// gyro-driven depth effect this view opts into via `DeviceTiltObserver`. It's
+/// the only place that does: a detail hero is static once you're looking at it,
+/// where Home's hero rail is already auto-advancing.
 ///
-/// Lives inside a `ScrollView` whose containing detail page applies
-/// `.ignoresSafeArea(edges: .top)`, so this renders flush with the screen's
-/// physical top edge even at rest — deliberately bleeding up behind the
-/// status bar/notch/Dynamic Island cutout, the same way Home's `HeroRailView`
-/// does, rather than reserving top padding to clear it (an earlier version of
-/// this view did reserve that padding; removed so the two heroes actually
-/// match rather than one sitting a notch-height lower than the other).
-/// `heroHeight` below is the same formula as `HeroRailView.heroHeight` for
-/// the same reason — see that property's doc comment for why each term is
-/// there; kept as a second copy here rather than a shared helper, matching
-/// how `isLandscape`/`statusBarInset` below already duplicate that view's.
+/// Lives inside a `ScrollView` whose detail page applies
+/// `.ignoresSafeArea(edges: .top)`, so this renders flush with the physical top
+/// edge, bleeding behind the status bar/notch like `HeroRailView` rather than
+/// padding to clear it. `heroHeight` below duplicates
+/// `HeroRailView.heroHeight`'s formula rather than sharing a helper, as
+/// `isLandscape`/`statusBarInset` already do.
 struct HeroHeaderView: View {
-    /// Plain values, not `item: MediaItem` — generalized (2026-08-19) so
-    /// `DownloadedAssetDetailView`'s offline hero header can reuse this
-    /// exact tilt-effect composition from its own local artwork; see
-    /// `BackdropLogoOverlay`'s own doc comment for the rest of the story.
+    /// Plain values, not `item: MediaItem`, so
+    /// `DownloadedAssetDetailView`'s offline hero can reuse this composition
+    /// from local artwork. See `BackdropLogoOverlay`.
     let backdropURL: URL?
     let logoURL: URL?
     let title: String
-    /// Forwarded straight to `BackdropLogoOverlay` — see its own doc
-    /// comment.
+    /// Forwarded to `BackdropLogoOverlay`.
     var episodeTitle: String? = nil
-    /// Forwarded straight to `BackdropLogoOverlay` — see its own doc
-    /// comment.
+    /// Forwarded to `BackdropLogoOverlay`.
     var episodeNumberAccessibilityText: String? = nil
-    /// Forwarded straight to `BackdropLogoOverlay` — see its own doc
-    /// comment.
+    /// Forwarded to `BackdropLogoOverlay`.
     var kind: BaseItemKind? = nil
 
-    /// `.shared`, not a per-view instance — see `DeviceTiltObserver`'s own
-    /// doc comment for why (one physical sensor, and `ProfileView`'s toggle
-    /// needs visibility into the same `isApplyingChange` this view's
-    /// `.onAppear`/`.onChange` below drive). `ProfileView`'s toggle also
-    /// calls `start()`/`stop()` directly on the same shared instance — see
-    /// that view for why — so either call site's idea of "is it running"
-    /// stays in sync regardless of which one triggered it.
+    /// `.shared`, not a per-view instance: one physical sensor, and
+    /// `ProfileView`'s toggle needs the same `isApplyingChange` this view's
+    /// `.onAppear`/`.onChange` drive. That toggle calls `start()`/`stop()` on
+    /// the same instance, so both call sites agree on whether it's running.
     private var tiltObserver: DeviceTiltObserver { .shared }
-    /// Three independent opt-outs, all meaning "don't run the effect": the
-    /// system-level Reduce Motion setting, `ProfileView`'s own "3D Depth
-    /// Effects" toggle (`hero3DDepthEnabledStorageKey`, default on) for
-    /// someone who doesn't mind motion in general but just doesn't want
-    /// this one effect, and VoiceOver — added while chasing a real VoiceOver
-    /// bug on this exact view (see `BackdropLogoOverlay.body`'s doc comment
-    /// for the actual root cause and fix, an unrelated accessibility-frame/
-    /// status-bar overlap, confirmed live and unaffected by this effect
-    /// either way). Kept anyway on its own merits, not reverted: a screen
-    /// reader user gets no visual benefit from a parallax effect they can't
-    /// perceive, so there's no reason to keep the tilt sensor running (and
-    /// `body` re-rendering on every sample) for them. Any of the three being
-    /// true is enough to disable it — see `is3DDepthEnabled` below.
+    /// Three independent opt-outs, any of which disables the effect (see
+    /// `is3DDepthEnabled`): system Reduce Motion; `ProfileView`'s "3D Depth
+    /// Effects" toggle (`hero3DDepthEnabledStorageKey`, default on) for someone
+    /// who wants only this effect off; and VoiceOver, since a screen reader user
+    /// gets no benefit from parallax and there's no reason to keep the sensor
+    /// running and `body` re-rendering at 30 Hz for them.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @AppStorage(hero3DDepthEnabledStorageKey) private var depthEffectPreference = true
     private var is3DDepthEnabled: Bool { depthEffectPreference && !reduceMotion && !voiceOverEnabled }
-    /// Whether *this* view instance currently has an outstanding
-    /// `tiltObserver.acquire()` — i.e. whether it owes a matching
-    /// `release()`. Needed because `.onAppear`/`.onDisappear`/the
-    /// `.onChange` below can each independently decide to acquire or
-    /// release; this is what keeps each of those calls paired up exactly
-    /// once rather than acquiring twice or releasing without ever having
-    /// acquired. `@State`, not a plain `var` — this struct's `body` reruns
-    /// on every tilt sample (30 Hz), which would reset a plain property
-    /// back to its initial value on every one of those.
+    /// Whether this view instance has an outstanding `tiltObserver.acquire()`,
+    /// and so owes a `release()`. `.onAppear`, `.onDisappear` and the
+    /// `.onChange` below can each acquire or release independently, and this
+    /// keeps them paired exactly once. `@State`, not a plain `var`: `body`
+    /// reruns on every tilt sample, which would reset a plain property.
     @State private var isObservingTilt = false
 
-    /// `@Environment` — not a plain computed property reading UIKit state
-    /// directly — is what actually matters here. `statusBarInset` below
-    /// *is* a plain computed property, and that's fine on its own: whatever
-    /// calls it just gets a fresh read every time it's evaluated. The bug
-    /// with two earlier attempts at `isLandscape` (checking
-    /// `UIWindowScene.interfaceOrientation`, then comparing the key window's
-    /// own `bounds`) wasn't that either signal was wrong — it's that SwiftUI
-    /// has no idea `body` depends on either one, so it had no reason to
-    /// *re-run* `body` on rotation at all. `heroHeight` got computed once
-    /// at first render and then sat frozen, whichever expression was there.
-    /// `@Environment(\.verticalSizeClass)` is a tracked dependency:
-    /// SwiftUI reruns `body` when it changes, which is what makes
-    /// `statusBarInset` below get a fresh read too — the same expression
-    /// that didn't work standalone works once *something* in this view is
-    /// actually wired into SwiftUI's invalidation.
+    /// `@Environment`, not a computed property reading UIKit state, because only
+    /// the former is a tracked dependency. Earlier attempts at `isLandscape`
+    /// read `UIWindowScene.interfaceOrientation` and then the key window's
+    /// `bounds`: neither signal was wrong, but SwiftUI didn't know `body`
+    /// depended on them, so it never re-ran on rotation and `heroHeight` stayed
+    /// frozen at its first render. With `verticalSizeClass` tracked, `body`
+    /// reruns and `statusBarInset` below gets a fresh read as a side effect.
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
 
-    /// Shared by `screenHeight`/`statusBarInset` below, same reasoning as
-    /// `HeroRailView.keyWindow`.
+    /// Shared by `screenHeight`/`statusBarInset`, as in `HeroRailView.keyWindow`.
     private var keyWindow: UIWindow? {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
@@ -104,53 +69,42 @@ struct HeroHeaderView: View {
             .first(where: \.isKeyWindow)
     }
 
-    /// Deliberately the key window's own bounds, not `UIScreen.main` (soft
-    /// deprecated, doesn't reflect a resized scene under iPadOS Stage
-    /// Manager) — same as `HeroRailView.screenHeight`.
+    /// The key window's bounds, not `UIScreen.main`, which is soft-deprecated
+    /// and doesn't reflect a scene resized under Stage Manager. Same as
+    /// `HeroRailView.screenHeight`.
     private var screenHeight: CGFloat { keyWindow?.bounds.height ?? 800 }
 
-    /// Deliberately the raw window/hardware inset, not SwiftUI's ambient
-    /// `safeAreaInsets` (via `GeometryReader`) — inside a `NavigationStack`,
-    /// that value also folds in the visible navigation bar's height, which
-    /// would overstate the status bar/cutout alone. The key window's own
-    /// inset is unaffected by any app-level chrome drawn inside it.
+    /// The raw window inset, not SwiftUI's ambient `safeAreaInsets`: inside a
+    /// `NavigationStack` that folds in the navigation bar's height, overstating
+    /// the status bar/cutout. The window's own inset ignores app-level chrome.
     private var statusBarInset: CGFloat { keyWindow?.safeAreaInsets.top ?? 0 }
 
-    /// The width the layout system actually measured for this hero,
-    /// written by the `.onGeometryChange` in `body`.
+    /// The width the layout system measured for this hero, written by the
+    /// `.onGeometryChange` in `body`.
     ///
-    /// Exists purely so `heroHeight(forWidth:)` has a dependency that
-    /// genuinely changes when an **iPad** rotates. `verticalSizeClass`
-    /// above cannot serve that role there: per Apple's own size-class
-    /// table every iPad reports regular height in *both* orientations,
-    /// so on iPad it never changes, `body` never re-runs on rotation,
-    /// and `screenHeight` — an untracked UIKit read — stays frozen at
-    /// whatever the orientation was when this page first rendered.
+    /// Exists so `heroHeight(forWidth:)` has a dependency that changes when an
+    /// iPad rotates. `verticalSizeClass` can't: every iPad reports regular
+    /// height in both orientations, so `body` never re-runs on rotation there
+    /// and the untracked `screenHeight` stays frozen at first render. On an
+    /// iPad, opening a movie in portrait measured the hero at 523.9pt and
+    /// rotating left it at 523.5pt, where first rendering in landscape gave
+    /// 373.5pt — the 150.4pt gap is exactly `(1180 - 820) / 3 * 1.25`, the whole
+    /// difference between the two formulas, never applied. The hero then ate 64%
+    /// of an 820pt landscape screen, pushing metadata, Play and tabs to the
+    /// bottom.
     ///
-    /// Confirmed live (2026-09-04, iPad A16): opening a movie in
-    /// portrait measured the hero at 523.9pt and rotating to landscape
-    /// left it at 523.5pt, while the same page first rendered *in*
-    /// landscape measured 373.5pt. The 150.4pt gap is exactly
-    /// `(1180 - 820) / 3 * 1.25`, i.e. the whole difference between the
-    /// two orientations' formulas, never applied. The visible symptom
-    /// is a hero eating 64% of an 820pt-tall landscape screen and
-    /// pushing the metadata, Play button and tabs to the very bottom
-    /// of it.
-    ///
-    /// This hero is full-bleed, so its width *is* the screen width, and
-    /// unlike the window read it comes from the layout system — it
-    /// changes on rotation on every device, iPad included.
+    /// This hero is full-bleed, so its width is the screen width, and unlike the
+    /// window read it comes from the layout system, changing on rotation on
+    /// every device.
     @State private var measuredWidth: CGFloat = 0
 
-    /// Same formula as `HeroRailView.heroHeight` — see this type's own doc
-    /// comment for why it's duplicated here rather than shared.
+    /// Same formula as `HeroRailView.heroHeight`, duplicated rather than shared
+    /// (see this type's doc comment).
     ///
-    /// Takes the measured width as an argument it never actually uses in
-    /// the arithmetic. That's deliberate and is the whole point: passing
-    /// it in is what makes this computation depend on a tracked value
-    /// that changes on rotation, so the `screenHeight`/`statusBarInset`
-    /// reads below are re-evaluated rather than frozen. See
-    /// `measuredWidth`. `HeroRailView.heroHeight` still has the
+    /// Takes the measured width as an argument the arithmetic never uses: that's
+    /// what makes this depend on a value that changes on rotation, so the
+    /// `screenHeight`/`statusBarInset` reads below are re-evaluated rather than
+    /// frozen. See `measuredWidth`; `HeroRailView.heroHeight` still has the
     /// unfixed version of this bug.
     private func heroHeight(forWidth width: CGFloat) -> CGFloat {
         _ = width
@@ -166,59 +120,45 @@ struct HeroHeaderView: View {
             kind: kind,
             episodeTitle: episodeTitle,
             episodeNumberAccessibilityText: episodeNumberAccessibilityText,
-            // Every detail-page hero centers, unlike `HeroRailCard`'s own
-            // left-aligned default — see `BackdropLogoOverlay.alignment`'s
-            // own doc comment for why.
+            // Detail-page heroes center, unlike `HeroRailCard`'s left-aligned
+            // default — see `BackdropLogoOverlay.alignment`.
             alignment: .center,
             enable3DDepth: is3DDepthEnabled,
             tiltX: is3DDepthEnabled ? CGFloat(tiltObserver.x) : 0,
             tiltY: is3DDepthEnabled ? CGFloat(tiltObserver.y) : 0,
-            // Keeps this hero's *accessibility* frame from ever reaching
-            // the status bar it visually bleeds under — see
-            // `BackdropLogoOverlay.body`'s own doc comment for the bug this
-            // fixes.
+            // Keeps the accessibility frame out of the status bar this visually
+            // bleeds under — see `BackdropLogoOverlay.body`.
             accessibilityTopInset: statusBarInset
         )
         .frame(height: heroHeight(forWidth: measuredWidth))
-        // See `measuredWidth`. Fires after layout, so a rotation shows
-        // one frame at the old height before correcting — the same
-        // trade-off Home's own `.onGeometryChange` safe-area fix makes.
+        // See `measuredWidth`. Fires after layout, so a rotation shows one frame
+        // at the old height before correcting.
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { newWidth in
             measuredWidth = newWidth
         }
         .onAppear { acquireTiltObserverIfNeeded() }
-        // A real `.onDisappear` — releasing, not stopping outright — is
-        // safe here specifically *because* `DeviceTiltObserver.acquire()`/
-        // `release()` are reference-counted with a grace period, unlike a
-        // direct `stop()` call would be. Found the hard way (real-device
-        // repro, 2026-08-10) that a direct stop-on-disappear raced a
-        // straight-to-another-detail-page push: the outgoing page's
-        // `.onDisappear` and the incoming page's `.onAppear` fire within
-        // moments of each other, each its own unstructured `Task`, and
+        // Releasing rather than stopping outright, because
+        // `DeviceTiltObserver.acquire()`/`release()` are reference-counted with
+        // a grace period. A direct stop-on-disappear raced a push straight to
+        // another detail page: the outgoing `.onDisappear` and incoming
+        // `.onAppear` fire moments apart in separate unstructured `Task`s, and
         // nothing guaranteed `stop()` finished before the next `start()`'s
-        // "already active" guard saw it as still running and no-opped —
-        // whichever order they landed in could leave the sensor dead for
-        // both pages. `release()`'s grace period (see its own doc comment)
-        // is what closes that race: the count never sees a *sustained* zero
-        // across a same-instant push, so no `stop()` fires there at all —
-        // while actually leaving the feature (popping back out, with
-        // nothing re-acquiring in time) now genuinely stops the sensor
-        // instead of leaving it running for the rest of the app session.
+        // "already active" guard no-opped — either order could leave the sensor
+        // dead for both pages. The grace period means the count never sees a
+        // sustained zero across such a push, while genuinely leaving the feature
+        // still stops the sensor.
         .onDisappear { releaseTiltObserverIfNeeded() }
-        // `depthEffectPreference` can change while this view is already on
-        // screen (flipped in Settings, then navigating straight to a detail
-        // page without relaunching) — `.onAppear` alone would miss that,
-        // since it only fires once per appearance, not on every dependency
-        // change. `reduceMotion` is a tracked `@Environment` dependency
-        // already covered by `body` re-running on its own; this just adds
-        // the same coverage for the `@AppStorage` one.
+        // `depthEffectPreference` can change while this view is on screen, which
+        // `.onAppear` misses, firing once per appearance rather than on every
+        // dependency change. `reduceMotion` is already covered by `body`
+        // re-running; this adds the same for the `@AppStorage` value.
         .onChange(of: depthEffectPreference) { _, _ in
             if is3DDepthEnabled { acquireTiltObserverIfNeeded() } else { releaseTiltObserverIfNeeded() }
         }
     }
 
-    /// See `isObservingTilt`'s doc comment — every acquire goes through
-    /// here so it only ever happens once per outstanding `release()`.
+    /// Every acquire goes through here so it happens once per outstanding
+    /// `release()`. See `isObservingTilt`.
     private func acquireTiltObserverIfNeeded() {
         guard is3DDepthEnabled, !isObservingTilt else { return }
         isObservingTilt = true
@@ -233,7 +173,6 @@ struct HeroHeaderView: View {
     }
 }
 
-/// `UserDefaults` key for `ProfileView`'s "3D Depth Effects" toggle —
-/// shared so `HeroHeaderView`'s own `@AppStorage` reads the exact same
-/// value `ProfileView` writes.
+/// `UserDefaults` key for `ProfileView`'s "3D Depth Effects" toggle, shared so
+/// `HeroHeaderView`'s `@AppStorage` reads what `ProfileView` writes.
 let hero3DDepthEnabledStorageKey = "hero3DDepthEnabled"
