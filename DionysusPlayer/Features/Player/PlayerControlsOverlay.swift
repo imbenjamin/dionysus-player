@@ -970,13 +970,13 @@ struct PlayerControlsOverlay: View {
     /// `.idle` for that entire window, since nothing updates it until
     /// `engine.load(url:)` is actually reached; without this the transport
     /// row showed a plain, tappable-looking Play button with no indication
-    /// anything was happening — confirmed live, 2026-08-24, most visibly
-    /// while offline, where that window can run long enough to be mistaken
-    /// for a dead screen), the initial buffer on load/resume (`.loading`),
-    /// an in-progress scrub (`.seeking`), an ordinary mid-playback rebuffer
-    /// (`.buffering`), and a dropped/retrying source connection
-    /// (`.reconnecting` — labeled distinctly below, rather than reading as
-    /// an unexplained generic stall).
+    /// anything was happening, most visibly while offline, where that
+    /// window can run long enough to be mistaken for a dead screen), the
+    /// initial buffer on load/resume (`.loading`), an in-progress scrub
+    /// (`.seeking`), an ordinary mid-playback rebuffer (`.buffering`), and
+    /// a dropped/retrying source connection (`.reconnecting` — labeled
+    /// distinctly below, rather than reading as an unexplained generic
+    /// stall).
     @ViewBuilder
     private var transportControls: some View {
         if isBuffering {

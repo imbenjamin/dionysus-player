@@ -594,9 +594,9 @@ private struct HeroPageIndicator: View {
     let currentIndex: Int
     /// Freezes the fill exactly where it is, same treatment `HeroRailView
     /// .tick()` gives `idleSeconds` itself — the caller passes `true` for
-    /// either a real held touch or (as of 2026-08-24) Home simply not being
-    /// visible (backgrounded tab or covered by the Player), so this fill
-    /// never keeps animating via Core Animation toward 100% while the real
+    /// either a real held touch or Home simply not being visible
+    /// (backgrounded tab or covered by the Player), so this fill never
+    /// keeps animating via Core Animation toward 100% while the real
     /// countdown it's meant to represent isn't actually advancing. Named
     /// for what it does here, not for either specific cause — see the call
     /// site in `heroContent(pageWidth:)` for what feeds into it.

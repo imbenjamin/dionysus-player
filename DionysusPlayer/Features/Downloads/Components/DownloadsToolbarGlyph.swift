@@ -12,20 +12,17 @@ extension View {
     /// which is what this is for — a taller target would need the button
     /// out of the toolbar entirely.
     ///
-    /// Measured during the iPad HIG review (2026-09-03): the Downloads
-    /// trash button reported a 28x36pt accessibility frame — above HIG's
-    /// absolute 28x28pt floor, but below the 44x44pt default it asks for,
-    /// and visibly the smallest tap target on the screen. Every Downloads
-    /// screen's toolbar uses a bare `Image(systemName: "trash")` label,
-    /// which sizes itself to the glyph; this pads the target out without
-    /// changing the glyph's own appearance.
+    /// The Downloads trash button, unpatched, reported a 28x36pt
+    /// accessibility frame — above HIG's absolute 28x28pt floor, but below
+    /// the 44x44pt default it asks for, and visibly the smallest tap
+    /// target on the screen. Every Downloads screen's toolbar uses a bare
+    /// `Image(systemName: "trash")` label, which sizes itself to the
+    /// glyph; this pads the target out without changing the glyph's
+    /// appearance.
     ///
-    /// Apply it to *every* such button. `DownloadedAssetDetailView`'s
-    /// Delete Download button was missed when this was introduced and
-    /// stayed at 28x36pt for a further page of the same review
-    /// (2026-09-04) — it's the one Downloads toolbar that isn't a
-    /// `DownloadsView`-family list, which is exactly why it fell out of
-    /// the sweep.
+    /// Apply it to *every* such button — `DownloadedAssetDetailView`'s
+    /// Delete Download button was missed once already, being the one
+    /// Downloads toolbar that isn't a `DownloadsView`-family list.
     ///
     /// Same "visible mark smaller than its tappable area" idiom
     /// `SearchResultGridCard`'s remove button and `DownloadsGridCard`'s

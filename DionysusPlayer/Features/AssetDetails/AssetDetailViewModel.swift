@@ -612,10 +612,9 @@ final class AssetDetailViewModel {
     /// `MovieDetailView`/`ShowDetailView`'s call sites), is what settles
     /// that.
     ///
-    /// Also records `optimisticPlaybackTarget` — see that property's own doc
+    /// Also records `optimisticPlaybackTarget` — see that property's doc
     /// comment for why `refreshItem()` needs it: without it, the very poll
-    /// this method is meant to be ahead of ends up undoing it (reproduced
-    /// live, 2026-08-13 — this method alone wasn't sufficient by itself).
+    /// this method is meant to be ahead of ends up undoing it.
     func applyOptimisticPlaybackPosition(_ outcome: PlaybackSessionOutcome) {
         guard outcome.durationSeconds > 0 else { return }
         optimisticPlaybackTarget = (
