@@ -4,24 +4,23 @@ import SwiftUI
 /// card showing the actual next episode (thumbnail, "SxEy · Title") with a
 /// countdown ring, and Play Now / Cancel actions. See `PlayerViewModel
 /// .nextUpSecondsRemaining`'s doc comment for where the countdown value
-/// comes from, and `PlayerView`'s own doc comment on this overlay's
-/// `.gesture`/`.opacity` treatment for why it's mounted independently of
-/// `PlayerControlsOverlay` rather than as part of it.
+/// comes from, and `PlayerView`'s doc comment for why this overlay is
+/// mounted independently of `PlayerControlsOverlay` rather than as part
+/// of it.
 ///
 /// Always mounted by `PlayerView`, with `isVisible` (`nextEpisode` and
 /// `secondsRemaining` both non-nil) driving `.opacity`/`.allowsHitTesting` —
 /// same "avoid a mount/unmount toggle fighting the ~10Hz time-update
 /// re-renders" reasoning as `PlaybackStatsOverlay`/`PictureInPictureOverlay`.
-/// Deliberately **not** gated by `showControls`: this is meant to be
+/// Deliberately not gated by `showControls`: this is meant to be
 /// complementary to the normal transport chrome, not a part of it, so it
 /// stays shown and interactive whether the controls are faded in or out.
 ///
 /// Kept deliberately small and mostly see-through (a plain translucent dark
-/// fill, no `Material` — a system `Material` over the video surface read as
-/// a much more opaque, flat gray card than it does over ordinary app
-/// content, closer to a solid sheet than an overlay) so it reads as a
-/// caption-sized hint sitting over the video rather than a modal blocking
-/// it.
+/// fill, no `Material` — a system `Material` over the video surface reads
+/// as a much more opaque, flat gray card than over ordinary app content,
+/// closer to a solid sheet than an overlay) so it reads as a caption-sized
+/// hint sitting over the video rather than a modal blocking it.
 struct NextUpOverlay: View {
     let nextEpisode: MediaItem?
     let secondsRemaining: Int?
