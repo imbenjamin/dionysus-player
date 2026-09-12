@@ -161,7 +161,7 @@ struct HomeScreen: Screen {
     /// `CollectionQuery.identifierKey`'s format
     /// (`\(parentID ?? "all").\(includeItemTypes)`) rather than being built
     /// from a real `CollectionQuery` — that extension lives in the app
-    /// module, which this target doesn't link (see its own doc comment) —
+    /// module, which this target doesn't link (see its doc comment) —
     /// so this has to be kept in sync by hand if `HomeViewModel`'s rail
     /// construction changes what this rail's `seeAllQuery` looks like.
     ///
@@ -576,7 +576,7 @@ struct PlayerScreen: Screen {
 
     /// A leaf page's own selectable row, addressed by `PlaybackTrack.id` —
     /// see `A11yID.Player.trackOption(_:_:)`'s doc comment for the id
-    /// scheme, and `trackNavigationRow(_:)`'s own doc comment just above
+    /// scheme, and `trackNavigationRow(_:)`'s doc comment just above
     /// for why this is `.descendants(matching: .any)` rather than
     /// `.buttons` — `selectionRow` has the identical `Other`-not-`Button`
     /// quirk. Both leaves use `PreviewPlaybackEngine`'s fixed, canned
@@ -599,7 +599,7 @@ struct PlayerScreen: Screen {
 
 extension AssetDetailScreen {
     /// `DownloadButton`'s one identifier, shared across every state
-    /// (idle/resolving/downloading/downloaded) — see its own doc comment.
+    /// (idle/resolving/downloading/downloaded) — see its doc comment.
     var downloadButton: XCUIElement { app.buttons[A11yID.AssetDetail.downloadButton] }
 
     /// Waits for the download button to reach its "Downloaded" state.

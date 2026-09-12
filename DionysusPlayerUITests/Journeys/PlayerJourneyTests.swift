@@ -9,7 +9,7 @@ import XCTest
 /// `UITestFixtureLibrary`'s own `MediaSourceInfo`. And its
 /// `selectAudioTrack(id:)`/`selectSubtitleTrack(id:)` are no-ops that never
 /// flip a track's own `isSelected` back — real, deliberate limits of the
-/// fake (`PlaybackEngineFactory`'s own doc comment), not something a real
+/// fake (`PlaybackEngineFactory`'s doc comment), not something a real
 /// AetherEngine session would do. So these tests assert what the fake
 /// *can* prove — a leaf's row list is reachable and tapping one dismisses
 /// the picker, exactly like a real selection would — not that the
@@ -45,7 +45,7 @@ final class PlayerJourneyTests: UITestCase {
     /// Opens the track picker, drills into each leaf, and taps a row —
     /// proving the panel is drivable at all (root → leaf → dismiss) rather
     /// than the actual audio/subtitle decision, which `PreviewPlaybackEngine`
-    /// doesn't track (see this file's own doc comment).
+    /// doesn't track (see this file's doc comment).
     func testTrackPickerNavigatesBothLeavesAndDismissesOnSelection() {
         let player = openPlayer()
 

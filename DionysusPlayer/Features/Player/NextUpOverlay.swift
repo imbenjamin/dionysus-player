@@ -61,7 +61,7 @@ struct NextUpOverlay: View {
                     .padding(.trailing, 20)
                     // Clears the transport row (scrubber/buttons), which
                     // spans the full width near the bottom edge — see this
-                    // view's own doc comment on why the two need to coexist
+                    // view's doc comment on why the two need to coexist
                     // rather than one hiding the other.
                     .padding(.bottom, 110)
             }

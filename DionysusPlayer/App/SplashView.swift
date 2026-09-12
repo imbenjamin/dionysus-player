@@ -136,7 +136,7 @@ struct SplashView: View {
         }
         // Not also calling `tiltObserver.warmUp()` here — `AppState.start()`
         // already fires it once, unconditionally, during exactly this
-        // splash/session-restore window (see its own doc comment for why
+        // splash/session-restore window (see its doc comment for why
         // there specifically). Calling it a second time from here would
         // race this view's own `acquire()` below: `warmUp()`'s direct
         // `stop()` isn't reference-counted against `acquire()`/`release()`,

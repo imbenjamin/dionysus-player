@@ -222,7 +222,7 @@ final class DownloadManagerTests: XCTestCase {
     // (image/trickplay/subtitle side-fetches, all via `URLSession.shared`,
     // not this test's mocked client session) to actually run to completion
     // are covered here — same "don't unit-test the real download engine"
-    // boundary this file's own doc comment already documents for `enqueue`
+    // boundary this file's doc comment already documents for `enqueue`
     // itself, which nothing here calls directly either.
 
     func test_retry_rowNotFailed_isNoOpAndMakesNoRequest() async throws {
@@ -365,7 +365,7 @@ final class DownloadManagerTests: XCTestCase {
     /// A manager whose `startVideoDownloadOverride` just records which item
     /// was told to start, instead of touching the network —
     /// `admitQueuedDownloadsIfPossible` itself reserves the concurrency
-    /// slot before calling this (see its own doc comment), so the override
+    /// slot before calling this (see its doc comment), so the override
     /// doesn't need to call back into the manager at all.
     private func makeManagerWithFakeStarter(
         store: DownloadStore, maxConcurrentDownloads limit: Int, started: @escaping (String) -> Void = { _ in }
@@ -801,7 +801,7 @@ final class DownloadManagerTests: XCTestCase {
     // `URLSessionDownloadTask` alone can't tell a truncated transfer from a
     // complete one. `validationFailureReason(relativePath:expectedRuntimeTicks:)`
     // itself isn't covered here — loading a real `AVURLAsset` is exactly the
-    // "real download engine" IO this file's own doc comment excludes — but
+    // "real download engine" IO this file's doc comment excludes — but
     // its actual decision logic is split into this pure function precisely
     // so it can be.
 

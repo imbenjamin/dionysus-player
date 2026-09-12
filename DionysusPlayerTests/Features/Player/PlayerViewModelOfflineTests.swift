@@ -323,7 +323,7 @@ final class PlayerViewModelOfflineTests: XCTestCase {
     }
 
     /// No server to defer the "mark as watched" judgement call to, unlike
-    /// the live path — see `writeOfflineProgress`'s own doc comment for the
+    /// the live path — see `writeOfflineProgress`'s doc comment for the
     /// 90% client-side threshold this pins.
     func test_stop_pastWatchedThreshold_marksPlayedAndClearsResumePosition() async {
         let store = DownloadTestHelpers.makeInMemoryStore()

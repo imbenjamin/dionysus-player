@@ -866,7 +866,7 @@ final class HomeViewModelTests: XCTestCase {
     /// screen, which read as "stuck forever" rather than "gave it a few
     /// tries." Pins the default down to a single retry so this can't
     /// silently regress back to a long schedule — see
-    /// `defaultReconnectRetrySchedule`'s own doc comment for the math.
+    /// `defaultReconnectRetrySchedule`'s doc comment for the math.
     func test_defaultReconnectRetrySchedule_isBoundedToOneRetry() {
         XCTAssertEqual(HomeViewModel.defaultReconnectRetrySchedule.count, 1)
     }

@@ -2,7 +2,7 @@ import XCTest
 @testable import Dionysus
 
 /// `DownloadFileStore` writes under the real `Application Support`
-/// directory (see its own doc comment for why — never `Caches`), so these
+/// directory (see its doc comment for why — never `Caches`), so these
 /// tests clean up every file/itemID they touch in `tearDown` to avoid
 /// leaking state across runs.
 final class DownloadFileStoreTests: XCTestCase {

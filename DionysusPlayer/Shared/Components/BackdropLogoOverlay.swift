@@ -322,7 +322,7 @@ struct BackdropLogoOverlay: View {
 
     /// `title`, plus `episodeNumberAccessibilityText` and `episodeTitle`
     /// when present — e.g. "Top Gear, season 19 episode 6, Africa Special"
-    /// — see `body`'s own doc comment for why this view needs an explicit
+    /// — see `body`'s doc comment for why this view needs an explicit
     /// label on a dedicated accessibility layer, rather than leaning on its
     /// (image-heavy) visual content's own auto-derived accessibility
     /// content.

@@ -600,7 +600,7 @@ final class AssetDetailViewModel {
     /// `showPlaybackEpisode` for Show content played via the main button —
     /// see `PlayResumeButtonRow.targetEpisode`'s doc comment for that same
     /// split), rather than waiting on `refreshItem()`'s server poll to catch
-    /// up — see `PlaybackSessionOutcome`'s own doc comment for why that poll
+    /// up — see `PlaybackSessionOutcome`'s doc comment for why that poll
     /// alone isn't good enough here, however long its schedule is.
     ///
     /// Deliberately leaves `played`/the Watched badge alone — whether this

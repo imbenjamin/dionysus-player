@@ -28,7 +28,7 @@ final class AppState {
     init(sessionStore: ServerSessionStore = ServerSessionStore(), downloadManager: DownloadManager = DownloadManager()) {
         self.sessionStore = sessionStore
         self.downloadManager = downloadManager
-        // See `DownloadManager.onRowMarkedForDeletion`'s own doc comment
+        // See `DownloadManager.onRowMarkedForDeletion`'s doc comment
         // for the bug this fixes and why it's wired here (the one place
         // that can resolve a *live* `apiClient`, read fresh through `self`
         // each time this actually fires rather than captured once — it can

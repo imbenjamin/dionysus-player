@@ -134,7 +134,7 @@ final class PlayerViewModelTests: XCTestCase {
     /// `DeviceProfile.MaxStreamingBitrate` is still present inside the
     /// nested profile regardless, since Jellyfin defaults an absent value
     /// there to a restrictive 8 Mbps server-side (see
-    /// `DeviceProfileBuilder`'s own doc comment).
+    /// `DeviceProfileBuilder`'s doc comment).
     func test_start_allowTranscoding_default_sendsDeviceProfileAndFallsBackToDirectPlayURL() async {
         let (viewModel, engine) = makeViewModel()
         var playbackInfoBody: [String: Any]?
@@ -578,7 +578,7 @@ final class PlayerViewModelTests: XCTestCase {
     /// A `CancellationError` from `engine.load(...)` — a superseded load,
     /// e.g. rapid next-episode navigation or backing out mid-load — is not
     /// a playback failure and must not flash a spurious error. See
-    /// `AetherPlaybackEngine.load(...)`'s own doc comment for why this is
+    /// `AetherPlaybackEngine.load(...)`'s doc comment for why this is
     /// filtered in `start()`'s catch rather than at that throw site.
     func test_start_engineLoadThrows_cancellationError_leavesErrorMessageNil() async {
         let engine = FakePlaybackEngine()

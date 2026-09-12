@@ -1,7 +1,7 @@
 import XCTest
 
 /// Profile coverage: the two destructive account actions reachable through
-/// the account card (`ProfileScreen`'s own doc comment explains why this
+/// the account card (`ProfileScreen`'s doc comment explains why this
 /// stays scoped to just those — the rest of Profile forks by device in a
 /// way this suite doesn't yet absorb).
 final class ProfileJourneyTests: UITestCase {

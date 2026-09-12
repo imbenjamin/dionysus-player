@@ -177,7 +177,7 @@ final class AssetDetailViewModelTests: XCTestCase {
             case "/Users/user-1/Items/ep-5":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: episodeDto)
             case "/Users/user-1/Items/series-1":
-                // `seriesItem` — see its own doc comment — needs its own
+                // `seriesItem` — see its doc comment — needs its own
                 // fetch for the Episode case, unlike Season/Series where
                 // `item` is already the Show's own item.
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: seriesDto)
@@ -667,7 +667,7 @@ final class AssetDetailViewModelTests: XCTestCase {
 
     /// `HeroActionButtons` calls this right when a toggle fires rather than
     /// trusting its own button/menu-row closure's captured `MediaItem` — see
-    /// this method's own doc comment for the real, confirmed toolbar
+    /// this method's doc comment for the real, confirmed toolbar
     /// staleness bug that motivated it. Pins that it actually finds the
     /// right value across all four possible targets, and `nil` for anything
     /// that doesn't match one.
@@ -741,7 +741,7 @@ final class AssetDetailViewModelTests: XCTestCase {
     /// Does update `preselectedSeasonID` to the tapped episode's own season
     /// — a same-value reassignment for this caller specifically (the tapped
     /// episode is always within whichever season is already selected), but
-    /// see `selectEpisode`'s own doc comment for why that's not true of
+    /// see `selectEpisode`'s doc comment for why that's not true of
     /// every caller.
     func test_selectEpisode_swapsItemToTheEpisodeWithoutTouchingSeriesOrSeasons() async {
         let viewModel = await loadedSeriesViewModel(nextUpItems: [], episodesItems: [])
@@ -1047,7 +1047,7 @@ final class AssetDetailViewModelTests: XCTestCase {
 
         // Asserted afterwards via `MockURLProtocol.lastRequest`, not a
         // local var captured by this closure — the closure runs off the
-        // main actor (see that type's own doc comment), and capturing a
+        // main actor (see that type's doc comment), and capturing a
         // local from this `@MainActor` test function here hangs the test
         // (confirmed live: the closure never returns, and the run times
         // out with no crash message at all).
@@ -1230,7 +1230,7 @@ final class AssetDetailViewModelTests: XCTestCase {
     /// `SeasonEpisodeList` folds `episodeListRefreshToken` into its own
     /// episode-list fetch so a just-finished episode's row (progress bar/
     /// watched state) doesn't sit stale after returning from the player —
-    /// see that property's own doc comment. Pinning that it actually
+    /// see that property's doc comment. Pinning that it actually
     /// changes on every `refreshItem()` call is what that wiring depends on.
     func test_refreshItem_changesEpisodeListRefreshToken() async {
         let viewModel = await loadedSeriesViewModel(nextUpItems: [], episodesItems: [])

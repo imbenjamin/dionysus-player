@@ -188,7 +188,7 @@ struct LogoImageView<Fallback: View>: View {
         } catch {
             guard !Task.isCancelled else { return }
             // Retries exhausted (or a genuine 404 — indistinguishable,
-            // see `RemoteImageLoader`'s own doc comment) before the
+            // see `RemoteImageLoader`'s doc comment) before the
             // reveal delay elapsed: skip the rest of the timer and
             // reveal `fallback` right away, with the same brief fade as
             // the timeout-triggered reveal, rather than an instant pop —
