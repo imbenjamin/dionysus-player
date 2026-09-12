@@ -116,8 +116,8 @@ final class PlayerViewModelOfflineTests: XCTestCase {
     /// so `item.logoImageURL` alone can never resolve for offline playback
     /// — `offlineLogoURL` is the separate local-file path
     /// `PlayerControlsOverlay.titleRow` checks first. This was a real bug,
-    /// confirmed live (2026-08-27): before `offlineLogoURL` existed, every
-    /// downloaded item's Player screen fell back to plain title text, even
+    /// confirmed live: before `offlineLogoURL` existed, every downloaded
+    /// item's Player screen fell back to plain title text, even
     /// when a Logo image had been downloaded and cached at enqueue time.
     func test_startOffline_logoImagePathStored_setsOfflineLogoURLToLocalFile() async {
         let store = DownloadTestHelpers.makeInMemoryStore()

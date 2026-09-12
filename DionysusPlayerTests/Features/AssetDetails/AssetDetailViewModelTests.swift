@@ -617,8 +617,8 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.item?.id, "series-1", "the Series itself (a different id) should be untouched")
     }
 
-    /// The live bug this exists to fix (2026-08-16): confirmed against a
-    /// real server that a favorite/watched write can return success
+    /// The live bug this exists to fix: confirmed against a real server
+    /// that a favorite/watched write can return success
     /// immediately but not actually commit server-side for several
     /// *minutes* — an order of magnitude past `userDataCommitPollSchedule`'s
     /// ~13s budget. Before `applyOptimisticFavoriteWatched` existed, the
@@ -1103,8 +1103,8 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.orderedPlaylistItems.map(\.playlistItemID), ["entry-1", "entry-2"], "the removed row is put back")
     }
 
-    /// Regression test for a live bug report (2026-08-13): resuming a
-    /// movie, scrubbing to a different position, and exiting within a few
+    /// Regression test for a live bug report: resuming a movie, scrubbing
+    /// to a different position, and exiting within a few
     /// seconds left the detail page's progress bar showing the pre-scrub
     /// position, even though the server had actually committed the new one
     /// correctly (confirmed by Resume itself picking up the right spot).
@@ -1147,9 +1147,9 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.item?.dto.userData?.playbackPositionTicks, updatedTicks)
     }
 
-    /// Regression test for the actual live bug (2026-08-13, found *after*
-    /// the two tests above shipped and the reported symptom persisted
-    /// unchanged): those tests only exercised `refreshItem()` on its own —
+    /// Regression test for the actual live bug, found after the two tests
+    /// above shipped and the reported symptom persisted unchanged: those
+    /// tests only exercised `refreshItem()` on its own —
     /// in real usage it always runs immediately after
     /// `applyOptimisticPlaybackPosition(_:)`, from the same close-and-return
     /// flow, and *that* combination had a real bug neither test caught.
@@ -1512,8 +1512,8 @@ final class AssetDetailViewModelTests: XCTestCase {
 
     // MARK: advanceToNextEpisodeIfCompleted() (refreshItem()'s next-episode advance)
 
-    /// The user-facing feature this all exists for (2026-08-13): once the
-    /// server confirms a just-played episode is fully watched, and
+    /// The user-facing feature this all exists for: once the server
+    /// confirms a just-played episode is fully watched, and
     /// Jellyfin's own NextUp resolves to a *different* episode, the detail
     /// page should advance to show it — instead of sitting on the
     /// just-finished episode until the user manually picks the next one.
