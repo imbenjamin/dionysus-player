@@ -7,62 +7,43 @@ import SwiftUI
 struct SearchView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel: SearchViewModel?
-    /// Bound by `MainTabView` to the Search tab's own `NavigationStack`,
-    /// rather than pushing via a plain declarative `NavigationLink(value:)`
-    /// like everywhere else — a row here needs to both record the tap to
-    /// search history *and* navigate, and doing that via
-    /// `NavigationLink` + `.simultaneousGesture` turned out to be
-    /// unreliable inside a `List` row (the row's own tap handling can
-    /// swallow the simultaneous gesture). Pushing manually from inside the
-    /// same `Button` action that calls `recordSelection` guarantees both
-    /// happen together, every time.
+    /// Bound by `MainTabView` to the Search tab's `NavigationStack`, rather than
+    /// a declarative `NavigationLink(value:)` as elsewhere: a row must both
+    /// record the tap to search history and navigate, and
+    /// `NavigationLink` + `.simultaneousGesture` is unreliable inside a `List`
+    /// row, whose own tap handling can swallow the gesture. Pushing from the
+    /// same `Button` action as `recordSelection` guarantees both.
     @Binding var path: [AppRoute]
-    /// Bumped by `MainTabView` whenever the user re-taps the Search tab
-    /// while already on it (not when switching into Search from another
-    /// tab) — observed below via `.onChange` to reset back to the landing
-    /// page. A plain `let`, not a `@Binding`: this view only ever needs to
-    /// react to it changing, never write it.
+    /// Bumped by `MainTabView` when the user re-taps the Search tab while
+    /// already on it, observed below via `.onChange` to reset to the landing
+    /// page. A plain `let`, since this view only reads it.
     let resetToken: Int
-    /// True once the search field is focused/active, even before any text
-    /// is typed — set by SwiftUI as a descendant of `.searchable` below.
-    /// Distinguishes the true landing page (this is `false`: show history,
-    /// if any) from "tapped in, still empty" (this is `true`: show the
-    /// plain placeholder, same as before — the history list is a landing
-    /// affordance, not something that should linger once you've engaged
-    /// the field to start typing).
+    /// True once the search field is focused, even before any text is typed; set
+    /// by SwiftUI as a descendant of `.searchable`. Distinguishes the landing
+    /// page (`false`: show history) from "tapped in, still empty" (`true`: show
+    /// the placeholder) — history is a landing affordance, not something to
+    /// linger once the field is engaged.
     @Environment(\.isSearching) private var isSearching
-    /// Deactivates the search field (unfocuses it, dismisses the keyboard/
-    /// Cancel button) — part of `reset()`, so re-tapping the Search tab
-    /// while mid-search doesn't just clear the query but leave the field
-    /// awkwardly still focused and empty.
+    /// Unfocuses the search field, dismissing the keyboard and Cancel button.
+    /// Part of `reset()`, so re-tapping the Search tab mid-search doesn't leave
+    /// the field focused and empty.
     @Environment(\.dismissSearch) private var dismissSearch
 
-    /// `.searchable`'s own `.automatic` placement (the default, left
-    /// implicit before this) resolves differently per size class: on
-    /// `.compact` (iPhone) it's an always-visible inline field right below
-    /// the nav bar, but on `.regular` (iPad, and iPhone Pro Max/Plus/Air in
-    /// landscape) it collapses to a small magnifying-glass toolbar button
-    /// that has to be tapped before the field even appears — confirmed live
-    /// during an iPad HIG review (2026-09-03) as a real point of friction,
-    /// not just a visual quirk: the landing page reads as "broken search"
-    /// rather than "ready to search". Forcing `.navigationBarDrawer(
-    /// displayMode: .always)` on `.regular` matches it to iPhone's own
-    /// existing (already-correct, left alone here) behavior instead of
-    /// leaving `.automatic` to pick the collapsed toolbar variant.
+    /// `.searchable`'s `.automatic` placement resolves differently per size
+    /// class: an always-visible inline field on `.compact`, but a
+    /// magnifying-glass toolbar button on `.regular` that must be tapped before
+    /// the field appears, making the landing page read as broken search.
+    /// `.navigationBarDrawer(displayMode: .always)` on `.regular` matches
+    /// iPhone's behavior.
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private var searchPlacement: SearchFieldPlacement {
         horizontalSizeClass == .regular ? .navigationBarDrawer(displayMode: .always) : .automatic
     }
 
-    /// Same `.regular` gate as `searchPlacement` above, this time swapping
-    /// the results/history presentation itself: a full-bleed, single-column
-    /// `List` (`resultsList`/`historyList`) reads fine on `.compact`
-    /// (iPhone) but left most of an iPad's width as dead space — the same
-    /// "unmodified iPhone layout" issue Home's rails had. `.regular` gets a
-    /// `PosterGridMetrics`-driven grid (`resultsGrid`/`historyGrid`)
-    /// instead, reusing the exact column-fitting approach
-    /// `CollectionGridView` already established; `.compact` keeps today's
-    /// list untouched.
+    /// Same `.regular` gate as `searchPlacement`, swapping the presentation: a
+    /// single-column `List` reads fine on `.compact` but leaves most of an
+    /// iPad's width dead. `.regular` gets a `PosterGridMetrics`-driven grid,
+    /// reusing `CollectionGridView`'s column fitting.
     private var usesGridLayout: Bool { horizontalSizeClass == .regular }
 
     var body: some View {
@@ -73,8 +54,8 @@ struct SearchView: View {
             .onChange(of: resetToken) { _, _ in reset() }
     }
 
-    /// Clears the query/results and pops back to the landing page — see
-    /// `resetToken`'s doc comment for when this fires.
+    /// Clears the query and results and pops back to the landing page; see
+    /// `resetToken` for when this fires.
     private func reset() {
         viewModel?.query = ""
         viewModel?.queryChanged()
@@ -94,10 +75,10 @@ struct SearchView: View {
 
     @ViewBuilder
     private var content: some View {
-        // Only gates `.searching`/`.failed` — `.idle` is handled by
-        // `idleContent` below (which has its own, `LibraryAvailability`-based
-        // offline handling), and `.loaded` is content already on screen;
-        // neither should be blanked out by a stale/background offline flag.
+        // Only gates `.searching`/`.failed`. `.idle` is handled by
+        // `idleContent`, which does its own `LibraryAvailability`-based offline
+        // handling, and `.loaded` is already on screen; a stale background
+        // offline flag shouldn't blank either.
         if ConnectivityMonitor.shared.isOffline,
            viewModel?.loadState == .searching || isFailedState(viewModel?.loadState) {
             OfflineStateView(retry: { viewModel?.queryChanged() })
@@ -123,14 +104,11 @@ struct SearchView: View {
         }
     }
 
-    /// Search has no network activity of its own until a query is typed,
-    /// so — unlike `.searching`/`.failed` above — it has no live request
-    /// whose failure would tell it the app is offline. This mirrors
-    /// `HomeViewModel`'s own load state instead (via `LibraryAvailability`,
-    /// see that type's doc comment), so the landing page shows the same
-    /// "You're Offline" Home does whenever Home's own content isn't
-    /// available yet, and switches back to normal — no action needed here
-    /// — the moment Home's own retry/reconnect handling succeeds.
+    /// Search makes no requests until a query is typed, so unlike
+    /// `.searching`/`.failed` it has no failure to learn it's offline from. This
+    /// mirrors `HomeViewModel`'s load state via `LibraryAvailability`, so the
+    /// landing page shows the same "You're Offline" as Home and recovers when
+    /// Home's own retry succeeds.
     @ViewBuilder
     private var idleContent: some View {
         switch LibraryAvailability.shared.state {
@@ -175,13 +153,8 @@ struct SearchView: View {
             Section {
                 ForEach(history) { entry in
                     row(for: entry, isLandscape: isLandscape) { select(entry) }
-                        // Trailing (swipe-left-to-reveal), matching both the
-                        // HIG-standard direction for a destructive action
-                        // and every Downloads list's own swipe-to-delete
-                        // (`DownloadsView`/`DownloadedShowView`/
-                        // `DownloadedSeasonView`) — this used to be a
-                        // deliberately reversed leading-edge swipe with no
-                        // recorded rationale; aligned 2026-08-31.
+                        // Trailing, matching the HIG direction for a destructive
+                        // action and the Downloads lists' swipe-to-delete.
                         .swipeActions {
                             Button("Delete", role: .destructive) {
                                 viewModel?.removeFromHistory(entry)
@@ -201,9 +174,8 @@ struct SearchView: View {
         .listStyle(.plain)
     }
 
-    /// `.regular`-size-class counterpart to `resultsList` — see
-    /// `usesGridLayout`'s doc comment for why this exists at all. No header,
-    /// matching `resultsList`'s own lack of one.
+    /// `.regular` counterpart to `resultsList` (see `usesGridLayout`). No
+    /// header, matching `resultsList`.
     private func resultsGrid(_ results: [SearchResult]) -> some View {
         GeometryReader { proxy in
             ScrollView {
@@ -213,14 +185,11 @@ struct SearchView: View {
         }
     }
 
-    /// `.regular`-size-class counterpart to `historyList` — same "Recent
-    /// Searches"/"Clear All" header, reused verbatim above the grid rather
-    /// than duplicated. Grid tiles have no swipe gesture to hang a per-entry
-    /// delete off of the way `historyList`'s row does, so
-    /// `SearchResultGridCard` gets a small corner button instead (see
-    /// `onRemove` below) — same visual language (a circular glyph button
-    /// over the artwork) `HeroRailView.heroNavigationButton` already uses
-    /// elsewhere in the app.
+    /// `.regular` counterpart to `historyList`, reusing the same "Recent
+    /// Searches"/"Clear All" header above the grid. Grid tiles have no swipe
+    /// gesture for a per-entry delete, so `SearchResultGridCard` gets a corner
+    /// button instead (`onRemove`) — the same circular-glyph-over-artwork idiom
+    /// as `HeroRailView.heroNavigationButton`.
     private func historyGrid(_ history: [SearchResult]) -> some View {
         GeometryReader { proxy in
             ScrollView {
@@ -244,21 +213,18 @@ struct SearchView: View {
         }
     }
 
-    /// Landscape if *any* item is series/episode-like (`SearchResult
-    /// .isLandscapeShaped`), decided once for the whole list/grid, not per
-    /// item — mirrors `MediaCollectionRail.usesLandscapeTiles`'s exact rule
-    /// (see that property's doc comment for why a mixed-shape rail/grid/
-    /// list reads worse than a consistent one) rather than inventing a
-    /// different rule for search results. Shared by both presentations:
-    /// `grid` (the `.regular` tile shape) and `resultsList`/`historyList`
-    /// (the `.compact` row's thumbnail shape).
+    /// Landscape if any item is series/episode-like
+    /// (`SearchResult.isLandscapeShaped`), decided once for the whole
+    /// list or grid rather than per item — the same rule as
+    /// `MediaCollectionRail.usesLandscapeTiles`, which documents why a
+    /// mixed-shape list reads worse than a consistent one. Shared by both
+    /// presentations.
     private func isLandscapeShape(_ items: [SearchResult]) -> Bool {
         items.contains { $0.isLandscapeShaped }
     }
 
-    /// Shared by `resultsGrid`/`historyGrid` — the only difference between
-    /// the two is whether tiles get a remove button (`onRemove`, `nil` for
-    /// live results).
+    /// Shared by `resultsGrid`/`historyGrid`; they differ only in whether tiles
+    /// get a remove button (`onRemove`, `nil` for live results).
     private func grid(_ items: [SearchResult], containerWidth: CGFloat, onRemove: ((SearchResult) -> Void)?) -> some View {
         let isLandscape = isLandscapeShape(items)
         let metrics = PosterGridMetrics(containerWidth: containerWidth, idealItemWidth: isLandscape ? 260 : 160)
@@ -269,49 +235,44 @@ struct SearchView: View {
                     width: metrics.itemWidth, isLandscape: isLandscape, onSelect: { select(item) },
                     onRemove: onRemove.map { remove in { remove(item) } }
                 )
-                // See `row(for:isLandscape:onSelect:)` — same identifier,
-                // same reason.
+                // Same identifier, same reason, as `row(for:isLandscape:onSelect:)`.
                 .accessibilityIdentifier(A11yID.Media.card(item.id))
             }
         }
         .padding(.horizontal)
     }
 
-    /// Resolves `result`'s image URL against the ViewModel's current
-    /// `ImageURLBuilder` here (at the `SearchView` level, where the
-    /// `@Observable` access is tracked) rather than inside `SearchResultRow`
-    /// itself — see `SearchViewModel.imageURL(for:)`'s doc comment for why
-    /// it's resolved on demand instead of stored on `SearchResult`. `isLandscape`
-    /// is the whole list's one shape decision (`isLandscapeShape(_:)`), not
-    /// `result`'s own kind — same reasoning as the grid's `SearchResultGridCard`.
+    /// Resolves `result`'s image URL here, where the `@Observable` access is
+    /// tracked, rather than inside `SearchResultRow`; see
+    /// `SearchViewModel.imageURL(for:)` for why it's resolved on demand rather
+    /// than stored on `SearchResult`. `isLandscape` is the whole list's shape
+    /// decision, not `result`'s own kind.
     private func row(for result: SearchResult, isLandscape: Bool, onSelect: @escaping () -> Void) -> some View {
         SearchResultRow(
             name: result.name, subtitle: result.subtitle,
             imageURL: viewModel?.imageURL(for: result, preferLandscape: isLandscape),
             kind: result.kind, isLandscape: isLandscape, onSelect: onSelect
         )
-        // The same identifier `PosterCard` carries, so a test can address a
-        // result by the item it shows rather than by its position in a list
-        // — and so "find this item" reads identically on Home, in a grid and
-        // in search results. Applied here rather than inside
+        // The same identifier `PosterCard` carries, so a test addresses a result
+        // by the item it shows rather than its position, identically across
+        // Home, grids and search. Applied here rather than in
         // `SearchResultRow`, which is shared with history entries and takes
-        // flattened fields with no id of their own.
+        // flattened fields with no id.
         .accessibilityIdentifier(A11yID.Media.card(result.id))
     }
 
-    /// Records `result` to search history and pushes its detail page, in
-    /// that order, from the same synchronous action — see `path`'s doc
-    /// comment for why this replaced a declarative `NavigationLink`.
+    /// Records `result` to search history then pushes its detail page, from one
+    /// synchronous action; see `path` for why this replaced a declarative
+    /// `NavigationLink`.
     private func select(_ result: SearchResult) {
         viewModel?.recordSelection(result)
         path.append(.assetDetail(itemID: result.id))
     }
 
     private func setUpIfNeeded() async {
-        // Falls back to the cached `userID` from a prior sign-in (same
-        // idiom `PlayerView` uses) so this still constructs a view model
-        // right away on a cold launch that resumed `.main` from cache
-        // rather than a fresh sign-in — see `AppState.start()`.
+        // Falls back to the cached `userID` from a prior sign-in, so a cold
+        // launch that resumed `.main` from cache still builds a view model right
+        // away. See `AppState.start()`.
         guard viewModel == nil, let client = appState.apiClient,
               let userID = appState.currentUser?.id ?? appState.sessionStore.credentials?.userID else { return }
         let newViewModel = SearchViewModel(client: client, userID: userID)
@@ -320,30 +281,22 @@ struct SearchView: View {
     }
 }
 
-/// One row in `SearchView`'s results/history lists — a compact thumbnail/
-/// name/subtitle layout plus a trailing disclosure chevron (added manually
-/// since a plain `Button` row, unlike `NavigationLink`, doesn't get one for
-/// free), distinct from `PosterCard`'s full poster treatment since these
-/// are meant to be scanned quickly. Takes already-resolved display fields
-/// rather than a `SearchResult` directly, so it stays agnostic of how
-/// `imageURL` got resolved.
+/// One row in `SearchView`'s results and history lists: thumbnail, name,
+/// subtitle and a manually-added disclosure chevron, which a plain `Button`
+/// row doesn't get for free. Takes already-resolved display fields rather than a
+/// `SearchResult`, so it's agnostic of how `imageURL` was resolved.
 private struct SearchResultRow: View {
     let name: String
     let subtitle: String?
     let imageURL: URL?
-    /// Drives the thumbnail's placeholder glyph — `nil` (e.g. a history
-    /// entry persisted before `SearchResult.kind` existed) falls back to a
-    /// generic glyph.
+    /// Drives the thumbnail's placeholder glyph; `nil`, as on a history entry
+    /// persisted before `SearchResult.kind` existed, falls back to a generic one.
     let kind: BaseItemKind?
-    /// The whole list's one shape decision (`SearchView.isLandscapeShape`),
-    /// not this row's own `kind` — a movie mixed into an otherwise
-    /// episode-heavy list gets the same landscape thumbnail shape as every
-    /// other row here, matching `SearchResultGridCard`'s identical rule for
-    /// the `.regular` grid. Height stays fixed at the row's own 44pt either
-    /// way; only the width (and therefore aspect ratio) changes — landscape
-    /// derives its width from `PosterCard`'s poster ratio (`height / 1.5`,
-    /// inverted since this fixes height rather than width), portrait from
-    /// `LandscapeMediaCard`'s 16:9 (`height * 16 / 9`).
+    /// The whole list's shape decision (`SearchView.isLandscapeShape`), not this
+    /// row's `kind`, so a movie in an episode-heavy list gets the same shape as
+    /// every other row. Height stays at 44pt either way; only the width changes
+    /// — landscape from `PosterCard`'s poster ratio inverted (`height / 1.5`,
+    /// since height is what's fixed), portrait from `LandscapeMediaCard`'s 16:9.
     let isLandscape: Bool
     let onSelect: () -> Void
 
@@ -372,35 +325,29 @@ private struct SearchResultRow: View {
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
-            // Without this, a `Button`'s hit-testing only covers its
-            // label's actual rendered pixels (the image/text/chevron) —
-            // the `Spacer()` and any padding in between are dead zones
-            // that silently swallow a tap instead of triggering `onSelect`.
-            // `NavigationLink` doesn't have this problem (it hit-tests its
-            // whole row automatically), which is exactly why this wasn't
-            // needed before switching to a plain `Button` for reliable
-            // history recording — this is what makes the *entire* row
-            // tappable again, not just the visible content within it.
+            // Without this a `Button` hit-tests only its label's rendered
+            // pixels, leaving the `Spacer()` and padding as dead zones that
+            // swallow taps. `NavigationLink` hit-tests its whole row
+            // automatically, which is why this wasn't needed before the switch
+            // to a plain `Button`.
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 }
 
-/// `.regular`-size-class counterpart to `SearchResultRow` — a poster/
-/// landscape-style tile (visual language borrowed from `PosterCard`/
-/// `LandscapeMediaCard`, not those views themselves; see `PosterCard`'s own
-/// doc comment for why `SearchResult`'s thinner model doesn't fit them
-/// directly). No watch-status/favorite overlay — `SearchResult` carries no
-/// `userData` to draw one from, same gap `SearchResultRow` already has.
+/// `.regular` counterpart to `SearchResultRow`: a poster or landscape tile
+/// borrowing `PosterCard`/`LandscapeMediaCard`'s visual language rather than
+/// those views, which `SearchResult`'s thinner model doesn't fit. No
+/// watch-status or favorite overlay, since `SearchResult` carries no `userData`.
 private struct SearchResultGridCard: View {
     let result: SearchResult
     let imageURL: URL?
     let width: CGFloat
     let isLandscape: Bool
     let onSelect: () -> Void
-    /// `nil` for a live search result (nothing to remove); non-`nil` for a
-    /// history entry, rendering the small corner button below.
+    /// `nil` for a live search result; non-`nil` for a history entry, rendering
+    /// the corner button below.
     var onRemove: (() -> Void)?
 
     private var imageHeight: CGFloat { isLandscape ? width * 9 / 16 : width * 1.5 }
@@ -429,7 +376,7 @@ private struct SearchResultGridCard: View {
                 .frame(width: width)
                 .contentShape(Rectangle())
                 // Same house pattern as `PosterCard`/`LandscapeMediaCard`/
-                // `LibraryCard` — see any of their identical blocks for why.
+                // `LibraryCard`.
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(result.accessibilityDescription)
                 .accessibilityAddTraits(.isButton)
@@ -437,18 +384,12 @@ private struct SearchResultGridCard: View {
             .buttonStyle(.plain)
 
             if let onRemove {
-                // Same circular-glyph-over-artwork idiom
-                // `HeroRailView.heroNavigationButton` already uses — a grid
-                // tile has no swipe gesture to hang a delete affordance off
-                // of the way `historyList`'s row does. Unlike that button,
-                // this one's *visible* circle is deliberately smaller (24pt,
-                // sized to look right on a tile this size) than its
-                // *tappable* area — the outer `.frame`+`.contentShape` grow
-                // the actual tap target to the same 44x44pt
-                // `heroNavigationButton` uses outright, matching HIG's
-                // mobile minimum control size. Found during an iPad HIG
-                // review (2026-09-03): this used to size the button to the
-                // glyph itself (24x24), under HIG's stated 28x28 floor.
+                // The circular-glyph-over-artwork idiom
+                // `HeroRailView.heroNavigationButton` uses, since a grid tile has
+                // no swipe gesture for a delete affordance. The visible circle is
+                // 24pt, sized for a tile this size, while the outer
+                // `.frame`+`.contentShape` grow the tap target to HIG's 44x44pt
+                // minimum.
                 Button(action: onRemove) {
                     Image(systemName: "xmark")
                         .font(.caption.weight(.bold))
