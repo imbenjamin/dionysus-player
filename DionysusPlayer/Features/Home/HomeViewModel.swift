@@ -15,174 +15,111 @@ final class HomeViewModel {
     /// of Home. Reshuffles (server-side, via `SortBy=Random`) on every
     /// `load()`/`hardRefresh()`.
     private(set) var heroItems: [MediaItem] = []
-    /// The user's own libraries (Movies, Shows, Collections, ...), for the
-    /// rail that replaced the old top-menu category picker.
+    /// The user's libraries, for the rail at the top of Home.
     private(set) var libraries: [MediaItem] = []
-    /// Continue Watching, Next Up, Recently Added Movies, Recently Added
-    /// Shows, in that order — omitted when empty. Kept separate from
-    /// `dynamicRails` (rather than one flat array, as this used to be) so
-    /// `softRefresh()` has a precise, safe target to replace in place
-    /// without touching dynamic rails or their scroll-triggered pagination
-    /// state.
+    /// Continue Watching, Next Up, Recently Added Movies and Shows, in that
+    /// order, omitted when empty. Separate from `dynamicRails` so
+    /// `softRefresh()` can replace them in place without touching the dynamic
+    /// rails or their pagination state.
     private(set) var curatedRails: [MediaCollectionRail] = []
-    /// However many dynamic rails (genres, studios/networks, actors,
-    /// directors — see `DynamicRailCandidate`) have loaded so far via
-    /// `loadDynamicRailCandidates`/`loadMoreDynamicRails`.
+    /// However many dynamic rails — genre, studio, actor, director — have loaded
+    /// so far.
     private(set) var dynamicRails: [MediaCollectionRail] = []
-    /// `HomeView` renders this straight through as one list — the split
-    /// above only matters internally, for `softRefresh()`/`hardRefresh()`
-    /// to target the right slice.
+    /// `HomeView` renders this as one list; the split above matters only to
+    /// `softRefresh()`/`hardRefresh()`.
     var rails: [MediaCollectionRail] { curatedRails + dynamicRails }
     private(set) var loadState: LoadState = .idle
 
-    /// Dynamic rail candidates discovered but not yet fetched into a rail —
-    /// see `loadDynamicRailCandidates`. Drawn down from the front in
-    /// batches of `dynamicRailBatchSize` by `loadMoreDynamicRails`, so Home
-    /// never pays the cost of fetching every possible dynamic rail up
-    /// front, only however many the user actually scrolls to.
+    /// Candidates discovered but not yet fetched into rails, drawn from the front
+    /// in batches by `loadMoreDynamicRails`, so Home fetches only as many as the
+    /// user scrolls to.
     private var pendingDynamicRailCandidates: [DynamicRailCandidate] = []
-    /// Whether `pendingDynamicRailCandidates` still has more to draw from —
-    /// `HomeView` shows its scroll-triggered "load more" sentinel exactly
-    /// while this is true, so it disappears once every candidate has been
-    /// drawn rather than continuing to trigger empty loads.
+    /// Whether candidates remain. `HomeView` shows its load-more sentinel exactly
+    /// while true, so it disappears rather than triggering empty loads.
     private(set) var hasMoreDynamicRails = false
-    /// Drives `HomeView`'s loading indicator at the bottom of the rail
-    /// list, and guards `loadMoreDynamicRails` against firing a second
-    /// overlapping batch if the sentinel re-appears before the first
-    /// finishes (e.g. a fast scroll).
+    /// Drives the loading indicator at the bottom of the rail list, and guards
+    /// `loadMoreDynamicRails` against a second batch if a fast scroll re-triggers
+    /// the sentinel before the first finishes.
     private(set) var isLoadingMoreDynamicRails = false
-    /// Set when the *last* `loadDynamicRailCandidates()` attempt had at
-    /// least one of its six fetches throw (typically a connectivity blip
-    /// right after the app reconnects) — distinct from `pendingDynamicRailCandidates`
-    /// legitimately ending up empty because the library just has nothing
-    /// to offer. `HomeView` uses this to know whether a later "we're back
-    /// online" transition is worth retrying at all; see
-    /// `retryDynamicRailCandidatesIfNeeded()`.
+    /// Set when the last `loadDynamicRailCandidates()` had a fetch throw,
+    /// typically a connectivity blip after reconnecting — distinct from the
+    /// candidate list legitimately being empty. `HomeView` reads it to decide
+    /// whether a later back-online transition is worth retrying.
     private(set) var dynamicRailCandidatesFailed = false
-    /// Every candidate that has already turned into a visible rail —
-    /// populated by `loadMoreDynamicRails()`, consulted by
-    /// `loadDynamicRailCandidates()` so a retry after a partial failure
-    /// (see `retryDynamicRailCandidatesIfNeeded()`) can't requeue and
-    /// re-append a rail that's already showing. Candidates that failed
-    /// `minimumDynamicRailItemCount` are deliberately *not* tracked here —
-    /// retrying those is harmless, they'll either fail the bar again or
-    /// (if the library changed in the meantime) correctly succeed.
+    /// Candidates already turned into visible rails, so a retry after a partial
+    /// failure can't requeue one that is showing. Candidates that failed
+    /// `minimumDynamicRailItemCount` are not tracked: retrying those is harmless,
+    /// failing the bar again or correctly succeeding if the library changed.
     private var consumedDynamicRailCandidates: Set<DynamicRailCandidate> = []
 
-    /// Kept small — each batch fires `dynamicRailBatchSize` concurrent rail
-    /// fetches and then appends all of them to `rails` in one state update,
-    /// landing right as `HomeView`'s scroll-triggered sentinel fires (i.e.
-    /// while the user is actively scrolling through exactly that region).
-    /// Brought down from 10: a batch that size meant up to 10 new rail
-    /// sections' worth of network fetches and first-page image loads
-    /// landing on the main thread in one shot, a plausible contributor to
-    /// an intermittently-reported real-device freeze scrolling into the
-    /// dynamic rails. 5 halves that burst per batch — still few enough
-    /// scroll-triggered reloads that it doesn't meaningfully change how
-    /// often `loadMoreDynamicRails` fires overall.
-    /// Resolved once by `load()`/`hardRefresh()`, reused by both the
-    /// curated rails' own `seeAllQuery`s and (via `DynamicRailCandidate
-    /// .seeAllQuery`) `loadMoreDynamicRails`' — stored rather than a
-    /// `performFullLoad()`-local `let` since `loadMoreDynamicRails` is also
-    /// called independently later, from `HomeView`'s scroll-triggered
-    /// sentinel, long after `performFullLoad()`'s own locals are out of
-    /// scope.
+    /// Kept small: each batch fires this many concurrent rail fetches and appends
+    /// them in one state update, landing as the scroll sentinel fires — while the
+    /// user is scrolling through exactly that region. A batch of 10 put ten rail
+    /// sections' network fetches and first-page image loads on the main thread at
+    /// once, a plausible contributor to a reported device freeze scrolling into
+    /// the dynamic rails.
+    /// Resolved once by `load()`/`hardRefresh()` and reused by the curated rails'
+    /// `seeAllQuery`s and by `loadMoreDynamicRails`. Stored rather than a local,
+    /// since the scroll sentinel calls that method long after `performFullLoad()`
+    /// has returned.
     private var moviesLibraryID: String?
     private var showsLibraryID: String?
 
     private static let dynamicRailBatchSize = 5
-    /// A dynamic rail candidate needs at least this many items to become a
-    /// rail — Jellyfin's `/Items` endpoint has no "minimum result count"
-    /// query param to push this into the request itself, so it's a
-    /// post-fetch check instead. That's not a compromise: `loadMoreDynamicRails`
-    /// already fetches up to `Limit: 16` per candidate, so the returned
-    /// array's actual count is a fully reliable measure of real
-    /// availability (bounded by that cap) — no second request needed to
-    /// know whether a candidate clears the bar.
+    /// How many items a candidate needs to become a rail. `/Items` has no
+    /// minimum-result-count param, so this is a post-fetch check — and a reliable
+    /// one, since `loadMoreDynamicRails` already fetches up to 16 per candidate
+    /// and the returned count measures real availability within that cap.
     private static let minimumDynamicRailItemCount = 5
-    /// Caps the `/Persons` discovery calls below — unlike genres/studios
-    /// (naturally a few dozen at most), a library's full cast/crew corpus
-    /// can run into the thousands, each a full `BaseItemDto`, fetched fresh
-    /// on every Home load just to seed rail *candidates*. 200 leaves plenty
-    /// of candidates for a typical library (the whole list is shuffled
-    /// anyway, so which 200 doesn't need to be exhaustive) while keeping
-    /// the discovery payload bounded for a very large one.
+    /// Caps the `/Persons` discovery calls. Genres and studios number a few dozen,
+    /// but a library's cast and crew can run to thousands of full `BaseItemDto`s,
+    /// fetched on every Home load just to seed candidates. The list is shuffled
+    /// anyway, so which 200 doesn't matter.
     private static let personDiscoveryLimit = 200
-    /// Default delays before each reconnect retry of `load()` after a
-    /// `ConnectivityMonitor` offline→online transition still finds
-    /// `loadState` unloaded — same array-of-delays convention as
-    /// `JellyfinAPIClient.reauthBackoffSchedule`/`AssetDetailViewModel
-    /// .userDataCommitPollSchedule`. The first attempt is immediate; these
-    /// are the delays *before* each subsequent one. Bounded rather than
-    /// infinite: a genuinely still-unreachable server must still leave
-    /// `loadState` at `.failed` (so the visible "Try Again" button still
-    /// works) rather than retrying forever — see `retryLoadIfNeeded()`.
+    /// Delays before each reconnect retry of `load()`, when an offline-to-online
+    /// transition still finds `loadState` unloaded. The first attempt is
+    /// immediate; these precede each subsequent one. Bounded, so a still
+    /// unreachable server leaves `loadState` at `.failed` and its "Try Again"
+    /// button working rather than retrying forever.
     ///
-    /// Deliberately just one retry, not several: unlike
-    /// `reauthBackoffSchedule` (a 401 means the server already responded,
-    /// so each retry is a normal fast round trip), a *reconnect* retry can
-    /// hit a server that's routable but not actually answering — each such
-    /// attempt costs up to `JellyfinAPIClient`'s own 20s per-request
-    /// timeout before it gives up, not a quick failure. A longer schedule
-    /// (originally 4 retries) multiplies that 20s ceiling by every attempt,
-    /// which measured live (2026-08-29) as up to ~100s of an unmoving
-    /// spinner before finally settling back to the offline screen — far
-    /// past what "attempted, then stop" reads as to someone watching it.
-    /// One retry bounds the worst case to roughly 2×20s+2s instead, while
-    /// still catching the original motivating case (Wi-Fi reassociating a
-    /// couple of seconds before the server is actually reachable) with the
-    /// first, immediate attempt or this one retry.
+    /// Just one retry, unlike `reauthBackoffSchedule`: a 401 means the server
+    /// already responded, so each of those retries is a fast round trip, while a
+    /// reconnect retry can hit a server that is routable but not answering and
+    /// costs the full 20s request timeout. Four retries measured as up to ~100s
+    /// of unmoving spinner before settling back to the offline screen. One bounds
+    /// the worst case near 2×20s while still catching the motivating case — Wi-Fi
+    /// reassociating seconds before the server is reachable.
     static let defaultReconnectRetrySchedule: [Double] = [2.0]
 
     private let client: JellyfinAPIClient
     private let userID: String
-    /// Injected so tests can pin the "random" order deterministically (an
-    /// identity closure) instead of a real shuffle. Defaults to a real
-    /// shuffle for production use — every `load()` reshuffles, so the
-    /// dynamic rails' order differs each time Home is freshly loaded.
+    /// Injected so tests can pin the order with an identity closure. Every
+    /// `load()` reshuffles, so the dynamic rails' order differs each time.
     private let shuffle: ([DynamicRailCandidate]) -> [DynamicRailCandidate]
-    /// Same idea as `shuffle` above, but for a dynamic rail's own *items*
-    /// rather than which rails appear — see `loadMoreDynamicRails`'s doc
-    /// comment for why this is a client-side shuffle rather than the
-    /// server's own `SortBy=Random`. `@Sendable`, unlike `shuffle` above —
-    /// this one gets called from inside `loadMoreDynamicRails`'s
-    /// `withTaskGroup` child tasks, not straight from the actor.
+    /// As `shuffle`, but for a rail's items rather than which rails appear.
+    /// `@Sendable` because `loadMoreDynamicRails`' child tasks call it.
     private let itemShuffle: @Sendable ([BaseItemDto]) -> [BaseItemDto]
-    /// See `defaultReconnectRetrySchedule`'s doc comment. Injectable so
-    /// tests can exercise `retryLoadIfNeeded()`'s retry/give-up logic
-    /// without waiting out the real delays.
+    /// Injectable so tests can exercise `retryLoadIfNeeded()` without waiting out
+    /// the real delays.
     private let reconnectRetrySchedule: [Double]
-    /// Coalesces concurrent `retryLoadIfNeeded()` callers into one shared
-    /// attempt — see that method's own doc comment for the bug this fixes.
-    /// Same shape as `JellyfinAPIClient.inFlightReauth`.
+    /// Coalesces concurrent `retryLoadIfNeeded()` callers into one attempt.
     private var inFlightRetry: Task<Void, Never>?
-    /// Bumped once at the top of every `performFullLoad(resetLoadState:)` —
-    /// lets `softRefresh()` detect a concurrent `hardRefresh()` that
-    /// started (or even finished) after it began and defer to that
-    /// instead, see `performSoftRefresh()`'s doc comment.
+    /// Bumped at the top of every `performFullLoad(resetLoadState:)`, so
+    /// `softRefresh()` can detect a concurrent `hardRefresh()` and defer to it.
     private var refreshGeneration = 0
-    /// Coalesces concurrent `softRefresh()` callers — same idea as
-    /// `inFlightRetry`.
+    /// Coalesces concurrent `softRefresh()` callers.
     private var inFlightSoftRefresh: Task<Void, Never>?
-    /// Coalesces concurrent `hardRefresh()` callers — same idea as
-    /// `inFlightRetry`.
+    /// Coalesces concurrent `hardRefresh()` callers.
     private var inFlightHardRefresh: Task<Void, Never>?
-    /// Drives the VoiceOver-only refresh button's spinner/disabled state in
-    /// `HomeView` — `hardRefresh()`'s only user-visible signal, since
-    /// `loadState` deliberately doesn't change during one (see
-    /// `performFullLoad(resetLoadState:)`'s doc comment).
+    /// Drives the VoiceOver-only refresh button's spinner: `hardRefresh()`'s only
+    /// visible signal, `loadState` not changing during one.
     private(set) var isHardRefreshing = false
-    /// Set by `consumePendingOptimisticPlaybackPosition()`, read (and
-    /// cleared once caught up) by `mergeGuardingAgainstPlaybackRegression(_:)`
-    /// — same shape and reasoning as `AssetDetailViewModel
-    /// .optimisticPlaybackTarget`, adapted for a list of rails instead of a
-    /// single displayed item.
+    /// Set by `consumePendingOptimisticPlaybackPosition()`, read and cleared by
+    /// `mergeGuardingAgainstPlaybackRegression(_:)`.
+    /// `AssetDetailViewModel.optimisticPlaybackTarget`'s shape, for a list of
+    /// rails rather than one displayed item.
     private var optimisticPlaybackTarget: (itemID: String, ticks: Int64, durationSeconds: TimeInterval)?
-    /// See `AssetDetailViewModel.optimisticPositionTolerance`'s doc comment
-    /// — same value, same reasoning (the guess and the value `PlayerViewModel
-    /// .stop()` actually reports are read from the engine's clock a moment
-    /// apart, so they can differ by a couple of real seconds even once the
-    /// server has genuinely committed the right write).
+    /// `AssetDetailViewModel.optimisticPositionTolerance`'s value and reasoning.
     private static let optimisticPositionTolerance: Int64 = 5 * 10_000_000
 
     init(
@@ -204,12 +141,10 @@ final class HomeViewModel {
         await load()
     }
 
-    /// Every `loadState` write goes through this rather than a bare
-    /// assignment, so `LibraryAvailability.shared` — the signal `SearchView`'s
-    /// landing page mirrors instead of duplicating Home's own retry/reconnect
-    /// handling, see that type's doc comment — can never drift out of sync
-    /// with it, including the flicker-suppressing mid-loop reset in
-    /// `retryLoadIfNeeded()` below.
+    /// Every `loadState` write goes through this rather than a bare assignment,
+    /// so `LibraryAvailability.shared` — which `SearchView`'s landing page
+    /// mirrors — can't drift out of sync, including through the
+    /// flicker-suppressing reset in `retryLoadIfNeeded()`.
     private func setLoadState(_ newValue: LoadState) {
         loadState = newValue
         switch newValue {
@@ -222,34 +157,24 @@ final class HomeViewModel {
         }
     }
 
-    /// A first load (or a retry from `.idle`/`.failed`) — flips `loadState`
-    /// to `.loading` immediately, which is what drives `HomeView`'s
-    /// full-screen placeholder. See `performFullLoad(resetLoadState:)` for
-    /// the actual fetch; `hardRefresh()` shares the same body without that
-    /// visible state transition.
+    /// A first load, or a retry from `.idle`/`.failed`: flips `loadState` to
+    /// `.loading`, driving `HomeView`'s full-screen placeholder.
+    /// `hardRefresh()` shares `performFullLoad`'s body without that transition.
     func load() async {
         await performFullLoad(resetLoadState: true)
     }
 
-    /// The shared body behind both `load()` and `hardRefresh()`.
-    /// `resetLoadState` is what tells them apart: `load()` needs
-    /// `loadState` to visibly flip to `.loading`/`.loaded`/`.failed` (that's
-    /// what drives `HomeView`'s full-screen placeholder for a first load or
-    /// an error), while `hardRefresh()` must NOT touch `loadState` at
-    /// all — it's already `.loaded`, and flipping it to `.loading` even
-    /// momentarily would unmount `HomeView`'s `ScrollView` (via
-    /// `placeholderState`) out from under a pull-to-refresh gesture the
-    /// user is actively holding, killing the `.refreshable` spinner and
-    /// `ScrollBottomObserver`'s KVO observation along with it.
+    /// The shared body behind `load()` and `hardRefresh()`. `resetLoadState`
+    /// tells them apart: `load()` needs the visible flip that drives `HomeView`'s
+    /// placeholder, while `hardRefresh()` must not touch `loadState` at all —
+    /// already `.loaded`, and flipping it would unmount `HomeView`'s `ScrollView`
+    /// under a pull-to-refresh the user is holding, killing the `.refreshable`
+    /// spinner and `ScrollBottomObserver`'s KVO along with it.
     ///
-    /// Populates the hero rail, libraries, and curated rails, then kicks
-    /// off dynamic genre/studio rail discovery (`loadDynamicRailCandidates`)
-    /// once they're showing — `loadState` (when `resetLoadState`) flips to
-    /// `.loaded` as soon as the curated set is ready, deliberately not
-    /// waiting on genre/studio discovery too, so Home doesn't feel slower
-    /// because of it. A failure in that follow-on step doesn't affect
-    /// `loadState`; Home stays usable without the extra rails rather than
-    /// erroring out entirely over them.
+    /// Populates the hero rail, libraries and curated rails, then starts dynamic
+    /// rail discovery. `loadState` flips to `.loaded` as soon as the curated set
+    /// is ready rather than waiting on discovery, and a failure there leaves Home
+    /// usable without the extra rails rather than erroring out.
     private func performFullLoad(resetLoadState: Bool) async {
         if resetLoadState { setLoadState(.loading) }
         refreshGeneration += 1
@@ -276,10 +201,8 @@ final class HomeViewModel {
 
             heroItems = try await heroCandidates.items.map { MediaItem(dto: $0, images: images) }
             // AUDIO SUPPRESSION: `/Users/{id}/Views` has no server-side type
-            // filter, so a Music library has to be dropped here instead —
-            // see `MediaItem.isAudioLibrary`'s doc comment. Delete this
-            // `.filter` once Dionysus Player supports browsing a Music
-            // library.
+            // filter, so a Music library is dropped here. Delete once browsing
+            // one is supported.
             libraries = views.items
                 .map { MediaItem(dto: $0, images: images) }
                 .filter { !$0.isAudioLibrary }
@@ -369,21 +292,13 @@ final class HomeViewModel {
         return newRails
     }
 
-    /// Consumes `RecentPlaybackBroadcaster.shared`'s pending outcome (if
-    /// any) exactly once: records it as `optimisticPlaybackTarget` (used by
-    /// `mergeGuardingAgainstPlaybackRegression(_:)` below to keep a
-    /// subsequent fetch from regressing it), and — if the item is already
-    /// showing in `curatedRails` right now — overlays it there immediately
-    /// too, so the UI never even flashes stale data while the fetch that
-    /// follows is in flight. Called at the top of both `performSoftRefresh()`
-    /// and `performFullLoad(resetLoadState:)`, so a resume point looks
-    /// correct on Home the moment it becomes visible again after playback —
-    /// the same thing `AssetDetailViewModel.applyOptimisticPlaybackPosition(_:)`
-    /// already does for the detail page itself. See `RecentPlaybackBroadcaster`'s
-    /// own doc comment for why Home needed this at all (confirmed live,
-    /// 2026-09-02: a resume point looked accurate on the detail page right
-    /// after playback but stale on Home moments later — Home's soft refresh
-    /// was a single unguarded server fetch with no optimistic overlay).
+    /// Consumes `RecentPlaybackBroadcaster.shared`'s pending outcome exactly
+    /// once: records it as `optimisticPlaybackTarget` (which
+    /// `mergeGuardingAgainstPlaybackRegression(_:)` uses to keep a later
+    /// fetch from regressing it), and overlays it onto `curatedRails`
+    /// immediately if the item is already showing, so Home doesn't flash a
+    /// stale resume point while the following fetch is in flight. Called at
+    /// the top of `performSoftRefresh()` and `performFullLoad(resetLoadState:)`.
     private func consumePendingOptimisticPlaybackPosition() {
         guard let outcome = RecentPlaybackBroadcaster.shared.consume(), outcome.durationSeconds > 0 else { return }
         optimisticPlaybackTarget = (
@@ -402,17 +317,12 @@ final class HomeViewModel {
         }
     }
 
-    /// Keeps a freshly-fetched set of curated rails from regressing
-    /// `optimisticPlaybackTarget` back to stale data — same reasoning as
-    /// `AssetDetailViewModel.refreshItem()`'s own `optimisticTarget`/
-    /// `caughtUp` check (see that method's doc comment for why an early
-    /// fetch almost always still carries the server's old, not-yet-committed
-    /// position rather than genuinely differing data). Whichever rail item
-    /// matches `optimisticPlaybackTarget.itemID` is left showing the
-    /// optimistic value until a fetch's own position catches up to it
-    /// (within `optimisticPositionTolerance`) or the server reports it fully
-    /// played — either clears the target so future fetches are trusted
-    /// again.
+    /// Keeps freshly-fetched rails from regressing `optimisticPlaybackTarget`
+    /// back to a position the server hasn't committed yet — same check as
+    /// `AssetDetailViewModel.refreshItem()`. The matching rail item keeps the
+    /// optimistic value until a fetch catches up to it (within
+    /// `optimisticPositionTolerance`) or reports it fully played; either
+    /// clears the target.
     private func mergeGuardingAgainstPlaybackRegression(_ freshRails: [MediaCollectionRail]) -> [MediaCollectionRail] {
         guard let target = optimisticPlaybackTarget else { return freshRails }
         var stillPending = false
@@ -424,24 +334,14 @@ final class HomeViewModel {
                 let played = item.dto.userData?.played ?? false
                 let caughtUp = fetchedTicks >= target.ticks - Self.optimisticPositionTolerance || played
                 if caughtUp {
-                    // Trust the fetch's own `playbackPositionTicks`, but not
-                    // its raw `playedPercentage` in isolation — confirmed
-                    // live (2026-09-02): Jellyfin can commit those two
-                    // fields at different times, so a fetch whose *ticks*
-                    // have already caught up to a scrub can still carry a
-                    // stale `playedPercentage` left over from before it (a
-                    // backward scrub in particular — ticks moved back, but
-                    // the percentage field hadn't been recalculated yet).
-                    // `MediaItem.playedFraction` prefers the raw percentage
-                    // over computing it from ticks, so left alone this
-                    // regressed the rail's progress bar right back to the
-                    // stale value even though the position itself was
-                    // already correct. Recompute it from this fetch's own
-                    // ticks instead of trusting the separate field — skipped
-                    // when `played`, since a fully-watched item's position
-                    // is reset by the server and `hasResumeProgress` already
-                    // gates its progress bar on `!isPlayed` first, so
-                    // there's nothing here worth overriding.
+                    // Jellyfin commits `playbackPositionTicks` and
+                    // `playedPercentage` at different times, so a fetch whose
+                    // ticks have caught up can still carry a stale percentage
+                    // (notably after a backward scrub). `MediaItem.playedFraction`
+                    // prefers the raw percentage, which would regress the
+                    // progress bar, so recompute it from this fetch's ticks.
+                    // Skipped when `played`: the server resets position then,
+                    // and `hasResumeProgress` already gates on `!isPlayed`.
                     guard !played, let runTimeTicks = item.dto.runTimeTicks, runTimeTicks > 0 else { return item }
                     return item.withOptimisticPlaybackPosition(
                         seconds: Double(fetchedTicks) / 10_000_000, duration: Double(runTimeTicks) / 10_000_000
@@ -458,35 +358,23 @@ final class HomeViewModel {
         return merged
     }
 
-    /// Discovers every eligible dynamic rail — genres and studios for both
-    /// movies and shows, plus actors and directors (unscoped by content
-    /// type, see `DynamicRailCandidate`'s doc comment) — six concurrent
-    /// discovery calls in total, shuffles the combined candidate list
-    /// together (actors/directors mixed in with genres/studios, not a
-    /// separate pool), and loads the first batch immediately. Each
-    /// discovery call is independently best-effort (`try?`) — e.g. a failed
-    /// director lookup shouldn't also wipe out genre rails that succeeded.
-    /// Can be called more than once per `HomeViewModel` lifetime (a
-    /// connectivity-triggered retry, or a `hardRefresh()`, re-runs it
-    /// wholesale — see `retryDynamicRailCandidatesIfNeeded()`), so
-    /// candidates already represented by a rail (`consumedDynamicRailCandidates`)
-    /// are filtered out before the fresh discovery results get queued, or a
-    /// retry would re-append rails that are already showing.
+    /// Discovers every eligible dynamic rail — genres and studios for movies
+    /// and shows, plus actors and directors — in six concurrent calls,
+    /// shuffles them into one combined candidate list, and loads the first
+    /// batch. Each call is independently best-effort, so a failed director
+    /// lookup doesn't wipe out genre rails that succeeded.
     ///
-    /// A brief detour (2026-08-23): tried tiering candidates by category
-    /// (genres, then studios, then actors/directors, instead of one flat
-    /// shuffle) after a user report of "often 0 or 1 dynamic rail" and
-    /// qualifying-rate numbers measured against this codebase's own small
-    /// LAN test server suggested studios/actors/directors rarely clear
-    /// `minimumDynamicRailItemCount`. Reverted the same day, user-confirmed
-    /// worse: on their real library, plenty of studio/actor/director
-    /// candidates *do* qualify, so gating them behind exhausting every
-    /// genre candidate first (up to ~40) just delayed real content that
-    /// used to show up quickly. The measured rates were an artifact of
-    /// testing against a small, unrepresentative library, not a real
-    /// property of "studios/actors/directors are rarely good candidates" —
-    /// don't reintroduce category tiering off that reasoning without fresh
-    /// numbers from the *reporting user's* own library.
+    /// Can run more than once per lifetime (`retryDynamicRailCandidatesIfNeeded()`,
+    /// `hardRefresh()`), so candidates already made into rails
+    /// (`consumedDynamicRailCandidates`) are filtered out first, or a retry
+    /// would re-append rails already showing.
+    ///
+    /// Don't tier candidates by category (genres first, then studios, then
+    /// people): tried and reverted as user-confirmed worse. Qualifying rates
+    /// suggesting studios/actors/directors rarely clear
+    /// `minimumDynamicRailItemCount` were an artifact of a small test
+    /// library; on a real one they qualify often, and tiering just delayed
+    /// them behind up to ~40 genre candidates.
     private func loadDynamicRailCandidates() async {
         async let movieGenres = client.genres(userID: userID, includeItemTypes: ["Movie"])
         async let showGenres = client.genres(userID: userID, includeItemTypes: ["Series"])
@@ -525,48 +413,32 @@ final class HomeViewModel {
         await loadMoreDynamicRails()
     }
 
-    /// Called by `HomeView` when `ConnectivityMonitor` transitions back
-    /// online — retries `load()` itself if it never succeeded (a cold
-    /// launch that hit this while genuinely offline, or a previous
-    /// in-session failure), no-opping once it already has. `isOffline`
-    /// flipping `false` only means *some* request succeeded (see
-    /// `ConnectivityMonitor`'s own doc comment) — often a lightweight
-    /// scenePhase-driven health check that can beat the network actually
-    /// stabilizing enough for a real, heavier `/Users/{id}/Views` fan-out
-    /// to succeed (confirmed live: Wi-Fi reassociating can report
-    /// "connected" a couple of seconds before DNS/routing to a LAN server
-    /// is actually usable). A single immediate retry right at that instant
-    /// can still land in that same window and fail again — instead this
-    /// retries with backoff (`reconnectRetrySchedule`), so a genuinely
-    /// still-unreachable server still ends up back at `.failed` rather than
-    /// retrying forever, but a server that's a few seconds from being ready
-    /// gets caught by a later attempt instead of leaving the user stuck on
-    /// a stale failure with no obvious path forward besides tapping "Try
-    /// Again" themselves.
+    /// Retries `load()` if it never succeeded, no-opping once it has. Called
+    /// by `HomeView` on a `ConnectivityMonitor` transition back online, and
+    /// by every manual retry entry point — `HomeView`'s "Try Again" buttons
+    /// and `LibraryAvailability.retryAction` (`SearchView`'s mirrored one).
     ///
-    /// Deliberately resets a mid-loop failure back to `.loading` (rather
-    /// than leaving `load()`'s own `.failed` write in place) before every
-    /// attempt but the last — both writes happen synchronously with no
-    /// `await` in between, so SwiftUI never actually renders the
-    /// intermediate `.failed` state, avoiding a flash of "Something went
-    /// wrong" between retries. Once the schedule is exhausted, the final
-    /// attempt's outcome (loaded or failed) is left as-is, so a genuinely
-    /// still-unreachable server ends up on the same `.failed` + visible
-    /// "Try Again" a single attempt would have shown.
+    /// Retries with backoff (`reconnectRetrySchedule`) rather than once,
+    /// because `isOffline` going `false` only means *some* request succeeded
+    /// (see `ConnectivityMonitor`) — often a lightweight health check that
+    /// beats the network stabilizing enough for the heavier
+    /// `/Users/{id}/Views` fan-out. A reassociating Wi-Fi link can report
+    /// connected seconds before DNS/routing to a LAN server is usable, and a
+    /// single immediate retry lands in that same window.
     ///
-    /// Every retry entry point — `HomeView`'s own "Try Again" buttons,
-    /// `LibraryAvailability.retryAction` (`SearchView`'s mirrored "Try
-    /// Again"), and `HomeView`'s automatic reconnect hook — calls this same
-    /// method rather than `load()` directly, and concurrent callers
-    /// coalesce into one shared attempt via `inFlightRetry` (same idea as
-    /// `JellyfinAPIClient.inFlightReauth`) instead of racing independent
-    /// `load()` calls. A real bug found live (2026-08-29): a manual retry
-    /// tapped while the automatic backoff loop was still mid-cycle could
-    /// have the loop's own next scheduled attempt fire *after* the manual
-    /// tap's `load()` had already succeeded, silently clobbering that
-    /// success back down to `.loading`/`.failed` with no further attempt
-    /// left to recover it — the visible symptom was a "Try Again" tap that
-    /// just spun forever with no outcome.
+    /// Resets a mid-loop failure back to `.loading` before every attempt but
+    /// the last. Both writes happen with no `await` between them, so SwiftUI
+    /// never renders the intermediate `.failed`, avoiding a flash of
+    /// "Something went wrong" between retries. The last attempt's outcome is
+    /// left as-is, so a still-unreachable server ends on `.failed` with a
+    /// working "Try Again".
+    ///
+    /// Concurrent callers coalesce via `inFlightRetry` (same idea as
+    /// `JellyfinAPIClient.inFlightReauth`). Without it, a manual retry tapped
+    /// mid-backoff could have the loop's next attempt fire after the manual
+    /// `load()` had already succeeded, clobbering it back to
+    /// `.loading`/`.failed` with no attempt left to recover — a "Try Again"
+    /// that spun forever.
     func retryLoadIfNeeded() async {
         if let inFlightRetry {
             await inFlightRetry.value
@@ -592,25 +464,20 @@ final class HomeViewModel {
         }
     }
 
-    /// Silently re-fetches just the four curated rails (Continue Watching,
-    /// Next Up, Recently Added Movies, Recently Added Shows) in place —
-    /// called by `HomeView` whenever the user returns to Home from
-    /// elsewhere (a tab switch, or in-page back navigation back to Home's
-    /// root), to pick up resume points / newly-watched status / a changed
-    /// "next up" episode / newly added items without disturbing the hero
-    /// banner, library rail, dynamic rails, or scroll position the way a
-    /// `hardRefresh()` would. Never user-triggered directly — `hardRefresh()`
-    /// is what pull-to-refresh and the VoiceOver refresh button call.
+    /// Silently re-fetches just the four curated rails in place, picking up
+    /// resume points, watched status, a changed "next up" episode and newly
+    /// added items without disturbing the hero banner, library rail, dynamic
+    /// rails or scroll position the way `hardRefresh()` would. Called by
+    /// `HomeView` when the user returns to Home from elsewhere; never
+    /// user-triggered directly.
     ///
-    /// Deliberately has no visible loading UI at all: `loadState` never
-    /// changes, and the current curated rails stay on screen until the
-    /// fresh ones replace them in one shot (or stay as-is on failure — this
-    /// is a best-effort background refresh, not a user-initiated action
-    /// that owes anyone an error state).
+    /// Has no loading UI: `loadState` never changes, and the current rails
+    /// stay until fresh ones replace them in one shot, or stay as-is on
+    /// failure — a best-effort background refresh owes no error state.
     ///
-    /// No-ops if Home hasn't finished its first `load()` yet — that case is
-    /// already owned by `load()`/`retryLoadIfNeeded()`. Concurrent callers
-    /// coalesce via `inFlightSoftRefresh`, same idea as `inFlightRetry`.
+    /// No-ops before the first `load()` succeeds; that case belongs to
+    /// `load()`/`retryLoadIfNeeded()`. Concurrent callers coalesce via
+    /// `inFlightSoftRefresh`, same idea as `inFlightRetry`.
     func softRefresh() async {
         if let inFlightSoftRefresh {
             await inFlightSoftRefresh.value
@@ -627,9 +494,8 @@ final class HomeViewModel {
     }
 
     private func performSoftRefresh() async {
-        // Cheap early-out, not required for correctness (the generation
-        // check below already covers this) — avoids firing a redundant
-        // network fetch when a hardRefresh() is already underway.
+        // Early-out, not required for correctness (the generation check below
+        // covers it) — avoids a redundant fetch during a hardRefresh().
         guard !isHardRefreshing else { return }
         let generation = refreshGeneration
         consumePendingOptimisticPlaybackPosition()
@@ -637,14 +503,11 @@ final class HomeViewModel {
         guard let result = try? await fetchCuratedRails(
             images: images, moviesLibraryID: moviesLibraryID, showsLibraryID: showsLibraryID
         ) else { return }
-        // A hardRefresh() may have started (or even finished) while this
-        // was in flight — e.g. switching into the Home tab fires a soft
-        // refresh, and an immediate double-tap of the VoiceOver refresh
-        // button fires a hard one, a normal VoiceOver interaction pattern.
-        // `refreshGeneration` only ever advances, so if it moved since this
-        // started, a hard refresh's fresher (and more complete) data has
-        // already landed — defer to it rather than clobbering it with this
-        // slower, narrower result.
+        // A hardRefresh() may have started or finished while this was in
+        // flight: switching into the Home tab fires a soft refresh, and an
+        // immediate double-tap of the VoiceOver refresh button fires a hard
+        // one. `refreshGeneration` only advances, so if it moved, the hard
+        // refresh's fresher and more complete data has landed — defer to it.
         guard generation == refreshGeneration else { return }
         // Whether this reaches the screen depends on `MediaItem.==` being
         // structural — see its doc comment. It is not a scheduling concern;
@@ -652,21 +515,16 @@ final class HomeViewModel {
         curatedRails = mergeGuardingAgainstPlaybackRegression(result)
     }
 
-    /// Re-fetches everything on Home — hero banner, libraries, curated
-    /// rails, and a freshly reshuffled set of dynamic rails — as if this
-    /// were a fresh app load, without blanking the page while it's in
-    /// flight (unlike `load()`/`retryLoadIfNeeded()`, `loadState` stays
-    /// `.loaded` throughout — see `performFullLoad(resetLoadState:)`'s doc
-    /// comment). Called by `HomeView`'s `.refreshable` pull-to-refresh
-    /// gesture and by its VoiceOver-only refresh button, both via this same
-    /// coalesced entry point rather than `load()` directly.
+    /// Re-fetches everything on Home — hero banner, libraries, curated rails
+    /// and a reshuffled set of dynamic rails — without blanking the page:
+    /// `loadState` stays `.loaded` throughout, unlike
+    /// `load()`/`retryLoadIfNeeded()`. Called by `HomeView`'s pull-to-refresh
+    /// and its VoiceOver-only refresh button.
     ///
-    /// No-ops if Home hasn't finished its first `load()` yet (nothing to
-    /// refresh over). A failure leaves whatever was already on screen in
-    /// place rather than erroring the whole page out from under the user —
-    /// see `performFullLoad(resetLoadState:)`'s catch branch. Concurrent
-    /// callers coalesce via `inFlightHardRefresh`, same idea as
-    /// `inFlightRetry`.
+    /// No-ops before the first `load()` succeeds. A failure leaves what's on
+    /// screen in place rather than erroring out the whole page (see
+    /// `performFullLoad(resetLoadState:)`'s catch). Concurrent callers
+    /// coalesce via `inFlightHardRefresh`.
     func hardRefresh() async {
         if let inFlightHardRefresh {
             await inFlightHardRefresh.value
@@ -684,29 +542,23 @@ final class HomeViewModel {
         inFlightHardRefresh = nil
     }
 
-    /// Called by `HomeView` when `ConnectivityMonitor` transitions back
-    /// online — re-runs dynamic rail discovery only if the last attempt
-    /// actually failed (typically because it landed in the brief window
-    /// right after reconnecting), so a library that legitimately has no
-    /// dynamic rails to offer, or an attempt that already succeeded,
-    /// doesn't get needlessly re-fetched. The re-run itself still repeats
-    /// all six discovery calls (no cheaper way to know just from this
-    /// which ones failed last time), but `loadDynamicRailCandidates()`'s own
-    /// `consumedDynamicRailCandidates` filtering keeps that safe — whichever
-    /// candidates already became rails before the failure won't be
-    /// requeued or appended a second time.
+    /// Re-runs dynamic rail discovery on a `ConnectivityMonitor` transition
+    /// back online, only if the last attempt failed — so a library with no
+    /// dynamic rails to offer, or a successful attempt, isn't re-fetched. The
+    /// re-run repeats all six discovery calls (nothing here records which
+    /// ones failed), which `loadDynamicRailCandidates()`'s
+    /// `consumedDynamicRailCandidates` filtering makes safe.
     func retryDynamicRailCandidatesIfNeeded() async {
         guard dynamicRailCandidatesFailed else { return }
         dynamicRailCandidatesFailed = false
         await loadDynamicRailCandidates()
     }
 
-    /// Fetches the next `dynamicRailBatchSize` candidates (concurrently)
-    /// and appends whichever clear `minimumDynamicRailItemCount` as new
-    /// rails — called once by `loadDynamicRailCandidates` for the first
-    /// batch, and by `HomeView`'s scroll-triggered sentinel for every batch
-    /// after. A candidate whose fetch fails or comes back too sparse is
-    /// silently dropped rather than shown as a barely-populated rail.
+    /// Fetches the next `dynamicRailBatchSize` candidates concurrently and
+    /// appends whichever clear `minimumDynamicRailItemCount` — called by
+    /// `loadDynamicRailCandidates` for the first batch and by `HomeView`'s
+    /// scroll sentinel for the rest. A candidate that fails or comes back too
+    /// sparse is dropped rather than shown as a barely-populated rail.
     func loadMoreDynamicRails() async {
         guard !isLoadingMoreDynamicRails, !pendingDynamicRailCandidates.isEmpty else { return }
         isLoadingMoreDynamicRails = true
@@ -717,51 +569,37 @@ final class HomeViewModel {
         hasMoreDynamicRails = !pendingDynamicRailCandidates.isEmpty
 
         let images = await client.makeImageURLBuilder()
-        // Captured as a local, not read as `Self.minimumDynamicRailItemCount`
-        // inside the task group below — `HomeViewModel` is `@MainActor`, so
-        // its static members are actor-isolated too, and the group's child
-        // tasks run outside that isolation (same reason `client`/`userID`
-        // are captured explicitly rather than read via `self`).
+        // Read on the actor and captured by value, since the task group's
+        // child tasks run outside `HomeViewModel`'s `@MainActor` isolation and
+        // its static members are isolated too.
         let minimumItemCount = Self.minimumDynamicRailItemCount
-        // Same reasoning as `minimumItemCount` above — read once here, on
-        // the actor, then captured by value into each child task below.
         let moviesLibraryID = self.moviesLibraryID
         let showsLibraryID = self.showsLibraryID
         let itemShuffle = self.itemShuffle
-        // Tagged with its index in `batch` so results can be restored to
-        // the batch's (already-shuffled) order afterward — task-group
-        // completion order isn't otherwise guaranteed to match it. Also
-        // carries the candidate itself back out (not just its rail), so the
-        // ones that actually produced a rail can be recorded into
-        // `consumedDynamicRailCandidates` below.
+        // Tagged with its index in `batch` to restore the batch's
+        // already-shuffled order, which task-group completion order doesn't
+        // preserve. Each result carries its candidate back out so the ones
+        // that produced a rail can be recorded into
+        // `consumedDynamicRailCandidates`.
         let fetched = await withTaskGroup(of: (Int, DynamicRailCandidate, MediaCollectionRail?).self) { group in
             for (index, candidate) in batch.enumerated() {
                 group.addTask { [client, userID, itemShuffle] in
-                    // Try a genuine server-side random sample across the
-                    // candidate's *entire* matching set first — `limit: 16`
-                    // alone, with no `sortBy`, would otherwise default to
-                    // `SortBy=SortName` and cap every rail to the
-                    // alphabetically-first 16 items matching it forever (a
-                    // large genre like "Action" would only ever show
-                    // A-through-D titles, since the client-side shuffle
-                    // below can only reorder whichever 16 the server handed
-                    // back, not reach further into the catalog). A prior
-                    // attempt at this same `SortBy=Random` call was
-                    // abandoned after a user report of it reproducing as
-                    // *zero* dynamic rails on a real server/library — but
-                    // that report predates a separate, unrelated fix (the
-                    // `ScrollBottomObserver` attach-race in
-                    // `home-scrollbottomobserver-attach-race`) that was
-                    // found landing in the exact same investigation pass,
-                    // so it's plausible (though not provable in hindsight)
-                    // the two got conflated. Rather than re-trusting or
-                    // re-dismissing that report outright, fall back to
-                    // exactly the old safe behavior — default alphabetical
-                    // sort, same 16-item cap — whenever the random-sorted
-                    // attempt fails outright or comes back thin (fewer than
-                    // `minimumItemCount`, indistinguishable from "this
-                    // candidate genuinely doesn't have that many items"
-                    // without more signal, so retrying is the safe move).
+                    // `SortBy=Random` samples the candidate's entire matching
+                    // set. Without it `limit: 16` defaults to
+                    // `SortBy=SortName`, capping every rail to the
+                    // alphabetically-first 16 matches forever — a large genre
+                    // would only ever show A-through-D titles, since the
+                    // client-side shuffle below can only reorder what the
+                    // server returned.
+                    //
+                    // An earlier attempt at this call was abandoned after a
+                    // report of zero dynamic rails on a real library, which
+                    // may have been the `ScrollBottomObserver` attach race
+                    // fixed in the same pass. Hence the fallback to the old
+                    // behavior (alphabetical, same cap) whenever the
+                    // random-sorted attempt fails or comes back under
+                    // `minimumItemCount` — indistinguishable from a candidate
+                    // that genuinely has fewer items, so retrying is safe.
                     // See `home-dynamic-rails-random-sort-bug` memory.
                     func fetchCandidateItems(sortBy: String) async -> [BaseItemDto]? {
                         switch candidate {
@@ -793,13 +631,10 @@ final class HomeViewModel {
                         dtos = await fetchCandidateItems(sortBy: "SortName")
                     }
                     guard let dtos, dtos.count >= minimumItemCount else { return (index, candidate, nil) }
-                    // Still shuffled client-side even though the random
-                    // fetch above should already be server-randomized —
-                    // cheap, harmless, and a hedge against the server's own
-                    // "random" turning out weak (e.g. session-cached) on
-                    // some Jellyfin versions; it's also what actually
-                    // reorders the fallback-path result when the random
-                    // fetch didn't pan out.
+                    // Shuffled client-side even on the random-sorted path: a
+                    // cheap hedge against a weak or session-cached server
+                    // "random", and the only thing that reorders the
+                    // fallback path's result.
                     let items = itemShuffle(dtos).map { MediaItem(dto: $0, images: images) }
                     let rail = MediaCollectionRail(
                         title: candidate.railTitle, items: items,
@@ -813,18 +648,13 @@ final class HomeViewModel {
             return results.sorted { $0.0 < $1.0 }
         }
 
-        // Collected into a local array and appended once, rather than
-        // calling `dynamicRails.append(rail)` inside the loop —
-        // `dynamicRails` is an `@Observable` property that `HomeView` reads
-        // (via `rails`) to build its `LazyVStack` of rails, so each
-        // separate append used to fire its own SwiftUI transaction/layout
-        // flush over the whole rail list. Landing up to `dynamicRailBatchSize`
-        // (5) of those back-to-back, right as `HomeView`'s scroll-triggered
-        // sentinel fires (i.e. while the user is actively scrolling), was a
-        // plausible contributor to an intermittently-reported real-device
-        // freeze in this exact region — see
+        // Appended once from a local array rather than per-rail inside the
+        // loop: `dynamicRails` is `@Observable` and backs `HomeView`'s
+        // `LazyVStack`, so each append fires its own layout flush over the
+        // whole rail list. Up to `dynamicRailBatchSize` (5) of those
+        // back-to-back while the user is scrolling was a plausible
+        // contributor to an intermittent real-device freeze here — see
         // `home-collection-nav-freeze-unconfirmed` memory, occurrence 3.
-        // One append means one flush instead of up to five.
         let newRails = fetched.compactMap { _, candidate, rail in
             rail.map { (candidate, $0) }
         }
