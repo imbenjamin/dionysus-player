@@ -227,7 +227,7 @@ struct HeroRailView: View {
                 // the carousel do nothing. A `ScrollView` is a real
                 // `UIScrollView` and cooperates for free.
                 ScrollView(.horizontal) {
-                    // Plain `HStack`, not `LazyHStack` (what this used to be) —
+                    // Plain `HStack`, not `LazyHStack` —
                     // `loopedItems` is capped at 12 (`HomeViewModel.load()`
                     // fetches at most 10 hero candidates, plus the loop's own 2
                     // duplicate padding pages), cheap to render all of
@@ -251,13 +251,13 @@ struct HeroRailView: View {
                     // idle interval, not zero, to load.
                     HStack(spacing: 0) {
                         // `loopedItems.indices`, not `Array(loopedItems
-                        // .enumerated())` (an earlier version used that) — the
-                        // latter allocates a fresh `[(offset: Int, element:
-                        // MediaItem)]` on every single `body` evaluation
-                        // (`tick()`'s once-a-second timer among them) despite
-                        // `loopedItems` itself now being fixed for this view's
-                        // lifetime (see that property's own doc comment for the
-                        // matching fix). `Range<Int>.indices` is a cheap value
+                        // .enumerated())` — the latter allocates a fresh
+                        // `[(offset: Int, element: MediaItem)]` on every single
+                        // `body` evaluation (`tick()`'s once-a-second timer
+                        // among them) despite `loopedItems` itself being fixed
+                        // for this view's lifetime (see that property's doc
+                        // comment for the matching fix). `Range<Int>.indices`
+                        // is a cheap value
                         // type, not an allocation, and `loopedItems[offset]`
                         // below is an O(1) array subscript — same result, no
                         // per-render allocation to produce it.
