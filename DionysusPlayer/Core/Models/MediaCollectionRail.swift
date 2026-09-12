@@ -7,7 +7,7 @@ import Foundation
 /// screen — is deliberately minimal for now; the set of rails is expected
 /// to be redefined later.
 struct MediaCollectionRail: Identifiable {
-    // A proper `UUID`, not `title` (an earlier version used that) — titles
+    // A proper `UUID`, not `title` — titles
     // are generated strings (e.g. "Starring {actor}"), and two dynamic
     // rails could in principle land on an identical one (e.g. two
     // differently-credited people who happen to share a display name),

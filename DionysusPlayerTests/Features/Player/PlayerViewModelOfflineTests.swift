@@ -274,8 +274,8 @@ final class PlayerViewModelOfflineTests: XCTestCase {
     }
 
     /// `refreshServerVersion()`/`refreshStreamingSession()` back
-    /// `PlaybackStatsOverlay`'s Streaming section — a real bug this session
-    /// fixed: they used to dispatch a doomed network request every time the
+    /// `PlaybackStatsOverlay`'s Streaming section — a real bug: they used
+    /// to dispatch a doomed network request every time the
     /// overlay polled, even during offline playback, where there's no live
     /// server to ask. Both must now no-op entirely, leaving
     /// `serverVersion`/`streamingSession` `nil` rather than attempting

@@ -44,9 +44,9 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: DownloadFileStore.url(forRelativePath: DownloadFileStore.videoRelativePath(itemID: "item-1")).path))
     }
 
-    /// The core new behavior this session added: deleting a download with
-    /// unsynced watched/resume state frees the files but keeps the row
-    /// alive (marked for deletion) purely to carry that pending sync write.
+    /// Deleting a download with unsynced watched/resume state frees the
+    /// files but keeps the row alive (marked for deletion) purely to carry
+    /// that pending sync write.
     func test_delete_withPendingSync_freesFilesButKeepsRowMarkedForDeletion() throws {
         let store = DownloadTestHelpers.makeInMemoryStore()
         let manager = DownloadManager(store: store)

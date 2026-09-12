@@ -215,12 +215,12 @@ struct BackdropLogoOverlay: View {
         // actual image as its `.background` — backgrounds size themselves to
         // match their container, not the other way around, so the image
         // ends up correctly constrained without needing to read a proxy
-        // size at all. Deliberately not `GeometryReader` (an earlier version
-        // of this used one) — simpler, and avoids an extra layout pass.
-        // This also used to be `.containerRelativeFrame(.horizontal)`,
-        // which resolves the width problem in principle but in practice got
-        // stuck reporting a stale (too-wide) size after rotating portrait →
-        // landscape → portrait, overflowing the screen on the way back.
+        // size at all. Deliberately not `GeometryReader` — simpler, and
+        // avoids an extra layout pass. Also deliberately not
+        // `.containerRelativeFrame(.horizontal)`, which resolves the width
+        // problem in principle but in practice got stuck reporting a stale
+        // (too-wide) size after rotating portrait → landscape → portrait,
+        // overflowing the screen on the way back.
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {

@@ -170,9 +170,8 @@ final class CollectionGridViewModelTests: XCTestCase {
 
     // MARK: setSortOrder
 
-    /// The actual point of this round of work: direction is independent of
-    /// field, so a non-Title field can be flipped to ascending too (not
-    /// locked to descending the way an earlier version of this had it).
+    /// Direction is independent of field, so a non-Title field can be
+    /// flipped to ascending too, not locked to descending.
     func test_setSortOrder_flipsDirectionIndependentlyOfField() async {
         let viewModel = makeViewModel(query: CollectionQuery(title: "Movies"))
         var captured: [String: String] = [:]
