@@ -6,36 +6,25 @@ struct MovieDetailView: View {
     let viewModel: AssetDetailViewModel
     @Environment(AppState.self) private var appState
     @State private var playbackRequest: PlaybackRequest?
-    /// Bumped from `fullScreenCover(onDismiss:)` — both immediately (to
-    /// pick up `applyOptimisticPlaybackPosition(_:)`'s guess, already
-    /// applied to `viewModel.item` by the time `onDismiss` fires) and again
-    /// once `refreshItem()` finishes (to pick up the server's own
-    /// confirmed values, in particular `played`).
+    /// Bumped from `fullScreenCover(onDismiss:)`: immediately, to pick up
+    /// `applyOptimisticPlaybackPosition(_:)`'s guess already applied to
+    /// `viewModel.item`, and again once `refreshItem()` finishes, for the server's
+    /// confirmed values — `played` in particular.
     ///
-    /// Necessary because `viewModel.item` mutating on its own isn't
-    /// reliably enough to get this view's `body` to re-run. Confirmed live
-    /// (2026-08-13) with direct instrumentation: while this view is covered
-    /// by its own `.fullScreenCover`, `viewModel.item` changing underneath
-    /// it (from either of the above) produced no further `body` evaluation
-    /// at all once the cover dismissed — even though the exact same
-    /// mutation correctly reached `HeroActionButtons` (a `.toolbar` item
-    /// with its own independent Observation subscription, a materially
-    /// different SwiftUI update path from this view's main content).
+    /// Necessary because `viewModel.item` mutating isn't reliably enough to re-run
+    /// this view's `body`. While the view is covered by its own
+    /// `.fullScreenCover`, `viewModel.item` changing underneath it produced no
+    /// `body` evaluation once the cover dismissed, even though the same mutation
+    /// reached `HeroActionButtons` — a `.toolbar` item with its own Observation
+    /// subscription, a different update path.
     ///
-    /// What actually forces the re-render is the local `@State` *mutation*
-    /// itself — a `@State` write always invalidates this view regardless of
-    /// whether `refreshTrigger`'s value is read anywhere, unlike
-    /// `@Observable` property access, which only triggers a re-render for
-    /// code paths that actually read it during `body`. The `.id(refreshTrigger)`
-    /// below exists on top of that only to force a hard identity reset of
-    /// the specific metadata block that needs one — see its own comment —
-    /// not to *cause* the re-render in the first place. Originally scoped
-    /// to the whole `ScrollView` instead, which also worked but had the
-    /// unrelated side effect of resetting scroll position on every return
-    /// from playback; rescoped down to just the metadata block (2026-08-13)
-    /// once that gap was noticed on review, and confirmed live afterward
-    /// (same scrub+exit repro as the original bug) that the fix still
-    /// holds *and* scroll position now survives the return.
+    /// What forces the re-render is the `@State` write itself, which always
+    /// invalidates the view whether or not `refreshTrigger` is read, unlike
+    /// `@Observable` access, which only invalidates paths that read it during
+    /// `body`. The `.id(refreshTrigger)` below is a separate concern: a hard
+    /// identity reset of the one metadata block that needs it. Scoping that `.id`
+    /// to the whole `ScrollView` also worked but reset scroll position on every
+    /// return from playback.
     @State private var refreshTrigger = UUID()
 
     var body: some View {
@@ -69,12 +58,10 @@ struct MovieDetailView: View {
                                     playbackRequest = PlaybackRequest(itemID: item.id, startFromBeginning: true, mediaSourceID: versionID)
                                 }
                             )
-                            // See `MediaItem.playbackProgressIdentity`'s doc
-                            // comment: without this, the progress bar/Play-vs-
-                            // Resume label can silently stop updating after
-                            // returning from playback, since this view owns its
-                            // own `@State` (the version-choice prompt) and takes
-                            // `item` as a plain, non-tracked `let`.
+                            // See `MediaItem.playbackProgressIdentity`: without
+                            // this, the progress bar and Play-vs-Resume label can
+                            // stop updating after playback, since this view owns
+                            // `@State` and takes `item` as a non-tracked `let`.
                             .id(item.playbackProgressIdentity)
 
                             DownloadButton(item: item, client: viewModel.apiClient, userID: viewModel.currentUserID, downloadManager: appState.downloadManager)
@@ -84,26 +71,21 @@ struct MovieDetailView: View {
                             .detailTabsPanel()
                     }
                     .padding(.horizontal)
-                    // Caps this column — metadata, Play/Download, tabs —
-                    // to a readable measure on regular width, leaving the
-                    // hero above and the rails below full-bleed. See
-                    // `ReadableDetailColumn` for what goes wrong without
-                    // it at 820pt/1180pt.
+                    // Caps metadata, Play/Download and tabs to a readable measure
+                    // on regular width, leaving the hero above and rails below
+                    // full-bleed. See `ReadableDetailColumn`.
                     .readableDetailColumn()
-                    // See `refreshTrigger`'s own doc comment. Scoped to just
-                    // this metadata block, not the whole `ScrollView` — a
-                    // hard identity reset here is enough to guarantee this
-                    // content picks up a post-playback `viewModel.item`
-                    // change; scoping it any wider only adds side effects
-                    // (resetting scroll position) with no benefit.
+                    // See `refreshTrigger`. Scoped to this metadata block, not the
+                    // whole `ScrollView`: an identity reset here is enough to pick
+                    // up a post-playback `item` change, and anything wider only
+                    // resets scroll position.
                     .id(refreshTrigger)
 
-                    // Between the tabs and the related-content rails — a
-                    // chapter belongs to *this* item (like everything above
-                    // it) rather than pointing at other items (like the two
-                    // rails below). `item.chapters` is already empty for
-                    // anything without real chapters, including Jellyfin's
-                    // single-dummy-chapter case — see `MediaItem.chapters`.
+                    // Between the tabs and the related-content rails: a chapter
+                    // belongs to this item, like everything above, rather than
+                    // pointing at others like the rails below. `item.chapters` is
+                    // empty for anything without real chapters, Jellyfin's
+                    // single-dummy-chapter case included — see `MediaItem.chapters`.
                     if !item.chapters.isEmpty {
                         ChapterRailView(chapters: item.chapters) { chapter in
                             playbackRequest = PlaybackRequest(
@@ -130,40 +112,34 @@ struct MovieDetailView: View {
             }
         }
         .ignoresSafeArea(edges: .top)
-        // Trailing toolbar items float in the nav bar opposite the system
-        // back button — same floating-over-the-hero behavior at rest, same
-        // pinned-in-place behavior once the page scrolls — rather than a
-        // hand-placed `.overlay` on the hero, which scrolled away with it
-        // instead of staying put. See `HeroActionButtons`' doc comment for
-        // the rest of the reasoning.
+        // Trailing toolbar items float in the nav bar opposite the system back
+        // button, staying pinned once the page scrolls, unlike a hand-placed
+        // `.overlay` on the hero, which scrolled away with it. See
+        // `HeroActionButtons`.
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HeroActionButtons(viewModel: viewModel)
             }
-            // `ToolbarSpacer(.fixed)`, not just a second `ToolbarItem`: on
-            // iOS 26 adjacent trailing items share one Liquid Glass capsule
-            // by default, so declaring delete as its own item still drew it
-            // as a third glyph inside the favorite/watched group (confirmed
-            // on device). The spacer is the actual API for forcing the
-            // visual break — same fix, and same reasoning, as
-            // `CollectionGridView`'s sort/random pair. A destructive action
-            // must not read as a member of the metadata group.
+            // `ToolbarSpacer(.fixed)`, not just a second `ToolbarItem`: on iOS 26
+            // adjacent trailing items share one Liquid Glass capsule, so delete
+            // drew as a third glyph inside the favorite/watched group. The spacer
+            // is the API for forcing the break, as in `CollectionGridView`'s
+            // sort/random pair — a destructive action must not read as part of the
+            // metadata group.
             if #available(iOS 26.0, *) {
                 ToolbarSpacer(.fixed, placement: .topBarTrailing)
             }
-            // Add to Playlist, plus Delete when the server says this user
-            // may delete this item — as one `ellipsis` overflow if both
-            // apply, or whichever single action does; see
-            // `AssetActionsButton`.
+            // Add to Playlist, plus Delete where the server permits it — one
+            // `ellipsis` overflow if both apply, otherwise whichever single action
+            // does; see `AssetActionsButton`.
             ToolbarItem(placement: .topBarTrailing) {
                 AssetActionsButton(viewModel: viewModel, downloadManager: appState.downloadManager)
             }
         }
         .fullScreenCover(
             item: $playbackRequest,
-            // Registered via `viewModel.track(_:)` — see its doc comment —
-            // so `AssetDetailView`'s `.onDisappear` can cancel this if the
-            // user backs out of the page again before it finishes.
+            // Registered via `viewModel.track(_:)` so `AssetDetailView`'s
+            // `.onDisappear` can cancel it if the user backs out first.
             onDismiss: {
                 refreshTrigger = UUID()
                 viewModel.track(Task {

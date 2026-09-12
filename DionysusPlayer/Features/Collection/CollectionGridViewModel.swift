@@ -13,24 +13,22 @@ final class CollectionGridViewModel {
 
     private(set) var items: [MediaItem] = []
 
-    /// Drops an item this grid is still listing after it's been deleted from
-    /// the server, so the user doesn't pop back from a detail page onto a
-    /// tile for content that no longer exists. Called by `CollectionGridView`
-    /// off `DeletedItemBroadcaster` — a local filter rather than a refetch,
-    /// since the whole grid's worth of items hasn't otherwise changed and
-    /// every active facet's option list is derived from `items` anyway.
+    /// Drops an item deleted from the server, so the user doesn't pop back from a
+    /// detail page onto a tile for content that's gone. Called by
+    /// `CollectionGridView` off `DeletedItemBroadcaster`. A local filter rather
+    /// than a refetch: nothing else changed, and every facet's option list derives
+    /// from `items`.
     func removeDeletedItem(itemID: String) {
         items.removeAll { $0.id == itemID }
     }
     private(set) var loadState: LoadState = .idle
-    /// Seeded from `query.initialSortField`/`initialSortOrder` in `init` —
-    /// see `CollectionQuery`'s own doc comment. Still ordinary
-    /// user-changeable state from there on, via `setSortField`/
-    /// `setSortOrder`.
+    /// Seeded from `query.initialSortField`/`initialSortOrder` in `init` (see
+    /// `CollectionQuery`), then user-changeable via
+    /// `setSortField`/`setSortOrder`.
     private(set) var sortField: CollectionSortField
     private(set) var sortOrder: CollectionSortOrder
-    /// Seeded from `query.initialGenre`/`initialStudio` in `init` — same
-    /// idea as `sortField`/`sortOrder` above.
+    /// Seeded from `query.initialGenre`/`initialStudio` in `init`, as
+    /// `sortField`/`sortOrder` are.
     private(set) var selectedGenre: String?
     private(set) var selectedStudio: String?
     /// A decade's start year (e.g. `2010`), matching `MediaItem.decade`.
@@ -42,15 +40,12 @@ final class CollectionGridViewModel {
     private let userID: String
     let query: CollectionQuery
 
-    /// Distinct genres among items matching the *other two* active filters
-    /// (not genre's own — see `matchingItems`), sorted alphabetically — the
-    /// options `CollectionGridView`'s Genres filter pill offers. Narrows as
-    /// Studio/Decade get picked and widens back out as they're cleared, so
-    /// the pill only ever offers genres that actually lead somewhere given
-    /// whatever else is currently selected, rather than options that would
-    /// combine into an empty result. Client-side (not a fresh server query)
-    /// since `items` is already the complete result set for this
-    /// collection, not a paginated slice.
+    /// Distinct genres among items matching every other active filter but genre's
+    /// own (see `matchingItems`), sorted alphabetically — what
+    /// `CollectionGridView`'s Genres pill offers. Narrows as other facets are
+    /// picked and widens as they're cleared, so it never offers a combination
+    /// that would come back empty. Client-side, since `items` is the complete
+    /// result set rather than a paginated slice.
     var availableGenres: [String] {
         Array(Set(matchingItems(applyGenre: false, applyStudio: true, applyDecade: true).flatMap(\.genres))).sorted()
     }
@@ -59,19 +54,16 @@ final class CollectionGridViewModel {
         Array(Set(matchingItems(applyGenre: true, applyStudio: false, applyDecade: true).flatMap(\.studios))).sorted()
     }
 
-    /// Newest first (matches how someone scanning a library by decade
-    /// typically wants to start).
+    /// Newest first, how someone scanning a library by decade usually starts.
     var availableDecades: [Int] {
         Array(Set(matchingItems(applyGenre: true, applyStudio: true, applyDecade: false).compactMap(\.decade)))
             .sorted(by: >)
     }
 
-    /// Which of `.watched`/`.unwatched` actually occur among items matching
-    /// the *other* active filters — same cascading logic as the other
-    /// facets, just over a fixed two-value domain instead of data-derived
-    /// strings/ints. `CollectionGridView` only shows this pill at all when
-    /// this comes back non-empty (both possible values collapse to empty
-    /// only when there are no items left at all, same as any other facet).
+    /// Which of `.watched`/`.unwatched` occur among items matching the other
+    /// active filters — the same cascading logic as the other facets, over a
+    /// fixed two-value domain. `CollectionGridView` shows the pill only when this
+    /// is non-empty, which happens only when no items are left at all.
     var availableWatchStatuses: [CollectionWatchStatus] {
         let candidates = matchingItems(applyGenre: true, applyStudio: true, applyDecade: true, applyWatchStatus: false)
         var result: [CollectionWatchStatus] = []
@@ -80,10 +72,9 @@ final class CollectionGridViewModel {
         return result
     }
 
-    /// Which of `.favorite`/`.nonFavorite` actually occur among items
-    /// matching the *other* active filters — same cascading logic as
-    /// `availableWatchStatuses`. `CollectionGridView` only shows this pill at
-    /// all when this comes back non-empty.
+    /// Which of `.favorite`/`.nonFavorite` occur among items matching the other
+    /// active filters, as `availableWatchStatuses` does. `CollectionGridView`
+    /// shows the pill only when this is non-empty.
     var availableFavoriteStatuses: [CollectionFavoriteStatus] {
         let candidates = matchingItems(applyGenre: true, applyStudio: true, applyDecade: true, applyFavorites: false)
         var result: [CollectionFavoriteStatus] = []
@@ -92,34 +83,29 @@ final class CollectionGridViewModel {
         return result
     }
 
-    /// `items` narrowed by every active filter (AND across all of them) —
-    /// what `CollectionGridView`'s grid actually renders, and the pool
-    /// `randomItem()` picks from.
+    /// `items` narrowed by every active filter, ANDed: what the grid renders and
+    /// the pool `randomItem()` picks from.
     var filteredItems: [MediaItem] {
         matchingItems(applyGenre: true, applyStudio: true, applyDecade: true)
     }
 
-    /// A uniformly-random pick from `filteredItems`, for the toolbar's dice
-    /// button — `nil` only when nothing currently matches (button is
-    /// disabled in that case).
+    /// A uniformly-random pick from `filteredItems` for the toolbar's dice
+    /// button; `nil` when nothing matches, where the button is disabled.
     func randomItem() -> MediaItem? {
         filteredItems.randomElement()
     }
 
-    /// Shared machinery behind `filteredItems` (every filter applied) and
-    /// each `available*` property (every filter *except its own facet*
-    /// applied — computing a facet's own option list against its own
-    /// current selection would trivially collapse it to just that one
-    /// value). Because every facet's list is always computed from whichever
-    /// of the *other* facets are currently selected, anything it offers is
-    /// guaranteed compatible with the current selections — the user can
-    /// never pick a combination that leads to zero results, and nothing
-    /// needs to reactively invalidate/clear a stale selection when another
-    /// filter changes: unreachable options simply never appear as choices
-    /// in the first place. Since these are all plain computed properties
-    /// over `items` and the `selected*` state, clearing any filter
-    /// automatically widens the others back out too — no separate
-    /// "unfilter" handling needed.
+    /// Shared machinery behind `filteredItems`, which applies every filter, and
+    /// each `available*` property, which applies every filter but its own facet —
+    /// computing a facet's options against its own selection would collapse it to
+    /// that one value.
+    ///
+    /// Because every facet's list comes from the other facets' current
+    /// selections, anything it offers is compatible with them: the user can't
+    /// reach a zero-result combination, and no stale selection needs
+    /// invalidating, since unreachable options never appear. These are plain
+    /// computed properties over `items` and the `selected*` state, so clearing
+    /// any filter widens the others back out with no separate handling.
     private func matchingItems(
         applyGenre: Bool, applyStudio: Bool, applyDecade: Bool,
         applyWatchStatus: Bool = true, applyFavorites: Bool = true
@@ -156,27 +142,24 @@ final class CollectionGridViewModel {
         await load()
     }
 
-    /// Changes which field the grid is ordered by and reloads — a no-op if
-    /// `field` is already selected, so re-picking the current one from the
-    /// toolbar menu doesn't refetch.
+    /// Changes which field the grid is ordered by and reloads; a no-op if `field`
+    /// is already selected, so re-picking it doesn't refetch.
     func setSortField(_ field: CollectionSortField) async {
         guard field != sortField else { return }
         sortField = field
         await load()
     }
 
-    /// Flips ascending/descending for whichever `sortField` is currently
-    /// selected, and reloads — same no-op-if-unchanged behavior as
-    /// `setSortField`.
+    /// Flips ascending/descending for the selected `sortField` and reloads, with
+    /// the same no-op-if-unchanged behavior as `setSortField`.
     func setSortOrder(_ order: CollectionSortOrder) async {
         guard order != sortOrder else { return }
         sortOrder = order
         await load()
     }
 
-    /// Unlike sort, these filter `items` locally (`filteredItems`) rather
-    /// than reloading from the server — no network round trip needed, and
-    /// they compose freely with whatever sort is active.
+    /// Unlike sort, these filter `items` locally via `filteredItems` rather than
+    /// reloading, so they need no round trip and compose with any active sort.
     func setGenreFilter(_ genre: String?) {
         selectedGenre = genre
     }
@@ -197,8 +180,8 @@ final class CollectionGridViewModel {
         selectedFavoriteStatus = status
     }
 
-    /// Clears every active filter at once — `CollectionGridView`'s Reset
-    /// control, shown only while `hasActiveFilters` is true.
+    /// Clears every active filter: `CollectionGridView`'s Reset control, shown
+    /// only while `hasActiveFilters` is true.
     func resetFilters() {
         selectedGenre = nil
         selectedStudio = nil
@@ -211,11 +194,10 @@ final class CollectionGridViewModel {
         loadState = .loading
         do {
             let images = await client.makeImageURLBuilder()
-            // AUDIO SUPPRESSION: excludeItemTypes keeps audio/music out of
-            // every grid this viewmodel loads, regardless of how its
-            // `CollectionQuery` was scoped — see `JellyfinAPIClient
-            // .audioItemTypeExclusions`'s doc comment. Delete this argument
-            // once Dionysus Player supports audio/music playback.
+            // AUDIO SUPPRESSION: `excludeItemTypes` keeps audio out of every grid
+            // this view model loads, however its `CollectionQuery` was scoped —
+            // see `JellyfinAPIClient.audioItemTypeExclusions`. Delete once audio
+            // playback is supported.
             let result = try await client.items(
                 userID: userID,
                 parentID: query.parentID,
@@ -225,15 +207,13 @@ final class CollectionGridViewModel {
                 sortOrder: sortOrder.value
             )
             items = result.items.map { MediaItem(dto: $0, images: images) }
-            // AUDIO SUPPRESSION: `"Playlist"` is deliberately excluded from
-            // `audioItemTypeExclusions` above — a mixed playlist can't be
-            // filtered out by item type alone, since the Playlist entry
-            // itself (not its member items) is what a Playlists library
-            // query returns. Filter client-side instead, the same way
-            // `BaseItemDto.isAudioContent` already does for a single item
-            // elsewhere: an audio-only (or empty) playlist is dropped, a
-            // mixed-media one passes through unchanged. Delete once
-            // Dionysus Player supports audio/music playback.
+            // AUDIO SUPPRESSION: `"Playlist"` is excluded from
+            // `audioItemTypeExclusions` above, since a Playlists query returns the
+            // Playlist entries rather than their members and item type can't
+            // filter a mixed one. Filtered client-side instead, as
+            // `BaseItemDto.isAudioContent` does per item: an audio-only or empty
+            // playlist is dropped, a mixed one passes through. Delete once audio
+            // playback is supported.
             if query.includeItemTypes.contains("Playlist") {
                 items = items.filter { !$0.isAudioContent }
             }
