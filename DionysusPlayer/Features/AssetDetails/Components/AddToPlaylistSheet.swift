@@ -4,41 +4,34 @@ import SwiftUI
 /// may edit, or a brand new one.
 ///
 /// Presented as a `.sheet` from `AssetActionsButton`, one instance per target
-/// (`.sheet(item:)`), so nothing here has to cope with the target changing
-/// underneath it.
+/// (`.sheet(item:)`), so nothing here copes with the target changing underneath.
 ///
-/// **Three structural choices here are not free-form**, each avoiding a trap
-/// this codebase has already paid for once:
+/// Three structural choices are load-bearing:
 ///
 /// - `.presentationDetents([.large])`, never `[.medium]`.
-///   `AdvancedDownloadOptionsView` records that a row which *pushes* inside a
-///   fixed `.medium` detent reliably loses a hit-testing fight with the
-///   sheet's own pan/resize recognizer — most taps highlight and never
-///   complete. This sheet's whole purpose is rows that push or act, so it
-///   takes the detent that doesn't have a resize gesture to fight.
-/// - Rows are plain `Button`s. There is no `NavigationLink` anywhere in this
-///   file; "New Playlist" pushes via `.navigationDestination(isPresented:)`
-///   from inside a button action, so the push is programmatic and the row
-///   itself is an ordinary control that always registers its tap.
-/// - The list is only ever *one* level of `List` inside the `NavigationStack`.
-///   The create form is a pushed page rather than a second sheet — stacking
-///   sheets to collect a name would put two presentation contexts between the
-///   user and the asset page they started on.
+///   `AdvancedDownloadOptionsView` records that a row which pushes inside a
+///   fixed `.medium` detent loses a hit-testing fight with the sheet's
+///   pan/resize recognizer, so most taps highlight and never complete. This
+///   sheet is entirely rows that push or act.
+/// - Rows are plain `Button`s, with no `NavigationLink` in the file: "New
+///   Playlist" pushes via `.navigationDestination(isPresented:)` from a button
+///   action, so the row is an ordinary control that always registers its tap.
+/// - Only one level of `List` inside the `NavigationStack`. The create form is a
+///   pushed page rather than a second sheet, which would put two presentation
+///   contexts between the user and the asset page.
 struct AddToPlaylistSheet: View {
     @State private var viewModel: AddToPlaylistViewModel
     @Environment(\.dismiss) private var dismiss
 
-    /// Set to a playlist when tapping its row needs to stop and confirm
-    /// first — only ever non-`nil` for a show/season target, per
+    /// Set when tapping a playlist's row needs to confirm first; non-`nil` only
+    /// for a show/season target, per
     /// `AddToPlaylistViewModel.requiresConfirmation`.
     @State private var pendingPlaylist: PlaylistChoice?
     @State private var isShowingCreateForm = false
     @State private var errorMessage: String?
-    /// Bumped on every successful add so `.sensoryFeedback` fires. Pairs
-    /// with the `Toast` posted alongside it: the haptic confirms
-    /// *something* happened, the toast says what — a haptic alone was tried
-    /// first and can't be the whole answer, since it says nothing to a user
-    /// who has haptics off.
+    /// Bumped on every successful add so `.sensoryFeedback` fires. Pairs with the
+    /// `Toast` posted alongside it: the haptic confirms something happened, the
+    /// toast says what, and a haptic alone says nothing to a user who has them off.
     @State private var successHapticTrigger = 0
 
     init(client: JellyfinAPIClient, userID: String, target: MediaItem) {
@@ -68,18 +61,15 @@ struct AddToPlaylistSheet: View {
         .presentationDetents([.large])
         .task { await viewModel.load() }
         .sensoryFeedback(.success, trigger: successHapticTrigger)
-        // An `.alert`, not a `.confirmationDialog`. The dialog form dropped
-        // its Cancel action entirely here (reported from a device,
-        // 2026-09-08) — the same omission `AssetActionsButton`'s delete
-        // dialog documents for a toolbar-anchored dialog, which iOS renders
-        // as a popover with tap-outside dismissal. Inside a sheet there's no
-        // equivalent "tap outside", so losing Cancel leaves the user with a
-        // dialog whose only visible action is the one they may not want.
-        // An alert always renders both.
+        // An `.alert`, not a `.confirmationDialog`: the dialog form dropped its
+        // Cancel action here, the same omission `AssetActionsButton`'s delete
+        // dialog documents for a toolbar-anchored popover with tap-outside
+        // dismissal. Inside a sheet there's no tap-outside, so losing Cancel
+        // leaves only the action the user may not want. An alert renders both.
         //
         // Driven off `pendingPlaylist` rather than a separate `Bool`, so the
-        // playlist a confirmation applies to can't drift from the row that
-        // raised it — same reasoning as `AssetActionsButton`'s delete dialog.
+        // playlist a confirmation applies to can't drift from the row that raised
+        // it.
         .alert(
             confirmationTitle,
             isPresented: .init(
@@ -88,9 +78,8 @@ struct AddToPlaylistSheet: View {
             ),
             presenting: pendingPlaylist
         ) { playlist in
-            // Titled with the count ("Add 6 Episodes"), not a bare "Add":
-            // on a dialog about a whole show, how many things are about to
-            // be appended is the detail worth putting on the button itself.
+            // Titled with the count ("Add 6 Episodes"), not a bare "Add": on a
+            // dialog about a whole show, the count belongs on the button.
             Button(viewModel.addActionTitle) {
                 Task {
                     await perform(
@@ -140,11 +129,10 @@ struct AddToPlaylistSheet: View {
                 }
                 .accessibilityIdentifier(A11yID.AddToPlaylist.newPlaylistButton)
             } footer: {
-                // Attached to *this* section rather than given an empty
-                // section of its own, which wouldn't reliably render a
-                // footer at all. Not an `ErrorStateView` and not a disabled
-                // row either: there's still a perfectly good action directly
-                // above it, so this explains an absence rather than
+                // Attached to this section rather than an empty section of its
+                // own, which wouldn't reliably render a footer. Not an
+                // `ErrorStateView` or a disabled row either: there's a working
+                // action directly above, so this explains an absence rather than
                 // replacing the screen with a failure.
                 if viewModel.playlists.isEmpty {
                     Text("You don't have edit access to any existing playlists. Create a new one instead.")
@@ -169,15 +157,14 @@ struct AddToPlaylistSheet: View {
         .disabled(viewModel.isSubmitting)
     }
 
-    /// A destination row. The already-added state is a trailing checkmark
-    /// plus a disabled row, not a hidden one — a playlist silently missing
-    /// from the list reads as "something went wrong", where a greyed row
-    /// with a tick reads as "you've already done this".
+    /// A destination row. The already-added state is a trailing checkmark on a
+    /// disabled row rather than a hidden one: a playlist missing from the list
+    /// reads as something going wrong, where a greyed row with a tick reads as
+    /// already done.
     ///
-    /// The checkmark carries no accessibility element of its own; the whole
-    /// row collapses to one, with the state spoken as its *value* rather
-    /// than baked into the label, so VoiceOver reads "Weekend Watchlist,
-    /// Already added, dimmed" instead of a name that changes shape.
+    /// The checkmark carries no accessibility element; the row collapses to one,
+    /// with the state spoken as its value rather than baked into the label, so
+    /// VoiceOver reads "Weekend Watchlist, Already added, dimmed".
     @ViewBuilder
     private func row(for playlist: PlaylistChoice) -> some View {
         HStack {
@@ -189,9 +176,8 @@ struct AddToPlaylistSheet: View {
                     .accessibilityHidden(true)
             }
         }
-        // A `Button` label containing a `Spacer` only hit-tests where its
-        // content is actually painted — the gap in the middle of this row
-        // would otherwise be dead.
+        // A `Button` label containing a `Spacer` only hit-tests where its content
+        // is painted, leaving the gap mid-row dead.
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityValue(
@@ -212,14 +198,14 @@ struct AddToPlaylistSheet: View {
         }
     }
 
-    /// Runs one mutating call, then either dismisses the whole sheet on
-    /// success or surfaces the failure without dismissing, so the user's
-    /// selection isn't thrown away by an error they might want to retry.
+    /// Runs one mutating call, then dismisses the sheet on success or surfaces
+    /// the failure without dismissing, so an error the user might retry doesn't
+    /// throw away their selection.
     ///
-    /// The toast is posted *before* `dismiss()`, and to `ToastCenter` rather
-    /// than to anything in this view's own hierarchy: this sheet is about to
-    /// stop existing, so a confirmation it owned would be torn down in the
-    /// same frame it appeared. See `ToastHost`.
+    /// The toast is posted before `dismiss()`, and to `ToastCenter` rather than
+    /// anything in this hierarchy: this sheet is about to stop existing, so a
+    /// confirmation it owned would be torn down in the frame it appeared. See
+    /// `ToastHost`.
     private func perform(toast message: String, _ work: () async throws -> Void) async {
         do {
             try await work()
@@ -232,18 +218,15 @@ struct AddToPlaylistSheet: View {
     }
 }
 
-/// The pushed "name your new playlist" page.
-///
-/// Split out rather than inlined so the parent's `body` stays readable, and
-/// kept `private` to this file — nothing else presents it.
+/// The pushed "name your new playlist" page. `private`: nothing else presents it.
 private struct NewPlaylistForm: View {
     let viewModel: AddToPlaylistViewModel
     let onCreate: (String, Bool) async -> Void
 
     @State private var name = ""
-    /// Private by default, matching Jellyfin's own web client (whose "Public"
-    /// checkbox ships unchecked). Note this must always be *sent*, whichever
-    /// way it's set — see `CreatePlaylistRequest.isPublic`.
+    /// Private by default, matching Jellyfin's web client, whose "Public" checkbox
+    /// ships unchecked. Must always be sent whichever way it's set — see
+    /// `CreatePlaylistRequest.isPublic`.
     @State private var isPublic = false
     @State private var isConfirming = false
     @FocusState private var isNameFocused: Bool
@@ -259,10 +242,9 @@ private struct NewPlaylistForm: View {
                     .textInputAutocapitalization(.words)
                     .submitLabel(.done)
                     .focused($isNameFocused)
-                    // The placeholder is this field's only visible label and
+                    // The placeholder is the field's only visible label and
                     // vanishes on the first keystroke, so VoiceOver needs an
-                    // explicit one — the same rule `ServerSetupView` and
-                    // `LoginView` follow for their own fields.
+                    // explicit one, as in `ServerSetupView` and `LoginView`.
                     .accessibilityLabel("Playlist Name")
                     .accessibilityIdentifier(A11yID.AddToPlaylist.nameField)
                     .onSubmit { if !trimmedName.isEmpty { isConfirming = true } }
@@ -285,8 +267,8 @@ private struct NewPlaylistForm: View {
             }
         }
         .onAppear { isNameFocused = true }
-        // `.alert`, not `.confirmationDialog`, for the same reason the add
-        // confirmation in the parent uses one — see its comment.
+        // `.alert`, not `.confirmationDialog`, for the reason the parent's add
+        // confirmation gives.
         .alert(
             String(localized: "Create \"\(trimmedName)\""),
             isPresented: $isConfirming

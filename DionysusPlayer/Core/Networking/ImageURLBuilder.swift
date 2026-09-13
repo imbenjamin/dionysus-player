@@ -1,9 +1,8 @@
 import Foundation
 
-/// A plain-value snapshot of what's needed to build Jellyfin image URLs, so
-/// views can compute them synchronously (e.g. inside a SwiftUI `body`)
-/// without hopping back to the `JellyfinAPIClient` actor for every
-/// poster/thumbnail.
+/// A value snapshot of what's needed to build Jellyfin image URLs, so views can
+/// compute them synchronously inside a `body` without hopping back to the
+/// `JellyfinAPIClient` actor per thumbnail.
 struct ImageURLBuilder: Equatable {
     var baseURL: URL
     var accessToken: String?
@@ -22,16 +21,12 @@ struct ImageURLBuilder: Equatable {
         return components.url
     }
 
-    /// URL for one chapter's still frame. Same `Items/{id}/Images/{type}`
-    /// route and query shape (`tag`/`maxWidth`/`ApiKey`) as `url(itemID:...)`
-    /// above, plus a trailing index path segment — Jellyfin addresses a
-    /// chapter image by the chapter's own 0-based position in the item's
-    /// `Chapters` array, since a `ChapterInfoDto` carries no id of its own.
+    /// One chapter's still frame: `url(itemID:...)`'s route and query plus a
+    /// trailing index segment, since Jellyfin addresses a chapter image by its
+    /// 0-based position — a `ChapterInfoDto` has no id.
     ///
-    /// `tag` is non-optional here, unlike `url(itemID:...)`'s: a chapter with
-    /// no `imageTag` has no image at all (see `ChapterInfoDto.imageTag`), so
-    /// there's no "tagless but still serves something" case to allow for the
-    /// way an episode's Primary image has.
+    /// `tag` is non-optional here: a chapter with no `imageTag` has no image at
+    /// all, unlike an episode's tagless but still served Primary image.
     func chapterImageURL(itemID: String, chapterIndex: Int, tag: String, maxWidth: Int? = nil) -> URL? {
         guard var components = URLComponents(
             url: baseURL.appendingPathComponent("Items/\(itemID)/Images/Chapter/\(chapterIndex)"),
@@ -45,8 +40,8 @@ struct ImageURLBuilder: Equatable {
         return components.url
     }
 
-    /// URL for a user's profile picture. Uses Jellyfin's `Users/{id}/Images/{type}`
-    /// endpoint (distinct from item images); `tag` should be `UserDto.primaryImageTag`.
+    /// A user's profile picture, from `Users/{id}/Images/{type}` rather than the
+    /// item-image route. `tag` should be `UserDto.primaryImageTag`.
     func userImageURL(userID: String, imageType: String = "Primary", tag: String? = nil, maxWidth: Int? = nil) -> URL? {
         guard var components = URLComponents(
             url: baseURL.appendingPathComponent("Users/\(userID)/Images/\(imageType)"),
@@ -61,11 +56,9 @@ struct ImageURLBuilder: Equatable {
         return components.url
     }
 
-    /// URL for one Jellyfin trickplay tile-sheet JPEG. Confirmed live: the
-    /// route takes no `MediaSourceId` path segment — unlike `url(itemID:...)`'s
-    /// `/Items/{id}/Images/...` shape, `width` and `sheetIndex` are the only
-    /// variables. See `TrickplayThumbnailProvider` for the math that turns
-    /// a scrub position into which sheet to fetch and which tile to crop.
+    /// One trickplay tile-sheet JPEG. The route takes no `MediaSourceId` segment:
+    /// `width` and `sheetIndex` are its only variables. `TrickplayMath` turns a
+    /// scrub position into which sheet and tile.
     func trickplayTileURL(itemID: String, width: Int, sheetIndex: Int) -> URL? {
         guard var components = URLComponents(
             url: baseURL.appendingPathComponent("Videos/\(itemID)/Trickplay/\(width)/\(sheetIndex).jpg"),

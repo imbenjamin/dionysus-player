@@ -2,7 +2,7 @@ import XCTest
 @testable import Dionysus
 
 /// `DownloadFileStore` writes under the real `Application Support`
-/// directory (see its own doc comment for why — never `Caches`), so these
+/// directory (see its doc comment for why — never `Caches`), so these
 /// tests clean up every file/itemID they touch in `tearDown` to avoid
 /// leaking state across runs.
 final class DownloadFileStoreTests: XCTestCase {
@@ -129,7 +129,7 @@ final class DownloadFileStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: DownloadFileStore.url(forRelativePath: DownloadFileStore.videoRelativePath(itemID: itemID)).path))
     }
 
-    // MARK: deleteOrphanedItemDirectories — the launch-time orphan sweep (2026-08-20)
+    // MARK: deleteOrphanedItemDirectories — the launch-time orphan sweep
 
     func test_deleteOrphanedItemDirectories_removesDirectoriesWithNoKnownItemID() throws {
         let orphanID = uniqueItemID()

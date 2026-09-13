@@ -2,59 +2,44 @@ import CoreGraphics
 import Foundation
 import SwiftUI
 
-/// Playback state as the rest of the app sees it — deliberately smaller
-/// than AetherEngine's own state so feature code isn't coupled to it.
+/// Playback state as the app sees it, smaller than AetherEngine's own so
+/// feature code isn't coupled to it.
 enum PlaybackState: Equatable {
     case idle
     case loading
     case playing
     case paused
     case seeking
-    /// Frames have stopped advancing because of an ordinary mid-playback
-    /// buffer underrun on an otherwise-healthy connection. Bridged from
-    /// AetherEngine's `PlaybackPhase.rebuffering` — see
-    /// `AetherPlaybackEngine.observeEngine()` — which AetherEngine can
-    /// report while its own underlying `state` is still `.playing`, so
-    /// watching `state` alone (as this app briefly did) missed it entirely:
-    /// a scrub-seek landing into a spot that then needs to rebuffer looked
-    /// like it had silently paused, with no spinner, rather than reading as
-    /// still loading.
+    /// Frames stopped advancing on a buffer underrun over a healthy
+    /// connection. Bridged from `PlaybackPhase.rebuffering`, which AetherEngine
+    /// reports while its own `state` is still `.playing` — so watching `state`
+    /// alone misses it, and a seek landing somewhere that needs to rebuffer
+    /// looks silently paused with no spinner.
     case buffering
-    /// Frames have stopped advancing because the source *connection*
-    /// itself dropped and AetherEngine is actively retrying — distinct
-    /// from `.buffering`'s healthy-connection underrun so the UI can show
-    /// "Reconnecting…" instead of a generic spinner, and so a subsequent
-    /// terminal `.failed` reads as "the reconnect attempt gave up" rather
-    /// than an unrelated surprise. Bridged from AetherEngine's
-    /// `PlaybackPhase.stalled(reconnecting:)`.
+    /// Frames stopped advancing because the source connection dropped and
+    /// AetherEngine is retrying. Distinct from `.buffering` so the UI can show
+    /// "Reconnecting…", and so a following `.failed` reads as the reconnect
+    /// giving up. Bridged from `PlaybackPhase.stalled(reconnecting:)`.
     case reconnecting
     case ended
     case failed(PlaybackFailure)
 }
 
-/// A normalized playback failure — the app's own shape for whatever
-/// AetherEngine (or an HTTP/decode error surfaced before a load ever
-/// reaches the engine) reported, same role as `PlaybackTrack`/
-/// `SubtitleCueDisplay` keeping AetherEngine's own types off this
-/// protocol's boundary. `AetherPlaybackEngine` is the only conformer that
-/// classifies AetherEngine's `PlaybackErrorKind` into `category` — see
-/// `AetherPlaybackEngine.category(for:)`.
+/// The app's shape for a playback failure, from AetherEngine or from an HTTP or
+/// decode error raised before the engine sees the load. Keeps AetherEngine's
+/// types off the `PlaybackEngine` boundary, as `PlaybackTrack` does.
 struct PlaybackFailure: Equatable {
-    /// What kind of recovery, if any, makes sense — mirrors the one
-    /// distinction AetherEngine's own docs recommend branching on
-    /// (`PlaybackErrorKind.sourceRateLimited` vs `.sourceRefused`), plus a
-    /// catch-all for everything else Retry already handles today.
+    /// What recovery, if any, makes sense. Mirrors the distinction
+    /// AetherEngine recommends branching on — `sourceRateLimited` versus
+    /// `sourceRefused` — plus a catch-all.
     enum Category: Equatable {
-        /// An access/format/hardware problem retrying can't fix (e.g. the
-        /// source refused the request, or this device can't decode what
-        /// the source actually is) — `PlayerView` shows Close only, no
-        /// Retry.
+        /// An access, format or hardware problem retrying can't fix.
+        /// `PlayerView` offers Close only.
         case refused
-        /// The origin is metering us (HTTP 429/503/509) — expected to work
-        /// again later, so Retry stays offered with no Close.
+        /// Origin metering (HTTP 429/503/509), expected to recover, so Retry
+        /// stays offered with no Close.
         case rateLimited
-        /// Engine-internal or otherwise recoverable-by-retry — today's
-        /// existing default behavior for every failure.
+        /// Engine-internal or otherwise recoverable by retry.
         case transient
     }
 
@@ -62,89 +47,65 @@ struct PlaybackFailure: Equatable {
     var category: Category = .transient
 }
 
-/// Thrown by `AetherPlaybackEngine.load(...)` in place of the raw
-/// underlying `AetherEngine` error, so `PlayerViewModel`'s existing
-/// `(error as? LocalizedError)?.errorDescription ?? fallback` idiom keeps
-/// working unchanged for the message, while `category` rides alongside for
-/// the Retry-vs-Close choice.
+/// Thrown by `AetherPlaybackEngine.load(...)` in place of the raw AetherEngine
+/// error, so `PlayerViewModel`'s `LocalizedError` idiom still yields the
+/// message while `category` carries the Retry-versus-Close choice.
 struct PlaybackLoadFailure: Error, LocalizedError, Equatable {
     var failure: PlaybackFailure
     var errorDescription: String? { failure.message }
 }
 
-/// How the video surface fills its available space — the landscape
-/// "pinch/double-tap to zoom" affordance in `PlayerView` toggles this.
+/// How the video surface fills its space; `PlayerView`'s landscape pinch and
+/// double-tap gestures toggle it.
 enum VideoZoomMode: Equatable {
-    /// The whole frame is visible, letterboxed/pillarboxed if its aspect
-    /// ratio doesn't match the screen's. The default, and the only mode
-    /// used in portrait — see `PlayerView.isLandscape`'s doc comment.
+    /// The whole frame, letterboxed or pillarboxed on an aspect mismatch. The
+    /// default, and the only mode used in portrait.
     case fit
-    /// The frame fills the screen with no letterboxing, cropping whatever
-    /// doesn't fit — the standard streaming-app "zoomed in" look.
+    /// Fills the screen, cropping whatever doesn't fit.
     case fill
 
     var toggled: VideoZoomMode { self == .fit ? .fill : .fit }
 }
 
-/// A snapshot of engine/session diagnostics for the "stats for nerds"
-/// overlay (`PlaybackStatsOverlay`) — polled on a timer while that overlay is
-/// visible rather than pushed, since none of this is needed at normal UI
-/// cadence. Every field is already display-ready (formatted, or nil when the
-/// underlying value genuinely isn't known yet) so the overlay stays a thin
-/// text layout with no formatting logic of its own.
+/// Engine and session diagnostics for `PlaybackStatsOverlay`, polled on a timer
+/// while it is visible rather than pushed. Every field is display-ready, or nil
+/// when not yet known, so the overlay stays a thin text layout.
 struct PlaybackStats: Equatable {
-    /// Source pixel dimensions, e.g. "1920×804". `nil` before the video
-    /// track is known (still loading, or an audio-only source).
+    /// Source pixel dimensions, "1920×804". `nil` while loading and for
+    /// audio-only sources.
     var videoSize: String?
     var frameRate: String?
     var bitrate: String?
-    /// The source file's own dynamic-range format (e.g. "Dolby Vision
-    /// (Profile 5)") — what's actually in the file, independent of whether
-    /// this device's panel can present it.
+    /// The dynamic-range format in the file, independent of whether this panel
+    /// can present it.
     var sourceColorFormat: String
-    /// What's actually being handed to the display after any panel
-    /// clamping (e.g. a Dolby Vision source tone-mapped down to HDR10 on a
-    /// panel that can't accept DV) — differs from `sourceColorFormat`
-    /// exactly when that clamping happens.
+    /// What reaches the display after panel clamping — a Dolby Vision source
+    /// tone-mapped to HDR10, say. Differs from `sourceColorFormat` exactly when
+    /// clamping happens.
     var displayColorFormat: String
     var videoDecoder: String?
     var audioDecoder: String?
-    /// The active audio track's channel layout (e.g. "2.0", "5.1", "7.1",
-    /// or "Atmos" for a JOC-profile EAC3 track) — not the output device's
-    /// own channel count, which the overlay shows separately alongside the
-    /// audio route. `nil` before a track is known.
+    /// The active audio track's channel layout ("5.1", or "Atmos" for a
+    /// JOC-profile EAC3 track), not the output device's channel count, which
+    /// the overlay shows separately. `nil` before a track is known.
     var audioChannels: String?
-    /// "Native", "Software", "Audio", or "None" — AetherEngine's internal
-    /// rendering backend, surfaced read-only for diagnostics like this.
+    /// AetherEngine's rendering backend: "Native", "Software", "Audio", "None".
     var backend: String
-    /// "Remote Bypass", "Loopback", "Software", "Audio", or "None" —
-    /// `AetherEngine.videoRoute`, which pipeline is *actually* serving the
-    /// session right now. Deliberately separate from `backend` above:
-    /// AetherEngine's own docs are explicit that `playbackBackend` cannot
-    /// tell `.remoteBypass` (AVPlayer on the origin URL, e.g. a Jellyfin
-    /// transcode's HLS playlist handed straight over) apart from
-    /// `.loopback` (AetherEngine's own local demux/remux, the default) —
-    /// both collapse to the same `.native` backend value. This field is
-    /// what answers that question honestly, including the reroutes
-    /// AetherEngine can make on its own findings mid-session (a
-    /// misdeclared HLS carriage, a doomed native mount) — see
-    /// `DeviceProfile.swift`'s `hlsTranscode` doc comment for why this
-    /// distinction mattered enough to add a dedicated row for it.
+    /// `AetherEngine.videoRoute`: which pipeline is serving the session.
+    /// Separate from `backend`, which cannot distinguish `.remoteBypass`
+    /// (AVPlayer on the origin URL) from `.loopback` (AetherEngine's local
+    /// demux and remux) — both collapse to `.native`. This also reflects the
+    /// reroutes AetherEngine makes mid-session on its own findings, such as a
+    /// misdeclared HLS carriage.
     var route: String
-    /// Seconds of video already fetched/decoded ahead of the playhead —
-    /// the safety margin before playback would need to pause and
-    /// rebuffer. `nil` when the backend isn't `.native`: AetherEngine's
-    /// `bufferedPosition` is only a genuine read-ahead measure on the
-    /// native AVPlayer path, backed by its segment cache. On the software
-    /// decode path it's defined as "newest demuxed PTS since session
-    /// start," which tracks the playhead itself rather than any real
-    /// look-ahead — reporting that as a buffered amount would just read as
-    /// a permanently-stuck "0.0s" (indistinguishable from a genuine stall)
-    /// rather than the "not available on this backend" it actually is.
+    /// Seconds fetched ahead of the playhead: the margin before playback would
+    /// rebuffer. `nil` off the native backend, where `bufferedPosition` means
+    /// "newest demuxed PTS since session start" and tracks the playhead rather
+    /// than any read-ahead — reporting that would read as a stuck "0.0s",
+    /// indistinguishable from a stall.
     var bufferedSeconds: Double?
-    /// Resident size, in bytes, of the same segment cache `bufferedSeconds`
-    /// measures — `nil` in exactly the same case (backend isn't `.native`),
-    /// for the same reason.
+    /// Resident size of the segment cache `bufferedSeconds` measures; `nil` in
+    /// the same case.
     var bufferedBytes: Int64?
     var currentTime: TimeInterval
     var duration: TimeInterval
@@ -160,27 +121,19 @@ struct PlaybackTrack: Identifiable, Hashable {
 
     var id: Int
     var kind: Kind
-    /// The picker row's main line — a provided, genuinely descriptive track
-    /// name (e.g. "Director's Commentary") when there is one, otherwise a
-    /// user-friendly language name derived from the track's language code
-    /// (e.g. "English" rather than "ENG" or "ENG (srt)"). See
-    /// `AetherPlaybackEngine.title(for:)` for how the two are told apart.
+    /// The picker row's main line: a descriptive track name where one exists,
+    /// else a friendly language name ("English", not "ENG (srt)"). See
+    /// `AetherPlaybackEngine.title(for:)`.
     var title: String
-    /// The picker row's secondary, metadata line — whichever of "Default"/
-    /// "Forced"/"Hearing Impaired"/"Commentary"/"External" apply to this
-    /// track, already joined and display-ready. Audio tracks additionally
-    /// carry their format ("DD"/"DD+"/"DTS"/...), a separate "Atmos" flag
-    /// when applicable (additive, not a replacement for the format — a
-    /// Dolby Digital Plus/Atmos track is still "DD+" first), and channel
-    /// layout ("Stereo"/"5.1"/"7.1"/...) — see `AetherPlaybackEngine
-    /// .audioFormatLabel(for:)`/`.channelsLabel(for:)`. `nil` when none of
-    /// the above apply (nothing to show under the title).
+    /// The picker row's metadata line: whichever of "Default", "Forced",
+    /// "Hearing Impaired", "Commentary" and "External" apply, joined and
+    /// display-ready. Audio tracks also carry format, an additive "Atmos" flag,
+    /// and channel layout. `nil` when nothing applies.
     var metadata: String?
     var isSelected: Bool
 
-    /// A copy with only `isSelected` changed — `AetherPlaybackEngine`
-    /// re-maps its whole track list on every selection/active-index change
-    /// just to flip this one field, without disturbing `title`/`metadata`.
+    /// A copy with only `isSelected` changed. `AetherPlaybackEngine` re-maps
+    /// its whole track list on every selection change to flip this one field.
     func selected(_ isSelected: Bool) -> PlaybackTrack {
         var copy = self
         copy.isSelected = isSelected
@@ -188,68 +141,52 @@ struct PlaybackTrack: Identifiable, Hashable {
     }
 }
 
-/// A sidecar subtitle file to register alongside a load — normalized from
-/// Jellyfin's `MediaStream` (the `isExternal == true` entries in a
-/// `MediaSourceInfo.mediaStreams` list) so `PlaybackEngine` conformers never
-/// depend on AetherEngine's own `ExternalSubtitleTrack` directly, matching
-/// `PlaybackTrack`/`SubtitleCueDisplay`'s existing role. `AetherPlaybackEngine
-/// .load(url:externalSubtitles:)` maps these onto `LoadOptions
-/// .externalSubtitles`; AetherEngine then folds each into `$subtitleTracks`
-/// with a synthetic id and `isExternal == true`, which the existing track-
-/// label normalization already turns into an "External" metadata flag.
+/// A sidecar subtitle file to register alongside a load, normalized from
+/// Jellyfin's `isExternal` `MediaStream`s so conformers don't depend on
+/// AetherEngine's `ExternalSubtitleTrack`. AetherEngine folds each into
+/// `$subtitleTracks` with a synthetic id and `isExternal == true`, which track
+/// normalization turns into an "External" metadata flag.
 struct ExternalSubtitleSource: Equatable {
     var url: URL
-    /// The embedded-style track name, if Jellyfin reports one — same
-    /// "genuinely descriptive title vs. bare language echo" heuristic in
-    /// `AetherPlaybackEngine.descriptiveName(_:)` applies once this reaches
-    /// `TrackInfo.name`, so passing `nil` here is fine and just falls
-    /// through to a friendly language name.
+    /// The track name Jellyfin reports, if any. `descriptiveName(_:)`'s
+    /// heuristic applies once this reaches `TrackInfo.name`, so `nil` simply
+    /// falls through to a friendly language name.
     var name: String?
-    /// BCP-47 / ISO 639 code, same convention as `PlaybackTrack`'s embedded
-    /// tracks.
+    /// BCP-47 or ISO 639, as for embedded tracks.
     var language: String?
     var isForced: Bool = false
     var isHearingImpaired: Bool = false
     var isDefault: Bool = false
-    /// File-extension override for a `url` whose path doesn't reveal the
-    /// subtitle format — Jellyfin's `MediaStream.codec` values ("subrip",
-    /// "ass", "webvtt", ...) already match what AetherEngine expects here.
+    /// Format override for a `url` whose path doesn't reveal it. Jellyfin's
+    /// `MediaStream.codec` values already match what AetherEngine expects.
     var formatHint: String?
 }
 
-/// A decoded subtitle cue ready for the app's own overlay to paint —
-/// normalized from AetherEngine's `SubtitleCue`/`SubtitleTextRun`/
-/// `SubtitleTextPlacement`/`SubtitleImage` so `SubtitleOverlayView` never
-/// depends on AetherEngine's types directly, matching `PlaybackTrack`'s
-/// existing role for the track lists. AetherEngine emits cues; it draws
-/// nothing itself — see `AetherPlaybackEngine.observeEngine()` for where
-/// this gets populated from `engine.$subtitleCues`.
+/// A decoded subtitle cue for the app's overlay to paint, normalized from
+/// AetherEngine's subtitle types so `SubtitleOverlayView` doesn't depend on
+/// them. AetherEngine emits cues and draws nothing itself.
 ///
-/// `startTime`/`endTime` are in source PTS seconds — filter against
-/// `PlayerViewModel.sourceTime`, not `currentTime` (the item/AVPlayer
-/// clock), since the two can diverge across producer restarts. The cue
-/// list itself covers a window ahead of the playhead rather than just
-/// "now," so a cue with no active window simply isn't rendered yet.
+/// `startTime`/`endTime` are source PTS seconds: filter against
+/// `PlayerViewModel.sourceTime`, not `currentTime`, since the two diverge
+/// across producer restarts. The list covers a window ahead of the playhead, so
+/// a cue outside its active window simply isn't rendered yet.
 struct SubtitleCueDisplay: Identifiable, Equatable {
     var id: Int
     var startTime: TimeInterval
     var endTime: TimeInterval
     var body: Body
-    /// Where the source asked this cue to be drawn (ASS `\an`/`\pos`);
-    /// `nil` for the overwhelming majority of cues, which want the
-    /// overlay's own default (bottom-center). Text/rich-text cues only —
-    /// an image cue carries its own geometry on `Body.image`.
+    /// Where the source asked this cue to be drawn (ASS `\an`/`\pos`); `nil`
+    /// for most cues, which take the overlay's bottom-center default. Text cues
+    /// only — an image cue carries its geometry on `Body.image`.
     var placement: Placement?
 
     enum Body: Equatable {
         case text(String)
         case richText([Run])
-        /// `rect`/`canvasSize` are normalized `[0, 1]` against the source
-        /// video frame, same contract as `SubtitleImage.position`/
-        /// `.canvasSize` — map them onto the on-screen video rect to place
-        /// the image where the disc/broadcast authored it. `canvasSize ==
-        /// .zero` means "treat canvas == video," per that property's own
-        /// doc comment.
+        /// `rect`/`canvasSize` are normalized `[0, 1]` against the source frame,
+        /// as `SubtitleImage.position` is: map them onto the on-screen video
+        /// rect to place the image where it was authored. A `.zero`
+        /// `canvasSize` means the canvas equals the video.
         case image(CGImage, rect: CGRect, canvasSize: CGSize)
 
         static func == (lhs: Body, rhs: Body) -> Bool {
@@ -263,10 +200,10 @@ struct SubtitleCueDisplay: Identifiable, Equatable {
         }
     }
 
-    /// One contiguous same-styling span of a rich-text cue — SRT/WebVTT
-    /// inline tags, ASS override tags, and teletext colour all arrive
-    /// normalized to this same shape. A run with no attribute set stays
-    /// plain `.text` upstream rather than becoming a one-run `.richText`.
+    /// One contiguous same-styling span of a rich-text cue. SRT/WebVTT inline
+    /// tags, ASS override tags and teletext colour all normalize to this shape.
+    /// A cue with no attributes stays plain `.text` rather than one-run
+    /// `.richText`.
     struct Run: Equatable {
         var text: String
         var color: Color?
@@ -276,16 +213,15 @@ struct SubtitleCueDisplay: Identifiable, Equatable {
         var isStruckThrough: Bool = false
     }
 
-    /// ASS numpad alignment (`\an`: 1 bottom-left through 9 top-right, 5
-    /// centred) plus an optional `[0, 1]`-normalized anchor from `\pos`
-    /// (y from the top). Either may be present alone.
+    /// ASS numpad alignment (`\an`: 1 bottom-left to 9 top-right, 5 centred)
+    /// plus an optional normalized `\pos` anchor, y from the top. Either may
+    /// appear alone.
     struct Placement: Equatable {
         var alignment: Int?
         var position: CGPoint?
     }
 
-    /// Plain text for text and rich-text cues (rich runs concatenated);
-    /// `nil` for image cues. Mirrors `SubtitleCue.text`.
+    /// Plain text, with rich runs concatenated; `nil` for image cues.
     var text: String? {
         switch body {
         case .text(let string): return string

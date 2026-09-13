@@ -19,9 +19,9 @@ import SwiftUI
 /// same math, and the same `DeviceTiltObserver`/`hero3DDepthEnabledStorageKey`
 /// pairing so this screen obeys Reduce Motion and the Profile "3D Depth
 /// Effects" toggle exactly like every other depth-effect surface in the app.
-/// An earlier version drove its own bespoke `CMMotionManager`-based glyph
-/// offset instead — replaced entirely per direct feedback that it should
-/// match the hero's real 3D effect rather than a one-off parallax.
+/// A bespoke `CMMotionManager`-based glyph offset was tried first — dropped
+/// so this screen's effect matches the hero's real 3D effect rather than a
+/// one-off parallax.
 struct SplashView: View {
     /// `.shared`, not a per-view instance — see `DeviceTiltObserver`'s own
     /// doc comment for why (one physical sensor shared app-wide).
@@ -136,7 +136,7 @@ struct SplashView: View {
         }
         // Not also calling `tiltObserver.warmUp()` here — `AppState.start()`
         // already fires it once, unconditionally, during exactly this
-        // splash/session-restore window (see its own doc comment for why
+        // splash/session-restore window (see its doc comment for why
         // there specifically). Calling it a second time from here would
         // race this view's own `acquire()` below: `warmUp()`'s direct
         // `stop()` isn't reference-counted against `acquire()`/`release()`,

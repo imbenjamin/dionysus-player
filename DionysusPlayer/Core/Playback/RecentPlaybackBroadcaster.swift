@@ -1,23 +1,19 @@
 import Observation
 
-/// Broadcasts the most recent `PlaybackSessionOutcome` — posted centrally by
-/// `PlayerView.tearDown()` for every playback session, regardless of which
-/// screen presented it — so any other feature that shows a resume/progress
-/// position can reflect it immediately rather than waiting on Jellyfin's own
-/// userData commit latency to catch up. This is the same problem
-/// `AssetDetailViewModel.applyOptimisticPlaybackPosition(_:)` already solves
-/// for the detail page itself (see that method's own doc comment for the
-/// underlying server behavior), just broadcast globally instead of handed
-/// directly to one presenter — `HomeViewModel`'s Continue Watching/Next Up
-/// rails are today's only other consumer, added after a resume point was
-/// confirmed live (2026-09-02) to look accurate on the detail page right
-/// after playback but stale on Home moments later: Home's soft refresh was
-/// doing a single unguarded server fetch with no optimistic overlay at all,
-/// unlike the detail page.
+/// Broadcasts the most recent `PlaybackSessionOutcome`, posted by
+/// `PlayerView.tearDown()` for every session whatever screen presented it, so
+/// any feature showing a resume position can reflect it without waiting on
+/// Jellyfin's userData commit latency.
 ///
-/// Follows the same plain-singleton convention as `ConnectivityMonitor
-/// .shared`/`LibraryAvailability.shared` — referenced directly in view
-/// model code rather than routed through SwiftUI's `Environment`.
+/// The same problem `AssetDetailViewModel.applyOptimisticPlaybackPosition(_:)`
+/// solves for the detail page, broadcast globally rather than handed to one
+/// presenter. `HomeViewModel`'s Continue Watching and Next Up rails are the only
+/// other consumer: their soft refresh was a single unguarded server fetch with
+/// no optimistic overlay, so a resume point looked accurate on the detail page
+/// and stale on Home moments later.
+///
+/// A plain singleton, referenced directly from view-model code rather than
+/// through `Environment`.
 @MainActor
 @Observable
 final class RecentPlaybackBroadcaster {
@@ -31,17 +27,15 @@ final class RecentPlaybackBroadcaster {
         pendingOutcome = outcome
     }
 
-    /// Single-shot: returns the pending outcome (if any) and clears it, so
-    /// each posted outcome is only ever consumed once. Fine with exactly
-    /// one consumer today (`HomeViewModel`); a second consumer would need
-    /// its own delivery mechanism rather than racing this one for the same
-    /// single value.
+    /// Single-shot: returns the pending outcome and clears it, so each is
+    /// consumed once. Fine with one consumer; a second would need its own
+    /// delivery rather than racing this one for the same value.
     func consume() -> PlaybackSessionOutcome? {
         defer { pendingOutcome = nil }
         return pendingOutcome
     }
 
-    /// Test-only reset — mirrors `LibraryAvailability.reset()`.
+    /// Test-only reset.
     func reset() {
         pendingOutcome = nil
     }

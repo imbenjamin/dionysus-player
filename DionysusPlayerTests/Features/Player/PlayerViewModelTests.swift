@@ -123,9 +123,9 @@ final class PlayerViewModelTests: XCTestCase {
 
     // MARK: start() — streaming mode (Direct Play Always vs. Allow Transcoding)
 
-    /// The default `StreamDecisionMode` (Allow Transcoding, since
-    /// 2026-08-28 — see `StreamPreferenceStore.decisionMode`'s doc comment
-    /// for why) — pins that a real `DeviceProfile` goes out on
+    /// The default `StreamDecisionMode` (Allow Transcoding — see
+    /// `StreamPreferenceStore.decisionMode`'s doc comment for why) — pins
+    /// that a real `DeviceProfile` goes out on
     /// `/PlaybackInfo` with no Settings change needed, and that a response
     /// with no `transcodingUrl` (this stub's) still falls back to the plain
     /// direct-play path exactly as Direct Play Always would. The top-level
@@ -134,7 +134,7 @@ final class PlayerViewModelTests: XCTestCase {
     /// `DeviceProfile.MaxStreamingBitrate` is still present inside the
     /// nested profile regardless, since Jellyfin defaults an absent value
     /// there to a restrictive 8 Mbps server-side (see
-    /// `DeviceProfileBuilder`'s own doc comment).
+    /// `DeviceProfileBuilder`'s doc comment).
     func test_start_allowTranscoding_default_sendsDeviceProfileAndFallsBackToDirectPlayURL() async {
         let (viewModel, engine) = makeViewModel()
         var playbackInfoBody: [String: Any]?
@@ -531,8 +531,8 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(engine.loadedAtmosAudioTrackIndices, [[1]])
     }
 
-    /// Regression test for a real bug (found live, 2026-08-14, on a Saving
-    /// Private Ryan source): Jellyfin numbers `isExternal == true` streams
+    /// Regression test for a real bug, found live on a source with an
+    /// external subtitle track: Jellyfin numbers `isExternal == true` streams
     /// into the same index sequence as embedded ones even though they
     /// carry no bytes in the physical container AetherEngine demuxes, so a
     /// stream's reported `index` can run ahead of its true position in the
@@ -578,7 +578,7 @@ final class PlayerViewModelTests: XCTestCase {
     /// A `CancellationError` from `engine.load(...)` — a superseded load,
     /// e.g. rapid next-episode navigation or backing out mid-load — is not
     /// a playback failure and must not flash a spurious error. See
-    /// `AetherPlaybackEngine.load(...)`'s own doc comment for why this is
+    /// `AetherPlaybackEngine.load(...)`'s doc comment for why this is
     /// filtered in `start()`'s catch rather than at that throw site.
     func test_start_engineLoadThrows_cancellationError_leavesErrorMessageNil() async {
         let engine = FakePlaybackEngine()
@@ -861,8 +861,8 @@ final class PlayerViewModelTests: XCTestCase {
     /// Close button) must dismiss promptly even while offline — `stop()`
     /// used to always attempt `reportPlaybackStopped` regardless, which
     /// `sendRaw`'s own 20s timeout race turned into a real, user-visible
-    /// stall on every close path while genuinely offline (confirmed live,
-    /// 2026-08-24): tapping Close read as completely unresponsive. Fails
+    /// stall on every close path while genuinely offline (confirmed live:
+    /// tapping Close read as completely unresponsive). Fails
     /// loudly (via a request handler that throws) rather than merely
     /// asserting the field-of-interest, so a regression that reintroduces
     /// the network call shows up as a hard failure here, not just a slow
@@ -1184,7 +1184,7 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.nextUpSecondsRemaining, 6, "Should truncate, not round up to 7")
     }
 
-    /// Pins a live bug (2026-08-17): `nextUpSecondsRemaining` used to
+    /// Pins a live bug: `nextUpSecondsRemaining` used to
     /// exclude `remaining == 0` (a strict `remaining > 0` guard), so the
     /// value jumped straight from `1` to `nil` and never actually reported
     /// `0` — silently breaking `PlayerView`'s `.onChange(of:
@@ -1239,8 +1239,8 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.nextUpSecondsRemaining)
     }
 
-    /// Pins a live bug (2026-08-17, ultrareview finding): auto-advancing
-    /// while in Picture in Picture tore down the engine (and the
+    /// Pins a live bug: auto-advancing while in Picture in Picture tore
+    /// down the engine (and the
     /// `AVPictureInPictureController` it owns) out from under the user's
     /// PiP window. Suppressed for as long as `isPictureInPictureActive` is
     /// true, and recomputes correctly the moment it goes back to `false`
@@ -1324,8 +1324,8 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.nextUpSecondsRemaining, 5)
     }
 
-    /// Confirmed with the user (2026-08-17): the end-credits segment's own
-    /// start time fully replaces the duration-relative Up Next trigger —
+    /// Confirmed with the user: the end-credits segment's own start time
+    /// fully replaces the duration-relative Up Next trigger —
     /// even when the segment starts *later* than the configured preference
     /// window would have fired on its own, nothing shows until the segment
     /// itself starts.
@@ -1382,8 +1382,8 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.nextUpTotalCountdownSeconds, 10)
     }
 
-    /// Pins a live bug (2026-08-18, confirmed with the user): scrubbing
-    /// straight past where the end-credits countdown's own trigger point
+    /// Pins a live bug, confirmed with the user: scrubbing straight past
+    /// where the end-credits countdown's own trigger point
     /// would already have elapsed used to compute an instantly-`0`
     /// `remaining` on landing — silently auto-advancing to the next
     /// episode with no countdown UI ever shown. A scrub landing anywhere
@@ -1434,8 +1434,8 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.nextUpTotalCountdownSeconds, 5)
     }
 
-    /// Pins a live bug (2026-08-18, confirmed with the user): a fractional
-    /// `remaining` used to round *up*, reading one higher than the
+    /// Pins a live bug, confirmed with the user: a fractional `remaining`
+    /// used to round *up*, reading one higher than the
     /// scrubber's own "time remaining" label (`PlayerControlsOverlay
     /// .endTimeText`, which truncates) for the entire time in between whole
     /// seconds — landing a scrub the scrubber itself would show as "0:06"
@@ -1459,7 +1459,7 @@ final class PlayerViewModelTests: XCTestCase {
     /// `currentSkipSegment` must hide as soon as the button is tapped, not
     /// once `currentTime` actually catches up to the seek target — that gap
     /// can be a whole buffering spell's worth of time (confirmed with the
-    /// user, 2026-08-17).
+    /// user).
     func test_skipSegment_hidesCurrentSkipSegmentImmediately_beforeCurrentTimeCatchesUp() async {
         let (viewModel, engine) = makeViewModel()
         stubStart(

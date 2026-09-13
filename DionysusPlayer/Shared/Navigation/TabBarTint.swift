@@ -8,8 +8,8 @@ import UIKit
 /// takes its tone from whatever is behind it while the selected label is
 /// painted from `MainTabView`'s `.tint(_:)`, so the two move independently
 /// and a fixed tint is legible at only one end of the range. Measured live
-/// (2026-09-04, iPad A16) by sweeping the Home hero carousel and sampling
-/// the rendered label against its own pill, against a 4.5:1 minimum:
+/// by sweeping the Home hero carousel and sampling the rendered label
+/// against its own pill, against a 4.5:1 minimum:
 ///
 /// | tint | dark pills (58–82) | light pills (125–227) |
 /// | --- | --- | --- |
@@ -157,8 +157,8 @@ extension View {
     /// pushed onto each tab's `NavigationStack`, which have no hero behind
     /// them and never will.
     ///
-    /// Measured on `CollectionGridView` (iPad A16, 2026-09-04) while the
-    /// model had settled on the light tint after a dark Home hero — its
+    /// Measured on `CollectionGridView` while the model had settled on the
+    /// light tint after a dark Home hero — its
     /// Sort and Random glyphs render `dionysusMagentaOnGlass` over a white
     /// glass capsule at **2.46:1**, under the 3:1 minimum for a non-text
     /// control (and under 4.5:1 read as a small icon). `dionysusPrimary`

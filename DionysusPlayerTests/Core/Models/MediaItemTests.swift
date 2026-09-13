@@ -76,7 +76,7 @@ final class MediaItemTests: XCTestCase {
         XCTAssertNil(makeMovie(runTimeTicks: 0).durationText)
     }
 
-    // MARK: durationAccessibilityText — see its own doc comment: "1h 30m"
+    // MARK: durationAccessibilityText — see its doc comment: "1h 30m"
     // gets misheard by VoiceOver as "one h thirty meters" (confirmed live),
     // so this spells the units out instead.
 
@@ -240,7 +240,7 @@ final class MediaItemTests: XCTestCase {
 
     // MARK: playbackProgressIdentity
 
-    /// The whole reason this exists — see its own doc comment — is to
+    /// The whole reason this exists — see its doc comment — is to
     /// change value whenever `resumePositionSeconds`/`playedFraction`/
     /// `isPlayed` would, so it can drive a `.id()` at `PlayResumeButtonRow`'s
     /// call sites. Pin that it actually does.
@@ -400,7 +400,7 @@ final class MediaItemTests: XCTestCase {
         XCTAssertEqual(updated.playedFraction, 0.25)
     }
 
-    /// Deliberately untouched — see that method's own doc comment for why
+    /// Deliberately untouched — see that method's doc comment for why
     /// (a server-side threshold judgement this isn't trying to replicate).
     func test_withOptimisticPlaybackPosition_leavesIsPlayedAlone() {
         let original = makeMovie(userData: UserItemDataDto(played: true))

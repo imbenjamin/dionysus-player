@@ -1,73 +1,64 @@
 import SwiftUI
 
-/// Downloads settings, split out from `ProfileView` into its own pushed
-/// screen once the section grew a storage graph alongside its existing
-/// quality/network pickers — matches iOS Settings' own pattern of a summary
-/// row on the parent screen pushing to a dedicated sub-screen.
+/// Downloads settings, split out of `ProfileView` once the section grew a storage
+/// graph alongside its quality and network pickers — the iOS Settings pattern of
+/// a summary row pushing to a dedicated sub-screen.
 ///
 /// Reached only from `ProfileView`, via a plain `NavigationLink(destination:)`
-/// rather than a new `AppRoute` case — `AppRoute` is for destinations
-/// pushed from more than one feature's navigation stack, and this is only
-/// ever reached from within `ProfileView`'s own.
+/// rather than a new `AppRoute` case: `AppRoute` is for destinations pushed from
+/// more than one feature's stack.
 ///
-/// On iPad this isn't pushed at all: it's the root of the Downloads pane
-/// in `ProfileView`'s split layout, which is why `titleDisplayMode` is a
-/// parameter. A pushed sub-screen wants `.inline`, but as a detail-pane
-/// root it sits alongside Appearance/Playback/About, all of which get a
-/// large title — leaving it `.inline` there made it the odd one out.
+/// On iPad it isn't pushed at all but is the root of the Downloads pane in
+/// `ProfileView`'s split layout, hence `titleDisplayMode`: a pushed sub-screen
+/// wants `.inline`, but as a pane root it sits alongside Appearance/Playback/About,
+/// which all get a large title.
 struct DownloadsSettingsView: View {
-    /// `.inline` when pushed (iPhone, and the row on iPad's own Downloads
-    /// pane); `.large` when it *is* the pane. See the type's doc comment.
+    /// `.inline` when pushed, `.large` when it is the pane. See the type's doc
+    /// comment.
     var titleDisplayMode: NavigationBarItem.TitleDisplayMode = .inline
 
-    /// Default must stay in lockstep with `DownloadPreferencesStore.resolution`'s
-    /// own fallback — see that type's doc comment.
+    /// Default must stay in lockstep with
+    /// `DownloadPreferencesStore.resolution`'s fallback.
     @AppStorage(downloadResolutionStorageKey) private var downloadResolution: DownloadResolution = .deviceClassDefault
     @AppStorage(downloadBitratePresetStorageKey) private var downloadBitratePreset: DownloadBitratePreset = .normal
     @AppStorage(downloadWifiOnlyStorageKey) private var downloadWifiOnly = true
-    /// Raw slider value — `0` is its own "Unlimited" position, past `10`.
-    /// Default `3`, matching `downloadMaxConcurrentStorageKey`'s own
-    /// fallback (see its doc comment for why 3, not Unlimited).
+    /// Raw slider value, where `0` is the "Unlimited" position past `10`. Default
+    /// `3`, matching `downloadMaxConcurrentStorageKey`'s fallback, which documents
+    /// why 3 rather than Unlimited.
     @AppStorage(downloadMaxConcurrentStorageKey) private var downloadMaxConcurrentRaw = 3
 
-    /// Recomputed on every `body` evaluation — a plain `FileManager`
-    /// directory scan plus a volume-capacity read, not cached or reactively
-    /// tied to `DownloadManager`. Fine for a settings screen visited
-    /// occasionally, and simpler than wiring a dedicated `@Observable` size
-    /// tracker just for this one screen.
+    /// Recomputed on every `body` evaluation: a `FileManager` directory scan plus
+    /// a volume-capacity read, neither cached nor tied to `DownloadManager`. Cheap
+    /// enough for an occasionally-visited settings screen to not need a dedicated
+    /// `@Observable` size tracker.
     private var storageBreakdown: DeviceStorageBreakdown? {
         DeviceStorageBreakdown.current()
     }
 
-    /// A fresh read on every access, same "cheap, always current" reasoning
-    /// as `storageBreakdown` above — picks up a ladder override made on the
-    /// pushed Advanced screen the moment this screen re-renders on return,
-    /// with no observation wiring needed.
+    /// A fresh read on every access, like `storageBreakdown`, so a ladder override
+    /// made on the pushed Advanced screen appears on return with no observation
+    /// wiring.
     private var qualityLadder: DownloadQualityLadderStore { DownloadQualityLadderStore() }
 
-    /// "Unlimited" at the slider's `0` position, else the plain count —
-    /// mirrors `DownloadPreferencesStore.maxConcurrentDownloads`'s own
-    /// `0`-means-unlimited mapping.
+    /// "Unlimited" at the slider's `0` position, else the plain count, mirroring
+    /// `DownloadPreferencesStore.maxConcurrentDownloads`.
     private var downloadMaxConcurrentDisplayText: String {
         downloadMaxConcurrentRaw == 0 ? String(localized: "Unlimited") : "\(downloadMaxConcurrentRaw)"
     }
 
-    /// Average runtimes used for the free-space estimate below — not
-    /// sourced from the server (this screen has no library loaded to
-    /// average over), just commonly-cited round figures, spelled out in the
-    /// disclaimer text next to the estimate so they're never taken as
-    /// measured fact.
+    /// Average runtimes for the free-space estimate below. Commonly-cited round
+    /// figures rather than anything from the server, which this screen has no
+    /// library loaded to average over, and spelled out in the disclaimer next to
+    /// the estimate so they aren't taken as measured.
     private static let averageMovieMinutes = 114
     private static let averageEpisodeMinutes = 45
 
-    /// How many movies/episodes of `minutes` runtime would fit in
-    /// `freeBytes` at the currently-selected resolution/quality — video +
-    /// audio bitrate (the same ladder `DownloadTranscodeCalculator`/
-    /// `JellyfinAPIClient.downloadStreamURL` actually transcode to) times
-    /// runtime, converted from bits to bytes. Deliberately doesn't account
-    /// for the "never upscale past the source" cap (`DownloadTranscodeCalculator
-    /// .target`) — this is a rough capacity estimate, not a prediction for
-    /// any specific title, so it assumes the selected tier is fully reached.
+    /// How many items of `minutes` runtime fit in `freeBytes` at the selected
+    /// resolution and quality: video plus audio bitrate — the ladder
+    /// `DownloadTranscodeCalculator`/`JellyfinAPIClient.downloadStreamURL`
+    /// transcode to — times runtime, bits to bytes. Ignores the never-upscale cap
+    /// in `DownloadTranscodeCalculator.target` and assumes the selected tier is
+    /// fully reached: a rough capacity estimate, not a prediction for one title.
     private func estimatedCount(minutes: Int, freeBytes: Int64) -> Int {
         let bitsPerSecond = qualityLadder.videoBitrate(resolution: downloadResolution, preset: downloadBitratePreset) + downloadBitratePreset.audioBitrate
         let bytesPerItem = Double(bitsPerSecond) / 8 * Double(minutes * 60)
@@ -97,20 +88,18 @@ struct DownloadsSettingsView: View {
                             .tag(preset)
                     }
                 }
-                // See `ProfileView`'s own "Advanced" link: two screens
-                // share this title, and only the identifier distinguishes
-                // them.
+                // See `ProfileView`'s "Advanced" link: two screens share this
+                // title, and only the identifier distinguishes them.
                 NavigationLink("Advanced") {
                     DownloadsQualityLadderView()
                 }
                 .accessibilityIdentifier(A11yID.Profile.qualityLadderLink)
                 VStack(alignment: .leading, spacing: 4) {
                     LabeledContent("Simultaneous Downloads", value: downloadMaxConcurrentDisplayText)
-                    // `0...10`, `0` doubling as "Unlimited" (see
-                    // `downloadMaxConcurrentDisplayText`) — a `Slider`
-                    // rather than a `Stepper`/segmented control per an
-                    // explicit ask for this specific shape, offering every
-                    // integer 1-10 plus Unlimited as one continuous control.
+                    // `0...10`, with `0` doubling as "Unlimited" (see
+                    // `downloadMaxConcurrentDisplayText`). A `Slider` rather than
+                    // a `Stepper`, per an explicit ask, offering every integer
+                    // 1-10 plus Unlimited as one control.
                     Slider(
                         value: Binding(
                             get: { Double(downloadMaxConcurrentRaw) },
@@ -118,11 +107,9 @@ struct DownloadsSettingsView: View {
                         ),
                         in: 0...10, step: 1
                     )
-                    // Without these, VoiceOver reads the slider's own raw
-                    // `0...10` position ("0") rather than what that
-                    // position actually means — the `LabeledContent` above
-                    // already shows "Unlimited" visually at that same
-                    // position, this is its spoken counterpart.
+                    // Without these, VoiceOver reads the slider's raw `0...10`
+                    // position rather than its meaning: the spoken counterpart to
+                    // the "Unlimited" the `LabeledContent` shows there.
                     .accessibilityLabel(String(localized: "Simultaneous Downloads"))
                     .accessibilityValue(downloadMaxConcurrentDisplayText)
                 }
@@ -130,15 +117,12 @@ struct DownloadsSettingsView: View {
             } header: {
                 Text("Quality & Network")
             } footer: {
-                // The simultaneous-downloads caveat is not a hedge: it was
-                // measured. With the limit set to 2, iOS ran up to 11
-                // transfers at once as soon as the app was suspended —
-                // `nsurlsessiond` takes ownership of every task the app has
-                // created and schedules them itself, and an app has no way
-                // to hold one back once it stops running. Saying so plainly
-                // is better than a number the app visibly fails to honor.
-                // See DOWNLOADS.md's "iOS defers the *next* queued download
-                // when the app is backgrounded".
+                // The simultaneous-downloads caveat was measured, not hedged: with
+                // the limit set to 2, iOS ran up to 11 transfers at once as soon
+                // as the app was suspended. `nsurlsessiond` owns and schedules
+                // every task the app created, and an app can't hold one back once
+                // it stops running. See DOWNLOADS.md's "iOS defers the next queued
+                // download when the app is backgrounded".
                 Text("Downloaded videos are transcoded to fit your chosen resolution and quality, and are never upscaled past the source.\n\nSimultaneous Downloads applies while Dionysus is open. Once it moves to the background, iOS schedules downloads itself and may run more at once than the limit you set.")
                     .readableSettingsFooter()
             }
@@ -151,9 +135,8 @@ struct DownloadsSettingsView: View {
                     )
                     .listRowSeparator(.hidden)
                 } else {
-                    // Falls back to the same plain figure `ProfileView`
-                    // showed before this screen existed, for the (not
-                    // expected on a real device) case where the volume's
+                    // Falls back to the plain figure `ProfileView` showed before
+                    // this screen existed, for the case where the volume's
                     // capacity keys aren't readable.
                     LabeledContent("Storage Used", value: ByteCountFormatter.string(fromByteCount: DownloadFileStore.totalSizeOnDisk(), countStyle: .file))
                 }

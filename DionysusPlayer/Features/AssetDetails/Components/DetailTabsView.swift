@@ -1,12 +1,9 @@
 import SwiftUI
 
-/// The tabbed content shown below the Play/Resume row on both detail page
-/// layouts (`MovieDetailView`/`ShowDetailView`): genres/synopsis, cast &
-/// crew, and technical media details. A segmented `Picker` rather than a
-/// `TabView` — this sits inside an outer `ScrollView`, and `TabView` wants a
-/// defined size of its own rather than sizing to its content, which fights
-/// an outer scroll view; swapping which plain content view is shown avoids
-/// that.
+/// The tabbed content below the Play/Resume row on both detail layouts:
+/// genres/synopsis, cast & crew, and technical media details. A segmented
+/// `Picker` rather than a `TabView`, which wants a defined size rather than
+/// sizing to its content and so fights the outer `ScrollView`.
 struct DetailTabsView: View {
     private enum Tab: String, CaseIterable, Identifiable {
         case about = "About"
@@ -18,22 +15,17 @@ struct DetailTabsView: View {
     let item: MediaItem
     @State private var selectedTab: Tab = .about
 
-    /// "About" always shows (genres/synopsis apply to every item kind, even
-    /// with nothing in either of the other two). "Cast & Crew" only shows
-    /// once `item.cast` actually has something in it — a Collection, or any
-    /// item nobody bothered crediting, doesn't get a tab that just says "No
-    /// cast or crew information available." "Details" only shows for a real
-    /// playable asset (movie, episode) with its own media file — a Show,
-    /// Season, or Collection has `item.technicalDetails == nil` always,
-    /// having no media file of its own (only its children do).
+    /// "About" always shows, applying to every item kind. "Cast & Crew" shows
+    /// only once `item.cast` has something, so an uncredited item doesn't get a
+    /// tab reading "No cast or crew information available." "Details" shows only
+    /// for a playable asset with its own media file: a Show, Season or Collection
+    /// always has `item.technicalDetails == nil`.
     ///
-    /// `AssetDetailViewModel`'s preloaded item (see its doc comment) renders
-    /// this view before either `cast` or `technicalDetails` exist — both are
-    /// only populated by the same `Fields=People,MediaSources,...` full-item
-    /// fetch, so they always arrive together — so this starts as a 1-element
-    /// array (just "About") and grows once `load()`'s full item lands. That
-    /// growth relies on `MediaItem.==` being structural (see its doc
-    /// comment); an id-only comparison leaves this frozen at "About".
+    /// `AssetDetailViewModel`'s preloaded item renders this view before `cast` or
+    /// `technicalDetails` exist — both come from the same full-item fetch — so
+    /// this starts as just "About" and grows once `load()` lands. That growth
+    /// relies on `MediaItem.==` being structural; an id-only comparison leaves it
+    /// frozen at "About".
     private var availableTabs: [Tab] {
         Tab.allCases.filter { tab in
             switch tab {
@@ -46,11 +38,9 @@ struct DetailTabsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Nothing to switch between with only "About" available (e.g. a
-            // Collection, or any item with neither cast/crew credits nor its
-            // own technical details) — the segmented control itself would
-            // just be a single dead-looking segment, so it's dropped
-            // entirely rather than shown with one option.
+            // With only "About" available, the segmented control would be a single
+            // dead-looking segment, so it's dropped rather than shown with one
+            // option.
             if availableTabs.count > 1 {
                 Picker("Section", selection: $selectedTab) {
                     ForEach(availableTabs) { tab in
@@ -73,16 +63,14 @@ struct DetailTabsView: View {
     }
 }
 
-/// Genres, then studios (unlabeled, same treatment as genres — `MediaItem
-/// .studios` is the one field backing both a movie's studio and a show's
-/// network, per `CollectionGridView`'s own Studio/Network filter, so no
-/// single label here would be right for both), then the marketing tagline
-/// (if any), then the synopsis — genres moved here from `InfoMetadataRow`,
-/// which used to show them inline with year/rating/duration on every page.
-/// The tagline is styled as a larger italicized subheader in full-contrast
-/// text — bigger than both the plain-subheadline genre/studio lines above
-/// it and the synopsis below, since it's the one marketing-voice line on
-/// the page and is meant to stand out at a glance, not read as ordinary
+/// Genres, then studios, then the tagline, then the synopsis. Studios are
+/// unlabeled like genres: `MediaItem.studios` backs both a movie's studio and a
+/// show's network (see `CollectionGridView`'s Studio/Network filter), so no single
+/// label fits both.
+///
+/// The tagline is a larger italicized subheader in full-contrast text, bigger
+/// than the subheadline genre and studio lines above and the synopsis below: it's
+/// the page's one marketing-voice line and should stand out rather than read as
 /// metadata or prose.
 private struct AboutTabContent: View {
     let item: MediaItem
@@ -118,32 +106,26 @@ private struct AboutTabContent: View {
     }
 }
 
-/// A genre/studio metadata line's shared presentation: single line, no
-/// wrap — a long \u{00B7}-joined list (many genres, several co-production
-/// studios) instead scrolls horizontally rather than eating multiple lines
-/// of vertical space the way a wrapping `Text` would. `.fixedSize` is what
-/// makes that possible: without it, `Text` sizes itself to the `ScrollView`
-/// viewport's width and wraps *inside* that, same as if the `ScrollView`
-/// weren't there at all; `.fixedSize` lets it instead measure and lay out
-/// at its own full unwrapped width, which is what actually gives the
-/// `ScrollView` content wider than its viewport to scroll through.
+/// A genre or studio metadata line: one line, no wrap, so a long \u{00B7}-joined
+/// list scrolls horizontally rather than eating vertical space. `.fixedSize` is
+/// what makes that work — without it `Text` sizes to the `ScrollView` viewport
+/// and wraps inside it, as if the `ScrollView` weren't there; with it, `Text`
+/// lays out at its full unwrapped width, giving the `ScrollView` something wider
+/// than its viewport to scroll.
 ///
-/// Not `private` — `DownloadedDetailTabsView`'s own About tab reuses this
-/// exact presentation for the same genre/studio lines, sourced from
-/// `DownloadedItemMetadata` instead of a live `MediaItem`.
+/// Not `private`: `DownloadedDetailTabsView`'s About tab reuses it for the same
+/// lines, sourced from `DownloadedItemMetadata`.
 struct MetadataLine: View {
     let items: [String]
-    /// Read by VoiceOver as "<accessibilityPrefix>: <item>, <item>, ..." —
-    /// e.g. "Genres: Horror, Comedy" — rather than the bare, unlabeled
-    /// \u{00B7}-joined visible text. Confirmed live this line otherwise reads
-    /// as an ambiguous list with no indication of what kind of list it is.
-    /// A middle dot isn't natural spoken punctuation, so the accessibility
-    /// join uses a plain comma instead of `text`'s own separator.
+    /// Read by VoiceOver as "Genres: Horror, Comedy" rather than the unlabeled
+    /// \u{00B7}-joined visible text, which reads as a list with no indication of
+    /// what it lists. A middle dot isn't spoken punctuation, so the accessibility
+    /// join uses a comma rather than `text`'s separator.
     let accessibilityPrefix: String
 
     private var text: String { items.joined(separator: " \u{00B7} ") }
 
-    /// Width of the trailing fade below — see `body`'s comment.
+    /// Width of the trailing fade; see `body`.
     private let fadeWidth: CGFloat = 20
 
     var body: some View {
@@ -155,16 +137,13 @@ struct MetadataLine: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(String(localized: "\(accessibilityPrefix): \(items.joined(separator: ", "))"))
-        // A small fixed-width fade at the trailing edge, hinting there's
-        // more to scroll to rather than letting a long line just look cut
-        // off. Deliberately not conditioned on whether `text` actually
-        // overflows — the mask is sized against this view's own (container)
-        // width, not `text`'s rendered width, so for a short line that
-        // already fits, the fade zone falls entirely past the visible text
-        // over blank space and has no visible effect. That's what makes it
-        // safe to always apply rather than having to measure first.
-        // `.leading`/`.trailing`, not `.left`/`.right`, so the fade sits at
-        // the *end* of the line in both LTR and RTL layouts.
+        // A fixed-width fade at the trailing edge, hinting there's more to scroll
+        // rather than letting a long line look cut off. Not conditioned on whether
+        // `text` overflows: the mask is sized against this view's container width,
+        // not the rendered text, so for a short line the fade zone falls past the
+        // text over blank space with no visible effect. `.leading`/`.trailing`,
+        // not `.left`/`.right`, so the fade sits at the line's end in both LTR and
+        // RTL.
         .mask(
             HStack(spacing: 0) {
                 Color.black

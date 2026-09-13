@@ -1,18 +1,14 @@
 import Foundation
 
-/// Persists the user's recent "successful" searches — a search result they
-/// actually selected, not just what they typed — so `SearchView`'s landing
-/// page can offer one-tap access back to previously found content.
+/// Persists recent successful searches — a result the user selected, not what
+/// they typed — so `SearchView`'s landing page offers one-tap access back.
 ///
-/// Local to the device only: plain `UserDefaults`, like `ServerSessionStore`'s
-/// server config (not sensitive, and — deliberately — never round-tripped
-/// through the Jellyfin server). Scoped per user (keyed by `userID`) so a
-/// shared device switching accounts doesn't leak one user's history to
+/// Device-local `UserDefaults`, never round-tripped through the server, and
+/// keyed by `userID` so a shared device doesn't leak one user's history to
 /// another.
 final class SearchHistoryStore {
-    /// Recent-searches lists are meant to be a handful of quick shortcuts
-    /// back to something you just looked at, not a full log — trimmed to
-    /// this many entries, most recent first.
+    /// A handful of shortcuts back to something recently viewed, not a log.
+    /// Trimmed to this many entries, most recent first.
     private static let maxEntries = 20
 
     private let defaults: UserDefaults
@@ -31,11 +27,9 @@ final class SearchHistoryStore {
         return entries
     }
 
-    /// Records `result` as the most recent entry. If it's already present
-    /// (the user re-selected something already in their history), it moves
-    /// to the front instead of duplicating. Returns the resulting list so
-    /// callers (`SearchViewModel`) don't need a separate `history(userID:)`
-    /// call just to read back what was already computed here.
+    /// Records `result` as the most recent entry, moving an already-present one
+    /// to the front rather than duplicating it. Returns the resulting list, so
+    /// callers need no separate `history(userID:)` read.
     @discardableResult
     func record(_ result: SearchResult, userID: String) -> [SearchResult] {
         var entries = history(userID: userID)
@@ -48,9 +42,8 @@ final class SearchHistoryStore {
         return entries
     }
 
-    /// Removes a single entry (e.g. via `SearchView`'s per-row swipe
-    /// action), as opposed to `clear`'s wipe-everything. Returns the
-    /// resulting list, same reasoning as `record`.
+    /// Removes one entry, as `SearchView`'s per-row swipe does. Returns the
+    /// resulting list, as `record` does.
     @discardableResult
     func remove(id: String, userID: String) -> [SearchResult] {
         var entries = history(userID: userID)

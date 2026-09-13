@@ -116,8 +116,8 @@ final class PlayerViewModelOfflineTests: XCTestCase {
     /// so `item.logoImageURL` alone can never resolve for offline playback
     /// — `offlineLogoURL` is the separate local-file path
     /// `PlayerControlsOverlay.titleRow` checks first. This was a real bug,
-    /// confirmed live (2026-08-27): before `offlineLogoURL` existed, every
-    /// downloaded item's Player screen fell back to plain title text, even
+    /// confirmed live: before `offlineLogoURL` existed, every downloaded
+    /// item's Player screen fell back to plain title text, even
     /// when a Logo image had been downloaded and cached at enqueue time.
     func test_startOffline_logoImagePathStored_setsOfflineLogoURLToLocalFile() async {
         let store = DownloadTestHelpers.makeInMemoryStore()
@@ -274,8 +274,8 @@ final class PlayerViewModelOfflineTests: XCTestCase {
     }
 
     /// `refreshServerVersion()`/`refreshStreamingSession()` back
-    /// `PlaybackStatsOverlay`'s Streaming section — a real bug this session
-    /// fixed: they used to dispatch a doomed network request every time the
+    /// `PlaybackStatsOverlay`'s Streaming section — a real bug: they used
+    /// to dispatch a doomed network request every time the
     /// overlay polled, even during offline playback, where there's no live
     /// server to ask. Both must now no-op entirely, leaving
     /// `serverVersion`/`streamingSession` `nil` rather than attempting
@@ -323,7 +323,7 @@ final class PlayerViewModelOfflineTests: XCTestCase {
     }
 
     /// No server to defer the "mark as watched" judgement call to, unlike
-    /// the live path — see `writeOfflineProgress`'s own doc comment for the
+    /// the live path — see `writeOfflineProgress`'s doc comment for the
     /// 90% client-side threshold this pins.
     func test_stop_pastWatchedThreshold_marksPlayedAndClearsResumePosition() async {
         let store = DownloadTestHelpers.makeInMemoryStore()

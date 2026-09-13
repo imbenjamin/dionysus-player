@@ -80,7 +80,7 @@ final class DeviceTiltObserverTests: XCTestCase {
     // No physical motion sensor in the Simulator (`isAvailable == false`),
     // so these exercise the guard-clause early return rather than a real
     // CoreMotion round-trip — same "not unit-testable" reasoning as this
-    // file's own doc comment. Worth pinning down regardless: `start()`/
+    // file's doc comment. Worth pinning down regardless: `start()`/
     // `stop()` must resolve (not hang) and leave `isApplyingChange` false
     // when there's nothing to actually do.
 
@@ -106,7 +106,7 @@ final class DeviceTiltObserverTests: XCTestCase {
     // Same "not unit-testable" ceiling as `start()`/`stop()` above applies
     // here too — no physical sensor in the Simulator to observe actually
     // starting/stopping, and the reference count/grace-period bookkeeping
-    // that avoids the push-under race (see `release()`'s own doc comment)
+    // that avoids the push-under race (see `release()`'s doc comment)
     // is `private`, not something a test can inspect directly. What's worth
     // pinning down regardless: multiple `acquire()`/`release()` calls,
     // balanced or not, must resolve rather than hang or crash — the actual

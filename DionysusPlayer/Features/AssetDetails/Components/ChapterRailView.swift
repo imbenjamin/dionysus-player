@@ -7,18 +7,18 @@ import SwiftUI
 /// that rail is a `MediaItem` wrapped in a `NavigationLink(value:
 /// AppRoute.assetDetail(...))`, and a chapter is neither — it's a position
 /// within the item already on screen, and tapping one starts playback
-/// rather than pushing a destination. The tap is therefore a plain closure,
-/// so each host page can build its own `PlaybackRequest` (live) or set its
-/// own offline start position (`DownloadedAssetDetailView`) from it.
+/// rather than pushing a destination. The tap is a plain closure, so each
+/// host page can build its own `PlaybackRequest` (live) or set its own
+/// offline start position (`DownloadedAssetDetailView`) from it.
 ///
-/// Deliberately *not* sized to match `LandscapeMediaCard` (220pt) the way
-/// the "Included In"/"More Like This" rails below it are — at 220pt a
-/// chapter tile showed barely one full card plus a sliver of the next,
-/// which read as a single big tile rather than a scrollable shelf. Chapter
-/// cards are smaller (see `ChapterCard.width`) specifically so ~2 full
-/// cards plus a peek of a third are visible at once, the same "there's more
-/// to scroll to" affordance `PosterCard`'s portrait rails already give for
-/// free at their own (narrower) width.
+/// Deliberately not sized to match `LandscapeMediaCard` (220pt) the way
+/// the "Included In"/"More Like This" rails are — at 220pt a chapter tile
+/// showed barely one full card plus a sliver of the next, reading as a
+/// single big tile rather than a scrollable shelf. Chapter cards are
+/// smaller (see `ChapterCard.width`) so ~2 full cards plus a peek of a
+/// third are visible at once, the same "there's more to scroll to"
+/// affordance `PosterCard`'s portrait rails already give at their own
+/// (narrower) width.
 struct ChapterRailView: View {
     let chapters: [Chapter]
     /// Fired with the tapped chapter — the host page turns it into a
@@ -53,10 +53,10 @@ struct ChapterRailView: View {
 /// `NavigationLink` — see `ChapterRailView`'s doc comment.
 struct ChapterCard: View {
     let chapter: Chapter
-    /// 150pt, not `LandscapeMediaCard`'s 220pt — chosen (2026-09-03, direct
-    /// user feedback against a live build) so a typical iPhone width shows
-    /// two full cards plus a clear peek of a third, rather than one card and
-    /// a barely-there sliver. See `ChapterRailView`'s own doc comment.
+    /// 150pt, not `LandscapeMediaCard`'s 220pt — sized so a typical iPhone
+    /// width shows two full cards plus a clear peek of a third, rather than
+    /// one card and a barely-there sliver. See `ChapterRailView`'s doc
+    /// comment.
     var width: CGFloat = 150
     var action: () -> Void
 

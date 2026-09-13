@@ -22,7 +22,7 @@ struct PosterCard: View {
     var body: some View {
         // Still a `ZStack`, not just the `NavigationLink` directly, even
         // though the "⋯" menu that used to be its second child is gone —
-        // found the hard way (real-device repro, 2026-08-10): collapsing
+        // found the hard way (a real-device repro): collapsing
         // this down to the bare `NavigationLink` sent SwiftUI's layout
         // engine into a genuine infinite loop the moment a rail of these
         // cards rendered inside `MediaRailView`'s `LazyHStack` (confirmed

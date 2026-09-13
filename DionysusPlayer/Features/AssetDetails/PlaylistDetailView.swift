@@ -1,50 +1,43 @@
 import SwiftUI
 
 /// Detail page for a Playlist: no synopsis (a Playlist DTO carries no
-/// overview/genres/studios/tagline/cast/technicalDetails of its own, so
-/// `DetailTabsView` would only ever show a useless "No synopsis available"
-/// About tab — omitted entirely rather than rendered empty), a Play/Resume
-/// button that plays through the whole playlist in server-given order, and
-/// `PlaylistItemList` browsing straight into any one member's own detail
-/// page.
+/// overview/genres/studios/tagline/cast/technicalDetails, so
+/// `DetailTabsView` would only show an empty About tab — omitted
+/// entirely), a Play/Resume button that plays through the whole playlist
+/// in server-given order, and `PlaylistItemList` browsing straight into
+/// any member's own detail page.
 ///
 /// Unlike `CollectionDetailView` (a BoxSet isn't itself playable), a
-/// Playlist *is* — this is structurally closer to `MovieDetailView`, just
-/// with `PlayResumeButtonRow` retargeted at `viewModel.playlistResumeTarget`
-/// (the specific member to play/resume, not the Playlist item itself, which
-/// has no `MediaSources` of its own) and no page-level `DownloadButton`
-/// next to it — a Playlist itself has nothing downloadable; each member
-/// gets its own per-row overlay button instead, same as `ShowDetailView`'s
-/// `SeasonEpisodeList`.
+/// Playlist *is* — structurally closer to `MovieDetailView`, with
+/// `PlayResumeButtonRow` retargeted at `viewModel.playlistResumeTarget`
+/// (the member to play/resume; the Playlist item itself has no
+/// `MediaSources`) and no page-level `DownloadButton` — a Playlist has
+/// nothing downloadable itself; each member gets its own per-row overlay
+/// button, same as `ShowDetailView`'s `SeasonEpisodeList`.
 ///
 /// The single `.fullScreenCover`/`PlayerView` call site below is shared by
-/// the main button, every row's own thumbnail tap (`PlaylistItemList`'s
-/// `onPlayItem`), and every Up-Next-driven chain continuation alike — all
-/// three pass `playbackQueue: viewModel.orderedPlaylistItems`, the same
-/// already-fetched, already-ordered, already-audio-filtered array, so
-/// starting from any point in the playlist continues sequentially through
-/// the rest of it. Jellyfin has no server-side "continue this playlist"
-/// mechanism (`/Shows/NextUp` is strictly Series/Season/Episode-scoped, and
-/// `/Playlists/{id}/InstantMix` is an unrelated "similar tracks" radio
-/// feature) — `PlayerViewModel` resolves "what's next" for this mode
-/// entirely from the queue array already sitting in memory, no further
-/// network calls needed.
+/// the main button, every row's thumbnail tap (`PlaylistItemList`'s
+/// `onPlayItem`), and every Up-Next chain continuation — all three pass
+/// `playbackQueue: viewModel.orderedPlaylistItems`, so starting from any
+/// point continues sequentially through the rest. Jellyfin has no
+/// server-side "continue this playlist" mechanism (`/Shows/NextUp` is
+/// Series/Season/Episode-scoped; `/Playlists/{id}/InstantMix` is an
+/// unrelated "similar tracks" radio feature) — `PlayerViewModel` resolves
+/// "what's next" here entirely from the queue array already in memory.
 struct PlaylistDetailView: View {
     let viewModel: AssetDetailViewModel
     @Environment(AppState.self) private var appState
     @State private var playbackRequest: PlaybackRequest?
-    /// Mirrors `ShowDetailView`'s `pendingNextEpisodeID` exactly: `PlayerView`'s
-    /// `onRequestNextItem` fires while this page's own `.fullScreenCover` is
-    /// still presented, and reassigning `playbackRequest` directly at that
-    /// point was confirmed unreliable live — so the id is stashed here and
-    /// only applied from `onDismiss`, once the cover has genuinely gone
-    /// through `nil` first.
+    /// Mirrors `ShowDetailView`'s `pendingNextEpisodeID`: `PlayerView`'s
+    /// `onRequestNextItem` fires while this page's `.fullScreenCover` is
+    /// still presented, and reassigning `playbackRequest` directly there
+    /// was unreliable live — so the id is stashed here and applied only
+    /// from `onDismiss`, once the cover has gone through `nil`.
     @State private var pendingNextItemID: String?
-    /// See `MovieDetailView.refreshTrigger`'s doc comment — identical
-    /// reasoning/fix: `viewModel` is held as a plain `let` here too, so a
-    /// post-playback `viewModel.item`/`orderedPlaylistItems` change needs
-    /// this local `@State` mutation to reliably force this view's metadata
-    /// block to re-render while it's behind its own `.fullScreenCover`.
+    /// See `MovieDetailView.refreshTrigger` — same fix: `viewModel` is a
+    /// plain `let` here too, so a post-playback `viewModel.item`/
+    /// `orderedPlaylistItems` change needs this `@State` mutation to force
+    /// the metadata block to re-render behind its `.fullScreenCover`.
     @State private var refreshTrigger = UUID()
 
     var body: some View {
@@ -70,10 +63,9 @@ struct PlaylistDetailView: View {
                                 onResume: { playbackRequest = PlaybackRequest(itemID: resumeTarget.id) },
                                 onRestart: { _ in playbackRequest = PlaybackRequest(itemID: resumeTarget.id, startFromBeginning: true) }
                             )
-                            // See `MovieDetailView`'s identical `.id(...)` call
-                            // site — without it, the progress bar/Play-vs-
-                            // Resume label can silently stop updating after
-                            // returning from playback.
+                            // See `MovieDetailView`'s identical `.id(...)`
+                            // — without it, the progress bar/Play-vs-Resume
+                            // label can stop updating after playback.
                             .id(resumeTarget.playbackProgressIdentity)
                         }
                     }
@@ -81,16 +73,12 @@ struct PlaylistDetailView: View {
                     // Caps this column — metadata and the Play/Resume row —
                     // to a readable measure on regular width, leaving the
                     // hero above and the item list/rails below full-bleed.
-                    // See `ReadableDetailColumn`; every number in that doc
-                    // comment was measured on `MovieDetailView` and
-                    // reproduces here unchanged.
+                    // See `ReadableDetailColumn`.
                     //
-                    // This page has no tabs panel of its own to share the
-                    // column with (see this view's doc comment on why a
-                    // Playlist gets no `DetailTabsView`), so on regular
-                    // width the column is the metadata row plus the
-                    // Play/Resume button and nothing else — the button is
-                    // what the cap is really doing work for here.
+                    // This page has no tabs panel to share the column with
+                    // (a Playlist gets no `DetailTabsView`, see above), so
+                    // on regular width the cap is really just constraining
+                    // the Play/Resume button.
                     .readableDetailColumn()
                     .id(refreshTrigger)
 
@@ -121,10 +109,8 @@ struct PlaylistDetailView: View {
         .fullScreenCover(
             item: $playbackRequest,
             onDismiss: {
-                // Only reached once `playbackRequest` has genuinely gone
-                // through `nil` (this dismiss) — see `pendingNextItemID`'s
-                // own doc comment for why the next item isn't applied
-                // directly from `onRequestNextItem` instead.
+                // Only reached once `playbackRequest` has gone through
+                // `nil` — see `pendingNextItemID`'s doc comment for why.
                 if let pendingNextItemID {
                     self.pendingNextItemID = nil
                     playbackRequest = PlaybackRequest(itemID: pendingNextItemID)

@@ -177,7 +177,7 @@ final class AssetDetailViewModelTests: XCTestCase {
             case "/Users/user-1/Items/ep-5":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: episodeDto)
             case "/Users/user-1/Items/series-1":
-                // `seriesItem` — see its own doc comment — needs its own
+                // `seriesItem` — see its doc comment — needs its own
                 // fetch for the Episode case, unlike Season/Series where
                 // `item` is already the Show's own item.
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: seriesDto)
@@ -617,8 +617,8 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.item?.id, "series-1", "the Series itself (a different id) should be untouched")
     }
 
-    /// The live bug this exists to fix (2026-08-16): confirmed against a
-    /// real server that a favorite/watched write can return success
+    /// The live bug this exists to fix: confirmed against a real server
+    /// that a favorite/watched write can return success
     /// immediately but not actually commit server-side for several
     /// *minutes* — an order of magnitude past `userDataCommitPollSchedule`'s
     /// ~13s budget. Before `applyOptimisticFavoriteWatched` existed, the
@@ -667,7 +667,7 @@ final class AssetDetailViewModelTests: XCTestCase {
 
     /// `HeroActionButtons` calls this right when a toggle fires rather than
     /// trusting its own button/menu-row closure's captured `MediaItem` — see
-    /// this method's own doc comment for the real, confirmed toolbar
+    /// this method's doc comment for the real, confirmed toolbar
     /// staleness bug that motivated it. Pins that it actually finds the
     /// right value across all four possible targets, and `nil` for anything
     /// that doesn't match one.
@@ -741,7 +741,7 @@ final class AssetDetailViewModelTests: XCTestCase {
     /// Does update `preselectedSeasonID` to the tapped episode's own season
     /// — a same-value reassignment for this caller specifically (the tapped
     /// episode is always within whichever season is already selected), but
-    /// see `selectEpisode`'s own doc comment for why that's not true of
+    /// see `selectEpisode`'s doc comment for why that's not true of
     /// every caller.
     func test_selectEpisode_swapsItemToTheEpisodeWithoutTouchingSeriesOrSeasons() async {
         let viewModel = await loadedSeriesViewModel(nextUpItems: [], episodesItems: [])
@@ -1047,7 +1047,7 @@ final class AssetDetailViewModelTests: XCTestCase {
 
         // Asserted afterwards via `MockURLProtocol.lastRequest`, not a
         // local var captured by this closure — the closure runs off the
-        // main actor (see that type's own doc comment), and capturing a
+        // main actor (see that type's doc comment), and capturing a
         // local from this `@MainActor` test function here hangs the test
         // (confirmed live: the closure never returns, and the run times
         // out with no crash message at all).
@@ -1103,8 +1103,8 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.orderedPlaylistItems.map(\.playlistItemID), ["entry-1", "entry-2"], "the removed row is put back")
     }
 
-    /// Regression test for a live bug report (2026-08-13): resuming a
-    /// movie, scrubbing to a different position, and exiting within a few
+    /// Regression test for a live bug report: resuming a movie, scrubbing
+    /// to a different position, and exiting within a few
     /// seconds left the detail page's progress bar showing the pre-scrub
     /// position, even though the server had actually committed the new one
     /// correctly (confirmed by Resume itself picking up the right spot).
@@ -1147,9 +1147,9 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.item?.dto.userData?.playbackPositionTicks, updatedTicks)
     }
 
-    /// Regression test for the actual live bug (2026-08-13, found *after*
-    /// the two tests above shipped and the reported symptom persisted
-    /// unchanged): those tests only exercised `refreshItem()` on its own —
+    /// Regression test for the actual live bug, found after the two tests
+    /// above shipped and the reported symptom persisted unchanged: those
+    /// tests only exercised `refreshItem()` on its own —
     /// in real usage it always runs immediately after
     /// `applyOptimisticPlaybackPosition(_:)`, from the same close-and-return
     /// flow, and *that* combination had a real bug neither test caught.
@@ -1230,7 +1230,7 @@ final class AssetDetailViewModelTests: XCTestCase {
     /// `SeasonEpisodeList` folds `episodeListRefreshToken` into its own
     /// episode-list fetch so a just-finished episode's row (progress bar/
     /// watched state) doesn't sit stale after returning from the player —
-    /// see that property's own doc comment. Pinning that it actually
+    /// see that property's doc comment. Pinning that it actually
     /// changes on every `refreshItem()` call is what that wiring depends on.
     func test_refreshItem_changesEpisodeListRefreshToken() async {
         let viewModel = await loadedSeriesViewModel(nextUpItems: [], episodesItems: [])
@@ -1512,8 +1512,8 @@ final class AssetDetailViewModelTests: XCTestCase {
 
     // MARK: advanceToNextEpisodeIfCompleted() (refreshItem()'s next-episode advance)
 
-    /// The user-facing feature this all exists for (2026-08-13): once the
-    /// server confirms a just-played episode is fully watched, and
+    /// The user-facing feature this all exists for: once the server
+    /// confirms a just-played episode is fully watched, and
     /// Jellyfin's own NextUp resolves to a *different* episode, the detail
     /// page should advance to show it — instead of sitting on the
     /// just-finished episode until the user manually picks the next one.

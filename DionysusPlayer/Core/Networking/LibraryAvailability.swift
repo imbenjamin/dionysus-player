@@ -1,36 +1,26 @@
 import Observation
 
-/// App-wide mirror of `HomeViewModel.loadState` — Home is the one screen
-/// that always tries to load real content the moment the app opens, so
-/// it's the natural place to detect "can we actually use this server right
-/// now" (see `HomeViewModel.retryLoadIfNeeded()`'s own doc comment for why
-/// that's a meaningfully different, more specific question than
-/// `ConnectivityMonitor.isOffline` alone — reconnecting Wi-Fi can report
-/// "online" before the actual `/Users/{id}/Views` fetch can succeed).
+/// App-wide mirror of `HomeViewModel.loadState`. Home always loads real content
+/// at launch, making it the place to answer "is this server usable now" — a
+/// narrower question than `ConnectivityMonitor.isOffline`, since reconnecting
+/// Wi-Fi reports online before `/Users/{id}/Views` can succeed.
 ///
-/// `SearchView`'s landing page (before any query is typed, so it has no
-/// network activity of its own to fail) reads `state` directly to mirror
-/// Home's own offline/loading/available handling instead of duplicating
-/// it, and calls `retryAction` for its own "Try Again" button rather than
-/// needing a reference to `HomeViewModel` — same closure-hook shape as
-/// `DownloadManager.onRowMarkedForDeletion`. Both are wired up by
-/// `HomeView` once its own `HomeViewModel` exists; nothing else writes to
-/// this type.
+/// `SearchView`'s landing page has no network activity of its own to fail, so
+/// it reads `state` and calls `retryAction` rather than duplicating Home's
+/// handling or holding a `HomeViewModel`. `HomeView` wires both up; nothing
+/// else writes here.
 ///
-/// Follows the same plain-singleton convention as `ConnectivityMonitor
-/// .shared` — referenced directly in view bodies rather than routed
-/// through SwiftUI's `Environment`, which Observation still tracks
-/// correctly.
+/// A plain singleton like `ConnectivityMonitor.shared`, referenced directly in
+/// view bodies rather than through `Environment`; Observation still tracks it.
 @MainActor
 @Observable
 final class LibraryAvailability {
     enum State: Equatable {
-        /// Home has never successfully loaded yet this session — either its
-        /// very first load is still in flight, or a reconnect retry is
-        /// currently working through `HomeViewModel.reconnectRetrySchedule`.
-        /// Deliberately distinct from `.unavailable`: neither is "ready",
-        /// but only one of them is actually an offline/error condition
-        /// worth telling the user about.
+        /// Home has not loaded yet this session: either the first load is in
+        /// flight or a retry is working through
+        /// `HomeViewModel.reconnectRetrySchedule`. Distinct from
+        /// `.unavailable` — neither is ready, but only that one is worth
+        /// reporting to the user.
         case loading
         case available
         case unavailable
@@ -39,27 +29,23 @@ final class LibraryAvailability {
     static let shared = LibraryAvailability()
 
     private(set) var state: State = .loading
-    /// Set by `HomeView` to `HomeViewModel.retryLoadIfNeeded()` (not a bare
-    /// `load()` — coalesces with any retry already in flight rather than
-    /// racing it, see that method's doc comment) once its view model
-    /// exists — `nil` before then, which `SearchView` never actually
-    /// reaches in practice, since `state` still reads `.loading` at that
-    /// point too.
+    /// Set by `HomeView` to `HomeViewModel.retryLoadIfNeeded()`, which
+    /// coalesces with an in-flight retry rather than racing it. `nil` until the
+    /// view model exists, which `SearchView` never observes because `state`
+    /// still reads `.loading` then.
     var retryAction: (() -> Void)?
 
     private init() {}
 
-    /// No-ops if the value wouldn't change — see `ConnectivityMonitor
-    /// .reportFailure()`'s doc comment: `@Observable`'s change tracking
-    /// fires on every assignment regardless of whether the value actually
-    /// differs, and this is read directly in `SearchView`'s body.
+    /// No-ops when unchanged: `@Observable` fires on every assignment, equal or
+    /// not, and `SearchView`'s body reads this directly.
     func update(_ state: State) {
         guard self.state != state else { return }
         self.state = state
     }
 
-    /// Test-only reset — `private(set)` blocks direct assignment even from
-    /// a `@testable import`, so tests need this instead.
+    /// Test-only reset; `private(set)` blocks assignment even under
+    /// `@testable import`.
     func reset() {
         state = .loading
         retryAction = nil

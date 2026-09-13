@@ -11,10 +11,10 @@ import SwiftUI
 ///
 /// On iOS 26 the glyph sets no explicit color. This was tried the other way
 /// on the assumption it'd match the back button's chevron, but that button
-/// doesn't set an explicit color either, and confirmed live (2026-08-11)
-/// that's exactly why it — unlike this button once it *did* hardcode black
-/// — stays legible over both a light and a dark patch of the scrolling hero
-/// image: real `.glassEffect` content is automatically tinted for contrast
+/// doesn't set an explicit color either, confirmed live — that's exactly why
+/// it, unlike this button once it *did* hardcode black, stays legible over
+/// both a light and a dark patch of the scrolling hero image: real
+/// `.glassEffect` content is automatically tinted for contrast
 /// against whatever's currently behind the glass, the same Liquid Glass
 /// vibrancy the system back button gets for free. Forcing `.black` (or
 /// `.white`) defeats that and pins the glyph to one color regardless of

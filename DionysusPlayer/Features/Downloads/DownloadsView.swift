@@ -1,27 +1,23 @@
 import SwiftUI
 
-/// The Downloads tab's landing screen: one alphabetically-sorted list
-/// mixing standalone items (movies, or lone episodes) and per-show group
-/// rows — see `DownloadsRow`/`DownloadsViewModel`. Reachable as a
-/// `MainTabView` tab regardless of connectivity or sign-in state —
-/// everything here reads straight from local storage.
+/// The Downloads tab's landing screen: one alphabetically-sorted list mixing
+/// standalone items (movies, or lone episodes) and per-show group rows — see
+/// `DownloadsRow`/`DownloadsViewModel`. Reachable regardless of connectivity or
+/// sign-in state, since everything here reads local storage.
 ///
-/// Bulk delete: the trash toolbar button enters selection mode (Photos/
-/// Files-style Cancel-top-left/Select-All-top-right/destructive-action
-/// shape) — each row (including a whole show group, selected as one unit)
-/// gets a checkbox in place of its usual navigation. The confirmation
-/// dialog's asset count reflects the real total, not the row count — a
-/// selected show's own episodes all count individually (see
+/// The trash toolbar button enters selection mode, in the Photos/Files shape of
+/// Cancel top-left, Select All top-right and a destructive action: each row,
+/// including a show group selected as one unit, gets a checkbox in place of its
+/// navigation. The confirmation dialog counts assets rather than rows, so a
+/// selected show's episodes count individually (see
 /// `DownloadsViewModel.selectedAssetCount`).
 struct DownloadsView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel: DownloadsViewModel?
     @State private var showDeleteConfirmation = false
 
-    /// Same `.regular` gate `SearchView.usesGridLayout` uses, for the same
-    /// reason — see `DownloadsGrid`'s doc comment for the measurements that
-    /// motivated it. `.compact` (iPhone) keeps the existing `List`
-    /// untouched.
+    /// Same `.regular` gate as `SearchView.usesGridLayout`; see `DownloadsGrid`
+    /// for the measurements behind it. `.compact` keeps the `List`.
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private var usesGridLayout: Bool { horizontalSizeClass == .regular }
 
@@ -32,10 +28,9 @@ struct DownloadsView: View {
                 if viewModel == nil {
                     viewModel = DownloadsViewModel(downloadManager: appState.downloadManager)
                 } else {
-                    // Re-reads local storage fresh (e.g. a download
-                    // finished, or a delete happened on a pushed detail
-                    // page) — see `DownloadsViewModel`'s own doc comment
-                    // for why there's no automatic observation instead.
+                    // Re-reads local storage: a download finished, or a delete
+                    // happened on a pushed detail page. See `DownloadsViewModel`
+                    // for why there's no automatic observation.
                     viewModel?.refresh()
                 }
             }
@@ -55,9 +50,8 @@ struct DownloadsView: View {
             }
     }
 
-    /// Presented exactly while `viewModel.retryErrorMessage` is non-`nil`;
-    /// dismissing (either button, or a swipe/tap-away) clears it back to
-    /// `nil` so the same message can't reappear stale on the next failure.
+    /// Presented while `viewModel.retryErrorMessage` is non-`nil`; any dismissal
+    /// clears it, so the message can't reappear stale on the next failure.
     private var isShowingRetryError: Binding<Bool> {
         Binding(
             get: { viewModel?.retryErrorMessage != nil },
@@ -70,11 +64,10 @@ struct DownloadsView: View {
         return viewModel?.retryingItemIDs.contains(item.itemID) ?? false
     }
 
-    /// `nil` — which hides `DownloadsRowView`'s retry button entirely,
-    /// rather than showing it disabled — for anything that isn't a failed
-    /// standalone item, or when there's no live session to retry with
-    /// (`DownloadManager.retry(itemID:client:)` needs one; same gating
-    /// `DownloadedPlayResumeButtonRow`'s own Retry button uses).
+    /// `nil`, which hides `DownloadsRowView`'s retry button rather than disabling
+    /// it, for anything that isn't a failed standalone item or when there's no
+    /// live session to retry with — `DownloadManager.retry(itemID:client:)` needs
+    /// one, the same gating `DownloadedPlayResumeButtonRow` uses.
     private func retryAction(_ row: DownloadsRow) -> (() -> Void)? {
         guard case .standalone(let item) = row, item.status == .failed, let client = appState.apiClient else { return nil }
         return {
@@ -83,13 +76,11 @@ struct DownloadsView: View {
         }
     }
 
-    /// e.g. "Delete 3 Downloads (1.24 GB)?" — falls back to the plain
-    /// count-only wording when there's no size to show (see
-    /// `DownloadsViewModel.selectedTotalSizeText`'s own doc comment). Two
-    /// fully separate localized strings per branch, not one spliced
-    /// together with the size inserted before a trailing "?" — that would
-    /// bake in an English-specific punctuation position no other language
-    /// is guaranteed to share.
+    /// "Delete 3 Downloads (1.24 GB)?", falling back to count-only wording when
+    /// there's no size to show (see
+    /// `DownloadsViewModel.selectedTotalSizeText`). Two separate localized
+    /// strings rather than one splicing the size in before a trailing "?", which
+    /// would bake in English's punctuation position.
     private var deleteConfirmationTitle: String {
         let count = viewModel?.selectedAssetCount ?? 0
         let countText = count == 1 ? String(localized: "1 Download") : String(localized: "\(count) Downloads")
@@ -106,12 +97,10 @@ struct DownloadsView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { viewModel.cancelSelecting() }
                 }
-                // Both live in the top nav bar, not a `.bottomBar` item —
-                // this app's floating tab bar (iOS 26's default style) sits
-                // at a higher z-order than `.bottomBar` and simply covers
-                // it. The asset count shows in the confirmation dialog's
-                // title instead, keeping this button icon-only so both fit
-                // comfortably alongside Cancel/Select All.
+                // Both in the top nav bar, not `.bottomBar`: iOS 26's floating
+                // tab bar sits above `.bottomBar` and covers it. The asset count
+                // goes in the confirmation dialog's title, keeping this button
+                // icon-only so both fit alongside Cancel/Select All.
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(viewModel.isAllSelected ? "Deselect All" : "Select All") {
                         viewModel.toggleSelectAll()
@@ -153,8 +142,8 @@ struct DownloadsView: View {
                 )
                 .accessibilityIdentifier(A11yID.Downloads.emptyState)
             } else if usesGridLayout {
-                // One identifier for both layouts — which renders is a
-                // size-class detail a test should not have to know.
+                // One identifier for both layouts: which renders is a size-class
+                // detail a test shouldn't know.
                 grid(viewModel)
                     .accessibilityIdentifier(A11yID.Downloads.list)
             } else {
@@ -173,11 +162,10 @@ struct DownloadsView: View {
                             onRetry: retryAction(row)
                         )
                         .swipeActions {
-                            // Only the ordinary single-item delete — bulk
-                            // selection has its own bottom-bar action, and
-                            // swiping a row mid-selection would be a
-                            // confusing second way to remove just one item
-                            // out from under a multi-row selection.
+                            // Only the single-item delete: bulk selection has its
+                            // own action, and swiping mid-selection would be a
+                            // second way to remove one item out from under a
+                            // multi-row selection.
                             if !viewModel.isSelecting, case .standalone(let item) = row {
                                 Button("Delete", role: .destructive) { viewModel.delete(itemID: item.itemID) }
                             }
@@ -191,18 +179,15 @@ struct DownloadsView: View {
         }
     }
 
-    /// Landscape if *any* row is episode/show-like, decided once for the
-    /// whole list or grid rather than per row — mirrors
-    /// `SearchView.isLandscapeShape(_:)` and `MediaCollectionRail
-    /// .usesLandscapeTiles`. So a library of only movies keeps poster-shaped
-    /// artwork, and one mixing in any show switches every row to 16:9.
-    /// Shared by both presentations, exactly as Search shares its own.
+    /// Landscape if any row is episode- or show-like, decided once for the whole
+    /// list or grid rather than per row, as in `SearchView.isLandscapeShape(_:)`
+    /// and `MediaCollectionRail.usesLandscapeTiles`: a movies-only library keeps
+    /// posters, and one mixing in a show switches every row to 16:9.
     private func isLandscapeShape(_ rows: [DownloadsRow]) -> Bool {
         rows.contains { $0.isLandscapeShaped }
     }
 
-    /// `.regular`-size-class counterpart to the `List` above — see
-    /// `DownloadsGrid`.
+    /// `.regular` counterpart to the `List` above; see `DownloadsGrid`.
     private func grid(_ viewModel: DownloadsViewModel) -> some View {
         let isLandscape = isLandscapeShape(viewModel.rows)
         return DownloadsGrid(items: viewModel.rows, isLandscape: isLandscape) { row, width in
@@ -238,8 +223,7 @@ struct DownloadsView: View {
 
     private func gridTitle(_ row: DownloadsRow) -> String {
         switch row {
-        // Same series-name-first convention as the list row's own
-        // `rowContent` — see its comment.
+        // Same series-name-first convention as the list row's `rowContent`.
         case .standalone(let item): return item.isEpisode ? (item.seriesTitle ?? item.title) : item.title
         case .show(let group): return group.seriesTitle
         }
@@ -258,9 +242,8 @@ struct DownloadsView: View {
         }
     }
 
-    /// Mirrors the list row's `subtitleLine(for:)` for every non-completed
-    /// status; `nil` once completed (the subtitle carries the real
-    /// information by then).
+    /// Mirrors the list row's `subtitleLine(for:)` for non-completed statuses;
+    /// `nil` once completed, where the subtitle carries the information.
     private func gridStatusText(_ row: DownloadsRow) -> String? {
         guard case .standalone(let item) = row else { return nil }
         switch item.status {
@@ -294,9 +277,9 @@ struct DownloadsView: View {
         return FileSizeText.text(bytes: bytes)
     }
 
-    /// "Title, subtitle, status" — the same sentence the equivalent list row
-    /// composes from its own stacked `Text`s, spelled out here because the
-    /// tile collapses to a single accessibility element.
+    /// "Title, subtitle, status" — the sentence the list row composes from its
+    /// stacked `Text`s, spelled out here because the tile collapses to one
+    /// accessibility element.
     private func gridAccessibilityLabel(_ row: DownloadsRow) -> String {
         [gridTitle(row), gridSubtitle(row), gridStatusText(row)]
             .compactMap { $0 }
@@ -304,41 +287,35 @@ struct DownloadsView: View {
     }
 }
 
-/// One row of `DownloadsView`'s list — a standalone item (pushes
-/// `.downloadedAsset`) or a show group (pushes `.downloadedShow`) normally;
-/// in selection mode (`isSelecting`), a plain tappable row with a leading
-/// checkbox instead, toggling `onToggleSelection` rather than navigating.
-/// A plain `NavigationLink` as a `List`/`ForEach` row's content is fine
-/// here — unlike the known bare-`NavigationLink`-in-`LazyHStack`/
-/// `LazyVStack` freeze (see `LibraryRailView`'s history), `List` doesn't
-/// hit that bug class.
+/// One row of `DownloadsView`'s list: a standalone item pushing
+/// `.downloadedAsset` or a show group pushing `.downloadedShow`; in selection
+/// mode, a tappable row with a leading checkbox toggling `onToggleSelection`.
+/// A bare `NavigationLink` is safe as a `List` row's content — unlike inside a
+/// `LazyHStack`/`LazyVStack`, where it freezes (see `LibraryRailView`).
 private struct DownloadsRowView: View {
     let row: DownloadsRow
     let downloadManager: DownloadManager
-    /// The whole *list's* one shape decision (`DownloadsView.isLandscapeShape(_:)`),
-    /// not this row's own kind — a movie sitting in an otherwise show-heavy
-    /// list gets the same landscape thumbnail every other row here does.
-    /// Mirrors `SearchResultRow`'s identical parameter, and the `.regular`
-    /// grid's `DownloadsGridCard`; see `MediaCollectionRail.usesLandscapeTiles`
-    /// for why a mixed-shape list reads worse than a consistent one.
+    /// The whole list's shape decision
+    /// (`DownloadsView.isLandscapeShape(_:)`), not this row's kind, so a movie in
+    /// a show-heavy list gets the same landscape thumbnail as every other row.
+    /// Mirrors `SearchResultRow` and the grid's `DownloadsGridCard`; see
+    /// `MediaCollectionRail.usesLandscapeTiles` for why a mixed-shape list reads
+    /// worse.
     ///
-    /// Before this, each row picked its own image by kind *and* every
-    /// thumbnail was framed 44x66 portrait regardless — so a show group's
-    /// landscape still got squeezed into a poster-shaped box (reported on
-    /// device, 2026-09-03).
+    /// Before this, each row picked its image by kind while every thumbnail was
+    /// framed 44x66 portrait regardless, squeezing a show group's landscape into
+    /// a poster-shaped box.
     let isLandscape: Bool
     var isSelecting: Bool = false
     var isSelected: Bool = false
-    /// `DownloadsViewModel.rowSizes[row.id]` — precomputed there rather
-    /// than stat'd here on every render, see that property's own doc
-    /// comment. `nil`/`0` (nothing completed to size yet) simply shows no
-    /// size text rather than "0 B".
+    /// `DownloadsViewModel.rowSizes[row.id]`, precomputed there rather than
+    /// stat'd here on every render. `nil` or `0` — nothing completed to size yet
+    /// — shows no size text rather than "0 B".
     var sizeBytes: Int64? = nil
     var isRetrying: Bool = false
     var onToggleSelection: () -> Void = {}
-    /// `nil` hides the retry button entirely rather than showing it
-    /// disabled — see `DownloadsView.retryAction(_:)`'s own doc comment for
-    /// when that is.
+    /// `nil` hides the retry button rather than disabling it; see
+    /// `DownloadsView.retryAction(_:)` for when.
     var onRetry: (() -> Void)? = nil
 
     var body: some View {
@@ -366,19 +343,17 @@ private struct DownloadsRowView: View {
         }
     }
 
-    /// The row's actual content — identical whether it ends up inside a
-    /// `NavigationLink` or a selection `Button`, per this type's own doc
-    /// comment.
+    /// The row's content, identical inside a `NavigationLink` or a selection
+    /// `Button`.
     @ViewBuilder
     private var rowContent: some View {
         switch row {
         case .standalone(let item):
-            // A lone downloaded episode (its series has no other downloads
-            // — otherwise it'd be a `.show` group instead) still needs the
-            // show name visible here, mirroring `MediaItem.railTitle`/
-            // `railSubtitle`'s series-name-then-"S1:E4 · Episode Name"
-            // convention, since `DownloadedItem` has no `MediaItem` of its
-            // own to read that from directly.
+            // A lone downloaded episode — its series has no other downloads, or
+            // this would be a `.show` group — still shows the series name,
+            // following `MediaItem.railTitle`/`railSubtitle`'s
+            // series-name-then-"S1:E4 · Episode Name" convention, which
+            // `DownloadedItem` has no `MediaItem` to read directly.
             HStack(spacing: 12) {
                 thumbnail(
                     relativePath: row.artworkRelativePath(preferLandscape: isLandscape),
@@ -389,20 +364,18 @@ private struct DownloadsRowView: View {
                     subtitleLine(for: item)
                 }
                 Spacer()
-                // Selection mode's own trailing element takes priority over
-                // the in-progress indicators below — see `sizeText`'s doc
-                // comment for why it's `nil` for anything but a completed
-                // row, which is what keeps this from ever fighting the
-                // progress ring/spinner for the same spot in practice.
+                // Selection mode's trailing element takes priority over the
+                // in-progress indicators below. `sizeText` is `nil` for anything
+                // but a completed row, so it never fights the progress
+                // ring/spinner for this spot.
                 if isSelecting, let sizeText {
                     Text(sizeText).font(.caption).foregroundStyle(.secondary)
                 } else if let progress = progress(for: item) {
                     DownloadProgressRing(progress: progress)
                         .frame(width: 28, height: 28)
                 } else if item.status == .downloading || item.status == .queued {
-                    // See `DownloadButton.isPreparing`'s doc comment — no
-                    // byte progress yet, but a plain spinner beats blank
-                    // space.
+                    // See `DownloadButton.isPreparing`: no byte progress yet, but
+                    // a spinner beats blank space.
                     ProgressView().controlSize(.small)
                 } else if !isSelecting, let onRetry {
                     retryButton(action: onRetry)
@@ -426,24 +399,20 @@ private struct DownloadsRowView: View {
         }
     }
 
-    /// `sizeBytes`, formatted — `nil` when there's nothing to show yet
-    /// (`sizeBytes` is `nil`/`0` for a row with no completed content, e.g.
-    /// still downloading), so callers can `if let` around it rather than
-    /// each independently guarding against a meaningless "0 B"/blank label.
+    /// `sizeBytes`, formatted. `nil` when there's nothing to show — a row with no
+    /// completed content — so callers can `if let` rather than each guarding
+    /// against a meaningless "0 B".
     private var sizeText: String? {
         guard let sizeBytes, sizeBytes > 0 else { return nil }
         return FileSizeText.text(bytes: sizeBytes)
     }
 
-    /// `.buttonStyle(.borderless)`, not `.plain` — this sits inside a row
-    /// that's itself a `NavigationLink`'s label (outside selection mode),
-    /// and `.borderless` is what lets it act as its own independent tap
-    /// target instead of the surrounding `NavigationLink` swallowing the
-    /// tap, the documented SwiftUI pattern for a secondary `List` row
-    /// action. Icon-only, unlike `DownloadedPlayResumeButtonRow.failedRow`'s
-    /// full-width labeled Retry button — this is a compact list row, not a
-    /// detail page, but the same spinner-replaces-icon-while-retrying
-    /// treatment and brand tint.
+    /// `.buttonStyle(.borderless)`, not `.plain`: this sits inside a row that is
+    /// itself a `NavigationLink`'s label, and `.borderless` is the documented
+    /// SwiftUI pattern for a secondary `List` row action that needs its own tap
+    /// target rather than having the tap swallowed. Icon-only, unlike
+    /// `DownloadedPlayResumeButtonRow.failedRow`'s labeled Retry button, but the
+    /// same spinner-while-retrying treatment and brand tint.
     private func retryButton(action: @escaping () -> Void) -> some View {
         Button(action: action) {
             if isRetrying {
@@ -458,8 +427,8 @@ private struct DownloadsRowView: View {
         .accessibilityLabel(String(localized: "Retry Download"))
     }
 
-    /// Live byte progress for a standalone row still mid-download —
-    /// `nil` once completed (or if it somehow failed, see `subtitleLine`).
+    /// Live byte progress for a standalone row mid-download; `nil` once completed
+    /// or failed (see `subtitleLine`).
     private func progress(for item: DownloadsRow.StandaloneItem) -> DownloadProgress? {
         guard item.status == .downloading || item.status == .queued else { return nil }
         return downloadManager.activeDownloads[item.itemID]
@@ -475,14 +444,13 @@ private struct DownloadsRowView: View {
                 Text("Preparing download…").font(.caption).foregroundStyle(.secondary)
             }
         case .queued:
-            // Waiting for a concurrency slot — see `DownloadedAssetDetailView
-            // .downloadStatusRow`'s doc comment on the same distinction.
+            // Waiting for a concurrency slot; see
+            // `DownloadedAssetDetailView.downloadStatusRow`.
             Text("Queued…").font(.caption).foregroundStyle(.secondary)
         case .failed:
-            // The specific reason when there is one (e.g. `DownloadManager`'s
-            // duration-validation message) — same `errorMessage ??` fallback
-            // `DownloadedPlayResumeButtonRow.failedRow` already uses, so the
-            // two don't disagree about what a failed download's row says.
+            // The specific reason when there is one, such as `DownloadManager`'s
+            // duration-validation message. Same `errorMessage ??` fallback as
+            // `DownloadedPlayResumeButtonRow.failedRow`, so the two agree.
             Text(item.errorMessage ?? String(localized: "Download Failed"))
                 .font(.caption).foregroundStyle(.red)
                 .lineLimit(2)
@@ -490,14 +458,13 @@ private struct DownloadsRowView: View {
             Text("Paused").font(.caption).foregroundStyle(.secondary)
         case .completed:
             if item.isEpisode {
-                // "S1:E4 · Episode Name" — same pattern as
-                // `MediaItem.railSubtitle`'s episode case.
+                // "S1:E4 · Episode Name", as in `MediaItem.railSubtitle`.
                 Text(item.episodeLabel.map { "\($0) \u{00B7} \(item.title)" } ?? item.title)
                     .font(.caption).foregroundStyle(.secondary)
             } else if let yearAndDuration = item.yearAndDurationText {
-                // "2019 · 1h 32m" — same pattern as `MediaItem.railSubtitle`'s
-                // movie case, so a completed download reads the same as its
-                // live counterpart instead of showing just a bare title.
+                // "2019 · 1h 32m", as in `MediaItem.railSubtitle`, so a completed
+                // download reads like its live counterpart rather than a bare
+                // title.
                 Text(yearAndDuration)
                     .font(.caption).foregroundStyle(.secondary)
                     .accessibilityLabel(item.yearAndDurationAccessibilityText ?? yearAndDuration)
@@ -505,11 +472,10 @@ private struct DownloadsRowView: View {
         }
     }
 
-    /// 88x50 landscape / 44x66 portrait — both are sizes this feature
-    /// already uses (88x50 is exactly `DownloadedEpisodeRow`'s own thumbnail,
-    /// so a lone-episode row here matches an episode row on the show
-    /// subpage). Which one applies is `isLandscape`, the whole list's single
-    /// decision, not the row's own kind.
+    /// 88x50 landscape / 44x66 portrait, both sizes this feature already uses:
+    /// 88x50 is `DownloadedEpisodeRow`'s thumbnail, so a lone-episode row here
+    /// matches an episode row on the show subpage. Which applies is
+    /// `isLandscape`, the whole list's decision.
     private var thumbnailSize: CGSize {
         isLandscape ? CGSize(width: 88, height: 50) : CGSize(width: 44, height: 66)
     }

@@ -1,11 +1,9 @@
 import Foundation
 
-/// Which field `CollectionGridView`'s grid is ordered by, exposed via a
-/// toolbar menu — independent of whatever `CollectionQuery` describes
-/// (that's just parent/type filtering). Paired with a separate
-/// `CollectionSortOrder` (ascending/descending), which applies uniformly
-/// across all three fields — none of them has a "locked" direction.
-/// Defaults to `.title`.
+/// Which field `CollectionGridView`'s grid is ordered by, from its toolbar menu.
+/// Independent of `CollectionQuery`, which only filters by parent and type.
+/// Paired with `CollectionSortOrder`, which applies uniformly — no field has a
+/// locked direction.
 enum CollectionSortField: CaseIterable, Identifiable, Hashable {
     case title
     case dateAdded
@@ -23,10 +21,8 @@ enum CollectionSortField: CaseIterable, Identifiable, Hashable {
     }
 }
 
-/// Ascending/descending, independently selectable for any
-/// `CollectionSortField` — e.g. "A→Z" (ascending) or "Z→A" (descending)
-/// when sorting by title, oldest-first or newest-first for the date-based
-/// fields. Defaults to `.ascending`.
+/// Ascending or descending, selectable for any `CollectionSortField`: A→Z or Z→A
+/// by title, oldest- or newest-first for the date fields.
 enum CollectionSortOrder: CaseIterable, Identifiable, Hashable {
     case ascending
     case descending
@@ -42,12 +38,9 @@ enum CollectionSortOrder: CaseIterable, Identifiable, Hashable {
     }
 }
 
-/// The "Watched" filter facet in `CollectionGridView` — whether an item has
-/// been fully watched (`MediaItem.isPlayed`) or not, mirroring the
-/// genre/studio/decade facets in shape (an `Optional` selection on the
-/// view model, `nil` meaning "no filter"). Kept as a two-case enum rather
-/// than a plain `Bool?` so the filter pill has real, self-describing display
-/// values instead of `true`/`false`.
+/// `CollectionGridView`'s Watched facet, shaped like the genre, studio and
+/// decade facets: an `Optional` selection where `nil` means no filter. An enum
+/// rather than a `Bool?` so the filter pill has self-describing display values.
 enum CollectionWatchStatus: CaseIterable, Identifiable, Hashable {
     case watched
     case unwatched
@@ -55,12 +48,9 @@ enum CollectionWatchStatus: CaseIterable, Identifiable, Hashable {
     var id: Self { self }
 }
 
-/// The "Favorites" filter facet in `CollectionGridView` — whether an item is
-/// marked a favorite, or specifically isn't, mirroring `CollectionWatchStatus`
-/// in shape (an `Optional` selection on the view model, `nil` meaning "no
-/// filter", i.e. "All Items"). A three-way All/Favorites/Non-Favorites choice
-/// rather than a plain on/off toggle so someone can filter *out* favorites
-/// too, not just down to them.
+/// `CollectionGridView`'s Favorites facet, shaped like `CollectionWatchStatus`.
+/// A three-way All/Favorites/Non-Favorites choice rather than an on/off toggle,
+/// so favorites can be filtered out as well as down to.
 enum CollectionFavoriteStatus: CaseIterable, Identifiable, Hashable {
     case favorite
     case nonFavorite

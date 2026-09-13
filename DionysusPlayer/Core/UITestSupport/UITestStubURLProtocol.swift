@@ -4,27 +4,22 @@ import UIKit
 
 /// Serves `UITestFixtureLibrary` in place of a real Jellyfin server.
 ///
-/// Installed process-wide via `URLProtocol.registerClass`, which is enough to
-/// cover `JellyfinAPIClient`: it is an `actor` whose only session seam is
-/// `init(baseURL:accessToken:session: = .shared)`, and `AppState` never
-/// passes a session, so every API call runs on `URLSession.shared`. The
-/// sessions that *aren't* `.shared` — `RemoteImageLoader`'s and
-/// `DownloadManager`'s — insert this class into their own
-/// `configuration.protocolClasses` instead; see
-/// `UITestHarness.decorate(_:)`.
+/// Installed process-wide via `URLProtocol.registerClass`, which covers
+/// `JellyfinAPIClient`: `AppState` never passes it a session, so every API call
+/// runs on `URLSession.shared`. The sessions that aren't shared —
+/// `RemoteImageLoader`'s and `DownloadManager`'s — insert this class into their
+/// own `protocolClasses` via `UITestHarness.decorate(_:)`.
 ///
-/// Unlike the unit suite's `MockURLProtocol`, this router is declarative
-/// rather than closure-driven. It has to be: XCUITest runs the assertions in
-/// a separate process from the app, so there is no way to hand a
-/// `requestHandler` closure across the boundary. Behaviour varies only by
-/// the launch-time `UITestScenario`.
+/// Declarative rather than closure-driven like the unit suite's
+/// `MockURLProtocol`, because XCUITest runs assertions in a separate process
+/// and no `requestHandler` can cross that boundary. Behaviour varies only by the
+/// launch-time `UITestScenario`.
 final class UITestStubURLProtocol: URLProtocol {
     // MARK: - URLProtocol
 
     override class func canInit(with request: URLRequest) -> Bool {
-        // Intercept everything while the harness is active. A UI test that
-        // reaches the real network is a bug, not a fallback, so there is
-        // deliberately no passthrough.
+        // Everything is intercepted: a UI test reaching the real network is a
+        // bug, not a fallback, so there is no passthrough.
         UITestConfiguration.isActive
     }
 
@@ -45,20 +40,16 @@ final class UITestStubURLProtocol: URLProtocol {
             return
         }
 
-        // Images resolve before any scenario gating: an error scenario is
-        // about the *data* endpoints, and failing artwork too would just
-        // park every assertion on a placeholder. `.slowLogoImage` is the
-        // one deliberate exception — see `slowLogoImageDelay`.
+        // Images resolve before scenario gating: an error scenario is about the
+        // data endpoints, and failing artwork too would park every assertion on
+        // a placeholder. `.slowLogoImage` is the one exception.
         if path.contains("/Images/") {
             if scenario == .slowLogoImage, path.hasSuffix("/Images/Logo") {
-                // Blocks whatever thread `URLSession` runs this request's
-                // `startLoading()` on, rather than dispatching the
-                // completion asynchronously — sidesteps Swift 6's
-                // `Sendable` requirements on a cross-queue closure
-                // entirely, and is safe here specifically because
-                // `URLSession` gives concurrent requests their own
-                // threads: this only ever delays the one Logo fetch, never
-                // any other in-flight request.
+                // Blocks `startLoading()`'s own thread rather than dispatching
+                // the completion asynchronously, avoiding Swift 6's `Sendable`
+                // requirements on a cross-queue closure. Safe because
+                // `URLSession` gives concurrent requests their own threads, so
+                // only this Logo fetch is delayed.
                 Thread.sleep(forTimeInterval: Self.slowLogoImageDelay)
                 finish(.success((200, Self.placeholderPNG, "image/png")))
                 return
@@ -72,24 +63,21 @@ final class UITestStubURLProtocol: URLProtocol {
             return
         }
 
-        // Independent of scenario — a login journey testing a mistyped
-        // password shouldn't need a whole error scenario switched on to get
-        // there. Checked here rather than folded into `scenarioFailure`,
-        // which gates *paths*, not *bodies*: this is the one request the
-        // stub actually has to look inside to answer correctly.
+        // Scenario-independent: a mistyped-password journey shouldn't need an
+        // error scenario switched on. Kept out of `scenarioFailure`, which gates
+        // paths rather than bodies — this is the one request the stub must look
+        // inside to answer.
         if path.hasSuffix("/Users/AuthenticateByName"), !Self.suppliesTheFixturePassword(request) {
             finish(.success((401, Data("{}".utf8), "application/json")))
             return
         }
 
-        // Deletion is the one route that has to be matched on *method* as
-        // well as path — `DELETE /Items/{id}` would otherwise fall through
-        // to the `/Users/.../Items/{id}` item lookup below and answer a
-        // deletion with a JSON item body.
+        // Matched on method as well as path: `DELETE /Items/{id}` would
+        // otherwise fall through to the item lookup below and answer a deletion
+        // with a JSON item body.
         if request.httpMethod == "DELETE", let itemID = Self.deletedItemID(forPath: path) {
-            // Mirrors the real server: refuse when this user has no delete
-            // rights, with Jellyfin's own (surprising) 401 rather than a
-            // 403 — see `JellyfinAPIClient.deleteItem`.
+            // Refuses with Jellyfin's own 401 rather than a 403, as the real
+            // server does (see `JellyfinAPIClient.deleteItem`).
             guard scenario != .noDeletePermission else {
                 finish(.success((401, Data("{}".utf8), "application/json")))
                 return
@@ -99,16 +87,12 @@ final class UITestStubURLProtocol: URLProtocol {
             return
         }
 
-        // Playlist item removal is likewise method-sensitive — without this,
-        // `DELETE /Playlists/{id}/Items` would fall into the *GET*
-        // `/Playlists/{id}/Items` case below (`body(forPath:)` doesn't look
-        // at the method at all) and answer a removal with the full,
-        // unmodified member list rather than actually removing anything.
+        // Also method-sensitive: `body(forPath:)` ignores the method, so
+        // `DELETE /Playlists/{id}/Items` would fall into the GET case and answer
+        // a removal with the unmodified member list.
         if request.httpMethod == "DELETE", path.contains("/Playlists/"), path.hasSuffix("/Items") {
-            // Mirrors the real server's own status for this refusal —
-            // unlike whole-item deletion's 401 above, Jellyfin reports a
-            // playlist-edit refusal as a clean 403 (see
-            // `JellyfinAPIClient.removePlaylistItems`).
+            // Jellyfin reports a playlist-edit refusal as a clean 403, unlike
+            // whole-item deletion's 401 above.
             guard scenario != .noPlaylistEditPermission else {
                 finish(.success((403, Data("{}".utf8), "application/json")))
                 return
@@ -120,10 +104,8 @@ final class UITestStubURLProtocol: URLProtocol {
             return
         }
 
-        // Adding to a playlist is method-sensitive for the same reason
-        // removal above is: `POST /Playlists/{id}/Items` shares its path
-        // with the GET that lists members, and `body(forPath:)` never looks
-        // at the method.
+        // Method-sensitive for the same reason as removal:
+        // `POST /Playlists/{id}/Items` shares its path with the listing GET.
         if request.httpMethod == "POST", path.contains("/Playlists/"), path.hasSuffix("/Items") {
             guard scenario != .noPlaylistEditPermission else {
                 finish(.success((403, Data("{}".utf8), "application/json")))
@@ -139,16 +121,14 @@ final class UITestStubURLProtocol: URLProtocol {
             return
         }
 
-        // `POST /Playlists` (create). Matched here rather than in
-        // `body(forPath:)` for two reasons: that function's `default:` arm
-        // answers any unmatched POST with an empty `Data()`, which the app
-        // would then fail to decode as a `PlaylistCreationResult`; and this
-        // one needs the request *body*, which only `startLoading` has.
+        // `POST /Playlists`. Handled here rather than in `body(forPath:)`, whose
+        // `default:` arm answers an unmatched POST with empty `Data()` the app
+        // can't decode as a `PlaylistCreationResult`, and which has no access to
+        // the request body this needs.
         //
-        // Deliberately not gated on `.noPlaylistEditPermission` — creating a
-        // playlist needs no permission on a real Jellyfin server either (see
-        // `JellyfinAPIClient.createPlaylist`), which is exactly what that
-        // scenario's journey asserts.
+        // Not gated on `.noPlaylistEditPermission`: creating a playlist needs no
+        // permission on a real server either, which is what that scenario
+        // asserts.
         if request.httpMethod == "POST", path == "/Playlists" {
             do {
                 let created = Self.recordPlaylistCreation(from: request)
@@ -159,20 +139,15 @@ final class UITestStubURLProtocol: URLProtocol {
             return
         }
 
-        // Playlist permission lookup needs a non-200 status for "no
-        // permission" — Jellyfin's own 404 "permissions not found" (see
-        // `JellyfinAPIClient.playlistUserPermissions`) — which
-        // `body(forPath:)` can't express, since every one of its routes
-        // answers 200.
+        // Needs Jellyfin's 404 "permissions not found" for a refusal, which
+        // `body(forPath:)` can't express — every route there answers 200.
         if path.contains("/Playlists/"), path.contains("/Users/") {
             let playlistID = path
                 .replacingOccurrences(of: "/Playlists/", with: "")
                 .components(separatedBy: "/Users/").first ?? ""
-            // `readOnlyPlaylist` is refused even in `.standard`: it's the
-            // one playlist in the catalogue this user is neither owner of
-            // nor shared on, so the "Add to Playlist" picker filtering it
-            // out is a real assertion about `editablePlaylists` rather than
-            // a filter that never has anything to reject.
+            // Refused even in `.standard`: the one playlist this user neither
+            // owns nor is shared on, so the picker filtering it out is a real
+            // assertion about `editablePlaylists` rather than a no-op.
             let isReadOnly = playlistID == UITestFixtureIdentity.readOnlyPlaylistID
             guard scenario != .noPlaylistEditPermission, !isReadOnly else {
                 finish(.success((404, Data("{}".utf8), "application/json")))
@@ -199,42 +174,35 @@ final class UITestStubURLProtocol: URLProtocol {
 
     // MARK: - Scenario gating
 
-    /// Endpoints that must keep working in an error scenario, so a test
-    /// still reaches a signed-in error state instead of being stranded on
-    /// the login screen.
+    /// Endpoints that keep working in an error scenario, so a test reaches a
+    /// signed-in error state instead of being stranded on the login screen.
     private static func isInfrastructurePath(_ path: String) -> Bool {
         path.hasSuffix("/System/Info/Public")
             || path.hasSuffix("/health")
             || path.hasSuffix("/Users/AuthenticateByName")
     }
 
-    /// Paths already served a 401 in this process, so `.unauthorized` fails
-    /// each endpoint exactly once and then succeeds — which is what
-    /// `JellyfinAPIClient.sendRaw`'s silent re-authentication is supposed to
-    /// recover from. Failing forever would test a permanent outage instead.
+    /// Paths already served a 401 this process, so `.unauthorized` fails each
+    /// endpoint once and then succeeds — what
+    /// `JellyfinAPIClient.sendRaw`'s silent re-authentication recovers from.
+    /// Failing forever would test a permanent outage instead.
     ///
     /// `nonisolated(unsafe)`: `URLProtocol` instances load on URLSession's
-    /// own queues, so this is guarded by `lock` rather than by isolation.
+    /// queues, so `lock` guards this rather than isolation.
     nonisolated(unsafe) private static var challengedPaths: Set<String> = []
     private static let lock = NSLock()
 
     /// Items deleted during this app session.
     ///
-    /// The fixture library is otherwise immutable, which is fine for every
-    /// read-only journey — but a deletion test's whole point is that the
-    /// item is *gone* afterwards, so the stub has to carry that much state.
-    /// Deliberately the minimum: a set of ids filtered out of every
-    /// subsequent response (`scoped`), rather than a mutable copy of the
-    /// catalogue. Process-lifetime, so each test's fresh app launch starts
-    /// clean without needing an explicit reset.
-    ///
-    /// `nonisolated(unsafe)` + `lock` for the same reason as
-    /// `challengedPaths` above.
+    /// The fixture library is otherwise immutable, which suits every read-only
+    /// journey, but a deletion test needs the item gone afterwards. Kept minimal
+    /// — a set of ids filtered out of every later response, not a mutable copy
+    /// of the catalogue — and process-lifetime, so each test's fresh launch
+    /// starts clean with no explicit reset.
     nonisolated(unsafe) private static var deletedItemIDs: Set<String> = []
 
-    /// The item id in a `DELETE /Items/{id}`, or `nil` if this isn't that
-    /// route. Matched precisely rather than with `contains("/Items/")` so a
-    /// path like `/Users/{id}/Items/{id}` can't be mistaken for it.
+    /// The item id in a `DELETE /Items/{id}`, or `nil` off that route. Matched
+    /// precisely so `/Users/{id}/Items/{id}` can't be mistaken for it.
     private static func deletedItemID(forPath path: String) -> String? {
         let components = path.split(separator: "/", omittingEmptySubsequences: true)
         guard components.count == 2, components[0] == "Items" else { return nil }
@@ -245,9 +213,8 @@ final class UITestStubURLProtocol: URLProtocol {
         lock.lock()
         defer { lock.unlock() }
         deletedItemIDs.insert(itemID)
-        // Deleting a season or show takes its episodes with it, exactly as
-        // the real server does — otherwise a "the show is now empty" journey
-        // would still see every episode.
+        // Deleting a season or show takes its episodes with it, as the real
+        // server does; otherwise a "show is now empty" journey still sees them.
         for episode in UITestFixtureLibrary.episodes
         where episode.seasonId == itemID || episode.seriesId == itemID {
             deletedItemIDs.insert(episode.id)
@@ -263,13 +230,10 @@ final class UITestStubURLProtocol: URLProtocol {
         return deletedItemIDs.contains(itemID)
     }
 
-    /// Playlist entries (`BaseItemDto.playlistItemId`, not the underlying
-    /// item's own `id` — see that field's doc comment) removed during this
-    /// app session. Same "process-lifetime set filtered out of every
-    /// subsequent response" shape as `deletedItemIDs` above, kept separate
-    /// from it: a playlist-item removal doesn't delete the underlying
-    /// item, so it must never make that item disappear from anywhere else
-    /// (a library grid, another playlist it also belongs to, ...).
+    /// Playlist entries — `playlistItemId`, not the underlying item's `id` —
+    /// removed this session. Same shape as `deletedItemIDs`, kept separate
+    /// because removing a playlist entry must not make that item disappear from
+    /// a library grid or another playlist it belongs to.
     nonisolated(unsafe) private static var removedPlaylistEntryIDs: Set<String> = []
 
     private static func recordPlaylistRemoval(of entryIDs: [String]) {
@@ -285,12 +249,10 @@ final class UITestStubURLProtocol: URLProtocol {
         return removedPlaylistEntryIDs.contains(entryID)
     }
 
-    /// Items added to a playlist during this app session, keyed by playlist
-    /// id. Same process-lifetime shape as `removedPlaylistEntryIDs` above,
-    /// and read back at the same single choke point (the
-    /// `/Playlists/{id}/Items` GET route) so an add is observable
-    /// end-to-end: a journey can add a movie to a playlist and then open
-    /// that playlist and see it.
+    /// Items added to a playlist this session, keyed by playlist id. Read back
+    /// at the same `/Playlists/{id}/Items` GET route as
+    /// `removedPlaylistEntryIDs`, so a journey can add a movie and then open the
+    /// playlist and see it.
     nonisolated(unsafe) private static var playlistAdditions: [String: [String]] = [:]
 
     private static func recordPlaylistAddition(of itemIDs: [String], to playlistID: String) {
@@ -333,10 +295,9 @@ final class UITestStubURLProtocol: URLProtocol {
         return members
     }
 
-    /// Playlists created during this app session. Appended to every
-    /// `Playlist`-typed browse afterwards, so re-opening the "Add to
-    /// Playlist" picker shows what a create journey just made — the only
-    /// observable evidence the create actually reached the server.
+    /// Playlists created this session, appended to every `Playlist`-typed browse
+    /// afterwards so re-opening the picker shows what a create journey made —
+    /// the only observable evidence the create reached the server.
     nonisolated(unsafe) private static var createdPlaylists: [BaseItemDto] = []
 
     @discardableResult
@@ -357,17 +318,15 @@ final class UITestStubURLProtocol: URLProtocol {
         lock.lock()
         defer { lock.unlock() }
         createdPlaylists.append(playlist)
-        // The seeded items are recorded against the new playlist directly,
-        // rather than through `recordPlaylistAddition` — the lock is already
-        // held here, and re-entering it would deadlock.
+        // Recorded directly rather than through `recordPlaylistAddition`: the
+        // lock is already held, and re-entering it would deadlock.
         playlistAdditions[playlist.id, default: []].append(contentsOf: decoded?.ids ?? [])
         return playlist
     }
 
-    /// The underlying *item* ids a playlist currently holds — what
-    /// `GET /Playlists/{id}` reports, and deliberately not the same thing as
-    /// `addedMembers`' `playlistItemId` entry ids: this is membership, that
-    /// is per-row identity within one playlist.
+    /// The item ids a playlist holds, as `GET /Playlists/{id}` reports them.
+    /// Not `addedMembers`' `playlistItemId` entry ids: this is membership, those
+    /// are per-row identity within one playlist.
     private static func currentMemberIDs(forPlaylist playlistID: String) -> [String] {
         let seeded = playlistID == UITestFixtureIdentity.playlistID
             ? UITestFixtureLibrary.playlistMembers
@@ -383,18 +342,16 @@ final class UITestStubURLProtocol: URLProtocol {
         return createdPlaylists
     }
 
-    /// Episodes still present under a series — what the app's own
-    /// "did that leave the show empty?" check reads back as
-    /// `RecursiveItemCount`.
+    /// Episodes still under a series, which the app's "did that leave the show
+    /// empty" check reads back as `RecursiveItemCount`.
     private static func remainingEpisodeCount(seriesID: String) -> Int {
         UITestFixtureLibrary.episodes
             .filter { $0.seriesId == seriesID && !isDeleted($0.id) }
             .count
     }
 
-    /// Whether the posted body's password matches the fixture credential —
-    /// the whole check a "bad credentials" login journey needs. Any body
-    /// this can't decode (a malformed request, or none at all) counts as
+    /// Whether the posted password matches the fixture credential, which is all
+    /// a bad-credentials journey needs. An undecodable or absent body counts as
     /// not matching rather than crashing the stub.
     private static func suppliesTheFixturePassword(_ request: URLRequest) -> Bool {
         guard let body = requestBody(of: request),
@@ -405,11 +362,9 @@ final class UITestStubURLProtocol: URLProtocol {
     }
 
     /// `URLRequest.httpBody` is `nil` by the time a request reaches
-    /// `URLProtocol` — measured live: `URLSession` converts even a small,
-    /// directly-set body into `httpBodyStream` before handing the request to
-    /// a registered protocol, for every request this app sends through
-    /// `post(_:body:)`. This reads that stream instead, which is the only
-    /// place the bytes still exist.
+    /// `URLProtocol`: `URLSession` converts even a small directly-set body into
+    /// `httpBodyStream` first. This reads that stream, the only place the bytes
+    /// still exist.
     private static func requestBody(of request: URLRequest) -> Data? {
         guard let stream = request.httpBodyStream else { return nil }
         stream.open()
@@ -428,9 +383,9 @@ final class UITestStubURLProtocol: URLProtocol {
     private static func scenarioFailure(scenario: UITestScenario, path: String) -> Int? {
         guard !isInfrastructurePath(path) else { return nil }
         switch scenario {
-        // `.noDeletePermission` fails nothing wholesale — it's the standard
-        // catalogue with `canDelete` cleared, and only `DELETE` itself
-        // refused (handled in `startLoading`, which needs the method).
+        // `.noDeletePermission` fails nothing wholesale: the standard catalogue
+        // with `canDelete` cleared, and only `DELETE` refused in `startLoading`,
+        // which has the method.
         case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission, .slowLogoImage:
             return nil
         case .serverError:
@@ -465,8 +420,7 @@ final class UITestStubURLProtocol: URLProtocol {
             return try encode(result(scoped(library.libraries)))
 
         case path.hasSuffix("/Items/Latest"):
-            // The one endpoint that returns a bare array rather than a
-            // `BaseItemDtoQueryResult`.
+            // The one endpoint returning a bare array, not a query result.
             return try encode(scoped(Array(library.movies.prefix(8))))
 
         case path.hasSuffix("/Items/Resume"):
@@ -502,12 +456,9 @@ final class UITestStubURLProtocol: URLProtocol {
             let term = query.first(where: { $0.name.caseInsensitiveCompare("SearchTerm") == .orderedSame })?.value ?? ""
             return try encode(searchHints(term: term))
 
-        // `GET /Playlists/{id}` — Jellyfin's `PlaylistDto`, which the picker
-        // reads to grey out playlists that already hold the target
-        // (`JellyfinAPIClient.playlistMemberIDs`). Matched before the
-        // `/Items` case below, which would otherwise not fire for it anyway
-        // — but the ordering makes the two obviously distinct rather than
-        // relying on the suffix check.
+        // `GET /Playlists/{id}`, which the picker reads to grey out playlists
+        // already holding the target. Matched before the `/Items` case below to
+        // keep the two visibly distinct rather than relying on its suffix check.
         case path.hasPrefix("/Playlists/") && !path.contains("/Items") && !path.contains("/Users"):
             let playlistID = String(path.dropFirst("/Playlists/".count))
             return try encode(PlaylistDto(itemIds: currentMemberIDs(forPlaylist: playlistID)))
@@ -516,36 +467,29 @@ final class UITestStubURLProtocol: URLProtocol {
             let playlistID = path
                 .replacingOccurrences(of: "/Playlists/", with: "")
                 .replacingOccurrences(of: "/Items", with: "")
-            // Only the one fixture playlist ships with members; every other
-            // playlist (the second editable one, the read-only one, and
-            // anything a create journey made) starts empty and gains
-            // whatever an add journey put in it.
+            // Only one fixture playlist ships with members; every other starts
+            // empty and gains whatever an add journey put in it.
             let seeded = playlistID == UITestFixtureIdentity.playlistID ? library.playlistMembers : []
             let members = (seeded + addedMembers(forPlaylist: playlistID))
                 .filter { !isPlaylistEntryRemoved($0.playlistItemId) }
             return try encode(result(scoped(members)))
 
         case path.contains("/MediaSegments"):
-            // Decoded as a query result, not a bare array — see
-            // `JellyfinAPIClient.mediaSegments(itemID:)`.
+            // Decoded as a query result, not a bare array.
             return try encode(MediaSegmentDtoQueryResult(items: [], totalRecordCount: 0))
 
         case path.hasSuffix("/Sessions"):
             return try encode([SessionInfoDto]())
 
-        // Media bytes: the stream a download pulls, and the subtitle files
-        // the player side-loads. Playback itself never reaches here — the
-        // fake engine is handed a URL it never opens — but `DownloadManager`
-        // really does write these bytes to disk.
+        // Media bytes: a download's stream and the player's side-loaded
+        // subtitles. Playback never reaches here, since the fake engine never
+        // opens its URL, but `DownloadManager` does write these to disk.
         //
-        // Video specifically has to be a *parseable* MP4, not arbitrary
-        // bytes: `DownloadManager.validationFailureReason` opens every
-        // finished download with `AVURLAsset` and rejects it as unverifiable
-        // if the duration won't load (see that method's doc comment — it
-        // exists because a crashed transcode still closes as a clean HTTP
-        // 200). Arbitrary bytes fail that check, and the download lands in
-        // `.failed` — correct app behaviour, but it makes a completed
-        // download untestable. See `syntheticMP4(durationSeconds:)`.
+        // Video must be a parseable MP4:
+        // `DownloadManager.validationFailureReason` opens every finished
+        // download with `AVURLAsset` and rejects one whose duration won't load.
+        // Arbitrary bytes fail that and land in `.failed` — correct behaviour,
+        // but it makes a completed download untestable.
         case path.contains("/Videos/"):
             return syntheticMP4(durationSeconds: runtimeSeconds(forVideoPath: path))
 
@@ -555,8 +499,8 @@ final class UITestStubURLProtocol: URLProtocol {
         case path.hasSuffix("/PlaybackInfo"):
             return try encode(playbackInfo(forPath: path))
 
-        // `/Users/{userID}/Items/{itemID}` — a single item. Checked before
-        // the collection route below, which shares its prefix.
+        // A single item. Checked before the collection route, which shares its
+        // prefix.
         case path.contains("/Users/") && path.contains("/Items/") && !path.hasSuffix("/Items"):
             let itemID = path.components(separatedBy: "/Items/").last?
                 .components(separatedBy: "/").first ?? ""
@@ -564,11 +508,9 @@ final class UITestStubURLProtocol: URLProtocol {
                 throw UnroutedPath(path: path)
             }
             var resolved = applyDeletePermission(item)
-            // The count the app re-reads after a deletion to decide whether
-            // the show still has anything in it — see
-            // `AssetDetailViewModel.resolveDeletionOutcome(for:)`. Computed
-            // live rather than baked into the fixture, so it actually falls
-            // as episodes are deleted.
+            // The count `AssetDetailViewModel.resolveDeletionOutcome(for:)`
+            // re-reads after a deletion. Computed live rather than baked into
+            // the fixture, so it falls as episodes are deleted.
             if resolved.type == .series {
                 resolved.recursiveItemCount = remainingEpisodeCount(seriesID: itemID)
             }
@@ -578,16 +520,13 @@ final class UITestStubURLProtocol: URLProtocol {
             return try encode(result(items(matching: query)))
 
         default:
-            // Writes: favourite, watched, progress reporting, playback
-            // session lifecycle. The app sends these and never decodes a
-            // body back, so an empty 200 is the whole contract.
+            // Writes: favourite, watched, progress, session lifecycle. The app
+            // decodes no body back, so an empty 200 is the whole contract.
             //
-            // Deliberately *after* the routing above, not before it. An
-            // earlier version short-circuited every POST here, which
-            // silently swallowed `/Users/AuthenticateByName` — a POST whose
-            // response the app very much does decode — and every test failed
-            // far downstream, at "Home has no content", with sign-in
-            // appearing to have worked.
+            // Must stay after the routing above. Short-circuiting every POST
+            // here swallows `/Users/AuthenticateByName`, whose response the app
+            // does decode, and every test then fails far downstream at "Home has
+            // no content" with sign-in appearing to have worked.
             if request.httpMethod == "POST" || request.httpMethod == "DELETE" {
                 return Data()
             }
@@ -597,10 +536,10 @@ final class UITestStubURLProtocol: URLProtocol {
 
     // MARK: - `/Users/{id}/Items` query engine
 
-    /// Applies the subset of Jellyfin's `/Items` query the app actually
-    /// sends. Filtering here rather than always returning the full catalogue
-    /// is what makes `CollectionGridView`'s server-side sort and its
-    /// library-scoped grids assert anything real.
+    /// Applies the subset of Jellyfin's `/Items` query the app sends. Filtering
+    /// here rather than returning the full catalogue is what makes
+    /// `CollectionGridView`'s server-side sort and library-scoped grids assert
+    /// anything real.
     private static func items(matching query: [URLQueryItem]) -> [BaseItemDto] {
         func value(_ name: String) -> String? {
             query.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
@@ -609,10 +548,8 @@ final class UITestStubURLProtocol: URLProtocol {
             value(name)?.split(separator: separator).map(String.init) ?? []
         }
 
-        // Playlists a create journey made are browsable from the moment
-        // they exist, exactly as they would be on a real server — which is
-        // what lets a journey re-open the "Add to Playlist" picker and see
-        // the one it just created.
+        // A created playlist is browsable immediately, as on a real server,
+        // which is what lets a journey re-open the picker and see it.
         var items = UITestFixtureLibrary.browsableItems + createdPlaylistsOnly()
 
         if let parentID = value("ParentId") {
@@ -680,9 +617,9 @@ final class UITestStubURLProtocol: URLProtocol {
         case UITestFixtureLibrary.seriesID:
             return item.seriesId == UITestFixtureLibrary.seriesID
         default:
-            // An unrecognised parent is a season, a playlist, or something
-            // the app invented — match on parentage rather than dropping
-            // everything, which would read as an empty library.
+            // An unrecognised parent is a season, a playlist, or something the
+            // app invented. Match on parentage rather than dropping everything,
+            // which would read as an empty library.
             return item.seasonId == parentID
         }
     }
@@ -691,9 +628,8 @@ final class UITestStubURLProtocol: URLProtocol {
         let ordered: [BaseItemDto]
         switch field {
         case "Random":
-            // Seeded, not random: a UI test asserting on "a random item"
-            // needs the same item every run, and the *routing* is what the
-            // dice button's test is checking, not the entropy.
+            // Seeded, not random: the dice button's test checks the routing, and
+            // needs the same item every run.
             ordered = items.sorted { $0.id > $1.id }
         case "ProductionYear", "PremiereDate":
             ordered = items.sorted { ($0.productionYear ?? 0, $0.name) < ($1.productionYear ?? 0, $1.name) }
@@ -711,14 +647,13 @@ final class UITestStubURLProtocol: URLProtocol {
 
     // MARK: - Response shaping
 
-    /// `.emptyLibrary` empties every collection at the last possible moment,
-    /// so each route keeps its real shape and only the contents change.
+    /// `.emptyLibrary` empties every collection at the last moment, so each
+    /// route keeps its real shape and only the contents change.
     ///
-    /// Anything deleted this session drops out here too, for the same
-    /// reason — one choke point every list route already passes through, so
-    /// a deleted item can't reappear in a rail, grid, season list or search
-    /// result. `.noDeletePermission` additionally clears `canDelete`, which
-    /// is what makes the affordance vanish app-wide for that scenario.
+    /// Anything deleted this session drops out here too: one choke point every
+    /// list route passes through, so a deleted item can't reappear in a rail,
+    /// grid, season list or search result. `.noDeletePermission` also clears
+    /// `canDelete`, making the affordance vanish app-wide.
     private static func scoped(_ items: [BaseItemDto]) -> [BaseItemDto] {
         guard UITestConfiguration.scenario != .emptyLibrary else { return [] }
         return items
@@ -726,9 +661,9 @@ final class UITestStubURLProtocol: URLProtocol {
             .map(applyDeletePermission)
     }
 
-    /// The fixtures are built deletable (see `UITestFixtureLibrary.base`);
-    /// this is what takes that away for the no-permission scenario, so both
-    /// halves of the gate are exercised from one catalogue rather than two.
+    /// The fixtures are built deletable, and this takes that away for the
+    /// no-permission scenario, so both halves of the gate come from one
+    /// catalogue.
     private static func applyDeletePermission(_ item: BaseItemDto) -> BaseItemDto {
         guard UITestConfiguration.scenario == .noDeletePermission else { return item }
         var copy = item
@@ -740,8 +675,8 @@ final class UITestStubURLProtocol: URLProtocol {
         BaseItemDtoQueryResult(items: items, totalRecordCount: items.count)
     }
 
-    /// Jellyfin returns `/Genres`, `/Studios` and `/Persons` as `BaseItemDto`
-    /// values whose only meaningful field is the name.
+    /// `/Genres`, `/Studios` and `/Persons` return `BaseItemDto` values whose
+    /// only meaningful field is the name.
     private static func named(_ names: Set<String>) -> [BaseItemDto] {
         names.sorted().map { name in
             BaseItemDto(id: "name-" + name.lowercased().replacingOccurrences(of: " ", with: "-"), name: name, type: .unknown)
@@ -783,12 +718,10 @@ final class UITestStubURLProtocol: URLProtocol {
 
     // MARK: - Synthetic video
 
-    /// The runtime `syntheticMP4(durationSeconds:)` should claim for the
-    /// item a `/Videos/{itemID}/stream.mp4` request names, so the file
-    /// `DownloadManager` validates matches the runtime it recorded at
-    /// enqueue time. Falls back to an hour for anything unrecognised —
-    /// long enough that no fixture's own runtime check could fail against
-    /// it by accident.
+    /// The runtime `syntheticMP4(durationSeconds:)` claims for the item a
+    /// stream request names, so the file `DownloadManager` validates matches the
+    /// runtime recorded at enqueue. Falls back to an hour, long enough that no
+    /// fixture's runtime check fails against it by accident.
     private static func runtimeSeconds(forVideoPath path: String) -> Double {
         let itemID = path.components(separatedBy: "/Videos/").last?
             .components(separatedBy: "/").first ?? ""
@@ -796,21 +729,17 @@ final class UITestStubURLProtocol: URLProtocol {
         return Double(ticks) / 10_000_000
     }
 
-    /// A structurally valid, ~600-byte MP4 that declares `durationSeconds`
-    /// of video and contains one byte of media data.
+    /// A structurally valid ~600-byte MP4 declaring `durationSeconds` of video
+    /// and holding one byte of media data.
     ///
-    /// Hand-assembled rather than produced by `AVAssetWriter`: the point is
-    /// a file whose *declared* duration is a feature-length runtime while
-    /// its actual size stays negligible, and a writer would have to encode
-    /// the real thing to claim it.
+    /// Hand-assembled rather than written by `AVAssetWriter`, which would have
+    /// to encode a real feature-length file to claim that duration.
     ///
-    /// The duration has to come from the sample table, not from `mvhd`.
-    /// Measured live: an otherwise-identical file with the runtime only in
-    /// `mvhd`/`tkhd`/`mdhd` and empty `stts`/`stsz`/`stco` boxes loads
-    /// fine but reports `duration == 0`, because `AVAsset` derives its
-    /// duration from the longest *track*, and a track with no samples is
-    /// zero-length however long its header claims to be. So the single
-    /// sample below is given a `stts` delta spanning the whole runtime.
+    /// The duration must come from the sample table, not `mvhd`: `AVAsset`
+    /// derives duration from the longest track, and a track with no samples is
+    /// zero-length however long its header claims — a file with the runtime only
+    /// in `mvhd`/`tkhd`/`mdhd` loads but reports `duration == 0`. Hence the
+    /// single sample with a `stts` delta spanning the whole runtime.
     private static func syntheticMP4(durationSeconds: Double) -> Data {
         let timescale: UInt32 = 600
         let duration = UInt32(durationSeconds * Double(timescale))
@@ -866,10 +795,9 @@ final class UITestStubURLProtocol: URLProtocol {
         avc1 += Data(repeating: 0, count: 32)           // compressor name
         avc1 += u16(0x0018) + u16(0xFFFF)               // depth, predefined
 
-        /// The chunk offset in `stco` is an *absolute file* offset, so it
-        /// can't be known until `moov`'s own size is. Built twice: the
-        /// offset is a fixed-width `UInt32` either way, so the second pass
-        /// is byte-identical in size to the first and no third is needed.
+        /// `stco`'s chunk offset is absolute within the file, so it isn't known
+        /// until `moov`'s size is. Built twice: the offset is a fixed-width
+        /// `UInt32`, so the second pass matches the first in size exactly.
         func moov(sampleOffset: UInt32) -> Data {
             let stbl = box("stbl",
                 box("stsd", u32(0) + u32(1) + box("avc1", avc1))
@@ -905,15 +833,14 @@ final class UITestStubURLProtocol: URLProtocol {
 
     // MARK: - Artwork
 
-    /// How long `.slowLogoImage` holds a `Logo` image response — longer
-    /// than `LogoImageView.fallbackRevealDelay` (1s) so the reveal is
-    /// deterministically observable, short enough that a UI test's own
-    /// `waitForExistence` budget doesn't need to be unusually generous.
+    /// How long `.slowLogoImage` holds a `Logo` response: past
+    /// `LogoImageView.fallbackRevealDelay` so the reveal is deterministically
+    /// observable, but inside a normal `waitForExistence` budget.
     static let slowLogoImageDelay: TimeInterval = 2
 
-    /// A single flat-colour PNG standing in for every poster, backdrop, logo
-    /// and cast photo. Generated once rather than bundled, so nothing about
-    /// the harness ships as a Release resource.
+    /// One flat-colour PNG standing in for every poster, backdrop, logo and cast
+    /// photo. Generated rather than bundled, so no harness resource ships in
+    /// Release.
     private static let placeholderPNG: Data = {
         let size = CGSize(width: 8, height: 12)
         let renderer = UIGraphicsImageRenderer(size: size)
@@ -938,10 +865,9 @@ final class UITestStubURLProtocol: URLProtocol {
                     statusCode: status,
                     httpVersion: "HTTP/1.1",
                     // `ServerSetupViewModel.testConnection()` rewrites the
-                    // persisted scheme from `client.lastResponseURL`, so the
-                    // response URL has to be the request URL exactly —
-                    // anything else silently changes the server config the
-                    // test just entered.
+                    // persisted scheme from `client.lastResponseURL`, so this
+                    // must be the request URL exactly — anything else silently
+                    // changes the server config the test just entered.
                     headerFields: ["Content-Type": contentType]
                   ) else {
                 client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))

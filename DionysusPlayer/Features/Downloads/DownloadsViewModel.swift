@@ -1,49 +1,36 @@
 import Foundation
 import Observation
 
-/// One row in `DownloadsView`'s landing list — either a standalone item (a
-/// downloaded movie, or a lone episode whose series has no other
-/// downloaded episodes — collapsed straight to a leaf row rather than a
-/// one-item "submenu") or a group of a show's downloaded episodes.
+/// One row in `DownloadsView`'s landing list: either a standalone item (a movie,
+/// or a lone episode whose series has no others, collapsed to a leaf row rather
+/// than a one-item submenu) or a group of a show's downloaded episodes.
 enum DownloadsRow: Identifiable {
     case standalone(StandaloneItem)
     case show(ShowGroup)
 
-    /// Everything the two `DownloadsView` presentations render for a
-    /// standalone row, **snapshotted as plain values** rather than read
-    /// live off the `DownloadedItem` this was built from.
+    /// Everything the two `DownloadsView` presentations render for a standalone
+    /// row, snapshotted as plain values rather than read live off the
+    /// `DownloadedItem` it was built from.
     ///
-    /// That indirection is the whole point of this type, and it is load-
-    /// bearing: SwiftData traps on *any* property access to a model whose
-    /// backing store row is gone, and there is no supported way to ask an
-    /// instance whether it is still valid. `delete(itemID:)`/
-    /// `deleteSelected()` already defer the real deletion past the removal
-    /// transition for exactly that reason (see `delete(itemID:)`'s doc
-    /// comment) — but deferral only buys a run-loop turn, and it turned out
-    /// not to be enough on its own. Holding the live model here meant
-    /// SwiftUI could still re-evaluate a removed row's body afterwards and
-    /// read straight through to the dead row.
+    /// That indirection is load-bearing: SwiftData traps on any property access
+    /// to a model whose backing row is gone, with no supported way to ask
+    /// whether an instance is still valid. `delete(itemID:)`/`deleteSelected()`
+    /// already defer the real deletion past the removal transition, but that
+    /// only buys one run-loop turn — holding the live model here let SwiftUI
+    /// re-evaluate a removed row's body afterwards and read straight through.
+    /// Bulk deletion crashed in `DownloadedItem.metadata.getter` from
+    /// `DownloadsView.gridSubtitle(_:)`, since the `.regular` grid re-reads a
+    /// row's model during the removal transition where the `.compact` `List`
+    /// happened not to. A snapshot closes that for every reader rather than for
+    /// the one accessor that trapped first.
     ///
-    /// Confirmed live (2026-09-06, caught by `DownloadsJourneyTests
-    /// .testDeletingAllDownloadsReturnsToTheEmptyState` failing ~2 runs in
-    /// 9 on iPad): bulk-deleting downloads crashed in
-    /// `DownloadedItem.metadata.getter`, reached from
-    /// `DownloadsView.gridSubtitle(_:)` inside `DownloadsGrid`'s `ForEach`
-    /// — the `.regular`-size-class grid re-reads a row's model during the
-    /// removal transition where the `.compact` `List` path happened not to.
-    /// A snapshot makes that structurally impossible for every reader
-    /// rather than fixing the one accessor that happened to trap first.
-    ///
-    /// Cheap to build: every field is already in memory on the model, and
-    /// this is assembled once per `refresh()` — the same "precompute in
-    /// `refresh()` rather than read live per render" shape `rowSizes`
-    /// already uses just below.
+    /// Cheap to build: every field is already in memory, and this is assembled
+    /// once per `refresh()`, like `rowSizes` below.
     struct StandaloneItem {
         let itemID: String
         let title: String
-        /// `kind == .episode`, kept as a plain flag — the two call sites
-        /// that care (`gridTitle`, `placeholderSystemImage`) only ever ask
-        /// this one question of it.
+        /// `kind == .episode` as a plain flag; `gridTitle` and
+        /// `placeholderSystemImage` ask nothing else of the kind.
         let isEpisode: Bool
         let seriesTitle: String?
         let episodeLabel: String?
@@ -54,9 +41,8 @@ enum DownloadsRow: Identifiable {
         let isLandscapeShaped: Bool
         let posterImagePath: String?
         let thumbImagePath: String?
-        /// Only `sizeOnDisk(for:allItems:)` reads this, and only while the
-        /// model is still alive — kept here so that computation needs no
-        /// second pass over the live items.
+        /// Read only by `sizeOnDisk(for:allItems:)`, while the model is still
+        /// alive, so that computation needs no second pass over live items.
         let videoFilePath: String
 
         init(_ item: DownloadedItem) {
@@ -76,21 +62,18 @@ enum DownloadsRow: Identifiable {
         }
     }
 
-    /// A show's downloaded episodes collapsed to one row. A struct rather
-    /// than a growing tuple of associated values so adding another display
-    /// field (as `thumbImagePath` was, for the `.regular` grid's landscape
-    /// tiles) doesn't churn every `case .show(_, _, _, _)` pattern in two
-    /// files.
+    /// A show's downloaded episodes collapsed to one row. A struct rather than a
+    /// growing tuple of associated values, so adding a display field doesn't
+    /// churn every `case .show(_, _, _, _)` pattern across two files.
     struct ShowGroup {
         let seriesID: String
         let seriesTitle: String
-        /// The first episode that has one — an episode's `Primary` image is
+        /// From the first episode that has one; an episode's `Primary` image is
         /// its own still frame, not a series poster.
         let posterImagePath: String?
-        /// The first episode that has one — the series `Thumb`, a proper
-        /// 16:9 image, and so the better artwork whenever the grid is
-        /// landscape-shaped (which a show group's own vote guarantees; see
-        /// `isLandscapeShaped`).
+        /// From the first episode that has one: the series `Thumb`, a 16:9
+        /// image, and so the better artwork for a landscape grid — which a show
+        /// group's vote guarantees (see `isLandscapeShaped`).
         let thumbImagePath: String?
         let episodeCount: Int
     }
@@ -109,9 +92,9 @@ enum DownloadsRow: Identifiable {
         }
     }
 
-    /// Mirrors `SearchResult.isLandscapeShaped`'s `kind == .episode ||
-    /// kind == .series` rule: a show group is the series half of it (always
-    /// landscape), a standalone item defers to its own kind.
+    /// Mirrors `SearchResult.isLandscapeShaped`'s `kind == .episode || kind ==
+    /// .series` rule: a show group is the series half and always landscape, a
+    /// standalone item defers to its kind.
     var isLandscapeShaped: Bool {
         switch self {
         case .standalone(let item): return item.isLandscapeShaped
@@ -119,10 +102,9 @@ enum DownloadsRow: Identifiable {
         }
     }
 
-    /// Whichever artwork fits the shape the *grid* chose — see
-    /// `DownloadedItem.artworkRelativePath(preferLandscape:)`, whose
-    /// preference this reuses verbatim for the standalone case and mirrors
-    /// for the show group.
+    /// Whichever artwork fits the shape the grid chose, reusing
+    /// `DownloadedItem.artworkRelativePath(preferLandscape:)`'s preference for
+    /// the standalone case and mirroring it for a show group.
     func artworkRelativePath(preferLandscape: Bool) -> String? {
         switch self {
         case .standalone(let item):
@@ -136,8 +118,8 @@ enum DownloadsRow: Identifiable {
         }
     }
 
-    /// Content-type glyph for `MediaPlaceholderBox`, matching what the
-    /// equivalent `.compact` list row already passes.
+    /// Content-type glyph for `MediaPlaceholderBox`, matching the `.compact`
+    /// list row's.
     var placeholderSystemImage: String {
         switch self {
         case .standalone(let item): return item.isEpisode ? "play.tv" : "film"
@@ -146,47 +128,39 @@ enum DownloadsRow: Identifiable {
     }
 }
 
-/// Backs `DownloadsView`'s landing screen. Deliberately not `@Query`-driven
-/// (SwiftData's auto-updating SwiftUI property wrapper): `DownloadManager`
-/// owns its `ModelContainer` privately rather than injecting it into the
-/// environment via `.modelContainer(_:)` (which nothing else in this app
-/// does either), so this instead re-reads `DownloadStore` explicitly via
-/// `refresh()` — called on appear and after every mutation
-/// (`delete(itemID:)`) — same "ViewModel + explicit reload" shape as every
-/// other feature in this app, just without a network round trip to wait on.
+/// Backs `DownloadsView`'s landing screen. Not `@Query`-driven:
+/// `DownloadManager` owns its `ModelContainer` privately rather than injecting
+/// it into the environment, so this re-reads `DownloadStore` explicitly via
+/// `refresh()` on appear and after every mutation — the same ViewModel +
+/// explicit reload shape as every other feature, without a network round trip.
 @MainActor
 @Observable
 final class DownloadsViewModel {
     private(set) var rows: [DownloadsRow] = []
-    /// On-disk size in bytes for each row, keyed by `DownloadsRow.id` —
-    /// precomputed alongside `rows` in `refresh()` rather than read live
-    /// from `DownloadsRowView`'s body: each figure is a real filesystem
-    /// `stat` call (`DownloadFileStore.fileSize(forRelativePath:)`), and
-    /// selection mode re-renders the whole list on every single row tap, so
-    /// doing this per-row-per-render would repeat those stats far more than
-    /// necessary. A `.show` row sums every one of its **completed**
-    /// episodes' video files — an in-progress episode's file size isn't
-    /// stable yet, so it's excluded rather than counted mid-write. Missing/
-    /// unreadable files count as `0` so one bad file doesn't blank out an
-    /// otherwise-real total. Video files only, matching the one existing
-    /// per-item size readout (`DownloadedAssetDetailView`'s file-size row) —
-    /// subtitle sidecars and artwork aren't included there either.
+    /// On-disk size per row, keyed by `DownloadsRow.id`. Precomputed alongside
+    /// `rows` in `refresh()` rather than read from `DownloadsRowView`'s body:
+    /// each figure is a filesystem `stat`, and selection mode re-renders the
+    /// whole list on every row tap.
+    ///
+    /// A `.show` row sums its completed episodes' video files only; an
+    /// in-progress episode's size isn't stable mid-write. Missing or unreadable
+    /// files count as `0`, so one bad file doesn't blank an otherwise-real
+    /// total. Video files only, matching
+    /// `DownloadedAssetDetailView`'s file-size row — no subtitle sidecars or
+    /// artwork there either.
     private(set) var rowSizes: [String: Int64] = [:]
     private let downloadManager: DownloadManager
-    /// How `delete(itemID:)`/`deleteSelected()` schedule the *real*
-    /// `DownloadManager.delete(itemID:)` call, after `rows` has already
-    /// been updated synchronously — see `delete(itemID:)`'s doc comment for
-    /// why this needs to happen on a later run-loop turn, not inline.
-    /// Defaults to a `Task { @MainActor in ... }` hop; test-only DI seam
-    /// (matching `DownloadManager`'s own `...Override` seams) lets
-    /// `DownloadsViewModelTests` run it synchronously instead of needing to
-    /// pump the run loop to observe the deferred deletion. `@MainActor`
-    /// rather than `@Sendable` on the inner closure: the actual requirement
-    /// is "run this on the main actor", which is also what both call sites
-    /// below (`delete(itemID:)`/`deleteSelected()`, both already `@MainActor`
-    /// methods) naturally produce — `DispatchQueue.main.async`'s `@Sendable`
-    /// parameter type was never the right fit for a non-Sendable capture
-    /// that's only ever meant to run on this one actor.
+    /// How `delete(itemID:)`/`deleteSelected()` schedule the real
+    /// `DownloadManager.delete(itemID:)` after `rows` is updated synchronously
+    /// — see `delete(itemID:)` for why it can't be inline. Defaults to a
+    /// `Task { @MainActor in ... }` hop; a test-only DI seam, like
+    /// `DownloadManager`'s `...Override` seams, lets `DownloadsViewModelTests`
+    /// run it synchronously rather than pumping the run loop.
+    ///
+    /// `@MainActor` rather than `@Sendable` on the closure: the requirement is
+    /// to run on the main actor, which both call sites already are, and
+    /// `DispatchQueue.main.async`'s `@Sendable` never fit a non-Sendable capture
+    /// meant for one actor.
     private let deferredDeleteScheduler: (@escaping @MainActor () -> Void) -> Void
 
     init(
@@ -245,29 +219,20 @@ final class DownloadsViewModel {
         }
     }
 
-    /// Removes the row from `rows` first, synchronously, and only *then*
-    /// schedules the real `DownloadManager.delete(itemID:)` (which deletes
-    /// the underlying SwiftData object) for the next run-loop turn — not
-    /// inline. Confirmed live (2026-08-27): deleting two downloads back to
-    /// back crashed inside SwiftData's own generated `DownloadedItem`
-    /// property accessors — a still-in-flight `List` row-removal transition
-    /// for the *first* delete read a property on a `DownloadedItem` whose
-    /// backing row a *second*, immediately-following delete had already
-    /// removed from the model context. SwiftData traps on any property
-    /// access to a model instance once its store row is gone; there's no
-    /// supported way to check "is this instance still valid" before
-    /// touching it. Removing from `rows` up front lets SwiftUI's own
-    /// diffing/animation finish against a plain value-type array with
-    /// nothing left pointing at the row's live model object, so the actual
-    /// deletion — deferred past that — can never race a transition that's
-    /// still reading it.
+    /// Removes the row from `rows` synchronously, then schedules the real
+    /// `DownloadManager.delete(itemID:)` for the next run-loop turn rather than
+    /// running it inline. Deleting two downloads back to back crashed inside
+    /// SwiftData's generated `DownloadedItem` accessors: the first delete's
+    /// in-flight row-removal transition read a property on a model whose backing
+    /// row the second delete had already removed. SwiftData traps on any such
+    /// access, with no way to test validity first. Removing from `rows` up front
+    /// leaves SwiftUI diffing a plain value-type array with nothing pointing at
+    /// the live model.
     ///
-    /// The deferral is necessary but was **not sufficient** on its own: it
-    /// only buys one run-loop turn, and `rows` used to hold the live
-    /// `DownloadedItem`, so a re-render after that turn could still read
-    /// straight through to a deleted row. The same crash resurfaced on the
-    /// `.regular` grid path in 2026-09-06 — see
-    /// `DownloadsRow.StandaloneItem`, which is what actually closes it.
+    /// The deferral is necessary but not sufficient: it buys one run-loop turn,
+    /// and `rows` used to hold the live `DownloadedItem`, so a later re-render
+    /// could still read through to a deleted row. See
+    /// `DownloadsRow.StandaloneItem`, which closes that.
     func delete(itemID: String) {
         rows.removeAll { row in
             if case .standalone(let item) = row { return item.itemID == itemID }
@@ -281,20 +246,18 @@ final class DownloadsViewModel {
 
     // MARK: Retry
 
-    /// Item IDs with a retry currently in flight — a `Set`, not a single
-    /// value, since nothing stops a user retrying more than one failed row
-    /// before the first finishes. `DownloadsRowView` reads membership to
-    /// show a spinner and disable its own retry button per-row.
+    /// Item IDs with a retry in flight. A `Set`, since nothing stops the user
+    /// retrying several failed rows at once; `DownloadsRowView` reads membership
+    /// to show a spinner and disable that row's retry button.
     private(set) var retryingItemIDs: Set<String> = []
     var retryErrorMessage: String?
 
-    /// Re-attempts a `.failed` download with its original resolution/
-    /// quality/audio choice — see `DownloadManager.retry(itemID:client:)`'s
-    /// own doc comment. Always `refresh()`es afterward regardless of
-    /// outcome: a successful retry deletes-and-recreates the underlying
-    /// row under the hood (`DownloadManager.enqueue`'s own "clean slate"
-    /// behavior), so the `DownloadsRow.StandaloneItem` snapshot this view
-    /// model is holding describes a row that no longer exists either way.
+    /// Re-attempts a `.failed` download with its original
+    /// resolution/quality/audio choice (see
+    /// `DownloadManager.retry(itemID:client:)`). Always `refresh()`es
+    /// afterwards: a successful retry deletes and recreates the underlying row,
+    /// so the `DownloadsRow.StandaloneItem` snapshot held here describes a row
+    /// that no longer exists.
     func retry(itemID: String, client: JellyfinAPIClient) async {
         guard !retryingItemIDs.contains(itemID) else { return }
         retryingItemIDs.insert(itemID)
@@ -312,11 +275,9 @@ final class DownloadsViewModel {
     // MARK: Bulk selection
 
     var isSelecting = false
-    /// Keyed by `DownloadsRow.id`, not an item id — a selected `.show` row
-    /// represents every episode within it, not one asset, so selection has
-    /// to track rows (what the user actually sees and taps), with
-    /// `selectedAssetCount`/`deleteSelected()` expanding a show row out to
-    /// its real episodes only where it matters.
+    /// Keyed by `DownloadsRow.id`, not an item id: a selected `.show` row stands
+    /// for every episode in it, so selection tracks what the user taps and
+    /// `selectedAssetCount`/`deleteSelected()` expand it where it matters.
     private(set) var selectedRowIDs: Set<String> = []
 
     func beginSelecting() {
@@ -345,12 +306,9 @@ final class DownloadsViewModel {
         selectedRowIDs = isAllSelected ? [] : Set(rows.map(\.id))
     }
 
-    /// Total individual downloaded assets the current selection actually
-    /// covers — a `.standalone` row counts as 1, a `.show` row counts as
-    /// its own `episodeCount` (deleting a show row deletes every episode
-    /// within it), so this is the real number to confirm against, not
-    /// just `selectedRowIDs.count` (which would undercount any selected
-    /// show).
+    /// Downloaded assets the selection covers: a `.standalone` row counts 1, a
+    /// `.show` row its `episodeCount`, since deleting it deletes every episode.
+    /// `selectedRowIDs.count` would undercount any selected show.
     var selectedAssetCount: Int {
         rows.filter { selectedRowIDs.contains($0.id) }
             .reduce(0) { total, row in
@@ -361,11 +319,10 @@ final class DownloadsViewModel {
             }
     }
 
-    /// Sum of `rowSizes` across the current selection — the Delete
-    /// confirmation's own total, and the same figure `deleteSelected()`
-    /// below is about to reclaim from disk. A row not yet present in
-    /// `rowSizes` (shouldn't happen — both are rebuilt together in
-    /// `refresh()`) contributes `0` rather than crashing.
+    /// Sum of `rowSizes` across the selection: the Delete confirmation's total,
+    /// and what `deleteSelected()` reclaims. A row missing from `rowSizes`
+    /// contributes `0` rather than crashing, though both are rebuilt together in
+    /// `refresh()`.
     var selectedTotalBytes: Int64 {
         var total: Int64 = 0
         for rowID in selectedRowIDs {
@@ -374,27 +331,23 @@ final class DownloadsViewModel {
         return total
     }
 
-    /// `selectedTotalBytes`, formatted — `nil` rather than "0 B" when the
-    /// selection has nothing with a real size yet (e.g. only in-progress
-    /// downloads selected, which `rowSizes` deliberately excludes), so the
-    /// confirmation dialog falls back to its plain count-only title instead
-    /// of claiming an implausible zero-byte deletion.
+    /// `selectedTotalBytes`, formatted. `nil` rather than "0 B" when nothing in
+    /// the selection has a size yet — only in-progress downloads, which
+    /// `rowSizes` excludes — so the confirmation falls back to its count-only
+    /// title rather than claiming a zero-byte deletion.
     var selectedTotalSizeText: String? {
         let total = selectedTotalBytes
         guard total > 0 else { return nil }
         return FileSizeText.text(bytes: total)
     }
 
-    /// Deletes every asset the current selection covers — every episode of
-    /// a selected show, not just its group row — then exits selection mode.
-    /// `allEpisodes` is fetched once, before the loop, and filtered in
-    /// memory per selected show rather than each `.show` row re-fetching
-    /// `store.visibleItems()` inside the loop.
+    /// Deletes every asset the selection covers, including each episode of a
+    /// selected show, then exits selection mode. `allEpisodes` is fetched once
+    /// before the loop and filtered in memory, rather than each `.show` row
+    /// re-fetching `store.visibleItems()`.
     ///
-    /// Same "remove from `rows` first, delete the real objects after" order
-    /// as `delete(itemID:)` — see its doc comment for the crash this
-    /// avoids, which a multi-item bulk delete hits even more easily (more
-    /// simultaneous row-removal transitions to race).
+    /// Same "remove from `rows` first, delete after" order as
+    /// `delete(itemID:)`, whose crash a bulk delete hits even more easily.
     func deleteSelected() {
         let allEpisodes = downloadManager.store.visibleItems()
         var itemIDsToDelete: [String] = []

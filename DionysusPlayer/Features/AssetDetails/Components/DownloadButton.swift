@@ -1,34 +1,26 @@
 import SwiftUI
 
-/// Starts an offline download of `item` — placed near `PlayResumeButtonRow`
-/// on the detail page. Fetches `playbackInfo` to see the item's real
-/// audio/subtitle tracks (not visible to a Movie/Episode-content page
-/// otherwise), prompts for an audio track when there's more than one (the
-/// same `confirmationDialog` idiom `PlayResumeButtonRow`'s version picker
-/// already uses), warns before proceeding if that would leave the download
-/// without its default/forced subtitle track (image-based tracks can't be
-/// brought offline — see `JellyfinAPIClient.isImageBasedSubtitleCodec`),
-/// then hands off to `DownloadManager.enqueue`. Quality/resolution come
-/// from `DownloadPreferencesStore` (`ProfileView`'s Downloads settings) by
-/// default; a long-press on the idle button instead presents
-/// `AdvancedDownloadOptionsView` to override resolution/quality for this one
-/// download only (`overrideResolution`/`overridePreset` below) — everything
-/// else in the flow (audio prompt, subtitle warning, enqueue) is identical
-/// either way.
+/// Starts an offline download of `item`, placed near `PlayResumeButtonRow` on
+/// the detail page. Fetches `playbackInfo` for the item's audio/subtitle tracks
+/// (not on the detail page's own dto), prompts for an audio track when there's
+/// more than one, warns if proceeding would leave the download without its
+/// default/forced subtitle track (image-based tracks can't go offline — see
+/// `JellyfinAPIClient.isImageBasedSubtitleCodec`), then hands off to
+/// `DownloadManager.enqueue`.
+///
+/// Quality and resolution come from `DownloadPreferencesStore` by default; a
+/// long-press on the idle button presents `AdvancedDownloadOptionsView` to
+/// override them for this one download (`overrideResolution`/`overridePreset`).
+/// The rest of the flow is identical either way.
 struct DownloadButton: View {
-    /// Which chrome this renders with — the *state* logic below (idle/
-    /// resolving/preparing/downloading/downloaded, prompts, errors) is
-    /// identical either way; only the visual weight differs.
+    /// Which chrome this renders with. The state logic below is identical
+    /// either way; only the visual weight differs.
     enum Style {
-        /// The bordered-prominent chip next to Play/Resume/Restart at the
-        /// top of the detail page.
+        /// The bordered-prominent chip next to Play/Resume/Restart.
         case prominent
-        /// A subtle circular badge — the same black-circle/white-icon
-        /// treatment as the video-thumbnail Play button it sits alongside
-        /// in `EpisodeRow` — for when this is overlaid directly on artwork
-        /// instead of sitting in a plain row next to other bordered
-        /// buttons; `.prominent`'s heavy chip chrome reads as too heavy
-        /// against a thumbnail.
+        /// A circular badge, matching the black-circle/white-icon Play button
+        /// it sits alongside in `EpisodeRow`, for overlaying on artwork where
+        /// `.prominent`'s chip chrome reads as too heavy.
         case overlay
     }
 
@@ -37,14 +29,11 @@ struct DownloadButton: View {
     let userID: String
     let downloadManager: DownloadManager
     var style: Style = .prominent
-    /// Appended to this button's own state label — e.g. "Download, S19:E6"
-    /// instead of a bare "Download" — for call sites where several of these
-    /// appear together and the state word alone wouldn't say which item
-    /// it's for (`SeasonEpisodeList`'s per-episode `.overlay` buttons).
-    /// `nil` (the default) leaves the label as just the state word, correct
-    /// for the single page-level `.prominent` button next to Play/Resume,
-    /// where which item it's for is already unambiguous from the page
-    /// itself.
+    /// Appended to the state label ("Download, S19:E6") for call sites where
+    /// several of these appear together and the state word alone wouldn't say
+    /// which item it's for, such as `SeasonEpisodeList`'s per-episode overlay
+    /// buttons. `nil` leaves the bare state word, correct for the single
+    /// page-level button.
     var accessibilityContext: String? = nil
 
     private let preferences = DownloadPreferencesStore()
@@ -57,82 +46,66 @@ struct DownloadButton: View {
     @State private var isShowingError = false
     @State private var errorMessage = ""
     @State private var isShowingAdvancedOptions = false
-    /// Flipped (never read directly) every time the long-press below
-    /// recognizes — `.sensoryFeedback(_:trigger:)` fires on each *change*
-    /// of its trigger value, not on a particular value, so a plain toggle
-    /// is all this needs to be.
+    /// Flipped, never read, whenever the long-press below recognizes:
+    /// `.sensoryFeedback(_:trigger:)` fires on any change of its trigger.
     @State private var advancedOptionsHapticTrigger = false
-    /// Set by `AdvancedDownloadOptionsView`'s "Download" action, read (and
-    /// cleared) by `enqueue(mediaSource:audioTrack:subtitleTracks:)` in
-    /// place of `preferences.resolution`/`.bitratePreset` — `nil` the rest
-    /// of the time, which is what makes a plain tap fall through to the
-    /// normal device-wide preference unchanged.
+    /// Set by `AdvancedDownloadOptionsView`'s "Download" action, read and
+    /// cleared by `enqueue(mediaSource:audioTrack:subtitleTracks:)` in place of
+    /// `preferences.resolution`/`.bitratePreset`. `nil` otherwise, so a plain
+    /// tap falls through to the device-wide preference.
     @State private var overrideResolution: DownloadResolution?
     @State private var overridePreset: DownloadBitratePreset?
 
     /// What's been resolved from `playbackInfo` so far, waiting on the
-    /// audio-track prompt (if any) before `beginDownload(audioTrack:)` can
-    /// actually enqueue.
+    /// audio-track prompt before `beginDownload(audioTrack:)` can enqueue.
     private struct PendingDownload {
         var mediaSource: MediaSourceInfo
         var audioTracks: [MediaStream]
         var subtitleTracks: [MediaStream]
-        /// Set by `resolveAudioTrack(_:)` as soon as the audio track is
-        /// known (whether picked from the prompt or defaulted with only
-        /// one available) — the subtitle-warning alert's "Download Anyway"
-        /// button reads this rather than `audioTracks.first`, which would
-        /// otherwise silently discard whatever the user actually chose.
+        /// Set by `resolveAudioTrack(_:)` once the track is known, whether
+        /// picked from the prompt or defaulted. The subtitle warning's
+        /// "Download Anyway" reads this rather than `audioTracks.first`, which
+        /// would discard the user's choice.
         var chosenAudioTrack: MediaStream? = nil
-        /// The track in `audioTracks` that best matches whatever
-        /// `TrackPreferenceStore` remembers this user picking for this item
-        /// during *live* playback, if any — computed once in
-        /// `startResolving()` (see that method's doc comment on the
-        /// matching heuristic) and just marked in the audio-track prompt,
-        /// never auto-applied: which track actually gets baked into a
-        /// download is still always the user's own explicit tap.
+        /// The track in `audioTracks` best matching what `TrackPreferenceStore`
+        /// remembers the user picking for this item during live playback.
+        /// Computed once in `startResolving()` and only marked in the prompt,
+        /// never auto-applied — the baked-in track is always an explicit tap.
         var rememberedAudioTrackIndex: Int? = nil
     }
 
-    /// `_ = downloadManager.store.changeCount` establishes a real,
-    /// Observation-tracked dependency — `store.item(itemID:)` itself is a
-    /// raw SwiftData fetch, not a tracked property read, so without this
-    /// this view could silently stop re-rendering when the row changed
-    /// from somewhere else entirely (see `DownloadStore.changeCount`'s own
-    /// doc comment).
+    /// `_ = downloadManager.store.changeCount` establishes an
+    /// Observation-tracked dependency: `store.item(itemID:)` is a raw SwiftData
+    /// fetch, not a tracked property read, so without it this view stops
+    /// re-rendering when the row changes elsewhere. See
+    /// `DownloadStore.changeCount`.
     private var downloadedRow: DownloadedItem? {
         _ = downloadManager.store.changeCount
         return downloadManager.store.item(itemID: item.id)
     }
 
-    /// Live byte progress while a download for this item is actually in
-    /// flight — `nil` before/after, including while `isResolving`/
-    /// `isPreparing` (both precede an actual download and have no byte
-    /// count of their own to show).
+    /// Live byte progress while a download is in flight; `nil` before and
+    /// after, including while `isResolving`/`isPreparing`, which precede the
+    /// download and have no byte count.
     ///
-    /// `progress`/`isPreparing`/`isPendingDeletion`/`isDownloaded`/`isBusy`
-    /// each take `row` as an explicit parameter, with a matching zero-arg
-    /// computed property that just calls the parameterized form against a
-    /// fresh `downloadedRow` fetch. `content` below fetches `downloadedRow`
-    /// once and threads it through the parameterized forms, rather than
-    /// each property independently re-querying SwiftData for the same row;
-    /// the zero-arg properties survive only for the long-press gesture's
-    /// completion closure below, which fires well after the view was last
-    /// rendered and needs a fresh re-fetch, not a stale render-time
-    /// snapshot.
+    /// `progress`/`isPreparing`/`isPendingDeletion`/`isDownloaded`/`isBusy` each
+    /// take `row` explicitly, with a zero-arg twin that calls the same form
+    /// against a fresh `downloadedRow` fetch. `content` fetches the row once and
+    /// threads it through, rather than each property re-querying SwiftData. The
+    /// zero-arg forms exist for the long-press completion closure below, which
+    /// fires long after the last render and needs a fresh fetch.
     private func progress(for row: DownloadedItem?) -> DownloadProgress? {
         guard let row, row.status == .downloading || row.status == .queued else { return nil }
         return downloadManager.activeDownloads[item.id]
     }
     private var progress: DownloadProgress? { progress(for: downloadedRow) }
 
-    /// The `DownloadedItem` row exists and is queued/downloading, but the
-    /// background video task hasn't started reporting real byte progress
-    /// yet — `DownloadManager.enqueue` spends real time up front (fetching
-    /// the metadata/artwork snapshot, subtitle sidecars) before the video
-    /// task itself starts, so this window is routinely a second or more.
-    /// Distinct from `isResolving` (the earlier `playbackInfo`-fetch/prompt
-    /// phase) — without it, the button fell through to its plain idle icon
-    /// here, indistinguishable from "not downloading at all."
+    /// The row exists and is queued/downloading, but the background video task
+    /// isn't reporting byte progress yet: `DownloadManager.enqueue` fetches the
+    /// metadata/artwork snapshot and subtitle sidecars first, routinely a second
+    /// or more. Distinct from `isResolving`, the earlier `playbackInfo`
+    /// fetch/prompt phase. Without it the button shows its idle icon here,
+    /// indistinguishable from not downloading.
     private func isPreparing(for row: DownloadedItem?) -> Bool {
         guard let row, row.status == .downloading || row.status == .queued else { return false }
         return downloadManager.activeDownloads[item.id] == nil
@@ -142,13 +115,11 @@ struct DownloadButton: View {
     private var isDownloading: Bool {
         downloadManager.activeDownloads[item.id] != nil
     }
-    /// A row that's been deleted but still has an unsynced watched/resume
-    /// write to carry (see `DownloadManager.delete(itemID:)`'s doc comment)
-    /// — its files are already gone, but `downloadedRow` above still finds
-    /// the row itself, and its `status` is untouched by delete (typically
-    /// still `.completed`). Tracked separately from `isDownloaded` so this
-    /// button doesn't show the "already downloaded" checkmark and navigate
-    /// to a now-broken detail page for a row whose files are already gone.
+    /// A deleted row still carrying an unsynced watched/resume write (see
+    /// `DownloadManager.delete(itemID:)`): its files are gone, but
+    /// `downloadedRow` still finds it and delete leaves `status` untouched,
+    /// typically `.completed`. Separate from `isDownloaded` so this button
+    /// doesn't show a checkmark and navigate to a broken detail page.
     private func isPendingDeletion(for row: DownloadedItem?) -> Bool {
         row?.markedForDeletion == true
     }
@@ -159,34 +130,26 @@ struct DownloadButton: View {
     }
     private var isDownloaded: Bool { isDownloaded(for: downloadedRow) }
 
-    /// Everything that should block a second tap — resolving, preparing,
-    /// actively downloading, or a `markedForDeletion` row still waiting on
-    /// its pending sync (see `isPendingDeletion`) — tapping through to a
-    /// fresh download would race a row this button doesn't own the
-    /// lifecycle of.
+    /// Everything that should block a second tap: resolving, preparing,
+    /// downloading, or a `markedForDeletion` row awaiting its pending sync.
+    /// A fresh download would race a row this button doesn't own.
     private func isBusy(for row: DownloadedItem?) -> Bool {
         isResolving || isPreparing(for: row) || isDownloading || isPendingDeletion(for: row)
     }
     private var isBusy: Bool { isBusy(for: downloadedRow) }
 
-    /// Matches `PlayResumeButtonRow`'s "Restart" button exactly — same
-    /// bordered-prominent/rounded-rect/large-control-size/light-tint shape,
-    /// and deliberately no explicit `.frame` either (same as Restart's own
-    /// bare `Image`) so the system sizes this the same modest amount
-    /// around its glyph rather than a fixed, oversized square — so this
-    /// reads as a peer transport action next to Play/Resume/Restart, not
-    /// an oversized afterthought tacked on beside it.
+    /// Matches `PlayResumeButtonRow`'s "Restart" button: same
+    /// bordered-prominent/rounded-rect/large/light-tint shape, and no explicit
+    /// `.frame`, so the system sizes it around its glyph rather than as a fixed
+    /// square, reading as a peer transport action.
     private let cornerRadius: CGFloat = 12
-    /// Only the progress ring needs an explicit size (unlike a system SF
-    /// Symbol, it has no intrinsic one) — picked to land at roughly the
-    /// same visual weight as Restart's own `Image(systemName:)` glyph at
-    /// `.large` control size.
+    /// Only the progress ring needs an explicit size, having no intrinsic one
+    /// unlike an SF Symbol — picked to match Restart's glyph at `.large`.
     private let ringSize: CGFloat = 20
 
-    /// White on the `.overlay` badge (matching the Play button's own
-    /// white icon on the same black circle), the brand primary color on
-    /// the `.prominent` chip (matching Restart/checkmark elsewhere on the
-    /// detail page).
+    /// White on the `.overlay` badge, matching the Play button on the same
+    /// black circle; brand primary on the `.prominent` chip, matching
+    /// Restart and the checkmark elsewhere on the detail page.
     private var iconColor: Color { style == .overlay ? .white : Color.dionysusPrimary }
 
     var body: some View {
@@ -213,12 +176,9 @@ struct DownloadButton: View {
                     }
                 }
             }
-            // Explicit, not relying on the system's own implicit dismiss —
-            // that dismiss flips `isShowingAudioPrompt` false but calls no
-            // handler at all, which is exactly the "overrides left
-            // dangling on an abandoned attempt" bug `presentError`'s own
-            // doc comment describes; this is the same reset, for the same
-            // reason, on this dialog's own cancel path.
+            // Explicit rather than relying on the implicit dismiss, which
+            // flips `isShowingAudioPrompt` false but calls no handler, leaving
+            // the overrides dangling — the bug `presentError` describes.
             Button("Cancel", role: .cancel) {
                 pendingResolution = nil
                 overrideResolution = nil
@@ -231,8 +191,7 @@ struct DownloadButton: View {
                     Task { await enqueue(mediaSource: pendingResolution.mediaSource, audioTrack: pendingResolution.chosenAudioTrack, subtitleTracks: pendingResolution.subtitleTracks) }
                 }
             }
-            // See the audio-track dialog's own Cancel button just above —
-            // same reset, same reason.
+            // Same reset, same reason, as the audio-track dialog's Cancel.
             Button("Cancel", role: .cancel) {
                 pendingResolution = nil
                 overrideResolution = nil
@@ -265,41 +224,32 @@ struct DownloadButton: View {
         }
     }
 
-    /// The item's own detail-page media source, reused for the Advanced
-    /// Options size estimate. `item.dto.mediaSources` is already populated
-    /// by whatever `detailFields`/`detailFieldsWithTrickplay` fetch loaded
-    /// this page in the first place — a real network round trip, just one
-    /// that already happened before this button ever renders — so this
-    /// needs no fetch of its own, unlike `startResolving()`'s live
-    /// `playbackInfo` call (which exists for the item's *audio/subtitle*
-    /// tracks specifically, not available on the dto). The two can
-    /// disagree only in the same rare way `startResolving()`'s own fresh
-    /// fetch could: a source that's changed server-side since this page
-    /// loaded — acceptable for an estimate.
+    /// The item's detail-page media source, reused for the Advanced Options
+    /// size estimate. `item.dto.mediaSources` is already populated by the
+    /// `detailFields` fetch that loaded this page, so this needs no fetch of
+    /// its own — unlike `startResolving()`'s `playbackInfo` call, which exists
+    /// for the audio/subtitle tracks the dto lacks. Both can be stale only if
+    /// the source changed server-side since the page loaded, acceptable for an
+    /// estimate.
     private var sourceMediaSource: MediaSourceInfo? { item.dto.mediaSources?.first }
     private var sourceVideoStream: MediaStream? { sourceMediaSource?.mediaStreams?.first { $0.type == "Video" } }
 
-    /// e.g. "S1:E4 · Pilot" for an episode, the plain title otherwise —
-    /// same per-type formatting `MediaItem.railSubtitle` already uses, so
-    /// this reads as the same kind of label the rest of the app shows for
-    /// this item rather than inventing a new convention just for this sheet.
+    /// "S1:E4 · Pilot" for an episode, the plain title otherwise — the same
+    /// per-type formatting as `MediaItem.railSubtitle`.
     private var advancedOptionsTitle: String {
         item.episodeLabel.map { "\($0) \u{00B7} \(item.name)" } ?? item.name
     }
 
-    /// The actual tap target/state icon — identical between styles, see
-    /// `body`'s own doc comment for why only the chrome around this
-    /// differs.
+    /// The tap target and state icon, identical between styles; only the chrome
+    /// around it differs.
     @ViewBuilder
     private var content: some View {
-        // Fetched once per render and threaded through the parameterized
-        // forms below — see `downloadedRow`'s own doc comment.
+        // Fetched once per render and threaded through the parameterized forms
+        // below — see `downloadedRow`.
         let row = downloadedRow
         if isDownloaded(for: row) {
-            // Already downloaded — a second tap should open the
-            // download's own page (to play it offline, check its size, or
-            // delete it), not silently re-download the same item from
-            // scratch.
+            // Already downloaded: a second tap opens the download's page to
+            // play, inspect or delete it, rather than re-downloading.
             NavigationLink(value: AppRoute.downloadedAsset(itemID: item.id)) {
                 badge { Image(systemName: "checkmark.circle.fill").foregroundStyle(iconColor) }
             }
@@ -310,15 +260,12 @@ struct DownloadButton: View {
                 if let progress = progress(for: row) {
                     badge { DownloadProgressRing(progress: progress, tint: iconColor) }
                 } else if isResolving || isPreparing(for: row) || isPendingDeletion(for: row) {
-                    // A plain spinner, not the progress ring — there's no
-                    // determined byte progress yet to show as one (see
-                    // `isPreparing`'s own doc comment), and an
-                    // indeterminate ring at 0% reads as "stuck", not
-                    // "starting". `isPendingDeletion` rides the same
-                    // spinner rather than the plain idle icon below — this
-                    // button is disabled either way (`isBusy`), but the
-                    // idle icon specifically reads as "ready to tap",
-                    // which a `markedForDeletion` row isn't yet.
+                    // A plain spinner, not the progress ring: there's no byte
+                    // progress yet (see `isPreparing`), and a ring at 0% reads
+                    // as stuck rather than starting. `isPendingDeletion` rides
+                    // the same spinner — the button is disabled either way, but
+                    // the idle icon reads as ready to tap, which a
+                    // `markedForDeletion` row isn't.
                     badge { ProgressView().tint(iconColor) }
                 } else {
                     badge { Image(systemName: "arrow.down.circle").foregroundStyle(iconColor) }
@@ -327,12 +274,10 @@ struct DownloadButton: View {
             .disabled(isBusy(for: row))
             .accessibilityLabel(accessibilityLabel(for: row))
             .accessibilityIdentifier(A11yID.AssetDetail.downloadButton)
-            // Hold instead of tap: same idle button, different entry point
-            // into the same resolve/prompt/enqueue flow (`startResolving`)
-            // — see `AdvancedDownloadOptionsView`'s own doc comment.
-            // `.highPriorityGesture`, not a plain `.onLongPressGesture` — a
-            // bare `.onLongPressGesture` on a `Button` doesn't suppress the
-            // Button's own tap once the hold completes, so both fired.
+            // Hold instead of tap: the same `startResolving` flow, entered via
+            // `AdvancedDownloadOptionsView`. `.highPriorityGesture` rather than
+            // `.onLongPressGesture`, which doesn't suppress the `Button`'s own
+            // tap once the hold completes, so both fired.
             .highPriorityGesture(
                 LongPressGesture(minimumDuration: 0.5).onEnded { _ in
                     guard !isBusy else { return }
@@ -340,19 +285,15 @@ struct DownloadButton: View {
                     isShowingAdvancedOptions = true
                 }
             )
-            // The same medium-weight impact UIKit fires for its own
-            // long-press-recognized moments (context menus, reordering,
-            // icon-jiggle entry) — matches the system feel rather than
-            // inventing a bespoke one for this one gesture.
+            // The medium-weight impact UIKit fires for its own long-press
+            // recognitions (context menus, reordering, icon jiggle).
             .sensoryFeedback(.impact, trigger: advancedOptionsHapticTrigger)
         }
     }
 
-    /// Mirrors `content`'s own idle/preparing/downloading state icons — see
-    /// that view's doc comment for what each covers. `isDownloaded`'s own
-    /// `NavigationLink` branch has its own separate `"Downloaded"` label
-    /// set directly at its call site, since it's structurally a different
-    /// element from this one.
+    /// Mirrors `content`'s idle/preparing/downloading state icons. The
+    /// `isDownloaded` `NavigationLink` branch sets its own "Downloaded" label
+    /// at its call site, being a structurally different element.
     private func accessibilityLabel(for row: DownloadedItem?) -> String {
         let state: String
         if let progress = progress(for: row) {
@@ -365,30 +306,25 @@ struct DownloadButton: View {
         return withContext(state)
     }
 
-    /// See `accessibilityContext`'s own doc comment.
+    /// See `accessibilityContext`.
     private func withContext(_ state: String) -> String {
         guard let accessibilityContext else { return state }
         return String(localized: "\(state), \(accessibilityContext)")
     }
 
-    /// Wraps the state icon/spinner/ring in whatever fixed-size container
-    /// `style` calls for. Always a fixed frame regardless of style — a
-    /// plain `Image(systemName:)`, a bare `ProgressView()`, and
-    /// `DownloadProgressRing` each report a different natural size when
-    /// left unconstrained (`ProgressView()` in particular renders larger
-    /// than an SF Symbol glyph at this control size), so without one the
-    /// button's footprint visibly popped between sizes on every state
-    /// change before settling back.
+    /// Wraps the state icon/spinner/ring in the fixed-size container `style`
+    /// calls for. Always fixed, because `Image(systemName:)`, `ProgressView()`
+    /// and `DownloadProgressRing` each report a different natural size —
+    /// `ProgressView()` renders larger than an SF Symbol at this control size —
+    /// so the button's footprint popped on every state change.
     @ViewBuilder
     private func badge<Content: View>(@ViewBuilder _ inner: () -> Content) -> some View {
         switch style {
         case .prominent:
             inner().frame(width: ringSize, height: ringSize)
         case .overlay:
-            // Same black-circle/white-icon treatment as the video
-            // thumbnail's own Play button (`EpisodeRow`), sized a touch
-            // smaller (32pt vs. Play's 36pt) so it reads as the
-            // secondary/corner action next to it.
+            // Same black-circle/white-icon treatment as `EpisodeRow`'s Play
+            // button, at 32pt against its 36pt so it reads as secondary.
             inner()
                 .frame(width: 16, height: 16)
                 .frame(width: 32, height: 32)
@@ -427,29 +363,20 @@ struct DownloadButton: View {
         }
     }
 
-    /// Finds whichever of `audioTracks` most likely *is* the track named by
-    /// a `TrackPreferenceStore` entry from a previous **live** playback
-    /// session, so the audio-track prompt below can flag it — purely
-    /// informational, never auto-applied (see `PendingDownload
-    /// .rememberedAudioTrackIndex`'s doc comment).
+    /// Finds whichever of `audioTracks` is most likely the one named by a
+    /// `TrackPreferenceStore` entry from a previous live playback session, so
+    /// the prompt can flag it. Informational only, never auto-applied.
     ///
-    /// Can't reuse `PlayerViewModel.applyStoredTrackSelection()`'s
-    /// stricter id-*and*-title check as-is: that compares against
-    /// `engine.audioTracks`, whose `id`/`title` are AetherEngine's own
-    /// physical-container-position id and container-metadata-derived title
-    /// (see `AetherPlaybackEngine.normalize(_:kind:selectedID:...)`) — a
-    /// completely different id space and title vocabulary than
+    /// Can't reuse `PlayerViewModel.applyStoredTrackSelection()`'s stricter
+    /// id-and-title check: that compares against `engine.audioTracks`, whose
+    /// ids are AetherEngine's physical container positions and whose titles come
+    /// from container metadata — a different id space and vocabulary from the
     /// `MediaStream.index`/`.displayTitle` here, which come straight from
-    /// Jellyfin's `PlaybackInfo` response with no engine involved at all
-    /// (this view never loads the item into the player). So this matches
-    /// on title alone, and loosely — a case-insensitive substring check
-    /// rather than equality — since Jellyfin's own `displayTitle` is
-    /// typically a decorated superset of the bare language name
-    /// AetherEngine's title normally reduces to (e.g. `MediaStream
-    /// .displayTitle` "English - AC3 5.1" against a stored title of plain
-    /// "English"). A miss just means the prompt shows no hint, exactly
-    /// today's behavior — this is a nice-to-have signal, not something a
-    /// wrong match could corrupt (the user always still taps to choose).
+    /// Jellyfin's `PlaybackInfo`. So this matches on title alone, and loosely
+    /// (case-insensitive substring), since Jellyfin's `displayTitle` is
+    /// typically a decorated superset of the bare language name AetherEngine
+    /// reduces to — "English - AC3 5.1" against a stored "English". A miss just
+    /// means no hint, and the user still taps to choose.
     private static func rememberedAudioTrackIndex(
         among audioTracks: [MediaStream], storedPreference: TrackPreferenceStore.TrackChoice?
     ) -> Int? {
@@ -460,24 +387,21 @@ struct DownloadButton: View {
         }?.index
     }
 
-    /// The matched track (see `rememberedAudioTrackIndex(among:storedPreference:)`)
-    /// gets an explicit text suffix, not just a highlight/checkmark — this
-    /// is a `confirmationDialog`, whose buttons are plain strings with no
-    /// room for a separate caption view or color-only treatment VoiceOver
-    /// would miss.
+    /// The matched track gets an explicit text suffix rather than a checkmark:
+    /// `confirmationDialog` buttons are plain strings, with no room for a
+    /// caption view or a color-only treatment VoiceOver would miss.
     private func audioTrackButtonLabel(for track: MediaStream, pendingResolution: PendingDownload) -> String {
         let title = track.displayTitle ?? String(localized: "Track \(track.index + 1)")
         guard track.index == pendingResolution.rememberedAudioTrackIndex else { return title }
         return String(localized: "\(title) (Previously selected)")
     }
 
-    /// Also resets `pendingResolution`/`overrideResolution`/`overridePreset`
-    /// — those two are otherwise only cleared inside
-    /// `enqueue(mediaSource:audioTrack:subtitleTracks:)`'s own `defer`, so
-    /// an advanced-options attempt that set them and then aborted before
-    /// reaching that point would leave them dangling on this view's
-    /// `@State`, and a later, unrelated plain tap would silently reuse that
-    /// stale one-off override instead of the live device-wide preference.
+    /// Also resets `pendingResolution`/`overrideResolution`/`overridePreset`,
+    /// otherwise only cleared in
+    /// `enqueue(mediaSource:audioTrack:subtitleTracks:)`'s `defer`: an
+    /// advanced-options attempt that aborted before reaching it would leave
+    /// them on this view's `@State`, and a later plain tap would reuse that
+    /// stale override instead of the device-wide preference.
     private func presentError(_ message: String) {
         pendingResolution = nil
         overrideResolution = nil
@@ -505,11 +429,9 @@ struct DownloadButton: View {
 
     private func enqueue(mediaSource: MediaSourceInfo, audioTrack: MediaStream?, subtitleTracks: [MediaStream]) async {
         // `overrideResolution`/`overridePreset` only carry a value between
-        // `AdvancedDownloadOptionsView`'s "Download" action and this call —
-        // cleared here regardless of outcome so a later *plain* tap (after
-        // a cancelled/failed advanced download) doesn't silently reuse a
-        // stale one-off choice instead of falling back to the real
-        // preference again.
+        // `AdvancedDownloadOptionsView`'s "Download" action and this call.
+        // Cleared regardless of outcome, so a later plain tap doesn't reuse a
+        // stale one-off choice.
         defer { pendingResolution = nil; overrideResolution = nil; overridePreset = nil }
         do {
             try await downloadManager.enqueue(

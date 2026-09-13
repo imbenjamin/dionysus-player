@@ -20,10 +20,10 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertNil(store.item(itemID: "item-1"))
     }
 
-    // MARK: changeCount (2026-08-20) — the Observation-tracking fix for
-    // views computing `store.item(itemID:)`/etc. directly in a `var`,
-    // which a raw SwiftData fetch alone doesn't give SwiftUI anything to
-    // track. See its own doc comment for the real "view stuck on stale
+    // MARK: changeCount — the Observation-tracking fix for views
+    // computing `store.item(itemID:)`/etc. directly in a `var`, which a
+    // raw SwiftData fetch alone doesn't give SwiftUI anything to track.
+    // See its doc comment for the real "view stuck on stale
     // data" bug this fixes.
 
     func test_changeCount_incrementsOnInsertAndDelete() {
@@ -53,9 +53,9 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertEqual(store.changeCount, afterInsert + 1)
     }
 
-    // MARK: items(itemIDs:) — the batched-fetch overload (2026-08-20
-    // branch review), for a caller checking several known ids at once
-    // instead of one `item(itemID:)` call per id in a loop.
+    // MARK: items(itemIDs:) — the batched-fetch overload, for a caller
+    // checking several known ids at once instead of one `item(itemID:)`
+    // call per id in a loop.
 
     func test_itemsWithIDs_returnsOnlyTheMatchingRows() {
         let store = DownloadTestHelpers.makeInMemoryStore()

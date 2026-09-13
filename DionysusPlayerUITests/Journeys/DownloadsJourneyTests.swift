@@ -4,7 +4,7 @@ import XCTest
 /// download from the detail page, and bulk delete.
 ///
 /// `UITestStubURLProtocol` answers `/Videos/`/`/Subtitles/` with a small
-/// fixed byte payload (see that type's own doc comment) — real bytes
+/// fixed byte payload (see that type's doc comment) — real bytes
 /// `DownloadManager` really does write to disk via a real
 /// `URLSessionDownloadTask`, just tiny and instant rather than the size/
 /// duration a real movie download would take. That's what makes asserting

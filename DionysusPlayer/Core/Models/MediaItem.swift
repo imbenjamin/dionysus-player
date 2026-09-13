@@ -8,10 +8,9 @@ struct CastMember: Identifiable, Hashable {
     var imageURL: URL?
 }
 
-/// Container/codec/resolution/dynamic-range summary plus per-track audio
-/// and subtitle lists for a detail page's "Details" tab — see
-/// `MediaItem.technicalDetails`. All fields are already display-formatted
-/// strings; nothing here needs further unit conversion by the view.
+/// Container, codec, resolution and dynamic-range summary plus per-track audio
+/// and subtitle lists for a detail page's "Details" tab. Every field is already
+/// display-formatted; views need no further conversion.
 struct TechnicalDetails: Equatable {
     var container: String?
     var videoCodec: String?
@@ -19,14 +18,12 @@ struct TechnicalDetails: Equatable {
     var frameRate: String?
     var dynamicRange: String?
     var bitrate: String?
-    /// VoiceOver counterpart to `bitrate` — "X.X megabits per second"
-    /// instead of "X.X Mbps", which reads letter by letter ("M B P S")
-    /// rather than as a word. `nil` exactly when `bitrate` is.
+    /// VoiceOver counterpart to `bitrate`: "megabits per second" rather than
+    /// "Mbps", which is read letter by letter. `nil` exactly when `bitrate` is.
     var bitrateAccessibilityText: String?
     var fileSize: String?
-    /// VoiceOver counterpart to `fileSize` — see `bitrateAccessibilityText`'s
-    /// doc comment for the same reasoning, applied to "GB"/"MB"/etc.
-    /// instead of "Mbps". `nil` exactly when `fileSize` is.
+    /// VoiceOver counterpart to `fileSize`, spelling out "GB"/"MB". `nil`
+    /// exactly when `fileSize` is.
     var fileSizeAccessibilityText: String?
     var audioTracks: [String]
     var subtitleTracks: [String]
@@ -60,13 +57,10 @@ struct MediaItem: Identifiable {
     var id: String { dto.id }
     var name: String { dto.name }
     var overview: String? { dto.overview }
-    /// The marketing tagline (e.g. "Some assembly required."), shown above
-    /// the synopsis on the About tab. Jellyfin models this as an array
-    /// (`Taglines`) but populates at most one for movies/shows in practice
-    /// — first non-empty entry, `nil` if there isn't one. Only present when
-    /// fetched via `Fields=Taglines` (see `JellyfinAPIClient.detailFields`
-    /// — the detail page's own item fetch, not rail/list fetches, where a
-    /// tagline is never shown and not worth the extra payload).
+    /// The marketing tagline shown above the synopsis on the About tab.
+    /// Jellyfin models `Taglines` as an array but populates at most one, so
+    /// this takes the first non-empty entry. Only populated by
+    /// `JellyfinAPIClient.detailFields`, not by rail or list fetches.
     var tagline: String? { dto.taglines?.first { !$0.isEmpty } }
     var kind: BaseItemKind { dto.type }
     /// AUDIO SUPPRESSION: see `BaseItemDto.isAudioContent`'s doc comment.
@@ -75,41 +69,28 @@ struct MediaItem: Identifiable {
     var studios: [String] { dto.studios?.map(\.name) ?? [] }
     var ageRating: String? { dto.officialRating }
     var communityRating: Double? { dto.communityRating }
-    /// The decade this item's `productionYear` falls in, as its start year
-    /// (e.g. `2010` for a 2016 release) — `CollectionGridView`'s Decade
-    /// filter groups on this. `nil` when there's no production year to
-    /// bucket. A start year rather than an already-formatted "2010s"
-    /// string: that's just number/date formatting, same category as
-    /// `yearText` below, done at the view layer instead.
+    /// The start year of this item's decade (`2010` for a 2016 release), which
+    /// `CollectionGridView`'s Decade filter groups on. A number rather than a
+    /// formatted "2010s" string, leaving that formatting to the view.
     var decade: Int? {
         guard let year = dto.productionYear else { return nil }
         return (year / 10) * 10
     }
-    /// Present on library "views" (e.g. `"movies"`, `"tvshows"`,
-    /// `"boxsets"`) returned by `/Users/{id}/Views` — see
-    /// `libraryContentItemTypes` for what this is actually used for.
+    /// Present on library views (`"movies"`, `"tvshows"`, `"boxsets"`) from
+    /// `/Users/{id}/Views`. See `libraryContentItemTypes`.
     var collectionType: String? { dto.collectionType }
-    /// AUDIO SUPPRESSION: true only for a Music library (`collectionType ==
-    /// "music"`) — deliberately not `"musicvideos"`, which holds real
-    /// playable video files. `HomeViewModel` filters this out of
-    /// `libraries` before publishing, since `/Users/{id}/Views` has no
-    /// server-side type filter to do it for us. Delete once Dionysus
-    /// Player supports browsing a Music library.
+    /// AUDIO SUPPRESSION: Music libraries only, not `"musicvideos"`, which
+    /// holds playable video. `HomeViewModel` filters these out of `libraries`
+    /// because `/Users/{id}/Views` has no server-side type filter. Delete once
+    /// browsing a Music library is supported.
     var isAudioLibrary: Bool { collectionType == JellyfinCollectionType.music }
 
-    /// For a library item (one of `HomeViewModel.libraries`), the item
-    /// type(s) a query scoped to it (`LibraryRailView`'s card tap) should
-    /// restrict itself to — e.g. `["Series"]` for a Shows library. Without
-    /// this, a recursive `/Items?ParentId=` walk returns *everything*
-    /// nested under the library, not just its top-level items: a Shows
-    /// library would mix every Season and Episode in alongside each
-    /// Series, a Collections library would pull in every Movie/Series
-    /// inside each BoxSet too, and (confirmed live) a Playlists library
-    /// without this would pull in every member item of every playlist
-    /// flattened in alongside the playlists themselves. Empty (no
-    /// restriction) for library types this doesn't apply to (Music, ...)
-    /// or for anything that isn't a library at all (`collectionType ==
-    /// nil`).
+    /// The item types a query scoped to this library should restrict itself to.
+    /// A recursive `/Items?ParentId=` walk otherwise returns everything nested
+    /// under the library: a Shows library mixes in every Season and Episode, a
+    /// Collections library every Movie and Series inside each BoxSet, and a
+    /// Playlists library every member of every playlist. Empty for library
+    /// types this doesn't apply to, and for non-libraries.
     var libraryContentItemTypes: [String] {
         switch collectionType {
         case JellyfinCollectionType.movies: ["Movie"]
@@ -120,23 +101,15 @@ struct MediaItem: Identifiable {
         }
     }
 
-    // `yearText`/`durationText`/`episodeLabel`/`railSubtitle` below, plus
-    // `resolutionCommonName`/`friendlyVideoCodecName`/
-    // `friendlyDynamicRangeName`/`frameRateLabel`/`bitrateLabel` further down, are
-    // deliberately left as plain (non-localized) string assembly: they're
-    // either numeric/date formatting (years, durations, "S1:E4") or
-    // industry-standard technical terms conventionally shown untranslated
-    // (codec names, HDR formats) — same category as `metadataBadges`
-    // (`InfoMetadataRow.swift`) and the player's timecodes
-    // (`PlayerControlsOverlay.swift`). `trackLabel`'s "Track N" fallback
-    // below is the one genuine natural-language string in this file, and is
+    // The display strings below are unlocalized: they are numeric or date
+    // formatting (years, durations, "S1:E4") or industry-standard technical
+    // terms shown untranslated (codec names, HDR formats). `trackLabel`'s
+    // "Track N" fallback is the one natural-language string here, and is
     // localized.
 
-    /// e.g. "2019" for a movie, "2019–2021" or "2019–" (still airing, best
-    /// guess since we don't yet read Jellyfin's `Status` field) for a series.
-    /// A season/series only ever has this coarser year-or-range to show —
-    /// see `episodeAirDateText`/`metadataDateText` for an individual
-    /// episode's exact date instead.
+    /// "2019" for a movie, "2019–2021" or "2019–" for a series; the trailing
+    /// dash is a guess, since Jellyfin's `Status` field isn't read yet. See
+    /// `episodeAirDateText` for an individual episode's exact date.
     var yearText: String? {
         guard let year = dto.productionYear else { return nil }
         guard dto.type == .series else { return String(year) }
@@ -148,13 +121,9 @@ struct MediaItem: Identifiable {
         return "\(year)\u{2013}"
     }
 
-    /// An episode's exact release date, e.g. "1 Aug 2026" — unlike a show
-    /// or season, a single episode has one specific air date worth spelling
-    /// out in full rather than collapsing to just its year. `nil` for
-    /// anything that isn't an episode, or an episode with no
-    /// `premiereDate` (e.g. not yet aired). Used by `metadataDateText`
-    /// (the detail page's metadata row) and directly by
-    /// `SeasonEpisodeList`'s own per-episode row.
+    /// An episode's exact air date ("1 Aug 2026"), worth spelling out where a
+    /// show or season has only a year. `nil` for non-episodes and for an
+    /// episode with no `premiereDate`.
     var episodeAirDateText: String? {
         guard dto.type == .episode, let date = dto.premiereDate else { return nil }
         let formatter = DateFormatter()
@@ -162,13 +131,9 @@ struct MediaItem: Identifiable {
         return formatter.string(from: date)
     }
 
-    /// Whichever of `yearText`/`episodeAirDateText` is the right level of
-    /// detail for this item's kind — an episode's exact date, everything
-    /// else's coarser year/year-range. `InfoMetadataRow` is the one call
-    /// site (shared across every detail-page kind: Movie, Show/Season, and
-    /// Show-content-as-Episode — see `ShowDetailView`'s own doc comment),
-    /// so the branching lives here instead of being repeated at each of
-    /// them.
+    /// `yearText` or `episodeAirDateText`, whichever suits this item's kind.
+    /// The branching lives here because `InfoMetadataRow` is shared across
+    /// every detail-page kind.
     var metadataDateText: String? {
         dto.type == .episode ? episodeAirDateText : yearText
     }
@@ -181,13 +146,9 @@ struct MediaItem: Identifiable {
         return "\(minutes)m"
     }
 
-    /// Same duration as `durationText`, worded out for VoiceOver — confirmed
-    /// live (real device, VoiceOver on) that the compact "1h 32m" gets
-    /// misheard outright: VoiceOver reads "m" as the metric unit, producing
-    /// "One H Thirty Meters," not "one hour thirty minutes."
-    /// `DateComponentsFormatter`'s `.full` style spells the units out and
-    /// gets pluralization/localization right ("1 hour" vs. "2 hours") in a
-    /// way hand-rolled string interpolation wouldn't.
+    /// `durationText` worded out for VoiceOver, which reads the compact
+    /// "1h 32m" as "One H Thirty Meters". `DateComponentsFormatter`'s `.full`
+    /// style spells the units out and handles pluralization and localization.
     var durationAccessibilityText: String? {
         guard let totalMinutes = durationTotalMinutes else { return nil }
         return Self.spokenDuration(totalMinutes: totalMinutes)
@@ -198,20 +159,15 @@ struct MediaItem: Identifiable {
         return Int(ticks / 10_000_000 / 60)
     }
 
-    /// `resumePositionSeconds`, worded out for VoiceOver — same
-    /// `spokenDuration(totalMinutes:)` `durationAccessibilityText` uses,
-    /// just from a different source value (elapsed time into the item, not
-    /// its total runtime) — e.g. "Resume S19:E6 from 33 minutes" at an
-    /// episode-list row's own call site. `nil` whenever there's nothing to
-    /// resume from.
+    /// `resumePositionSeconds` worded out for VoiceOver, e.g. "Resume S19:E6
+    /// from 33 minutes". `nil` when there is nothing to resume from.
     var resumePositionAccessibilityText: String? {
         guard let resumePositionSeconds, resumePositionSeconds > 0 else { return nil }
         return Self.spokenDuration(totalMinutes: Int(resumePositionSeconds / 60))
     }
 
-    /// Shared by `durationAccessibilityText`/`resumePositionAccessibilityText`
-    /// — see the former's own doc comment for why this needs
-    /// `DateComponentsFormatter` rather than hand-rolled interpolation.
+    /// Shared by `durationAccessibilityText` and
+    /// `resumePositionAccessibilityText`.
     private static func spokenDuration(totalMinutes: Int) -> String? {
         let formatter = DateComponentsFormatter()
         formatter.unitsStyle = .full
@@ -228,11 +184,8 @@ struct MediaItem: Identifiable {
         return "S\(season):E\(episode)"
     }
 
-    /// `episodeLabel`, worded out for VoiceOver — "season 1 episode 4"
-    /// instead of letters/colon, which would either be spelled out
-    /// letter-by-letter or misread outright (same category of problem as
-    /// `durationAccessibilityText`'s "1h 32m"). `nil` under the same
-    /// conditions `episodeLabel` is.
+    /// `episodeLabel` worded out for VoiceOver: "season 1 episode 4" rather
+    /// than letters and a colon, which are spelled out or misread.
     var episodeLabelAccessibilityText: String? {
         guard dto.type == .episode, let season = dto.parentIndexNumber, let episode = dto.indexNumber else {
             return nil
@@ -240,9 +193,8 @@ struct MediaItem: Identifiable {
         return String(localized: "season \(season) episode \(episode)")
     }
 
-    /// First line shown under a poster card. Episodes surface their series
-    /// name (so a row of Continue Watching reads as show titles, not a wall
-    /// of episode titles); everything else uses the item's own name.
+    /// First line under a poster card. Episodes show their series name, so
+    /// Continue Watching reads as show titles rather than episode titles.
     var railTitle: String {
         switch dto.type {
         case .episode: return dto.seriesName ?? name
@@ -270,27 +222,18 @@ struct MediaItem: Identifiable {
         }
     }
 
-    /// What a rail/grid card's `NavigationLink` reads aloud as a whole —
-    /// `railTitle` plus `railSubtitle` (when there is one), e.g. "The Super
-    /// Mario Bros. Movie, 2023 · 1h 32m". Used instead of leaning on
-    /// SwiftUI's automatic per-child accessibility combination: cards mix
-    /// an `AsyncRemoteImage` (no label of its own) with decorative status
-    /// glyphs (favorite star, watched eye, in-progress bar) that would
-    /// otherwise leak their own SF Symbol names into the combined label —
-    /// see `PosterCard`/`LandscapeMediaCard`/`LibraryCard`/`HeroRailCard`,
-    /// none of which had *any* accessibility label before this, confirmed
-    /// via VoiceOver-style automation reading every one of them back as
-    /// blank/"Unnamed".
+    /// What a card's `NavigationLink` reads aloud: `railTitle` plus
+    /// `railSubtitle`. Set explicitly rather than relying on SwiftUI's
+    /// per-child combination, which would leak the SF Symbol names of a card's
+    /// decorative status glyphs (favorite star, watched eye, progress bar) into
+    /// the label alongside an image that has none.
     var accessibilityDescription: String {
         guard let railSubtitleAccessibilityText else { return railTitle }
         return "\(railTitle), \(railSubtitleAccessibilityText)"
     }
 
-    /// Same composition as `railSubtitle`, but substituting
-    /// `durationAccessibilityText` for `durationText` — see that property's
-    /// own doc comment for why. Movies are the only `railSubtitle` case that
-    /// embeds a duration at all (episode/series never do), so this only
-    /// actually diverges from `railSubtitle` there.
+    /// `railSubtitle` with `durationAccessibilityText` in place of
+    /// `durationText`. Only movies embed a duration, so only they diverge.
     private var railSubtitleAccessibilityText: String? {
         guard dto.type == .movie else { return railSubtitle }
         let parts = [yearText, durationAccessibilityText].compactMap { $0 }
@@ -304,9 +247,8 @@ struct MediaItem: Identifiable {
 
     var playedFraction: Double? {
         if let percentage = dto.userData?.playedPercentage { return percentage / 100 }
-        // Fallback: Jellyfin's `playedPercentage` sometimes lags behind a
-        // freshly-written `playbackPositionTicks`, so compute the ratio
-        // ourselves when we have both endpoints of the calculation.
+        // `playedPercentage` can lag a freshly-written
+        // `playbackPositionTicks`, so compute the ratio when both are present.
         if let positionTicks = dto.userData?.playbackPositionTicks, positionTicks > 0,
            let runTimeTicks = dto.runTimeTicks, runTimeTicks > 0 {
             return Double(positionTicks) / Double(runTimeTicks)
@@ -316,95 +258,73 @@ struct MediaItem: Identifiable {
 
     var isPlayed: Bool { dto.userData?.played ?? false }
 
-    /// Changes exactly when the progress-bar/Play-vs-Resume fields do
-    /// (`resumePositionSeconds`/`playedFraction`/`isPlayed`).
+    /// Changes exactly when `resumePositionSeconds`, `playedFraction` or
+    /// `isPlayed` do.
     ///
-    /// Handed to `.id()` on `PlayResumeButtonRow`
-    /// (`MovieDetailView`/`ShowDetailView`) to force a rebuild rather than
-    /// an update. `MediaItem.==` alone should already be enough; this is
-    /// deliberate redundancy on the one update that has silently regressed
-    /// more than once. Rebuilding also resets that view's own `@State` (the
-    /// version-choice prompt), which is fine — it should not survive a
+    /// Handed to `.id()` on `PlayResumeButtonRow` to force a rebuild rather
+    /// than an update. `MediaItem.==` should suffice; this is redundancy on an
+    /// update that has regressed silently more than once. The rebuild also
+    /// resets that view's version-choice prompt, which shouldn't survive a
     /// change of playback position anyway.
     var playbackProgressIdentity: String {
         "\(dto.userData?.playbackPositionTicks ?? -1)-\(dto.userData?.playedPercentage ?? -1)-\(dto.userData?.played ?? false)"
     }
 
     /// `id` plus `playbackProgressIdentity`, for `MediaRailView`'s
-    /// `ForEach(rail.items, id:)` — a changed resume position becomes a
-    /// different row *identity*, which SwiftUI must act on, rather than a
-    /// different row value it may compare its way out of re-rendering.
-    ///
-    /// Same deliberate redundancy as `playbackProgressIdentity`, and no
-    /// more expensive than the per-card `.id()` it replaced.
+    /// `ForEach(rail.items, id:)`: a changed resume position becomes a different
+    /// row identity, which SwiftUI must act on, rather than a different value it
+    /// may compare its way out of re-rendering.
     var railRowIdentity: String { "\(id)-\(playbackProgressIdentity)" }
 
     var isFavorite: Bool { dto.userData?.isFavorite ?? false }
 
-    /// Whether this user may delete this item from the server — gates the
-    /// detail page's delete affordance entirely (`AssetActionsButton`).
+    /// Whether this user may delete this item, gating `AssetActionsButton`'s
+    /// delete affordance.
     ///
-    /// Defaults to `false` when absent, and "absent" is the common case: the
-    /// underlying `CanDelete` field is only requested by
-    /// `JellyfinAPIClient.detailFields`, so any `MediaItem` built from a
-    /// rail/grid payload reports `false` until the detail fetch replaces it.
-    /// That's the deliberate direction to fail in — a delete button that
-    /// appears a beat late is a cosmetic nit, one that appears for someone
-    /// who can't actually delete is a broken promise (and, because Jellyfin
-    /// answers permission-denied with 401, an expensive one — see
-    /// `JellyfinAPIClient.deleteItem`).
+    /// `false` when absent, which is the common case: only
+    /// `JellyfinAPIClient.detailFields` requests `CanDelete`, so a `MediaItem`
+    /// from a rail or grid reports `false` until the detail fetch lands. That is
+    /// the right direction to fail in — a button appearing late is cosmetic,
+    /// one appearing for someone who can't delete is a broken promise, and an
+    /// expensive one given Jellyfin answers permission-denied with 401.
     var canDelete: Bool { dto.canDelete ?? false }
 
-    /// This item's identity *within the specific playlist it was fetched
-    /// as a member of* — `nil` for a `MediaItem` built from anything other
-    /// than `JellyfinAPIClient.playlistItems`'s response (rail/grid/detail
-    /// fetches never populate `BaseItemDto.playlistItemId`). Used to key
-    /// `PlaylistItemList`'s `ForEach` (this item's own `id` isn't unique
-    /// per row — the same item can appear in a playlist twice) and as the
-    /// `entryIds` argument to `JellyfinAPIClient.removePlaylistItems`.
+    /// This item's identity within the playlist it was fetched from; `nil`
+    /// outside `JellyfinAPIClient.playlistItems`' response. Keys
+    /// `PlaylistItemList`'s `ForEach`, since `id` isn't unique per row when an
+    /// item appears twice, and supplies `removePlaylistItems`' `entryIds`.
     var playlistItemID: String? { dto.playlistItemId }
 
-    /// The parent Series' id for a Season or Episode, `nil` for anything
-    /// else. Distinct from `AssetDetailViewModel.seriesID`, which is that
-    /// view model's own resolved page context — this is just the field the
-    /// server put on this one item, which is what a caller holding a lone
-    /// `MediaItem` (e.g. `AddToPlaylistViewModel`, resolving a Season's
-    /// episodes) has to work from.
+    /// The parent Series' id for a Season or Episode. Distinct from
+    /// `AssetDetailViewModel.seriesID`, which is that view model's resolved page
+    /// context; this is the field the server put on this item, and all a caller
+    /// holding a lone `MediaItem` has to work from.
     var seriesID: String? { dto.seriesId }
 
-    /// Total episodes beneath a Series or Season, for the deletion
-    /// confirmation's "will delete all {n} episodes" wording. `nil` when the
-    /// server didn't supply it (only `Fields=RecursiveItemCount` populates
-    /// it), which the confirmation copy falls back to count-free wording for
-    /// rather than guessing or showing a zero.
+    /// Total episodes beneath a Series or Season, for the delete confirmation's
+    /// "will delete all {n} episodes". `nil` unless `Fields=RecursiveItemCount`
+    /// was requested, which the copy handles with count-free wording.
     ///
-    /// Not interchangeable with `dto.childCount`: on a Series that's the
-    /// number of *seasons*.
+    /// Not `dto.childCount`, which on a Series counts seasons.
     var episodeCount: Int? { dto.recursiveItemCount }
 
-    /// True when the user has started but not finished this item. For movies,
-    /// that's a mid-playback position; for shows, some-but-not-all episodes
-    /// watched (Jellyfin surfaces both as `playedPercentage`).
+    /// Started but not finished: a mid-playback position for a movie, some but
+    /// not all episodes watched for a show. Jellyfin reports both as
+    /// `playedPercentage`.
     var isPartWatched: Bool {
         guard !isPlayed, let fraction = playedFraction else { return false }
         return fraction > 0 && fraction < 1
     }
 
-    /// Container/codec/resolution/dynamic-range summary plus per-track audio
-    /// and subtitle lists, for the detail page's "Details" tab's default
-    /// (first/highest-quality) version. `nil` when there's no media source
-    /// at all (e.g. viewing a Series, which has no file of its own — only
-    /// its episodes do). See `technicalDetails(forVersion:)` for a specific
-    /// `mediaVersions` entry instead — this is exactly that with `nil`.
+    /// The Details tab's summary for the default (first, highest-quality)
+    /// version. `nil` when there is no media source, as on a Series, which has
+    /// no file of its own. Equivalent to `technicalDetails(forVersion: nil)`.
     var technicalDetails: TechnicalDetails? { technicalDetails(forVersion: nil) }
 
-    /// Same as `technicalDetails`, but for one specific version out of
-    /// `mediaVersions` (`versionID` is a `MediaVersion.id`, i.e. a
-    /// `MediaSourceInfo.id`) — what `TechnicalDetailsView`'s version picker
-    /// switches between. `nil` falls back to the first/default source, same
-    /// as the no-argument `technicalDetails`; an unrecognized `versionID`
-    /// (shouldn't happen — the picker only ever offers ids from
-    /// `mediaVersions`) does too, rather than showing nothing.
+    /// `technicalDetails` for one `mediaVersions` entry, which
+    /// `TechnicalDetailsView`'s version picker switches between. A `nil` or
+    /// unrecognized `versionID` falls back to the first source rather than
+    /// showing nothing.
     func technicalDetails(forVersion versionID: String?) -> TechnicalDetails? {
         guard let source = Self.mediaSource(in: dto, matching: versionID) else { return nil }
         let streams = source.mediaStreams ?? []
@@ -435,55 +355,37 @@ struct MediaItem: Identifiable {
         return details.isEmpty ? nil : details
     }
 
-    /// Every distinct media file backing this item, when there's more than
-    /// one — Jellyfin calls these an item's "versions". These aren't always
-    /// a technical variant (a 4K UHD remux alongside a separate 1080p
-    /// encode) — they're just as often an edition the uploader chose to
-    /// keep alongside the original (a "Director's Cut", "Extended
-    /// Version", "Black and White" cut, etc.) with identical or
-    /// near-identical technical specs, all listed in `mediaSources`. Empty
-    /// whenever there's nothing to choose between: no media file at all
-    /// (Series/Season), or the overwhelmingly common single-version case —
-    /// `TechnicalDetailsView`'s version picker only shows up when this has
-    /// more than one entry, per its call site.
+    /// Every media file backing this item when there is more than one —
+    /// Jellyfin's "versions". Often a technical variant (a 4K remux beside a
+    /// 1080p encode), but just as often an edition with near-identical specs (a
+    /// Director's Cut, an Extended Version). Empty when there is nothing to
+    /// choose between: no media file at all, or the common single-version case.
     ///
-    /// Ordered exactly as the server returns `mediaSources` — Jellyfin
-    /// itself puts the version it'd pick for direct play first, so the
-    /// first entry here doubles as "the default" (`technicalDetails`/
-    /// `metadataBadges` both implicitly use it).
+    /// Ordered as the server returns `mediaSources`, which puts the version it
+    /// would pick for direct play first, so the first entry is the default.
     var mediaVersions: [MediaVersion] {
         guard let sources = dto.mediaSources, sources.count > 1 else { return [] }
-        // The filename-derived edition name (see `editionLabel`) takes
-        // priority over the resolution/dynamic-range bucket whenever
-        // Jellyfin's naming convention lets us recover one — it's what the
-        // uploader actually called this version, which a technical bucket
-        // can't express (and, for a same-spec alternate cut, can't even
-        // distinguish from the original at all). The base/canonical version
-        // itself is always labeled "Original" in that case, rather than
-        // guessing at a resolution/HDR label for it — see the comment below.
+        // A filename-derived edition name (`editionLabel`) outranks the
+        // resolution/dynamic-range bucket: it is what the uploader called this
+        // version, which a technical bucket can't express and, for a same-spec
+        // alternate cut, can't even distinguish from the original.
         let canonicalName = Self.canonicalSourceName(sources)
         var seenLabels: Set<String> = []
         return sources.enumerated().map { index, source in
             var label: String
             if let canonicalName {
-                // We've confirmed this item follows Jellyfin's naming
-                // convention (every source's name either matches
-                // `canonicalName` or extends it), so we know which source
-                // is the base one — but not what dimension the *other*
-                // versions differ by, since that's whatever the uploader
-                // chose to call them. Labeling the base version by a
-                // resolution/HDR guess would imply that's the convention in
-                // play even when it isn't (e.g. an "Extended Version"
-                // alongside an identically-encoded original); "Original" is
-                // the one label that's never a wrong assumption.
+                // The naming convention identifies the base source but not what
+                // dimension the others vary by, since the uploader chose those
+                // names. A resolution or HDR guess here would imply a
+                // convention that may not apply — an "Extended Version" beside
+                // an identically-encoded original. "Original" is never wrong.
                 label = Self.editionLabel(for: source, canonicalName: canonicalName)
                     ?? String(localized: "Original")
             } else {
                 label = Self.versionLabel(for: source, fallbackIndex: index)
             }
-            // Disambiguate the rare case two versions land on the same
-            // coarse label (e.g. two 1080p SDR encodes) — better than
-            // silently offering two menu entries a user can't tell apart.
+            // Two versions can land on the same coarse label (two 1080p SDR
+            // encodes), which would offer indistinguishable menu entries.
             if !seenLabels.insert(label).inserted {
                 label += " (\(index + 1))"
             }
@@ -491,20 +393,16 @@ struct MediaItem: Identifiable {
         }
     }
 
-    /// Small call-out badges for the detail page's metadata row — resolution
-    /// class, dynamic range, audio format, and accessibility tracks — shown
-    /// where genres used to sit (see `InfoMetadataRow`). Independent of
-    /// `technicalDetails` (which is display-formatted for the "Details"
-    /// tab): a "4K"/"HD" badge needs a coarser bucket than that view's exact
+    /// Badges for `InfoMetadataRow`: resolution class, dynamic range, audio
+    /// format and accessibility tracks. Separate from `technicalDetails`, since
+    /// a "4K"/"HD" badge needs a coarser bucket than that view's exact
     /// dimensions.
     ///
-    /// Media with several audio tracks in different formats collapses each
-    /// *family* to a single best badge rather than listing every track:
-    /// Dolby Digital family is Atmos > DD+ > DD, DTS family is DTS-HD > DTS.
-    /// Dolby TrueHD is the one exception — always shown alongside whichever
-    /// Dolby Digital badge wins, since a TrueHD track often also carries an
-    /// Atmos layer (e.g. Atmos + TrueHD + DTS-HD is a valid combination;
-    /// Atmos + DD+ is not, since DD+ lost that family's priority contest).
+    /// Each audio family collapses to one best badge rather than listing every
+    /// track: Atmos > DD+ > DD, and DTS-HD > DTS. Dolby TrueHD is the exception
+    /// and shows alongside the winning Dolby Digital badge, since a TrueHD
+    /// track often carries an Atmos layer — Atmos + TrueHD + DTS-HD is valid,
+    /// while Atmos + DD+ is not.
     var metadataBadges: [String] {
         guard let source = dto.mediaSources?.first else { return [] }
         let streams = source.mediaStreams ?? []
@@ -544,8 +442,8 @@ struct MediaItem: Identifiable {
             badges.append("DTS")
         }
 
-        // "Not a forced track" — forced subtitles (foreign-dialogue-only)
-        // don't count as closed captions; `nil` (unspecified) does.
+        // Forced subtitles (foreign dialogue only) aren't closed captions;
+        // unspecified counts.
         if subtitleStreams.contains(where: { $0.isForced != true }) {
             badges.append("CC")
         }
@@ -557,19 +455,11 @@ struct MediaItem: Identifiable {
         return badges
     }
 
-    /// `mediaVersions`' fallback labeling, used whenever `editionLabel`
-    /// can't recover a filename-derived edition name (Jellyfin's naming
-    /// convention wasn't followed, or this genuinely is just a plain
-    /// technical alternate with no edition of its own). Coarse
-    /// resolution+dynamic-range label for one entry, e.g. "4K HDR10" or
-    /// "1080p" — deliberately the same coarse buckets `metadataBadges`
-    /// uses (via `dynamicRangeBadge`/`resolutionCommonName` below), not
-    /// `technicalDetails`' exact dimensions/format string, since this needs
-    /// to read at a glance in a picker, not document the file precisely.
-    /// Falls back to the server's own (raw, filename-ish)
-    /// `MediaSourceInfo.name` when neither a recognized resolution nor
-    /// dynamic range is available to build a label from, and finally to a
-    /// generic "Version N" if even that's missing.
+    /// `mediaVersions`' fallback label when `editionLabel` recovers no edition
+    /// name: a coarse resolution and dynamic-range pair like "4K HDR10", using
+    /// `metadataBadges`' buckets rather than `technicalDetails`' exact
+    /// dimensions, since a picker entry must read at a glance. Falls back to the
+    /// server's raw `MediaSourceInfo.name`, then to "Version N".
     private static func versionLabel(for source: MediaSourceInfo, fallbackIndex: Int) -> String {
         let videoStream = (source.mediaStreams ?? []).first { $0.type == "Video" }
         var parts: [String] = []
@@ -586,26 +476,15 @@ struct MediaItem: Identifiable {
     }
 
     /// The base filename every alternate version's `MediaSourceInfo.name`
-    /// is expected to extend, per Jellyfin's own multi-version naming
-    /// convention: alternate cuts live alongside the primary file as
-    /// `<primary file name> - <edition name>.ext` (e.g. a theatrical cut
-    /// named `Movie - [Bluray-2160p]-GROUP.mkv` and an extended cut named
-    /// `Movie - [Bluray-2160p]-GROUP - Extended Version.mkv`).
-    /// `MediaSourceInfo.name` is the filename-derived stem the server
-    /// already computes — confirmed against a real multi-version item on a
-    /// test server, where two sources' raw `name`s were identical except
-    /// the alternate had `" - 1080p"` appended — so the canonical source is
-    /// whichever one is a literal prefix of every other source's name.
-    /// `nil` when that relationship doesn't hold (a name missing, or this
-    /// set of versions simply doesn't follow the convention); callers
-    /// should fall back to `versionLabel`'s resolution/dynamic-range
-    /// bucketing in that case.
+    /// extends, per Jellyfin's multi-version naming convention: alternate cuts
+    /// sit beside the primary file as `<primary file name> - <edition name>.ext`.
+    /// `MediaSourceInfo.name` is the filename-derived stem, so the canonical
+    /// source is whichever name is a literal prefix of every other's. `nil` when
+    /// that doesn't hold, leaving callers to fall back to `versionLabel`.
     ///
-    /// Deliberately not "split every name on ` - ` and take the last
-    /// piece": real filenames routinely contain unrelated dashes of their
-    /// own (release-group tags like `[Bluray-2160p]` or `x265]-GROUP`), so
-    /// only a prefix comparison against a known canonical name can isolate
-    /// the actual edition suffix reliably.
+    /// Not "split on ` - ` and take the last piece": filenames carry unrelated
+    /// dashes of their own (`[Bluray-2160p]`, `x265]-GROUP`), so only a prefix
+    /// comparison isolates the edition suffix reliably.
     private static func canonicalSourceName(_ sources: [MediaSourceInfo]) -> String? {
         let names = sources.map { $0.name ?? "" }
         guard sources.count > 1, names.allSatisfy({ !$0.isEmpty }) else { return nil }
@@ -614,12 +493,9 @@ struct MediaItem: Identifiable {
         }
     }
 
-    /// The edition name Jellyfin's filename convention encodes for one
-    /// version relative to `canonicalName` (see `canonicalSourceName`
-    /// above) — e.g. `"Extended Version"`, `"1080p"`, `"Black and White"` —
-    /// verbatim, exactly as the uploader named it. `nil` for the canonical
-    /// version itself (nothing to show) or when this source's name doesn't
-    /// extend `canonicalName` at all.
+    /// The edition name encoded relative to `canonicalName` ("Extended
+    /// Version", "Black and White"), verbatim as the uploader wrote it. `nil`
+    /// for the canonical version, and when this name doesn't extend it.
     private static func editionLabel(for source: MediaSourceInfo, canonicalName: String?) -> String? {
         guard let canonicalName, let name = source.name, name != canonicalName else { return nil }
         let prefix = canonicalName + " - "
@@ -628,12 +504,9 @@ struct MediaItem: Identifiable {
         return suffix.isEmpty ? nil : suffix
     }
 
-    /// Shared by `metadataBadges` (resolution/dynamic-range badges on the
-    /// detail page's second metadata line) and `versionLabel` (the version
-    /// picker's per-entry label) — both want the same coarse "Dolby
-    /// Vision"/"HDR10"/"HDR10+"/"HDR" buckets from Jellyfin's raw
-    /// `VideoRangeType`/`VideoRange`, `nil` for plain SDR (no badge/word
-    /// worth showing).
+    /// Coarse "Dolby Vision"/"HDR10"/"HDR10+"/"HDR" buckets from Jellyfin's raw
+    /// `VideoRangeType`/`VideoRange`, shared by `metadataBadges` and
+    /// `versionLabel`. `nil` for SDR, which needs no badge.
     private static func dynamicRangeBadge(_ dynamicRangeType: String) -> String? {
         if dynamicRangeType.hasPrefix("DOVI") { return "Dolby Vision" }
         switch dynamicRangeType {
@@ -644,12 +517,9 @@ struct MediaItem: Identifiable {
         }
     }
 
-    /// Looks up a specific `mediaSources` entry by id, falling back to the
-    /// first/default one when `versionID` is `nil` or doesn't match
-    /// anything — split out of `technicalDetails(forVersion:)` as its own
-    /// function (rather than an inline `flatMap`/`??` one-liner) because
-    /// that inline form made the type-checker choke ("unable to type-check
-    /// this expression in reasonable time").
+    /// A `mediaSources` entry by id, falling back to the first when `versionID`
+    /// is nil or unmatched. A function rather than an inline `flatMap`/`??`,
+    /// which the type-checker couldn't resolve in reasonable time.
     private static func mediaSource(in dto: BaseItemDto, matching versionID: String?) -> MediaSourceInfo? {
         guard let sources = dto.mediaSources else { return nil }
         if let versionID, let match = sources.first(where: { $0.id == versionID }) {
@@ -662,19 +532,17 @@ struct MediaItem: Identifiable {
         streams.contains { ($0.codec ?? "").caseInsensitiveCompare(codec) == .orderedSame }
     }
 
-    /// Jellyfin/ffprobe report every DTS variant with `codec == "dts"`; the
-    /// HD/MA distinction only shows up in `profile` (e.g. "DTS-HD MA",
-    /// "DTS-HD HRA" vs. plain "DTS" or no profile at all for core-only).
+    /// Every DTS variant reports `codec == "dts"`; only `profile` distinguishes
+    /// "DTS-HD MA" and "DTS-HD HRA" from plain or core-only DTS.
     private static func isDTSHD(_ stream: MediaStream) -> Bool {
         guard (stream.codec ?? "").caseInsensitiveCompare("dts") == .orderedSame else { return false }
         return (stream.profile ?? "").localizedCaseInsensitiveContains("dts-hd")
     }
 
-    /// SDH is conventionally a *subtitle* accessibility convention, but an
-    /// audio track can be tagged the same way for a described-audio/hearing
-    /// -impaired mix — `isHearingImpaired` is the closest official signal
-    /// Jellyfin exposes for that; text-matching the title/displayTitle
-    /// catches tracks the server hasn't flagged that way.
+    /// SDH is a subtitle convention, but an audio track can be tagged the same
+    /// way for a described or hearing-impaired mix. `isHearingImpaired` is the
+    /// closest signal Jellyfin exposes; matching the title catches tracks the
+    /// server hasn't flagged.
     private static func isAccessibilityAudioTrack(_ stream: MediaStream) -> Bool {
         if stream.isHearingImpaired == true { return true }
         let haystack = [stream.title, stream.displayTitle].compactMap { $0 }.joined(separator: " ")
@@ -683,17 +551,14 @@ struct MediaItem: Identifiable {
             || haystack.localizedCaseInsensitiveContains("hard of hearing")
     }
 
-    /// Named position markers for the Chapters rail (`ChapterRailView`) and
-    /// the player's chapter scrubber/picker. Only populated when `chapters`
-    /// was requested via `Fields=Chapters` (`JellyfinAPIClient
-    /// .detailFields`); `[]` for every lighter rail/list fetch.
+    /// Named position markers for `ChapterRailView` and the player's chapter
+    /// scrubber and picker. Populated only under `Fields=Chapters`; `[]` for
+    /// lighter fetches.
     ///
-    /// **A single-entry array is deliberately treated as no chapters at
-    /// all.** Jellyfin emits one dummy chapter at 00:00 for plenty of
-    /// content that was never really chaptered, and a rail (or a picker)
-    /// offering exactly one destination — the position playback already
-    /// starts at — is worse than not offering one, so every consumer gets
-    /// `[]` rather than each having to re-apply the same `count > 1` rule.
+    /// A single-entry array counts as no chapters: Jellyfin emits one dummy
+    /// chapter at 00:00 for unchaptered content, and a picker offering only the
+    /// position playback already starts at is worse than none. Applied here so
+    /// every consumer doesn't re-apply the same `count > 1` rule.
     var chapters: [Chapter] {
         let dtos = dto.chapters ?? []
         guard dtos.count > 1 else { return [] }
@@ -702,25 +567,21 @@ struct MediaItem: Identifiable {
         }
     }
 
-    /// Cast and crew, in whatever order the server returns (Jellyfin
-    /// typically lists billed actors first, then crew). Only populated when
-    /// `people` was requested via `Fields=People`.
+    /// Cast and crew in server order, which puts billed actors before crew.
+    /// Populated only under `Fields=People`.
     ///
-    /// `id` is synthesized from the person's own id *and* their position in
-    /// the list, not `person.id` alone — the same real person can appear as
-    /// more than one credit (e.g. an actor who also directed, or with two
-    /// character roles), sharing the same underlying Guid across entries.
-    /// `CastCrewGridView`'s `ForEach` needs a unique identifier per credit,
-    /// not per person; duplicate ids there is exactly what caused the
-    /// intermittent gaps/repeated cells this replaces (SwiftUI's diffing
-    /// has no reliable way to tell two same-id cells apart while scrolling).
+    /// `id` combines the person's id with their position, because one person can
+    /// hold several credits — an actor who also directed, or with two roles —
+    /// sharing a Guid across entries. `CastCrewGridView`'s `ForEach` needs one
+    /// identifier per credit; duplicates there produce intermittent gaps and
+    /// repeated cells while scrolling.
     var cast: [CastMember] {
         (dto.people ?? []).enumerated().map { index, person in
             CastMember(
                 id: "\(person.id)-\(index)",
                 name: person.name,
-                // Actors/guest stars get a character name in `role`; crew
-                // usually don't, so fall back to their job title (`type`).
+                // Actors get a character name in `role`; crew usually don't, so
+                // fall back to their job title.
                 role: (person.role?.isEmpty ?? true) ? person.type : person.role,
                 imageURL: person.primaryImageTag.flatMap {
                     images.url(itemID: person.id, imageType: "Primary", tag: $0, maxWidth: 200)
@@ -731,21 +592,17 @@ struct MediaItem: Identifiable {
 
     // MARK: - Technical details formatting
 
-    /// Not `private` — `DownloadedTechnicalDetailsView`'s Details tab reuses
-    /// this exact "dimensions (common name)" formatting for a download's own
-    /// resolution, so the two Details tabs never drift into showing the
-    /// same resolution two different ways.
+    /// Non-`private`: `DownloadedTechnicalDetailsView` reuses this
+    /// "dimensions (common name)" formatting, so the two Details tabs can't
+    /// show the same resolution two different ways.
     static func resolutionLabel(width: Int, height: Int) -> String {
         let dimensions = "\(width)\u{00D7}\(height)"
         return resolutionCommonName(width: width).map { "\(dimensions) (\($0))" } ?? dimensions
     }
 
-    /// Classifies by width, not height — a letterboxed, very-wide-aspect
-    /// source (e.g. 2.39:1) has a correct width but a reduced height, which
-    /// would misclassify a true 4K release as something lower-resolution if
-    /// bucketed by height instead. Shared by `resolutionLabel` (the Details
-    /// tab's exact dimensions) and `metadataBadges` (the coarser "4K"/"HD"
-    /// badge).
+    /// Classifies by width: a letterboxed 2.39:1 source keeps its full width but
+    /// has reduced height, so bucketing by height would demote a true 4K
+    /// release. Shared by `resolutionLabel` and `metadataBadges`.
     private static func resolutionCommonName(width: Int) -> String? {
         switch width {
         case 3840...:     "4K"
@@ -771,11 +628,9 @@ struct MediaItem: Identifiable {
         }
     }
 
-    /// Jellyfin's `VideoRangeType` is more specific than `VideoRange` when
-    /// present (e.g. distinguishing Dolby Vision profiles that also carry an
-    /// HDR10/HLG fallback layer); `technicalDetails` prefers it but falls
-    /// back to the simpler `VideoRange` ("SDR"/"HDR"), which this also
-    /// handles fine via the `default` case.
+    /// `VideoRangeType` is the more specific field where present, distinguishing
+    /// Dolby Vision profiles that carry an HDR10 or HLG fallback layer. The
+    /// `default` case handles the simpler `VideoRange` values too.
     private static func friendlyDynamicRangeName(_ raw: String) -> String {
         switch raw {
         case "DOVI":              "Dolby Vision"
@@ -788,19 +643,17 @@ struct MediaItem: Identifiable {
         }
     }
 
-    /// Prefers the server-computed `displayTitle` (already a nicely
-    /// formatted "English (AAC 5.1)"/"English (SRT - Forced)" string);
-    /// falls back to assembling one from whatever fields are present for
-    /// the rare case a stream doesn't have one.
+    /// Prefers the server's `displayTitle`, already formatted as
+    /// "English (AAC 5.1)", and assembles one from the available fields when a
+    /// stream has none.
     private static func trackLabel(for stream: MediaStream) -> String {
         if let displayTitle = stream.displayTitle, !displayTitle.isEmpty { return displayTitle }
         let parts = [stream.language, stream.codec?.uppercased()].compactMap { $0 }
         return parts.isEmpty ? String(localized: "Track \(stream.index + 1)") : parts.joined(separator: " \u{00B7} ")
     }
 
-    /// e.g. "23.976 fps", "29.97 fps", "60 fps" — up to three decimal
-    /// places, trimmed of trailing zeros (and the decimal point itself for
-    /// whole numbers like a clean 24 or 60).
+    /// "23.976 fps", "60 fps" — up to three decimals, trailing zeros and a bare
+    /// decimal point trimmed.
     private static func frameRateLabel(_ fps: Double) -> String {
         var formatted = String(format: "%.3f", fps)
         while formatted.hasSuffix("0") { formatted.removeLast() }
@@ -812,9 +665,8 @@ struct MediaItem: Identifiable {
         String(format: "%.1f Mbps", Double(bitsPerSecond) / 1_000_000)
     }
 
-    /// `bitrateLabel`'s VoiceOver counterpart — "Mbps" read letter by
-    /// letter ("M B P S") rather than as a word, same class of bug as
-    /// `fileSizeAccessibilityLabel` below.
+    /// `bitrateLabel`'s VoiceOver counterpart; "Mbps" is otherwise read letter
+    /// by letter.
     private static func bitrateAccessibilityLabel(_ bitsPerSecond: Int) -> String {
         let mbps = String(format: "%.1f", Double(bitsPerSecond) / 1_000_000)
         return String(localized: "\(mbps) megabits per second")
@@ -824,15 +676,11 @@ struct MediaItem: Identifiable {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
-    /// `fileSizeLabel`'s VoiceOver counterpart — visually "2.44 GB", but
-    /// read by VoiceOver as "two dot forty-four G B" letter by letter
-    /// rather than a real unit. Reuses `fileSizeLabel`'s own formatter
-    /// output rather than reimplementing its unit-selection/rounding, so
-    /// the two can never drift out of agreement — just spells out
-    /// whatever unit it landed on. Falls back to the original text
-    /// unchanged for a unit this doesn't recognize (shouldn't happen —
-    /// `ByteCountFormatter` only ever emits bytes/KB/MB/GB/TB/PB — but a
-    /// silently-wrong readout would be worse than an unexpanded one).
+    /// `fileSizeLabel`'s VoiceOver counterpart; "2.44 GB" is otherwise read as
+    /// "two dot forty-four G B". Spells out the unit in `fileSizeLabel`'s own
+    /// output rather than reimplementing its unit selection and rounding, so
+    /// the two can't drift. An unrecognized unit passes through unchanged — a
+    /// wrong readout would be worse than an unexpanded one.
     private static func fileSizeAccessibilityLabel(_ bytes: Int64) -> String {
         let text = fileSizeLabel(bytes)
         guard let spaceIndex = text.lastIndex(of: " ") else { return text }
@@ -858,32 +706,24 @@ struct MediaItem: Identifiable {
 
     var primaryImageURL: URL? { imageURL(type: "Primary", maxWidth: 500) }
 
-    /// 16:9 "Thumb" image — episodes almost always have one (a still from
-    /// the episode itself); series/seasons sometimes do too. `nil` when
-    /// absent, rather than a URL that 404s — unlike `imageURL(type:)`
-    /// (what `primaryImageURL` uses), which builds a URL regardless of
-    /// whether `dto.imageTags` actually has an entry for the requested
-    /// type, just omitting the `tag` query param when it doesn't. That's
-    /// fine for `primaryImageURL` (every item is expected to have one), but
-    /// would break `LandscapeMediaCard`'s `item.thumbImageURL ??
-    /// item.primaryImageURL` fallback — a `Thumb`-less item would still get
-    /// a (404ing) "URL" from the generic helper, so the `??` would never
-    /// reach the poster fallback. Checking the tag directly, same as
-    /// `logoImageURL` below, is what makes that fallback real.
+    /// The 16:9 "Thumb" image: a still frame, which episodes almost always have
+    /// and series sometimes do.
+    ///
+    /// `nil` when absent rather than a URL that 404s. `imageURL(type:)` builds a
+    /// URL whether or not `dto.imageTags` has an entry, which suits
+    /// `primaryImageURL` but would break `LandscapeMediaCard`'s
+    /// `thumbImageURL ?? primaryImageURL` — the `??` would never reach the
+    /// poster. Checking the tag directly is what makes that fallback real.
     var thumbImageURL: URL? {
         guard let tag = dto.imageTags?["Thumb"] else { return nil }
         return images.url(itemID: id, imageType: "Thumb", tag: tag, maxWidth: 500)
     }
 
-    /// Whether this item's rail tile should use the landscape 16:9 "Thumb"
-    /// treatment (`LandscapeMediaCard`) rather than the portrait poster one
-    /// (`PosterCard`, still used for movies, box sets, and everything else)
-    /// — series/episodes read better as a still-frame thumbnail than a
-    /// poster, and episodes in particular often don't have compelling
-    /// poster art at all. See `MediaRailView`, the only place this is
-    /// consulted — kept as a `MediaItem` property rather than inline in
-    /// that view since it's a display-shaping decision about the item
-    /// itself, same as `railTitle`/`railSubtitle` below.
+    /// Whether this item's rail tile uses `LandscapeMediaCard` rather than
+    /// `PosterCard`: series and episodes read better as a still frame, and
+    /// episodes often have no compelling poster art. Consulted only by
+    /// `MediaRailView`, but kept here as a display decision about the item, like
+    /// `railTitle`/`railSubtitle`.
     var usesLandscapeRailTile: Bool {
         switch dto.type {
         case .series, .episode: return true
@@ -891,10 +731,9 @@ struct MediaItem: Identifiable {
         }
     }
 
-    /// Own logo if this item has one; otherwise the nearest ancestor's
-    /// (e.g. an episode falls back to its Season's logo, then its Series').
-    /// `nil` — rather than a URL that 404s — when nothing in the hierarchy
-    /// has one, so callers can fall back to a title text treatment instead.
+    /// Own logo, else the nearest ancestor's — an episode falls back to its
+    /// Season, then its Series. `nil` rather than a 404ing URL when nothing in
+    /// the hierarchy has one, so callers can fall back to title text.
     var logoImageURL: URL? {
         if let tag = dto.imageTags?["Logo"] {
             return images.url(itemID: id, imageType: "Logo", tag: tag, maxWidth: 600)
@@ -915,15 +754,11 @@ struct MediaItem: Identifiable {
         return nil
     }
 
-    /// A copy with `resumePositionSeconds`/`playedFraction` overwritten to
-    /// reflect a just-closed playback session's final position — see
-    /// `AssetDetailViewModel.applyOptimisticPlaybackPosition(_:)` for why
-    /// this exists (a way to reflect a known-correct value immediately,
-    /// rather than waiting on a server round-trip to confirm it). Copies
-    /// `dto` and overwrites only its `userData`'s position fields, leaving
-    /// everything else (including `played`, deliberately — see that
-    /// method's own doc comment) untouched; a no-op (`self`, unchanged) for
-    /// a zero/negative duration, which can't produce a meaningful fraction.
+    /// A copy carrying a just-closed session's final position, so a known-correct
+    /// value shows immediately instead of waiting on a server round-trip (see
+    /// `AssetDetailViewModel.applyOptimisticPlaybackPosition(_:)`). Overwrites
+    /// only `userData`'s position fields, leaving `played` alone. A no-op for a
+    /// non-positive duration, which yields no meaningful fraction.
     func withOptimisticPlaybackPosition(seconds: TimeInterval, duration: TimeInterval) -> MediaItem {
         guard duration > 0 else { return self }
         var newDto = dto
@@ -934,18 +769,13 @@ struct MediaItem: Identifiable {
         return MediaItem(dto: newDto, images: images)
     }
 
-    /// A copy with `isFavorite`/`isPlayed` overwritten immediately — the
-    /// `withOptimisticPlaybackPosition`'s sibling for the other two
-    /// server-async `userData` fields. See
-    /// `AssetDetailViewModel.applyOptimisticFavoriteWatched(itemID:favorite:watched:)`
-    /// for why this exists: confirmed live, a favorite/watched write that
-    /// returned success immediately didn't actually commit server-side for
-    /// several *minutes* on a real server, well past what this app's
-    /// confirmation poll waits out — without applying the known-good value
-    /// right away, the toolbar button looked like a second tap did nothing
-    /// at all. `favorite`/`watched` each default to `nil` (leave that field
-    /// as-is) so a caller changing only one doesn't need to know the
-    /// other's current value.
+    /// `withOptimisticPlaybackPosition`'s sibling for `isFavorite`/`isPlayed`.
+    /// A favorite or watched write can return success and still take minutes to
+    /// commit server-side, well past this app's confirmation poll, so without
+    /// applying the known value at once the toolbar button looks unresponsive.
+    ///
+    /// Each parameter defaults to `nil`, meaning leave that field as-is, so a
+    /// caller changing one needn't know the other's value.
     func withOptimisticFavoriteWatched(favorite: Bool? = nil, watched: Bool? = nil) -> MediaItem {
         guard favorite != nil || watched != nil else { return self }
         var newDto = dto
@@ -958,28 +788,24 @@ struct MediaItem: Identifiable {
 }
 
 extension MediaItem: Hashable {
-    /// Forwards to `BaseItemDto`'s structural equality — every field, not
-    /// just `id`. **Do not narrow this to an id comparison.**
+    /// Structural, over every field of `BaseItemDto`. Do not narrow this to an
+    /// id comparison.
     ///
-    /// SwiftUI prefers a stored property's own `==` over its internal
-    /// comparison when deciding whether a view changed, and `MediaItem` is
-    /// the stored property of essentially every view here (`PosterCard`,
-    /// `PlayResumeButtonRow`, `InfoMetadataRow`, `DetailTabsView`, ...)
-    /// while `[MediaItem]` is what `ForEach(rail.items)` diffs on. An
-    /// id-only `==` is therefore a promise that nothing under a stable id
-    /// is ever worth repainting — false for `userData` after playback, and
-    /// for `mediaSources`/`people` when `AssetDetailViewModel` swaps its
-    /// preloaded item for the full fetch. Both froze views on their
+    /// SwiftUI prefers a stored property's own `==` over its internal comparison
+    /// when deciding whether a view changed. `MediaItem` is the stored property
+    /// of essentially every view here, and `[MediaItem]` is what
+    /// `ForEach(rail.items)` diffs on, so an id-only `==` promises that nothing
+    /// under a stable id is worth repainting — false for `userData` after
+    /// playback, and for `mediaSources`/`people` when `AssetDetailViewModel`
+    /// swaps its preloaded item for the full fetch. Both froze views on their
     /// first-rendered values.
     ///
-    /// `images` is not compared: an `ImageURLBuilder` snapshot of session
-    /// config, identical for every item and never a reason to repaint.
+    /// `images` is excluded: a session-config snapshot, identical for every item
+    /// and never a reason to repaint.
     static func == (lhs: MediaItem, rhs: MediaItem) -> Bool { lhs.dto == rhs.dto }
 
-    /// Id-only on purpose, even though `==` is structural — the legal
-    /// direction for the `Hashable` contract, and what keeps id-keyed
-    /// lookups (`AppRoute`'s synthesized hashing for
-    /// `navigationDestination`, any `Set`/dictionary use) treating one
-    /// server item as one entry rather than one per revision of its fields.
+    /// Id-only although `==` is structural — the legal direction for the
+    /// `Hashable` contract, and what keeps id-keyed lookups treating one server
+    /// item as one entry rather than one per revision of its fields.
     func hash(into hasher: inout Hasher) { hasher.combine(dto.id) }
 }

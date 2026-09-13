@@ -1,22 +1,18 @@
 import CoreGraphics
 import Foundation
 
-/// Pure seconds → (sheet index, tile rect) lookup for a Jellyfin trickplay
-/// track — no I/O, testable offline (same "kept separate and pure so the
-/// gate is testable" shape AetherEngine's own `MasterFallbackDecision`
-/// uses).
+/// Pure seconds-to-(sheet index, tile rect) lookup for a trickplay track. No
+/// I/O, so it is testable offline.
 enum TrickplayMath {
     struct Frame: Equatable {
         let sheetIndex: Int
-        /// Pixel rect within that sheet — origin top-left, matching how
-        /// `CGImage.cropping(to:)` and Jellyfin's own row-major tile layout
-        /// both address a sheet.
+        /// Pixel rect within that sheet, origin top-left, as both
+        /// `CGImage.cropping(to:)` and Jellyfin's row-major layout address it.
         let tileRect: CGRect
     }
 
-    /// `nil` for a degenerate `info` (any non-positive field) — shouldn't
-    /// happen against a real server, but a corrupt/partial response
-    /// shouldn't be trusted to index into anything.
+    /// `nil` for a degenerate `info` with any non-positive field: a corrupt or
+    /// partial response shouldn't be trusted to index into anything.
     static func frame(atSeconds seconds: Double, info: TrickplayInfo) -> Frame? {
         guard info.interval > 0, info.thumbnailCount > 0,
               info.tileWidth > 0, info.tileHeight > 0,
@@ -34,26 +30,20 @@ enum TrickplayMath {
         )
     }
 
-    /// How many tile-sheet JPEGs a trickplay track is split across — every
-    /// sheet fully packed (`tileWidth × tileHeight` stills) except possibly
-    /// the last. The live scrub path never needs this (it fetches sheets
-    /// on demand as `frame(atSeconds:info:)` names them), but an offline
-    /// download has to fetch every sheet up front — see
-    /// `DownloadManager.enqueue`'s trickplay section. `0` for the same
-    /// degenerate-`info` cases `frame(atSeconds:info:)` itself guards
-    /// against.
+    /// How many tile sheets a trickplay track spans, every sheet fully packed
+    /// but possibly the last. The live scrub path fetches sheets on demand as
+    /// `frame(atSeconds:info:)` names them, but an offline download needs them
+    /// all up front. `0` for the degenerate cases that method also guards.
     static func sheetCount(for info: TrickplayInfo) -> Int {
         let perSheet = info.tileWidth * info.tileHeight
         guard perSheet > 0, info.thumbnailCount > 0 else { return 0 }
         return (info.thumbnailCount + perSheet - 1) / perSheet
     }
 
-    /// Picks which resolution to use when a server offers more than one —
-    /// the smallest width that's still `>= preferredWidth`, falling back to
-    /// the largest available if none clears that bar. `nil` when this
-    /// media source has no trickplay track at all (older/un-scanned
-    /// content, or `mediaSourceID` not present as a key — e.g. a stale
-    /// preference for a version the server no longer has).
+    /// Picks a resolution when the server offers several: the smallest width at
+    /// or above `preferredWidth`, else the largest available. `nil` when this
+    /// media source has no trickplay track — unscanned content, or a stale
+    /// preference for a version the server no longer has.
     static func bestInfo(
         from trickplay: [String: [String: TrickplayInfo]]?, mediaSourceID: String?, preferredWidth: Int = 320
     ) -> TrickplayInfo? {
@@ -63,62 +53,44 @@ enum TrickplayMath {
     }
 }
 
-/// Abstraction over "get me a scrub-preview still for this second" —
-/// `TrickplayThumbnailProvider` below (fetches tile sheets over the
-/// network) and `OfflineTrickplayThumbnailProvider` (reads sheets already
-/// on disk from an offline download) share identical seconds→sheet/tile
-/// math (`TrickplayMath`) and differ only in where the sheet bytes come
-/// from. `PlayerViewModel.trickplayProvider` is typed against this so
-/// `start()`/`startOffline()` can each install whichever conformer applies.
-/// `@MainActor` is on the `thumbnail(atSeconds:)` requirement itself, not
-/// the protocol — putting it on the protocol would infer the same
-/// isolation onto every conformer's own initializer too (Swift's global-
-/// actor-inference-from-conformance rule), breaking off-actor test
-/// construction for no reason this actually needs.
+/// A scrub-preview still for a given second. `TrickplayThumbnailProvider` fetches
+/// tile sheets over the network and `OfflineTrickplayThumbnailProvider` reads
+/// them from disk; both share `TrickplayMath` and differ only in where the bytes
+/// come from, so `PlayerViewModel.start()`/`.startOffline()` install whichever
+/// applies.
+///
+/// `@MainActor` sits on the requirement rather than the protocol: on the
+/// protocol it would infer the same isolation onto every conformer's
+/// initializer, breaking off-actor construction in tests.
 protocol ScrubThumbnailProviding {
     @MainActor func thumbnail(atSeconds seconds: Double) async -> CGImage?
 }
 
-/// Fetches + crops a single trickplay tile for a scrub position — the
-/// Jellyfin-provided replacement for AetherEngine's cache-backed scrub
-/// stills, which turned out to only serve a narrow window of already-
-/// decoded segments near the current playhead (confirmed live 2026-08-17:
-/// every request during a real scrub-bar drag missed, since a drag is
-/// aimed at a position the user hasn't watched yet). Trickplay tile sheets
-/// are pre-generated server-side and span the item's entire duration,
-/// which is what a scrubber-drag preview actually needs.
+/// Fetches and crops one trickplay tile for a scrub position. Replaces
+/// AetherEngine's cache-backed scrub stills, which only serve a narrow window of
+/// already-decoded segments near the playhead — so every request during a real
+/// drag missed, a drag being aimed at a position the user hasn't watched.
+/// Trickplay sheets are pre-generated server-side and span the whole item.
 ///
-/// One sheet JPEG covers `tileWidth * tileHeight` stills (100 for a 10×10
-/// sheet spanning ~1000s at a 10s interval), so repeated calls within the
-/// same sheet after the first are a synchronous crop — `RemoteImageLoader`
-/// caches the whole sheet by URL, no repeat fetch.
+/// One sheet covers `tileWidth * tileHeight` stills, so after the first, calls
+/// within the same sheet are a synchronous crop: `RemoteImageLoader` caches the
+/// sheet by URL.
 struct TrickplayThumbnailProvider: ScrubThumbnailProviding {
-    /// A tile sheet decodes to roughly `bytesPerRow × height` in memory —
-    /// for the 3200×1800 sheets confirmed live against a real server
-    /// (10×10 grid of 320×180 tiles), that's ~23MB *each*, versus
-    /// `RemoteImageLoader.defaultTotalCostLimit`'s 150MB shared budget for
-    /// every poster/backdrop/logo app-wide. A scrub session touching just a
-    /// handful of sheets could otherwise fill that whole shared cache on
-    /// its own and evict images the rest of the app depends on for instant
-    /// redisplay — confirmed by reading `RemoteImageLoader
-    /// .estimatedByteCost(of:)`, which costs by decoded size, not file
-    /// size. This budget is deliberately smaller (room for several sheets,
-    /// not dozens) and, more importantly, on its own dedicated instance
-    /// (see `imageLoader` below) rather than shared at all.
+    /// A 3200×1800 sheet — a 10×10 grid of 320×180 tiles — decodes to ~23MB,
+    /// against `RemoteImageLoader.defaultTotalCostLimit`'s 150MB shared budget
+    /// for every poster and backdrop app-wide. Since that cache costs by decoded
+    /// size, a scrub session touching a handful of sheets would fill it and
+    /// evict images the rest of the app relies on. This budget holds several
+    /// sheets rather than dozens, and lives on its own instance.
     private static let dedicatedCacheCostLimit = 80 * 1024 * 1024
 
     let itemID: String
     let info: TrickplayInfo
     let imageURLBuilder: ImageURLBuilder
-    /// A dedicated instance, not `RemoteImageLoader.shared` — see
-    /// `dedicatedCacheCostLimit`'s doc comment for why sharing the app-wide
-    /// poster/backdrop cache is the wrong call for these unusually large
-    /// images. Constructed fresh (this is a `var` property default,
-    /// re-evaluated per instance) each time `PlayerViewModel.start()`
-    /// builds a provider, so it — and whatever it's cached — is scoped to
-    /// and released with that player session, rather than lingering under
-    /// the shared cache's LRU policy after the player closes. Injectable
-    /// for tests (a `MockURLProtocol`-backed instance).
+    /// A dedicated instance rather than `RemoteImageLoader.shared`, for the
+    /// reason `dedicatedCacheCostLimit` gives. Constructed fresh per provider,
+    /// so it and its cache are scoped to one player session rather than
+    /// lingering under the shared cache's LRU policy. Injectable for tests.
     var imageLoader: RemoteImageLoader = RemoteImageLoader(totalCostLimit: TrickplayThumbnailProvider.dedicatedCacheCostLimit)
 
     func thumbnail(atSeconds seconds: Double) async -> CGImage? {

@@ -1,23 +1,18 @@
 import Foundation
 
-/// Where offline downloads live on disk — `Application Support/Downloads/`,
-/// marked excluded from backup (large, re-fetchable media has no business
-/// bloating an iCloud/iTunes backup) — chosen over `Library/Caches`
-/// deliberately: `Caches` is free for the OS to purge under storage
-/// pressure with zero warning, which is exactly wrong for something a user
-/// explicitly chose to keep for offline viewing.
+/// Where offline downloads live: `Application Support/Downloads/`, excluded
+/// from backup so re-fetchable media doesn't bloat one. Not `Library/Caches`,
+/// which the OS may purge without warning — wrong for something a user chose to
+/// keep offline.
 ///
-/// Video/subtitles are per-item (`<itemID>/video.mp4`,
-/// `<itemID>/subs/<index>-<lang>.<ext>`); images are a **shared,
-/// content-addressed pool** (`images/<sourceItemID>-<imageType>-<tag>.jpg`)
-/// keyed by identity, not by which download(s) reference it — episode
-/// downloads commonly reuse their series' own logo/backdrop (Jellyfin has
-/// no per-episode logo), so two episodes of the same show resolve to the
-/// same on-disk file rather than duplicating it. See the offline-downloads
-/// plan's "Shared artwork dedup" and "Delete semantics" sections; the
-/// reference check that guards deleting a shared image lives on
-/// `DownloadStore.isImagePathReferenced(_:excludingItemID:)`, not here —
-/// this type only knows about files, not which items reference them.
+/// Video and subtitles are per-item. Images are a shared, content-addressed pool
+/// keyed by `(sourceItemID, imageType, tag)` rather than by which downloads
+/// reference them, since episodes commonly reuse their series' logo and backdrop
+/// — Jellyfin has no per-episode logo — and would otherwise duplicate the file.
+///
+/// The reference check guarding a shared image's deletion lives on
+/// `DownloadStore.isImagePathReferenced(_:excludingItemID:)`: this type knows
+/// about files, not which items reference them.
 enum DownloadFileStore {
     private static let rootDirectory: URL = {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -43,47 +38,39 @@ enum DownloadFileStore {
         "\(itemID)/subs/\(index)-\(sanitized(language ?? "und")).\(fileExtension)"
     }
 
-    /// Per-item, not content-addressed like the poster/backdrop/logo/thumb
-    /// pool above — unlike those, a trickplay tile sheet is never shared
-    /// across items (each item's own scrub track), so there's no dedup
-    /// benefit to keying by content identity. `width` is the resolution tier
-    /// (see `TrickplayInfo.width`, which a server can offer more than one
-    /// of), `sheetIndex` selects which sheet of that resolution — same two
-    /// variables `ImageURLBuilder.trickplayTileURL` addresses live. Living
-    /// under `<itemID>/`, these are already cleaned up for free by
-    /// `deleteItemFiles(itemID:)`.
+    /// Per-item rather than content-addressed: a trickplay sheet belongs to one
+    /// item's scrub track, so keying by content identity would dedup nothing.
+    /// `width` is the resolution tier and `sheetIndex` the sheet within it, the
+    /// two variables `ImageURLBuilder.trickplayTileURL` addresses live. Living
+    /// under `<itemID>/`, these are cleaned up by `deleteItemFiles(itemID:)`.
     static func trickplayTileRelativePath(itemID: String, width: Int, sheetIndex: Int) -> String {
         "\(itemID)/trickplay/\(width)/\(sheetIndex).jpg"
     }
 
-    /// Content-addressed, not tied to which download(s) reference it — see
-    /// this type's own doc comment.
+    /// Content-addressed, not tied to which downloads reference it.
     static func imageRelativePath(sourceItemID: String, imageType: String, tag: String) -> String {
         "images/\(sanitized(sourceItemID))-\(sanitized(imageType))-\(sanitized(tag)).jpg"
     }
 
-    /// True if a file already exists for this exact image identity — the
-    /// fetch-time half of the shared-artwork dedup: callers check this
-    /// before downloading and skip the fetch entirely on a hit, just
-    /// recording the existing relative path on the new item instead of
-    /// re-fetching and re-storing a duplicate.
+    /// Whether a file already exists for this image identity: the fetch-time half
+    /// of the shared-artwork dedup. On a hit, callers skip the fetch and record
+    /// the existing path on the new item.
     static func imageAlreadyExists(sourceItemID: String, imageType: String, tag: String) -> Bool {
         FileManager.default.fileExists(
             atPath: url(forRelativePath: imageRelativePath(sourceItemID: sourceItemID, imageType: imageType, tag: tag)).path
         )
     }
 
-    /// Writes `data` to `relativePath`, creating any needed intermediate
-    /// directories first.
+    /// Writes `data` to `relativePath`, creating intermediate directories.
     static func write(_ data: Data, toRelativePath relativePath: String) throws {
         let destination = url(forRelativePath: relativePath)
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: destination)
     }
 
-    /// Moves a file (e.g. a `URLSessionDownloadTask`'s temp location) into
-    /// place at `relativePath`, creating any needed intermediate
-    /// directories first and replacing anything already there.
+    /// Moves a file — a `URLSessionDownloadTask`'s temp location, say — to
+    /// `relativePath`, creating intermediate directories and replacing anything
+    /// already there.
     static func moveFile(from sourceURL: URL, toRelativePath relativePath: String) throws {
         let destination = url(forRelativePath: relativePath)
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -93,25 +80,20 @@ enum DownloadFileStore {
         try FileManager.default.moveItem(at: sourceURL, to: destination)
     }
 
-    /// Deletes an item's video + subtitle files unconditionally — never
-    /// shared with another item, unlike images (see
-    /// `deleteImageIfUnreferenced(relativePath:excludingItemID:store:)`).
+    /// Deletes an item's video and subtitle files unconditionally; unlike
+    /// images, these are never shared with another item.
     static func deleteItemFiles(itemID: String) {
         try? FileManager.default.removeItem(at: rootDirectory.appendingPathComponent(itemID, isDirectory: true))
     }
 
-    /// Deletes any per-item directory under the Downloads root with no
-    /// corresponding row in `knownItemIDs` — a defensive sweep against
-    /// orphaned files a download could leave behind if its background
-    /// session ever outlived the `DownloadedItem` row that should have
-    /// owned it (`DownloadSessionDelegate` moves a completed download's
-    /// file into permanent storage unconditionally, only checking whether
-    /// a row still exists afterward). Called once per launch, from
-    /// `DownloadManager.init`. Skips the shared, content-addressed
-    /// `images/` pool entirely — those files are reference-counted by
-    /// `DownloadStore.isImagePathReferenced(_:excludingItemID:)`, not by
-    /// directory name, and are already handled by
-    /// `deleteImageIfUnreferenced` at normal delete time.
+    /// Deletes per-item directories with no corresponding row in `knownItemIDs`,
+    /// sweeping files a download left behind when its background session
+    /// outlived the row that owned it — the delegate moves a completed file into
+    /// permanent storage first and only then checks for a row. Called once per
+    /// launch.
+    ///
+    /// Skips the shared `images/` pool, which is reference-counted by path
+    /// rather than by directory name and handled by `deleteImageIfUnreferenced`.
     static func deleteOrphanedItemDirectories(knownItemIDs: Set<String>) {
         guard let entries = try? FileManager.default.contentsOfDirectory(at: rootDirectory, includingPropertiesForKeys: nil) else { return }
         for entry in entries {
@@ -121,20 +103,16 @@ enum DownloadFileStore {
         }
     }
 
-    /// Unlinks a shared image file from disk only if no other
-    /// `DownloadedItem` row still points at it (`store`'s own reference
-    /// check) — see the offline-downloads plan's "Delete semantics"
-    /// section. Safe to call with a `nil` path (nothing to do) or a path
-    /// whose file is already gone.
+    /// Unlinks a shared image only when no other `DownloadedItem` row points at
+    /// it. Safe with a `nil` path or one whose file is already gone.
     @MainActor
     static func deleteImageIfUnreferenced(relativePath: String?, excludingItemID: String, store: DownloadStore) {
         deleteImageIfUnreferenced(relativePath: relativePath, excludingItemID: excludingItemID, store: store, among: store.allItems())
     }
 
-    /// Same guard as above, against an already-fetched row snapshot instead
-    /// of letting `store` re-query SwiftData on every call — for a caller
-    /// checking several paths in a row (`DownloadManager.delete(itemID:)`'s
-    /// four image fields), so N checks cost one fetch instead of N.
+    /// The same guard against an already-fetched row snapshot, so a caller
+    /// checking several paths — `DownloadManager.delete(itemID:)`'s four image
+    /// fields — pays one SwiftData fetch rather than N.
     @MainActor
     static func deleteImageIfUnreferenced(relativePath: String?, excludingItemID: String, store: DownloadStore, among items: [DownloadedItem]) {
         guard let relativePath else { return }
@@ -142,19 +120,16 @@ enum DownloadFileStore {
         try? FileManager.default.removeItem(at: url(forRelativePath: relativePath))
     }
 
-    /// Actual on-disk size of one file, in bytes — `nil` if it doesn't
-    /// exist (e.g. still downloading) or can't be read. Ground truth for
-    /// `DownloadedAssetDetailView`'s file-size readout, rather than
-    /// trusting `DownloadedItem.bytesDownloaded`/`totalBytesExpected`
-    /// (which this app never actually persists — see `DownloadProgress`'s
-    /// own doc comment for why that stays in-memory only).
+    /// One file's real on-disk size; `nil` when it doesn't exist or can't be
+    /// read. Ground truth for `DownloadedAssetDetailView`'s readout, since the
+    /// in-flight byte counts are never persisted.
     static func fileSize(forRelativePath relativePath: String) -> Int64? {
         guard let size = try? url(forRelativePath: relativePath).resourceValues(forKeys: [.fileSizeKey]).fileSize else { return nil }
         return Int64(size)
     }
 
-    /// Total on-disk size of everything under the Downloads root, in bytes
-    /// — surfaced in `ProfileView`'s Downloads settings section.
+    /// Total on-disk size under the Downloads root, shown in `ProfileView`'s
+    /// Downloads settings.
     static func totalSizeOnDisk() -> Int64 {
         guard let enumerator = FileManager.default.enumerator(
             at: rootDirectory, includingPropertiesForKeys: [.fileSizeKey], options: [], errorHandler: nil
@@ -168,10 +143,8 @@ enum DownloadFileStore {
         return total
     }
 
-    /// Sanitizes a path component for filesystem safety — Jellyfin item
-    /// ids/tags are typically already alphanumeric, but this guards against
-    /// any stray path-hostile character (e.g. a `/` in a language code)
-    /// regardless.
+    /// Sanitizes a path component. Jellyfin ids and tags are usually already
+    /// alphanumeric; this guards against a stray `/` in a language code.
     private static func sanitized(_ raw: String) -> String {
         String(raw.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? Character($0) : "_" })
     }

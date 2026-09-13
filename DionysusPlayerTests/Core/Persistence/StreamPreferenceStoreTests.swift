@@ -49,7 +49,7 @@ final class StreamPreferenceStoreTests: XCTestCase {
 
     /// `.unlimited` expresses "no user-imposed cap" as `nil` — turning that
     /// into a concrete wire value is `DeviceProfileBuilder.build(_:)`'s job
-    /// (see its own doc comment on why it can't just omit the field).
+    /// (see its doc comment on why it can't just omit the field).
     func test_bitsPerSecond_unlimitedIsNil_othersAreExactMbpsValues() {
         XCTAssertNil(StreamingMaxBitrate.unlimited.bitsPerSecond)
         XCTAssertEqual(StreamingMaxBitrate.mbps40.bitsPerSecond, 40_000_000)

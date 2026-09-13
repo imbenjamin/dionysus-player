@@ -16,7 +16,7 @@ struct DownloadedPlayResumeButtonRow: View {
     let downloadManager: DownloadManager
     /// `nil` when there's no live session at all — the offline Downloads
     /// pages this view sits on are deliberately usable with no session
-    /// (see `AppRouteDestinationView`'s own doc comment), but retrying a
+    /// (see `AppRouteDestinationView`'s doc comment), but retrying a
     /// failed download needs a real `JellyfinAPIClient` to re-negotiate
     /// against (see `DownloadManager.retry(itemID:client:)`), so the Retry
     /// button below only appears when one's actually available.
@@ -34,10 +34,10 @@ struct DownloadedPlayResumeButtonRow: View {
 
     /// "Play"/"Resume"/"Play Again", with an "SXX:EYY" suffix whenever
     /// `item.episodeLabel` is set — same idea as `PlayResumeButtonRow
-    /// .buttonTitle`'s own suffix, and what carries the episode number for
+    /// .buttonTitle`'s suffix, and what carries the episode number for
     /// this page instead of a separate on-screen label (see
-    /// `DownloadedAssetDetailView`'s own doc comment on why the episode/
-    /// series title doesn't appear elsewhere as plain text).
+    /// `DownloadedAssetDetailView`'s doc comment on why the episode/series
+    /// title doesn't appear elsewhere as plain text).
     private var buttonTitle: String {
         guard let label = item.episodeLabel else {
             if item.isPlayed { return String(localized: "Play Again") }
@@ -98,7 +98,7 @@ struct DownloadedPlayResumeButtonRow: View {
                     .tint(.dionysusPrimaryLight)
                     .controlSize(.large)
                     // See `PlayResumeButtonRow`'s identical fix — without
-                    // this, VoiceOver falls back to the SF Symbol's own name.
+                    // this, VoiceOver falls back to the SF Symbol's name.
                     .accessibilityLabel(String(localized: "Restart"))
                 }
             }
@@ -151,7 +151,7 @@ struct DownloadedPlayResumeButtonRow: View {
 
     /// Retries right where the failure is already shown, reusing the exact
     /// resolution/quality/audio choice the original attempt used — see
-    /// `DownloadManager.retry(itemID:client:)`'s own doc comment.
+    /// `DownloadManager.retry(itemID:client:)`'s doc comment.
     private var failedRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
@@ -162,7 +162,7 @@ struct DownloadedPlayResumeButtonRow: View {
 
             // Hidden rather than shown-disabled when there's no live
             // session — this page is reachable fully offline (see
-            // `client`'s own doc comment), and a missing button reads as
+            // `client`'s doc comment), and a missing button reads as
             // "nothing to do right now" clearly enough on its own.
             if let client {
                 Button(action: { retry(client: client) }) {
