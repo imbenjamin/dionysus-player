@@ -2,16 +2,22 @@
   <img src=".github/dionysus-iOS-Default-512x512@1x.png" alt="Dionysus Player" width="180">
 </p>
 
+<h1 align="center">Dionysus Player</h1>
+
 <p align="center">
   <a href="https://github.com/imbenjamin/dionysus-player/releases"><img src="https://img.shields.io/github/v/release/imbenjamin/dionysus-player?include_prereleases&logo=github" alt="GitHub Releases"></a>
   <a href="https://testflight.apple.com/join/M6cu7Afs"><img src="https://img.shields.io/badge/TestFlight-Alpha%20Releases-blue?logo=appstore" alt="TestFlight Alpha Releases"></a>
   <a href="https://testflight.apple.com/join/sHQMQtjM"><img src="https://img.shields.io/badge/TestFlight-Beta%20Releases-blue?logo=appstore" alt="TestFlight Beta Releases"></a>
 </p>
 <p align="center">
+  <a href="https://github.com/imbenjamin/dionysus-player/actions?query=branch%3Astable"><img src="https://img.shields.io/github/check-suites/imbenjamin/dionysus-player/stable?logo=github&label=stable" alt="GitHub stable branch check suites"></a>
   <a href="https://github.com/imbenjamin/dionysus-player/actions?query=branch%3Adevelop"><img src="https://img.shields.io/github/check-suites/imbenjamin/dionysus-player/develop?logo=github&label=develop" alt="GitHub branch check suites"></a>
 </p>
+<p align="center">
+  <a href="https://apps.apple.com/us/app/dionysus-player/id6803951723"><img alt="Download on the App Store" src="https://appure.io/badges/appstore/black/en.svg" height="40" /></a>
+</p>
 
-# Dionysus Player
+## About Dionysus
 
 A better and open Apple client for Jellyfin.
 
