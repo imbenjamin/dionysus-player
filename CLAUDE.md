@@ -637,3 +637,11 @@ rather than treating it as a capture bug.
 `gen.py`'s brand colors (`MAGENTA`/`AMBER`) are copied constants, not
 computed from `BrandColors.swift` — if that palette changes, update both
 by hand.
+
+## Pull request descriptions
+
+Never include a Claude session URL (`https://claude.ai/code/session_...`)
+in a PR description. It's an internal reference with no meaning to anyone
+reading the PR on GitHub, and it leaks the existence/id of an otherwise
+private session. The "Generated with Claude Code" attribution line is fine
+to keep; only the session link is excluded.
