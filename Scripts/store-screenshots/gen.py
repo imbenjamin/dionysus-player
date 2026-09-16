@@ -34,7 +34,7 @@ BACKDROPS = [
 # (e.g. the player) — landscape slides get a wider frame that isn't pinned
 # to the top of the canvas, since the frame itself is much shorter.
 SLIDES = [
-    dict(shot="01-home.png",      head="Your Jellyfin library,<br>made native", sub="Built for iPhone and iPad",                land=False),
+    dict(shot="01-home.png",      head="A native home<br>for your library",    sub="Built for iPhone and iPad",                land=False),
     dict(shot="02-grid.png",      head="Find it in seconds",                    sub="Genre, studio, decade — stacked",          land=False),
     dict(shot="03-detail.png",    head="Know before<br>you press play",         sub="Cast, ratings and every detail",           land=False),
     dict(shot="04-player.png",    head="Plays what<br>others can't",            sub="Dolby Vision · HDR10 · Atmos passthrough", land=True),
