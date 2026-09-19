@@ -26,6 +26,12 @@ final class AetherPlaybackEngine: PlaybackEngine {
     private enum SessionRecoveryDesiredState { case play, pause }
     private var sessionRecoveryDesiredState: SessionRecoveryDesiredState = .pause
     private var sessionRecoveryTask: Task<Void, Never>?
+    /// Playhead a session rebuilt *paused* on foreground return sits at. Nothing
+    /// in AetherEngine publishes it until that session plays again, so this
+    /// stands in for the engine's zeroed clock in both time bridges below until
+    /// a real tick, a seek or a fresh load supersedes it — see
+    /// `recoverSessionIfNeeded(desiredState:)`.
+    private var pausedRebuildAnchor: TimeInterval?
     /// Set before `load(...)` re-throws a source-open, probe or route failure as
     /// `PlaybackLoadFailure`. AetherEngine also publishes a matching `.error` on
     /// `$playbackPhase` for the same failure, which would otherwise reach
@@ -207,6 +213,17 @@ final class AetherPlaybackEngine: PlaybackEngine {
             .sink { [weak self] time in
                 MainActor.assumeIsolated {
                     guard let self else { return }
+                    // Outranks the zero `load()` leaves on the clock. It has to be
+                    // substituted here rather than republished once at the call
+                    // site: these sinks deliver on the main queue, so the reload's
+                    // own zeroing tick arrives after the recovery task has finished.
+                    if let anchor = self.pausedRebuildAnchor {
+                        guard time > 0 else {
+                            self.onTimeUpdate?(anchor, self.engine.duration)
+                            return
+                        }
+                        self.pausedRebuildAnchor = nil
+                    }
                     self.onTimeUpdate?(time, self.engine.duration)
                 }
             }
@@ -220,7 +237,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
             .sink { [weak self] duration in
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    self.onTimeUpdate?(self.engine.currentTime, duration)
+                    self.onTimeUpdate?(self.pausedRebuildAnchor ?? self.engine.currentTime, duration)
                 }
             }
             .store(in: &cancellables)
@@ -350,6 +367,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
     }
 
     func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool) async throws {
+        // A fresh source carries its own playhead; the previous session's
+        // stand-in must not leak into it.
+        pausedRebuildAnchor = nil
         self.knownAtmosAudioTrackIndices = knownAtmosAudioTrackIndices
         // Order matters here beyond just readability: `LoadOptions`' own
         // memberwise init takes ~30 named, defaulted parameters, but Swift
@@ -454,14 +474,32 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// Applies `desiredState` immediately when the session is already ready.
     /// Otherwise it records what the single in-flight reload should apply, so a
     /// second caller overwrites the end state rather than starting a competing
-    /// reload and the last caller's intent wins.
+    /// reload and the last caller's intent wins. Two reloads racing over one
+    /// session's `play()`/`pause()` is what silently re-paused a session the
+    /// user had just resumed.
     ///
-    /// `reloadAtCurrentPosition()` always resumes playback — its autostart comes
-    /// from the original `load()`'s `LoadOptions.autoplay` and AetherEngine has
-    /// no "reload but stay paused" entry point — so `desiredState` must be
-    /// reapplied after every reload. Two reloads racing over one session's
-    /// `play()`/`pause()` is what silently re-paused a session the user had
-    /// just resumed.
+    /// `desiredState` rides into the rebuild as `LoadOptions.autoplay`, via
+    /// AetherEngine's option-applying reload (AE#460), rather than being
+    /// corrected afterwards. The plain `reloadAtCurrentPosition()` replays the
+    /// *mount's* `autoplay` — `true` here, since this app never passes one — so
+    /// a session torn down while paused came back autostarting, and this method
+    /// used to `pause()` it again once the reload returned. That worked on the
+    /// software path and wedged the native one on a permanent spinner
+    /// (confirmed on device, 2026-09-19, against AetherEngine 6.71): the
+    /// autostart writes `state = .playing` and calls `AVPlayer.play()`, the
+    /// `pause()` lands before AVPlayer has reported any rate (so AE#440's
+    /// `hasTransportRolled` is still false), AVPlayer's first
+    /// `.waitingToPlayAtSpecifiedRate` writes `state` back to `.playing`, and
+    /// the `.paused` that follows only lowers `state` once the transport has
+    /// rolled — which it never did. `state == .playing` over a genuinely paused
+    /// player is what `PlaybackPhase.derive` reports as `.loading` forever, and
+    /// `PlayerControlsOverlay` renders as a spinner in place of play/pause.
+    ///
+    /// Mounting the rebuild paused avoids all of it: nothing writes `.playing`,
+    /// and the load's own readiness waypoint (AetherEngine #124's
+    /// `settlePausedAtReadiness`) settles `.loading` -> `.paused` by itself.
+    /// `desiredState` is still applied after the reload, since a caller can
+    /// upgrade `.pause` to `.play` while it is in flight.
     private func recoverSessionIfNeeded(desiredState: SessionRecoveryDesiredState) {
         guard engine.state == .paused, !engine.isSessionReady else {
             if desiredState == .play { engine.play() }
@@ -469,11 +507,30 @@ final class AetherPlaybackEngine: PlaybackEngine {
         }
         sessionRecoveryDesiredState = desiredState
         guard sessionRecoveryTask == nil else { return }
+        // Read now: a later caller can still upgrade the end state, which the
+        // switch below honours, but the mount flag belongs to this load.
+        let mountsPlaying = desiredState == .play
+        // Snapshotted before the reload zeroes the clock. A session rebuilt
+        // paused is mounted here but never publishes it — AetherEngine's clock
+        // ticks off produced samples and a paused mount produces none — so
+        // without `pausedRebuildAnchor` the scrubber and time labels read 0:00
+        // until the user hits Play, and `PlayerViewModel`'s progress reporter
+        // persists that 0 as the resume position. Same gap as `$duration`'s own
+        // bridge in `observeEngine()`.
+        let resumeAnchor = engine.currentTime
         sessionRecoveryTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                try await self.engine.reloadAtCurrentPosition()
+                try await self.engine.reloadAtCurrentPosition { $0.autoplay = mountsPlaying }
             } catch {
+                // The option-applying reload throws when there is nothing to
+                // rebuild, where the plain one returned silently. A session
+                // `stop()` raced away between this method's guard and the task
+                // body is not a playback failure and must not be shown as one.
+                if case AetherEngineError.sessionNotReloadable = error {
+                    self.sessionRecoveryTask = nil
+                    return
+                }
                 // Surfaced through the `onStateChange` path `PlayerViewModel`
                 // uses for every other terminal failure; swallowing it would
                 // reproduce the dead Play button with no diagnostic trail.
@@ -484,15 +541,24 @@ final class AetherPlaybackEngine: PlaybackEngine {
                 return
             }
             switch self.sessionRecoveryDesiredState {
-            case .play: self.engine.play()
-            case .pause: self.engine.pause()
+            case .play:
+                self.engine.play()
+            case .pause:
+                self.engine.pause()
+                if resumeAnchor > 0 {
+                    self.pausedRebuildAnchor = resumeAnchor
+                    self.onTimeUpdate?(resumeAnchor, self.engine.duration)
+                }
             }
             self.sessionRecoveryTask = nil
         }
     }
     func pause() { engine.pause() }
     func togglePlayPause() { engine.togglePlayPause() }
-    func stop() { engine.stop() }
+    func stop() {
+        pausedRebuildAnchor = nil
+        engine.stop()
+    }
 
     /// Arms a watchdog after each seek, turning a stuck backward seek —
     /// AetherEngine's wedge, upstream issue #93, mitigated but still partially
@@ -504,6 +570,8 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// `seekWatchdogGeneration` stops a superseded seek's watchdog firing
     /// against a stale `time`: only the latest call's may act.
     func seek(to time: TimeInterval) async {
+        // A seek is a real position, zero included: it supersedes the stand-in.
+        pausedRebuildAnchor = nil
         seekWatchdogGeneration += 1
         let generation = seekWatchdogGeneration
         seekWatchdogTask?.cancel()

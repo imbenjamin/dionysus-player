@@ -224,7 +224,25 @@ pattern, since ViewModels are constructed with an already-built client
   (inherited from the original `load()` call, always `true` here) then
   autostarted playback the reload was meant to *recover*, not resume — the
   user's actual last action was pause — fixed by pausing again immediately
-  once the reload settles. And the recovered-but-paused state then showed
+  once the reload settles. That pause-after-reload was itself wrong, and
+  took until 2026-09-19 (and a downloaded item, on device) to surface: it
+  worked on the software path and wedged the native (AVPlayer) one on a
+  permanent spinner, because the reload's autostart writes
+  `state = .playing` before AVPlayer has reported any rate, so the `pause()`
+  lands with AE#440's `hasTransportRolled` still false, AVPlayer's first
+  `.waitingToPlayAtSpecifiedRate` writes `state` straight back to
+  `.playing`, and the `.paused` that follows only lowers `state` once the
+  transport has rolled — which it never did. `PlaybackPhase.derive` reports
+  that combination as `.loading` forever, which is a spinner where the
+  play/pause button belongs. Fixed by mounting the rebuild paused in the
+  first place — `reloadAtCurrentPosition { $0.autoplay = false }`,
+  AetherEngine's AE#460 option-applying reload — so nothing writes
+  `.playing` and the load's own readiness waypoint settles it. A paused
+  mount then publishes no clock at all, so `pausedRebuildAnchor` stands in
+  for the engine's zeroed one in both time bridges until a real tick, a
+  seek or a fresh load supersedes it — without it the scrubber reads 0:00
+  and `PlayerViewModel`'s progress reporter persists that as the resume
+  position. And the recovered-but-paused state also showed
   the correct playhead but a scrubber pinned at the left edge and a
   "-0:00" remaining-time label: `onTimeUpdate` only ever fired off
   `engine.clock.$currentTime`'s ticks, which stop the instant a session is
