@@ -240,6 +240,7 @@ private struct NewPlaylistForm: View {
             Section {
                 TextField("Playlist Name", text: $name)
                     .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
                     .submitLabel(.done)
                     .focused($isNameFocused)
                     // The placeholder is the field's only visible label and

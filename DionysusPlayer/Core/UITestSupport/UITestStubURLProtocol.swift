@@ -836,7 +836,19 @@ final class UITestStubURLProtocol: URLProtocol {
     /// How long `.slowLogoImage` holds a `Logo` response: past
     /// `LogoImageView.fallbackRevealDelay` so the reveal is deterministically
     /// observable, but inside a normal `waitForExistence` budget.
-    static let slowLogoImageDelay: TimeInterval = 2
+    ///
+    /// `RemoteImageLoader`'s in-flight de-duplication means this delay is
+    /// shared, not restarted, across every `LogoImageView` instance that
+    /// requests the same URL — `HeroLogoFallbackUITests`'s player journey
+    /// opens the asset-detail hero first (which starts this same fetch) and
+    /// only *then* navigates to the player, whose own `LogoImageView`
+    /// mounts and starts its 1s reveal timer some real, CI-variable amount
+    /// of navigation time later. Too short a delay here lets the shared
+    /// fetch resolve before that second, later-starting reveal timer has a
+    /// chance to fire at all, so this needs enough margin over the reveal
+    /// delay to absorb that navigation time, not just the reveal delay
+    /// itself — confirmed by that test failing intermittently in CI at 2s.
+    static let slowLogoImageDelay: TimeInterval = 4
 
     /// One flat-colour PNG standing in for every poster, backdrop, logo and cast
     /// photo. Generated rather than bundled, so no harness resource ships in
