@@ -282,6 +282,20 @@ private extension AccessibilityAuditTests {
             return true
         }
 
+        // The system keyboard's own QuickType predictive-text cell
+        // (`TUIPredictionViewCell`), which the audit reaches on the "New
+        // Playlist" form's autofocused, still-empty name field. It exists in
+        // the accessibility tree — with no label, since there is no
+        // suggestion yet to label — independent of the field's own
+        // `.autocorrectionDisabled()`; not this app's view, and not
+        // reachable to fix from here. Scoped to the issue's own description
+        // (the only place the class name shows up — `XCUIElement` doesn't
+        // expose it) rather than the element itself, so a real unlabeled
+        // element elsewhere still fails.
+        if issue.detailedDescription.contains("TUIPredictionViewCell") {
+            return true
+        }
+
         // Non-interactive metadata lines on the detail pages ("Genres:
         // Drama", "Studios: Aurora Pictures", "Rated: 6.0 stars"). These are
         // single-line `StaticText` runs about 18pt tall, collapsed to one
