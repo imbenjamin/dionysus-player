@@ -12,10 +12,14 @@ import XCTest
 /// timing has *some* automated coverage instead of none.
 ///
 /// Both tests launch with the `slowLogoImage` scenario, which delays only
-/// the `Logo` image response (`UITestStubURLProtocol.slowLogoImageDelay`,
-/// 2s) — comfortably past `LogoImageView`'s own 1s reveal delay, so the
+/// the `Logo` image response (`UITestStubURLProtocol.slowLogoImageDelay`)
+/// — comfortably past `LogoImageView`'s own 1s reveal delay, so the
 /// fallback is guaranteed to appear, and comfortably inside each
-/// `waitForExistence`/`awaitDisappearance` budget below.
+/// `waitForExistence`/`awaitDisappearance` budget below. See that
+/// constant's own doc comment: the player variant below joins the same
+/// in-flight fetch the asset-detail variant already started, so the delay
+/// has to absorb real navigation time on top of the reveal delay, not just
+/// the reveal delay itself.
 final class HeroLogoFallbackUITests: UITestCase {
     /// The asset-detail hero header: `BackdropLogoOverlay`'s
     /// `.accessibilityHidden` case.
