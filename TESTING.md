@@ -467,15 +467,19 @@ reject in the normal case rather than trivially passing everything through.
 
 `slowLogoImage` is the standard catalogue with one deliberate exception: a
 `Logo` image response is held for `UITestStubURLProtocol.slowLogoImageDelay`
-(2s, via a blocking `Thread.sleep` on that request's own thread — every
-other image resolves immediately as usual) — long enough to exceed
-`LogoImageView`'s own 1s fallback-reveal delay. It exists because that delay
-is otherwise untestable at all: `BackdropLogoOverlay` and
-`PlayerControlsOverlay`'s title row both hide the real logo/fallback content
-from the accessibility tree (a VoiceOver fix — see those types' own doc
-comments), so `HeroLogoFallbackUITests` observes the timing through a
-dedicated test-only marker (`A11yID.Media.heroLogoFallbackVisible`,
-`#if DEBUG`-gated in both views) instead of the hidden content itself.
+(10s, scheduled on a background queue — every other image resolves
+immediately as usual) — long enough to outlast both `LogoImageView`'s own 1s
+fallback-reveal delay and the navigation between the screens the journey
+passes through; see that constant's doc comment for the two-sided window it
+has to land in, and *never* reintroduce a blocking `Thread.sleep` here, which
+stalls every request on that `URLSession` rather than just this one. It
+exists because that delay is otherwise untestable at all:
+`BackdropLogoOverlay` and `PlayerControlsOverlay`'s title row both hide the
+real logo/fallback content from the accessibility tree (a VoiceOver fix —
+see those types' own doc comments), so `HeroLogoFallbackUITests` observes
+the timing through a dedicated test-only marker
+(`A11yID.Media.heroLogoFallbackVisible`, `#if DEBUG`-gated in both views)
+instead of the hidden content itself.
 
 Deletion is also the one place the stub carries state: `DELETE /Items/{id}`
 records the id, and every list route filters deleted ids out afterwards

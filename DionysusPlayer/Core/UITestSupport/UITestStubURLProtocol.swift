@@ -14,7 +14,13 @@ import UIKit
 /// `MockURLProtocol`, because XCUITest runs assertions in a separate process
 /// and no `requestHandler` can cross that boundary. Behaviour varies only by the
 /// launch-time `UITestScenario`.
-final class UITestStubURLProtocol: URLProtocol {
+///
+/// `@unchecked Sendable` so `.slowLogoImage`'s delayed delivery can hop to
+/// a background queue (see `startLoading()`). `URLProtocol` isn't `Sendable`
+/// and this subclass adds no mutable state of its own — the closure only
+/// reads immutable request data and calls `client`, which `URLSession`
+/// already expects from an arbitrary thread.
+final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     // MARK: - URLProtocol
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -45,13 +51,21 @@ final class UITestStubURLProtocol: URLProtocol {
         // a placeholder. `.slowLogoImage` is the one exception.
         if path.contains("/Images/") {
             if scenario == .slowLogoImage, path.hasSuffix("/Images/Logo") {
-                // Blocks `startLoading()`'s own thread rather than dispatching
-                // the completion asynchronously, avoiding Swift 6's `Sendable`
-                // requirements on a cross-queue closure. Safe because
-                // `URLSession` gives concurrent requests their own threads, so
-                // only this Logo fetch is delayed.
-                Thread.sleep(forTimeInterval: Self.slowLogoImageDelay)
-                finish(.success((200, Self.placeholderPNG, "image/png")))
+                // Scheduled on a background queue, *never* `Thread.sleep`ed
+                // here. `startLoading()` runs on one serial queue per
+                // `URLSession`, so sleeping in it delays every other request
+                // on that session too, not just this one — measured
+                // directly: twelve concurrent 4s requests finished 4s apart,
+                // 48s in total, rather than all together at 4s. Every
+                // logo-bearing item on Home asks `RemoteImageLoader`'s
+                // session for a `/Images/Logo` of its own, so the blocking
+                // version pushed the single logo `HeroLogoFallbackUITests`
+                // watches tens of seconds out and left its fallback text up
+                // past the assertion's budget — the cause of that suite's
+                // intermittent failures in `UITests-Full`.
+                DispatchQueue.global().asyncAfter(deadline: .now() + Self.slowLogoImageDelay) {
+                    self.finish(.success((200, Self.placeholderPNG, "image/png")))
+                }
                 return
             }
             finish(.success((200, Self.placeholderPNG, "image/png")))
@@ -835,20 +849,27 @@ final class UITestStubURLProtocol: URLProtocol {
 
     /// How long `.slowLogoImage` holds a `Logo` response: past
     /// `LogoImageView.fallbackRevealDelay` so the reveal is deterministically
-    /// observable, but inside a normal `waitForExistence` budget.
+    /// observable, but inside `HeroLogoFallbackUITests`' disappearance budget.
     ///
-    /// `RemoteImageLoader`'s in-flight de-duplication means this delay is
-    /// shared, not restarted, across every `LogoImageView` instance that
-    /// requests the same URL — `HeroLogoFallbackUITests`'s player journey
-    /// opens the asset-detail hero first (which starts this same fetch) and
-    /// only *then* navigates to the player, whose own `LogoImageView`
-    /// mounts and starts its 1s reveal timer some real, CI-variable amount
-    /// of navigation time later. Too short a delay here lets the shared
-    /// fetch resolve before that second, later-starting reveal timer has a
-    /// chance to fire at all, so this needs enough margin over the reveal
-    /// delay to absorb that navigation time, not just the reveal delay
-    /// itself — confirmed by that test failing intermittently in CI at 2s.
-    static let slowLogoImageDelay: TimeInterval = 4
+    /// The window this has to land in is bounded on *both* sides, and by
+    /// events that happen at different times in the run, which is why it is
+    /// this much larger than the 1s reveal delay it only has to beat on
+    /// paper:
+    ///
+    /// - **Too short** and the logo is already resolved (or cached) by the
+    ///   time the view being watched mounts, so its fallback never reveals
+    ///   at all and the `awaitExistence` half fails. The clock does *not*
+    ///   start at that view: `RemoteImageLoader` de-duplicates in-flight
+    ///   requests and caches the result, and Home's hero rail asks for the
+    ///   same item's logo before either journey has navigated anywhere. So
+    ///   this must outlast Home → detail (→ player) navigation plus the 1s
+    ///   reveal delay, not just the reveal delay.
+    /// - **Too long** and the logo hasn't arrived within the
+    ///   `awaitDisappearance` that follows, so the other half fails.
+    ///
+    /// 10s sits with several seconds' slack against both, measured on a
+    /// Simulator where that navigation takes ~2-4s.
+    static let slowLogoImageDelay: TimeInterval = 10
 
     /// One flat-colour PNG standing in for every poster, backdrop, logo and cast
     /// photo. Generated rather than bundled, so no harness resource ships in
