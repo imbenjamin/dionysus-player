@@ -30,6 +30,21 @@ final class HomeViewModel {
     var rails: [MediaCollectionRail] { curatedRails + dynamicRails }
     private(set) var loadState: LoadState = .idle
 
+    /// Bumped once per completed full load — `load()` and `hardRefresh()` —
+    /// after the fresh hero/library/curated content has landed. `HomeView`
+    /// threads it into `HeroRailView`/`LibraryRailView`/`MediaRailView`,
+    /// which scroll themselves back to their first item whenever it changes,
+    /// so a hard refresh presents every rail from item #1 the way a fresh
+    /// app load does.
+    ///
+    /// Needed because the rail views keep their SwiftUI identity across a
+    /// refresh (`HomeView`'s `ForEach(rails.indices, id: \.self)` reuses the
+    /// same view per position), so their backing scroll views hold whatever
+    /// offset the user left them at, now pointing into entirely different
+    /// content. `softRefresh()` deliberately never bumps it — that path
+    /// exists precisely to leave the page where the user had it.
+    private(set) var railResetToken = 0
+
     /// Candidates discovered but not yet fetched into rails, drawn from the front
     /// in batches by `loadMoreDynamicRails`, so Home fetches only as many as the
     /// user scrolls to.
@@ -207,6 +222,10 @@ final class HomeViewModel {
                 .map { MediaItem(dto: $0, images: images) }
                 .filter { !$0.isAudioLibrary }
             curatedRails = mergeGuardingAgainstPlaybackRegression(try await curated)
+            // After the new content is in place, not before: the rail views
+            // react to this by scrolling to their first item, which must be
+            // the first item of the *fresh* rail.
+            railResetToken += 1
             if resetLoadState { setLoadState(.loaded) }
 
             // Reset dynamic-rail state before rediscovering — otherwise a

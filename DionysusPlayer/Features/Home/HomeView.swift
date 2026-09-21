@@ -191,6 +191,13 @@ struct HomeView: View {
         let heroItems = viewModel?.heroItems ?? []
         let libraries = viewModel?.libraries ?? []
         let rails = viewModel?.rails ?? []
+        // Bumped by every completed full load; each rail watches it and
+        // scrolls itself back to its first item, so a hard refresh presents
+        // Home from the start the way a fresh launch does. The rail views keep
+        // their identity across a refresh (`ForEach(rails.indices)` below
+        // reuses one view per position), so without this they'd hold the old
+        // scroll offset over entirely new content.
+        let resetToken = viewModel?.railResetToken ?? 0
         // `LazyVStack`: dynamic rails can push the count well past the curated
         // set, so don't construct every rail's hierarchy up front.
         LazyVStack(alignment: .leading, spacing: 24) {
@@ -220,16 +227,16 @@ struct HomeView: View {
                 // `.refreshable` spinner anchors correctly.
                 // `.scrollClipDisabled()` above is required for the overflow to
                 // render rather than be clipped.
-                HeroRailView(items: heroItems, isTabActive: isActiveTab)
+                HeroRailView(items: heroItems, isTabActive: isActiveTab, resetToken: resetToken)
                     .padding(.top, -topSafeAreaInset)
             }
             if !libraries.isEmpty {
-                LibraryRailView(libraries: libraries)
+                LibraryRailView(libraries: libraries, resetToken: resetToken)
             }
             // `rails.indices`, not `Array(rails.enumerated())`, which would
             // allocate a fresh array of tuples on every recompute.
             ForEach(rails.indices, id: \.self) { index in
-                MediaRailView(rail: rails[index])
+                MediaRailView(rail: rails[index], resetToken: resetToken)
             }
 
             if viewModel?.isLoadingMoreDynamicRails == true {

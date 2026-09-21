@@ -11,6 +11,13 @@ import SwiftUI
 struct MediaRailView: View {
     let rail: MediaCollectionRail
 
+    /// Bumped by `HomeViewModel.railResetToken` on every hard refresh; this
+    /// rail scrolls itself back to its first item whenever it changes, so a
+    /// refreshed Home reads from item #1 like a fresh launch. Defaults to `0`
+    /// for the detail-page rails, which are rebuilt per push and have nothing
+    /// to reset.
+    var resetToken: Int = 0
+
     /// Drives `posterWidth`/`landscapeWidth` below — `.regular` covers
     /// iPad in both orientations and iPhone Pro Max/Plus/Air models in
     /// landscape, all cases with meaningfully more width to spend than the
@@ -32,6 +39,16 @@ struct MediaRailView: View {
             header
                 .padding(.horizontal)
 
+            railScrollView
+        }
+    }
+
+    /// The horizontal shelf itself, wrapped in a `ScrollViewReader` so a hard
+    /// refresh can send it back to its first item — see `resetToken`. The
+    /// reader is only ever a one-shot nudge, exactly as in `HeroRailView`;
+    /// nothing else here tracks scroll position.
+    private var railScrollView: some View {
+        ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 // The whole rail uses one tile shape or the other (see
                 // `MediaCollectionRail.usesLandscapeTiles`), so `.top` vs.
@@ -66,7 +83,23 @@ struct MediaRailView: View {
                         }
                     }
                 }
-                .padding(.horizontal)
+            }
+            // `.safeAreaPadding`, not `.padding` on the stack: the inset has
+            // to belong to the scroll view rather than to its content, or
+            // `scrollTo(_:anchor: .leading)` below aligns the first card
+            // flush to the screen edge — 16pt short of where an unscrolled
+            // rail actually rests. Visually identical otherwise.
+            .safeAreaPadding(.horizontal, 16)
+            .onChange(of: resetToken) { _, _ in
+                guard let firstRowID = rail.items.first?.railRowIdentity else { return }
+                // Unanimated: the rail's content was replaced wholesale in the
+                // same update, so an animated scroll would slide across items
+                // the user never saw in that order anyway.
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    proxy.scrollTo(firstRowID, anchor: .leading)
+                }
             }
         }
     }

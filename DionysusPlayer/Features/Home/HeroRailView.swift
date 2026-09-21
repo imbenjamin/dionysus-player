@@ -16,16 +16,30 @@ struct HeroRailView: View {
     /// current value rather than latching the first. Combined with `isOnScreen`
     /// into `isVisible`, which gates the auto-advance timer.
     let isTabActive: Bool
+    /// `HomeViewModel.railResetToken` — see `MediaRailView.resetToken`. A hard
+    /// refresh replaces `items` wholesale while this view keeps its identity
+    /// (and so its `scrollPosition` `@State`), which would otherwise leave the
+    /// carousel parked mid-way through a set the user has never seen. Bumping
+    /// it sends the hero back to its first item.
+    let resetToken: Int
 
     /// A custom init so `scrollPosition` can start at `0` rather than `1` when
     /// `loopedItems` doesn't pad `items` — with 0 or 1 items looping is
     /// meaningless, and the usual `1` would reference a nonexistent `.id` and
     /// render blank. Also computes `loopedItems` once (see that property).
-    init(items: [MediaItem], isTabActive: Bool) {
+    init(items: [MediaItem], isTabActive: Bool, resetToken: Int = 0) {
         self.items = items
         self.isTabActive = isTabActive
+        self.resetToken = resetToken
         self.loopedItems = Self.loop(items)
-        _scrollPosition = State(initialValue: items.count > 1 ? 1 : 0)
+        _scrollPosition = State(initialValue: Self.firstPagePosition(for: items))
+    }
+
+    /// The `loopedItems` index of the first *real* item — `1` past the leading
+    /// duplicate, or `0` when `loop(_:)` didn't pad. Shared by `init` and the
+    /// `resetToken` reset so the two can't disagree.
+    private static func firstPagePosition(for items: [MediaItem]) -> Int {
+        items.count > 1 ? 1 : 0
     }
 
     /// Tracked only to re-run `body` on rotation: `heroHeight` is a plain UIKit
@@ -306,6 +320,18 @@ struct HeroRailView: View {
                 // arbitrary leftover position instead of starting fresh. Firing
                 // redundantly after an auto-advance is harmless.
                 .onChange(of: currentIndex) { _, _ in idleSeconds = 0 }
+                // Hard refresh: back to the first item, unanimated, with the
+                // auto-advance countdown restarted so the new first item gets
+                // a full interval rather than the leftover from whichever page
+                // the user was on. `resyncScrollPosition` does the actual jump
+                // — writing `scrollPosition` alone only moves the scroll view
+                // when it is on screen and settled, the same gap it exists to
+                // cover on reappearance.
+                .onChange(of: resetToken) { _, _ in
+                    scrollPosition = Self.firstPagePosition(for: items)
+                    idleSeconds = 0
+                    resyncScrollPosition(using: scrollProxy)
+                }
                 // Publishes the hero's backdrop luminance so the tab bar over it
                 // can pick a legible tint. Keyed on `currentIndex` to re-run on
                 // every advance. The hero just displayed the image, so this is a
