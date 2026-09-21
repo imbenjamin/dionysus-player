@@ -1047,6 +1047,59 @@ final class HomeViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.loadState, .loaded, "loadState must never change during a soft refresh")
     }
 
+    /// `railResetToken` is what sends every rail on Home back to its first
+    /// item — `HomeView` threads it into `HeroRailView`/`LibraryRailView`/
+    /// `MediaRailView`, each of which scrolls to its start when it changes.
+    /// So it must advance on exactly the loads that replace the page's
+    /// content wholesale (`load()`, `hardRefresh()`) and never on a
+    /// `softRefresh()`, whose whole point is leaving the page where the user
+    /// left it. A failure here is silent in every other assertion: the data
+    /// is correct either way, only the scroll offset is wrong.
+    func test_railResetToken_advancesOnFullLoadsButNeverOnSoftRefresh() async {
+        let viewModel = makeViewModel()
+        let moviesLibrary = BaseItemDto(id: "lib-movies", name: "Movies", type: .collectionFolder, collectionType: "movies")
+        let heroItem = BaseItemDto(id: "hero-1", name: "Featured", type: .movie)
+        let resumeItem = BaseItemDto(id: "resume-1", name: "In Progress", type: .movie)
+
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Views":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [moviesLibrary], totalRecordCount: 1)
+                )
+            case "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [heroItem], totalRecordCount: 1))
+            case "/Users/user-1/Items/Resume":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [resumeItem], totalRecordCount: 1))
+            case "/Shows/NextUp":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items/Latest":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]())
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        let initialToken = viewModel.railResetToken
+        await viewModel.load()
+        let afterLoad = viewModel.railResetToken
+        XCTAssertGreaterThan(afterLoad, initialToken, "A completed load() must advance railResetToken")
+
+        await viewModel.softRefresh()
+        XCTAssertEqual(
+            viewModel.railResetToken, afterLoad,
+            "softRefresh() must never advance railResetToken — it exists to leave the page's scroll position alone"
+        )
+
+        await viewModel.hardRefresh()
+        XCTAssertGreaterThan(
+            viewModel.railResetToken, afterLoad,
+            "hardRefresh() must advance railResetToken so every rail scrolls back to item #1"
+        )
+    }
+
     func test_softRefresh_noOpsWhenNotLoaded() async {
         let viewModel = makeViewModel()
         MockURLProtocol.requestHandler = { request in

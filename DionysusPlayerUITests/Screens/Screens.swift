@@ -219,6 +219,21 @@ struct HomeScreen: Screen {
     /// itself first — unlike the open-ended scroll gestures this suite
     /// otherwise avoids — reliably brings the later cards into view; a
     /// no-op on a device where they were already visible.
+    /// Performs `.refreshable`'s pull gesture on Home's vertical scroll view,
+    /// triggering `HomeViewModel.hardRefresh()`.
+    ///
+    /// A coordinate drag on the app window rather than `swipeDown()` on an
+    /// element: a swipe is a flick, which scrolls rather than holding the
+    /// pull past the refresh threshold. The hold at the end is what commits
+    /// it. Starts mid-screen, below the hero, so the drag begins on content
+    /// the outer scroll view owns.
+    func pullToRefresh() {
+        let window = app.windows.firstMatch
+        let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
+        let end = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
+        start.press(forDuration: 0.2, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 1.0)
+    }
+
     func openLibrary(_ libraryID: String, file: StaticString = #filePath, line: UInt = #line) {
         let rail = app.descendants(matching: .any)[A11yID.Home.libraryRail]
         if rail.exists {

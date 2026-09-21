@@ -14,6 +14,11 @@ import SwiftUI
 struct LibraryRailView: View {
     let libraries: [MediaItem]
 
+    /// `HomeViewModel.railResetToken` — see `MediaRailView.resetToken`; this
+    /// rail resets alongside the others so a hard refresh leaves the whole
+    /// page reading from its first item.
+    var resetToken: Int = 0
+
     /// Same `.regular`-size-class scale-up as `MediaRailView`'s
     /// `posterWidth`/`landscapeWidth` — see that property's doc comment.
     /// `LibraryCard`'s own default (160) is what `.compact` keeps.
@@ -21,6 +26,20 @@ struct LibraryRailView: View {
     private var cardWidth: CGFloat { horizontalSizeClass == .regular ? 200 : 160 }
 
     var body: some View {
+        ScrollViewReader { proxy in
+            scrollView
+                .onChange(of: resetToken) { _, _ in
+                    guard let firstLibraryID = libraries.first?.id else { return }
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        proxy.scrollTo(firstLibraryID, anchor: .leading)
+                    }
+                }
+        }
+    }
+
+    private var scrollView: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             // `LazyHStack`, not `HStack` — see `MediaRailView`'s identical
             // change for why (defers construction/image loading to
@@ -32,8 +51,11 @@ struct LibraryRailView: View {
                     LibraryCard(library: library, width: cardWidth)
                 }
             }
-            .padding(.horizontal)
         }
+        // See `MediaRailView`'s identical note: the inset belongs to the
+        // scroll view, not its content, so the `resetToken` scroll lands
+        // where an unscrolled rail rests rather than 16pt further along.
+        .safeAreaPadding(.horizontal, 16)
         .accessibilityIdentifier(A11yID.Home.libraryRail)
     }
 }
