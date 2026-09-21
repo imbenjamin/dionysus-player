@@ -6,8 +6,9 @@ import SwiftUI
 ///
 /// Its own `ToolbarItem` after `HeroActionButtons` rather than a third glyph
 /// inside that group, which holds reversible metadata toggles. It shares their
-/// `HeroToolbarGlyph` chrome but sits outside their `GlassEffectContainer`, so
-/// it doesn't merge into one capsule with them.
+/// `HeroToolbarGlyph` glyph treatment but sits in a separate `ToolbarItem`
+/// past a `ToolbarSpacer(.fixed)`, so the nav bar gives it its own capsule
+/// rather than merging it into theirs.
 ///
 /// ## Which control gets drawn
 ///

@@ -9,14 +9,26 @@ import SwiftUI
 /// bug; the reasoning, moved verbatim from `HeroActionButtons.icon(...)`
 /// where it originally lived:
 ///
+/// On iOS 26 the glyph draws **no chrome of its own** — no `.glassEffect`,
+/// no background, just the glyph and a 44pt tap target. The nav bar already
+/// wraps each `ToolbarItem` in its own Liquid Glass capsule, so a
+/// `.glassEffect(in: Circle())` here drew a *second* glass shape nested
+/// inside the system's: the visible circular outline around each control,
+/// inside the group's capsule. It was subtle on iOS 26 and obvious on iOS 27,
+/// where the system capsule's own edge treatment is stronger. No other
+/// toolbar in the app did this (see the Downloads screens' bare
+/// `Image(systemName:).downloadsToolbarTapTarget()`, which is exactly this
+/// shape), and no system app does either. Don't reintroduce glass here —
+/// let the toolbar provide it.
+///
 /// On iOS 26 the glyph sets no explicit color. This was tried the other way
 /// on the assumption it'd match the back button's chevron, but that button
 /// doesn't set an explicit color either, confirmed live — that's exactly why
 /// it, unlike this button once it *did* hardcode black, stays legible over
 /// both a light and a dark patch of the scrolling hero image: real
 /// `.glassEffect` content is automatically tinted for contrast
-/// against whatever's currently behind the glass, the same Liquid Glass
-/// vibrancy the system back button gets for free. Forcing `.black` (or
+/// against whatever's currently behind the system's glass, the same Liquid
+/// Glass vibrancy the system back button gets for free. Forcing `.black` (or
 /// `.white`) defeats that and pins the glyph to one color regardless of
 /// what's under it. The pre-26 fallback has no such live-contrast mechanism
 /// to defer to — `.primary` there just tracks light/dark *mode*, not the
@@ -55,7 +67,7 @@ struct HeroToolbarGlyph: View {
                 }
             }
             .frame(width: 44, height: 44)
-            .glassEffect(.regular.interactive(), in: Circle())
+            .contentShape(Rectangle())
         } else {
             // Matches `ResetFiltersButton`'s pre-26 fallback — a light fill
             // a black glyph reads clearly against, not the dark fill this

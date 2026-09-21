@@ -39,10 +39,11 @@ struct FavoriteWatchedShowScope {
 /// take a couple of seconds.
 ///
 /// The collapsed button uses plain `star`/`star.fill` and `eye.slash`/`eye.fill`
-/// rather than the `.circle` variants `PosterCard.watchStatusOverlay` uses: this
-/// button draws its own circular chrome, and the symbol's built-in circle then
-/// renders as a second concentric circle clipped by the 44pt frame. The expanded
-/// `Menu`'s rows are plain `Label`s in a system list, so they keep the `.circle`
+/// rather than the `.circle` variants `PosterCard.watchStatusOverlay` uses: the
+/// nav bar already draws a capsule behind these controls, and the symbol's
+/// built-in circle reads as a second enclosing shape inside it — the same
+/// doubling-up `HeroToolbarGlyph` documents for glass. The expanded `Menu`'s
+/// rows are plain `Label`s in a system list, so they keep the `.circle`
 /// variants.
 ///
 /// Unwatched uses `eye.slash` rather than a plain `eye`, which read too close to
@@ -83,28 +84,18 @@ struct HeroActionButtons: View {
 
     var body: some View {
         if let item {
-            // `GlassEffectContainer` is the documented way to make nearby
-            // `.glassEffect` shapes — `icon(_:isPending:)`, applied per button —
-            // share one blended material pass, as in
-            // `CollectionGridView.filterRow`.
-            //
-            // It is not what makes these two buttons merge into one pill at rest
-            // with each circular boundary faintly visible inside it: that's
-            // identical with or without the container, and with one
-            // `ToolbarItem` or two. It's iOS 26's standard rendering for
-            // adjacent circular glass toolbar controls, not a bug here.
-            if #available(iOS 26.0, *) {
-                GlassEffectContainer(spacing: 12) {
-                    HStack(spacing: 12) {
-                        favoriteButton(item: item)
-                        watchedButton(item: item)
-                    }
-                }
-            } else {
-                HStack(spacing: 12) {
-                    favoriteButton(item: item)
-                    watchedButton(item: item)
-                }
+            // One plain `HStack` on every OS version. This used to wrap the iOS
+            // 26 path in a `GlassEffectContainer`, to blend the per-button
+            // `.glassEffect` shapes `HeroToolbarGlyph` drew — but those shapes
+            // were themselves the bug (a second glass circle nested inside the
+            // nav bar's own capsule, visible as an outline around each control;
+            // see `HeroToolbarGlyph`). With the buttons drawing no glass of
+            // their own there is nothing left for a container to blend, and the
+            // pair reads as one system capsule the way every other toolbar in
+            // the app and in system apps does.
+            HStack(spacing: 12) {
+                favoriteButton(item: item)
+                watchedButton(item: item)
             }
         }
     }
