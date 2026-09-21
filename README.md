@@ -308,6 +308,11 @@ similar platforms despite their code-signing and DRM restrictions —
 source obligations are otherwise unaffected. [AetherEngine](https://github.com/superuser404notfound/AetherEngine),
 the playback engine dependency, is separately licensed under
 LGPL-3.0 with its own equivalent App Store/DRM exception.
+[swift-ass-renderer](https://github.com/mihai8804858/swift-ass-renderer) and
+[swift-libass](https://github.com/mihai8804858/swift-libass), which render
+styled ASS/SSA subtitles, are MIT; the native libraries swift-libass vendors
+carry their own licences (libass ISC, HarfBuzz MIT, FreeType FTL, fontconfig
+MIT, libpng, and FriBidi LGPL-2.1+ — all GPLv3-compatible).
 
 See [PRIVACY.md](PRIVACY.md) for the app's privacy policy — also reachable
 in-app from Profile.

@@ -21,6 +21,11 @@ protocol PlaybackEngine: AnyObject {
     /// AVPlayer axis across producer restarts. Its own callback so subtitle
     /// observers don't unpack a tuple they half ignore.
     var onSourceTimeUpdate: ((TimeInterval) -> Void)? { get set }
+    /// Called whenever the selected subtitle track changes, including when the
+    /// engine picks one itself (a forced track at load). `nil` means subtitles
+    /// are off. Its own callback because a styled-ASS track has to be resolved
+    /// to a script the moment it is selected, by whichever path selected it.
+    var onSubtitleTrackChange: ((Int?) -> Void)? { get set }
     /// Mirrors `AVPictureInPictureController.isPictureInPicturePossible`,
     /// driving the PiP button's enabled state. Permanently `false` on
     /// AetherEngine's software route, which has no native player layer for
@@ -30,6 +35,12 @@ protocol PlaybackEngine: AnyObject {
     /// Whether a PiP window is showing this session's video. `PlayerView` swaps
     /// the video surface for a placeholder while it is `true`.
     var onPictureInPictureActiveChange: ((Bool) -> Void)? { get set }
+
+    /// Fonts the container carries as attachments, for rendering an authored
+    /// ASS track that names one. Empty until a source is open, and empty for a
+    /// route with no local demux (a server-side transcode) — AetherEngine reads
+    /// them off its own probe.
+    var fontAttachments: [ASSFontAttachment] { get }
 
     var audioTracks: [PlaybackTrack] { get }
     var subtitleTracks: [PlaybackTrack] { get }

@@ -65,6 +65,12 @@ enum UITestFixtureIdentity {
     /// Restart button beside it.
     static let partWatchedMovieID = movieID(2)
 
+    /// The single cue in the stubbed ASS script
+    /// (`UITestStubURLProtocol.assScript`). Lives here rather than beside the
+    /// script because the stub is app-target-only, while this file is shared
+    /// with the UI-test target — see `StyledSubtitleJourneyTests`.
+    static let styledSubtitleCueText = "Styled subtitle fixture"
+
     static let serverName = "Dionysus UI Test Server"
     static let username = "uitester"
     static let password = "uitest-password"

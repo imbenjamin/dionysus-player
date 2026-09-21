@@ -322,7 +322,12 @@ enum UITestFixtureLibrary {
             audioStream(index: 1, language: "eng", codec: "eac3", channels: 6, isDefault: true),
             audioStream(index: 2, language: "fra", codec: "aac", channels: 2, isDefault: false),
             subtitleStream(index: 3, language: "eng", isForced: false),
-            subtitleStream(index: 4, language: "eng", isForced: true)
+            subtitleStream(index: 4, language: "eng", isForced: true),
+            // Embedded ASS, pairing with `PreviewPlaybackEngine`'s own ASS
+            // track. Note the index does not match that track's id — which is
+            // the point: the two are numbered independently, and the app maps
+            // them by ordinal.
+            assSubtitleStream(index: 6, language: "eng")
         ]
         return source
     }
@@ -350,6 +355,17 @@ enum UITestFixtureLibrary {
         stream.bitRate = channels == 6 ? 768_000 : 192_000
         stream.isDefault = isDefault
         stream.displayTitle = "\(language.uppercased()) \(codec.uppercased())"
+        return stream
+    }
+
+    /// An authored-ASS track, for the styled-subtitle path.
+    private static func assSubtitleStream(index: Int, language: String) -> MediaStream {
+        var stream = MediaStream(index: index, type: "Subtitle")
+        stream.codec = "ass"
+        stream.language = language
+        stream.isForced = false
+        stream.isExternal = false
+        stream.displayTitle = "English (Styled)"
         return stream
     }
 

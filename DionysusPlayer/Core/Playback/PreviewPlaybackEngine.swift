@@ -15,6 +15,8 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     var onTimeUpdate: ((TimeInterval, TimeInterval) -> Void)?
     var onSubtitleCuesChange: (([SubtitleCueDisplay]) -> Void)?
     var onSourceTimeUpdate: ((TimeInterval) -> Void)?
+    var onSubtitleTrackChange: ((Int?) -> Void)?
+    var fontAttachments: [ASSFontAttachment] = []
     var onPictureInPicturePossibleChange: ((Bool) -> Void)?
     var onPictureInPictureActiveChange: ((Bool) -> Void)?
 
@@ -23,8 +25,16 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         PlaybackTrack(id: 1, kind: .audio, title: "Director's Commentary", metadata: "English · AAC · Stereo · Commentary", isSelected: false)
     ]
     var subtitleTracks: [PlaybackTrack] = [
-        PlaybackTrack(id: 0, kind: .subtitle, title: "English", metadata: "Default", isSelected: false),
-        PlaybackTrack(id: 1, kind: .subtitle, title: "English", metadata: "Hearing Impaired", isSelected: false)
+        PlaybackTrack(id: 0, kind: .subtitle, title: "English", metadata: "Default",
+                      isSelected: false, codec: "subrip"),
+        PlaybackTrack(id: 1, kind: .subtitle, title: "English", metadata: "Hearing Impaired",
+                      isSelected: false, codec: "subrip"),
+        // An authored-ASS track, so the styled path has something to select.
+        // Embedded and last, matching the fixture's own stream order — the
+        // track/stream pairing is by ordinal among embedded ASS entries (see
+        // `PlayerViewModel.jellyfinStream(forTrack:engineTracks:mediaStreams:)`).
+        PlaybackTrack(id: 2, kind: .subtitle, title: "English", metadata: "Styled",
+                      isSelected: false, codec: "ass")
     ]
     var videoFormatDescription: String? = "Dolby Vision P8.1"
     var videoNaturalSize: CGSize? = CGSize(width: 3840, height: 1600)
@@ -96,8 +106,17 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         stopTicking()
         onStateChange?(.ended)
     }
-    func selectAudioTrack(id: Int) {}
-    func selectSubtitleTrack(id: Int?) {}
+    func selectAudioTrack(id: Int) {
+        audioTracks = audioTracks.map { $0.selected($0.id == id) }
+    }
+
+    /// Unlike the audio counterpart this has to announce itself: the styled-ASS
+    /// path hangs off `onSubtitleTrackChange`, so a no-op here would leave a UI
+    /// test unable to reach it at all.
+    func selectSubtitleTrack(id: Int?) {
+        subtitleTracks = subtitleTracks.map { $0.selected($0.id == id) }
+        onSubtitleTrackChange?(id)
+    }
     func startPictureInPicture() {}
     func stopPictureInPicture() {}
     func setNowPlayingInfo(title: String, subtitle: String?, artwork: UIImage?) {}

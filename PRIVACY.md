@@ -64,8 +64,13 @@ directs (streaming or downloading from your configured server), but as
 with any third-party software, we can't audit their internals directly.
 The app also uses [SwiftUI-Shimmer](https://github.com/markiv/SwiftUI-Shimmer),
 a small open-source loading-animation effect with no network access of its
-own. See the in-app **License** screen (Profile → License) for the full
-set of licenses involved.
+own, and [swift-ass-renderer](https://github.com/mihai8804858/swift-ass-renderer)
+with [swift-libass](https://github.com/mihai8804858/swift-libass), which draw
+styled subtitles on-device using libass. These render subtitle text the app
+has already fetched from your server; they make no network connections and
+read no data beyond the subtitle track and any fonts embedded in the file
+being played. See the in-app **License** screen (Profile → License) for the
+full set of licenses involved.
 
 ## Data Retention & Deletion
 

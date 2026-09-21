@@ -241,6 +241,11 @@ enum A11yID {
     }
 
     enum Player {
+        /// The composited libass bitmap, present only while an authored
+        /// ASS/SSA track is being rendered by it. Its accessibility LABEL
+        /// carries the cue text, which is the only way a test — or VoiceOver —
+        /// can read a subtitle that is a picture rather than a `Text`.
+        static let styledSubtitle = "player.styledSubtitle"
         static let closeButton = "player.closeButton"
         static let playPauseButton = "player.playPauseButton"
         static let skipForwardButton = "player.skipForwardButton"

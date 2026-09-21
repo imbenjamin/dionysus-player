@@ -604,6 +604,11 @@ struct PlayerScreen: Screen {
 
     var subtitleOffOption: XCUIElement { app.descendants(matching: .any)[A11yID.Player.subtitleOffOption] }
 
+    /// The composited libass bitmap. Present only while an authored ASS
+    /// track is selected AND libass has produced a frame, so its mere
+    /// existence is the assertion; its `label` carries the cue text.
+    var styledSubtitle: XCUIElement { app.descendants(matching: .any)[A11yID.Player.styledSubtitle] }
+
     /// A chapter picker row, addressed by `Chapter.index` (0-based).
     func chapterOption(_ index: Int) -> XCUIElement {
         app.buttons[A11yID.Player.chapterOption(index)]

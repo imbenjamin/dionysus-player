@@ -50,6 +50,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
     var onStateChange: ((PlaybackState) -> Void)?
     var onTimeUpdate: ((TimeInterval, TimeInterval) -> Void)?
     var onSubtitleCuesChange: (([SubtitleCueDisplay]) -> Void)?
+    var onSubtitleTrackChange: ((Int?) -> Void)?
     var onSourceTimeUpdate: ((TimeInterval) -> Void)?
     var onPictureInPicturePossibleChange: ((Bool) -> Void)?
     var onPictureInPictureActiveChange: ((Bool) -> Void)?
@@ -65,6 +66,12 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// `init()`, whose signature `NSObject.init()` occupies. A small proxy
     /// avoids retrofitting inheritance for one protocol.
     private let pipDelegateProxy = PictureInPictureDelegateProxy()
+
+    /// Mapped on demand rather than mirrored: payloads run to tens of MB, and
+    /// only a styled-ASS selection ever reads them.
+    var fontAttachments: [ASSFontAttachment] {
+        engine.fontAttachments.map { ASSFontAttachment(filename: $0.filename, data: $0.data) }
+    }
 
     private(set) var audioTracks: [PlaybackTrack] = []
     private(set) var subtitleTracks: [PlaybackTrack] = []
@@ -294,6 +301,16 @@ final class AetherPlaybackEngine: PlaybackEngine {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.subtitleTracks = Self.normalize(tracks, kind: .subtitle, selectedID: self.selectedSubtitleTrackID)
+                    // The track LIST and the selected INDEX are published
+                    // separately, and at load the engine can auto-select a
+                    // forced track before the list has landed. A listener that
+                    // needs to look the selection up (see
+                    // `PlayerViewModel.handleSubtitleTrackChange`) would find
+                    // nothing and, since the index never changes again, never
+                    // get a second chance. Re-announcing the current selection
+                    // whenever the list changes gives it one; the listener is
+                    // idempotent for a selection it has already handled.
+                    self.onSubtitleTrackChange?(self.selectedSubtitleTrackID)
                 }
             }
             .store(in: &cancellables)
@@ -325,6 +342,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
                     guard let self else { return }
                     self.selectedSubtitleTrackID = index
                     self.subtitleTracks = self.subtitleTracks.map { $0.selected($0.id == index) }
+                    self.onSubtitleTrackChange?(index)
                 }
             }
             .store(in: &cancellables)
@@ -870,7 +888,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
                     for: track, kind: kind, providedName: providedName,
                     knownAtmosAudioTrackIndices: knownAtmosAudioTrackIndices
                 ),
-                isSelected: track.id == selectedID
+                isSelected: track.id == selectedID,
+                codec: track.codec,
+                isExternal: track.isExternal
             )
         }
     }

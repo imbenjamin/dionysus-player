@@ -131,6 +131,14 @@ struct PlaybackTrack: Identifiable, Hashable {
     /// and channel layout. `nil` when nothing applies.
     var metadata: String?
     var isSelected: Bool
+    /// Lower-case libavcodec name ("subrip", "ass", "pgssub"). Lets a caller
+    /// tell an authored-ASS track from a plain-text one without re-deriving it
+    /// from the label.
+    var codec: String?
+    /// True for a sidecar this app registered, false for a track inside the
+    /// container. Together with `codec` this is what maps a track back to the
+    /// Jellyfin `MediaStream` it came from.
+    var isExternal: Bool = false
 
     /// A copy with only `isSelected` changed. `AetherPlaybackEngine` re-maps
     /// its whole track list on every selection change to flip this one field.
@@ -227,6 +235,38 @@ struct SubtitleCueDisplay: Identifiable, Equatable {
         case .text(let string): return string
         case .richText(let runs): return runs.map(\.text).joined()
         case .image: return nil
+        }
+    }
+}
+
+// MARK: - ASS styling
+
+/// A font the container carried as an attachment, for an ASS script that names
+/// a face the device doesn't have. Fansub and retail typesetting tracks both
+/// rely on these — without them libass silently falls back to a system face and
+/// the styling is wrong in a way that looks deliberate.
+struct ASSFontAttachment: Equatable {
+    var filename: String
+    var data: Data
+}
+
+/// Where the complete ASS/SSA script for a subtitle track can be read from.
+///
+/// Authored ASS is rendered by libass from a WHOLE script, not from the cue
+/// stream AetherEngine publishes — so the app fetches the script itself rather
+/// than reassembling it from cues. Both cases are already served: Jellyfin
+/// extracts any subtitle stream, embedded ones included, through
+/// `JellyfinAPIClient.subtitleURL`, and `DownloadManager` stores every
+/// non-bitmap track as a sidecar next to the video.
+enum ASSScriptSource: Equatable {
+    /// Jellyfin's subtitle route for one `MediaStream.index`.
+    case remote(URL)
+    /// A `.ass` / `.ssa` sidecar already on disk for a downloaded item.
+    case localFile(URL)
+
+    var url: URL {
+        switch self {
+        case .remote(let url), .localFile(let url): return url
         }
     }
 }

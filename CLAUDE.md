@@ -399,6 +399,65 @@ PiP rebuilds on), and `PlayerViewModel.start()` stages title/subtitle
 subtitle:artwork:)` immediately, with artwork following separately once
 fetched through `RemoteImageLoader`.
 
+### Subtitles
+
+Two renderers, split by codec. **ASS/SSA goes to libass**
+(`ASSSubtitleRenderSession`, on the `swift-ass-renderer` package); everything
+else — SubRip, WebVTT, teletext, PGS and other bitmap formats — keeps
+rendering through `SubtitleOverlayView`'s own SwiftUI path on the cues
+AetherEngine publishes. Four things about that split are load-bearing and none
+are guessable:
+
+- **`LoadOptions.preserveASSMarkup` is deliberately NOT set.** The app fetches
+  the complete `.ass` script itself instead, so AetherEngine's cue path stays
+  exactly as it was for every track. Jellyfin extracts any subtitle stream —
+  embedded ones included — via `JellyfinAPIClient.subtitleURL`, and
+  `DownloadManager` already stores every non-bitmap track as a sidecar, so the
+  script is always available without it. Turning the flag on would also hit
+  AetherEngine#587: it is codec-gated on the sidecar path but *not* on the
+  embedded one, so it would flip embedded SubRip to raw event lines too.
+- **A whole script, loaded once — never `reloadTrack` per cue.**
+  `swift-ass-renderer` exposes only whole-script load/reload, and `reloadTrack`
+  frees the current track synchronously, so feeding it a growing script blinks
+  the subtitle off on every rebuild. Reloading only happens on a geometry
+  change, which is cheap (0.4–1.7ms for a 218KB script) and deliberately does
+  not clear the outgoing frame.
+- **Engine track ids and Jellyfin `MediaStream.index` disagree**, so the two
+  are paired by ordinal among *embedded ASS* entries — see
+  `PlayerViewModel.jellyfinStream(forTrack:engineTracks:mediaStreams:)` and
+  `ASSSubtitleMappingTests`. Filtering both sides identically is what makes
+  the ordinal meaningful; counting bitmap or external tracks shifts it and
+  silently fetches the wrong track's script.
+- **A cold fetch can take over a minute.** Jellyfin extracts an embedded track
+  on demand and caches it: 70s measured against a 4K remux, 0.03s after. The
+  request therefore carries its own 180s timeout (`URLSession`'s 60s default
+  cut it off just before it finished), and until the script lands the cue path
+  renders the same track unstyled, so there is never a dead screen.
+
+**Geometry.** libass gets the whole overlay as its frame with `ass_set_margins`
+describing where the picture sits inside it, and `ass_set_use_margins` on —
+the documented mechanism for subtitles in the letterbox bar. That reproduces
+the app's own convention for free: regular dialogue moves below the picture in
+portrait while `\pos` / `\an` signs stay anchored to the frame they were
+authored against. The bottom clearance is **measured**, not constant —
+`PlayerControlsOverlay` publishes its chrome's top edge via
+`BottomChromeTopKey`, because that chrome's height varies with content (the
+chapter/format row is ~48pt and only present sometimes) and because the
+controls respect the safe area while the subtitle overlay ignores it.
+
+**Embedded fonts are registered with CoreText, not fontconfig.**
+`engine.fontAttachments` (populated from AetherEngine's probe regardless of
+`preserveASSMarkup`) are written to a temp directory and registered with
+`CTFontManagerRegisterFontsForURL` at `.process` scope. The fontconfig
+provider would resolve embedded faces at the cost of every system one — the
+wrapper's generated `fonts.conf` declares exactly one directory and no system
+font paths. Registration is process-global, so teardown unregisters precisely
+what it registered. Fonts are unavailable on a server-side transcode and
+offline (no local demux, and MP4 carries no attachments); Jellyfin's
+`/Videos/{id}/{source}/Attachments/{index}` route would cover both but is not
+wired up.
+
+
 ### Features (`Features/*`)
 
 Each feature folder is a vertical slice: a SwiftUI `View` + an `@Observable`

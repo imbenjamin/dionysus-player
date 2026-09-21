@@ -15,6 +15,8 @@ final class FakePlaybackEngine: PlaybackEngine {
     var onTimeUpdate: ((TimeInterval, TimeInterval) -> Void)?
     var onSubtitleCuesChange: (([SubtitleCueDisplay]) -> Void)?
     var onSourceTimeUpdate: ((TimeInterval) -> Void)?
+    var onSubtitleTrackChange: ((Int?) -> Void)?
+    var fontAttachments: [ASSFontAttachment] = []
     var onPictureInPicturePossibleChange: ((Bool) -> Void)?
     var onPictureInPictureActiveChange: ((Bool) -> Void)?
 

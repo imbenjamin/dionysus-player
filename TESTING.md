@@ -149,6 +149,8 @@ would use to point at a real server. The `ViewModel` tests reuse this same
 pattern, since ViewModels are constructed with an already-built client
 (per `CLAUDE.md`'s architecture notes), not a protocol either.
 
+| Authored-ASS subtitle mapping | `ASSSubtitleMappingTests.swift` | The two pure decisions behind styled subtitles. `PlayerViewModel.isAuthoredASS(_:)` — which codecs go to libass at all (`ass`/`ssa`, case-folded) and which stay on `SubtitleOverlayView`'s own cue path (SubRip, WebVTT, mov_text, every bitmap format, `nil`); getting it wrong doesn't degrade styling, it sends a track to libass that has no ASS script to fetch. And `isAuthoredASSPath(_:)`, the downloaded-sidecar counterpart, which reads the extension because `DownloadedSubtitleFile` records no codec. Then the mapping itself, `jellyfinStream(forTrack:engineTracks:mediaStreams:)`: AetherEngine numbers an embedded track by its `AVStream` index while Jellyfin numbers the same track by its own `MediaStream.index`, and the two disagree in practice (engine id 2 against Jellyfin index 3 on one file, id 5 against index 6 on another), so they're paired by ordinal among embedded ASS entries. Most of these cases are about that ordinal staying meaningful — bitmap streams interleaved between the ASS ones, external sidecars, and audio/video streams sharing the same index sequence all have to be filtered out of BOTH sides identically, since counting any of them shifts the ordinal and silently fetches a different track's script (which reads as a subtitle-timing bug, not a mapping one). Plus the two nil cases: a non-ASS track, and the two sides disagreeing about how many ASS streams exist, which is not a case to guess at. |
+
 ## What's *not* covered yet
 
 - **SwiftUI views, as views** — no snapshot tests. Views here are mostly thin
@@ -513,11 +515,27 @@ suspension and OS-relaunch resumption stay device-only checks.
 **A fake playback engine**, via `PlaybackEngineFactory`. With no AetherEngine
 there is no video surface, so `PlayerControlsOverlay` is plain SwiftUI that
 XCUITest can drive. What this does *not* cover is decode, HDR, transcode and
-seek — those still need real media on a real device. Note its
-`selectAudioTrack(id:)`/`selectSubtitleTrack(id:)` are no-ops that never
-flip a track's own `isSelected`, so the track-picker journey asserts that a
-leaf is reachable and that tapping a row dismisses the picker — not that the
-selection is retained.
+seek — those still need real media on a real device.
+
+Its `selectAudioTrack(id:)`/`selectSubtitleTrack(id:)` do track the selection
+(they were once no-ops), because the authored-ASS path hangs off
+`onSubtitleTrackChange` and would otherwise be unreachable from a UI test at
+all. Its canned subtitle tracks include one with `codec: "ass"`, paired with
+an embedded ASS `MediaStream` in the fixture whose `index` deliberately does
+*not* match that track's id — the app maps the two by ordinal, and a fixture
+where they happened to agree would pass even if that mapping were broken.
+
+libass itself is NOT faked: `StyledSubtitleJourneyTests` drives the real
+renderer over a real script (`UITestStubURLProtocol.assScript`). The script
+has to be real — arbitrary bytes parse to zero events and render nothing,
+which is indistinguishable from the feature being broken. Because libass
+composites a whole frame into one bitmap there is no `Text` to read, so the
+overlay's accessibility label (the cue text, which is also what VoiceOver
+gets) is what the journey asserts on. Note the stub matches `/Subtitles/`
+*before* `/Videos/`: a subtitle URL contains both, and the other order
+answers every subtitle request with a synthetic MP4 — which a download
+happily writes to disk, and which the styled path can only read as "this
+track has no script".
 
 ### Selectors
 
