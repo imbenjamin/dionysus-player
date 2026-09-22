@@ -101,3 +101,34 @@ final class StyledSubtitleJourneyTests: UITestCase {
         )
     }
 }
+
+extension StyledSubtitleJourneyTests {
+    /// Top-aligned signs must stay on the picture.
+    ///
+    /// `ass_set_use_margins` — which is what puts regular dialogue in the bar
+    /// below the picture — relocates *every* regular event into the margins,
+    /// and a top-aligned event is regular. With a top margin present that sends
+    /// an `\an8` sign into the letterbox bar above the picture, which is
+    /// precisely where a sign annotating the image must not be. The fixture
+    /// script carries one such cue alongside the bottom one, so the composited
+    /// bitmap spans both and its top edge is the sign's.
+    func testTopAlignedSignStaysOnThePicture() {
+        let player = openPlayer()
+        selectASSTrack(player)
+        player.styledSubtitle.awaitExistence("the libass-rendered subtitle")
+
+        XCTAssertTrue(
+            player.styledSubtitle.label.contains(UITestFixtureIdentity.styledSubtitleTopCueText),
+            "The fixture's top-aligned cue should be on screen alongside the bottom one."
+        )
+        XCTAssertGreaterThan(
+            player.styledSubtitle.frame.minY,
+            UITestFixtureIdentity.styledSubtitleMinimumTopY,
+            """
+            A top-aligned sign rendered near the top of the SCREEN rather than \
+            the top of the picture — the letterbox bar above the video, which \
+            means libass was given a top margin to relocate it into.
+            """
+        )
+    }
+}

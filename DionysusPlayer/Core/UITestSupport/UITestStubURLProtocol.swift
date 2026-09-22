@@ -956,7 +956,13 @@ extension UITestStubURLProtocol {
             "",
             "[Events]",
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-            "Dialogue: 0,0:00:01.00,9:59:59.00,Default,,0,0,0,,\(UITestFixtureIdentity.styledSubtitleCueText)"
+            "Dialogue: 0,0:00:01.00,9:59:59.00,Default,,0,0,0,,\(UITestFixtureIdentity.styledSubtitleCueText)",
+            // Top-aligned, running the same span so both are always on screen.
+            // `ass_set_use_margins` relocates regular events into the margins
+            // and a top-aligned event is regular, so this lands ABOVE the
+            // picture unless libass' frame starts at the picture's top edge —
+            // see `ASSSubtitleRenderSession.Geometry.renderOriginY`.
+            "Dialogue: 0,0:00:01.00,9:59:59.00,Default,,0,0,0,,{\\an8}\(UITestFixtureIdentity.styledSubtitleTopCueText)"
         ].joined(separator: "\n")
     }
 }

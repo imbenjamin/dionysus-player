@@ -71,6 +71,16 @@ enum UITestFixtureIdentity {
     /// with the UI-test target — see `StyledSubtitleJourneyTests`.
     static let styledSubtitleCueText = "Styled subtitle fixture"
 
+    /// The `\an8` cue in the same script, for the regression guard on
+    /// top-aligned signs being pushed above the picture.
+    static let styledSubtitleTopCueText = "Top aligned sign"
+
+    /// A styled subtitle must never render this close to the top of the
+    /// screen. Misplaced into the top letterbox bar it lands around y 9;
+    /// correctly placed it sits at the top of the picture, which on the
+    /// fixture's 2.4:1 video in portrait is past y 350.
+    static let styledSubtitleMinimumTopY: Double = 150
+
     static let serverName = "Dionysus UI Test Server"
     static let username = "uitester"
     static let password = "uitest-password"

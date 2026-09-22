@@ -60,9 +60,34 @@ final class ASSSubtitleRenderSession {
         var bottomInset: CGFloat
         var scale: CGFloat
 
+        /// Where libass' frame starts inside `frame`: the picture's top edge.
+        ///
+        /// The frame is shifted down rather than starting at the overlay's top
+        /// so that there is NO top margin. `ass_set_use_margins` relocates every
+        /// *regular* event into the margins, and top-aligned events are regular
+        /// — so a top margin sends an `\an8` sign into the letterbox bar ABOVE
+        /// the picture, which is exactly where a sign must not be (measured:
+        /// y 9–23 against a picture starting at 324). With no top margin there
+        /// is nowhere for it to go, and it lands on the picture where it was
+        /// authored.
+        ///
+        /// The cost is `\an5`: middle-aligned regular events centre in the
+        /// frame, and the frame is now the picture plus the bar below it, so a
+        /// bare centred sign sits low. That is a real trade in libass' margin
+        /// model — only a zero top margin places `\an8` correctly, only a
+        /// symmetric one places `\an5` correctly, and the bottom bar this
+        /// feature exists for rules out both being zero. `\an8` wins on
+        /// frequency: typesetting uses it constantly, while a bare `\an5` is
+        /// rare and almost always carries a `\pos`, which is positioned rather
+        /// than regular and so is exempt from margins entirely.
+        var renderOriginY: CGFloat { video.minY }
+
         /// What libass is actually given as its frame.
         var renderFrame: CGSize {
-            CGSize(width: frame.width, height: max(frame.height - bottomInset, 1))
+            CGSize(
+                width: frame.width,
+                height: max(frame.height - bottomInset - renderOriginY, 1)
+            )
         }
     }
 
@@ -158,8 +183,11 @@ final class ASSSubtitleRenderSession {
         // `setCanvasSize` passes to `ass_set_frame_size`.
         let scale = geometry.scale
         let renderFrame = geometry.renderFrame
-        let top = Int32((geometry.video.minY * scale).rounded())
-        let bottom = Int32((max(renderFrame.height - geometry.video.maxY, 0) * scale).rounded())
+        // In the shifted frame the picture starts at y 0, so the top margin is
+        // zero by construction — see `Geometry.renderOriginY`.
+        let videoHeight = geometry.video.height
+        let top: Int32 = 0
+        let bottom = Int32((max(renderFrame.height - videoHeight, 0) * scale).rounded())
         let left = Int32((geometry.video.minX * scale).rounded())
         let right = Int32((max(renderFrame.width - geometry.video.maxX, 0) * scale).rounded())
 

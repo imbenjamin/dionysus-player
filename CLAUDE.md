@@ -434,12 +434,21 @@ are guessable:
   cut it off just before it finished), and until the script lands the cue path
   renders the same track unstyled, so there is never a dead screen.
 
-**Geometry.** libass gets the whole overlay as its frame with `ass_set_margins`
-describing where the picture sits inside it, and `ass_set_use_margins` on —
-the documented mechanism for subtitles in the letterbox bar. That reproduces
-the app's own convention for free: regular dialogue moves below the picture in
-portrait while `\pos` / `\an` signs stay anchored to the frame they were
-authored against. The bottom clearance is **measured**, not constant —
+**Geometry.** libass gets a frame running from the picture's top edge to the
+bottom of the overlay, with `ass_set_margins` describing the bar below the
+picture and `ass_set_use_margins` on — the documented mechanism for subtitles
+in the letterbox bar. Regular dialogue moves into that bar while `\pos` signs,
+which are positioned rather than regular, stay anchored to the picture.
+
+The frame starts at the picture rather than the overlay so there is **no top
+margin**. `use_margins` relocates every *regular* event into the margins and
+top-aligned events are regular, so a top margin sends an `\an8` sign into the
+bar above the picture — measured at y 9–23 against a picture starting at 324.
+The cost is a bare `\an5`, which centres in the frame and so sits low; that is
+a real trade in libass' model (only a zero top margin places `\an8` right, only
+a symmetric one places `\an5` right, and the bottom bar rules out both being
+zero) settled on frequency — typesetting uses `\an8` constantly, while a bare
+`\an5` is rare and usually carries a `\pos`, which is exempt anyway. The bottom clearance is **measured**, not constant —
 `PlayerControlsOverlay` publishes its chrome's top edge via
 `BottomChromeTopKey`, because that chrome's height varies with content (the
 chapter/format row is ~48pt and only present sometimes) and because the

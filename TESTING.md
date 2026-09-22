@@ -528,7 +528,12 @@ where they happened to agree would pass even if that mapping were broken.
 libass itself is NOT faked: `StyledSubtitleJourneyTests` drives the real
 renderer over a real script (`UITestStubURLProtocol.assScript`). The script
 has to be real — arbitrary bytes parse to zero events and render nothing,
-which is indistinguishable from the feature being broken. Because libass
+which is indistinguishable from the feature being broken. It carries two
+always-on cues, one bottom-aligned and one `\an8`, so a journey can check
+that a top-aligned sign stays on the picture rather than being relocated into
+the letterbox bar above it: that guard asserts on the element's `frame`, and
+was confirmed to fail against the pre-fix geometry (y 7 against a floor of
+150) rather than merely passing against the fixed one. Because libass
 composites a whole frame into one bitmap there is no `Text` to read, so the
 overlay's accessibility label (the cue text, which is also what VoiceOver
 gets) is what the journey asserts on. Note the stub matches `/Subtitles/`

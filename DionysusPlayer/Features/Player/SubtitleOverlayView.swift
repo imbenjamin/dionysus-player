@@ -185,12 +185,11 @@ struct SubtitleOverlayView: View {
 
     /// Paints the frame libass composited for `viewModel.sourceTime`.
     ///
-    /// libass is given the WHOLE overlay as its frame, with margins describing
-    /// where the picture sits inside it (see `ASSSubtitleRenderSession`), so
-    /// `imageRect` is already in this view's own coordinate space and needs no
-    /// offset. That is also what keeps this consistent with the hand-rolled path
-    /// above: regular dialogue is allowed into the letterbox bar below the
-    /// picture in portrait, while `\pos` / `\an` signs stay on the picture.
+    /// libass' frame starts at the picture's top edge rather than the overlay's
+    /// (see `ASSSubtitleRenderSession.Geometry.renderOriginY`), so `imageRect`
+    /// comes back in that shifted space and `video.minY` puts it back. What the
+    /// shift buys is that a top-aligned sign has no margin above the picture to
+    /// be relocated into; regular dialogue still drops into the bar below.
     @ViewBuilder
     private func assFrameView(frame: CGSize, video: CGRect, bottomInset: CGFloat) -> some View {
         let _ = viewModel.assFrameGeneration
@@ -198,7 +197,7 @@ struct SubtitleOverlayView: View {
             Image(decorative: rendered.image, scale: 1)
                 .resizable()
                 .frame(width: rendered.imageRect.width, height: rendered.imageRect.height)
-                .position(x: rendered.imageRect.midX, y: rendered.imageRect.midY)
+                .position(x: rendered.imageRect.midX, y: video.minY + rendered.imageRect.midY)
                 .accessibilityElement()
                 .accessibilityLabel(viewModel.assRenderSession.dialogues(at: viewModel.sourceTime).joined(separator: " "))
                 .accessibilityIdentifier(A11yID.Player.styledSubtitle)
