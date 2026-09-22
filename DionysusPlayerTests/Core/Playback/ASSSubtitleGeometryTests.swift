@@ -178,4 +178,78 @@ final class ASSSubtitleGeometryTests: XCTestCase {
         XCTAssertEqual(margins.left, 0)
         XCTAssertEqual(margins.right, 0)
     }
+
+    // MARK: - Font scale
+
+    /// Portrait's frame is taller than the picture — it includes the bar below
+    /// it — so regular events already scale to the picture and there is nothing
+    /// to compensate. Asserting the exact 1 matters more than it looks: any
+    /// other value here would resize every portrait subtitle in the app, which
+    /// is the common case and was correct before this existed.
+    func test_portrait_fontScaleIsExactlyOne() {
+        XCTAssertEqual(portrait(bottomInset: 28).fontScale, 1)
+        XCTAssertEqual(portrait(bottomInset: 132).fontScale, 1)
+    }
+
+    /// Landscape has no bar: the picture fills the screen and the frame stops
+    /// at the safe area, so regular events scale to the frame and come out
+    /// small. Measured at ~7% by rendered width before this compensation.
+    func test_landscape_fontScaleCompensatesTheShortFrame() {
+        let geometry = landscape(bottomInset: 28)
+        // Frame 402 - 28 (the resting inset, which beats the 21pt home
+        // indicator) = 374 tall against a 402pt picture.
+        XCTAssertEqual(geometry.fontScale, 402.0 / 374.0, accuracy: 0.001)
+    }
+
+    /// And much more so with the controls up, where the frame is confined to
+    /// the space above the transport chrome — measured at ~28% small.
+    func test_landscapeControlsUp_fontScaleCompensatesMore() {
+        let atRest = landscape(bottomInset: 28).fontScale
+        let controlsUp = landscape(bottomInset: 124).fontScale
+        XCTAssertEqual(controlsUp, 402.0 / 278.0, accuracy: 0.001)
+        XCTAssertGreaterThan(controlsUp, atRest)
+    }
+
+    /// The property this is actually for, stated directly: whatever the frame
+    /// ends up being, a regular event is laid out as though the frame were the
+    /// picture. libass scales those to `min(frame, picture)`, so multiplying by
+    /// this factor restores the picture's own height in every configuration.
+    func test_fontScaleRestoresThePictureHeightInEveryConfiguration() {
+        for (name, geometry) in [
+            ("portrait", portrait(bottomInset: 28)),
+            ("portrait, controls up", portrait(bottomInset: 132)),
+            ("landscape", landscape(bottomInset: 28)),
+            ("landscape, controls up", landscape(bottomInset: 124)),
+            ("landscape full-bleed", landscapeFullBleed(bottomInset: 28)),
+            ("landscape full-bleed, controls up", landscapeFullBleed(bottomInset: 124))
+        ] {
+            let effective = min(geometry.renderFrame.height, geometry.video.height) * geometry.fontScale
+            XCTAssertEqual(
+                effective, geometry.video.height, accuracy: 0.01,
+                "\(name): regular events should be scaled as though the frame were the picture"
+            )
+        }
+    }
+
+    /// Never below 1. A frame taller than the picture is portrait's normal
+    /// state, and libass has already scaled to the picture there — scaling down
+    /// on top of that would shrink text that was correct.
+    func test_fontScaleNeverShrinks() {
+        let tallFrame = ASSSubtitleRenderSession.Geometry(
+            frame: CGSize(width: 402, height: 2000),
+            video: CGRect(x: 0, y: 0, width: 402, height: 226),
+            safeArea: .zero, bottomInset: 0, scale: scale
+        )
+        XCTAssertEqual(tallFrame.fontScale, 1)
+    }
+
+    /// Degenerate geometry — a zero-height picture before `videoNaturalSize`
+    /// has settled — must not produce a zero or infinite scale.
+    func test_fontScaleIsOneForDegenerateGeometry() {
+        let empty = ASSSubtitleRenderSession.Geometry(
+            frame: CGSize(width: 402, height: 874),
+            video: .zero, safeArea: .zero, bottomInset: 0, scale: scale
+        )
+        XCTAssertEqual(empty.fontScale, 1)
+    }
 }

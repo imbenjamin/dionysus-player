@@ -460,12 +460,25 @@ sign at y 20–34 against a correct 29–49, and 30% undersized). Portrait margi
 are positive, so the clamp never fired there and the defect was landscape-only.
 `ASSSubtitleGeometryTests` pins both orientations.
 
-Note that regular events still take their font scale from the *frame* rather
-than the video area, so while the transport row is up they render smaller than
-authored (about 7% with the controls hidden, more while they're visible).
-`ass_set_storage_size` does not help — it affects aspect ratio and blur, not
-scale — and there is no way in libass' model to confine regular events to a
-shorter frame while scaling them to the full picture.
+**Regular events take their font scale from the frame, so landscape needs
+`ass_set_font_scale`.** libass scales a regular event to whichever of the frame
+and the video area is smaller, while a positioned one always scales to the
+video area. In portrait the frame is the taller of the two (it includes the bar
+below the picture), so the two agree. In landscape the picture fills the screen
+and the frame stops short of the chrome, so dialogue rendered about 7% small at
+rest and 28% small with the controls up — measured by rendered *width*, since
+glyph heights are quantised too coarsely to see a 7% difference.
+`Geometry.fontScale` (`max(1, pictureHeight / frameHeight)`) compensates,
+restoring all three of dialogue, `\pos` and `\an8` to the widths they render
+at against a full-height frame, and resolving to exactly 1 in portrait so the
+common case is untouched. Positioned events are unaffected by it — verified by
+measurement, not assumed. Note `ass_set_storage_size` is *not* the knob for
+this: it affects aspect ratio and blur, not scale.
+
+An earlier version of this section stated the opposite — that there was "no way
+in libass' model to confine regular events to a shorter frame while scaling
+them to the full picture". That was wrong; `ass_set_font_scale` is exactly that
+knob, and it was missed rather than ruled out.
 
 The frame starts at the picture rather than the overlay so there is **no top
 margin**. `use_margins` relocates every *regular* event into the margins and

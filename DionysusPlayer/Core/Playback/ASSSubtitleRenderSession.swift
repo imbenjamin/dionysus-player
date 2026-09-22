@@ -104,6 +104,26 @@ final class ASSSubtitleRenderSession {
         /// What libass is given as its frame.
         var renderFrame: CGSize { drawable.size }
 
+        /// Compensation for libass scaling regular events to the FRAME rather
+        /// than to the picture.
+        ///
+        /// Positioned events scale to the picture (frame minus margins) and are
+        /// already right; regular ones scale to whichever of the two is
+        /// smaller. In portrait the frame is larger than the picture — it
+        /// includes the bar below it — so the two agree and this is 1. In
+        /// landscape the picture fills the screen and the frame stops short of
+        /// the transport chrome, so regular text came out ~7% small at rest and
+        /// ~28% small with the controls up, measured by rendered width.
+        ///
+        /// `ass_set_font_scale` puts it back without touching positioned
+        /// events, which measurement confirms it leaves alone. Never below 1:
+        /// scaling *down* would undo a size that is already correct.
+        var fontScale: Double {
+            let frameHeight = renderFrame.height
+            guard frameHeight > 0, video.height > 0 else { return 1 }
+            return max(1, Double(video.height / frameHeight))
+        }
+
         /// Where the picture sits relative to `renderFrame`, in renderer pixels.
         ///
         /// **Signed on purpose.** libass documents a negative margin as "the
@@ -223,11 +243,13 @@ final class ASSSubtitleRenderSession {
         let renderFrame = geometry.renderFrame
         let (top, bottom, left, right) = geometry.margins
 
+        let fontScale = geometry.fontScale
         let renderer = AssSubtitlesRenderer(
             fontConfig: makeFontConfig(),
             rendererSetup: { _, handle in
                 ass_set_margins(handle, top, bottom, left, right)
                 ass_set_use_margins(handle, 1)
+                ass_set_font_scale(handle, fontScale)
             }
         )
         self.renderer = renderer
@@ -236,7 +258,7 @@ final class ASSSubtitleRenderSession {
         renderer.loadTrack(content: script)
         renderer.setTimeOffset(currentTime)
         Self.log.debug(
-            "libass track loaded: \(script.count)B frame=\(renderFrame.debugDescription) margins t\(top) b\(bottom) l\(left) r\(right) in \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - started) * 1000))ms"
+            "libass track loaded: \(script.count)B frame=\(renderFrame.debugDescription) margins t\(top) b\(bottom) l\(left) r\(right) fontScale=\(fontScale) in \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - started) * 1000))ms"
         )
     }
 
