@@ -413,9 +413,16 @@ are guessable:
   exactly as it was for every track. Jellyfin extracts any subtitle stream —
   embedded ones included — via `JellyfinAPIClient.subtitleURL`, and
   `DownloadManager` already stores every non-bitmap track as a sidecar, so the
-  script is always available without it. Turning the flag on would also hit
-  AetherEngine#587: it is codec-gated on the sidecar path but *not* on the
-  embedded one, so it would flip embedded SubRip to raw event lines too.
+  script is always available without it. An earlier version of this bullet gave
+  a second reason — that turning the flag on would flip the session's embedded
+  SubRip tracks to raw event lines too, because it is codec-gated on the sidecar
+  path but not on the embedded one (AetherEngine#587). That was wrong, and the
+  issue was refuted upstream by measurement. The gate is in
+  `EmbeddedSubtitleDecoder.init`, which narrows the flag once into a stored
+  property *of the same name*, so the emit site downstream reads as though
+  nothing had been checked when it is reading an already-gated value. Don't
+  re-raise it from reading that line; upstream has since renamed the property to
+  `emitsRawASSLines`. The flag is unnecessary here, not dangerous.
 - **A whole script, loaded once — never `reloadTrack` per cue.**
   `swift-ass-renderer` exposes only whole-script load/reload, and `reloadTrack`
   frees the current track synchronously, so feeding it a growing script blinks
