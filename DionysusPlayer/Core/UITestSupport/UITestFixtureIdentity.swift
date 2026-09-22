@@ -75,6 +75,13 @@ enum UITestFixtureIdentity {
     /// top-aligned signs being pushed above the picture.
     static let styledSubtitleTopCueText = "Top aligned sign"
 
+    /// The cue `PreviewPlaybackEngine` publishes for whichever subtitle track
+    /// is selected — what `SubtitleOverlayView`'s own path paints, as opposed
+    /// to libass. Deliberately distinct text from the styled cues above, so a
+    /// test can tell the two renderers apart rather than inferring one from the
+    /// other's absence.
+    static let plainSubtitleCueText = "Plain subtitle fixture"
+
     /// A styled subtitle must never render this close to the top of the
     /// screen. Misplaced into the top letterbox bar it lands around y 9;
     /// correctly placed it sits at the top of the picture, which on the

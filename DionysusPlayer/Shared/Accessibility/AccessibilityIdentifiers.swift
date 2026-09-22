@@ -246,6 +246,13 @@ enum A11yID {
         /// carries the cue text, which is the only way a test — or VoiceOver —
         /// can read a subtitle that is a picture rather than a `Text`.
         static let styledSubtitle = "player.styledSubtitle"
+
+        /// A cue rendered by the app's OWN overlay rather than libass — every
+        /// SubRip/WebVTT track, and an ASS one with Subtitle Styling off.
+        /// Several can be on screen at once (a sign alongside dialogue), so a
+        /// query for this resolves to more than one element by design; match
+        /// the first.
+        static let plainSubtitle = "player.plainSubtitle"
         static let closeButton = "player.closeButton"
         static let playPauseButton = "player.playPauseButton"
         static let skipForwardButton = "player.skipForwardButton"
@@ -297,6 +304,7 @@ enum A11yID {
         static let signOutButton = "profile.signOutButton"
         static let changeServerButton = "profile.changeServerButton"
         static let advancedPlaybackLink = "profile.advancedPlaybackLink"
+        static let styledSubtitlesToggle = "profile.styledSubtitlesToggle"
         static let downloadsSettingsLink = "profile.downloadsSettingsLink"
         static let qualityLadderLink = "profile.qualityLadderLink"
         static let licenseLink = "profile.licenseLink"

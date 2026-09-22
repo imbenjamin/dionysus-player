@@ -26,6 +26,10 @@ struct AdvancedPlaybackSettingsView: View {
     /// (`PlaybackStatsOverlay.swift`) for why the default itself differs
     /// between debug/dev and release builds.
     @AppStorage(showPlaybackStatsButtonEnabledStorageKey) private var showPlaybackStatsButtonEnabled = showPlaybackStatsButtonEnabledDefault
+    /// Default must stay in lockstep with `styledASSSubtitlesEnabledDefault`,
+    /// which `PlayerViewModel.isStyledASSEnabled(_:)` reads — same
+    /// declared-in-both-places arrangement as the properties above.
+    @AppStorage(styledASSSubtitlesEnabledStorageKey) private var isStyledASSEnabled = styledASSSubtitlesEnabledDefault
 
     var body: some View {
         List {
@@ -60,6 +64,14 @@ struct AdvancedPlaybackSettingsView: View {
                     }
                 }
                 .readableSettingsFooter()
+            }
+
+            Section {
+                Toggle("Subtitle Styling", isOn: $isStyledASSEnabled)
+                    .accessibilityIdentifier(A11yID.Profile.styledSubtitlesToggle)
+            } footer: {
+                Text("Renders the fonts, colours and on-screen positioning authored into ASS and SSA subtitles. Turn this off to show them as plain text instead. Other subtitle formats are unaffected.")
+                    .readableSettingsFooter()
             }
 
             Section {

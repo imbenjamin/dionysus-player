@@ -146,6 +146,7 @@ struct SubtitleOverlayView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .accessibilityIdentifier(A11yID.Player.plainSubtitle)
     }
 
     /// `SubtitleTextRun`s concatenate into one styled `Text` via `+`, mirroring how

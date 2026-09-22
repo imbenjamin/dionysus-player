@@ -150,7 +150,7 @@ pattern, since ViewModels are constructed with an already-built client
 (per `CLAUDE.md`'s architecture notes), not a protocol either.
 
 | Authored-ASS subtitle geometry | `ASSSubtitleGeometryTests.swift` | The drawable region and margins handed to libass, in both orientations and full-bleed. The region is the picture intersected with the safe area, bottom raised for the transport chrome: the overlay ignores the safe area (it has to, to sit over a full-bleed video), so in landscape a corner-aligned sign drew underneath the rounded corner and the sensor housing and was physically cut off — invisible in a screenshot, since the framebuffer has no corners. Pillarboxed landscape is the counter-case, where the bars are wider than the inset so the picture's own edge wins and the horizontal margins come out at zero. The frame starts at the picture's top edge rather than the overlay's, so there is no top margin for `ass_set_use_margins` to relocate a top-aligned sign into (in landscape the picture already starts there, so the shift is a no-op — asserted, since it would be easy to assume otherwise). And the margins are SIGNED: portrait letterboxes, so the bottom margin is positive and dialogue has real empty space to move into; landscape fills the screen vertically, so the frame stops short of the transport chrome and the margin goes negative — libass' documented "the frame is inside the video" case. Clamping it to zero (as the first version did) told libass the picture ended where the frame does and mapped every `\pos` sign into a too-short rectangle, measured at y 20–34 against a correct 29–49 and 30% undersized; portrait was unaffected because its margins are positive, so this was landscape-only and invisible to every portrait check. The load-bearing assertion is the round trip — frame minus margins must recover the real picture height — which holds in both orientations and with the controls up or down, and which fails on the clamped version. Also `fontScale`, the compensation for libass scaling regular events to the frame rather than the video area: exactly 1 in portrait (asserted as an exact equality, since any other value would resize every portrait subtitle in the app — the common case, and correct before the compensation existed), `pictureHeight / frameHeight` in landscape where the frame is the shorter of the two, never below 1, and 1 for degenerate geometry (a zero-height picture, before `videoNaturalSize` has settled). The property it exists for is asserted directly across all six configurations: `min(frame, picture) * fontScale == picture`, i.e. a regular event is laid out as though the frame were the picture. |
-| Authored-ASS subtitle mapping | `ASSSubtitleMappingTests.swift` | The two pure decisions behind styled subtitles. `PlayerViewModel.isAuthoredASS(_:)` — which codecs go to libass at all (`ass`/`ssa`, case-folded) and which stay on `SubtitleOverlayView`'s own cue path (SubRip, WebVTT, mov_text, every bitmap format, `nil`); getting it wrong doesn't degrade styling, it sends a track to libass that has no ASS script to fetch. And `isAuthoredASSPath(_:)`, the downloaded-sidecar counterpart, which reads the extension because `DownloadedSubtitleFile` records no codec. Then the mapping itself, `jellyfinStream(forTrack:engineTracks:mediaStreams:)`: AetherEngine numbers an embedded track by its `AVStream` index while Jellyfin numbers the same track by its own `MediaStream.index`, and the two disagree in practice (engine id 2 against Jellyfin index 3 on one file, id 5 against index 6 on another), so they're paired by ordinal among embedded ASS entries. Most of these cases are about that ordinal staying meaningful — bitmap streams interleaved between the ASS ones, external sidecars, and audio/video streams sharing the same index sequence all have to be filtered out of BOTH sides identically, since counting any of them shifts the ordinal and silently fetches a different track's script (which reads as a subtitle-timing bug, not a mapping one). Plus the two nil cases: a non-ASS track, and the two sides disagreeing about how many ASS streams exist, which is not a case to guess at. |
+| Authored-ASS subtitle mapping | `ASSSubtitleMappingTests.swift` | The two pure decisions behind styled subtitles. `PlayerViewModel.isAuthoredASS(_:)` — which codecs go to libass at all (`ass`/`ssa`, case-folded) and which stay on `SubtitleOverlayView`'s own cue path (SubRip, WebVTT, mov_text, every bitmap format, `nil`); getting it wrong doesn't degrade styling, it sends a track to libass that has no ASS script to fetch. And `isAuthoredASSPath(_:)`, the downloaded-sidecar counterpart, which reads the extension because `DownloadedSubtitleFile` records no codec. Then the mapping itself, `jellyfinStream(forTrack:engineTracks:mediaStreams:)`: AetherEngine numbers an embedded track by its `AVStream` index while Jellyfin numbers the same track by its own `MediaStream.index`, and the two disagree in practice (engine id 2 against Jellyfin index 3 on one file, id 5 against index 6 on another), so they're paired by ordinal among embedded ASS entries. Most of these cases are about that ordinal staying meaningful — bitmap streams interleaved between the ASS ones, external sidecars, and audio/video streams sharing the same index sequence all have to be filtered out of BOTH sides identically, since counting any of them shifts the ordinal and silently fetches a different track's script (which reads as a subtitle-timing bug, not a mapping one). Plus the two nil cases: a non-ASS track, and the two sides disagreeing about how many ASS streams exist, which is not a case to guess at. Plus the Subtitle Styling setting's read, `isStyledASSEnabled(_:)`: an unset key means ON (the trap being that `UserDefaults.bool(forKey:)` reports `false` for a key never written, which would ship the feature off for everyone who never opened Settings), the declared default is asserted separately from that so the two can't drift apart, an explicit `true`/`false` is honoured, and the setting is kept distinct from the codec predicate — `isAuthoredASS` stays truthful about what a track *is* with styling off, since `handleSubtitleTrackChange` needs both answers and conflating them would make "is this ASS?" mean two different things in two places. Each case runs against its own throwaway `UserDefaults` suite rather than the shared domain. |
 
 ## What's *not* covered yet
 
@@ -521,7 +521,14 @@ seek — those still need real media on a real device.
 Its `selectAudioTrack(id:)`/`selectSubtitleTrack(id:)` do track the selection
 (they were once no-ops), because the authored-ASS path hangs off
 `onSubtitleTrackChange` and would otherwise be unreachable from a UI test at
-all. Its canned subtitle tracks include one with `codec: "ass"`, paired with
+all. `selectSubtitleTrack(id:)` also publishes a cue, which is what
+`SubtitleOverlayView`'s own (non-libass) path renders — every SubRip and
+WebVTT track, and an ASS track with Subtitle Styling off. Without it that path
+paints nothing under the harness, so a journey could only ever assert the
+*absence* of a libass frame, which passes just as happily on a bug that drops
+the track altogether. Its text differs from the styled fixture's on purpose
+(`UITestFixtureIdentity.plainSubtitleCueText`), so a test can tell the two
+renderers apart rather than inferring one from the other's absence. Its canned subtitle tracks include one with `codec: "ass"`, paired with
 an embedded ASS `MediaStream` in the fixture whose `index` deliberately does
 *not* match that track's id — the app maps the two by ordinal, and a fixture
 where they happened to agree would pass even if that mapping were broken.
@@ -542,6 +549,19 @@ gets) is what the journey asserts on. Note the stub matches `/Subtitles/`
 answers every subtitle request with a synthetic MP4 — which a download
 happily writes to disk, and which the styled path can only read as "this
 track has no script".
+
+`StyledSubtitleJourneyTests` also covers the **Subtitle Styling** setting
+(Profile → Playback → Advanced), forced through `UserDefaults`' argument domain
+via `launch(extraArguments:)` rather than by driving the settings screen — the
+Advanced screen sits behind an iPhone/iPad layout fork `ProfileScreen`
+deliberately doesn't absorb, and what the journey is about is the player's
+behaviour, not how the switch was flipped. Two halves, and both matter: off,
+the ASS track must render *unstyled* rather than not at all; left alone, it
+must render styled, which states the on-by-default as a behaviour rather than
+only as a constant. `ASSSubtitleMappingTests` covers the read itself — in
+particular that an unset key means on, since `UserDefaults.bool(forKey:)`
+reports `false` for a key never written and reading it directly would ship the
+feature off for everyone who never opened Settings.
 
 ### Selectors
 

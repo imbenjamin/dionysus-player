@@ -39,6 +39,16 @@ import SwiftLibass
 /// to draw the same distinction this app already makes by hand:
 /// default-positioned dialogue moves below the picture in portrait, while
 /// `\pos` / `\an` signs stay anchored to the frame they were authored against.
+/// This key and `AdvancedPlaybackSettingsView`'s `@AppStorage` default are
+/// declared by hand in both places, with nothing enforcing they stay in sync —
+/// the same arrangement as `chaptersInScrubberEnabledStorageKey`.
+let styledASSSubtitlesEnabledStorageKey = "styledASSSubtitlesEnabled"
+/// **On.** Styling is what an authored track was written for, and the app
+/// renders it correctly on every path it supports; this exists as an escape
+/// hatch for a script whose typesetting fights the phone (a fansub laying signs
+/// over a 4:3 picture assumed full-screen, say), not as an opt-in feature.
+let styledASSSubtitlesEnabledDefault = true
+
 @MainActor
 final class ASSSubtitleRenderSession {
     private static let log = Logger(subsystem: "com.dionysus.player", category: "ass-subtitles")

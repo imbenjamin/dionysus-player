@@ -23,8 +23,8 @@ final class StyledSubtitleJourneyTests: UITestCase {
     /// mapping were wrong.
     private let assTrackID = 2
 
-    private func openPlayer() -> PlayerScreen {
-        launch()
+    private func openPlayer(extraArguments: [String] = []) -> PlayerScreen {
+        launch(extraArguments: extraArguments)
         let home = HomeScreen(app: app)
         home.awaitLoaded()
         home.openItem(UITestFixtureIdentity.primaryMovieID)
@@ -99,10 +99,50 @@ final class StyledSubtitleJourneyTests: UITestCase {
             player.styledSubtitle.waitForExistence(timeout: 3),
             "A SubRip track should render through the app's own overlay, not libass."
         )
+        player.plainSubtitle.awaitExistence("the SubRip cue on the app's own overlay")
     }
 }
 
 extension StyledSubtitleJourneyTests {
+    /// Profile → Playback → Advanced → Subtitle Styling, off.
+    ///
+    /// Forced through `UserDefaults`' argument domain rather than by driving
+    /// the settings screen: the Advanced screen sits behind an iPhone/iPad
+    /// layout fork that `ProfileScreen` deliberately doesn't absorb, and what
+    /// this is actually about is the player's behaviour, not how the switch
+    /// was flipped. `ASSSubtitleMappingTests` covers the read itself,
+    /// including that an unset key means *on*.
+    ///
+    /// The track must still render — unstyled, through the app's own cue path.
+    /// Disabling styling is not disabling subtitles, and a version of this
+    /// that only asserted libass' absence would pass just as happily on a bug
+    /// that dropped the track entirely.
+    func testDisablingSubtitleStylingRendersTheTrackUnstyled() {
+        let player = openPlayer(extraArguments: ["-styledASSSubtitlesEnabled", "NO"])
+        selectASSTrack(player)
+
+        XCTAssertFalse(
+            // Short on purpose, like the SubRip case above: this asserts an
+            // absence that is settled as soon as the selection is handled.
+            player.styledSubtitle.waitForExistence(timeout: 3),
+            "With Subtitle Styling off, an ASS track must not reach libass."
+        )
+        player.plainSubtitle.awaitExistence(
+            "the unstyled subtitle the app's own cue path should still be rendering"
+        )
+    }
+
+    /// The same journey with the setting left alone, so the pair states the
+    /// default as a behaviour rather than only as a constant: the fixture's
+    /// ASS track renders styled out of the box.
+    func testSubtitleStylingIsOnByDefault() {
+        let player = openPlayer()
+        selectASSTrack(player)
+        player.styledSubtitle.awaitExistence(
+            "the libass-rendered subtitle, which styling being on by default should produce"
+        )
+    }
+
     /// Top-aligned signs must stay on the picture.
     ///
     /// `ass_set_use_margins` — which is what puts regular dialogue in the bar

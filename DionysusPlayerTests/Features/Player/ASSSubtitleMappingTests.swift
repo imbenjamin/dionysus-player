@@ -49,6 +49,47 @@ final class ASSSubtitleMappingTests: XCTestCase {
         XCTAssertFalse(PlayerViewModel.isAuthoredASSPath("subs/movie"))
     }
 
+    // MARK: - The styling setting
+
+    /// **Styling is on unless the user turned it off.** An unset key must read
+    /// as enabled: `UserDefaults.bool(forKey:)` reports `false` for a key that
+    /// was never written, so reading it directly would ship the feature off for
+    /// everyone who never opened Settings.
+    func test_isStyledASSEnabled_defaultsToOnWhenNeverSet() {
+        XCTAssertTrue(PlayerViewModel.isStyledASSEnabled(emptyDefaults()))
+    }
+
+    /// And the declared default itself is on — asserted separately from the
+    /// unset-key behaviour above, since the two could drift apart.
+    func test_styledASSSubtitlesEnabledDefault_isOn() {
+        XCTAssertTrue(styledASSSubtitlesEnabledDefault)
+    }
+
+    func test_isStyledASSEnabled_honoursAnExplicitFalse() {
+        let defaults = emptyDefaults()
+        defaults.set(false, forKey: styledASSSubtitlesEnabledStorageKey)
+        XCTAssertFalse(PlayerViewModel.isStyledASSEnabled(defaults))
+    }
+
+    func test_isStyledASSEnabled_honoursAnExplicitTrue() {
+        let defaults = emptyDefaults()
+        defaults.set(true, forKey: styledASSSubtitlesEnabledStorageKey)
+        XCTAssertTrue(PlayerViewModel.isStyledASSEnabled(defaults))
+    }
+
+    /// The setting gates the renderer, not the codec predicate — the mapping
+    /// below stays truthful about what a track *is* either way. Turning
+    /// styling off makes an ASS track render through the app's own cue path,
+    /// which is a decision `handleSubtitleTrackChange` makes from both answers
+    /// together; conflating them here would make "is this ASS?" mean two
+    /// different things in two different places.
+    func test_theSettingDoesNotChangeWhatCountsAsAuthoredASS() {
+        let defaults = emptyDefaults()
+        defaults.set(false, forKey: styledASSSubtitlesEnabledStorageKey)
+        XCTAssertFalse(PlayerViewModel.isStyledASSEnabled(defaults))
+        XCTAssertTrue(PlayerViewModel.isAuthoredASS("ass"))
+    }
+
     // MARK: - Track → stream mapping
 
     /// The case measured live: the engine's id and Jellyfin's index differ, and
@@ -154,6 +195,14 @@ final class ASSSubtitleMappingTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// A throwaway suite, so these never touch the shared domain a parallel
+    /// test or the Simulator's own state could be reading.
+    private func emptyDefaults(_ name: String = UUID().uuidString) -> UserDefaults {
+        let defaults = UserDefaults(suiteName: name)!
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: name) }
+        return defaults
+    }
 
     private func engineTrack(id: Int, codec: String, isExternal: Bool = false) -> PlaybackTrack {
         PlaybackTrack(

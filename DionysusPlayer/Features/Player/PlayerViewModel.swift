@@ -765,7 +765,11 @@ final class PlayerViewModel {
         // AetherEngine's cues, which are already flowing for the newly selected
         // track, and upgrades to styled when the script lands.
         clearStyledASS()
-        guard Self.isAuthoredASS(track.codec) else {
+        // The single gate for the setting. Disabled, an ASS track is treated
+        // exactly like a SubRip one — `clearStyledASS()` above has already
+        // handed the screen back to `SubtitleOverlayView`'s own path on
+        // AetherEngine's cues, so the track still renders, just unstyled.
+        guard Self.isAuthoredASS(track.codec), Self.isStyledASSEnabled() else {
             fetchingASSTrackID = nil
             return
         }
@@ -868,6 +872,26 @@ final class PlayerViewModel {
         }
         guard ordinal < embeddedStreams.count else { return nil }
         return embeddedStreams[ordinal]
+    }
+
+    /// Whether authored ASS/SSA tracks render through libass at all.
+    ///
+    /// Read at each track selection rather than captured once, so the setting
+    /// applies from the next selection onward without the player having to be
+    /// torn down. Settings are unreachable while the player is up — it is a
+    /// `fullScreenCover` and they live in a tab behind it — so that is as live
+    /// as this can be observed to be.
+    ///
+    /// Takes its `UserDefaults` so a test can pass its own rather than mutate
+    /// the shared domain, and so the UI suite's argument-domain override works
+    /// unchanged.
+    static func isStyledASSEnabled(_ defaults: UserDefaults = .standard) -> Bool {
+        // `object(forKey:)` rather than `bool(forKey:)`: the latter reports
+        // false for "never set", which would invert the default.
+        guard defaults.object(forKey: styledASSSubtitlesEnabledStorageKey) != nil else {
+            return styledASSSubtitlesEnabledDefault
+        }
+        return defaults.bool(forKey: styledASSSubtitlesEnabledStorageKey)
     }
 
     static func isAuthoredASS(_ codec: String?) -> Bool {

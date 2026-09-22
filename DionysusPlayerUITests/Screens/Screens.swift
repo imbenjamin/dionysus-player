@@ -609,6 +609,12 @@ struct PlayerScreen: Screen {
     /// existence is the assertion; its `label` carries the cue text.
     var styledSubtitle: XCUIElement { app.descendants(matching: .any)[A11yID.Player.styledSubtitle] }
 
+    /// `.firstMatch` because more than one plain cue can be on screen at once
+    /// — a subscript that resolves to several raises rather than picking one.
+    var plainSubtitle: XCUIElement {
+        app.descendants(matching: .any).matching(identifier: A11yID.Player.plainSubtitle).firstMatch
+    }
+
     /// A chapter picker row, addressed by `Chapter.index` (0-based).
     func chapterOption(_ index: Int) -> XCUIElement {
         app.buttons[A11yID.Player.chapterOption(index)]

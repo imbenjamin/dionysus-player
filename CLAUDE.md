@@ -434,6 +434,20 @@ are guessable:
   cut it off just before it finished), and until the script lands the cue path
   renders the same track unstyled, so there is never a dead screen.
 
+**The user can turn styling off** — Profile → Playback → Advanced → Subtitle
+Styling, on by default (`styledASSSubtitlesEnabledDefault`). It sits in
+Advanced because it is an escape hatch for a script whose typesetting fights
+the phone, not a taste preference. There is exactly one gate,
+`PlayerViewModel.handleSubtitleTrackChange`'s `isStyledASSEnabled()` check, and
+turning it off makes an ASS track behave like a SubRip one — it still renders,
+through `SubtitleOverlayView`'s own path, just unstyled. Read at each track
+selection rather than captured, which is as live as it can be observed to be:
+the player is a `fullScreenCover` and settings live in a tab behind it, so the
+two are never on screen together. Note `isStyledASSEnabled` reads
+`object(forKey:)` before `bool(forKey:)` — the latter reports `false` for a key
+that was never written, which would ship the feature off for everyone who never
+opened Settings.
+
 **Geometry.** libass gets a frame running from the picture's top edge to the
 bottom of the overlay, with `ass_set_margins` describing the bar below the
 picture and `ass_set_use_margins` on — the documented mechanism for subtitles
