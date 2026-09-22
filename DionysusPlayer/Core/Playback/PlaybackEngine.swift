@@ -21,6 +21,11 @@ protocol PlaybackEngine: AnyObject {
     /// AVPlayer axis across producer restarts. Its own callback so subtitle
     /// observers don't unpack a tuple they half ignore.
     var onSourceTimeUpdate: ((TimeInterval) -> Void)? { get set }
+    /// Called whenever the selected subtitle track changes, including when the
+    /// engine picks one itself (a forced track at load). `nil` means subtitles
+    /// are off. Its own callback because a styled-ASS track has to be resolved
+    /// to a script the moment it is selected, by whichever path selected it.
+    var onSubtitleTrackChange: ((Int?) -> Void)? { get set }
     /// Mirrors `AVPictureInPictureController.isPictureInPicturePossible`,
     /// driving the PiP button's enabled state. Permanently `false` on
     /// AetherEngine's software route, which has no native player layer for
@@ -30,6 +35,19 @@ protocol PlaybackEngine: AnyObject {
     /// Whether a PiP window is showing this session's video. `PlayerView` swaps
     /// the video surface for a placeholder while it is `true`.
     var onPictureInPictureActiveChange: ((Bool) -> Void)? { get set }
+
+    /// Fonts the container carries as attachments, for rendering an authored
+    /// ASS track that names one. AetherEngine reads them off its own probe, so
+    /// this is empty until a source is open and stays empty on any route with
+    /// no local demux of the original container: a server-side transcode (the
+    /// app plays the server's fMP4 HLS) and offline playback (the downloaded
+    /// file is MP4, which has no attachment streams).
+    ///
+    /// Those two routes are served instead by `PlayerViewModel.fetchASSFonts()`,
+    /// from Jellyfin's attachment route or a download's stored sidecars. This
+    /// property wins whenever it has anything — see
+    /// `PlayerViewModel.assFonts(engineAttachments:fetched:)`.
+    var fontAttachments: [ASSFontAttachment] { get }
 
     var audioTracks: [PlaybackTrack] { get }
     var subtitleTracks: [PlaybackTrack] { get }
@@ -80,6 +98,22 @@ protocol PlaybackEngine: AnyObject {
     func selectAudioTrack(id: Int)
     /// `nil` disables subtitles.
     func selectSubtitleTrack(id: Int?)
+
+    /// Whether AVKit should draw the selected subtitle track itself, as a
+    /// native rendition, instead of leaving it to the app's own overlay.
+    ///
+    /// On for PiP, where the app's overlay isn't inside the captured layer —
+    /// `AetherPlaybackEngine` drives that itself on PiP start/stop, and callers
+    /// need not.
+    ///
+    /// What callers DO need it for is the server-transcode route. There the
+    /// app's sidecars are declared as real HLS renditions (AetherEngine's
+    /// #316), so *selecting* a track implicitly hands the drawing to AVPlayer —
+    /// correct for a track the app renders from AetherEngine's cues, which that
+    /// path publishes none of, and wrong for an authored-ASS one, where libass
+    /// draws the same script on top and the viewer gets two sets of subtitles.
+    /// `PlayerViewModel` turns it off once libass owns the paint.
+    func setNativeSubtitleRendering(_ active: Bool)
 
     /// A no-op when PiP isn't possible, so callers need no guard of their own.
     func startPictureInPicture()

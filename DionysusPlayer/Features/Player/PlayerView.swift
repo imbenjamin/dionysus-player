@@ -57,6 +57,11 @@ struct PlayerView: View {
     /// `errorMessage` and no sign anything had gone wrong.
     @State private var setupError: String?
     @State private var showControls = true
+    /// Global y of the top of the player's bottom chrome, reported by
+    /// `PlayerControlsOverlay` via `BottomChromeTopKey` and handed to
+    /// `SubtitleOverlayView` so subtitles clear exactly what is there rather
+    /// than a constant guessing at it.
+    @State private var bottomChromeTop: CGFloat = .infinity
     @State private var isScrubbing = false
     @State private var scrubTime: TimeInterval = 0
     /// Whether the track picker is showing. Lives here rather than in
@@ -162,7 +167,7 @@ struct PlayerView: View {
                 // visible independent of `showControls` — subtitles aren't
                 // controls and shouldn't fade with them. Its bottom clearance
                 // animates in step with the fade instead.
-                SubtitleOverlayView(viewModel: viewModel, zoomMode: zoomMode, controlsVisible: showControls)
+                SubtitleOverlayView(viewModel: viewModel, zoomMode: zoomMode, controlsVisible: showControls, controlsTop: bottomChromeTop)
                     .ignoresSafeArea()
 
                 // Between the video surface and `PlayerControlsOverlay`. Always
@@ -207,6 +212,12 @@ struct PlayerView: View {
                 .allowsHitTesting(showControls)
                 // Keeps VoiceOver off buttons that are present but faded out.
                 .accessibilityHidden(!showControls)
+                // Read here rather than on the ZStack: the overlay is always
+                // mounted (only its opacity animates), so the height stays
+                // valid while the controls are faded out too.
+                .onPreferenceChange(BottomChromeTopKey.self) { top in
+                    MainActor.assumeIsolated { bottomChromeTop = top }
+                }
 
                 // Above `PlayerControlsOverlay` and, unlike it, not gated on
                 // `showControls`: complementary to the transport chrome rather

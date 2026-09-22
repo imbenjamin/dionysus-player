@@ -30,6 +30,25 @@ struct DownloadedSubtitleFile: Codable, Equatable {
     var relativePath: String
 }
 
+/// A font attachment captured at download time, so an authored ASS/SSA track
+/// renders in its own faces offline.
+///
+/// The download itself can't carry them: it is transcoded to MP4, and MP4 has
+/// no attachment streams — the same reason a server-side transcode leaves
+/// AetherEngine with no fonts to report. See `PlayerViewModel.fetchASSFonts()`.
+struct DownloadedFontFile: Codable, Equatable {
+    /// The attachment's index in the container, which is also how
+    /// `JellyfinAPIClient.attachmentURL` addresses it.
+    var index: Int
+    /// The name the attachment carried inside the container. Kept rather than
+    /// derived from `relativePath`, which is sanitised for the filesystem:
+    /// `ASSSubtitleRenderSession` writes each font back out under this name
+    /// before registering it.
+    var fileName: String
+    /// Relative to `DownloadFileStore`'s root.
+    var relativePath: String
+}
+
 /// `PlaybackSegment` for offline storage: a start/end/kind snapshot. Not that
 /// type itself, which is built from a live `MediaSegmentDto` fetch and has no
 /// reason to be `Codable`.
@@ -139,6 +158,12 @@ final class DownloadedItem: Identifiable {
     /// Relative to `DownloadFileStore`'s root.
     var videoFilePath: String
     var subtitleFiles: [DownloadedSubtitleFile]
+    /// The container's font attachments, for an authored-ASS track's styling.
+    /// Defaulted so SwiftData migrates an existing row lightweightly rather
+    /// than needing a schema bump — same as `chapters` below. `[]` both for a
+    /// container carrying no fonts and for one downloaded before this existed;
+    /// neither is distinguishable, and neither needs to be.
+    var fontFiles: [DownloadedFontFile] = []
     /// Display titles of subtitle tracks skipped for being image-based, shown in
     /// the Downloads UI so the omission isn't silent.
     var skippedSubtitleTracks: [String]
@@ -344,6 +369,7 @@ final class DownloadedItem: Identifiable {
         selectedAudioTrackTitle: String? = nil,
         videoFilePath: String,
         subtitleFiles: [DownloadedSubtitleFile] = [],
+        fontFiles: [DownloadedFontFile] = [],
         skippedSubtitleTracks: [String] = [],
         status: DownloadStatus = .queued,
         totalBytesExpected: Int64 = 0,
@@ -391,6 +417,7 @@ final class DownloadedItem: Identifiable {
         self.selectedAudioTrackTitle = selectedAudioTrackTitle
         self.videoFilePath = videoFilePath
         self.subtitleFiles = subtitleFiles
+        self.fontFiles = fontFiles
         self.skippedSubtitleTracks = skippedSubtitleTracks
         self.statusRaw = status.rawValue
         self.totalBytesExpected = totalBytesExpected

@@ -65,6 +65,29 @@ enum UITestFixtureIdentity {
     /// Restart button beside it.
     static let partWatchedMovieID = movieID(2)
 
+    /// The single cue in the stubbed ASS script
+    /// (`UITestStubURLProtocol.assScript`). Lives here rather than beside the
+    /// script because the stub is app-target-only, while this file is shared
+    /// with the UI-test target — see `StyledSubtitleJourneyTests`.
+    static let styledSubtitleCueText = "Styled subtitle fixture"
+
+    /// The `\an8` cue in the same script, for the regression guard on
+    /// top-aligned signs being pushed above the picture.
+    static let styledSubtitleTopCueText = "Top aligned sign"
+
+    /// The cue `PreviewPlaybackEngine` publishes for whichever subtitle track
+    /// is selected — what `SubtitleOverlayView`'s own path paints, as opposed
+    /// to libass. Deliberately distinct text from the styled cues above, so a
+    /// test can tell the two renderers apart rather than inferring one from the
+    /// other's absence.
+    static let plainSubtitleCueText = "Plain subtitle fixture"
+
+    /// A styled subtitle must never render this close to the top of the
+    /// screen. Misplaced into the top letterbox bar it lands around y 9;
+    /// correctly placed it sits at the top of the picture, which on the
+    /// fixture's 2.4:1 video in portrait is past y 350.
+    static let styledSubtitleMinimumTopY: Double = 150
+
     static let serverName = "Dionysus UI Test Server"
     static let username = "uitester"
     static let password = "uitest-password"

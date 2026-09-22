@@ -72,6 +72,26 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
+        // Font attachments, answered before the scenario gate for the same
+        // reason images are: they are a decoration on the subtitle, and failing
+        // them under `.serverError` would only obscure whatever that scenario
+        // is really about.
+        //
+        // Handled here rather than in `data(forPath:)` because `.slowSubtitleFonts`
+        // needs a delayed delivery, which that synchronous switch can't express.
+        if path.contains("/Attachments/") {
+            if scenario == .slowSubtitleFonts {
+                // Background queue, never `Thread.sleep` — see the
+                // `.slowLogoImage` branch above for what blocking here costs.
+                DispatchQueue.global().asyncAfter(deadline: .now() + Self.slowFontAttachmentDelay) {
+                    self.finish(.success((200, Self.fontAttachmentBytes, "application/x-truetype-font")))
+                }
+                return
+            }
+            finish(.success((200, Self.fontAttachmentBytes, "application/x-truetype-font")))
+            return
+        }
+
         if let failure = Self.scenarioFailure(scenario: scenario, path: path) {
             finish(.success((failure, Data("{}".utf8), "application/json")))
             return
@@ -400,7 +420,8 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         // `.noDeletePermission` fails nothing wholesale: the standard catalogue
         // with `canDelete` cleared, and only `DELETE` refused in `startLoading`,
         // which has the method.
-        case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission, .slowLogoImage:
+        case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission,
+             .slowLogoImage, .slowSubtitleFonts:
             return nil
         case .serverError:
             return 500
@@ -496,19 +517,33 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return try encode([SessionInfoDto]())
 
         // Media bytes: a download's stream and the player's side-loaded
-        // subtitles. Playback never reaches here, since the fake engine never
-        // opens its URL, but `DownloadManager` does write these to disk.
+        // subtitles.
         //
+        // Subtitles are matched FIRST. Their URL is a `/Videos/...` one too
+        // (`JellyfinAPIClient.subtitleURL` builds
+        // `/Videos/{item}/{source}/Subtitles/{index}/Stream.{ext}`), so a
+        // `/Videos/` case ahead of these would answer every subtitle request
+        // with a synthetic MP4 — which a download happily writes to disk, and
+        // which the styled-ASS path can only read as "this track has no
+        // script".
+        //
+        // An authored-ASS request gets a real script: `ASSSubtitleRenderSession`
+        // hands it straight to libass, and arbitrary bytes parse to zero events
+        // — indistinguishable from the feature being broken.
+        case path.contains("/Subtitles/") && (path.hasSuffix(".ass") || path.hasSuffix(".ssa")):
+            return Data(Self.assScript.utf8)
+
+        case path.contains("/Subtitles/"):
+            return Data(repeating: 0, count: 4096)
+
         // Video must be a parseable MP4:
         // `DownloadManager.validationFailureReason` opens every finished
         // download with `AVURLAsset` and rejects one whose duration won't load.
         // Arbitrary bytes fail that and land in `.failed` — correct behaviour,
-        // but it makes a completed download untestable.
+        // but it makes a completed download untestable. Playback never reaches
+        // here, since the fake engine never opens its URL.
         case path.contains("/Videos/"):
             return syntheticMP4(durationSeconds: runtimeSeconds(forVideoPath: path))
-
-        case path.contains("/Subtitles/"):
-            return Data(repeating: 0, count: 4096)
 
         case path.hasSuffix("/PlaybackInfo"):
             return try encode(playbackInfo(forPath: path))
@@ -871,6 +906,23 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     /// Simulator where that navigation takes ~2-4s.
     static let slowLogoImageDelay: TimeInterval = 10
 
+    /// How long `.slowSubtitleFonts` holds an attachment response. Far past any
+    /// assertion's budget on purpose: the test it exists for asserts that the
+    /// styled subtitle is already on screen while this is still outstanding, so
+    /// the delay has to be long enough that a build which waited for the fonts
+    /// could not pass by happening to finish early.
+    static let slowFontAttachmentDelay: TimeInterval = 120
+
+    /// Stand-in bytes for a font attachment.
+    ///
+    /// Deliberately not a real face. `CTFontManagerRegisterFontsForURL` refuses
+    /// these, which is the same outcome as a container whose fonts the device
+    /// can't use — and what the journeys here assert is that the *fetch*
+    /// neither blocks nor breaks the subtitle, which a valid font would prove no
+    /// better. Registration itself is covered where it can be: on a real device
+    /// against a retail MKV (see `CLAUDE.md`'s Subtitles section).
+    static let fontAttachmentBytes = Data("uitest-font-attachment".utf8)
+
     /// One flat-colour PNG standing in for every poster, backdrop, logo and cast
     /// photo. Generated rather than bundled, so no harness resource ships in
     /// Release.
@@ -915,3 +967,40 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     }
 }
 #endif
+
+// MARK: - Authored ASS
+
+extension UITestStubURLProtocol {
+    /// A minimal but real ASS script, for the styled-subtitle path.
+    ///
+    /// Real because `ASSSubtitleRenderSession` hands it straight to libass:
+    /// arbitrary bytes parse to zero events and render nothing, which is
+    /// indistinguishable from the feature being broken. The single cue runs
+    /// from the first second to well past any journey's runtime, so a test can
+    /// never be flaky for having looked between cues.
+    static var assScript: String {
+        [
+            "[Script Info]",
+            "ScriptType: v4.00+",
+            "PlayResX: 1920",
+            "PlayResY: 1080",
+            "",
+            "[V4+ Styles]",
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,"
+                + " BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing,"
+                + " Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+            "Style: Default,Helvetica,64,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,"
+                + "0,0,0,0,100,100,0,0,1,2,1,2,20,20,40,0",
+            "",
+            "[Events]",
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+            "Dialogue: 0,0:00:01.00,9:59:59.00,Default,,0,0,0,,\(UITestFixtureIdentity.styledSubtitleCueText)",
+            // Top-aligned, running the same span so both are always on screen.
+            // `ass_set_use_margins` relocates regular events into the margins
+            // and a top-aligned event is regular, so this lands ABOVE the
+            // picture unless libass' frame starts at the picture's top edge —
+            // see `ASSSubtitleRenderSession.Geometry.renderOriginY`.
+            "Dialogue: 0,0:00:01.00,9:59:59.00,Default,,0,0,0,,{\\an8}\(UITestFixtureIdentity.styledSubtitleTopCueText)"
+        ].joined(separator: "\n")
+    }
+}

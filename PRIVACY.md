@@ -30,9 +30,9 @@ storage, and is never sent anywhere except where noted:
 - **Playback preferences** — your chosen audio/subtitle tracks, media
   version selections, download settings, and recent search history, scoped
   to your Jellyfin account and never sent to the server.
-- **Downloaded content** — video, subtitles, and artwork you choose to
-  download for offline playback, stored in the app's local storage and
-  excluded from iCloud/iTunes backups.
+- **Downloaded content** — video, subtitles, subtitle fonts, and artwork you
+  choose to download for offline playback, stored in the app's local storage
+  and excluded from iCloud/iTunes backups.
 
 ### Data sent to your Jellyfin server
 
@@ -64,8 +64,14 @@ directs (streaming or downloading from your configured server), but as
 with any third-party software, we can't audit their internals directly.
 The app also uses [SwiftUI-Shimmer](https://github.com/markiv/SwiftUI-Shimmer),
 a small open-source loading-animation effect with no network access of its
-own. See the in-app **License** screen (Profile → License) for the full
-set of licenses involved.
+own, and [swift-ass-renderer](https://github.com/mihai8804858/swift-ass-renderer)
+with [swift-libass](https://github.com/mihai8804858/swift-libass), which draw
+styled subtitles on-device using libass. These render subtitle text the app
+has already fetched from your server; they make no network connections and
+read no data beyond the subtitle track and the fonts that go with it —
+whether those are embedded in the file being played or fetched from your
+server alongside it. See the in-app **License** screen (Profile → License)
+for the full set of licenses involved.
 
 ## Data Retention & Deletion
 

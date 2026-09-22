@@ -322,7 +322,28 @@ enum UITestFixtureLibrary {
             audioStream(index: 1, language: "eng", codec: "eac3", channels: 6, isDefault: true),
             audioStream(index: 2, language: "fra", codec: "aac", channels: 2, isDefault: false),
             subtitleStream(index: 3, language: "eng", isForced: false),
-            subtitleStream(index: 4, language: "eng", isForced: true)
+            subtitleStream(index: 4, language: "eng", isForced: true),
+            // Embedded ASS, pairing with `PreviewPlaybackEngine`'s own ASS
+            // track. Note the index does not match that track's id — which is
+            // the point: the two are numbered independently, and the app maps
+            // them by ordinal.
+            assSubtitleStream(index: 6, language: "eng")
+        ]
+        // A font the authored-ASS track's script would be typeset in, plus the
+        // cover art a container routinely also carries. Both are here so the
+        // app's own filter has something to reject: fetching the JPEG would be
+        // a download spent on bytes `CTFontManager` can only refuse.
+        //
+        // Declaring these at all is what puts every ASS journey through the
+        // font-fetch path, since `PreviewPlaybackEngine` reports no attachments
+        // of its own — exactly like the two routes this serves in production, a
+        // server-side transcode and offline playback.
+        source.mediaAttachments = [
+            MediaAttachment(index: 7, codec: "mjpeg", fileName: "cover.jpg", mimeType: "image/jpeg"),
+            MediaAttachment(
+                index: 8, codec: "ttf", fileName: "Fixture Regular.ttf",
+                mimeType: "application/x-truetype-font"
+            )
         ]
         return source
     }
@@ -350,6 +371,17 @@ enum UITestFixtureLibrary {
         stream.bitRate = channels == 6 ? 768_000 : 192_000
         stream.isDefault = isDefault
         stream.displayTitle = "\(language.uppercased()) \(codec.uppercased())"
+        return stream
+    }
+
+    /// An authored-ASS track, for the styled-subtitle path.
+    private static func assSubtitleStream(index: Int, language: String) -> MediaStream {
+        var stream = MediaStream(index: index, type: "Subtitle")
+        stream.codec = "ass"
+        stream.language = language
+        stream.isForced = false
+        stream.isExternal = false
+        stream.displayTitle = "English (Styled)"
         return stream
     }
 

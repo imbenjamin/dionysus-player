@@ -237,6 +237,228 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(engine.loadedURLs.first?.absoluteString, "https://jellyfin.example.com/videos/item-1/master.m3u8?PlaySessionId=sess-1")
     }
 
+    /// On a transcode the container's own text tracks have to be registered as
+    /// sidecars, because the server's HLS carries no rendition for them: before
+    /// this, every embedded SubRip and ASS track simply vanished from the
+    /// picker. The bitmap track is burned into the video (`Encode`) and has
+    /// nothing to fetch.
+    func test_start_allowTranscoding_registersTheContainersOwnTextTracksAsSidecars() async {
+        defaults.set(StreamDecisionMode.allowTranscoding.rawValue, forKey: streamDecisionModeStorageKey)
+        let (viewModel, engine) = makeViewModel()
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie),
+            mediaSources: [MediaSourceInfo(
+                id: "src-1", container: "mkv",
+                mediaStreams: [
+                    transcodeSubtitleStream(index: 6, codec: "ass", deliveryMethod: "External"),
+                    transcodeSubtitleStream(index: 9, codec: "PGSSUB", deliveryMethod: "Encode")
+                ],
+                transcodingUrl: "/videos/item-1/master.m3u8?PlaySessionId=sess-1"
+            )]
+        )
+
+        await viewModel.start()
+
+        XCTAssertEqual(engine.loadedIsRemoteHLS, [true])
+        XCTAssertEqual(
+            engine.loadedExternalSubtitles.first?.map(\.url.path),
+            ["/Videos/item-1/src-1/Subtitles/6/Stream.ass"],
+            "The embedded ASS track should be registered as a sidecar; the burned-in PGS one should not."
+        )
+    }
+
+    /// And the registered track must resolve back to its own script, so libass
+    /// gets the right one. A sidecar this app registered has no mapping through
+    /// `jellyfinStream` — that pairs *embedded* tracks — so before this it
+    /// resolved to nothing and the track rendered unstyled.
+    func test_transcodedASSTrack_resolvesToItsOwnScript() async {
+        defaults.set(StreamDecisionMode.allowTranscoding.rawValue, forKey: streamDecisionModeStorageKey)
+        let (viewModel, engine) = makeViewModel()
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie),
+            mediaSources: [MediaSourceInfo(
+                id: "src-1", container: "mkv",
+                mediaStreams: [
+                    transcodeSubtitleStream(index: 6, codec: "ass", deliveryMethod: "External"),
+                    transcodeSubtitleStream(index: 7, codec: "ass", deliveryMethod: "External")
+                ],
+                transcodingUrl: "/videos/item-1/master.m3u8?PlaySessionId=sess-1"
+            )]
+        )
+        await viewModel.start()
+        // AetherEngine's own ids for the sidecars, sharing no arithmetic with
+        // Jellyfin's stream indices.
+        engine.subtitleTracks = [
+            PlaybackTrack(id: 40, kind: .subtitle, title: "A", metadata: nil, isSelected: false, codec: "ass", isExternal: true),
+            PlaybackTrack(id: 41, kind: .subtitle, title: "B", metadata: nil, isSelected: false, codec: "ass", isExternal: true)
+        ]
+
+        let second = await viewModel.assScriptSource(for: engine.subtitleTracks[1])
+
+        XCTAssertEqual(second?.url.path, "/Videos/item-1/src-1/Subtitles/7/Stream.ass")
+    }
+
+    /// On the `nativeRemoteHLS` bypass AetherEngine demuxes nothing, so it
+    /// reports no natural size for the whole session — the same gap
+    /// `sourceVideoStream`/`sourceAudioStream` exist to cover for the stats
+    /// overlay. `SubtitleOverlayView` reads a `nil` as "the picture fills the
+    /// overlay", so libass scaled the script to the whole screen and a
+    /// transcode's dialogue came out roughly three times too large.
+    func test_videoNaturalSize_fallsBackToJellyfinsProbeWhenTheEngineHasNone() async {
+        defaults.set(StreamDecisionMode.allowTranscoding.rawValue, forKey: streamDecisionModeStorageKey)
+        let (viewModel, engine) = makeViewModel()
+        engine.videoNaturalSize = nil
+        var videoStream = MediaStream(index: 0, type: "Video")
+        videoStream.width = 3840
+        videoStream.height = 1606
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie),
+            mediaSources: [MediaSourceInfo(
+                id: "src-1", container: "mkv", mediaStreams: [videoStream],
+                transcodingUrl: "/videos/item-1/master.m3u8?PlaySessionId=sess-1"
+            )]
+        )
+
+        await viewModel.start()
+
+        XCTAssertEqual(viewModel.videoNaturalSize, CGSize(width: 3840, height: 1606))
+    }
+
+    /// The engine's own probe stays authoritative wherever it has one: it
+    /// describes the video actually being decoded, where Jellyfin's describes
+    /// the library file.
+    func test_videoNaturalSize_prefersTheEnginesOwnProbe() async {
+        let (viewModel, engine) = makeViewModel()
+        engine.videoNaturalSize = CGSize(width: 1920, height: 804)
+        var videoStream = MediaStream(index: 0, type: "Video")
+        videoStream.width = 3840
+        videoStream.height = 1606
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mkv", mediaStreams: [videoStream])]
+        )
+
+        await viewModel.start()
+
+        XCTAssertEqual(viewModel.videoNaturalSize, CGSize(width: 1920, height: 804))
+    }
+
+    /// Neither side knowing is still `nil` — `videoRect(in:)` has a documented
+    /// fallback for that, and inventing a size would be worse.
+    func test_videoNaturalSize_nilWhenNeitherSideKnows() async {
+        let (viewModel, engine) = makeViewModel()
+        engine.videoNaturalSize = nil
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mkv", mediaStreams: [])]
+        )
+
+        await viewModel.start()
+
+        XCTAssertNil(viewModel.videoNaturalSize)
+    }
+
+    /// The double-subtitle bug, seen on device: on a transcode the app's
+    /// sidecars are declared as real HLS renditions (AetherEngine's #316), so
+    /// selecting one hands the drawing to AVPlayer — and libass then drew the
+    /// same script on top, giving the viewer the system caption and the
+    /// authored one at once.
+    ///
+    /// Asserted as "after the script lands", not "on selection": turning the
+    /// native rendition off any earlier would leave a slow or failed fetch with
+    /// nothing drawing at all, since that route publishes no cues to fall back
+    /// to.
+    func test_styledASS_takesTheNativeRenditionAwayFromAVKit() async throws {
+        defaults.set(StreamDecisionMode.allowTranscoding.rawValue, forKey: streamDecisionModeStorageKey)
+        // The script fetch deliberately goes through `URLSession.shared` rather
+        // than the client's session (it carries its own 180s timeout for
+        // Jellyfin's on-demand extraction), which
+        // `MockURLProtocol.makeSession()`'s per-configuration registration
+        // cannot reach. Registering globally for the length of this one test is
+        // what puts the stub in front of it.
+        URLProtocol.registerClass(MockURLProtocol.self)
+        addTeardownBlock { URLProtocol.unregisterClass(MockURLProtocol.self) }
+        let (viewModel, engine) = makeViewModel()
+        let assStream = transcodeSubtitleStream(index: 6, codec: "ass", deliveryMethod: "External")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/item-1":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDto(id: "item-1", name: "Arrival", type: .movie)
+                )
+            case "/Items/item-1/PlaybackInfo":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaybackInfoResponse(
+                    mediaSources: [MediaSourceInfo(
+                        id: "src-1", container: "mkv", mediaStreams: [assStream],
+                        transcodingUrl: "/videos/item-1/master.m3u8?PlaySessionId=sess-1"
+                    )],
+                    playSessionId: "sess-1"
+                ))
+            case "/Videos/item-1/src-1/Subtitles/6/Stream.ass":
+                return MockURLProtocol.jsonResponse(
+                    for: request, status: 200,
+                    body: Data("[Script Info]\nScriptType: v4.00+\n\n[Events]\n".utf8)
+                )
+            default:
+                return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+            }
+        }
+        await viewModel.start()
+        engine.subtitleTracks = [PlaybackTrack(
+            id: 40, kind: .subtitle, title: "English", metadata: nil,
+            isSelected: true, codec: "ass", isExternal: true
+        )]
+
+        engine.onSubtitleTrackChange?(40)
+
+        try await waitUntil { viewModel.isRenderingStyledASS }
+        XCTAssertEqual(
+            engine.nativeSubtitleRenderingRequests, [false],
+            "Once libass owns the paint, AVKit must stop drawing the same track."
+        )
+    }
+
+    /// And a plain-text track must NOT take it away: on that route AetherEngine
+    /// publishes no cues for a track AVPlayer is rendering, so deselecting the
+    /// rendition would leave nothing drawing at all.
+    func test_plainTextTrack_leavesTheNativeRenditionAlone() async throws {
+        defaults.set(StreamDecisionMode.allowTranscoding.rawValue, forKey: streamDecisionModeStorageKey)
+        let (viewModel, engine) = makeViewModel()
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie),
+            mediaSources: [MediaSourceInfo(
+                id: "src-1", container: "mkv",
+                mediaStreams: [transcodeSubtitleStream(index: 0, codec: "subrip", deliveryMethod: "External")],
+                transcodingUrl: "/videos/item-1/master.m3u8?PlaySessionId=sess-1"
+            )]
+        )
+        await viewModel.start()
+        engine.subtitleTracks = [PlaybackTrack(
+            id: 40, kind: .subtitle, title: "English", metadata: nil,
+            isSelected: true, codec: "subrip", isExternal: true
+        )]
+
+        engine.onSubtitleTrackChange?(40)
+        // Short and deliberate: this asserts an absence, settled as soon as the
+        // selection has been handled.
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertFalse(viewModel.isRenderingStyledASS)
+        XCTAssertTrue(
+            engine.nativeSubtitleRenderingRequests.isEmpty,
+            "A plain-text track is drawn by AVKit on this route and must keep its rendition."
+        )
+    }
+
+    private func transcodeSubtitleStream(index: Int, codec: String, deliveryMethod: String) -> MediaStream {
+        var stream = MediaStream(index: index, type: "Subtitle")
+        stream.codec = codec
+        stream.language = "eng"
+        stream.isExternal = false
+        stream.deliveryMethod = deliveryMethod
+        return stream
+    }
+
     /// `PlaybackInfoResponse.playSessionId` should flow into
     /// `activePlaySessionID` and from there into `/Sessions/Playing`'s
     /// request body — the server needs it to track/kill the right

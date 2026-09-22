@@ -97,6 +97,24 @@ packages:
   SwiftUIShimmer:
     url: https://github.com/markiv/SwiftUI-Shimmer
     from: 1.5.1
+  # MIT Swift wrapper over libass, rendering the authored ASS/SSA styling
+  # AetherEngine deliberately leaves to its host (see CLAUDE.md's
+  # "Subtitles"). Pinned exactly for the same reason AetherEngine is — this one
+  # pulls five packages transitively (swift-libass' binary xcframeworks
+  # plus combine-schedulers, xctest-dynamic-overlay, swift-concurrency-extras),
+  # ~208 MB of checkouts, and Package.resolved is gitignored here so CI
+  # cold-resolves every run.
+  SwiftAssRenderer:
+    url: https://github.com/mihai8804858/swift-ass-renderer
+    version: 1.3.1
+  # Already pulled in transitively by SwiftAssRenderer; declared explicitly so
+  # `ASSSubtitleRenderSession` can call `ass_set_margins` /
+  # `ass_set_use_margins` on the raw `ASS_Renderer` the wrapper hands out
+  # through its `rendererSetup` hook. No extra download — same resolved
+  # version either way.
+  SwiftLibass:
+    url: https://github.com/mihai8804858/swift-libass
+    version: 1.4.0
 
 targets:
   DionysusPlayer:
@@ -117,6 +135,10 @@ targets:
         product: AetherEngine
       - package: SwiftUIShimmer
         product: Shimmer
+      - package: SwiftAssRenderer
+        product: SwiftAssRenderer
+      - package: SwiftLibass
+        product: SwiftLibass
     settings:
       base:
         # No platform suffix (contrast the test target below) — this is the

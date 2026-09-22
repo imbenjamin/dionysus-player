@@ -650,6 +650,80 @@ actor JellyfinAPIClient {
         }
     }
 
+    /// A container attachment's bytes, by the attachment's own index.
+    ///
+    /// Built from ids rather than read off `MediaAttachment.deliveryUrl` for
+    /// the same reason `subtitleURL` is: Jellyfin fills that field only when
+    /// the `/PlaybackInfo` request carried a `DeviceProfile`, so it is missing
+    /// in Direct Play Always mode — verified live against 10.11.11, present
+    /// with a profile and absent without.
+    ///
+    /// Like the subtitle route, the server extracts the attachment on demand
+    /// and caches it, so a first request pays for the extraction (measured at
+    /// 0.7s for a 57KB font out of a 2160p remux).
+    ///
+    /// `ApiKey` travels as a query param because these URLs are fetched
+    /// outside this actor's request pipeline, by `PlayerViewModel` and
+    /// `DownloadManager`.
+    func attachmentURL(itemID: String, mediaSourceID: String, index: Int) -> URL? {
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent("Videos/\(itemID)/\(mediaSourceID)/Attachments/\(index)"),
+            resolvingAgainstBaseURL: false
+        ) else { return nil }
+
+        var query: [URLQueryItem] = []
+        if let accessToken { query.append(.init(name: "ApiKey", value: accessToken)) }
+        components.queryItems = query.isEmpty ? nil : query
+        return components.url
+    }
+
+    /// True for an attachment this app has any use for — a font.
+    ///
+    /// The filter matters: a container's attachments are not all fonts. Cover
+    /// art (`cover.jpg`) is the common other case, and fetching it would be a
+    /// download spent on bytes `CTFontManager` then refuses.
+    ///
+    /// Three signals, because none is sufficient alone. `mimeType` is absent
+    /// on some containers; `codec` is FFmpeg's stream name and is reported as
+    /// "ttf" for OpenType faces in some muxes; the filename extension is the
+    /// only thing a hand-muxed file reliably carries. Any one of them saying
+    /// "font" is enough — a missed font renders the script in a fallback face,
+    /// which is the very defect this exists to fix.
+    ///
+    /// WOFF is the one veto rather than another signal: a MIME type naming it
+    /// is a statement about the bytes, which `CTFontManagerRegisterFontsForURL`
+    /// cannot register whatever the codec column says, so treating it as a font
+    /// would only cost a fetch.
+    static func isFontAttachment(codec: String?, mimeType: String?, fileName: String?) -> Bool {
+        let fontMimeTypes: Set<String> = [
+            "application/x-truetype-font", "application/x-font-ttf", "application/x-font-truetype",
+            "application/x-font-otf", "application/x-font-opentype", "application/vnd.ms-opentype",
+            "application/font-sfnt", "application/x-font-sfnt"
+        ]
+        if let mimeType = mimeType?.lowercased() {
+            // `font/ttf`, `font/otf`, `font/collection` — the registered tree,
+            // which a newer mux uses in place of the `application/x-...` names.
+            // WOFF lives in that tree too and is the exception: it is a font,
+            // just not one CoreText can register, so it has to be rejected
+            // before the prefix matches it.
+            if ["font/woff", "font/woff2"].contains(mimeType) { return false }
+            if mimeType.hasPrefix("font/") || fontMimeTypes.contains(mimeType) { return true }
+        }
+        if let codec = codec?.lowercased(), ["ttf", "otf", "ttc", "otc"].contains(codec) { return true }
+        if let ext = fileName?.split(separator: ".").last?.lowercased(),
+           ["ttf", "otf", "ttc", "otc"].contains(ext) { return true }
+        return false
+    }
+
+    /// The font attachments among a source's, in container order. A convenience
+    /// over `isFontAttachment` so the player and download paths can't drift on
+    /// what counts.
+    static func fontAttachments(in attachments: [MediaAttachment]) -> [MediaAttachment] {
+        attachments.filter {
+            isFontAttachment(codec: $0.codec, mimeType: $0.mimeType, fileName: $0.fileName)
+        }
+    }
+
     /// True for bitmap subtitle formats (PGS, VobSub, DVB). AetherEngine renders
     /// these live, but they can't be downloaded: `subtitleURL` has no
     /// server-side OCR to convert them to text, and MP4 can't embed a bitmap

@@ -1141,12 +1141,6 @@ struct PlayerControlsOverlay: View {
     /// The trailing timestamp doubles as a button (see `showRemainingTime`).
     private var scrubberBar: some View {
         VStack(spacing: 4) {
-            if let format = viewModel.videoFormatDescription {
-                Text(format)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(isIncreasedContrast ? 1 : 0.7))
-            }
-
             // 16, not 8: the 20pt thumb straddles the track's edge and overflows
             // the declared bounds at either extreme, overlapping the timestamps.
             // Symmetric here rather than one-sided on `scrubberTrack`, so both
@@ -1199,16 +1193,54 @@ struct PlayerControlsOverlay: View {
             .font(.caption)
             .foregroundStyle(.white.opacity(secondaryTextOpacity))
 
-            // Only for content with chapters; `MediaItem.chapters` already
-            // collapses Jellyfin's single-dummy-chapter case to empty.
-            if !viewModel.chapters.isEmpty {
+            // Chapter button leading, video format trailing. The format label
+            // used to sit ABOVE the scrubber, which put it inside the band
+            // `SubtitleOverlayView` clears for the transport row — so a
+            // subtitle and "Dolby Vision" drew on top of each other whenever
+            // the controls were up. Below the scrubber it is outside that
+            // clearance entirely.
+            //
+            // The row renders for either piece alone: chapters are optional
+            // (`MediaItem.chapters` already collapses Jellyfin's
+            // single-dummy-chapter case to empty) and the format is nil for
+            // SDR, so neither can be assumed present to hold the other's side.
+            if !viewModel.chapters.isEmpty || viewModel.videoFormatDescription != nil {
                 HStack {
-                    chapterButton
+                    if !viewModel.chapters.isEmpty {
+                        chapterButton
+                    }
                     Spacer()
+                    if let format = viewModel.videoFormatDescription {
+                        Text(format)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(isIncreasedContrast ? 1 : 0.7))
+                    }
                 }
             }
         }
         .padding()
+        // Reports where its TOP edge sits, in global coordinates, so
+        // `SubtitleOverlayView` can clear exactly this instead of guessing.
+        //
+        // Its top edge rather than its height, because the two are not
+        // interchangeable here: this overlay respects the safe area while the
+        // subtitle overlay deliberately ignores it, so the chrome is not flush
+        // with the bottom of the subtitle overlay's coordinate space and a
+        // height alone under-clears by the safe-area inset. The height is not
+        // fixed either — the chapter/format row is present only for content
+        // that has chapters or a video format to name, a ~48pt swing.
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: BottomChromeTopKey.self,
+                    value: proxy.frame(in: .global).minY
+                )
+            }
+            // `content`'s blank-space tap catcher sits behind this whole
+            // overlay; a hit-testable background would silently swallow taps
+            // meant for it (see `backgroundGradient`).
+            .allowsHitTesting(false)
+        )
         // Once per transition into a newly snapped chapter while dragging.
         // `.light` matches a boundary passing under a finger, against the
         // heavier `.impact` used for a long-press committing to an action.
@@ -1617,5 +1649,19 @@ private struct ControlScrim: ViewModifier {
         content
             .shadow(color: .black.opacity(opacity), radius: radius)
             .shadow(color: .black.opacity(opacity), radius: radius)
+    }
+}
+
+/// Global y of the top edge of the player's bottom chrome — the scrubber row
+/// plus the chapter/format row beneath it — published so the subtitle overlay
+/// can sit clear of it. See `SubtitleOverlayView.bottomInset(overlayMaxY:)`.
+///
+/// `.infinity` when nothing reports, which reads as "no chrome to clear" and
+/// leaves the subtitle at its resting position.
+struct BottomChromeTopKey: PreferenceKey {
+    static let defaultValue: CGFloat = .infinity
+    /// Topmost wins: the clearance has to cover everything reporting.
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = min(value, nextValue())
     }
 }

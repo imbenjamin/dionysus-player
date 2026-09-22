@@ -76,7 +76,7 @@ regenerate it:
 ./Scripts/update-aetherengine-version.sh
 ```
 
-**`project.yml` pins AetherEngine with `version: 6.71.0` (XcodeGen's
+**`project.yml` pins AetherEngine with `version: 6.86.0` (XcodeGen's
 spelling of SPM's `.exact` requirement), not a `from:`
 range.** This used to be `from: 6.5.5` (SPM's "up to next major" rule), which
 meant a cold resolve — every CI run, since `Package.resolved` is gitignored
@@ -399,6 +399,181 @@ PiP rebuilds on), and `PlayerViewModel.start()` stages title/subtitle
 subtitle:artwork:)` immediately, with artwork following separately once
 fetched through `RemoteImageLoader`.
 
+### Subtitles
+
+Two renderers, split by codec. **ASS/SSA goes to libass**
+(`ASSSubtitleRenderSession`, on the `swift-ass-renderer` package); everything
+else — SubRip, WebVTT, teletext, PGS and other bitmap formats — keeps
+rendering through `SubtitleOverlayView`'s own SwiftUI path on the cues
+AetherEngine publishes. Four things about that split are load-bearing and none
+are guessable:
+
+- **`LoadOptions.preserveASSMarkup` is deliberately NOT set.** The app fetches
+  the complete `.ass` script itself instead, so AetherEngine's cue path stays
+  exactly as it was for every track. Jellyfin extracts any subtitle stream —
+  embedded ones included — via `JellyfinAPIClient.subtitleURL`, and
+  `DownloadManager` already stores every non-bitmap track as a sidecar, so the
+  script is always available without it. Turning the flag on would also hit
+  AetherEngine#587: it is codec-gated on the sidecar path but *not* on the
+  embedded one, so it would flip embedded SubRip to raw event lines too.
+- **A whole script, loaded once — never `reloadTrack` per cue.**
+  `swift-ass-renderer` exposes only whole-script load/reload, and `reloadTrack`
+  frees the current track synchronously, so feeding it a growing script blinks
+  the subtitle off on every rebuild. Reloading only happens on a geometry
+  change, which is cheap (0.4–1.7ms for a 218KB script) and deliberately does
+  not clear the outgoing frame.
+- **Engine track ids match nothing on the server**, so a selected track is
+  mapped back by *ordinal*, two different ways. A track AetherEngine demuxed
+  out of the container pairs with its `MediaStream` among *embedded ASS*
+  entries (`jellyfinStream(forTrack:engineTracks:mediaStreams:)`); a sidecar
+  this app registered pairs with what it was built from, among *externals*
+  (`registeredSidecar(forTrack:engineTracks:registered:)`, shared by the
+  streaming and offline paths). Filtering both sides identically is what makes
+  either ordinal meaningful; counting the wrong tracks shifts it and silently
+  serves a different track's script, which reads as a bad file rather than a
+  mapping bug. `ASSSubtitleMappingTests` pins both.
+- **On a transcode the container's own text tracks must be registered as
+  sidecars.** The app plays the server's HLS through AVPlayer, and that
+  playlist carries no rendition for them, so nothing demuxes them — every
+  embedded SubRip and ASS track disappeared from the picker until
+  `externalSubtitleStreams(from:isRemoteHLS:)` started registering them.
+  Jellyfin says which: asked with this app's `DeviceProfile` it answers
+  `MediaStream.deliveryMethod == "External"` for exactly those streams (and
+  `"Encode"` for the bitmap ones it burns in). That field is **not**
+  `isExternal`, which says where the stream lives in the library rather than
+  how it reaches the player — an embedded ASS track on a transcode is
+  `isExternal: false` with `deliveryMethod: "External"`, and filtering on the
+  former is what dropped them. The route gate is equally load-bearing: direct
+  play reports the same `"External"` for the same streams, where the engine
+  has already listed them, so registering sidecars there shows every track
+  twice. Confirmed against 10.11.11, both routes. AetherEngine supports
+  sidecars on the `nativeRemoteHLS` bypass as of 6.14.0 (its #316), which
+  rewrites the master playlist to carry them.
+- **A cold fetch can take over a minute.** Jellyfin extracts an embedded track
+  on demand and caches it: 70s measured against a 4K remux, 0.03s after. The
+  request therefore carries its own 180s timeout (`URLSession`'s 60s default
+  cut it off just before it finished), and until the script lands the cue path
+  renders the same track unstyled, so there is never a dead screen.
+
+**The user can turn styling off** — Profile → Playback → Advanced → Subtitle
+Styling, on by default (`styledASSSubtitlesEnabledDefault`). It sits in
+Advanced because it is an escape hatch for a script whose typesetting fights
+the phone, not a taste preference. There is exactly one gate,
+`PlayerViewModel.handleSubtitleTrackChange`'s `isStyledASSEnabled()` check, and
+turning it off makes an ASS track behave like a SubRip one — it still renders,
+through `SubtitleOverlayView`'s own path, just unstyled. Read at each track
+selection rather than captured, which is as live as it can be observed to be:
+the player is a `fullScreenCover` and settings live in a tab behind it, so the
+two are never on screen together. Note `isStyledASSEnabled` reads
+`object(forKey:)` before `bool(forKey:)` — the latter reports `false` for a key
+that was never written, which would ship the feature off for everyone who never
+opened Settings.
+
+**Geometry.** libass gets a frame running from the picture's top edge to the
+bottom of the overlay, with `ass_set_margins` describing the bar below the
+picture and `ass_set_use_margins` on — the documented mechanism for subtitles
+in the letterbox bar. Regular dialogue moves into that bar while `\pos` signs,
+which are positioned rather than regular, stay anchored to the picture.
+
+**The drawable region is the picture intersected with the safe area**, with the
+bottom raised for the transport chrome. The overlay itself must ignore the safe
+area to sit over a full-bleed video, so nothing else keeps subtitles off the
+rounded corners and the sensor housing — and in landscape the picture fills the
+screen, so a corner-aligned sign drew *underneath* them and was physically cut
+off. That is invisible in a screenshot, because the framebuffer has no corners;
+it only shows on the device. Note the insets come from the window, not from a
+`GeometryReader`: one inside an `ignoresSafeArea` view reports zeroes (measured,
+not assumed).
+
+**The margins are signed, and in landscape the bottom one is negative.** libass
+documents a negative margin as "the frame is inside the video, i.e. the video
+has been cropped", which is exactly what landscape is: the picture fills the
+screen, so the frame — which stops short of the transport chrome — is shorter
+than the picture. Clamping that to zero tells libass the picture ends where the
+frame does and maps every `\pos` sign into a too-short rectangle (measured: a
+sign at y 20–34 against a correct 29–49, and 30% undersized). Portrait margins
+are positive, so the clamp never fired there and the defect was landscape-only.
+`ASSSubtitleGeometryTests` pins both orientations.
+
+**Regular events take their font scale from the frame, so landscape needs
+`ass_set_font_scale`.** libass scales a regular event to whichever of the frame
+and the video area is smaller, while a positioned one always scales to the
+video area. In portrait the frame is the taller of the two (it includes the bar
+below the picture), so the two agree. In landscape the picture fills the screen
+and the frame stops short of the chrome, so dialogue rendered about 7% small at
+rest and 28% small with the controls up — measured by rendered *width*, since
+glyph heights are quantised too coarsely to see a 7% difference.
+`Geometry.fontScale` (`max(1, pictureHeight / frameHeight)`) compensates,
+restoring all three of dialogue, `\pos` and `\an8` to the widths they render
+at against a full-height frame, and resolving to exactly 1 in portrait so the
+common case is untouched. Positioned events are unaffected by it — verified by
+measurement, not assumed. Note `ass_set_storage_size` is *not* the knob for
+this: it affects aspect ratio and blur, not scale.
+
+An earlier version of this section stated the opposite — that there was "no way
+in libass' model to confine regular events to a shorter frame while scaling
+them to the full picture". That was wrong; `ass_set_font_scale` is exactly that
+knob, and it was missed rather than ruled out.
+
+The frame starts at the picture rather than the overlay so there is **no top
+margin**. `use_margins` relocates every *regular* event into the margins and
+top-aligned events are regular, so a top margin sends an `\an8` sign into the
+bar above the picture — measured at y 9–23 against a picture starting at 324.
+The cost is a bare `\an5`, which centres in the frame and so sits low; that is
+a real trade in libass' model (only a zero top margin places `\an8` right, only
+a symmetric one places `\an5` right, and the bottom bar rules out both being
+zero) settled on frequency — typesetting uses `\an8` constantly, while a bare
+`\an5` is rare and usually carries a `\pos`, which is exempt anyway. The bottom clearance is **measured**, not constant —
+`PlayerControlsOverlay` publishes its chrome's top edge via
+`BottomChromeTopKey`, because that chrome's height varies with content (the
+chapter/format row is ~48pt and only present sometimes) and because the
+controls respect the safe area while the subtitle overlay ignores it.
+
+**Embedded fonts are registered with CoreText, not fontconfig.**
+`engine.fontAttachments` (populated from AetherEngine's probe regardless of
+`preserveASSMarkup`) are written to a temp directory and registered with
+`CTFontManagerRegisterFontsForURL` at `.process` scope. The fontconfig
+provider would resolve embedded faces at the cost of every system one — the
+wrapper's generated `fonts.conf` declares exactly one directory and no system
+font paths. Registration is process-global, so teardown unregisters precisely
+what it registered.
+
+**Two routes have no attachments to probe, and both fetch them instead.** A
+server-side transcode plays the server's fMP4 HLS through AVPlayer, so nothing
+local ever demuxes the source container; offline, the downloaded file is MP4,
+which has no attachment streams at all. AetherEngine reports an empty list in
+both cases. `MediaSourceInfo.mediaAttachments` carries them regardless of route
+(verified live against 10.11.11 — present on the transcode path as well as the
+direct-play one), so live playback fetches them from
+`/Videos/{id}/{source}/Attachments/{index}` and `DownloadManager` stores them as
+sidecars at enqueue, next to the subtitles and for the same reason. Build that
+URL from ids rather than reading `MediaAttachment.deliveryUrl`, which the server
+fills only when the `/PlaybackInfo` request carried a `DeviceProfile` — the same
+trap `MediaStream`'s own delivery URL sets.
+
+Four things about that are load-bearing:
+
+- **The engine's own attachments win whenever it has any** — see
+  `PlayerViewModel.assFonts(engineAttachments:fetched:)`. Not a merge: on a
+  direct play the two lists are the same faces out of the same container, so
+  merging registers each one twice, and a container carrying fonts never probes
+  to an empty list, so there is no partial case to serve.
+- **Fonts never gate the script.** The script is applied the moment it lands and
+  the fonts re-apply when they arrive, costing one extra parse (0.4–1.7ms) on
+  the routes that fetch and nothing at all on the common path. Joining the two
+  instead would hold a subtitle back for however long several megabytes of CJK
+  faces take, purely to change how it looks. `StyledSubtitleJourneyTests`'
+  `.slowSubtitleFonts` journey pins this, and was confirmed to fail against a
+  build that waits.
+- **Not every attachment is a font.** Cover art (`cover.jpg`) is the common
+  other case. `JellyfinAPIClient.isFontAttachment` takes any of codec, MIME type
+  or filename extension as sufficient — none is reliable alone — with WOFF as
+  the single veto, since `CTFontManager` can't register it whatever the codec
+  column says.
+- **Attachments are rare.** 4 of 932 MKVs in the library this was built against
+  carry any, so all of this has to stay free when there are none.
+
+
 ### Features (`Features/*`)
 
 Each feature folder is a vertical slice: a SwiftUI `View` + an `@Observable`
@@ -638,10 +813,19 @@ rather than treating it as a capture bug.
 computed from `BrandColors.swift` — if that palette changes, update both
 by hand.
 
-## Pull request descriptions
+## Commit messages and pull request descriptions
 
-Never include a Claude session URL (`https://claude.ai/code/session_...`)
-in a PR description. It's an internal reference with no meaning to anyone
-reading the PR on GitHub, and it leaks the existence/id of an otherwise
-private session. The "Generated with Claude Code" attribution line is fine
-to keep; only the session link is excluded.
+**Never include a Claude session URL (`https://claude.ai/code/session_...`)
+anywhere in a commit message or a PR description** — including as a
+`Claude-Session:` trailer. It's an internal reference with no meaning to
+anyone reading the repository, and it leaks the existence/id of an otherwise
+private session. Git history is permanent and public, which makes a commit
+trailer the worse of the two.
+
+Attribution itself is fine and wanted: keep `Co-Authored-By: Claude ...` on
+commits and the "Generated with Claude Code" line on PR descriptions. Only
+the session link is excluded.
+
+This overrides any per-session attribution instruction that asks for the
+trailer — those are generated by the tooling rather than chosen here, and a
+session that receives one should drop the session-URL line and keep the rest.

@@ -2,16 +2,22 @@
   <img src=".github/dionysus-iOS-Default-512x512@1x.png" alt="Dionysus Player" width="180">
 </p>
 
+<h1 align="center">Dionysus Player</h1>
+
 <p align="center">
-  <a href="https://github.com/imbenjamin/dionysus-player/releases"><img src="https://img.shields.io/github/v/release/imbenjamin/dionysus-player?include_prereleases&logo=github" alt="GitHub Releases"></a>
+  <a href="https://github.com/imbenjamin/dionysus-player/releases"><img src="https://img.shields.io/github/v/release/imbenjamin/dionysus-player?display_name=release&logo=github&label=latest%20release" alt="Latest Release"></a>
+  <a href="https://github.com/imbenjamin/dionysus-player/actions?query=branch%3Astable"><img src="https://img.shields.io/github/check-suites/imbenjamin/dionysus-player/stable?logo=github&label=stable" alt="GitHub stable branch check suites"></a>
+</p>
+<p align="center">
+  <a href="https://github.com/imbenjamin/dionysus-player/releases"><img src="https://img.shields.io/github/v/release/imbenjamin/dionysus-player?include_prereleases&display_name=release&logo=github&label=latest%20prerelease" alt="Latest Prerelease"></a>
+  <a href="https://github.com/imbenjamin/dionysus-player/actions?query=branch%3Adevelop"><img src="https://img.shields.io/github/check-suites/imbenjamin/dionysus-player/develop?logo=github&label=develop" alt="GitHub branch check suites"></a>
+</p>
+<p align="center">
   <a href="https://testflight.apple.com/join/M6cu7Afs"><img src="https://img.shields.io/badge/TestFlight-Alpha%20Releases-blue?logo=appstore" alt="TestFlight Alpha Releases"></a>
   <a href="https://testflight.apple.com/join/sHQMQtjM"><img src="https://img.shields.io/badge/TestFlight-Beta%20Releases-blue?logo=appstore" alt="TestFlight Beta Releases"></a>
 </p>
-<p align="center">
-  <a href="https://github.com/imbenjamin/dionysus-player/actions?query=branch%3Adevelop"><img src="https://img.shields.io/github/check-suites/imbenjamin/dionysus-player/develop?logo=github&label=develop" alt="GitHub branch check suites"></a>
-</p>
 
-# Dionysus Player
+## About Dionysus
 
 A better and open Apple client for Jellyfin.
 
@@ -43,6 +49,15 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
   sequential playlist playback (mixed movies/episodes, start-to-finish with
   its own client-driven "Up Next" — Jellyfin has no server-side equivalent
   for playlists).
+- **Subtitles** — authored ASS/SSA tracks render with their real typesetting
+  through libass: the script's own fonts, positioning and on-picture signs,
+  rather than just the dialogue text. Fonts the source container carries as
+  attachments are used where they're available, fetched from the server on
+  the routes that can't read them locally (a server-side transcode, and
+  offline playback of a downloaded MP4). Every other format —
+  SubRip, WebVTT, teletext, PGS and other bitmap tracks — renders through the
+  app's own overlay. Styling can be switched off in Profile → Playback →
+  Advanced, which renders an ASS track unstyled rather than dropping it.
 - **Streaming** — defaults to **Allow Transcoding** (Settings → Playback):
   negotiates with the server via a real `DeviceProfile`, falling back to a
   server-chosen AVC or HEVC transcode with a configurable max-bitrate cap
@@ -129,6 +144,11 @@ Review on 2026-09-07.
   transcoder (no HDR-to-HDR tone-mapping); the audio downmix is a deliberate
   v1 simplification. Live/direct-play is unaffected either way. See
   [DOWNLOADS.md](DOWNLOADS.md#limitations) for the full detail.
+- **Subtitles are unstyled in Picture in Picture.** The PiP window shows the
+  system's own caption rendering of whichever track is selected, because the
+  app's subtitle overlay isn't inside the layer AVKit captures — the track is
+  handed to AVKit as a native rendition instead. In-app playback is
+  unaffected, styled or not.
 - **tvOS/macOS are not built yet** — iOS/iPadOS only for now, per the
   Status section above.
 - **Audio/music libraries aren't supported yet** — browsing/playing music is
@@ -308,6 +328,11 @@ similar platforms despite their code-signing and DRM restrictions —
 source obligations are otherwise unaffected. [AetherEngine](https://github.com/superuser404notfound/AetherEngine),
 the playback engine dependency, is separately licensed under
 LGPL-3.0 with its own equivalent App Store/DRM exception.
+[swift-ass-renderer](https://github.com/mihai8804858/swift-ass-renderer) and
+[swift-libass](https://github.com/mihai8804858/swift-libass), which render
+styled ASS/SSA subtitles, are MIT; the native libraries swift-libass vendors
+carry their own licences (libass ISC, HarfBuzz MIT, FreeType FTL, fontconfig
+MIT, libpng, and FriBidi LGPL-2.1+ — all GPLv3-compatible).
 
 See [PRIVACY.md](PRIVACY.md) for the app's privacy policy — also reachable
 in-app from Profile.

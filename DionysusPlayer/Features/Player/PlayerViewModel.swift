@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import OSLog
 import Observation
 import os
 
@@ -28,6 +29,54 @@ final class PlayerViewModel {
     /// The source-PTS playhead `subtitleCues` are stamped against, separate from
     /// `currentTime`'s AVPlayer clock, which diverges across producer restarts.
     private(set) var sourceTime: TimeInterval = 0
+    /// Renders authored ASS/SSA styling. Owns its own frame state;
+    /// `SubtitleOverlayView` paints what it produces and suppresses its own text
+    /// rendering while `isRenderingStyledASS`.
+    let assRenderSession = ASSSubtitleRenderSession()
+    /// True while the selected subtitle track is ASS/SSA and libass owns the
+    /// paint for it.
+    private(set) var isRenderingStyledASS = false
+    /// Bumped whenever libass produces a new frame, so the overlay's body
+    /// re-runs (the session itself is deliberately not `@Observable`).
+    private(set) var assFrameGeneration = 0
+    /// Guards against a slow script fetch landing after the user has moved on
+    /// to a different track.
+    private var assScriptTask: Task<Void, Never>?
+    /// The media streams this session is playing, kept so a subtitle track
+    /// selected later can be mapped back to its Jellyfin `MediaStream`.
+    private var mediaStreams: [MediaStream] = []
+    /// The Jellyfin streams this session handed the engine as external
+    /// sidecars, in the order they were handed over — which is what makes the
+    /// ordinal in `registeredSidecar(forTrack:engineTracks:registered:)`
+    /// meaningful. Empty on a direct play with no sidecar files.
+    private var externalSubtitleStreams: [MediaStream] = []
+    /// The attachments the active source declares, kept for the same reason
+    /// `mediaStreams` is: they are only needed once an authored-ASS track is
+    /// selected, which can be long after `start()`.
+    private var mediaAttachments: [MediaAttachment] = []
+    /// Fonts fetched from the server or read off a download, for the routes
+    /// where AetherEngine has none of its own. Never consulted when the engine
+    /// does — see `assFonts`.
+    private var fetchedASSFonts: [ASSFontAttachment] = []
+    /// Coalesces the font fetch: the engine re-announces a track selection
+    /// whenever it republishes the track list, and every announcement would
+    /// otherwise start its own download of the same faces. Same shape as
+    /// `JellyfinAPIClient`'s in-flight re-authentication task.
+    private var assFontTask: Task<[ASSFontAttachment], Never>?
+    /// The fetched script, held until the overlay reports its geometry.
+    private var assScript: String?
+    /// The track `assScript` belongs to, so a re-emitted selection for the same
+    /// track doesn't re-fetch.
+    private var loadedASSTrackID: Int?
+    /// The track a fetch is currently in flight for. Separate from
+    /// `loadedASSTrackID`, which is only set once the script has landed: the
+    /// engine re-announces the selection whenever it republishes the track
+    /// list, and a cold fetch can run for over a minute, so without this the
+    /// announcement would cancel and restart the request every time — a cold
+    /// track could never finish loading.
+    private var fetchingASSTrackID: Int?
+    private var assGeometry: ASSSubtitleRenderSession.Geometry?
+
     /// Drives the PiP button's enabled state.
     private(set) var isPictureInPicturePossible = false
     /// While `true`, `PlayerView` shows a placeholder over the video surface.
@@ -144,7 +193,27 @@ final class PlayerViewModel {
     var audioTracks: [PlaybackTrack] { engine.audioTracks }
     var subtitleTracks: [PlaybackTrack] { engine.subtitleTracks }
     var videoFormatDescription: String? { engine.videoFormatDescription }
-    var videoNaturalSize: CGSize? { engine.videoNaturalSize }
+    /// The picture's coded size, which `SubtitleOverlayView` needs to work out
+    /// where the picture actually is inside a full-bleed overlay.
+    ///
+    /// AetherEngine's own probe first, with Jellyfin's server-side one as the
+    /// fallback — for exactly the reason `sourceVideoStream` above exists: on
+    /// the `nativeRemoteHLS` bypass nothing local ever demuxes the source, so
+    /// the engine reports no natural size for the whole session.
+    ///
+    /// `videoRect(in:)` treats a `nil` as "the picture fills the overlay",
+    /// which was harmless while that route had no subtitles to place and badly
+    /// wrong the moment it did: libass scaled the script to the whole screen
+    /// instead of to the picture, and a transcode's dialogue came out roughly
+    /// three times too large. Only the ASPECT of this is used downstream, and a
+    /// Jellyfin transcode preserves it, so the source's own dimensions are the
+    /// right answer even when the delivered video has been scaled down.
+    var videoNaturalSize: CGSize? {
+        if let size = engine.videoNaturalSize { return size }
+        guard let width = sourceVideoStream?.width, let height = sourceVideoStream?.height,
+              width > 0, height > 0 else { return nil }
+        return CGSize(width: width, height: height)
+    }
     /// A fresh snapshot per access, uncached: `PlaybackStatsOverlay` polls it on
     /// its own timer only while visible, so there is nothing to keep in sync.
     var stats: PlaybackStats { engine.stats }
@@ -345,9 +414,19 @@ final class PlayerViewModel {
             self?.updateNextUpCountdownAnchor()
         }
         engine.onSubtitleCuesChange = { [weak self] cues in self?.subtitleCues = cues }
-        engine.onSourceTimeUpdate = { [weak self] sourceTime in self?.sourceTime = sourceTime }
+        engine.onSourceTimeUpdate = { [weak self] sourceTime in
+            self?.sourceTime = sourceTime
+            // libass renders at a time rather than publishing a cue list, so it
+            // is driven from the same source-PTS clock the overlay filters cues
+            // against.
+            self?.assRenderSession.setTime(sourceTime)
+        }
         engine.onPictureInPicturePossibleChange = { [weak self] possible in self?.isPictureInPicturePossible = possible }
         engine.onPictureInPictureActiveChange = { [weak self] active in self?.isPictureInPictureActive = active }
+        engine.onSubtitleTrackChange = { [weak self] id in self?.handleSubtitleTrackChange(id) }
+        // The render session is a plain object, so it pokes the view model to
+        // re-run the overlay's body.
+        assRenderSession.onFrameChange = { [weak self] in self?.assFrameGeneration &+= 1 }
     }
 
     /// - Parameter resumeSeconds: Seeks here after loading instead of consulting
@@ -435,11 +514,27 @@ final class PlayerViewModel {
             }
 
             var externalSubtitles: [ExternalSubtitleSource] = []
+            let sidecarStreams = Self.externalSubtitleStreams(
+                from: source?.mediaStreams ?? [], isRemoteHLS: isRemoteHLS
+            )
             if let source, let mediaSourceID = source.id {
                 externalSubtitles = await Self.externalSubtitleSources(
-                    itemID: itemID, mediaSourceID: mediaSourceID, mediaStreams: source.mediaStreams ?? [], client: client
+                    itemID: itemID, mediaSourceID: mediaSourceID, streams: sidecarStreams, client: client
                 )
             }
+            // Kept in the order they were registered, so a track selected later
+            // can be mapped back to the stream it was built from.
+            self.externalSubtitleStreams = sidecarStreams
+            self.mediaStreams = source?.mediaStreams ?? []
+            self.mediaAttachments = source?.mediaAttachments ?? []
+            // `start()` runs again on a retry and on a resume-in-place (see
+            // `PlayerView`), so any cached font fetch belongs to the previous
+            // attempt. Clearing it matters most for the retry: whatever made
+            // playback fail plausibly failed the attachment fetch too, and
+            // keeping that empty result would leave the recovered session
+            // permanently unstyled.
+            self.assFontTask = nil
+            self.fetchedASSFonts = []
             let atmosAudioTrackIndices = Self.atmosAudioTrackIndices(from: source?.mediaStreams ?? [])
 
             try await engine.load(
@@ -685,15 +780,449 @@ final class PlayerViewModel {
     }
 
     /// Maps a resolved source's external subtitle streams into
+    // MARK: - Authored ASS styling
+
+    private static let assLog = Logger(subsystem: "com.dionysus.player", category: "ass-subtitles")
+
+    /// Resolve a newly selected subtitle track to a complete ASS script, or tear
+    /// the libass renderer down when the selection isn't an authored-ASS track.
+    ///
+    /// Only ASS/SSA goes to libass. Everything else — SubRip, WebVTT, teletext,
+    /// bitmap — keeps rendering through `SubtitleOverlayView`'s own path on
+    /// AetherEngine's cues, unchanged.
+    private func handleSubtitleTrackChange(_ id: Int?) {
+        guard let id else {
+            assScriptTask?.cancel()
+            fetchingASSTrackID = nil
+            clearStyledASS()
+            return
+        }
+        // Already serving, or already fetching, this track — the engine re-emits
+        // the selection on its own reloads and on every track-list republish.
+        guard id != loadedASSTrackID, id != fetchingASSTrackID else { return }
+
+        // The track list is republished separately from the selected index, so a
+        // selection can briefly name a track that isn't in the list yet. That is
+        // not "the selection isn't ASS" — leaving the current state alone lets
+        // the next emission resolve it.
+        guard let track = engine.subtitleTracks.first(where: { $0.id == id }) else { return }
+
+        Self.assLog.debug("subtitle track -> \(id) codec=\(track.codec ?? "nil") external=\(track.isExternal)")
+        assScriptTask?.cancel()
+        // Drop the outgoing renderer before anything else, including when the
+        // new track is itself ASS. Jellyfin extracts an embedded track on
+        // demand and the first request for a large file can take over a minute,
+        // so without this the PREVIOUS track's styled lines would stay on
+        // screen for the whole fetch — wrong subtitles, not merely unstyled
+        // ones. Cleared, `SubtitleOverlayView` falls back to its own path on
+        // AetherEngine's cues, which are already flowing for the newly selected
+        // track, and upgrades to styled when the script lands.
+        clearStyledASS()
+        // The single gate for the setting. Disabled, an ASS track is treated
+        // exactly like a SubRip one — `clearStyledASS()` above has already
+        // handed the screen back to `SubtitleOverlayView`'s own path on
+        // AetherEngine's cues, so the track still renders, just unstyled.
+        guard Self.isAuthoredASS(track.codec), Self.isStyledASSEnabled() else {
+            fetchingASSTrackID = nil
+            return
+        }
+        fetchingASSTrackID = id
+        assScriptTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if self.fetchingASSTrackID == id { self.fetchingASSTrackID = nil } }
+            let started = CFAbsoluteTimeGetCurrent()
+            let source = await self.assScriptSource(for: track)
+            guard let source, let script = await Self.loadScript(from: source) else {
+                Self.assLog.error("ass script unavailable for track \(id)")
+                if !Task.isCancelled { self.clearStyledASS() }
+                return
+            }
+            guard !Task.isCancelled,
+                  self.engine.subtitleTracks.first(where: \.isSelected)?.id == id else { return }
+            Self.assLog.debug("ass script loaded for track \(id): \(script.count)B, \(self.engine.fontAttachments.count) embedded fonts, fetch \(String(format: "%.1f", CFAbsoluteTimeGetCurrent() - started))s")
+            self.assScript = script
+            self.loadedASSTrackID = id
+            self.isRenderingStyledASS = true
+            self.applyPendingASSScript()
+            // libass now owns the paint, so AVKit must not also draw this
+            // track. It would be drawing it on a server transcode: the app's
+            // sidecars are declared as real HLS renditions there, so selecting
+            // one hands the drawing to AVPlayer, and the viewer got the system
+            // caption and the authored one at once.
+            //
+            // Deliberately only once the script has actually landed. Turning it
+            // off at selection would leave a failed or still-running fetch with
+            // nothing drawing at all — and on that route there is nothing to
+            // fall back to, since AetherEngine publishes no cues for a track
+            // AVPlayer is rendering.
+            //
+            // PiP is unaffected: it turns native rendering back on when it
+            // starts, because the app's overlay isn't inside the captured
+            // layer, and off again when it stops.
+            self.engine.setNativeSubtitleRendering(false)
+
+            // Fonts follow the script rather than gating it. On the common
+            // (direct-play) path the engine already has them and the load
+            // above already used them, so this returns without suspending and
+            // nothing is loaded twice. Only a route with no local demux
+            // reaches a fetch, and there a script whose faces are still
+            // downloading is better rendered now in a fallback face and
+            // re-rendered in its own when they land than withheld for as long
+            // as the fonts take — which, for a CJK release shipping several
+            // megabytes of faces over a slow link, is a long time to show
+            // nothing.
+            guard self.engine.fontAttachments.isEmpty else { return }
+            let fonts = await self.resolveFetchedASSFonts()
+            guard !fonts.isEmpty, !Task.isCancelled, self.loadedASSTrackID == id else { return }
+            Self.assLog.debug("ass fonts resolved for track \(id): \(fonts.count)")
+            self.fetchedASSFonts = fonts
+            self.applyPendingASSScript()
+        }
+    }
+
+    private func clearStyledASS() {
+        assScript = nil
+        loadedASSTrackID = nil
+        isRenderingStyledASS = false
+        assRenderSession.teardown()
+    }
+
+    /// Hands the script and the current overlay geometry to libass together.
+    /// Called from both sides, because either can arrive second: the script
+    /// lands from a fetch, the geometry from `SubtitleOverlayView`'s layout.
+    func setASSGeometry(_ geometry: ASSSubtitleRenderSession.Geometry) {
+        Self.assLog.debug("geometry frame=\(geometry.frame.debugDescription) video=\(geometry.video.debugDescription) safeArea=(t\(geometry.safeArea.top) l\(geometry.safeArea.left) b\(geometry.safeArea.bottom) r\(geometry.safeArea.right)) drawable=\(geometry.drawable.debugDescription)")
+        assGeometry = geometry
+        if assRenderSession.isActive {
+            assRenderSession.updateGeometry(geometry)
+        } else {
+            applyPendingASSScript()
+        }
+    }
+
+    private func applyPendingASSScript() {
+        guard let assScript, let assGeometry else { return }
+        assRenderSession.load(script: assScript, fonts: assFonts, geometry: assGeometry)
+    }
+
+    /// The fonts to render the current script in.
+    private var assFonts: [ASSFontAttachment] {
+        Self.assFonts(engineAttachments: engine.fontAttachments, fetched: fetchedASSFonts)
+    }
+
+    /// AetherEngine's own probe wins whenever it has anything, and `fetched`
+    /// is the fallback for the routes where it never will.
+    ///
+    /// Not a merge. On a direct play the two are the same faces read out of the
+    /// same container, so merging would register every one of them twice; and
+    /// the engine's copy is already in memory, where the fallback costs a
+    /// download or a disk read. The engine having *any* attachment is taken as
+    /// it having demuxed the container — a file with fonts never probes to an
+    /// empty list, so there is no case where it holds some of them and the
+    /// server holds the rest.
+    ///
+    /// Static and pure so the rule can be asserted directly; the instance
+    /// property `assFonts` is the only caller.
+    static func assFonts(
+        engineAttachments: [ASSFontAttachment], fetched: [ASSFontAttachment]
+    ) -> [ASSFontAttachment] {
+        engineAttachments.isEmpty ? fetched : engineAttachments
+    }
+
+    /// Where the selected track's script can be read from.
+    ///
+    /// A downloaded item already has every non-bitmap track on disk as a
+    /// sidecar. Streaming, Jellyfin will extract any subtitle stream — embedded
+    /// included — through `JellyfinAPIClient.subtitleURL`.
+    ///
+    /// Either way the selected track has to be mapped back to the right script,
+    /// and neither side can be matched by id — see
+    /// `downloadedSubtitleFile(forTrack:engineTracks:subtitleFiles:)` and
+    /// `jellyfinStream(forTrack:engineTracks:mediaStreams:)` for why each is an
+    /// ordinal instead.
+    ///
+    /// Non-private so tests can resolve a track without driving a real libass
+    /// load: offline this is fully deterministic and touches no network, and
+    /// the defect worth catching here (every track resolving to the same
+    /// script) lives in this wiring rather than in either mapping.
+    func assScriptSource(for track: PlaybackTrack) async -> ASSScriptSource? {
+        if let downloadedItem {
+            guard let file = Self.registeredSidecar(
+                forTrack: track, engineTracks: engine.subtitleTracks,
+                registered: downloadedItem.subtitleFiles
+            ), Self.isAuthoredASSPath(file.relativePath) else { return nil }
+            return .localFile(DownloadFileStore.url(forRelativePath: file.relativePath))
+        }
+        guard let mediaSourceID = activeMediaSourceID else { return nil }
+        // Two kinds of track reach here and they map differently. A track the
+        // engine demuxed out of the container is paired with its `MediaStream`
+        // by ordinal among embedded ASS entries; a sidecar THIS app registered
+        // is paired with the stream it was built from, by ordinal among
+        // externals. Before the transcode path registered anything, an external
+        // ASS track simply had no mapping and silently rendered unstyled.
+        let stream = track.isExternal
+            ? Self.registeredSidecar(
+                forTrack: track, engineTracks: engine.subtitleTracks, registered: externalSubtitleStreams
+            )
+            : Self.jellyfinStream(
+                forTrack: track, engineTracks: engine.subtitleTracks, mediaStreams: mediaStreams
+            )
+        guard let stream else { return nil }
+        return await client.subtitleURL(
+            itemID: itemID, mediaSourceID: mediaSourceID, streamIndex: stream.index, codec: stream.codec
+        ).map(ASSScriptSource.remote)
+    }
+
+    /// The fonts for this source, fetched at most once per session.
+    ///
+    /// Coalesced through a stored `Task` rather than a "did I already?" flag:
+    /// the engine re-announces the selected track on every track-list
+    /// republish, and `handleSubtitleTrackChange` cancels the previous fetch
+    /// without waiting for it to finish, so two of these can genuinely overlap.
+    /// A flag set before the first `await` would hand the second caller an
+    /// empty list; awaiting the same task hands it the same answer.
+    private func resolveFetchedASSFonts() async -> [ASSFontAttachment] {
+        if let assFontTask { return await assFontTask.value }
+        let task = Task<[ASSFontAttachment], Never> { [weak self] in
+            await self?.fetchASSFonts() ?? []
+        }
+        assFontTask = task
+        return await task.value
+    }
+
+    /// Where the fonts an authored script names come from when AetherEngine
+    /// has none — which is every route that never demuxes the original
+    /// container:
+    ///
+    /// - **A server-side transcode.** The app plays the server's fMP4 HLS
+    ///   through AVPlayer, so nothing local reads the source MKV; and MP4
+    ///   carries no attachments even if it did.
+    /// - **Offline.** The downloaded file is MP4 for the same reason, so
+    ///   `DownloadManager` stores the attachments as sidecars at enqueue and
+    ///   they are read back from disk here.
+    ///
+    /// Streaming, this is the `/Videos/{id}/{source}/Attachments/{index}`
+    /// route. A failure is dropped rather than propagated: a missing face
+    /// renders the script in a fallback one, which is how the app behaved
+    /// before any of this and is not worth failing a subtitle over.
+    private func fetchASSFonts() async -> [ASSFontAttachment] {
+        if let downloadedItem {
+            return Self.assFonts(fromDownloaded: downloadedItem.fontFiles)
+        }
+        guard let mediaSourceID = activeMediaSourceID else { return [] }
+        var fonts: [ASSFontAttachment] = []
+        // Serial rather than a task group: a container carries a handful of
+        // faces (1-4 across every attachment-bearing file in the library this
+        // was measured on), and each one the server has to extract is work it
+        // does one job at a time anyway.
+        for attachment in JellyfinAPIClient.fontAttachments(in: mediaAttachments) {
+            guard !Task.isCancelled,
+                  let url = await client.attachmentURL(
+                      itemID: itemID, mediaSourceID: mediaSourceID, index: attachment.index
+                  ) else { continue }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = Self.fontRequestTimeout
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 200,
+                  !data.isEmpty else { continue }
+            fonts.append(ASSFontAttachment(
+                // The container's own name for the face. Only ever written
+                // back out to a temp file for `CTFontManagerRegisterFontsForURL`
+                // — which reads the face name out of the font's own tables, not
+                // the path — so a container with no name for an attachment can
+                // take one derived from its index.
+                filename: attachment.fileName ?? "attachment-\(attachment.index)",
+                data: data
+            ))
+        }
+        return fonts
+    }
+
+    /// Reads a download's stored font sidecars back into memory.
+    ///
+    /// A file that has gone missing is skipped rather than failing the set: the
+    /// row and its files can diverge (a half-deleted download, a restore that
+    /// brought the database back without the sidecars), and one absent face
+    /// costs a fallback for that face alone.
+    static func assFonts(fromDownloaded files: [DownloadedFontFile]) -> [ASSFontAttachment] {
+        files.compactMap { file in
+            guard let data = try? Data(
+                contentsOf: DownloadFileStore.url(forRelativePath: file.relativePath)
+            ) else { return nil }
+            return ASSFontAttachment(filename: file.fileName, data: data)
+        }
+    }
+
+    /// Shorter than `scriptRequestTimeout`, deliberately. The same on-demand
+    /// extraction is behind both, but the script IS the subtitle while the
+    /// fonts are only how it looks — and since the fetch no longer gates the
+    /// script (see `handleSubtitleTrackChange`), a font the server is slow to
+    /// produce costs nothing but itself.
+    private static let fontRequestTimeout: TimeInterval = 60
+
+    /// What this app registered for an engine subtitle track, by ordinal.
+    ///
+    /// The one rule behind both sidecar paths — a download's stored files and a
+    /// transcode's fetched streams. Neither can be matched by id: AetherEngine
+    /// assigns its own ids to the sidecars a host registers, and they share no
+    /// arithmetic with `DownloadedSubtitleFile.index` or `MediaStream.index`,
+    /// which are Jellyfin's. What does hold is order — the engine reports the
+    /// sidecars in the order they were handed to `load(...)` — so the nth
+    /// external track is the nth registered thing.
+    ///
+    /// Embedded tracks are excluded from the count on purpose. A downloaded MP4
+    /// can carry its own, and a direct-played container certainly does;
+    /// counting them shifts the ordinal exactly as a bitmap stream shifts
+    /// `jellyfinStream`'s.
+    ///
+    /// `nil` when the track isn't one of ours, and when the two sides disagree
+    /// about how many sidecars exist — a registration that silently dropped one
+    /// would slide every ordinal after it, which is the difference between
+    /// showing no subtitle and confidently showing the wrong one.
+    static func registeredSidecar<Registered>(
+        forTrack track: PlaybackTrack,
+        engineTracks: [PlaybackTrack],
+        registered: [Registered]
+    ) -> Registered? {
+        guard track.isExternal else { return nil }
+        let externalTracks = engineTracks.filter(\.isExternal)
+        guard externalTracks.count == registered.count,
+              let ordinal = externalTracks.firstIndex(where: { $0.id == track.id }) else { return nil }
+        return registered[ordinal]
+    }
+
+    /// The Jellyfin `MediaStream` an engine subtitle track came from.
+    ///
+    /// By ordinal rather than by id: AetherEngine numbers an embedded track by
+    /// its `AVStream` index while Jellyfin numbers the same track by its own
+    /// `MediaStream.index`, and the two disagree — confirmed live on two files,
+    /// engine id 2 against Jellyfin index 3 on one and id 5 against index 6 on
+    /// another. Both lists preserve container order, so the nth embedded ASS
+    /// track on one side is the nth on the other.
+    ///
+    /// Both sides are filtered to embedded ASS/SSA before counting. Filtering
+    /// on BOTH properties matters: a file can carry external sidecars and
+    /// bitmap tracks interleaved with the ASS ones, and counting those would
+    /// shift the ordinal. External tracks need no mapping at all — this app
+    /// registered them from these very streams.
+    ///
+    /// `nil` when the track isn't an embedded ASS one, or when the two lists
+    /// disagree about how many there are, which is not a case to guess at.
+    static func jellyfinStream(
+        forTrack track: PlaybackTrack, engineTracks: [PlaybackTrack], mediaStreams: [MediaStream]
+    ) -> MediaStream? {
+        let embeddedTracks = engineTracks.filter { !$0.isExternal && isAuthoredASS($0.codec) }
+        guard let ordinal = embeddedTracks.firstIndex(where: { $0.id == track.id }) else { return nil }
+        let embeddedStreams = mediaStreams.filter {
+            $0.type == "Subtitle" && $0.isExternal != true && isAuthoredASS($0.codec)
+        }
+        guard ordinal < embeddedStreams.count else { return nil }
+        return embeddedStreams[ordinal]
+    }
+
+    /// Whether authored ASS/SSA tracks render through libass at all.
+    ///
+    /// Read at each track selection rather than captured once, so the setting
+    /// applies from the next selection onward without the player having to be
+    /// torn down. Settings are unreachable while the player is up — it is a
+    /// `fullScreenCover` and they live in a tab behind it — so that is as live
+    /// as this can be observed to be.
+    ///
+    /// Takes its `UserDefaults` so a test can pass its own rather than mutate
+    /// the shared domain, and so the UI suite's argument-domain override works
+    /// unchanged.
+    static func isStyledASSEnabled(_ defaults: UserDefaults = .standard) -> Bool {
+        // `object(forKey:)` rather than `bool(forKey:)`: the latter reports
+        // false for "never set", which would invert the default.
+        guard defaults.object(forKey: styledASSSubtitlesEnabledStorageKey) != nil else {
+            return styledASSSubtitlesEnabledDefault
+        }
+        return defaults.bool(forKey: styledASSSubtitlesEnabledStorageKey)
+    }
+
+    static func isAuthoredASS(_ codec: String?) -> Bool {
+        switch codec?.lowercased() {
+        case "ass", "ssa": return true
+        default: return false
+        }
+    }
+
+    /// `DownloadedSubtitleFile` records no codec, but its file was named by
+    /// `JellyfinAPIClient.subtitleFileExtension(forCodec:)`, so the extension is
+    /// the codec.
+    static func isAuthoredASSPath(_ relativePath: String) -> Bool {
+        isAuthoredASS((relativePath as NSString).pathExtension)
+    }
+
+    /// Scripts are small once they exist (tens to hundreds of KB) and are
+    /// fetched once per track selection, so this is a plain one-shot load
+    /// rather than anything cached.
+    ///
+    /// The timeout is the point. Jellyfin extracts an embedded subtitle stream
+    /// on demand and caches the result, so the FIRST request for a track in a
+    /// large file pays for the extraction: 70.6s measured against a 4K remux
+    /// here, versus 0.03s for every request after it. `URLSession`'s default
+    /// 60s request timeout cuts that off just before it finishes, which reads
+    /// as "this track has no styling" rather than as a timeout.
+    private static let scriptRequestTimeout: TimeInterval = 180
+
+    private static func loadScript(from source: ASSScriptSource) async -> String? {
+        do {
+            switch source {
+            case .localFile(let url):
+                return try String(contentsOf: url, encoding: .utf8)
+            case .remote(let url):
+                var request = URLRequest(url: url)
+                request.timeoutInterval = scriptRequestTimeout
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+                return String(data: data, encoding: .utf8)
+            }
+        } catch {
+            return nil
+        }
+    }
+
+    /// The subtitle streams this app has to hand the engine as sidecars.
+    ///
+    /// Always the genuinely external ones — a `.srt` sitting beside the video
+    /// in the library, which is nowhere inside the container.
+    ///
+    /// **Plus, on a server-side transcode, the container's own text tracks.**
+    /// The app plays the server's HLS through AVPlayer, and that playlist
+    /// carries no subtitle rendition for them, so nothing demuxes them and they
+    /// vanish from the picker entirely — every embedded SubRip and ASS track,
+    /// not just the styled ones. Jellyfin says so itself: asked with this app's
+    /// `DeviceProfile`, it answers `deliveryMethod: "External"` for exactly
+    /// those streams (and `"Encode"` for the bitmap ones it burns in), which is
+    /// the server telling the client to fetch them. Confirmed against 10.11.11.
+    ///
+    /// The route gate is load-bearing, not caution. Direct play reports the
+    /// same `"External"` for the same embedded streams, where AetherEngine has
+    /// demuxed them and lists them already — registering sidecars there would
+    /// show every track in the picker twice.
+    ///
+    /// Order is the stream list's, and is what
+    /// `registeredSidecar(forTrack:engineTracks:registered:)` maps back on.
+    static func externalSubtitleStreams(
+        from mediaStreams: [MediaStream], isRemoteHLS: Bool
+    ) -> [MediaStream] {
+        mediaStreams.filter { stream in
+            guard stream.type == "Subtitle" else { return false }
+            if stream.isExternal == true { return true }
+            return isRemoteHLS && stream.deliveryMethod == "External"
+        }
+    }
+
     /// `ExternalSubtitleSource`s for the load. `JellyfinAPIClient.subtitleURL`
     /// covers why the URL is built from ids rather than read off the stream. An
     /// unresolvable URL is skipped rather than failing the load; external
     /// subtitles are a bonus, not a requirement.
     static func externalSubtitleSources(
-        itemID: String, mediaSourceID: String, mediaStreams: [MediaStream], client: JellyfinAPIClient
+        itemID: String, mediaSourceID: String, streams: [MediaStream], client: JellyfinAPIClient
     ) async -> [ExternalSubtitleSource] {
         var sources: [ExternalSubtitleSource] = []
-        for stream in mediaStreams where stream.type == "Subtitle" && stream.isExternal == true {
+        for stream in streams {
             guard let url = await client.subtitleURL(
                 itemID: itemID, mediaSourceID: mediaSourceID, streamIndex: stream.index, codec: stream.codec
             ) else { continue }

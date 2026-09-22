@@ -38,6 +38,17 @@ enum DownloadFileStore {
         "\(itemID)/subs/\(index)-\(sanitized(language ?? "und")).\(fileExtension)"
     }
 
+    /// A font attachment from the source container. Keyed by the container's
+    /// own attachment index, which is unique within a source and so needs no
+    /// further dedup; the name is appended only to keep the directory legible.
+    /// The stored name is sanitised and the extension's dot goes with it —
+    /// harmless, because nothing reads the face back by path.
+    /// `DownloadedFontFile.fileName` carries the container's own spelling for
+    /// the copy `ASSSubtitleRenderSession` registers.
+    static func fontRelativePath(itemID: String, index: Int, fileName: String?) -> String {
+        "\(itemID)/fonts/\(index)-\(sanitized(fileName ?? "font"))"
+    }
+
     /// Per-item rather than content-addressed: a trickplay sheet belongs to one
     /// item's scrub track, so keying by content identity would dedup nothing.
     /// `width` is the resolution tier and `sheetIndex` the sheet within it, the

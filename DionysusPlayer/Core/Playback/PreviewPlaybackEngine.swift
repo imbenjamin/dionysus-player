@@ -15,6 +15,8 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     var onTimeUpdate: ((TimeInterval, TimeInterval) -> Void)?
     var onSubtitleCuesChange: (([SubtitleCueDisplay]) -> Void)?
     var onSourceTimeUpdate: ((TimeInterval) -> Void)?
+    var onSubtitleTrackChange: ((Int?) -> Void)?
+    var fontAttachments: [ASSFontAttachment] = []
     var onPictureInPicturePossibleChange: ((Bool) -> Void)?
     var onPictureInPictureActiveChange: ((Bool) -> Void)?
 
@@ -23,8 +25,16 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         PlaybackTrack(id: 1, kind: .audio, title: "Director's Commentary", metadata: "English · AAC · Stereo · Commentary", isSelected: false)
     ]
     var subtitleTracks: [PlaybackTrack] = [
-        PlaybackTrack(id: 0, kind: .subtitle, title: "English", metadata: "Default", isSelected: false),
-        PlaybackTrack(id: 1, kind: .subtitle, title: "English", metadata: "Hearing Impaired", isSelected: false)
+        PlaybackTrack(id: 0, kind: .subtitle, title: "English", metadata: "Default",
+                      isSelected: false, codec: "subrip"),
+        PlaybackTrack(id: 1, kind: .subtitle, title: "English", metadata: "Hearing Impaired",
+                      isSelected: false, codec: "subrip"),
+        // An authored-ASS track, so the styled path has something to select.
+        // Embedded and last, matching the fixture's own stream order — the
+        // track/stream pairing is by ordinal among embedded ASS entries (see
+        // `PlayerViewModel.jellyfinStream(forTrack:engineTracks:mediaStreams:)`).
+        PlaybackTrack(id: 2, kind: .subtitle, title: "English", metadata: "Styled",
+                      isSelected: false, codec: "ass")
     ]
     var videoFormatDescription: String? = "Dolby Vision P8.1"
     var videoNaturalSize: CGSize? = CGSize(width: 3840, height: 1600)
@@ -96,8 +106,44 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         stopTicking()
         onStateChange?(.ended)
     }
-    func selectAudioTrack(id: Int) {}
-    func selectSubtitleTrack(id: Int?) {}
+    func selectAudioTrack(id: Int) {
+        audioTracks = audioTracks.map { $0.selected($0.id == id) }
+    }
+
+    /// Unlike the audio counterpart this has to announce itself: the styled-ASS
+    /// path hangs off `onSubtitleTrackChange`, so a no-op here would leave a UI
+    /// test unable to reach it at all.
+    ///
+    /// It also publishes a cue, which is what `SubtitleOverlayView`'s own
+    /// (non-libass) path renders — every SubRip and WebVTT track in the app,
+    /// and an ASS track when Subtitle Styling is off. Without it that path
+    /// paints nothing under the harness, so a test could only ever assert the
+    /// *absence* of a styled frame — which passes just as happily on a bug that
+    /// drops the track altogether.
+    /// Recorded rather than acted on: there is no AVPlayer here to hand
+    /// drawing to.
+    private(set) var nativeSubtitleRenderingRequests: [Bool] = []
+
+    func setNativeSubtitleRendering(_ active: Bool) {
+        nativeSubtitleRenderingRequests.append(active)
+    }
+
+    func selectSubtitleTrack(id: Int?) {
+        subtitleTracks = subtitleTracks.map { $0.selected($0.id == id) }
+        onSubtitleTrackChange?(id)
+        onSubtitleCuesChange?(id == nil ? [] : Self.previewCues)
+    }
+
+    /// One cue spanning the whole runtime, so it is active whatever the clock
+    /// says and a test never has to wait for a window to open. No `placement`:
+    /// the bottom-centre default is the common case and the one the overlay's
+    /// clearance behaviour is about.
+    private static let previewCues = [
+        SubtitleCueDisplay(
+            id: 0, startTime: 0, endTime: .greatestFiniteMagnitude,
+            body: .text(UITestFixtureIdentity.plainSubtitleCueText)
+        )
+    ]
     func startPictureInPicture() {}
     func stopPictureInPicture() {}
     func setNowPlayingInfo(title: String, subtitle: String?, artwork: UIImage?) {}

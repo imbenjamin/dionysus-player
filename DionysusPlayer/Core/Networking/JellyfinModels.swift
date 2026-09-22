@@ -442,6 +442,38 @@ struct MediaSourceInfo: Codable, Identifiable, Equatable {
     /// "hls" or "http"; meaningful only alongside `transcodingUrl`.
     var transcodingSubProtocol: String?
     var transcodingContainer: String?
+    /// The container's own attachments — in practice the font files an
+    /// authored ASS/SSA script names. Populated on the transcode path as well
+    /// as the direct-play one (confirmed live against 10.11.11), which is what
+    /// makes it the answer for a route where the app never demuxes the
+    /// container itself. See `PlayerViewModel.fetchASSFonts()`.
+    var mediaAttachments: [MediaAttachment]?
+}
+
+/// One attachment carried inside a media container. Almost always a font: a
+/// typeset ASS/SSA release ships the faces its script names alongside it, and
+/// a device that lacks them renders the script in a fallback face.
+///
+/// Jellyfin's own `MediaAttachment` also has `Comment` and a `DeliveryUrl`,
+/// neither modelled. `DeliveryUrl` deliberately so: the server fills it only
+/// when the `/PlaybackInfo` request carried a `DeviceProfile`, so it is
+/// present in "Allow Transcoding" mode and absent in "Direct Play Always" —
+/// the same trap `MediaStream`'s own delivery URL sets, and the reason
+/// `JellyfinAPIClient.attachmentURL` builds the route from ids instead.
+struct MediaAttachment: Codable, Identifiable, Equatable {
+    var index: Int
+    /// FFmpeg's name for the attachment stream's codec: "ttf", "otf", "mjpeg".
+    var codec: String?
+    /// The name the attachment carries inside the container ("Sublime
+    /// Regular.ttf"). Not sanitised by the server, and not necessarily ASCII —
+    /// a CJK-subtitled release ships CJK-named faces.
+    var fileName: String?
+    /// "application/x-truetype-font" and its several synonyms. Absent on some
+    /// containers, which is why `JellyfinAPIClient.isFontAttachment` checks
+    /// three signals rather than trusting this one.
+    var mimeType: String?
+
+    var id: Int { index }
 }
 
 struct MediaStream: Codable, Identifiable, Hashable {
@@ -456,6 +488,20 @@ struct MediaStream: Codable, Identifiable, Hashable {
     var isDefault: Bool?
     var isForced: Bool?
     var isExternal: Bool?
+    /// How the server expects this stream to reach the player for the route it
+    /// just negotiated: "External" (the client fetches it as a sidecar),
+    /// "Embed" (it rides inside the delivered container) or "Encode" (burned
+    /// into the video).
+    ///
+    /// Route-dependent, and only meaningful alongside the response it came in.
+    /// The trap is that it is NOT the same question as `isExternal`, which
+    /// describes where the stream lives in the library: an embedded ASS track
+    /// on a transcode reports `isExternal: false` with `deliveryMethod:
+    /// "External"`, because the HLS carries no subtitle rendition and the
+    /// client has to fetch the script itself. Filtering on `isExternal` alone
+    /// is what used to drop every embedded text track on the transcode path.
+    /// See `PlayerViewModel.externalSubtitleStreams(from:isRemoteHLS:)`.
+    var deliveryMethod: String?
     /// Server-detected, mostly for subtitle streams following SDH naming
     /// conventions and occasionally for an accessible audio track. One of the
     /// signals `MediaItem.metadataBadges` checks for "AD".

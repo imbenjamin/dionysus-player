@@ -428,6 +428,10 @@ final class DownloadManager: NSObject {
         downloaded.subtitleFiles = await downloadSubtitles(
             itemID: item.id, mediaSourceID: mediaSourceID, tracks: subtitleTracks, client: client
         )
+        downloaded.fontFiles = await downloadFontAttachments(
+            itemID: item.id, mediaSourceID: mediaSourceID,
+            attachments: mediaSource.mediaAttachments ?? [], client: client
+        )
         store.save()
 
         // Staged, not started — see `pendingPollStarters`. The loop begins when
@@ -500,6 +504,53 @@ final class DownloadManager: NSObject {
                     isForced: stream.isForced ?? false,
                     isDefault: stream.isDefault ?? false,
                     isHearingImpaired: stream.isHearingImpaired ?? false,
+                    relativePath: relativePath
+                ))
+            } catch {
+                continue
+            }
+        }
+        return files
+    }
+
+    /// Downloads the source container's font attachments, so an authored
+    /// ASS/SSA sidecar renders in its own faces offline.
+    ///
+    /// The transcoded download can't carry them itself — it is MP4, which has
+    /// no attachment streams — so they have to come down separately, the same
+    /// way the subtitles do. Non-font attachments (cover art, most often) are
+    /// filtered out by `JellyfinAPIClient.fontAttachments(in:)` rather than
+    /// downloaded and never used.
+    ///
+    /// Best-effort throughout, like `downloadSubtitles`: a face that fails to
+    /// fetch is dropped, and the script falls back to a system one at playback
+    /// — which is exactly how the app behaved before any of this. Nothing here
+    /// is worth failing a download over.
+    private func downloadFontAttachments(
+        itemID: String, mediaSourceID: String, attachments: [MediaAttachment], client: JellyfinAPIClient
+    ) async -> [DownloadedFontFile] {
+        var files: [DownloadedFontFile] = []
+        let session = adHocFetchSession
+        for attachment in JellyfinAPIClient.fontAttachments(in: attachments) {
+            guard let url = await client.attachmentURL(
+                itemID: itemID, mediaSourceID: mediaSourceID, index: attachment.index
+            ) else { continue }
+            do {
+                let (data, response) = try await session.data(for: makeFetchRequest(url: url))
+                // Checked explicitly because `URLSession` doesn't throw on a
+                // 404, and writing an error body to disk would give playback a
+                // file `CTFontManager` can only refuse — see
+                // `downloadImageIfNeeded`, which has the same guard for the
+                // same reason.
+                guard let http = response as? HTTPURLResponse,
+                      (200..<300).contains(http.statusCode), !data.isEmpty else { continue }
+                let relativePath = DownloadFileStore.fontRelativePath(
+                    itemID: itemID, index: attachment.index, fileName: attachment.fileName
+                )
+                try DownloadFileStore.write(data, toRelativePath: relativePath)
+                files.append(DownloadedFontFile(
+                    index: attachment.index,
+                    fileName: attachment.fileName ?? "attachment-\(attachment.index)",
                     relativePath: relativePath
                 ))
             } catch {
