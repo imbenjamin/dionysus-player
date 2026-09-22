@@ -97,9 +97,9 @@ packages:
   SwiftUIShimmer:
     url: https://github.com/markiv/SwiftUI-Shimmer
     from: 1.5.1
-  # SPIKE (not for merge as-is): MIT Swift wrapper over libass, to render
-  # authored ASS/SSA styling that AetherEngine deliberately leaves to the
-  # host. Pinned exactly for the same reason AetherEngine is — this one
+  # MIT Swift wrapper over libass, rendering the authored ASS/SSA styling
+  # AetherEngine deliberately leaves to its host (see CLAUDE.md's
+  # "Subtitles"). Pinned exactly for the same reason AetherEngine is — this one
   # pulls five packages transitively (swift-libass' binary xcframeworks
   # plus combine-schedulers, xctest-dynamic-overlay, swift-concurrency-extras),
   # ~208 MB of checkouts, and Package.resolved is gitignored here so CI

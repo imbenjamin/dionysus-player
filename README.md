@@ -43,6 +43,15 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
   sequential playlist playback (mixed movies/episodes, start-to-finish with
   its own client-driven "Up Next" — Jellyfin has no server-side equivalent
   for playlists).
+- **Subtitles** — authored ASS/SSA tracks render with their real typesetting
+  through libass: the script's own fonts, positioning and on-picture signs,
+  rather than just the dialogue text. Fonts the source container carries as
+  attachments are used where they're available, fetched from the server on
+  the routes that can't read them locally (a server-side transcode, and
+  offline playback of a downloaded MP4). Every other format —
+  SubRip, WebVTT, teletext, PGS and other bitmap tracks — renders through the
+  app's own overlay. Styling can be switched off in Profile → Playback →
+  Advanced, which renders an ASS track unstyled rather than dropping it.
 - **Streaming** — defaults to **Allow Transcoding** (Settings → Playback):
   negotiates with the server via a real `DeviceProfile`, falling back to a
   server-chosen AVC or HEVC transcode with a configurable max-bitrate cap
@@ -129,6 +138,11 @@ Review on 2026-09-07.
   transcoder (no HDR-to-HDR tone-mapping); the audio downmix is a deliberate
   v1 simplification. Live/direct-play is unaffected either way. See
   [DOWNLOADS.md](DOWNLOADS.md#limitations) for the full detail.
+- **Subtitles are unstyled in Picture in Picture.** The PiP window shows the
+  system's own caption rendering of whichever track is selected, because the
+  app's subtitle overlay isn't inside the layer AVKit captures — the track is
+  handed to AVKit as a native rendition instead. In-app playback is
+  unaffected, styled or not.
 - **tvOS/macOS are not built yet** — iOS/iPadOS only for now, per the
   Status section above.
 - **Audio/music libraries aren't supported yet** — browsing/playing music is
