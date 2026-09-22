@@ -89,6 +89,32 @@ final class ASSSubtitleRenderSession {
                 height: max(frame.height - bottomInset - renderOriginY, 1)
             )
         }
+
+        /// Where the picture sits relative to `renderFrame`, in renderer pixels.
+        ///
+        /// **Signed on purpose.** libass documents a negative margin as "the
+        /// frame is inside the video, i.e. the video has been cropped", which is
+        /// exactly the landscape case: the picture fills the screen, so the
+        /// frame — which stops short of the transport chrome — is shorter than
+        /// the picture and the bottom margin is negative. Clamping it to zero
+        /// told libass the picture ended where the frame does, which mapped
+        /// every `\pos` sign into a too-short rectangle (measured: a sign
+        /// landing at y 20–34 against a correct 29–49, and 30% undersized).
+        ///
+        /// Portrait margins are positive — the picture really is smaller than
+        /// the frame there — so the clamp never fired and this was landscape-only.
+        var margins: (top: Int32, bottom: Int32, left: Int32, right: Int32) {
+            let renderFrame = renderFrame
+            func px(_ points: CGFloat) -> Int32 { Int32((points * scale).rounded()) }
+            return (
+                // Zero by construction: `renderOriginY` starts the frame at the
+                // picture's top edge.
+                top: px(video.minY - renderOriginY),
+                bottom: px(renderFrame.height - (video.maxY - renderOriginY)),
+                left: px(video.minX),
+                right: px(renderFrame.width - video.maxX)
+            )
+        }
     }
 
     /// The latest frame libass produced, positioned in `geometry.frame`'s
@@ -183,13 +209,7 @@ final class ASSSubtitleRenderSession {
         // `setCanvasSize` passes to `ass_set_frame_size`.
         let scale = geometry.scale
         let renderFrame = geometry.renderFrame
-        // In the shifted frame the picture starts at y 0, so the top margin is
-        // zero by construction — see `Geometry.renderOriginY`.
-        let videoHeight = geometry.video.height
-        let top: Int32 = 0
-        let bottom = Int32((max(renderFrame.height - videoHeight, 0) * scale).rounded())
-        let left = Int32((geometry.video.minX * scale).rounded())
-        let right = Int32((max(renderFrame.width - geometry.video.maxX, 0) * scale).rounded())
+        let (top, bottom, left, right) = geometry.margins
 
         let renderer = AssSubtitlesRenderer(
             fontConfig: makeFontConfig(),

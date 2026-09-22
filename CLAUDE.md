@@ -440,6 +440,23 @@ picture and `ass_set_use_margins` on — the documented mechanism for subtitles
 in the letterbox bar. Regular dialogue moves into that bar while `\pos` signs,
 which are positioned rather than regular, stay anchored to the picture.
 
+**The margins are signed, and in landscape the bottom one is negative.** libass
+documents a negative margin as "the frame is inside the video, i.e. the video
+has been cropped", which is exactly what landscape is: the picture fills the
+screen, so the frame — which stops short of the transport chrome — is shorter
+than the picture. Clamping that to zero tells libass the picture ends where the
+frame does and maps every `\pos` sign into a too-short rectangle (measured: a
+sign at y 20–34 against a correct 29–49, and 30% undersized). Portrait margins
+are positive, so the clamp never fired there and the defect was landscape-only.
+`ASSSubtitleGeometryTests` pins both orientations.
+
+Note that regular events still take their font scale from the *frame* rather
+than the video area, so while the transport row is up they render smaller than
+authored (about 7% with the controls hidden, more while they're visible).
+`ass_set_storage_size` does not help — it affects aspect ratio and blur, not
+scale — and there is no way in libass' model to confine regular events to a
+shorter frame while scaling them to the full picture.
+
 The frame starts at the picture rather than the overlay so there is **no top
 margin**. `use_margins` relocates every *regular* event into the margins and
 top-aligned events are regular, so a top margin sends an `\an8` sign into the
