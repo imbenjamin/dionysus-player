@@ -560,6 +560,153 @@ final class JellyfinAPIClientTests: XCTestCase {
         }
     }
 
+    // MARK: MediaStream delivery method
+
+    /// A verbatim `/PlaybackInfo` fragment from Jellyfin 10.11.11 on the
+    /// transcode path. The two fields answer different questions and the app
+    /// depends on both: `IsExternal` says where the stream lives in the library,
+    /// `DeliveryMethod` how it reaches the player for the route just
+    /// negotiated. An embedded ASS track on a transcode is `false`/`"External"`
+    /// — not in a sidecar file, but the client has to fetch it anyway because
+    /// the HLS carries no rendition for it.
+    func test_mediaStream_decodesDeliveryMethodSeparatelyFromIsExternal() throws {
+        let json = """
+        {"MediaStreams":[\
+        {"Index":0,"Type":"Subtitle","Codec":"subrip","IsExternal":true,"DeliveryMethod":"External"},\
+        {"Index":6,"Type":"Subtitle","Codec":"ass","IsExternal":false,"DeliveryMethod":"External"},\
+        {"Index":9,"Type":"Subtitle","Codec":"PGSSUB","IsExternal":false,"DeliveryMethod":"Encode"}]}
+        """.data(using: .utf8)!
+
+        let source = try JellyfinJSON.decoder.decode(MediaSourceInfo.self, from: json)
+        let streams = try XCTUnwrap(source.mediaStreams)
+        XCTAssertEqual(streams.map(\.deliveryMethod), ["External", "External", "Encode"])
+        XCTAssertEqual(streams.map(\.isExternal), [true, false, false])
+    }
+
+    /// Direct Play Always sends no `DeviceProfile`, so the server has no route
+    /// to describe and omits the field entirely.
+    func test_mediaStream_decodesWithoutADeliveryMethod() throws {
+        let json = #"{"MediaStreams":[{"Index":6,"Type":"Subtitle","Codec":"ass","IsExternal":false}]}"#.data(using: .utf8)!
+        let source = try JellyfinJSON.decoder.decode(MediaSourceInfo.self, from: json)
+        XCTAssertNil(source.mediaStreams?.first?.deliveryMethod)
+    }
+
+    // MARK: MediaAttachment decoding
+
+    /// The payload is a verbatim `/PlaybackInfo` response body from Jellyfin
+    /// 10.11.11, trimmed to the source's attachment list. `MediaAttachments`
+    /// arrives on the transcode path as well as the direct-play one, which is
+    /// what makes it usable for the routes where AetherEngine reports no fonts
+    /// of its own.
+    func test_mediaSourceInfo_decodesMediaAttachments() throws {
+        let json = """
+        {"Id":"src-1","MediaAttachments":[{"Codec":"ttf","CodecTag":"[0][0][0][0]","Index":9,        "FileName":"Sublime Regular.ttf","MimeType":"application/x-truetype-font",        "DeliveryUrl":"/Videos/src-1/src-1/Attachments/9"}]}
+        """.data(using: .utf8)!
+
+        let source = try JellyfinJSON.decoder.decode(MediaSourceInfo.self, from: json)
+        XCTAssertEqual(source.mediaAttachments?.count, 1)
+        let attachment = try XCTUnwrap(source.mediaAttachments?.first)
+        XCTAssertEqual(attachment.index, 9)
+        XCTAssertEqual(attachment.codec, "ttf")
+        XCTAssertEqual(attachment.fileName, "Sublime Regular.ttf")
+        XCTAssertEqual(attachment.mimeType, "application/x-truetype-font")
+        XCTAssertTrue(JellyfinAPIClient.isFontAttachment(
+            codec: attachment.codec, mimeType: attachment.mimeType, fileName: attachment.fileName
+        ))
+    }
+
+    /// A source with no attachments at all is the overwhelmingly common case
+    /// (4 of 932 MKVs in the library this was measured against carried any),
+    /// and the field is simply absent on an older server.
+    func test_mediaSourceInfo_decodesWithoutMediaAttachments() throws {
+        let json = #"{"Id":"src-1"}"#.data(using: .utf8)!
+        let source = try JellyfinJSON.decoder.decode(MediaSourceInfo.self, from: json)
+        XCTAssertNil(source.mediaAttachments)
+    }
+
+    // MARK: attachmentURL (pure, no network)
+
+    func test_attachmentURL_buildsWellKnownRouteWithNoApiKeyWhenSignedOut() async {
+        let client = makeClient()
+        let url = await client.attachmentURL(itemID: "item-1", mediaSourceID: "src-1", index: 9)
+        XCTAssertEqual(url?.path, "/Videos/item-1/src-1/Attachments/9")
+        XCTAssertNil(URLRequest(url: url!).queryDictionary["ApiKey"])
+    }
+
+    func test_attachmentURL_includesApiKeyWhenSignedIn() async {
+        let client = makeClient(accessToken: "tok")
+        let url = await client.attachmentURL(itemID: "item-1", mediaSourceID: "src-1", index: 9)
+        XCTAssertEqual(URLRequest(url: url!).queryDictionary["ApiKey"], "tok")
+    }
+
+    // MARK: isFontAttachment (pure, no network)
+
+    /// The three signals, each on its own: a container that reports only one of
+    /// them still has to be recognised, since a face the app skips renders the
+    /// script in a fallback one — the exact defect this route exists to fix.
+    func test_isFontAttachment_acceptsAnySingleFontSignal() {
+        // Codec alone. FFmpeg reports "ttf" for some OpenType faces too.
+        for codec in ["ttf", "otf", "ttc", "otc", "TTF"] {
+            XCTAssertTrue(
+                JellyfinAPIClient.isFontAttachment(codec: codec, mimeType: nil, fileName: nil),
+                "expected codec \(codec) to be a font"
+            )
+        }
+        // MIME alone, across both the legacy `application/x-...` spellings and
+        // the registered `font/` tree.
+        for mime in [
+            "application/x-truetype-font", "application/x-font-ttf", "application/x-font-truetype",
+            "application/x-font-otf", "application/x-font-opentype", "application/vnd.ms-opentype",
+            "application/font-sfnt", "application/x-font-sfnt", "font/ttf", "font/otf", "font/collection",
+            "APPLICATION/X-TRUETYPE-FONT"
+        ] {
+            XCTAssertTrue(
+                JellyfinAPIClient.isFontAttachment(codec: nil, mimeType: mime, fileName: nil),
+                "expected MIME \(mime) to be a font"
+            )
+        }
+        // Filename alone, which is all a hand-muxed file reliably carries.
+        for name in ["Sublime Regular.ttf", "FZSEJW.TTF", "方正行黑简体.TTF", "face.otf", "pack.ttc"] {
+            XCTAssertTrue(
+                JellyfinAPIClient.isFontAttachment(codec: nil, mimeType: nil, fileName: name),
+                "expected filename \(name) to be a font"
+            )
+        }
+    }
+
+    /// Cover art is the common non-font attachment, and the one that would
+    /// otherwise cost a download for bytes `CTFontManager` can only refuse.
+    /// WOFF is excluded for the same reason: it is a font, but not one
+    /// `CTFontManagerRegisterFontsForURL` can register.
+    func test_isFontAttachment_rejectsNonFontAttachments() {
+        let cases: [(String?, String?, String?)] = [
+            ("mjpeg", "image/jpeg", "cover.jpg"),
+            ("png", "image/png", "cover.png"),
+            (nil, "application/octet-stream", "readme.txt"),
+            (nil, "font/woff2", "face.woff2"),
+            (nil, nil, "face.woff"),
+            (nil, nil, nil),
+            (nil, nil, "no-extension")
+        ]
+        for (codec, mime, name) in cases {
+            XCTAssertFalse(
+                JellyfinAPIClient.isFontAttachment(codec: codec, mimeType: mime, fileName: name),
+                "expected \(name ?? "nil") to not be a font"
+            )
+        }
+    }
+
+    /// Order is the container's, so the filter can't reshuffle what a script's
+    /// own fallback chain depends on.
+    func test_fontAttachments_keepsOnlyFontsInContainerOrder() {
+        let attachments = [
+            MediaAttachment(index: 0, codec: "mjpeg", fileName: "cover.jpg", mimeType: "image/jpeg"),
+            MediaAttachment(index: 1, codec: "ttf", fileName: "A.ttf", mimeType: "application/x-truetype-font"),
+            MediaAttachment(index: 2, codec: nil, fileName: "B.otf", mimeType: nil)
+        ]
+        XCTAssertEqual(JellyfinAPIClient.fontAttachments(in: attachments).map(\.index), [1, 2])
+    }
+
     // MARK: isImageBasedSubtitleCodec (pure, no network)
 
     func test_isImageBasedSubtitleCodec_recognizesBitmapFormats() {

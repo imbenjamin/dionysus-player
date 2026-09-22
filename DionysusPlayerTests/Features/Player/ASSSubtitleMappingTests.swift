@@ -194,6 +194,239 @@ final class ASSSubtitleMappingTests: XCTestCase {
         )
     }
 
+    // MARK: - Downloaded sidecar mapping
+
+    private func downloadedFile(index: Int, path: String) -> DownloadedSubtitleFile {
+        DownloadedSubtitleFile(
+            index: index, language: "eng", displayTitle: "Track \(index)",
+            isForced: false, isDefault: false, isHearingImpaired: false, relativePath: path
+        )
+    }
+
+    /// The defect this exists to prevent: a download with several ASS tracks
+    /// resolving every one of them to the first file on disk, so picking a
+    /// commentary played the SDH script. Real subtitles for the wrong track,
+    /// which reads as a bad download rather than a mapping bug.
+    func test_downloadedMapping_resolvesEachTrackToItsOwnSidecar() {
+        let tracks = [
+            engineTrack(id: 10, codec: "ass", isExternal: true),
+            engineTrack(id: 11, codec: "ass", isExternal: true),
+            engineTrack(id: 12, codec: "ass", isExternal: true)
+        ]
+        let files = [
+            downloadedFile(index: 6, path: "item/subs/6-eng.ass"),
+            downloadedFile(index: 7, path: "item/subs/7-eng.ass"),
+            downloadedFile(index: 8, path: "item/subs/8-eng.ass")
+        ]
+
+        for (track, expected) in zip(tracks, files) {
+            XCTAssertEqual(
+                PlayerViewModel.registeredSidecar(
+                    forTrack: track, engineTracks: tracks, registered: files
+                ),
+                expected
+            )
+        }
+    }
+
+    /// Engine ids are AetherEngine's own and bear no relation to
+    /// `DownloadedSubtitleFile.index`, which is Jellyfin's. A mapping that
+    /// matched on the number would find nothing here — or, worse, the wrong
+    /// file on a download where the two happened to overlap.
+    func test_downloadedMapping_ignoresTheIdsThemselves() {
+        let tracks = [
+            engineTrack(id: 0, codec: "ass", isExternal: true),
+            engineTrack(id: 1, codec: "ass", isExternal: true)
+        ]
+        let files = [
+            downloadedFile(index: 6, path: "item/subs/6-eng.ass"),
+            downloadedFile(index: 7, path: "item/subs/7-eng.ass")
+        ]
+
+        XCTAssertEqual(
+            PlayerViewModel.registeredSidecar(
+                forTrack: tracks[1], engineTracks: tracks, registered: files
+            )?.index,
+            7
+        )
+    }
+
+    /// A downloaded MP4 can carry subtitle tracks of its own. Counting those
+    /// alongside the sidecars shifts the ordinal exactly as a bitmap track
+    /// shifts the streaming one.
+    func test_downloadedMapping_countsOnlyTheSidecarsThisAppRegistered() {
+        let tracks = [
+            engineTrack(id: 0, codec: "subrip", isExternal: false),
+            engineTrack(id: 10, codec: "ass", isExternal: true),
+            engineTrack(id: 11, codec: "ass", isExternal: true)
+        ]
+        let files = [
+            downloadedFile(index: 6, path: "item/subs/6-eng.ass"),
+            downloadedFile(index: 7, path: "item/subs/7-eng.ass")
+        ]
+
+        XCTAssertEqual(
+            PlayerViewModel.registeredSidecar(
+                forTrack: tracks[2], engineTracks: tracks, registered: files
+            )?.index,
+            7
+        )
+    }
+
+    func test_downloadedMapping_returnsNilForAnEmbeddedTrack() {
+        let tracks = [engineTrack(id: 0, codec: "ass", isExternal: false)]
+        let files = [downloadedFile(index: 6, path: "item/subs/6-eng.ass")]
+
+        XCTAssertNil(
+            PlayerViewModel.registeredSidecar(
+                forTrack: tracks[0], engineTracks: tracks, registered: files
+            )
+        )
+    }
+
+    /// Rather than serving an ordinal that has slid. A sidecar the engine
+    /// failed to register would shift every file after it by one, which is the
+    /// difference between showing no script and confidently showing the wrong
+    /// one.
+    func test_downloadedMapping_returnsNilWhenTheTwoSidesDisagreeOnCount() {
+        let tracks = [
+            engineTrack(id: 10, codec: "ass", isExternal: true),
+            engineTrack(id: 11, codec: "ass", isExternal: true)
+        ]
+        let files = [downloadedFile(index: 6, path: "item/subs/6-eng.ass")]
+
+        XCTAssertNil(
+            PlayerViewModel.registeredSidecar(
+                forTrack: tracks[1], engineTracks: tracks, registered: files
+            )
+        )
+    }
+
+    // MARK: - Which streams become sidecars
+
+    private func subtitleStream(
+        index: Int, codec: String, isExternal: Bool?, deliveryMethod: String?
+    ) -> MediaStream {
+        var stream = MediaStream(index: index, type: "Subtitle")
+        stream.codec = codec
+        stream.isExternal = isExternal
+        stream.deliveryMethod = deliveryMethod
+        return stream
+    }
+
+    /// The defect: on a server-side transcode the app plays the server's HLS
+    /// through AVPlayer, which carries no subtitle rendition for the
+    /// container's own tracks, so nothing demuxed them and nothing registered
+    /// them — every embedded SubRip and ASS track vanished from the picker.
+    /// Jellyfin had been saying `deliveryMethod: "External"` for exactly those
+    /// streams all along; the app filtered on `isExternal` instead, which is a
+    /// different question.
+    func test_sidecarStreams_transcodeIncludesTheContainersOwnTextTracks() {
+        let streams = [
+            subtitleStream(index: 0, codec: "subrip", isExternal: true, deliveryMethod: "External"),
+            subtitleStream(index: 6, codec: "ass", isExternal: false, deliveryMethod: "External"),
+            subtitleStream(index: 7, codec: "ass", isExternal: false, deliveryMethod: "External"),
+            // Burned into the video by the server, so there is nothing to fetch.
+            subtitleStream(index: 9, codec: "PGSSUB", isExternal: false, deliveryMethod: "Encode")
+        ]
+
+        XCTAssertEqual(
+            PlayerViewModel.externalSubtitleStreams(from: streams, isRemoteHLS: true).map(\.index),
+            [0, 6, 7]
+        )
+    }
+
+    /// The route gate is load-bearing. Direct play reports the same
+    /// `"External"` for the same embedded streams, but there AetherEngine has
+    /// demuxed the container and lists them already — registering sidecars too
+    /// would show every track in the picker twice.
+    func test_sidecarStreams_directPlayTakesOnlyTheGenuinelyExternalOnes() {
+        let streams = [
+            subtitleStream(index: 0, codec: "subrip", isExternal: true, deliveryMethod: "External"),
+            subtitleStream(index: 6, codec: "ass", isExternal: false, deliveryMethod: "External"),
+            subtitleStream(index: 9, codec: "PGSSUB", isExternal: false, deliveryMethod: "Embed")
+        ]
+
+        XCTAssertEqual(
+            PlayerViewModel.externalSubtitleStreams(from: streams, isRemoteHLS: false).map(\.index),
+            [0]
+        )
+    }
+
+    /// Direct Play Always sends no `DeviceProfile`, so the server has no route
+    /// to describe and reports no delivery method at all. The genuinely
+    /// external sidecars must still be registered.
+    func test_sidecarStreams_absentDeliveryMethodStillRegistersRealSidecars() {
+        let streams = [
+            subtitleStream(index: 0, codec: "subrip", isExternal: true, deliveryMethod: nil),
+            subtitleStream(index: 6, codec: "ass", isExternal: false, deliveryMethod: nil)
+        ]
+
+        for isRemoteHLS in [true, false] {
+            XCTAssertEqual(
+                PlayerViewModel.externalSubtitleStreams(from: streams, isRemoteHLS: isRemoteHLS).map(\.index),
+                [0],
+                "isRemoteHLS \(isRemoteHLS)"
+            )
+        }
+    }
+
+    /// Audio and video streams carry delivery methods of their own in some
+    /// responses; only subtitles belong in a subtitle sidecar list.
+    func test_sidecarStreams_ignoresNonSubtitleStreams() {
+        var video = MediaStream(index: 0, type: "Video")
+        video.deliveryMethod = "External"
+        var audio = MediaStream(index: 1, type: "Audio")
+        audio.isExternal = true
+        let streams = [video, audio, subtitleStream(index: 2, codec: "ass", isExternal: false, deliveryMethod: "External")]
+
+        XCTAssertEqual(
+            PlayerViewModel.externalSubtitleStreams(from: streams, isRemoteHLS: true).map(\.index),
+            [2]
+        )
+    }
+
+    // MARK: - Which fonts render the script
+
+    private func font(_ name: String) -> ASSFontAttachment {
+        ASSFontAttachment(filename: name, data: Data(name.utf8))
+    }
+
+    /// The common path: a direct-played container is demuxed locally, so
+    /// AetherEngine already holds every face the script names and nothing has
+    /// to be fetched at all.
+    func test_assFonts_prefersTheEnginesOwnAttachments() {
+        let engine = [font("Agenda.ttf")]
+        let fetched = [font("Sublime Regular.ttf")]
+        XCTAssertEqual(PlayerViewModel.assFonts(engineAttachments: engine, fetched: fetched), engine)
+    }
+
+    /// The routes this exists for — a server-side transcode and offline
+    /// playback — never demux the original container, so the engine reports
+    /// nothing and the fetched set is the whole answer.
+    func test_assFonts_fallsBackWhenTheEngineHasNone() {
+        let fetched = [font("Sublime Regular.ttf")]
+        XCTAssertEqual(PlayerViewModel.assFonts(engineAttachments: [], fetched: fetched), fetched)
+    }
+
+    /// Deliberately not a union. On a direct play the two lists are the same
+    /// faces read out of the same container, so merging would register every
+    /// one of them twice for no gain — and a container that carries fonts never
+    /// probes to an empty list, so there is no "engine has some, server has the
+    /// rest" case to serve.
+    func test_assFonts_neverMergesTheTwoSources() {
+        let engine = [font("Agenda.ttf")]
+        let fetched = [font("Agenda.ttf"), font("Other.ttf")]
+        XCTAssertEqual(PlayerViewModel.assFonts(engineAttachments: engine, fetched: fetched), engine)
+    }
+
+    /// No fonts anywhere is not a failure: libass renders the script in a
+    /// system face, which is how every authored track behaved before any of
+    /// this existed.
+    func test_assFonts_emptyWhenNeitherSideHasAny() {
+        XCTAssertTrue(PlayerViewModel.assFonts(engineAttachments: [], fetched: []).isEmpty)
+    }
+
     // MARK: - Helpers
 
     /// A throwaway suite, so these never touch the shared domain a parallel

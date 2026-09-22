@@ -76,7 +76,7 @@ regenerate it:
 ./Scripts/update-aetherengine-version.sh
 ```
 
-**`project.yml` pins AetherEngine with `version: 6.71.0` (XcodeGen's
+**`project.yml` pins AetherEngine with `version: 6.86.0` (XcodeGen's
 spelling of SPM's `.exact` requirement), not a `from:`
 range.** This used to be `from: 6.5.5` (SPM's "up to next major" rule), which
 meant a cold resolve — every CI run, since `Package.resolved` is gitignored
@@ -422,12 +422,33 @@ are guessable:
   the subtitle off on every rebuild. Reloading only happens on a geometry
   change, which is cheap (0.4–1.7ms for a 218KB script) and deliberately does
   not clear the outgoing frame.
-- **Engine track ids and Jellyfin `MediaStream.index` disagree**, so the two
-  are paired by ordinal among *embedded ASS* entries — see
-  `PlayerViewModel.jellyfinStream(forTrack:engineTracks:mediaStreams:)` and
-  `ASSSubtitleMappingTests`. Filtering both sides identically is what makes
-  the ordinal meaningful; counting bitmap or external tracks shifts it and
-  silently fetches the wrong track's script.
+- **Engine track ids match nothing on the server**, so a selected track is
+  mapped back by *ordinal*, two different ways. A track AetherEngine demuxed
+  out of the container pairs with its `MediaStream` among *embedded ASS*
+  entries (`jellyfinStream(forTrack:engineTracks:mediaStreams:)`); a sidecar
+  this app registered pairs with what it was built from, among *externals*
+  (`registeredSidecar(forTrack:engineTracks:registered:)`, shared by the
+  streaming and offline paths). Filtering both sides identically is what makes
+  either ordinal meaningful; counting the wrong tracks shifts it and silently
+  serves a different track's script, which reads as a bad file rather than a
+  mapping bug. `ASSSubtitleMappingTests` pins both.
+- **On a transcode the container's own text tracks must be registered as
+  sidecars.** The app plays the server's HLS through AVPlayer, and that
+  playlist carries no rendition for them, so nothing demuxes them — every
+  embedded SubRip and ASS track disappeared from the picker until
+  `externalSubtitleStreams(from:isRemoteHLS:)` started registering them.
+  Jellyfin says which: asked with this app's `DeviceProfile` it answers
+  `MediaStream.deliveryMethod == "External"` for exactly those streams (and
+  `"Encode"` for the bitmap ones it burns in). That field is **not**
+  `isExternal`, which says where the stream lives in the library rather than
+  how it reaches the player — an embedded ASS track on a transcode is
+  `isExternal: false` with `deliveryMethod: "External"`, and filtering on the
+  former is what dropped them. The route gate is equally load-bearing: direct
+  play reports the same `"External"` for the same streams, where the engine
+  has already listed them, so registering sidecars there shows every track
+  twice. Confirmed against 10.11.11, both routes. AetherEngine supports
+  sidecars on the `nativeRemoteHLS` bypass as of 6.14.0 (its #316), which
+  rewrites the master playlist to carry them.
 - **A cold fetch can take over a minute.** Jellyfin extracts an embedded track
   on demand and caches it: 70s measured against a 4K remux, 0.03s after. The
   request therefore carries its own 180s timeout (`URLSession`'s 60s default
@@ -515,10 +536,42 @@ controls respect the safe area while the subtitle overlay ignores it.
 provider would resolve embedded faces at the cost of every system one — the
 wrapper's generated `fonts.conf` declares exactly one directory and no system
 font paths. Registration is process-global, so teardown unregisters precisely
-what it registered. Fonts are unavailable on a server-side transcode and
-offline (no local demux, and MP4 carries no attachments); Jellyfin's
-`/Videos/{id}/{source}/Attachments/{index}` route would cover both but is not
-wired up.
+what it registered.
+
+**Two routes have no attachments to probe, and both fetch them instead.** A
+server-side transcode plays the server's fMP4 HLS through AVPlayer, so nothing
+local ever demuxes the source container; offline, the downloaded file is MP4,
+which has no attachment streams at all. AetherEngine reports an empty list in
+both cases. `MediaSourceInfo.mediaAttachments` carries them regardless of route
+(verified live against 10.11.11 — present on the transcode path as well as the
+direct-play one), so live playback fetches them from
+`/Videos/{id}/{source}/Attachments/{index}` and `DownloadManager` stores them as
+sidecars at enqueue, next to the subtitles and for the same reason. Build that
+URL from ids rather than reading `MediaAttachment.deliveryUrl`, which the server
+fills only when the `/PlaybackInfo` request carried a `DeviceProfile` — the same
+trap `MediaStream`'s own delivery URL sets.
+
+Four things about that are load-bearing:
+
+- **The engine's own attachments win whenever it has any** — see
+  `PlayerViewModel.assFonts(engineAttachments:fetched:)`. Not a merge: on a
+  direct play the two lists are the same faces out of the same container, so
+  merging registers each one twice, and a container carrying fonts never probes
+  to an empty list, so there is no partial case to serve.
+- **Fonts never gate the script.** The script is applied the moment it lands and
+  the fonts re-apply when they arrive, costing one extra parse (0.4–1.7ms) on
+  the routes that fetch and nothing at all on the common path. Joining the two
+  instead would hold a subtitle back for however long several megabytes of CJK
+  faces take, purely to change how it looks. `StyledSubtitleJourneyTests`'
+  `.slowSubtitleFonts` journey pins this, and was confirmed to fail against a
+  build that waits.
+- **Not every attachment is a font.** Cover art (`cover.jpg`) is the common
+  other case. `JellyfinAPIClient.isFontAttachment` takes any of codec, MIME type
+  or filename extension as sufficient — none is reliable alone — with WOFF as
+  the single veto, since `CTFontManager` can't register it whatever the codec
+  column says.
+- **Attachments are rare.** 4 of 932 MKVs in the library this was built against
+  carry any, so all of this has to stay free when there are none.
 
 
 ### Features (`Features/*`)

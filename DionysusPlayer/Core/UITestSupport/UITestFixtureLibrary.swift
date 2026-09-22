@@ -329,6 +329,22 @@ enum UITestFixtureLibrary {
             // them by ordinal.
             assSubtitleStream(index: 6, language: "eng")
         ]
+        // A font the authored-ASS track's script would be typeset in, plus the
+        // cover art a container routinely also carries. Both are here so the
+        // app's own filter has something to reject: fetching the JPEG would be
+        // a download spent on bytes `CTFontManager` can only refuse.
+        //
+        // Declaring these at all is what puts every ASS journey through the
+        // font-fetch path, since `PreviewPlaybackEngine` reports no attachments
+        // of its own — exactly like the two routes this serves in production, a
+        // server-side transcode and offline playback.
+        source.mediaAttachments = [
+            MediaAttachment(index: 7, codec: "mjpeg", fileName: "cover.jpg", mimeType: "image/jpeg"),
+            MediaAttachment(
+                index: 8, codec: "ttf", fileName: "Fixture Regular.ttf",
+                mimeType: "application/x-truetype-font"
+            )
+        ]
         return source
     }
 

@@ -674,6 +674,10 @@ final class AetherPlaybackEngine: PlaybackEngine {
         }
     }
 
+    func setNativeSubtitleRendering(_ active: Bool) {
+        engine.setNativeSubtitleRendering(active)
+    }
+
     /// `engine.pictureInPictureActive` drives AetherEngine's background
     /// keepalive policy. This is the only place that sets it, kept in lockstep
     /// with AVKit rather than inferred.

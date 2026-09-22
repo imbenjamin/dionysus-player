@@ -23,8 +23,8 @@ final class StyledSubtitleJourneyTests: UITestCase {
     /// mapping were wrong.
     private let assTrackID = 2
 
-    private func openPlayer(extraArguments: [String] = []) -> PlayerScreen {
-        launch(extraArguments: extraArguments)
+    private func openPlayer(scenario: String = "standard", extraArguments: [String] = []) -> PlayerScreen {
+        launch(scenario: scenario, extraArguments: extraArguments)
         let home = HomeScreen(app: app)
         home.awaitLoaded()
         home.openItem(UITestFixtureIdentity.primaryMovieID)
@@ -140,6 +140,39 @@ extension StyledSubtitleJourneyTests {
         selectASSTrack(player)
         player.styledSubtitle.awaitExistence(
             "the libass-rendered subtitle, which styling being on by default should produce"
+        )
+    }
+
+    /// A script must render while its faces are still downloading.
+    ///
+    /// The fixture source declares a font attachment and `PreviewPlaybackEngine`
+    /// reports none of its own, so every journey in this file already goes
+    /// through the font fetch — which is the point: the two routes this serves
+    /// in production (a server-side transcode and offline playback) are exactly
+    /// the ones where AetherEngine has nothing to offer.
+    ///
+    /// What only this test can catch is the fetch being made to *gate* the
+    /// script. `.slowSubtitleFonts` holds the attachment response for
+    /// `UITestStubURLProtocol.slowFontAttachmentDelay` — two minutes, against a
+    /// 15s assertion budget — so a build that waited for the fonts before
+    /// handing the script to libass cannot pass this by finishing early. It
+    /// also stands in for the font fetch failing outright, since inside the
+    /// budget the two are the same thing: no faces, and a subtitle regardless.
+    func testAScriptRendersWhileItsFontsAreStillDownloading() {
+        let player = openPlayer(scenario: "slowSubtitleFonts")
+        selectASSTrack(player)
+
+        player.styledSubtitle.awaitExistence(
+            "the libass-rendered subtitle, which must not wait on the font attachments"
+        )
+        XCTAssertTrue(
+            player.styledSubtitle.label.contains(UITestFixtureIdentity.styledSubtitleCueText),
+            """
+            The styled subtitle should carry the fixture cue's text even with no \
+            fonts registered — libass falls back to a system face, which is how \
+            every authored track behaved before fonts were fetched at all. \
+            Got: \(player.styledSubtitle.label)
+            """
         )
     }
 

@@ -32,6 +32,14 @@ import SwiftLibass
 /// against a retail MKV whose script asks for "Agenda", where libass picks
 /// `Agenda-MediumExtraCondensed` once registered and Helvetica otherwise.
 ///
+/// Where those faces come from is the caller's problem, not this type's: on a
+/// direct play AetherEngine has already probed them out of the container, and
+/// on a server-side transcode or offline playback `PlayerViewModel
+/// .fetchASSFonts()` supplies them from Jellyfin's attachment route or a
+/// download's sidecars. Either way they arrive as `[ASSFontAttachment]`, and
+/// `load(script:fonts:geometry:)` may be called a second time with a set that
+/// landed after the script did — fonts never hold the script back.
+///
 /// **Geometry.** libass is given the whole overlay as its frame, with
 /// `ass_set_margins` describing where the video sits inside it and
 /// `ass_set_use_margins` allowing regular events into the empty area. That is

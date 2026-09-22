@@ -59,6 +59,16 @@ enum UITestScenario: String {
     /// usual. Lets a test observe the timeout-triggered fallback-text reveal
     /// without depending on real network timing.
     case slowLogoImage
+
+    /// `.standard`'s catalogue with the font-attachment route held open long
+    /// past any assertion's budget, every other endpoint answering as usual.
+    ///
+    /// Lets a test observe that an authored-ASS script is rendered while its
+    /// faces are still downloading. The fonts deliberately do not gate the
+    /// script (see `PlayerViewModel.handleSubtitleTrackChange`), and nothing
+    /// else can catch a change that makes them: on every other scenario the
+    /// stub answers instantly, so a version that waited would still look fine.
+    case slowSubtitleFonts
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a

@@ -69,6 +69,43 @@ final class DownloadFileStoreTests: XCTestCase {
         XCTAssertEqual(path, "images/series_1-Logo-tag_123.jpg")
     }
 
+    /// Keyed by the container's attachment index, which is unique within a
+    /// source — two faces with the same name can't collide.
+    func test_fontRelativePath_keysByAttachmentIndex() {
+        XCTAssertEqual(
+            DownloadFileStore.fontRelativePath(itemID: "abc", index: 9, fileName: "Sublime Regular.ttf"),
+            "abc/fonts/9-Sublime_Regular_ttf"
+        )
+        XCTAssertEqual(
+            DownloadFileStore.fontRelativePath(itemID: "abc", index: 10, fileName: nil),
+            "abc/fonts/10-font"
+        )
+    }
+
+    /// A CJK-subtitled release ships CJK-named faces, and the sanitiser must
+    /// not reduce one to a bare separator run — `DownloadedFontFile.fileName`
+    /// carries the container's own spelling, but the path still has to be
+    /// distinct per attachment.
+    func test_fontRelativePath_survivesANonASCIIFilename() {
+        XCTAssertEqual(
+            DownloadFileStore.fontRelativePath(itemID: "abc", index: 13, fileName: "方正行黑简体.TTF"),
+            "abc/fonts/13-方正行黑简体_TTF"
+        )
+    }
+
+    /// Fonts live under `<itemID>/`, so the per-item delete sweeps them with
+    /// everything else rather than needing its own pass.
+    func test_deleteItemFiles_removesStoredFonts() throws {
+        let itemID = "font-delete-\(UUID().uuidString)"
+        let path = DownloadFileStore.fontRelativePath(itemID: itemID, index: 9, fileName: "A.ttf")
+        try DownloadFileStore.write(Data("font".utf8), toRelativePath: path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: DownloadFileStore.url(forRelativePath: path).path))
+
+        DownloadFileStore.deleteItemFiles(itemID: itemID)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: DownloadFileStore.url(forRelativePath: path).path))
+    }
+
     // MARK: write / moveFile / totalSizeOnDisk
 
     func test_write_thenFileExistsAtRelativePath() throws {

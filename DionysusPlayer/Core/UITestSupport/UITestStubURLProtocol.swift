@@ -72,6 +72,26 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
+        // Font attachments, answered before the scenario gate for the same
+        // reason images are: they are a decoration on the subtitle, and failing
+        // them under `.serverError` would only obscure whatever that scenario
+        // is really about.
+        //
+        // Handled here rather than in `data(forPath:)` because `.slowSubtitleFonts`
+        // needs a delayed delivery, which that synchronous switch can't express.
+        if path.contains("/Attachments/") {
+            if scenario == .slowSubtitleFonts {
+                // Background queue, never `Thread.sleep` — see the
+                // `.slowLogoImage` branch above for what blocking here costs.
+                DispatchQueue.global().asyncAfter(deadline: .now() + Self.slowFontAttachmentDelay) {
+                    self.finish(.success((200, Self.fontAttachmentBytes, "application/x-truetype-font")))
+                }
+                return
+            }
+            finish(.success((200, Self.fontAttachmentBytes, "application/x-truetype-font")))
+            return
+        }
+
         if let failure = Self.scenarioFailure(scenario: scenario, path: path) {
             finish(.success((failure, Data("{}".utf8), "application/json")))
             return
@@ -400,7 +420,8 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         // `.noDeletePermission` fails nothing wholesale: the standard catalogue
         // with `canDelete` cleared, and only `DELETE` refused in `startLoading`,
         // which has the method.
-        case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission, .slowLogoImage:
+        case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission,
+             .slowLogoImage, .slowSubtitleFonts:
             return nil
         case .serverError:
             return 500
@@ -884,6 +905,23 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     /// 10s sits with several seconds' slack against both, measured on a
     /// Simulator where that navigation takes ~2-4s.
     static let slowLogoImageDelay: TimeInterval = 10
+
+    /// How long `.slowSubtitleFonts` holds an attachment response. Far past any
+    /// assertion's budget on purpose: the test it exists for asserts that the
+    /// styled subtitle is already on screen while this is still outstanding, so
+    /// the delay has to be long enough that a build which waited for the fonts
+    /// could not pass by happening to finish early.
+    static let slowFontAttachmentDelay: TimeInterval = 120
+
+    /// Stand-in bytes for a font attachment.
+    ///
+    /// Deliberately not a real face. `CTFontManagerRegisterFontsForURL` refuses
+    /// these, which is the same outcome as a container whose fonts the device
+    /// can't use — and what the journeys here assert is that the *fetch*
+    /// neither blocks nor breaks the subtitle, which a valid font would prove no
+    /// better. Registration itself is covered where it can be: on a real device
+    /// against a retail MKV (see `CLAUDE.md`'s Subtitles section).
+    static let fontAttachmentBytes = Data("uitest-font-attachment".utf8)
 
     /// One flat-colour PNG standing in for every poster, backdrop, logo and cast
     /// photo. Generated rather than bundled, so no harness resource ships in

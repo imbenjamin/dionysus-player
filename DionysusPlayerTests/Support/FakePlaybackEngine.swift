@@ -88,6 +88,15 @@ final class FakePlaybackEngine: PlaybackEngine {
     func stop() { stopCallCount += 1 }
     func selectAudioTrack(id: Int) { selectedAudioTrackIDs.append(id) }
     func selectSubtitleTrack(id: Int?) { selectedSubtitleTrackIDs.append(id) }
+    /// Recorded rather than acted on: there is no AVPlayer here to hand the
+    /// drawing to. Lets a test assert that libass taking over the paint also
+    /// took the native rendition away from AVKit.
+    private(set) var nativeSubtitleRenderingRequests: [Bool] = []
+
+    func setNativeSubtitleRendering(_ active: Bool) {
+        nativeSubtitleRenderingRequests.append(active)
+    }
+
     func startPictureInPicture() { startPictureInPictureCallCount += 1 }
     func stopPictureInPicture() { stopPictureInPictureCallCount += 1 }
     func setNowPlayingInfo(title: String, subtitle: String?, artwork: UIImage?) {

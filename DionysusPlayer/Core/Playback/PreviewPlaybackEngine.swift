@@ -120,6 +120,14 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     /// paints nothing under the harness, so a test could only ever assert the
     /// *absence* of a styled frame — which passes just as happily on a bug that
     /// drops the track altogether.
+    /// Recorded rather than acted on: there is no AVPlayer here to hand
+    /// drawing to.
+    private(set) var nativeSubtitleRenderingRequests: [Bool] = []
+
+    func setNativeSubtitleRendering(_ active: Bool) {
+        nativeSubtitleRenderingRequests.append(active)
+    }
+
     func selectSubtitleTrack(id: Int?) {
         subtitleTracks = subtitleTracks.map { $0.selected($0.id == id) }
         onSubtitleTrackChange?(id)
