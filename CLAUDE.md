@@ -440,6 +440,16 @@ picture and `ass_set_use_margins` on — the documented mechanism for subtitles
 in the letterbox bar. Regular dialogue moves into that bar while `\pos` signs,
 which are positioned rather than regular, stay anchored to the picture.
 
+**The drawable region is the picture intersected with the safe area**, with the
+bottom raised for the transport chrome. The overlay itself must ignore the safe
+area to sit over a full-bleed video, so nothing else keeps subtitles off the
+rounded corners and the sensor housing — and in landscape the picture fills the
+screen, so a corner-aligned sign drew *underneath* them and was physically cut
+off. That is invisible in a screenshot, because the framebuffer has no corners;
+it only shows on the device. Note the insets come from the window, not from a
+`GeometryReader`: one inside an `ignoresSafeArea` view reports zeroes (measured,
+not assumed).
+
 **The margins are signed, and in landscape the bottom one is negative.** libass
 documents a negative margin as "the frame is inside the video, i.e. the video
 has been cropped", which is exactly what landscape is: the picture fills the

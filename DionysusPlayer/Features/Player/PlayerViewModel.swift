@@ -801,6 +801,7 @@ final class PlayerViewModel {
     /// Called from both sides, because either can arrive second: the script
     /// lands from a fetch, the geometry from `SubtitleOverlayView`'s layout.
     func setASSGeometry(_ geometry: ASSSubtitleRenderSession.Geometry) {
+        Self.assLog.debug("geometry frame=\(geometry.frame.debugDescription) video=\(geometry.video.debugDescription) safeArea=(t\(geometry.safeArea.top) l\(geometry.safeArea.left) b\(geometry.safeArea.bottom) r\(geometry.safeArea.right)) drawable=\(geometry.drawable.debugDescription)")
         assGeometry = geometry
         if assRenderSession.isActive {
             assRenderSession.updateGeometry(geometry)

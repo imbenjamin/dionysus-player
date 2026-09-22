@@ -4,6 +4,7 @@ import Combine
 import Foundation
 import OSLog
 import SwiftAssRenderer
+import UIKit
 import SwiftLibass
 
 /// Renders authored ASS/SSA styling with libass, for subtitle tracks whose
@@ -44,75 +45,86 @@ final class ASSSubtitleRenderSession {
 
     /// Where the overlay should paint, and how libass was told to lay out.
     struct Geometry: Equatable {
-        /// The whole overlay area, in points — libass' "frame".
+        /// The whole overlay area, in points.
         var frame: CGSize
         /// The picture inside it, in points.
         var video: CGRect
-        /// Kept clear at the bottom of `frame`.
+        /// The window's safe-area insets. The overlay itself deliberately
+        /// ignores the safe area (it has to, to sit over a full-bleed video),
+        /// so nothing else keeps subtitles out from under the rounded corners
+        /// and the sensor housing.
+        ///
+        /// `UIEdgeInsets` rather than SwiftUI's `EdgeInsets` because these are
+        /// PHYSICAL edges — a rounded corner does not move in a right-to-left
+        /// layout — and because a `GeometryReader` inside an `ignoresSafeArea`
+        /// view reports zeroes, so these come from the window (see
+        /// `SubtitleOverlayView.windowSafeAreaInsets`).
+        var safeArea: UIEdgeInsets
+        /// Kept clear at the bottom for the transport chrome.
         ///
         /// Authored `MarginV` values are tiny — 1 script unit in one retail
         /// track measured here, under a point once scaled — because in a
         /// full-screen player the frame bottom IS the picture bottom. Here the
         /// frame runs to the physical screen edge, so honouring that margin
-        /// literally puts dialogue under the home indicator, reading as
-        /// clipped. Shrinking the frame moves the whole bottom-aligned band up
-        /// by this much, matching what the app's own text path reserves.
+        /// literally puts dialogue under the home indicator.
         var bottomInset: CGFloat
         var scale: CGFloat
 
-        /// Where libass' frame starts inside `frame`: the picture's top edge.
+        /// The region libass may lay regular events out in.
         ///
-        /// The frame is shifted down rather than starting at the overlay's top
-        /// so that there is NO top margin. `ass_set_use_margins` relocates every
-        /// *regular* event into the margins, and top-aligned events are regular
-        /// — so a top margin sends an `\an8` sign into the letterbox bar ABOVE
-        /// the picture, which is exactly where a sign must not be (measured:
-        /// y 9–23 against a picture starting at 324). With no top margin there
-        /// is nowhere for it to go, and it lands on the picture where it was
-        /// authored.
+        /// Not the whole overlay, and not the whole picture. Three things
+        /// constrain it, and each was a real defect before it was applied:
         ///
-        /// The cost is `\an5`: middle-aligned regular events centre in the
-        /// frame, and the frame is now the picture plus the bar below it, so a
-        /// bare centred sign sits low. That is a real trade in libass' margin
-        /// model — only a zero top margin places `\an8` correctly, only a
-        /// symmetric one places `\an5` correctly, and the bottom bar this
-        /// feature exists for rules out both being zero. `\an8` wins on
-        /// frequency: typesetting uses it constantly, while a bare `\an5` is
-        /// rare and almost always carries a `\pos`, which is positioned rather
-        /// than regular and so is exempt from margins entirely.
-        var renderOriginY: CGFloat { video.minY }
-
-        /// What libass is actually given as its frame.
-        var renderFrame: CGSize {
-            CGSize(
-                width: frame.width,
-                height: max(frame.height - bottomInset - renderOriginY, 1)
+        /// - **The picture's top edge.** `ass_set_use_margins` relocates every
+        ///   *regular* event into the margins, and top-aligned events are
+        ///   regular, so any room above the picture sends an `\an8` sign into
+        ///   the letterbox bar above it (measured: y 9–23 against a picture
+        ///   starting at 324).
+        /// - **The safe area.** In landscape the picture fills the screen, so
+        ///   the picture's own top-left corner is underneath the rounded corner
+        ///   and the sensor housing — a corner-aligned sign drew there and was
+        ///   physically cut off, invisible in a screenshot because the
+        ///   framebuffer has no corners.
+        /// - **The transport chrome**, via `bottomInset`.
+        ///
+        /// The bottom takes whichever of the chrome clearance and the safe-area
+        /// inset is larger, so the resting position clears the home indicator
+        /// by its real height rather than the approximation the constant was.
+        var drawable: CGRect {
+            let minX = max(video.minX, safeArea.left)
+            let maxX = min(video.maxX, frame.width - safeArea.right)
+            let minY = max(video.minY, safeArea.top)
+            let maxY = frame.height - max(bottomInset, safeArea.bottom)
+            return CGRect(
+                x: minX, y: minY,
+                width: max(maxX - minX, 1), height: max(maxY - minY, 1)
             )
         }
+
+        /// What libass is given as its frame.
+        var renderFrame: CGSize { drawable.size }
 
         /// Where the picture sits relative to `renderFrame`, in renderer pixels.
         ///
         /// **Signed on purpose.** libass documents a negative margin as "the
         /// frame is inside the video, i.e. the video has been cropped", which is
-        /// exactly the landscape case: the picture fills the screen, so the
-        /// frame — which stops short of the transport chrome — is shorter than
-        /// the picture and the bottom margin is negative. Clamping it to zero
-        /// told libass the picture ended where the frame does, which mapped
-        /// every `\pos` sign into a too-short rectangle (measured: a sign
-        /// landing at y 20–34 against a correct 29–49, and 30% undersized).
+        /// exactly what a full-bleed picture is: the drawable region is smaller
+        /// than the picture on every side that the safe area or the chrome cuts
+        /// into. Clamping these to zero told libass the picture ended where the
+        /// drawable region does, which mapped every `\pos` sign into the wrong
+        /// rectangle (measured: a sign landing at y 20–34 against a correct
+        /// 29–49, and 30% undersized).
         ///
-        /// Portrait margins are positive — the picture really is smaller than
-        /// the frame there — so the clamp never fired and this was landscape-only.
+        /// Portrait letterboxes, so its vertical margins are positive and the
+        /// clamp never fired there — which is why this was landscape-only.
         var margins: (top: Int32, bottom: Int32, left: Int32, right: Int32) {
-            let renderFrame = renderFrame
+            let drawable = drawable
             func px(_ points: CGFloat) -> Int32 { Int32((points * scale).rounded()) }
             return (
-                // Zero by construction: `renderOriginY` starts the frame at the
-                // picture's top edge.
-                top: px(video.minY - renderOriginY),
-                bottom: px(renderFrame.height - (video.maxY - renderOriginY)),
-                left: px(video.minX),
-                right: px(renderFrame.width - video.maxX)
+                top: px(video.minY - drawable.minY),
+                bottom: px(drawable.maxY - video.maxY),
+                left: px(video.minX - drawable.minX),
+                right: px(drawable.maxX - video.maxX)
             )
         }
     }

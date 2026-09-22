@@ -46,7 +46,10 @@ struct SubtitleOverlayView: View {
                 // composites every line of the frame into one image, so the
                 // app's own text rendering must not also run.
                 if viewModel.isRenderingStyledASS {
-                    assFrameView(frame: proxy.size, video: video, bottomInset: bottomInset)
+                    assFrameView(
+                        frame: proxy.size, video: video,
+                        safeArea: Self.windowSafeAreaInsets, bottomInset: bottomInset
+                    )
                 } else {
                     ForEach(placedCues) { cue in
                         placedCueView(cue, video: video)
@@ -185,40 +188,67 @@ struct SubtitleOverlayView: View {
 
     /// Paints the frame libass composited for `viewModel.sourceTime`.
     ///
-    /// libass' frame starts at the picture's top edge rather than the overlay's
-    /// (see `ASSSubtitleRenderSession.Geometry.renderOriginY`), so `imageRect`
-    /// comes back in that shifted space and `video.minY` puts it back. What the
-    /// shift buys is that a top-aligned sign has no margin above the picture to
-    /// be relocated into; regular dialogue still drops into the bar below.
+    /// `imageRect` comes back in the coordinate space of libass' frame, which
+    /// is the drawable region rather than the whole overlay (see
+    /// `ASSSubtitleRenderSession.Geometry.drawable`), so its origin puts the
+    /// image back where it belongs.
     @ViewBuilder
-    private func assFrameView(frame: CGSize, video: CGRect, bottomInset: CGFloat) -> some View {
+    private func assFrameView(
+        frame: CGSize, video: CGRect, safeArea: UIEdgeInsets, bottomInset: CGFloat
+    ) -> some View {
         let _ = viewModel.assFrameGeneration
+        let drawable = ASSSubtitleRenderSession.Geometry(
+            frame: frame, video: video, safeArea: safeArea,
+            bottomInset: bottomInset, scale: displayScale
+        ).drawable
         if let rendered = viewModel.assRenderSession.frame {
             Image(decorative: rendered.image, scale: 1)
                 .resizable()
                 .frame(width: rendered.imageRect.width, height: rendered.imageRect.height)
-                .position(x: rendered.imageRect.midX, y: video.minY + rendered.imageRect.midY)
+                .position(
+                    x: drawable.minX + rendered.imageRect.midX,
+                    y: drawable.minY + rendered.imageRect.midY
+                )
                 .accessibilityElement()
                 .accessibilityLabel(viewModel.assRenderSession.dialogues(at: viewModel.sourceTime).joined(separator: " "))
                 .accessibilityIdentifier(A11yID.Player.styledSubtitle)
         }
         // The geometry is only knowable here, and either it or the script can
         // arrive second — the view model holds whichever comes first.
+        let report = { reportASSGeometry(frame: frame, video: video, safeArea: safeArea, bottomInset: bottomInset) }
         Color.clear
-            .onAppear { reportASSGeometry(frame: frame, video: video, bottomInset: bottomInset) }
-            .onChange(of: frame) { reportASSGeometry(frame: frame, video: video, bottomInset: bottomInset) }
-            .onChange(of: video) { reportASSGeometry(frame: frame, video: video, bottomInset: bottomInset) }
+            .onAppear { report() }
+            .onChange(of: frame) { report() }
+            .onChange(of: video) { report() }
+            .onChange(of: safeArea) { report() }
             // Same clearance the hand-rolled path above applies as bottom
             // padding, so both kinds of subtitle clear the transport row by the
             // same amount and settle back to the same resting position.
-            .onChange(of: bottomInset) { reportASSGeometry(frame: frame, video: video, bottomInset: bottomInset) }
+            .onChange(of: bottomInset) { report() }
     }
 
-    private func reportASSGeometry(frame: CGSize, video: CGRect, bottomInset: CGFloat) {
+    /// The window's insets, not the overlay's.
+    ///
+    /// A `GeometryReader` inside a view that `ignoresSafeArea()` reports zero
+    /// insets — measured, not assumed — and this overlay must ignore the safe
+    /// area to sit over a full-bleed video. The window is the only place the
+    /// real values survive.
+    private static var windowSafeAreaInsets: UIEdgeInsets {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first { $0.isKeyWindow }?
+            .safeAreaInsets ?? .zero
+    }
+
+    private func reportASSGeometry(
+        frame: CGSize, video: CGRect, safeArea: UIEdgeInsets, bottomInset: CGFloat
+    ) {
         viewModel.setASSGeometry(
             ASSSubtitleRenderSession.Geometry(
                 frame: frame,
                 video: video,
+                safeArea: safeArea,
                 // The same live clearance the hand-rolled path uses, so a
                 // styled cue sits exactly where an unstyled one would.
                 //
