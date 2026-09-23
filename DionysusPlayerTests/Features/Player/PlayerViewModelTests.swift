@@ -368,6 +368,10 @@ final class PlayerViewModelTests: XCTestCase {
     /// native rendition off any earlier would leave a slow or failed fetch with
     /// nothing drawing at all, since that route publishes no cues to fall back
     /// to.
+    ///
+    /// And by capture, never by deselecting: AVPlayer's timing of that
+    /// rendition is what keeps libass in sync after a seek (see
+    /// `ASSCueTimingCalibrator`), and a deselected one reports nothing.
     func test_styledASS_takesTheNativeRenditionAwayFromAVKit() async throws {
         defaults.set(StreamDecisionMode.allowTranscoding.rawValue, forKey: streamDecisionModeStorageKey)
         // The script fetch deliberately goes through `URLSession.shared` rather
@@ -413,9 +417,22 @@ final class PlayerViewModelTests: XCTestCase {
 
         try await waitUntil { viewModel.isRenderingStyledASS }
         XCTAssertEqual(
-            engine.nativeSubtitleRenderingRequests, [false],
+            engine.nativeSubtitleCaptureRequests, [true],
             "Once libass owns the paint, AVKit must stop drawing the same track."
         )
+        XCTAssertTrue(
+            engine.nativeSubtitleRenderingRequests.isEmpty,
+            "Deselecting the rendition would take away the timing libass is calibrated against."
+        )
+
+        // Held back until AVPlayer presents a line, since the transcode's
+        // playhead may be running ahead of the picture.
+        XCTAssertTrue(viewModel.isStyledASSTimingPending)
+
+        // Turning styling off for this track hands the drawing back to AVKit.
+        engine.onSubtitleTrackChange?(nil)
+        XCTAssertEqual(engine.nativeSubtitleCaptureRequests, [true, false])
+        XCTAssertFalse(viewModel.isStyledASSTimingPending)
     }
 
     /// And a plain-text track must NOT take it away: on that route AetherEngine

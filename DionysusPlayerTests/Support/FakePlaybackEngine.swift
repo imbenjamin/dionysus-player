@@ -19,6 +19,8 @@ final class FakePlaybackEngine: PlaybackEngine {
     var fontAttachments: [ASSFontAttachment] = []
     var onPictureInPicturePossibleChange: ((Bool) -> Void)?
     var onPictureInPictureActiveChange: ((Bool) -> Void)?
+    var onNativeSubtitleCues: (([String], TimeInterval) -> Void)?
+    var onNativeSubtitleCaptureAttached: (() -> Void)?
 
     var audioTracks: [PlaybackTrack] = []
     var subtitleTracks: [PlaybackTrack] = []
@@ -92,9 +94,15 @@ final class FakePlaybackEngine: PlaybackEngine {
     /// drawing to. Lets a test assert that libass taking over the paint also
     /// took the native rendition away from AVKit.
     private(set) var nativeSubtitleRenderingRequests: [Bool] = []
+    /// Same, for the transcode route's capture-instead-of-deselect.
+    private(set) var nativeSubtitleCaptureRequests: [Bool] = []
 
     func setNativeSubtitleRendering(_ active: Bool) {
         nativeSubtitleRenderingRequests.append(active)
+    }
+
+    func setNativeSubtitleCapture(_ active: Bool) {
+        nativeSubtitleCaptureRequests.append(active)
     }
 
     func startPictureInPicture() { startPictureInPictureCallCount += 1 }

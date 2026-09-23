@@ -187,7 +187,7 @@ struct SubtitleOverlayView: View {
 
     // MARK: - Authored ASS
 
-    /// Paints the frame libass composited for `viewModel.sourceTime`.
+    /// Paints the frame libass composited for `viewModel.assRenderTime`.
     ///
     /// `imageRect` comes back in the coordinate space of libass' frame, which
     /// is the drawable region rather than the whole overlay (see
@@ -202,7 +202,9 @@ struct SubtitleOverlayView: View {
             frame: frame, video: video, safeArea: safeArea,
             bottomInset: bottomInset, scale: displayScale
         ).drawable
-        if let rendered = viewModel.assRenderSession.frame {
+        // Held back while a transcode's timing is unknown, which is the same
+        // frame libass last drew at a now-stale time.
+        if let rendered = viewModel.assRenderSession.frame, !viewModel.isStyledASSTimingPending {
             Image(decorative: rendered.image, scale: 1)
                 .resizable()
                 .frame(width: rendered.imageRect.width, height: rendered.imageRect.height)
@@ -211,7 +213,7 @@ struct SubtitleOverlayView: View {
                     y: drawable.minY + rendered.imageRect.midY
                 )
                 .accessibilityElement()
-                .accessibilityLabel(viewModel.assRenderSession.dialogues(at: viewModel.sourceTime).joined(separator: " "))
+                .accessibilityLabel(viewModel.assRenderSession.dialogues(at: viewModel.assRenderTime).joined(separator: " "))
                 .accessibilityIdentifier(A11yID.Player.styledSubtitle)
         }
         // The geometry is only knowable here, and either it or the script can

@@ -19,6 +19,8 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     var fontAttachments: [ASSFontAttachment] = []
     var onPictureInPicturePossibleChange: ((Bool) -> Void)?
     var onPictureInPictureActiveChange: ((Bool) -> Void)?
+    var onNativeSubtitleCues: (([String], TimeInterval) -> Void)?
+    var onNativeSubtitleCaptureAttached: (() -> Void)?
 
     var audioTracks: [PlaybackTrack] = [
         PlaybackTrack(id: 0, kind: .audio, title: "Dolby Digital Plus Atmos 7.1", metadata: "DD+ · Atmos · 7.1 · Default", isSelected: true),
@@ -123,9 +125,14 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     /// Recorded rather than acted on: there is no AVPlayer here to hand
     /// drawing to.
     private(set) var nativeSubtitleRenderingRequests: [Bool] = []
+    private(set) var nativeSubtitleCaptureRequests: [Bool] = []
 
     func setNativeSubtitleRendering(_ active: Bool) {
         nativeSubtitleRenderingRequests.append(active)
+    }
+
+    func setNativeSubtitleCapture(_ active: Bool) {
+        nativeSubtitleCaptureRequests.append(active)
     }
 
     func selectSubtitleTrack(id: Int?) {
