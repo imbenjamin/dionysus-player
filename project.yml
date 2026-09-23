@@ -2,7 +2,7 @@ name: DionysusPlayer
 options:
   bundleIdPrefix: com.imbenjamin.dionysusplayer
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "18.0"
   createIntermediateGroups: true
   generateEmptyDirectories: false
   # Source language for `DionysusPlayer/Resources/Localizable.xcstrings`
@@ -77,9 +77,12 @@ packages:
   # (by temporarily resolving with `from: <major>.0.0` — the same "up to
   # next major" rule, just scoped to a scheduled job instead of every
   # build), and opens a PR bumping this line plus the checked-in version
-  # constant if one exists. A major bump (7.0.0) is exactly where
+  # constant if one exists. A major bump (e.g. 8.0.0) is exactly where
   # AetherEngine's public API is allowed to break per semver, so the
   # workflow never proposes one — that stays a deliberate manual edit here.
+  # The last one, 6.x → 7.x (2026-09-23), renamed no public symbols but
+  # raised AetherEngine's platform floor to iOS 18, which is why every
+  # `deploymentTarget` in this file moved from 17.0 to 18.0 alongside it.
   #
   # After any bump (automated or manual), run
   # `Scripts/update-aetherengine-version.sh` to refresh the checked-in
@@ -89,7 +92,7 @@ packages:
   # where the two have drifted apart.
   AetherEngine:
     url: https://github.com/superuser404notfound/AetherEngine
-    version: 6.89.1
+    version: 7.15.0
   # A small (single-file), MIT-licensed, dependency-free view modifier
   # (`.shimmering()`) — used by `MediaPlaceholderBox` for the "still
   # loading" placeholder animation. Purely a rendering effect — no
@@ -120,7 +123,7 @@ targets:
   DionysusPlayer:
     type: application
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "18.0"
     sources:
       - path: DionysusPlayer
       - path: dionysus.icon
@@ -222,7 +225,7 @@ targets:
   DionysusPlayerTests:
     type: bundle.unit-test
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "18.0"
     sources:
       - path: DionysusPlayerTests
     dependencies:
@@ -240,7 +243,7 @@ targets:
   DionysusPlayerUITests:
     type: bundle.ui-testing
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "18.0"
     sources:
       - path: DionysusPlayerUITests
       # Compiled into both targets so the tests and the app share one
