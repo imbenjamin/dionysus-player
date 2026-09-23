@@ -12,7 +12,7 @@ runs:
       # Both workflows used to take whatever Xcode `macos-latest` happened to
       # default to. That's a silent toolchain change waiting to happen on the
       # next runner-image rollover, which matters here: project.yml pins
-      # SWIFT_VERSION 6.0 against an iOS 17 deployment target, and AetherEngine
+      # SWIFT_VERSION 6.0 against an iOS 18 deployment target, and AetherEngine
       # is resolved fresh (uncached) on every run. `latest-stable` at least
       # makes the choice explicit and greppable; swap it for an exact version
       # (e.g. "26.4") the moment a rollover actually breaks something.

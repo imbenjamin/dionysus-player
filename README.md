@@ -171,7 +171,8 @@ Review on 2026-09-07.
 
 ## Requirements
 
-- Xcode 16 or later
+- Xcode 26 or later (the Liquid Glass UI builds against the iOS 26 SDK)
+- iOS/iPadOS 18 or later to run it (AetherEngine 7.x's platform floor)
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
 - A Jellyfin server to point the app at
 

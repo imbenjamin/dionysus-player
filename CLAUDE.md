@@ -30,6 +30,13 @@ checked.
 2026-09-07 — the app's first final (non-alpha/beta) release. See
 `VERSIONING.md` for the tag/promotion mechanics.
 
+**The deployment floor is iOS 18**, raised from 17 on 2026-09-23 to move
+AetherEngine from 6.x to 7.x — 7.0.0 raised its own platform floor to iOS 18
+and renamed no public symbols, so the floor was the whole cost. v1.0.0 still
+supports iOS 17; iOS 17 devices keep that build and stop receiving updates.
+Read AetherEngine's floor from `Package.swift` at the tag, never from its
+release notes — 7.13.0's notes said "iOS 17" while its manifest said 18.
+
 ## Commands
 
 The Xcode project (`DionysusPlayer.xcodeproj`) is generated from `project.yml`
@@ -42,7 +49,7 @@ xcodegen generate
 ```
 
 To build/run, open the generated project and build the `DionysusPlayer`
-scheme (target iOS 17+):
+scheme (target iOS 18+):
 
 ```sh
 open DionysusPlayer.xcodeproj
