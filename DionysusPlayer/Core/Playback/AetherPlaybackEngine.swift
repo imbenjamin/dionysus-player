@@ -26,6 +26,11 @@ final class AetherPlaybackEngine: PlaybackEngine {
     private enum SessionRecoveryDesiredState { case play, pause }
     private var sessionRecoveryDesiredState: SessionRecoveryDesiredState = .pause
     private var sessionRecoveryTask: Task<Void, Never>?
+    /// Whether the current `load()`'s session has ever reported ready. Reset
+    /// by every `load()`, set by the `engine.$isSessionReady` sink. What tells
+    /// `recoverSessionIfNeeded` a session torn down in the background apart
+    /// from one that simply hasn't come up yet — see `needsSessionRecovery`.
+    private var hasSessionBeenReady = false
     /// Playhead a session rebuilt *paused* on foreground return sits at. Nothing
     /// in AetherEngine publishes it until that session plays again, so this
     /// stands in for the engine's zeroed clock in both time bridges below until
@@ -215,6 +220,15 @@ final class AetherPlaybackEngine: PlaybackEngine {
             }
             .store(in: &cancellables)
 
+        engine.$isSessionReady
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] ready in
+                MainActor.assumeIsolated {
+                    if ready { self?.hasSessionBeenReady = true }
+                }
+            }
+            .store(in: &cancellables)
+
         engine.clock.$currentTime
             .receive(on: DispatchQueue.main)
             .sink { [weak self] time in
@@ -388,6 +402,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
         // A fresh source carries its own playhead; the previous session's
         // stand-in must not leak into it.
         pausedRebuildAnchor = nil
+        hasSessionBeenReady = false
         self.knownAtmosAudioTrackIndices = knownAtmosAudioTrackIndices
         // Order matters here beyond just readability: `LoadOptions`' own
         // memberwise init takes ~30 named, defaulted parameters, but Swift
@@ -485,6 +500,17 @@ final class AetherPlaybackEngine: PlaybackEngine {
         recoverSessionIfNeeded(desiredState: .play)
     }
 
+    /// A paused session that isn't ready is torn down only if it was ever
+    /// ready. A fresh load on the `nativeRemoteHLS` route returns before its
+    /// item is: paused and not ready, which reads exactly like a torn-down
+    /// session, and reloading it discards the resume seek AetherEngine is
+    /// holding until readiness (#127) — so every transcode resumed from 0:00.
+    /// Direct play only escaped because its load returns ready. Non-`private`
+    /// so tests can call it without a live engine.
+    static func needsSessionRecovery(isPaused: Bool, isSessionReady: Bool, hasSessionBeenReady: Bool) -> Bool {
+        isPaused && !isSessionReady && hasSessionBeenReady
+    }
+
     /// Shared by `observeAppLifecycle()`'s foreground-return repair and
     /// `play()`'s fallback, which both react to a paused session torn down by
     /// AetherEngine's background grace window.
@@ -519,7 +545,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// `desiredState` is still applied after the reload, since a caller can
     /// upgrade `.pause` to `.play` while it is in flight.
     private func recoverSessionIfNeeded(desiredState: SessionRecoveryDesiredState) {
-        guard engine.state == .paused, !engine.isSessionReady else {
+        guard Self.needsSessionRecovery(
+            isPaused: engine.state == .paused, isSessionReady: engine.isSessionReady, hasSessionBeenReady: hasSessionBeenReady
+        ) else {
             if desiredState == .play { engine.play() }
             return
         }
