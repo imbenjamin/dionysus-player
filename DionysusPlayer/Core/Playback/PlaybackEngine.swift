@@ -35,6 +35,15 @@ protocol PlaybackEngine: AnyObject {
     /// Whether a PiP window is showing this session's video. `PlayerView` swaps
     /// the video surface for a placeholder while it is `true`.
     var onPictureInPictureActiveChange: ((Bool) -> Void)? { get set }
+    /// The lines AVKit presents for the selected subtitle track, with the item
+    /// time it presents them at, while `setNativeSubtitleCapture(true)` is in
+    /// effect. An empty list is a line ending. See `ASSCueTimingCalibrator` for
+    /// what this is for.
+    var onNativeSubtitleCues: (([String], TimeInterval) -> Void)? { get set }
+    /// Called each time capture (re)attaches — on request, on a new item, and
+    /// on leaving PiP. AVKit then re-delivers whatever line is showing as
+    /// though it had just started, which must not be read as one.
+    var onNativeSubtitleCaptureAttached: (() -> Void)? { get set }
 
     /// Fonts the container carries as attachments, for rendering an authored
     /// ASS track that names one. AetherEngine reads them off its own probe, so
@@ -112,8 +121,21 @@ protocol PlaybackEngine: AnyObject {
     /// correct for a track the app renders from AetherEngine's cues, which that
     /// path publishes none of, and wrong for an authored-ASS one, where libass
     /// draws the same script on top and the viewer gets two sets of subtitles.
-    /// `PlayerViewModel` turns it off once libass owns the paint.
+    /// `PlayerViewModel` hands that track to `setNativeSubtitleCapture(true)`
+    /// once libass owns the paint, which stops AVKit drawing it without
+    /// deselecting it, and turns this off for one on any other route.
     func setNativeSubtitleRendering(_ active: Bool)
+
+    /// The server-transcode alternative to `setNativeSubtitleRendering(false)`
+    /// for a track libass draws. The native rendition stays selected so AVKit
+    /// keeps timing it, but draws nothing, and reports each line through
+    /// `onNativeSubtitleCues` instead.
+    ///
+    /// That timing is the only reliable measure of where the picture is on
+    /// that route — see `ASSCueTimingCalibrator`. In PiP AVKit draws the
+    /// rendition itself again, since the app's overlay isn't in the captured
+    /// layer, and reporting resumes when PiP ends.
+    func setNativeSubtitleCapture(_ active: Bool)
 
     /// A no-op when PiP isn't possible, so callers need no guard of their own.
     func startPictureInPicture()

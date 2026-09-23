@@ -39,6 +39,21 @@ final class PlayerViewModel {
     /// Bumped whenever libass produces a new frame, so the overlay's body
     /// re-runs (the session itself is deliberately not `@Observable`).
     private(set) var assFrameGeneration = 0
+    /// The time libass renders at, and the one its accessibility text is read
+    /// at. `sourceTime` everywhere except a server transcode, where
+    /// `assTimingCalibrator` corrects it.
+    private(set) var assRenderTime: TimeInterval = 0
+    /// True while a transcode's styled track doesn't yet know where the picture
+    /// is — just after a seek, until the first line starts. The overlay paints
+    /// nothing rather than a line at the wrong moment.
+    private(set) var isStyledASSTimingPending = false
+    /// Only on a server transcode, where the engine's playhead runs ahead of the
+    /// picture by an amount that changes at every seek. See
+    /// `ASSCueTimingCalibrator`.
+    private var assTimingCalibrator: ASSCueTimingCalibrator?
+    /// Whether this session plays a server transcode through AVPlayer, the one
+    /// route whose styled track needs `assTimingCalibrator`.
+    private var isRemoteHLSSession = false
     /// Guards against a slow script fetch landing after the user has moved on
     /// to a different track.
     private var assScriptTask: Task<Void, Never>?
@@ -415,14 +430,24 @@ final class PlayerViewModel {
         }
         engine.onSubtitleCuesChange = { [weak self] cues in self?.subtitleCues = cues }
         engine.onSourceTimeUpdate = { [weak self] sourceTime in
-            self?.sourceTime = sourceTime
-            // libass renders at a time rather than publishing a cue list, so it
-            // is driven from the same source-PTS clock the overlay filters cues
-            // against.
-            self?.assRenderSession.setTime(sourceTime)
+            guard let self else { return }
+            self.sourceTime = sourceTime
+            self.assTimingCalibrator?.observePlayhead(sourceTime)
+            self.applyASSRenderTime()
+        }
+        engine.onNativeSubtitleCues = { [weak self] texts, itemTime in
+            guard let self, let before = self.assTimingCalibrator?.offset else { return }
+            self.assTimingCalibrator?.observeCues(texts, at: itemTime)
+            if let after = self.assTimingCalibrator?.offset, after != before {
+                Self.assLog.debug("ass transcode offset \(String(format: "%.3f", before))s -> \(String(format: "%.3f", after))s at item \(String(format: "%.3f", itemTime))s")
+            }
+            self.applyASSRenderTime()
         }
         engine.onPictureInPicturePossibleChange = { [weak self] possible in self?.isPictureInPicturePossible = possible }
         engine.onPictureInPictureActiveChange = { [weak self] active in self?.isPictureInPictureActive = active }
+        engine.onNativeSubtitleCaptureAttached = { [weak self] in
+            self?.assTimingCalibrator?.ignoreLinesAlreadyShowing()
+        }
         engine.onSubtitleTrackChange = { [weak self] id in self?.handleSubtitleTrackChange(id) }
         // The render session is a plain object, so it pokes the view model to
         // re-run the overlay's body.
@@ -537,6 +562,7 @@ final class PlayerViewModel {
             self.fetchedASSFonts = []
             let atmosAudioTrackIndices = Self.atmosAudioTrackIndices(from: source?.mediaStreams ?? [])
 
+            isRemoteHLSSession = isRemoteHLS
             try await engine.load(
                 url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: atmosAudioTrackIndices, isRemoteHLS: isRemoteHLS
             )
@@ -632,6 +658,7 @@ final class PlayerViewModel {
         }
 
         do {
+            isRemoteHLSSession = false
             try await engine.load(url: videoURL, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: [])
             applyStoredTrackSelection()
             if let resumeSeconds, resumeSeconds > 0 {
@@ -850,16 +877,26 @@ final class PlayerViewModel {
             // one hands the drawing to AVPlayer, and the viewer got the system
             // caption and the authored one at once.
             //
+            // On that route the rendition stays selected with its drawing
+            // suppressed rather than deselected, because AVPlayer's timing of
+            // it is what `assTimingCalibrator` measures the picture against.
+            //
             // Deliberately only once the script has actually landed. Turning it
             // off at selection would leave a failed or still-running fetch with
             // nothing drawing at all — and on that route there is nothing to
             // fall back to, since AetherEngine publishes no cues for a track
             // AVPlayer is rendering.
             //
-            // PiP is unaffected: it turns native rendering back on when it
-            // starts, because the app's overlay isn't inside the captured
-            // layer, and off again when it stops.
-            self.engine.setNativeSubtitleRendering(false)
+            // PiP is unaffected: AVKit draws the rendition itself there,
+            // because the app's overlay isn't inside the captured layer, and
+            // `AetherPlaybackEngine` hands it back on either route.
+            if self.isRemoteHLSSession {
+                self.assTimingCalibrator = ASSCueTimingCalibrator(script: script)
+                self.engine.setNativeSubtitleCapture(true)
+            } else {
+                self.engine.setNativeSubtitleRendering(false)
+            }
+            self.applyASSRenderTime()
 
             // Fonts follow the script rather than gating it. On the common
             // (direct-play) path the engine already has them and the load
@@ -885,6 +922,25 @@ final class PlayerViewModel {
         loadedASSTrackID = nil
         isRenderingStyledASS = false
         assRenderSession.teardown()
+        if assTimingCalibrator != nil {
+            assTimingCalibrator = nil
+            engine.setNativeSubtitleCapture(false)
+        }
+        applyASSRenderTime()
+    }
+
+    /// Drives libass to the current playhead, through `assTimingCalibrator`
+    /// when there is one. libass renders at a time rather than publishing a cue
+    /// list, so it runs on the same clock the overlay filters cues against.
+    private func applyASSRenderTime() {
+        let renderTime = assTimingCalibrator.map { $0.renderTime(for: sourceTime) } ?? sourceTime
+        let isPending = renderTime == nil
+        // Guarded: this runs on every clock tick, and an `@Observable` write
+        // re-renders the overlay even when the value hasn't changed.
+        if isStyledASSTimingPending != isPending { isStyledASSTimingPending = isPending }
+        guard let renderTime else { return }
+        assRenderTime = renderTime
+        assRenderSession.setTime(renderTime)
     }
 
     /// Hands the script and the current overlay geometry to libass together.

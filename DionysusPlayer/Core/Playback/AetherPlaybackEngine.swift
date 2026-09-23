@@ -59,6 +59,8 @@ final class AetherPlaybackEngine: PlaybackEngine {
     var onSourceTimeUpdate: ((TimeInterval) -> Void)?
     var onPictureInPicturePossibleChange: ((Bool) -> Void)?
     var onPictureInPictureActiveChange: ((Bool) -> Void)?
+    var onNativeSubtitleCues: (([String], TimeInterval) -> Void)?
+    var onNativeSubtitleCaptureAttached: (() -> Void)?
 
     /// Built around `engine.nativePlayerLayer`, so the native AVPlayer route
     /// only. Rebuilt from the `engine.$currentAVPlayer` sink below, which
@@ -71,6 +73,18 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// `init()`, whose signature `NSObject.init()` occupies. A small proxy
     /// avoids retrofitting inheritance for one protocol.
     private let pipDelegateProxy = PictureInPictureDelegateProxy()
+
+    /// Set by `setNativeSubtitleCapture(_:)`, and deliberately kept across
+    /// `load()`: the view model asks once per styled track, and a reload of the
+    /// same session (background recovery) must pick it straight back up.
+    private var nativeSubtitleCaptureRequested = false
+    /// Attached to whichever item `engine.$currentAVPlayerItem` last published,
+    /// while capture is requested and PiP isn't showing.
+    private var legibleCueTap: LegibleCueTap?
+    private var legibleCueTapAttachTask: Task<Void, Never>?
+    private var legibleCueTapAttachingItem: AVPlayerItem?
+    /// See `updateLegibleCueTap()`.
+    private static let captionClearDelay: Duration = .milliseconds(250)
 
     /// Mapped on demand rather than mirrored: payloads run to tens of MB, and
     /// only a styled-ASS selection ever reads them.
@@ -357,6 +371,16 @@ final class AetherPlaybackEngine: PlaybackEngine {
                     self.selectedSubtitleTrackID = index
                     self.subtitleTracks = self.subtitleTracks.map { $0.selected($0.id == index) }
                     self.onSubtitleTrackChange?(index)
+                }
+            }
+            .store(in: &cancellables)
+
+        // An output belongs to one item, so a reload's fresh item needs its own.
+        engine.$currentAVPlayerItem
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.updateLegibleCueTap()
                 }
             }
             .store(in: &cancellables)
@@ -706,6 +730,66 @@ final class AetherPlaybackEngine: PlaybackEngine {
         engine.setNativeSubtitleRendering(active)
     }
 
+    func setNativeSubtitleCapture(_ active: Bool) {
+        nativeSubtitleCaptureRequested = active
+        updateLegibleCueTap()
+    }
+
+    /// Attaches, moves or removes `legibleCueTap` to match the request, the
+    /// current item and PiP.
+    ///
+    /// Selecting the track already selected its rendition (AetherEngine's
+    /// #316), and it stays selected: deselecting it is exactly what stops AVKit
+    /// timing it. The one exception is a brief deselect while attaching, below.
+    /// In PiP the tap comes off, so AVKit draws the selected rendition itself.
+    private func updateLegibleCueTap() {
+        let item = engine.currentAVPlayerItem
+        let wanted = nativeSubtitleCaptureRequested && !engine.pictureInPictureActive ? item : nil
+        if let wanted, legibleCueTap?.item === wanted || legibleCueTapAttachingItem === wanted { return }
+        legibleCueTapAttachTask?.cancel()
+        legibleCueTapAttachTask = nil
+        legibleCueTapAttachingItem = nil
+        legibleCueTap?.detach()
+        legibleCueTap = nil
+        guard let wanted else { return }
+        legibleCueTapAttachingItem = wanted
+        legibleCueTapAttachTask = Task { @MainActor [weak self] in
+            // A line AVPlayer is drawing when an output suppresses its rendering
+            // stays on screen for good: suppression stops the caption layer
+            // repainting, so nothing afterwards clears it — not even a
+            // deselect. Seen on device about half the time a styled track was
+            // reselected mid-film, whenever the rendition got to draw a line
+            // before the script landed. So the rendition comes off first, and
+            // goes back on only once the output is attached.
+            let group = try? await wanted.asset.loadMediaSelectionGroup(for: .legible)
+            let option = group.flatMap { wanted.currentMediaSelection.selectedMediaOption(in: $0) }
+            if let group, option != nil {
+                wanted.select(nil, in: group)
+                // Time for the caption layer to repaint empty. No API reports
+                // it, and a frame or two is all it takes; this is several.
+                try? await Task.sleep(for: Self.captionClearDelay)
+            }
+            guard let self else { return }
+            guard !Task.isCancelled else {
+                // Cancelled by PiP starting, which wants the rendition drawn;
+                // anything else that cancels (another track, subtitles off)
+                // has made its own selection, which this must not undo.
+                if self.nativeSubtitleCaptureRequested, let group, let option {
+                    wanted.select(option, in: group)
+                }
+                return
+            }
+            self.legibleCueTapAttachingItem = nil
+            self.legibleCueTap = LegibleCueTap(item: wanted) { [weak self] texts, itemTime in
+                self?.onNativeSubtitleCues?(texts, itemTime)
+            }
+            if let group, let option {
+                wanted.select(option, in: group)
+            }
+            self.onNativeSubtitleCaptureAttached?()
+        }
+    }
+
     /// `engine.pictureInPictureActive` drives AetherEngine's background
     /// keepalive policy. This is the only place that sets it, kept in lockstep
     /// with AVKit rather than inferred.
@@ -713,9 +797,18 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// `setNativeSubtitleRendering(true)` hands the selected subtitle track to
     /// AVKit as a native WebVTT rendition, since the app's own
     /// `SubtitleOverlayView` isn't visible inside the captured layer.
+    ///
+    /// While capture is requested the rendition is already selected, so taking
+    /// the tap off is all it takes. `setNativeSubtitleRendering` isn't called
+    /// then: its `false` on the way out would deselect the rendition the tap
+    /// needs.
     fileprivate func handlePictureInPictureDidStart() {
         engine.pictureInPictureActive = true
-        engine.setNativeSubtitleRendering(true)
+        if nativeSubtitleCaptureRequested {
+            updateLegibleCueTap()
+        } else {
+            engine.setNativeSubtitleRendering(true)
+        }
         onPictureInPictureActiveChange?(true)
     }
 
@@ -724,7 +817,11 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// of AVKit's burned-in ones.
     fileprivate func handlePictureInPictureDidStop() {
         engine.pictureInPictureActive = false
-        engine.setNativeSubtitleRendering(false)
+        if nativeSubtitleCaptureRequested {
+            updateLegibleCueTap()
+        } else {
+            engine.setNativeSubtitleRendering(false)
+        }
         onPictureInPictureActiveChange?(false)
     }
 
@@ -1078,6 +1175,56 @@ final class AetherPlaybackEngine: PlaybackEngine {
             isUnderlined: run.isUnderlined,
             isStruckThrough: run.isStruckThrough
         )
+    }
+}
+
+// MARK: - AVPlayerItemLegibleOutputPushDelegate
+
+/// An `AVPlayerItemLegibleOutput` on one item, with rendering suppressed, that
+/// reports each set of lines AVPlayer would have drawn and the item time it
+/// would have drawn them at. See `AetherPlaybackEngine.setNativeSubtitleCapture`.
+@MainActor
+private final class LegibleCueTap {
+    private(set) weak var item: AVPlayerItem?
+    private let output = AVPlayerItemLegibleOutput()
+    private let delegate: LegibleOutputDelegate
+
+    init(item: AVPlayerItem, onCues: @escaping @MainActor ([String], TimeInterval) -> Void) {
+        self.item = item
+        delegate = LegibleOutputDelegate(onCues: onCues)
+        output.suppressesPlayerRendering = true
+        output.setDelegate(delegate, queue: .main)
+        item.add(output)
+    }
+
+    func detach() {
+        output.setDelegate(nil, queue: nil)
+        item?.remove(output)
+    }
+}
+
+/// Separate from `LegibleCueTap` because AVFoundation requires the delegate to
+/// be `Sendable`, which a main-actor class can't satisfy. It is only ever
+/// called on the main queue it was registered with.
+private final class LegibleOutputDelegate: NSObject, AVPlayerItemLegibleOutputPushDelegate, @unchecked Sendable {
+    private let onCues: @MainActor ([String], TimeInterval) -> Void
+
+    init(onCues: @escaping @MainActor ([String], TimeInterval) -> Void) {
+        self.onCues = onCues
+    }
+
+    func legibleOutput(
+        _ output: AVPlayerItemLegibleOutput,
+        didOutputAttributedStrings strings: [NSAttributedString],
+        nativeSampleBuffers nativeSamples: [Any],
+        forItemTime itemTime: CMTime
+    ) {
+        guard itemTime.isNumeric else { return }
+        let texts = strings.map(\.string)
+        let seconds = itemTime.seconds
+        MainActor.assumeIsolated {
+            onCues(texts, seconds)
+        }
     }
 }
 
