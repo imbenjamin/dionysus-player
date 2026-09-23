@@ -317,7 +317,10 @@ string isn't user-visible anyway.
 
 - **`.github/workflows/pr-checks.yml`** — the PR gate, on every PR into `stable`
   or `develop`: sets up the project, then builds and runs the full test
-  suite. It's a required status check on both branches.
+  suite. It's a required status check on both branches. Its separate
+  `release-build` job compiles the Release configuration (unsigned), which
+  is otherwise first compiled by `release.yml`'s archive step — too late, as
+  `v1.1.0-alpha.4` found out.
 
   ⚠️ Its job is named `Build and Test default scheme using any available
   iPhone simulator`, and both branch rulesets require that exact string.
