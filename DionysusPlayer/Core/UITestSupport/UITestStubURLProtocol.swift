@@ -966,7 +966,6 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         }
     }
 }
-#endif
 
 // MARK: - Authored ASS
 
@@ -1004,3 +1003,4 @@ extension UITestStubURLProtocol {
         ].joined(separator: "\n")
     }
 }
+#endif

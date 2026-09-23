@@ -60,6 +60,41 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  release-build:
+    # Compiles the Release configuration, which nothing else on a PR does:
+    # `build` and `ui-smoke` both build Debug, so code that only compiles with
+    # `DEBUG` defined gets through them and fails at the tag, in release.yml's
+    # archive step, after the whole test suite has already run. That is what
+    # happened to v1.1.0-alpha.4: #234 added an extension to the Debug-only
+    # `UITestStubURLProtocol` outside the file's `#if DEBUG`.
+    #
+    # Unsigned and for a generic device, so it needs no credentials — the
+    # signing half of the archive is release.yml's alone. A separate job, not
+    # a step in `build`, for the same reason `ui-smoke` is one (see below);
+    # like it, this does not *block* a merge until it is added to the
+    # "develop protection" and "Secure stable" rulesets.
+    name: Release configuration compiles
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up iOS project
+        uses: ./.github/actions/setup-ios-project
+
+      - name: Build Release for a generic iOS device
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project DionysusPlayer.xcodeproj \
+            -scheme DionysusPlayer \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
+
   ui-smoke:
     # A separate job from `build`, deliberately. That one's name is required
     # verbatim by both branch rulesets (see its own comment), so it must not
