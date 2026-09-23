@@ -206,19 +206,10 @@ struct HomeScreen: Screen {
     func openItem(_ itemID: String, file: StaticString = #filePath, line: UInt = #line) {
         let tile = card(itemID)
         tile.awaitExistence("the tile for \(itemID)", file: file, line: line)
-        tile.tap()
+        // Often below the fold, so `tap()` scrolls first — see `tapToLeave`.
+        tile.tapToLeave()
     }
 
-    /// Opens a library card that may sit past the initial viewport on a
-    /// narrower device. `LibraryRailView`'s four cards (Movies, TV Shows,
-    /// Collections, Playlists) all fit on an iPad without scrolling, but
-    /// the later ones run off the right edge on iPhone — measured live,
-    /// tapping one there fails with "Activation point invalid" rather than
-    /// XCUITest transparently auto-scrolling the way it does for a normal
-    /// (non-lazy) off-screen element. A single, bounded swipe on the rail
-    /// itself first — unlike the open-ended scroll gestures this suite
-    /// otherwise avoids — reliably brings the later cards into view; a
-    /// no-op on a device where they were already visible.
     /// Performs `.refreshable`'s pull gesture on Home's vertical scroll view,
     /// triggering `HomeViewModel.hardRefresh()`.
     ///
@@ -234,6 +225,16 @@ struct HomeScreen: Screen {
         start.press(forDuration: 0.2, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 1.0)
     }
 
+    /// Opens a library card that may sit past the initial viewport on a
+    /// narrower device. `LibraryRailView`'s four cards (Movies, TV Shows,
+    /// Collections, Playlists) all fit on an iPad without scrolling, but
+    /// the later ones run off the right edge on iPhone — measured live,
+    /// tapping one there fails with "Activation point invalid" rather than
+    /// XCUITest transparently auto-scrolling the way it does for a normal
+    /// (non-lazy) off-screen element. A single, bounded swipe on the rail
+    /// itself first — unlike the open-ended scroll gestures this suite
+    /// otherwise avoids — reliably brings the later cards into view; a
+    /// no-op on a device where they were already visible.
     func openLibrary(_ libraryID: String, file: StaticString = #filePath, line: UInt = #line) {
         let rail = app.descendants(matching: .any)[A11yID.Home.libraryRail]
         if rail.exists {

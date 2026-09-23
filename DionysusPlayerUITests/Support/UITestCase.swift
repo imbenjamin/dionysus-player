@@ -113,6 +113,40 @@ extension XCUIElement {
         return self
     }
 
+    /// Taps an element whose job is to navigate away, tapping again if the
+    /// tap was swallowed.
+    ///
+    /// Only for an element that leaves the tree once it has done its job, as
+    /// a Home tile does when the page it pushes covers Home: that is what
+    /// makes "still here and still hittable" proof the tap did nothing,
+    /// rather than a reason to tap whatever is now at that point.
+    ///
+    /// Exists for a tile below the fold, which `tap()` scrolls into view
+    /// first. Once, on a loaded CI runner, that tap did nothing
+    /// (`SmokeJourneyTests.testPlayingAndClosingAnItem`): the synthesized
+    /// touch was on the right poster, the recording shows a page that had
+    /// stopped moving, and there was no press and no push. The likeliest
+    /// cause is UIKit still counting the scroll view as decelerating, which
+    /// spends a touch on stopping the scroll rather than on the button — but
+    /// that is inferred, not observed, and it never reproduced in 50 local
+    /// runs. So this checks the outcome instead of guessing a delay.
+    ///
+    /// Gives up quietly after `attempts`, leaving the caller's next wait to
+    /// report what never appeared.
+    func tapToLeave(attempts: Int = 3, settle: TimeInterval = 5) {
+        for _ in 1...attempts {
+            tap()
+            let gone = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "exists == false"),
+                object: self
+            )
+            if XCTWaiter().wait(for: [gone], timeout: settle) == .completed { return }
+            // Covered by something that isn't a push (an alert, say): not a
+            // swallowed tap, and tapping again would hit whatever covers it.
+            guard isHittable else { return }
+        }
+    }
+
     /// Waits for the element to go away — the dismissal counterpart to
     /// `awaitExistence`, for asserting a screen actually closed rather than
     /// just that something else appeared on top of it.
