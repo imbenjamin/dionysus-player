@@ -218,12 +218,6 @@ private extension AccessibilityAuditTests {
         }
     }
 
-    /// `true` to ignore an issue.
-    ///
-    /// Kept as one function rather than per-test handlers so the full set of
-    /// suppressions is visible in one place — a suppression that silently
-    /// applies to a screen nobody intended it for is the main way an audit
-    /// suite rots.
     /// The audit types this suite gates on.
     ///
     /// Deliberately **not** `.all`. Measured across all twelve screens,
@@ -267,8 +261,8 @@ private extension AccessibilityAuditTests {
     /// Kept as one function rather than per-test handlers so the full set of
     /// suppressions is visible in one place — a suppression that silently
     /// applies to a screen nobody intended it for is the main way an audit
-    /// suite rots. Both entries below are scoped to a specific element, not
-    /// to an audit type.
+    /// suite rots. Every entry below is scoped to a kind of element, never to
+    /// an audit type alone.
     static func isKnownAcceptable(_ issue: XCUIAccessibilityAuditIssue) -> Bool {
         guard let element = issue.element else { return false }
 
@@ -279,6 +273,17 @@ private extension AccessibilityAuditTests {
         // audit type so an app-owned control that is genuinely too small
         // still fails.
         if element.elementType == .button, element.label == "Clear text" {
+            return true
+        }
+
+        // Any key on the system keyboard, which is up whenever a screen
+        // autofocuses a text field (Server Setup's address field does). From
+        // the iOS 27 runtime the URL keyboard's ".co.uk" key fails
+        // `.sufficientElementDescription` ("Label not human-readable") — the
+        // audit reads the literal key caption. OS chrome, not reachable from
+        // here, and only the system keyboard produces `.key` elements, so an
+        // app control can't be caught by this.
+        if element.elementType == .key {
             return true
         }
 
