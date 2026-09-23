@@ -902,9 +902,17 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     /// - **Too long** and the logo hasn't arrived within the
     ///   `awaitDisappearance` that follows, so the other half fails.
     ///
-    /// 10s sits with several seconds' slack against both, measured on a
-    /// Simulator where that navigation takes ~2-4s.
-    static let slowLogoImageDelay: TimeInterval = 10
+    /// - **Not 20s or more**, which is `RemoteImageLoader`'s request timeout:
+    ///   a held response past it times out and retries instead of arriving.
+    ///
+    /// 18s, up from 10s. 10s assumed the navigation takes ~2-4s, as it does
+    /// locally, but a loaded release runner took ~10s to get from launch to the
+    /// player (v1.1.0-alpha.5, twice in a row), so the logo was cached before
+    /// the title row mounted. 18s allows ~17s for it while staying under the
+    /// timeout. It widens the window rather than removing the dependency on
+    /// navigation speed; anchoring the hold on navigation instead runs into
+    /// that same timeout, since Home's hero asks at launch.
+    static let slowLogoImageDelay: TimeInterval = 18
 
     /// How long `.slowSubtitleFonts` holds an attachment response. Far past any
     /// assertion's budget on purpose: the test it exists for asserts that the

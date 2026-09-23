@@ -470,7 +470,7 @@ reject in the normal case rather than trivially passing everything through.
 
 `slowLogoImage` is the standard catalogue with one deliberate exception: a
 `Logo` image response is held for `UITestStubURLProtocol.slowLogoImageDelay`
-(10s, scheduled on a background queue — every other image resolves
+(18s, scheduled on a background queue — every other image resolves
 immediately as usual) — long enough to outlast both `LogoImageView`'s own 1s
 fallback-reveal delay and the navigation between the screens the journey
 passes through; see that constant's doc comment for the two-sided window it

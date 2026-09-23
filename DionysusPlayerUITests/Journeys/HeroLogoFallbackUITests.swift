@@ -14,12 +14,17 @@ import XCTest
 /// Both tests launch with the `slowLogoImage` scenario, which delays only
 /// the `Logo` image response (`UITestStubURLProtocol.slowLogoImageDelay`)
 /// — comfortably past `LogoImageView`'s own 1s reveal delay, so the
-/// fallback is guaranteed to appear, and comfortably inside each
-/// `waitForExistence`/`awaitDisappearance` budget below. Neither budget is
-/// the tight one: see that constant's own doc comment for why the delay
-/// also has to outlast every screen this journey passes through on the way,
-/// Home included, rather than just the reveal delay it beats on paper.
+/// fallback is guaranteed to appear. See that constant's own doc comment for
+/// why the delay also has to outlast every screen this journey passes through
+/// on the way, Home included, rather than just the reveal delay it beats on
+/// paper — and why that makes it long enough to need `logoArrivalTimeout`
+/// rather than the suite's default for the disappearance half.
 final class HeroLogoFallbackUITests: UITestCase {
+    /// The logo lands up to `slowLogoImageDelay` after the fallback appears
+    /// (sooner the slower the navigation was), which is longer than the
+    /// suite's 15s default.
+    private let logoArrivalTimeout: TimeInterval = 30
+
     /// The asset-detail hero header: `BackdropLogoOverlay`'s
     /// `.accessibilityHidden` case.
     func testSlowLogoOnAssetDetailEventuallyShowsThenHidesFallback() {
@@ -40,7 +45,8 @@ final class HeroLogoFallbackUITests: UITestCase {
         // very first frame, just reached from a state where the fallback
         // was showing first.
         detail.heroLogoFallbackVisible.awaitDisappearance(
-            "the hero fallback text once the delayed logo has finished loading"
+            "the hero fallback text once the delayed logo has finished loading",
+            timeout: logoArrivalTimeout
         )
     }
 
@@ -62,7 +68,8 @@ final class HeroLogoFallbackUITests: UITestCase {
             "the player title row's fallback text once the logo has taken longer than its reveal delay"
         )
         player.heroLogoFallbackVisible.awaitDisappearance(
-            "the player title row's fallback text once the delayed logo has finished loading"
+            "the player title row's fallback text once the delayed logo has finished loading",
+            timeout: logoArrivalTimeout
         )
     }
 }
