@@ -124,9 +124,8 @@ to a branch's ruleset, check first that every CodeQL job it depends on
 actually runs on every PR into that branch; one keyed to a config that
 branch's own PRs never trigger can never be satisfied, by any PR, ever.
 
-Nothing needs stamping, predicting, or verifying beforehand, and
-`./Scripts/update-aetherengine-version.sh` does not need running as part of
-cutting a release — CI regenerates both.
+Nothing needs stamping, predicting, or verifying beforehand — CI stamps the
+version from the tag.
 
 ### Why there is no longer a release-prep PR
 
@@ -301,9 +300,7 @@ This is a **companion script, not a build-time hook**. See
 attempt at the equivalent (stamping git branch/commit into the *built*
 Info.plist via a `postCompileScripts` phase) turned out to run at the
 wrong point in Xcode's build graph and silently never took effect. A
-checked-in generated file sidesteps that class of bug entirely, following
-the same pattern already used for `AetherEngineVersion.swift`
-(`Scripts/update-aetherengine-version.sh`).
+checked-in generated file sidesteps that class of bug entirely.
 
 CI's run is what makes the *shipped* build's version correct, and it is not
 checked against what's committed. The checked-in copies are a convenience for
@@ -319,10 +316,8 @@ string isn't user-visible anyway.
 ## GitHub Actions
 
 - **`.github/workflows/pr-checks.yml`** — the PR gate, on every PR into `stable`
-  or `develop`: sets up the project, regenerates and **verifies**
-  `AetherEngineVersion.swift` against a genuinely fresh package resolution,
-  then builds and runs the full test suite. This is the only place AetherEngine
-  drift is enforced, and it's a required status check on both branches.
+  or `develop`: sets up the project, then builds and runs the full test
+  suite. It's a required status check on both branches.
 
   ⚠️ Its job is named `Build and Test default scheme using any available
   iPhone simulator`, and both branch rulesets require that exact string.
@@ -332,7 +327,7 @@ string isn't user-visible anyway.
 
 - **`.github/workflows/release.yml`** — runs on any `v*.*.*` tag push: sets up
   the project, stamps the version from that tag via `Scripts/update-version.sh`,
-  **regenerates** `AetherEngineVersion.swift`, builds and tests the exact
+  builds and tests the exact
   tagged commit, archives and signs it, uploads it to App Store Connect, and
   publishes a GitHub Release with the tag's own message above GitHub's
   generated notes (`--prerelease` for `-alpha`/`-beta` tags and for any `0.x`
@@ -368,12 +363,6 @@ string isn't user-visible anyway.
   once this workflow was added — the two can't coexist for the same
   language; GitHub rejects the advanced-setup SARIF upload if default setup
   is still active.
-
-The two treat AetherEngine drift deliberately differently. `pr-checks.yml`
-*verifies* — drift is actionable there, days after it happens upstream.
-`release.yml` *regenerates* — a version published upstream between the last PR
-and the tag must never fail a tag that has already been pushed, which is
-exactly what cost three CI runs and two recovery branches on `v0.7.0-alpha.1`.
 
 Both share `.github/actions/setup-ios-project` and
 `.github/actions/build-and-test`, so their build/test behaviour cannot drift

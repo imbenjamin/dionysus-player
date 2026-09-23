@@ -3,20 +3,16 @@ name: Bump AetherEngine
 # Weekly check for a newer AetherEngine release within the currently-pinned
 # major version. `project.yml` pins AetherEngine with `version:` — XcodeGen's
 # spelling of an exact/SPM `.exact` requirement (see that file's own
-# comment, and CLAUDE.md's "Keeping the AetherEngine version display
-# current") — specifically so a cold package resolve can never pick
-# up a new release by surprise — this workflow is the deliberate,
-# reviewable replacement for that: it discovers what the newest compatible
-# release is, and opens a PR bumping the pin if there is one, rather than
-# leaving upgrades to whoever next happens to run
-# `Scripts/update-aetherengine-version.sh`.
+# comment, and CLAUDE.md's "Pinning AetherEngine") — specifically so a cold
+# package resolve can never pick up a new release by surprise — this
+# workflow is the deliberate, reviewable replacement for that: it discovers
+# what the newest compatible release is, and opens a PR bumping the pin if
+# there is one.
 #
-# Never proposes a major-version bump (7.0.0) — that's exactly where
+# Never proposes a major-version bump (8.0.0) — that's exactly where
 # AetherEngine's public API is allowed to break per semver, so it stays a
 # deliberate manual edit to `project.yml`. The discovery step below can't
-# cross that boundary even if it tried: it resolves with `from:
-# <current-major>.0.0`, SPM's own "up to next major" rule — the same rule
-# this pin used before it was made exact.
+# cross that boundary: it only considers `<current-major>.x.y` tags.
 on:
   schedule:
     # Monday 09:00 UTC — an arbitrary low-traffic slot, not a hard
@@ -43,8 +39,11 @@ concurrency:
 jobs:
   bump:
     name: Check for a newer AetherEngine release
-    runs-on: macos-latest
-    timeout-minutes: 20
+    # Nothing here builds or resolves packages — discovery reads the tag
+    # list and the bump is a one-line edit — so no macOS runner or Xcode.
+    # Note GNU sed's `-i` below, which is not BSD sed's `-i ''`.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -57,9 +56,6 @@ jobs:
           # touched — same reasoning `release.yml` applies to its own
           # branch checks.
           ref: develop
-
-      - name: Set up iOS project
-        uses: ./.github/actions/setup-ios-project
 
       - name: Discover the newest release in the current major, and bump if there is one
         env:
@@ -75,22 +71,20 @@ jobs:
           MAJOR=${CURRENT%%.*}
           echo "Currently pinned: $CURRENT (major $MAJOR)"
 
-          # Temporarily widen the pin to ask SPM what its own "up to next
-          # major" rule would resolve to today, then revert — neither edit
-          # below gets committed, this is purely to discover the answer.
-          # Reuses Scripts/update-aetherengine-version.sh rather than
-          # hand-parsing Package.resolved a second way: that script already
-          # does the from-scratch, cache-cleared resolve this needs, and
-          # writes the resolved version into AetherEngineVersion.swift,
-          # which is read back out below.
-          sed -i '' "s/version: $CURRENT/from: $MAJOR.0.0/" project.yml
-          xcodegen generate
-          ./Scripts/update-aetherengine-version.sh
-          LATEST=$(sed -n 's/.*current = "\(.*\)"/\1/p' DionysusPlayer/Core/Playback/AetherEngineVersion.swift)
-          git checkout -- project.yml DionysusPlayer/Core/Playback/AetherEngineVersion.swift
+          # The newest `MAJOR.x.y` tag — what SPM's own "up to next major"
+          # rule (`from: MAJOR.0.0`) would resolve, which is the rule this
+          # pin used before it was made exact. The strict pattern drops
+          # prerelease tags, which that rule skips too. This used to find
+          # out by actually resolving with a widened pin, and reading the
+          # answer back out of a generated Swift constant that no longer
+          # exists (the app now reads `AetherEngine.version` itself).
+          LATEST=$(git ls-remote --tags --refs https://github.com/superuser404notfound/AetherEngine "refs/tags/$MAJOR.*" \
+            | sed 's|.*refs/tags/||' \
+            | grep -E "^$MAJOR\.[0-9]+\.[0-9]+$" \
+            | sort -V | tail -1 || true)
 
           if [ -z "$LATEST" ]; then
-            echo "::error::couldn't read the discovered version back out of AetherEngineVersion.swift" >&2
+            echo "::error::couldn't find any $MAJOR.x.y release tag upstream" >&2
             exit 1
           fi
           echo "Newest in major $MAJOR: $LATEST"
@@ -118,11 +112,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
 
-          sed -i '' "s/version: $CURRENT/version: $LATEST/" project.yml
-          xcodegen generate
-          ./Scripts/update-aetherengine-version.sh
+          sed -i "s/version: $CURRENT/version: $LATEST/" project.yml
 
-          git add project.yml DionysusPlayer/Core/Playback/AetherEngineVersion.swift
+          git add project.yml
           git commit \
             -m "Bump pinned AetherEngine version to $LATEST" \
             -m "Discovered by the weekly Bump AetherEngine workflow: the newest release within the currently-pinned major (${MAJOR}.x) is $LATEST, vs. the previously-pinned $CURRENT."
@@ -144,9 +136,8 @@ jobs:
             "Bumps the pinned AetherEngine version from \`$CURRENT\` to \`$LATEST\`." \
             "" \
             "Opened by the [Bump AetherEngine](https://github.com/${{ github.repository }}/actions/workflows/aetherengine-bump.yml)" \
-            "workflow — see that file, or CLAUDE.md's \"Keeping the AetherEngine version" \
-            "display current\", for why this is automated rather than left to a cold" \
-            "CI resolve." \
+            "workflow — see that file, or CLAUDE.md's \"Pinning AetherEngine\", for why" \
+            "this is automated rather than left to a cold CI resolve." \
             "" \
             "Never proposes a major-version bump; this only ever moves within \`${MAJOR}.x\`." \
             "Release notes: https://github.com/superuser404notfound/AetherEngine/releases/tag/$LATEST" \

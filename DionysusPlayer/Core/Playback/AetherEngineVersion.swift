@@ -1,14 +1,13 @@
-// GENERATED FILE — do not edit by hand.
-// Regenerate with `Scripts/update-aetherengine-version.sh` (run whenever
-// `Package.resolved`'s `aetherengine` pin changes) — see that script's own
-// comment for why this is a checked-in generated constant rather than a
-// build-time Info.plist injection.
+import AetherEngine
 
-/// The AetherEngine version actually pinned in `Package.resolved` as of the
-/// last `Scripts/update-aetherengine-version.sh` run — read by
-/// `PlaybackStatsOverlay`'s "AetherEngine Version" row. AetherEngine
-/// exposes no runtime version API of its own (checked — nothing on
-/// `AetherEngine` reports it), so this is the only source of truth for it.
+/// The AetherEngine release this build links, for `PlaybackStatsOverlay`'s
+/// "AetherEngine Version" row.
+///
+/// Forwards `AetherEngine.version` (7.3.0+), which upstream rewrites in each
+/// release's prep commit and holds in step with the tag by test — checked
+/// against every tag from 7.3.0 to 7.15.0 when this replaced the generated
+/// constant that used to live here. It exists so feature code can show the
+/// version without importing the engine; see `PlaybackEngine`.
 enum AetherEngineVersion {
-    static let current = "7.15.0"
+    static let current = AetherEngine.version
 }

@@ -8,9 +8,8 @@ import Foundation
 /// Info.plist injection. That approach was tried first (stamping
 /// GitBranch/GitCommitHash into the *built* Info.plist via a
 /// `postCompileScripts` phase) and confirmed broken under the current
-/// Xcode build system — see `project.yml`'s git history and
-/// `Scripts/update-aetherengine-version.sh`'s doc comment for the same
-/// lesson learned earlier for AetherEngine's version.
+/// Xcode build system — see `Scripts/update-version.sh`'s header comment
+/// for why.
 enum AppVersionInfo {
     /// `version` defaults to this build's actual `AppVersion.full`;
     /// parameterized so tests can supply a fixed value instead of

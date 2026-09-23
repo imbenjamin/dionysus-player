@@ -87,8 +87,7 @@ struct PlaybackStatsOverlay: View {
         return "\(version) (\(build))"
     }()
 
-    /// `AetherEngineVersion.current` is a checked-in generated constant, not a
-    /// hand-maintained literal — see `Scripts/update-aetherengine-version.sh`.
+    /// Read from the linked engine itself — see `AetherEngineVersion`.
     private static let aetherEngineVersion = AetherEngineVersion.current
 
     /// Hardware identifier (e.g. "iPhone15,1"), not the marketing name: it

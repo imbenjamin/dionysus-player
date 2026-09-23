@@ -46,13 +46,10 @@ settings:
     # `ENABLE_USER_SCRIPT_SANDBOXING`'s own doc comment used to claim this
     # was confirmed safe against a since-removed `postCompileScripts` entry
     # that used to live below; that claim didn't hold up under
-    # re-verification (2026-08-12) — see
-    # `Scripts/update-aetherengine-version.sh`'s doc comment for why
-    # AetherEngine's version comes from a checked-in generated Swift
-    # constant instead of a build-time Info.plist injection, and
-    # `Scripts/update-version.sh` for the same fix later applied to the
-    # git-branch/commit and app-version info that `postCompileScripts`
-    # phase used to (unsuccessfully) inject.
+    # re-verification (2026-08-12) — see `Scripts/update-version.sh` for
+    # why the git-branch/commit and app-version info that
+    # `postCompileScripts` phase used to (unsuccessfully) inject now comes
+    # from a checked-in generated Swift constant instead.
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     STRING_CATALOG_GENERATE_SYMBOLS: YES
 
@@ -73,23 +70,19 @@ packages:
   #
   # Bumping this is meant to be automatic but reviewed, not manual: the
   # "Bump AetherEngine" workflow (`.github/workflows/aetherengine-bump.yml`)
-  # runs weekly, discovers the newest release within the *current* major
-  # (by temporarily resolving with `from: <major>.0.0` — the same "up to
-  # next major" rule, just scoped to a scheduled job instead of every
-  # build), and opens a PR bumping this line plus the checked-in version
-  # constant if one exists. A major bump (e.g. 8.0.0) is exactly where
+  # runs weekly, finds the newest release tag within the *current* major
+  # (what `from: <major>.0.0`'s "up to next major" rule would resolve, just
+  # scoped to a scheduled job instead of every build), and opens a PR
+  # bumping this line if one exists. A major bump (e.g. 8.0.0) is exactly where
   # AetherEngine's public API is allowed to break per semver, so the
   # workflow never proposes one — that stays a deliberate manual edit here.
   # The last one, 6.x → 7.x (2026-09-23), renamed no public symbols but
   # raised AetherEngine's platform floor to iOS 18, which is why every
   # `deploymentTarget` in this file moved from 17.0 to 18.0 alongside it.
   #
-  # After any bump (automated or manual), run
-  # `Scripts/update-aetherengine-version.sh` to refresh the checked-in
-  # constant `PlaybackStatsOverlay`'s "AetherEngine Version" row reads —
-  # see that script's own comment for why it's a generated file rather
-  # than something read back at build time. `pr-checks.yml` fails a PR
-  # where the two have drifted apart.
+  # This line is the only thing a bump edits. The "AetherEngine Version"
+  # row in `PlaybackStatsOverlay` reads `AetherEngine.version` from the
+  # linked engine, so there is no constant here to keep in step.
   AetherEngine:
     url: https://github.com/superuser404notfound/AetherEngine
     version: 7.15.0
