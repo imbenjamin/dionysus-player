@@ -55,4 +55,24 @@ final class AetherPlaybackEngineClassificationTests: XCTestCase {
         let futureKind = PlaybackErrorKind(rawValue: "someKindThisAppDoesNotKnowAboutYet")
         XCTAssertEqual(AetherPlaybackEngine.category(for: futureKind), .transient)
     }
+
+    // MARK: - needsSessionRecovery
+
+    /// The background grace-window teardown: a session that was playing, came
+    /// back paused with no pipeline. The one case that must rebuild.
+    func test_pausedNotReadyAfterBeingReady_needsRecovery() {
+        XCTAssertTrue(AetherPlaybackEngine.needsSessionRecovery(isPaused: true, isSessionReady: false, hasSessionBeenReady: true))
+    }
+
+    /// A fresh `nativeRemoteHLS` load, which returns before its item is ready.
+    /// Rebuilding it discarded the deferred resume seek, so every transcode
+    /// resumed from 0:00.
+    func test_freshLoadNotYetReady_doesNotNeedRecovery() {
+        XCTAssertFalse(AetherPlaybackEngine.needsSessionRecovery(isPaused: true, isSessionReady: false, hasSessionBeenReady: false))
+    }
+
+    func test_readyOrPlayingSession_doesNotNeedRecovery() {
+        XCTAssertFalse(AetherPlaybackEngine.needsSessionRecovery(isPaused: true, isSessionReady: true, hasSessionBeenReady: true))
+        XCTAssertFalse(AetherPlaybackEngine.needsSessionRecovery(isPaused: false, isSessionReady: false, hasSessionBeenReady: true))
+    }
 }
