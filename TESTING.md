@@ -682,12 +682,17 @@ That split is the point, and it is worth preserving: **this suite refuses to
 report green on something it is not actually checking.** If you widen
 `auditedTypes`, fix the findings rather than suppressing them.
 
-Only two suppressions exist, both scoped to a specific element rather than to
-an audit type (see `isKnownAcceptable`): UIKit's own 20.5pt "Clear text"
-button inside `.searchable`, which this app does not own and cannot resize;
-and the hit-region minimum on non-interactive `StaticText` metadata lines
-("Genres: Drama"), where a 44pt floor would insert large dead gaps between
-rows purely to satisfy a rule about touch targets.
+Four suppressions exist, each scoped to a kind of element rather than to an
+audit type alone (see `isKnownAcceptable`). Two are the system keyboard, which
+the audit reaches whenever a screen autofocuses a text field: any `.key`
+element (from the iOS 27 runtime the URL keyboard's ".co.uk" key fails as "not
+human-readable" on Server Setup, but only when the software keyboard is up,
+which depends on the simulator's state rather than the app), and the QuickType
+prediction cell on the New Playlist form. The other two are UIKit's own 20.5pt
+"Clear text" button inside `.searchable`, which this app does not own and
+cannot resize; and the hit-region minimum on non-interactive `StaticText`
+metadata lines ("Genres: Drama"), where a 44pt floor would insert large dead
+gaps between rows purely to satisfy a rule about touch targets.
 
 ### Adding a journey
 
