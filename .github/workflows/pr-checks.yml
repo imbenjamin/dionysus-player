@@ -46,34 +46,6 @@ jobs:
       - name: Set up iOS project
         uses: ./.github/actions/setup-ios-project
 
-      - name: Verify AetherEngine version display is up to date
-        # This is the *only* place AetherEngine drift is enforced. release.yml
-        # deliberately regenerates rather than verifies (a newly-published
-        # upstream version must never fail an already-pushed tag), so if this
-        # check goes away the checked-in constant silently rots.
-        #
-        # `project.yml` pins AetherEngine with `version:` (an exact pin),
-        # so an ordinary PR
-        # can no longer drift this by surprise the way a `from:` range once
-        # did (see project.yml's own comment) — what this still catches is
-        # `project.yml`'s pin and the checked-in Swift constant disagreeing,
-        # which can happen on any PR that touches either by hand, and is
-        # exactly what a bump PR from `aetherengine-bump.yml` produces if its
-        # own regeneration step is ever wrong. Also has the side effect of
-        # populating this runner's SPM caches with today's real resolution,
-        # which the build below then reuses rather than resolving cold
-        # itself. Confirmed live (2026-08-28, back when this was a `from:`
-        # range): a stale *local* SPM cache let a real version bump go
-        # undetected on a developer machine even after this same script ran
-        # there — CI is always a clean checkout, so this check is meaningful
-        # every time it runs here, unlike a local run someone forgets is stale.
-        run: |
-          ./Scripts/update-aetherengine-version.sh
-          if ! git diff --exit-code -- DionysusPlayer/Core/Playback/AetherEngineVersion.swift; then
-            echo "::error::AetherEngineVersion.swift is out of date — run ./Scripts/update-aetherengine-version.sh locally and commit the result." >&2
-            exit 1
-          fi
-
       - name: Build and test
         uses: ./.github/actions/build-and-test
 
@@ -111,9 +83,6 @@ jobs:
 
       - name: Set up iOS project
         uses: ./.github/actions/setup-ios-project
-
-      # No AetherEngine drift check here — `build` already enforces it on
-      # every PR, and running it twice would just resolve packages twice.
 
       - name: Shut down all simulators
         # A simulator left booted by the image (or by a previous step) is the

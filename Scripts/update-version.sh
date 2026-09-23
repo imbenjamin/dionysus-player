@@ -16,14 +16,19 @@
 #     in-app display (see AppVersionInfo.swift / the Profile screen
 #     footer).
 #
-# This is a companion script, not a build-time hook — same reasoning as
-# `Scripts/update-aetherengine-version.sh`: an earlier attempt at stamping
-# per-build info (git branch/commit) into the *built* Info.plist via a
-# postCompileScripts phase turned out to run at the wrong point in Xcode's
-# build graph and never actually took effect (see that script's comment,
-# and project.yml's git history, for the full story). A checked-in
-# generated file refreshed by an explicit script run sidesteps that
-# entirely, at the cost of needing to remember to run it.
+# This is a companion script, not a build-time hook: an earlier attempt at
+# stamping per-build info (git branch/commit, and AetherEngine's version)
+# into the *built* Info.plist via a postCompileScripts phase never actually
+# took effect (2026-08-12). A script phase with no declared outputs is
+# scheduled *before* Xcode's own Info.plist processing regardless of its
+# position in the phase list, so its writes are silently overwritten; the
+# fixes for that — declaring the Info.plist as an output, or as an input —
+# either collide with Xcode's own producer of that file ("Multiple commands
+# produce...") or create a dependency cycle back through storyboard
+# compilation. A checked-in generated file refreshed by an explicit script
+# run sidesteps that entirely, at the cost of needing to remember to run it.
+# (AetherEngine's version no longer needs either: the engine reports it
+# itself as of 7.3.0 — see `AetherEngineVersion`.)
 #
 # Takes no arguments: the version is always derived from the latest reachable
 # `v*` tag. .github/workflows/release.yml runs this right before building a

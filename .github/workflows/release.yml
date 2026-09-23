@@ -157,22 +157,6 @@ jobs:
         # wrong — which is the entire reason the release-prep branch went away.
         run: ./Scripts/update-version.sh
 
-      - name: Refresh AetherEngine version display
-        # Regenerate, don't verify. A newly-published upstream AetherEngine
-        # release must never fail a tag that has already been pushed — that
-        # cost two recovery branches and three CI round-trips cutting
-        # v0.7.0-alpha.1. Regenerating here means the shipped build always
-        # displays the version it was actually linked against, whatever the
-        # resolver picked. Drift against the checked-in constant is still
-        # enforced, on every PR, by pr-checks.yml — which is where it's
-        # actionable.
-        #
-        # Runs before the build because the script does its own
-        # `xcodebuild -resolvePackageDependencies` (from a deliberately cold
-        # cache), so it doesn't need a prior build to have produced
-        # Package.resolved.
-        run: ./Scripts/update-aetherengine-version.sh
-
       - name: Build and test
         uses: ./.github/actions/build-and-test
 

@@ -68,76 +68,37 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
   -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
-### Keeping the AetherEngine version display current
+### Pinning AetherEngine
 
-The player's "stats for nerds" overlay (`PlaybackStatsOverlay`) shows the
-pinned `AetherEngine` version, read from a checked-in generated constant
-(`DionysusPlayer/Core/Playback/AetherEngineVersion.swift`) rather than a
-hand-maintained literal or a build-time injection — the latter was tried and
-doesn't actually work reliably (see `Scripts/update-version.sh`'s comment,
-which hit and documents the same problem for the app's own version display).
-**Whenever `project.yml`'s `packages: AetherEngine:` pin changes** —
-regenerate it:
-
-```sh
-./Scripts/update-aetherengine-version.sh
-```
-
-**`project.yml` pins AetherEngine with `version: 6.86.0` (XcodeGen's
-spelling of SPM's `.exact` requirement), not a `from:`
-range.** This used to be `from: 6.5.5` (SPM's "up to next major" rule), which
-meant a cold resolve — every CI run, since `Package.resolved` is gitignored
-along with the rest of the generated `.xcodeproj` (see above) — could
-silently land on whatever the newest `6.x` release happened to be, with zero
-commit in this repo to review or even notice. Confirmed live more than once
-(PR #147, 2026-08-28: CI resolved `6.54.0` against a checked-in `6.52.0` pin
-with no other AetherEngine-related change on the branch at all). An exact
-pin makes that structurally impossible: a cold resolve always lands on this
-exact version, so there's nothing left to drift *by accident*.
+**`project.yml` pins AetherEngine with `version:` (XcodeGen's spelling of
+SPM's `.exact` requirement), not a `from:` range.** This used to be
+`from: 6.5.5` (SPM's "up to next major" rule), which meant a cold resolve —
+every CI run, since `Package.resolved` is gitignored along with the rest of
+the generated `.xcodeproj` (see above) — could silently land on whatever the
+newest `6.x` release happened to be, with zero commit in this repo to review
+or even notice. Confirmed live more than once (PR #147, 2026-08-28: CI
+resolved `6.54.0` against a checked-in `6.52.0` pin with no other
+AetherEngine-related change on the branch at all). An exact pin makes that
+structurally impossible: a cold resolve always lands on this exact version.
 
 **Bumping the pin is automated but still reviewed.** The "Bump AetherEngine"
-workflow (`.github/workflows/aetherengine-bump.yml`) runs weekly, discovers
-the newest release within the *current* major (by temporarily resolving
-with `from: <major>.0.0` — the same "up to next major" rule the old pin
-used, just scoped to this one scheduled job instead of every build), and if
-that's newer than the current pin, opens a PR bumping `project.yml` and the
-generated constant together. It never proposes a major bump (7.0.0) — that's
-exactly where AetherEngine's public API is allowed to break per semver, so
-project.yml's own comment on the `packages:` block treats it as a deliberate
-manual edit, and the workflow's `from: <major>.0.0` discovery step can't
-cross that boundary even if it tried. A bump PR goes through the same
-`pr-checks.yml` gate as any other PR before it can merge — nothing lands
-unbuilt/untested.
+workflow (`.github/workflows/aetherengine-bump.yml`) runs weekly, finds the
+newest release tag within the *current* major (what `from: <major>.0.0`
+would resolve, prereleases excluded), and if that's newer than the pin,
+opens a PR bumping `project.yml`'s one line. It never proposes a major bump
+(8.0.0) — that's exactly where AetherEngine's public API is allowed to break
+per semver, so project.yml's own comment on the `packages:` block treats it
+as a deliberate manual edit. A bump PR goes through the same `pr-checks.yml`
+gate as any other PR before it can merge — nothing lands unbuilt/untested.
 
-**Still worth checking before opening a PR that touches `project.yml` or
-the generated constant by hand**, since the two can still drift from each
-other via a manual edit (not from an uncached CI resolve moving on its own,
-the way the old `from:` range let it). To check:
-
-```sh
-./Scripts/update-aetherengine-version.sh
-```
-
-and commit the result if it produced a diff. That script clears *both*
-caches that can hide drift — SPM's global cache and, as of PR #152
-(2026-08-29), `xcodebuild`'s own per-project checkout under DerivedData's
-`SourcePackages` — and does a genuine from-scratch resolve, so its output
-now actually matches what CI sees. (Before that fix, this section
-documented clearing both by hand as a *separate* step from running the
-script, and the two had quietly diverged: the script only cleared the SPM
-cache. PR #152 passed the script with no diff on a machine that had
-already built the project locally — DerivedData's stale
-`SourcePackages/workspace-state.json` still had the old pin cached — and
-still failed CI, which resolved `6.56.3` from a clean checkout with
-nothing cached to fall back on. Don't reintroduce that split: any future
-fix to how this check works belongs in the script itself, not as prose
-here that the script can silently fall behind.)
-
-Note this matters at **PR** time only. `release.yml` *regenerates* this file
-rather than verifying it, so drift can no longer fail an already-pushed tag —
-a tagged build always displays the AetherEngine version it was actually linked
-against. `pr-checks.yml` is the only place the checked-in constant is enforced,
-which is why letting drift through there quietly rots it.
+**The version shown in "stats for nerds" comes from the engine itself.**
+`PlaybackStatsOverlay` reads `AetherEngine.version` (added upstream in 7.3.0)
+through the `AetherEngineVersion` shim in `Core/Playback/`, so nothing needs
+regenerating after a bump. This replaced a checked-in generated constant,
+its regeneration script, and a `pr-checks.yml` drift gate — all of which
+existed only because AetherEngine used to expose no version at all.
+Upstream rewrites the literal in each release's prep commit and holds it to
+the tag by test; it matched on every tag from 7.3.0 to 7.15.0.
 
 ### App version (SemVer)
 
