@@ -617,6 +617,12 @@ Five hard-won rules, the first two documented at length in `A11yID` itself:
   iPhone's narrower width) instead fails outright with "Activation point
   invalid" rather than the auto-scroll a normal off-screen element gets;
   `HomeScreen.openLibrary(_:)` does one bounded swipe on the rail first.
+  A third, for a tile below the fold: `tap()` scrolls to it first, and once,
+  on a loaded CI runner, the touch that followed did nothing — right poster,
+  settled page, no push. `HomeScreen.openItem(_:)` therefore taps through
+  `XCUIElement.tapToLeave()`, which taps again only while the tile is still
+  on screen and hittable. A pushed page takes Home's tiles out of the tree,
+  so a retry can never land on the page the first tap opened.
 - **`.accessibilityElement(children: .ignore)` on a row makes it report as
   `Other`, not `Button`** — so `app.buttons[id]` silently never resolves
   even though the identifier is right there in the tree, with the real
