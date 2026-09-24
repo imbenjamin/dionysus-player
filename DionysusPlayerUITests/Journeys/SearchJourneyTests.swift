@@ -31,6 +31,26 @@ final class SearchJourneyTests: UITestCase {
         SearchScreen(app: app).emptyState.awaitExistence("the search empty state")
     }
 
+    /// Issue #244: a history taller than the screen used to open the landing
+    /// page with the search field collapsed into the navigation bar, reachable
+    /// only by pulling the list down. The field must be on screen and tappable
+    /// the moment the tab appears, however long the history is.
+    func testALongHistoryLeavesTheSearchFieldVisible() {
+        launch(extraArguments: ["-UITestSeedLongSearchHistory", "YES"])
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).search.tap()
+
+        let search = SearchScreen(app: app)
+        search.result("uitest-history-21").awaitExistence("the most recent history row")
+        search.awaitLoaded()
+        XCTAssertTrue(search.searchField.isHittable, "The search field is not on screen above a long history.")
+        XCTAssertGreaterThan(search.searchField.frame.height, 0, "The search field is collapsed above a long history.")
+
+        search.searchField.tap()
+        search.searchField.typeText("Quiet")
+        search.result(UITestFixtureIdentity.primaryMovieID).awaitExistence("a result for the typed query")
+    }
+
     /// Selecting a result records it to history (`SearchViewModel
     /// .recordSelection`), which is keyed by user id in `UserDefaults` — so
     /// unlike almost every other journey here, the second launch has to

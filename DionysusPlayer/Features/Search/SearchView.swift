@@ -29,19 +29,17 @@ struct SearchView: View {
     /// the field focused and empty.
     @Environment(\.dismissSearch) private var dismissSearch
 
-    /// `.searchable`'s `.automatic` placement resolves differently per size
-    /// class: an always-visible inline field on `.compact`, but a
-    /// magnifying-glass toolbar button on `.regular` that must be tapped before
-    /// the field appears, making the landing page read as broken search.
-    /// `.navigationBarDrawer(displayMode: .always)` on `.regular` matches
-    /// iPhone's behavior.
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    private var searchPlacement: SearchFieldPlacement {
-        horizontalSizeClass == .regular ? .navigationBarDrawer(displayMode: .always) : .automatic
-    }
+    /// `.always`, on every size class. `.searchable`'s `.automatic` placement
+    /// fails differently on each: on `.regular` it's a magnifying-glass toolbar
+    /// button that must be tapped before the field appears, making the landing
+    /// page read as broken search; on `.compact` it's a drawer that hides when
+    /// scrolled, and that starts hidden whenever the content is taller than the
+    /// screen — so a long history opened the tab with no visible field (#244).
+    private let searchPlacement = SearchFieldPlacement.navigationBarDrawer(displayMode: .always)
 
-    /// Same `.regular` gate as `searchPlacement`, swapping the presentation: a
-    /// single-column `List` reads fine on `.compact` but leaves most of an
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    /// A single-column `List` reads fine on `.compact` but leaves most of an
     /// iPad's width dead. `.regular` gets a `PosterGridMetrics`-driven grid,
     /// reusing `CollectionGridView`'s column fitting.
     private var usesGridLayout: Bool { horizontalSizeClass == .regular }
