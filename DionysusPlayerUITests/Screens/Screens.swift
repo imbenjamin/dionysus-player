@@ -382,6 +382,9 @@ struct AssetDetailScreen: Screen {
     /// A show's episode row — its title/overview half, which switches this
     /// page's own content to that episode in place rather than pushing a
     /// new screen. See `A11yID.AssetDetail.episodeRow(_:)`'s doc comment.
+    /// `SeasonEpisodeList`'s empty state for a season holding no episodes.
+    var noEpisodesMessage: XCUIElement { app.descendants(matching: .any)[A11yID.AssetDetail.noEpisodesMessage] }
+
     func episodeRow(_ episodeID: String) -> XCUIElement {
         app.buttons[A11yID.AssetDetail.episodeRow(episodeID)]
     }

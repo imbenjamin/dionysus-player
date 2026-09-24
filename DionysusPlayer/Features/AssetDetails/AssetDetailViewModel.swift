@@ -81,14 +81,36 @@ final class AssetDetailViewModel {
     ///   tap reads as "start this season", not "continue the show".
     /// - A Series tapped directly gives Jellyfin's NextUp, which returns an
     ///   in-progress episode if one exists and otherwise the next unwatched one,
-    ///   falling back to the first episode of the first season for a show never
-    ///   started.
+    ///   falling back to the first episode of the first season that has any for
+    ///   a show never started.
     ///
     /// Either way `PlayResumeButtonRow` decides Play versus Resume from this
     /// episode's own watched state via `effectiveItem`, not an aggregate on the
     /// Series — which is what makes a Season tap say "Resume" when its first
     /// episode is already part-watched.
     private(set) var showPlaybackEpisode: MediaItem?
+
+    /// A Show page that finished loading with nothing to play: every lookup
+    /// `resolveShowPlaybackEpisode` tries came back empty, as it does for a
+    /// Series whose seasons exist on the server but hold no episodes yet.
+    /// `ShowDetailView` hides its Play button then, rather than show one that
+    /// does nothing. Gated on `.loaded` so the button doesn't flicker out and
+    /// back while `load()` resolves the target.
+    var isShowWithoutPlayableEpisode: Bool {
+        loadState == .loaded && item?.kind != .episode && showPlaybackEpisode == nil
+    }
+
+    /// The season `ShowDetailView`'s episode list opens on: the tapped Season
+    /// or Episode's own, otherwise the season Play targets, so the list shows
+    /// the episode the button names — which may sit past an empty first season,
+    /// or be NextUp's pick further into the show. The first season only once
+    /// `load()` has finished without a target. `nil` until then, rather than
+    /// a first-season guess the list would visibly jump away from.
+    var initialSeasonID: String? {
+        if let preselectedSeasonID { return preselectedSeasonID }
+        if let seasonID = showPlaybackEpisode?.dto.seasonId { return seasonID }
+        return loadState == .loaded ? seasons.first?.id : nil
+    }
 
     /// `PlaylistDetailView`'s Play/Resume target. Unlike `showPlaybackEpisode`
     /// this needs no round trip: Jellyfin has no NextUp for playlists —
@@ -852,11 +874,19 @@ final class AssetDetailViewModel {
             }
         } else if let nextUpDto = try? await client.nextUp(userID: userID, seriesID: seriesID).items.first {
             showPlaybackEpisode = MediaItem(dto: nextUpDto, images: images)
-        } else if let firstSeason = seasons.first,
-                  let firstEpisodeDto = try? await client.episodes(
-                      seriesID: seriesID, seasonID: firstSeason.id, userID: userID
-                  ).items.first {
-            showPlaybackEpisode = MediaItem(dto: firstEpisodeDto, images: images)
+        } else {
+            // In season order, stopping at the first season with anything in
+            // it: a season can exist on the server before its episodes do, and
+            // stopping at an empty first season hid Play on a show that had
+            // episodes further on. Usually one request — an empty season is rare.
+            for season in seasons {
+                if let firstEpisodeDto = try? await client.episodes(
+                    seriesID: seriesID, seasonID: season.id, userID: userID
+                ).items.first {
+                    showPlaybackEpisode = MediaItem(dto: firstEpisodeDto, images: images)
+                    return
+                }
+            }
         }
     }
 }

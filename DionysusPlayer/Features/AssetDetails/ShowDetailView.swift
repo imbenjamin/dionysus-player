@@ -99,45 +99,49 @@ struct ShowDetailView: View {
                             // `MovieDetailView`: it has real `mediaVersions` to
                             // prompt over, and `targetEpisode` stays `nil`
                             // because `item` already is the episode.
-                            HStack(spacing: 8) {
-                                PlayResumeButtonRow(
-                                    item: item,
-                                    targetEpisode: isEpisodeContent ? nil : viewModel.showPlaybackEpisode,
-                                    onPlay: { versionID in
-                                        let targetID = isEpisodeContent ? item.id : viewModel.showPlaybackEpisode?.id
-                                        guard let targetID else { return }
-                                        if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: targetID) }
-                                        playbackRequest = PlaybackRequest(itemID: targetID, mediaSourceID: versionID)
-                                    },
-                                    onResume: {
-                                        let targetID = isEpisodeContent ? item.id : viewModel.showPlaybackEpisode?.id
-                                        guard let targetID else { return }
-                                        playbackRequest = PlaybackRequest(
-                                            itemID: targetID, mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: targetID)
-                                        )
-                                    },
-                                    onRestart: { versionID in
-                                        let targetID = isEpisodeContent ? item.id : viewModel.showPlaybackEpisode?.id
-                                        guard let targetID else { return }
-                                        if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: targetID) }
-                                        playbackRequest = PlaybackRequest(itemID: targetID, startFromBeginning: true, mediaSourceID: versionID)
-                                    }
-                                )
-                                // See `MediaItem.playbackProgressIdentity`.
-                                // Covers both `item` and `showPlaybackEpisode`,
-                                // since `PlayResumeButtonRow`'s `effectiveItem`
-                                // can resolve to either, so either changing must
-                                // force a fresh identity.
-                                .id("\(item.playbackProgressIdentity)-\(viewModel.showPlaybackEpisode?.playbackProgressIdentity ?? "")")
+                            // Hidden for a show with no episodes at all — see
+                            // `isShowWithoutPlayableEpisode`.
+                            if !viewModel.isShowWithoutPlayableEpisode {
+                                HStack(spacing: 8) {
+                                    PlayResumeButtonRow(
+                                        item: item,
+                                        targetEpisode: isEpisodeContent ? nil : viewModel.showPlaybackEpisode,
+                                        onPlay: { versionID in
+                                            let targetID = isEpisodeContent ? item.id : viewModel.showPlaybackEpisode?.id
+                                            guard let targetID else { return }
+                                            if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: targetID) }
+                                            playbackRequest = PlaybackRequest(itemID: targetID, mediaSourceID: versionID)
+                                        },
+                                        onResume: {
+                                            let targetID = isEpisodeContent ? item.id : viewModel.showPlaybackEpisode?.id
+                                            guard let targetID else { return }
+                                            playbackRequest = PlaybackRequest(
+                                                itemID: targetID, mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: targetID)
+                                            )
+                                        },
+                                        onRestart: { versionID in
+                                            let targetID = isEpisodeContent ? item.id : viewModel.showPlaybackEpisode?.id
+                                            guard let targetID else { return }
+                                            if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: targetID) }
+                                            playbackRequest = PlaybackRequest(itemID: targetID, startFromBeginning: true, mediaSourceID: versionID)
+                                        }
+                                    )
+                                    // See `MediaItem.playbackProgressIdentity`.
+                                    // Covers both `item` and `showPlaybackEpisode`,
+                                    // since `PlayResumeButtonRow`'s `effectiveItem`
+                                    // can resolve to either, so either changing must
+                                    // force a fresh identity.
+                                    .id("\(item.playbackProgressIdentity)-\(viewModel.showPlaybackEpisode?.playbackProgressIdentity ?? "")")
 
-                                // Episode content only: a Series/Season page has
-                                // no single file to download, since
-                                // `showPlaybackEpisode` isn't a stable "the
-                                // thing this page represents" the way a Movie or
-                                // Episode's `item` is. Downloading a whole show
-                                // isn't supported in v1.
-                                if isEpisodeContent {
-                                    DownloadButton(item: item, client: viewModel.apiClient, userID: viewModel.currentUserID, downloadManager: appState.downloadManager)
+                                    // Episode content only: a Series/Season page has
+                                    // no single file to download, since
+                                    // `showPlaybackEpisode` isn't a stable "the
+                                    // thing this page represents" the way a Movie or
+                                    // Episode's `item` is. Downloading a whole show
+                                    // isn't supported in v1.
+                                    if isEpisodeContent {
+                                        DownloadButton(item: item, client: viewModel.apiClient, userID: viewModel.currentUserID, downloadManager: appState.downloadManager)
+                                    }
                                 }
                             }
 
@@ -220,15 +224,14 @@ struct ShowDetailView: View {
                     // and never fired again — the picker stayed unselected and
                     // `SeasonEpisodeList`'s `.task(id: selectedSeasonID)` never
                     // ran until the user chose a season by hand.
-                    // `onChange(of:initial:)` re-runs on every `seasons` change,
-                    // plus once up front if it's already populated.
+                    // `onChange(of:initial:)` re-runs whenever the answer
+                    // changes, plus once up front if there already is one.
                     //
-                    // Prefers `viewModel.preselectedSeasonID` — a Season tapped
-                    // directly, or an Episode's parent season — over the first
-                    // season. It's set synchronously in `load()` alongside
-                    // `seasons`, so it's in place by the time this fires.
-                    .onChange(of: viewModel.seasons, initial: true) { _, seasons in
-                        if selectedSeasonID == nil { selectedSeasonID = viewModel.preselectedSeasonID ?? seasons.first?.id }
+                    // Applied only while nothing is selected, so it never
+                    // overrides the user's own pick. See `initialSeasonID` for
+                    // which season that is.
+                    .onChange(of: viewModel.initialSeasonID, initial: true) { _, initialSeasonID in
+                        if selectedSeasonID == nil { selectedSeasonID = initialSeasonID }
                     }
                     // Keeps the season picker following the displayed episode.
                     // Only `AssetDetailViewModel.advanceToNextEpisodeIfCompleted()`

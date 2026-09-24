@@ -97,6 +97,25 @@ final class AssetDetailJourneyTests: UITestCase {
         XCTAssertTrue(detail.playButton.label.contains("Resume"), "Play should now offer to resume the selected episode.")
     }
 
+    /// A show whose seasons exist but hold no episodes: no Play button that
+    /// would do nothing, and the episode list says why it's empty.
+    func testShowWithNoEpisodesHidesPlayAndSaysSo() {
+        launch(scenario: "showWithoutEpisodes")
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.showsLibraryID)
+
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.seriesID)
+        collection.card(UITestFixtureIdentity.seriesID).tap()
+
+        let detail = AssetDetailScreen(app: app)
+        detail.noEpisodesMessage.awaitExistence("the no-episodes message")
+        // A disappearance wait, not `exists`: the page renders from the grid's
+        // preloaded item while `load()` is still resolving a play target.
+        detail.playButton.awaitDisappearance("the Play button on a show with no episodes")
+    }
+
     /// A box set has no play button of its own (it isn't playable), but
     /// still exposes favourite/watched — for the collection as a whole.
     func testBoxSetDetailHasNoPlayButtonButHasFavoriteAndWatched() {

@@ -1407,6 +1407,77 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.showPlaybackEpisode?.id, "ep-1")
     }
 
+    /// An empty first season must not hide the episodes after it: with no
+    /// NextUp, the target is the first episode of the first season that has any.
+    func test_load_seriesDirect_showPlaybackEpisode_skipsAnEmptyFirstSeason() async {
+        let itemDto = BaseItemDto(id: "series-1", name: "The Wire", type: .series)
+        let seasons = [
+            BaseItemDto(id: "season-1", name: "Season 1", type: .season),
+            BaseItemDto(id: "season-2", name: "Season 2", type: .season),
+        ]
+        let secondSeasonEpisode = BaseItemDto(id: "ep-2-1", name: "Ep 1", type: .episode, seriesId: "series-1", seasonId: "season-2")
+        let viewModel = makeViewModel(itemID: "series-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/series-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: itemDto)
+            case "/Shows/series-1/Seasons":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: seasons, totalRecordCount: 2))
+            case "/Shows/series-1/Episodes":
+                // A plain substring check, not a `first(where:)` over query
+                // items — see the Season-tap test below for why a closure
+                // can't run in here.
+                let episodes = (request.url?.query ?? "").contains("seasonId=season-2") ? [secondSeasonEpisode] : []
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: episodes, totalRecordCount: episodes.count))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.showPlaybackEpisode?.id, "ep-2-1")
+        XCTAssertFalse(viewModel.isShowWithoutPlayableEpisode)
+        // The episode list opens where Play points, not on the empty season.
+        XCTAssertEqual(viewModel.initialSeasonID, "season-2")
+    }
+
+    /// A Series whose seasons exist but hold no episodes — seen live on a show
+    /// the server had listed ahead of any episode arriving.
+    func test_load_seriesWithNoEpisodes_isShowWithoutPlayableEpisode() async {
+        let viewModel = await loadedSeriesViewModel(nextUpItems: [], episodesItems: [])
+
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertNil(viewModel.showPlaybackEpisode)
+        XCTAssertTrue(viewModel.isShowWithoutPlayableEpisode)
+        // Nothing to point at, so the first season once loading is done.
+        XCTAssertEqual(viewModel.initialSeasonID, "season-1")
+    }
+
+    /// NextUp's pick further into a show opens the list on its season too.
+    func test_load_seriesDirect_initialSeasonID_followsNextUpsSeason() async {
+        let nextUpEpisode = BaseItemDto(id: "ep-5", name: "Ep 5", type: .episode, seriesId: "series-1", seasonId: "season-3")
+        let viewModel = await loadedSeriesViewModel(nextUpItems: [nextUpEpisode], episodesItems: [])
+
+        XCTAssertEqual(viewModel.initialSeasonID, "season-3")
+    }
+
+    func test_load_seriesWithEpisodes_isNotShowWithoutPlayableEpisode() async {
+        let firstEpisode = BaseItemDto(id: "ep-1", name: "Ep 1", type: .episode)
+        let viewModel = await loadedSeriesViewModel(nextUpItems: [], episodesItems: [firstEpisode])
+
+        XCTAssertFalse(viewModel.isShowWithoutPlayableEpisode)
+    }
+
+    /// Episode content plays `item` itself, so a `nil` `showPlaybackEpisode`
+    /// there says nothing about playability.
+    func test_load_episode_isNotShowWithoutPlayableEpisode() async {
+        let viewModel = await loadedEpisodeViewModel()
+
+        XCTAssertNil(viewModel.showPlaybackEpisode)
+        XCTAssertFalse(viewModel.isShowWithoutPlayableEpisode)
+    }
+
     /// The crux of the "clearer Play/Resume CTA" feature: NextUp returning
     /// an in-progress episode (Jellyfin's own resume-in-place semantics —
     /// see `showPlaybackEpisode`'s doc comment) has to carry that episode's

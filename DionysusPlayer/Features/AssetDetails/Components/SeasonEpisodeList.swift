@@ -29,6 +29,10 @@ struct SeasonEpisodeList: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var episodes: [MediaItem] = []
     @State private var isLoading = false
+    /// True only once a fetch has *succeeded* with nothing in it, so a failed
+    /// one — which also leaves `episodes` empty — never claims the season is
+    /// empty.
+    @State private var isSeasonEmpty = false
 
     /// This list's width, fed to `DetailRowGridMetrics` below.
     ///
@@ -113,7 +117,7 @@ struct SeasonEpisodeList: View {
                 // trailing the "Episodes" title, for a single-season show.
                 if let client = appState.apiClient,
                    let userID = appState.currentUser?.id ?? appState.sessionStore.credentials?.userID,
-                   let selectedSeasonID {
+                   let selectedSeasonID, !isSeasonEmpty {
                     SeasonDownloadButton(
                         seriesID: seriesID, seasonID: selectedSeasonID, episodes: episodes,
                         client: client, userID: userID, downloadManager: appState.downloadManager
@@ -125,6 +129,11 @@ struct SeasonEpisodeList: View {
 
             if isLoading {
                 LoadingView().frame(height: 120)
+            } else if isSeasonEmpty {
+                Text("No episodes available.")
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal)
+                    .accessibilityIdentifier(A11yID.AssetDetail.noEpisodesMessage)
             } else {
                 let metrics = DetailRowGridMetrics(
                     containerWidth: availableWidth, isRegularWidth: horizontalSizeClass == .regular,
@@ -193,8 +202,10 @@ struct SeasonEpisodeList: View {
             // episode download's offline Cast & Crew tab had nothing to show.
             let result = try await client.episodes(seriesID: seriesID, seasonID: seasonID, userID: userID, fields: JellyfinAPIClient.detailFields)
             episodes = result.items.map { MediaItem(dto: $0, images: images) }
+            isSeasonEmpty = episodes.isEmpty
         } catch {
             episodes = []
+            isSeasonEmpty = false
         }
     }
 }
