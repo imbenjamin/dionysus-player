@@ -159,24 +159,31 @@ struct LocalSubnet: Equatable {
 /// on the first probe. The cost is that a server on another subnet isn't
 /// found either way; broadcasts don't cross routers.
 ///
-/// **Rounds.** Probes go out several times: the first round usually lands
-/// while iOS is still showing the Local Network prompt (every send refused),
-/// and a host that has to be ARP-resolved first can drop its first datagram.
-/// The scan waits up to `permissionGrace` for any send to succeed, then
-/// listens for `listenWindow` after that.
+/// **Rounds.** Probes go out once a second for the whole scan, since a host
+/// that has to be ARP-resolved first can drop its first datagram. The timing
+/// rules live in `ScanSchedule`.
+///
+/// **The Local Network prompt.** The first probe makes iOS ask, and while it
+/// asks, probes are dropped *silently* — the sends succeed, nothing arrives
+/// (seen on device: a first scan finished empty under the prompt). So the send
+/// results can't tell a pending prompt from an empty network. What can is the
+/// app itself: a system prompt makes it inactive. The scan runs on for as long
+/// as the app is inactive, and starts over — fresh probes, full grace period —
+/// once it is active again, so answering "Allow" finds servers in the same
+/// scan, and "Don't Allow" still ends in `localNetworkAccessDenied`.
 struct LANServerDiscovery: ServerDiscovering {
-    var roundInterval: TimeInterval = 1
-    var listenWindow: TimeInterval = 3
-    var permissionGrace: TimeInterval = 8
+    var timing = ScanSchedule.Timing()
 
     func discoverServers() -> AsyncThrowingStream<DiscoveredServer, Error> {
         AsyncThrowingStream { continuation in
             let cancelled = CancellationFlag()
+            let activity = AppActivityMonitor()
             continuation.onTermination = { _ in cancelled.set() }
             let scan = self
             DispatchQueue.global(qos: .userInitiated).async {
+                defer { activity.stop() }
                 do {
-                    try scan.run(cancelled: cancelled) { continuation.yield($0) }
+                    try scan.run(cancelled: cancelled, activity: activity) { continuation.yield($0) }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -186,8 +193,8 @@ struct LANServerDiscovery: ServerDiscovering {
     }
 
     /// Blocking; runs on a background queue for at most
-    /// `permissionGrace + listenWindow` seconds.
-    private func run(cancelled: CancellationFlag, found: (DiscoveredServer) -> Void) throws {
+    /// `timing.maximumDuration`.
+    private func run(cancelled: CancellationFlag, activity: AppActivityMonitor, found: (DiscoveredServer) -> Void) throws {
         let targets = LocalSubnet.current().flatMap(\.hostAddresses)
         guard !targets.isEmpty else { throw ServerDiscoveryError.noLocalNetwork }
 
@@ -196,19 +203,21 @@ struct LANServerDiscovery: ServerDiscovering {
         defer { close(socket) }
         _ = fcntl(socket, F_SETFL, fcntl(socket, F_GETFL) | O_NONBLOCK)
 
-        let start = Date()
-        var anySendSucceeded = false
-        var deadline = start.addingTimeInterval(permissionGrace)
-        var nextRound = start
+        var schedule = ScanSchedule(start: Date(), timing: timing)
+        var activations = activity.state.activations
         var seen = Set<String>()
 
-        while !cancelled.isSet, Date() < deadline {
-            if Date() >= nextRound {
-                if send(to: targets, on: socket), !anySendSucceeded {
-                    anySendSucceeded = true
-                    deadline = Date().addingTimeInterval(listenWindow)
-                }
-                nextRound = Date().addingTimeInterval(roundInterval)
+        while !cancelled.isSet {
+            let now = Date()
+            let state = activity.state
+            if state.activations != activations {
+                activations = state.activations
+                schedule.appBecameActive(at: now)
+            }
+            if schedule.isFinished(at: now, appIsActive: state.isActive) { break }
+
+            if schedule.isRoundDue(at: now) {
+                schedule.roundSent(accepted: send(to: targets, on: socket), at: Date())
             }
 
             var pollDescriptor = pollfd(fd: socket, events: Int16(POLLIN), revents: 0)
@@ -220,7 +229,7 @@ struct LANServerDiscovery: ServerDiscovering {
             }
         }
 
-        if !anySendSucceeded, !cancelled.isSet {
+        if schedule.accessLooksDenied, seen.isEmpty, !cancelled.isSet {
             throw ServerDiscoveryError.localNetworkAccessDenied
         }
     }
@@ -253,6 +262,66 @@ struct LANServerDiscovery: ServerDiscovering {
         let count = recv(socket, &buffer, buffer.count, 0)
         guard count > 0 else { return nil }
         return Data(buffer[..<count])
+    }
+}
+
+/// When a scan stops. Pure, so the rules are testable without a network or a
+/// clock; `LANServerDiscovery.run` feeds it events and asks it questions.
+struct ScanSchedule {
+    struct Timing {
+        /// Between probe rounds.
+        var roundInterval: TimeInterval = 1
+        /// How long to listen once a probe has been accepted.
+        var listenWindow: TimeInterval = 3
+        /// How long to keep trying while every probe is refused, before calling
+        /// it denied.
+        var permissionGrace: TimeInterval = 8
+        /// Hard stop, however long the app stays inactive — a prompt left up
+        /// indefinitely shouldn't leave a socket open behind it.
+        var maximumDuration: TimeInterval = 60
+    }
+
+    let timing: Timing
+    private let hardStop: Date
+    private var deadline: Date
+    private var nextRound: Date
+    private var anySendAccepted = false
+
+    init(start: Date, timing: Timing) {
+        self.timing = timing
+        hardStop = start.addingTimeInterval(timing.maximumDuration)
+        deadline = start.addingTimeInterval(timing.permissionGrace)
+        nextRound = start
+    }
+
+    /// No probe was accepted since the app was last (re)activated — iOS
+    /// refuses every send when Local Network access is off.
+    var accessLooksDenied: Bool { !anySendAccepted }
+
+    func isRoundDue(at now: Date) -> Bool { now >= nextRound }
+
+    mutating func roundSent(accepted: Bool, at now: Date) {
+        nextRound = now.addingTimeInterval(timing.roundInterval)
+        if accepted, !anySendAccepted {
+            anySendAccepted = true
+            deadline = now.addingTimeInterval(timing.listenWindow)
+        }
+    }
+
+    /// The app came back from inactive — most likely from answering the Local
+    /// Network prompt, under which every probe was silently dropped. Start
+    /// over as though the scan had just begun.
+    mutating func appBecameActive(at now: Date) {
+        anySendAccepted = false
+        deadline = now.addingTimeInterval(timing.permissionGrace)
+        nextRound = now
+    }
+
+    /// Never while the app is inactive (a system prompt is up), except at the
+    /// hard stop.
+    func isFinished(at now: Date, appIsActive: Bool) -> Bool {
+        if now >= hardStop { return true }
+        return appIsActive && now >= deadline
     }
 }
 

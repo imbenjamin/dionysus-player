@@ -262,8 +262,15 @@ only on request; the server (`AutoDiscoveryHost.cs`) answers the phrase in any
 datagram, so a unicast sweep finds the same servers with only the Local
 Network permission. Don't "simplify" it to a broadcast without that
 entitlement — it fails silently. There is no API to ask for Local Network
-access or read its state: the first probe triggers the prompt, and a scan in
-which every send is refused reads as denied. The device's own address stays in
+access or read its state, and **under the prompt, UDP probes are accepted and
+silently dropped** (seen on device) — so the one reliable signal is the app
+going inactive, which a system prompt causes. The scan keeps running while the
+app is inactive and starts over once it's active again (`ScanSchedule`); a scan
+in which every send is refused reads as denied. The first *HTTP* request to a
+LAN address has the same problem — typing an address skips the scan, so that
+request raises the prompt and fails behind it — hence
+`ServerSetupViewModel.probeAcrossLocalNetworkPrompt`, which waits for the
+answer and retries once. The device's own address stays in
 the sweep, which is what lets the Simulator find a server on its own Mac.
 
 **A discovered `https://` server whose certificate fails gets an opt-in HTTP

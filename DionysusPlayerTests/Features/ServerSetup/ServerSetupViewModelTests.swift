@@ -369,6 +369,163 @@ final class ServerSetupViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.httpPortRequest)
         XCTAssertEqual(MockURLProtocol.lastRequest?.url?.scheme, "https", "The only request should have been the HTTPS one.")
     }
+
+    // MARK: Local Network prompt
+
+    /// Fails the first request as iOS does under the Local Network prompt —
+    /// the app going inactive as it appears, and active again `answerDelay`
+    /// later — then answers every later request with `laterResult`.
+    private func scriptPrompt(on activity: FakeAppActivity, counter: RequestCounter, laterFails: Bool = false) {
+        MockURLProtocol.requestHandler = { request in
+            guard counter.counts(request) else { throw URLError(.cannotConnectToHost) }
+            if counter.next() == 1 {
+                activity.deactivate()
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { activity.activate() }
+                throw URLError(.notConnectedToInternet)
+            }
+            if laterFails { throw URLError(.notConnectedToInternet) }
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: PublicSystemInfo(serverName: "Flix"))
+        }
+    }
+
+    func test_testConnection_failsBehindThePrompt_waitsForAllowAndRetries() async {
+        let activity = FakeAppActivity()
+        let counter = RequestCounter()
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), activity: activity, isLocalNetworkDenied: { _ in true })
+        viewModel.address = "192.168.0.222:8096/flix"
+        scriptPrompt(on: activity, counter: counter)
+
+        let result = await viewModel.testConnection()
+
+        XCTAssertEqual(result?.baseURL.absoluteString, "http://192.168.0.222:8096/flix")
+        XCTAssertEqual(counter.count, 2)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    /// The error's denied reason is undocumented, so the app going inactive
+    /// alone is enough to wait and retry.
+    func test_testConnection_promptWithoutADeniedReason_stillRetries() async {
+        let activity = FakeAppActivity()
+        let counter = RequestCounter()
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), activity: activity, isLocalNetworkDenied: { _ in false })
+        viewModel.address = "192.168.0.222:8096"
+        scriptPrompt(on: activity, counter: counter)
+
+        let result = await viewModel.testConnection()
+
+        XCTAssertNotNil(result)
+        XCTAssertEqual(counter.count, 2)
+    }
+
+    func test_testConnection_promptAnsweredDontAllow_saysLocalNetworkIsOff() async {
+        let activity = FakeAppActivity()
+        let counter = RequestCounter()
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), activity: activity, isLocalNetworkDenied: { _ in true })
+        viewModel.address = "192.168.0.222:8096"
+        scriptPrompt(on: activity, counter: counter, laterFails: true)
+
+        let result = await viewModel.testConnection()
+
+        XCTAssertNil(result)
+        XCTAssertEqual(counter.count, 2)
+        XCTAssertEqual(viewModel.errorMessage, ServerSetupViewModel.localNetworkDeniedMessage)
+    }
+
+    /// Turned off earlier: iOS doesn't ask again, the app never goes inactive.
+    func test_testConnection_deniedWithNoPrompt_saysLocalNetworkIsOffWithoutRetrying() async {
+        let counter = RequestCounter()
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), activity: FakeAppActivity(), isLocalNetworkDenied: { _ in true })
+        viewModel.address = "192.168.0.222:8096"
+        MockURLProtocol.requestHandler = { request in
+            if counter.counts(request) { _ = counter.next() }
+            throw URLError(.notConnectedToInternet)
+        }
+
+        let result = await viewModel.testConnection()
+
+        XCTAssertNil(result)
+        XCTAssertEqual(counter.count, 1)
+        XCTAssertEqual(viewModel.errorMessage, ServerSetupViewModel.localNetworkDeniedMessage)
+    }
+
+    /// Nothing to do with the prompt: fails at once, as before.
+    func test_testConnection_ordinaryFailure_neitherWaitsNorRetries() async {
+        let counter = RequestCounter()
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), activity: FakeAppActivity(), isLocalNetworkDenied: { _ in false })
+        viewModel.address = "192.168.0.222:8096"
+        MockURLProtocol.requestHandler = { request in
+            if counter.counts(request) { _ = counter.next() }
+            throw URLError(.cannotConnectToHost)
+        }
+        let clock = ContinuousClock()
+        let started = clock.now
+
+        let result = await viewModel.testConnection()
+
+        XCTAssertNil(result)
+        XCTAssertEqual(counter.count, 1)
+        XCTAssertNotEqual(viewModel.errorMessage, ServerSetupViewModel.localNetworkDeniedMessage)
+        XCTAssertLessThan(clock.now - started, .milliseconds(500))
+    }
+
+    func test_connectToDiscoveredServer_failsBehindThePrompt_waitsAndRetries() async {
+        let activity = FakeAppActivity()
+        let counter = RequestCounter()
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), activity: activity, isLocalNetworkDenied: { _ in true })
+        scriptPrompt(on: activity, counter: counter)
+
+        let result = await viewModel.connect(to: flix)
+
+        XCTAssertEqual(result?.baseURL.absoluteString, "http://192.168.0.222:8096/flix")
+        XCTAssertEqual(counter.count, 2)
+    }
+}
+
+/// Stands in for `AppActivityMonitor`, flipped by the test.
+private final class FakeAppActivity: AppActivityObserving, @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = AppActivityState()
+
+    var state: AppActivityState { lock.withLock { current } }
+
+    func deactivate() {
+        lock.withLock {
+            current.isActive = false
+            current.deactivations += 1
+        }
+    }
+
+    func activate() {
+        lock.withLock {
+            current.isActive = true
+            current.activations += 1
+        }
+    }
+}
+
+/// Counts requests from inside a `MockURLProtocol` handler, which runs off
+/// the main actor — a reference type rather than a captured local, which
+/// `MockURLProtocol` handlers are known to hang on.
+private final class RequestCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    /// Only requests to the server under test. `MockURLProtocol` is registered
+    /// process-wide, and the host app's own launch traffic (a session left on
+    /// the simulator signs itself back in) reaches it too.
+    func counts(_ request: URLRequest) -> Bool {
+        request.url?.host == "192.168.0.222" && request.url?.path.hasSuffix("/System/Info/Public") == true
+    }
+
+    var count: Int { lock.withLock { value } }
+
+    /// Records a request; its 1-based number.
+    func next() -> Int {
+        lock.withLock {
+            value += 1
+            return value
+        }
+    }
 }
 
 /// Yields `servers`, then finishes — or fails with `error` if one is set.
