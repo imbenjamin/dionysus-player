@@ -37,8 +37,8 @@ protocol PlaybackEngine: AnyObject {
     var onPictureInPictureActiveChange: ((Bool) -> Void)? { get set }
     /// The lines AVKit presents for the selected subtitle track, with the item
     /// time it presents them at, while `setNativeSubtitleCapture(true)` is in
-    /// effect. An empty list is a line ending. See `ASSCueTimingCalibrator` for
-    /// what this is for.
+    /// effect. An empty list is a line ending. See `ASSSeekHold` for what this
+    /// is for.
     var onNativeSubtitleCues: (([String], TimeInterval) -> Void)? { get set }
     /// Called each time capture (re)attaches — on request, on a new item, and
     /// on leaving PiP. AVKit then re-delivers whatever line is showing as
@@ -132,7 +132,8 @@ protocol PlaybackEngine: AnyObject {
     /// `onNativeSubtitleCues` instead.
     ///
     /// That timing is the only reliable measure of where the picture is on
-    /// that route — see `ASSCueTimingCalibrator`. In PiP AVKit draws the
+    /// that route, and AetherEngine corrects `sourceTime` from it — see
+    /// `ASSSeekHold`. In PiP AVKit draws the
     /// rendition itself again, since the app's overlay isn't in the captured
     /// layer, and reporting resumes when PiP ends.
     func setNativeSubtitleCapture(_ active: Bool)

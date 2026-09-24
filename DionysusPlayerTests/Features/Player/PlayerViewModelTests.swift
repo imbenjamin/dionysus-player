@@ -369,9 +369,9 @@ final class PlayerViewModelTests: XCTestCase {
     /// nothing drawing at all, since that route publishes no cues to fall back
     /// to.
     ///
-    /// And by capture, never by deselecting: AVPlayer's timing of that
-    /// rendition is what keeps libass in sync after a seek (see
-    /// `ASSCueTimingCalibrator`), and a deselected one reports nothing.
+    /// And by capture, never by deselecting: AetherEngine times `sourceTime`
+    /// off AVPlayer's presentation of that rendition (see `ASSSeekHold`), and a
+    /// deselected one presents nothing.
     func test_styledASS_takesTheNativeRenditionAwayFromAVKit() async throws {
         defaults.set(StreamDecisionMode.allowTranscoding.rawValue, forKey: streamDecisionModeStorageKey)
         // The script fetch deliberately goes through `URLSession.shared` rather
@@ -422,7 +422,7 @@ final class PlayerViewModelTests: XCTestCase {
         )
         XCTAssertTrue(
             engine.nativeSubtitleRenderingRequests.isEmpty,
-            "Deselecting the rendition would take away the timing libass is calibrated against."
+            "Deselecting the rendition would take away the timing AetherEngine corrects sourceTime with."
         )
 
         // Held back until AVPlayer presents a line, since the transcode's
