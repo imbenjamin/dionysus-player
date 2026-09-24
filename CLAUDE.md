@@ -139,11 +139,13 @@ Three things about it that aren't obvious from the workflow file:
   between releases. CI stamps the shipped build; the checked-in copies are a
   local-dev convenience and report honest off-tag metadata
   (`0.8.0-alpha.1+12.gabc1234`). Don't "fix" them to match.
-- **The archive signs automatically, the export signs manually.** That
-  asymmetry is deliberate — automatic export fails with a cloud-signing
-  permission error. It depends on a provisioning profile named *by string* in
-  `Config/ExportOptions.plist`, which, along with the distribution
-  certificate, expires 2027-08-30. See `VERSIONING.md`'s "Signing setup".
+- **The archive and the export both sign manually**, with the distribution
+  certificate and a provisioning profile named *by string* — on the app
+  target's Release config in `project.yml`, and in `Config/ExportOptions.plist`.
+  Automatic export fails with a cloud-signing permission error, and an
+  automatic archive created a new development certificate on every run until
+  the account hit its cap. The profile and certificate expire 2027-08-30.
+  See `VERSIONING.md`'s "Signing setup".
 
 ## UI verification
 

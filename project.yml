@@ -157,6 +157,27 @@ targets:
         SUPPORTS_MACCATALYST: false
         ASSETCATALOG_COMPILER_APPICON_NAME: dionysus
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+      configs:
+        # Release signs manually, with the distribution identity and the
+        # App Store profile release.yml installs, so the archive never asks
+        # Apple for anything. Automatic signing on a CI runner has no
+        # development identity to find, so it minted a new "Created via API"
+        # Apple Development certificate on every release run until the
+        # account hit its cap (v1.1.0-alpha.6, 2026-09-23; 10 revoked).
+        #
+        # Here rather than as `xcodebuild` overrides in release.yml: those
+        # apply to every target, and SwiftPM resource-bundle targets
+        # (swift-libass, swift-ass-renderer) refuse a named profile —
+        # "does not support provisioning profiles" (tried, 2026-09-24).
+        #
+        # Debug keeps the project-wide Automatic, so Simulator and device
+        # installs are unaffected. A local Release archive needs the
+        # "Apple Distribution" identity and the "Dionysus App Store" profile
+        # installed; `pr-checks.yml`'s release-build job doesn't sign at all.
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: Dionysus App Store
     info:
       path: Generated/Info.plist
       properties:

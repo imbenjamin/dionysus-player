@@ -15,8 +15,9 @@
 	<key>method</key>
 	<string>app-store-connect</string>
 
-	<!-- Manual, and deliberately NOT matching project.yml's
-	     CODE_SIGN_STYLE: Automatic. Automatic was tried first and doesn't
+	<!-- Manual, matching the app target's Release config in project.yml
+	     (the project-wide default is Automatic, for Debug). Automatic was
+	     tried first here and doesn't
 	     work here: at export time it asks Apple to create the provisioning
 	     profile via cloud signing, which fails with
 
@@ -25,10 +26,7 @@
 	     even with an Admin-level App Store Connect API key (confirmed by a
 	     local dry-run, 2026-08-30 — the archive succeeded and only the
 	     export failed, because only the export needs the profile). Naming
-	     an existing profile sidesteps the cloud-signing path entirely.
-
-	     The archive step still signs automatically; only the export is
-	     manual. -->
+	     an existing profile sidesteps the cloud-signing path entirely. -->
 	<key>signingStyle</key>
 	<string>manual</string>
 
