@@ -576,6 +576,15 @@ struct PlayerScreen: Screen {
         closeButton.tap()
     }
 
+    /// Drags the scrubber to its trailing edge, seeking to the very end. The
+    /// fake engine then reports `.ended` on its next tick, as a real item
+    /// playing out would.
+    func scrubToEnd(file: StaticString = #filePath, line: UInt = #line) {
+        scrubber.awaitExistence("the scrubber", file: file, line: line)
+        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.1, thenDragTo: scrubber.coordinate(withNormalizedOffset: CGVector(dx: 1.0, dy: 0.5)))
+    }
+
     /// One of the track picker's two root-page rows — "audio" or
     /// "subtitle" — which drills into that kind's leaf page.
     ///

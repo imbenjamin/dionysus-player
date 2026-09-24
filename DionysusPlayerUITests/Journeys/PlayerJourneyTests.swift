@@ -83,4 +83,15 @@ final class PlayerJourneyTests: UITestCase {
 
         player.chapterPicker.awaitDisappearance("the chapter picker after selecting a chapter")
     }
+
+    /// A movie has nothing queued after it, so reaching the end closes the
+    /// player back to its detail page rather than holding on the last frame.
+    func testReachingTheEndWithNothingQueuedReturnsToDetail() {
+        let player = openPlayer()
+
+        player.scrubToEnd()
+
+        player.closeButton.awaitDisappearance("the player once playback ended")
+        AssetDetailScreen(app: app).awaitLoaded()
+    }
 }
