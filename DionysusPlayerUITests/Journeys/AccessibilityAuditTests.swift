@@ -33,6 +33,38 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen()
     }
 
+    /// The same screen with a scan's results listed, which the audit above
+    /// never sees.
+    func testServerSetupScanResultsHaveNoAccessibilityIssues() throws {
+        launch(signedIn: false)
+        ServerSetupScreen(app: app).scanForStubServer()
+
+        try auditCurrentScreen()
+    }
+
+    /// The HTTP-port prompt a discovered HTTPS server with an unverifiable
+    /// certificate raises when its default HTTP port is silent.
+    func testServerSetupHTTPPortPromptHasNoAccessibilityIssues() throws {
+        launch(scenario: "customHTTPPort", signedIn: false)
+        let serverSetup = ServerSetupScreen(app: app)
+        serverSetup.scanForStubServer()
+        serverSetup.discoveredServer(UITestFixtureIdentity.serverSystemID).tap()
+        serverSetup.httpPortField.awaitExistence("the HTTP port field")
+
+        try auditCurrentScreen(underAlert: true)
+    }
+
+    /// The confirmation before connecting to that server unencrypted.
+    func testServerSetupInsecureFallbackPromptHasNoAccessibilityIssues() throws {
+        launch(signedIn: false)
+        let serverSetup = ServerSetupScreen(app: app)
+        serverSetup.scanForStubServer()
+        serverSetup.discoveredServer(UITestFixtureIdentity.serverSystemID).tap()
+        serverSetup.insecureFallbackConfirmButton.awaitExistence("the connect-over-HTTP button")
+
+        try auditCurrentScreen(underAlert: true)
+    }
+
     func testLoginHasNoAccessibilityIssues() throws {
         launch(signedIn: false)
         ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
@@ -212,9 +244,19 @@ final class AccessibilityAuditTests: UITestCase {
 private extension AccessibilityAuditTests {
     /// Runs the full audit against whatever is currently on screen,
     /// suppressing only the documented exceptions below.
-    func auditCurrentScreen(file: StaticString = #filePath, line: UInt = #line) throws {
+    /// `underAlert`: a system alert is up. Every alert — a plain two-button
+    /// one included — draws the screen dimmed behind it, whose text the audit
+    /// still sees but which iOS rightly takes out of the accessibility tree
+    /// while the alert is modal. That surfaces as one `.elementDetection`
+    /// issue ("Potentially inaccessible text") with no element attached, so
+    /// only that exact shape is let through, and only for audits taken under
+    /// an alert; everything in the alert itself is still checked.
+    func auditCurrentScreen(underAlert: Bool = false, file: StaticString = #filePath, line: UInt = #line) throws {
         try app.performAccessibilityAudit(for: Self.auditedTypes) { issue in
-            Self.isKnownAcceptable(issue)
+            if underAlert, issue.auditType == .elementDetection, issue.element == nil {
+                return true
+            }
+            return Self.isKnownAcceptable(issue)
         }
     }
 
@@ -277,7 +319,7 @@ private extension AccessibilityAuditTests {
         }
 
         // Any key on the system keyboard, which is up whenever a screen
-        // autofocuses a text field (Server Setup's address field does). From
+        // autofocuses a text field (Login's username field does). From
         // the iOS 27 runtime the URL keyboard's ".co.uk" key fails
         // `.sufficientElementDescription` ("Label not human-readable") — the
         // audit reads the literal key caption. OS chrome, not reachable from

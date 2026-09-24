@@ -37,6 +37,11 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
 
 ## Features
 
+- **Server discovery** — "Scan for Servers" on first run finds Jellyfin
+  servers on the same Wi-Fi network (Jellyfin's own UDP auto-discovery) and
+  connects with one tap; typing an address still works. A discovered HTTPS
+  server whose certificate can't be verified can fall back to plain HTTP,
+  only after you confirm.
 - **Browse & search** — home rails, library grids (Movies/Shows/Collections/
   Playlists) with cascading genre/studio/decade/watched/favorite filters,
   search, cast & crew, "Up Next"/continue-watching.
@@ -233,7 +238,7 @@ DionysusPlayer/
 │   └── Downloads/       Offline downloads — SwiftData model, file store,
 │                        download/sync managers (see below)
 ├── Features/
-│   ├── ServerSetup/     One-time server address entry
+│   ├── ServerSetup/     One-time server setup — LAN discovery or address entry
 │   ├── Login/           Jellyfin sign-in, remembers & auto-logs in
 │   ├── Home/            Hero banner, library rail, and content rails
 │   ├── Collection/      Grid of a library/collection's items

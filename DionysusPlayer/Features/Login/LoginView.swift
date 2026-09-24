@@ -65,6 +65,7 @@ struct LoginView: View {
             .padding(SignInLayout.contentPadding)
             .signInColumn()
         }
+        .statusBarScrollFade()
         .safeAreaInset(edge: .bottom) { actions }
         .onAppear {
             if viewModel.username.isEmpty, let username = appState.sessionStore.credentials?.username {

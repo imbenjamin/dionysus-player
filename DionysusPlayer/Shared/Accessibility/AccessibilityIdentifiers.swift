@@ -49,6 +49,13 @@ enum A11yID {
         static let httpsToggle = "serverSetup.httpsToggle"
         static let connectButton = "serverSetup.connectButton"
         static let errorMessage = "serverSetup.errorMessage"
+        static let scanButton = "serverSetup.scanButton"
+        static let scanStatus = "serverSetup.scanStatus"
+        static func discoveredServer(_ id: String) -> String { "serverSetup.discoveredServer.\(id)" }
+        static let insecureFallbackConfirmButton = "serverSetup.insecureFallback.confirm"
+        static let insecureFallbackCancelButton = "serverSetup.insecureFallback.cancel"
+        static let httpPortConfirmButton = "serverSetup.httpPort.confirm"
+        static let httpPortCancelButton = "serverSetup.httpPort.cancel"
     }
 
     enum Login {

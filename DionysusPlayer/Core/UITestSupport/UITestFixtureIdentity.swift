@@ -92,4 +92,18 @@ enum UITestFixtureIdentity {
     static let username = "uitester"
     static let password = "uitest-password"
     static let serverAddress = "http://dionysus-uitest.invalid"
+
+    /// The `SystemId` `UITestServerDiscovery` reports for the stub server, which
+    /// is also the suffix of its result row's identifier.
+    static let discoveredServerID = "uitest-discovered-server"
+
+    /// The stub server's own `SystemId`, as `/System/Info/Public` reports it.
+    static let serverSystemID = "uitest-server-0001"
+
+    /// A second discovery result: the same stub server advertised over HTTPS,
+    /// which `UITestStubURLProtocol` fails with a certificate error, so only
+    /// the plain-HTTP fallback reaches it. Reported under `serverSystemID`, as
+    /// a real server's reply and its `/System/Info/Public` agree.
+    static let discoveredHTTPSServerAddress = "https://dionysus-uitest.invalid:8920"
+    static let discoveredHTTPSServerName = "Dionysus UI Test Server (HTTPS)"
 }

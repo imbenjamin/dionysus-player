@@ -74,6 +74,12 @@ enum UITestScenario: String {
     /// episode gone, and nothing in Next Up — a show the server lists ahead of
     /// any episode arriving. Lets a test observe the show page's empty state.
     case showWithoutEpisodes
+
+    /// `.standard`, but nothing answers on Jellyfin's default HTTP port (8096),
+    /// as for a server whose HTTP port was changed. A discovered HTTPS server's
+    /// plain-HTTP fallback then has to ask the user for the port (see
+    /// `ServerSetupViewModel.httpPortRequest`), which any other port satisfies.
+    case customHTTPPort
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a

@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last updated: August 25, 2026**
+**Last updated: September 24, 2026**
 
 Dionysus Player is a client for [Jellyfin](https://jellyfin.org) media
 servers. It has no backend of its own: everything the app does happens
@@ -43,6 +43,16 @@ your credentials (to authenticate), the device identifier above (standard
 client identification), and playback progress (so "continue watching" and
 "next up" work). This is data flowing to a server *you* control, not to
 the Dionysus Player development team or contributors.
+
+### Finding a server on your network
+
+If you tap **Scan for Servers** during setup, the app sends a short
+discovery message ("who is JellyfinServer?", Jellyfin's standard discovery
+protocol) to each device on your current Wi-Fi network, and lists any Jellyfin
+server that replies with its name and address. The message contains nothing
+about you or your device, nothing is stored from devices that don't reply,
+and it only happens when you ask for it. iOS asks for your permission to
+access the local network the first time you scan.
 
 ## What We Don't Collect
 

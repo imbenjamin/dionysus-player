@@ -253,7 +253,7 @@ enum UITestFixtureLibrary {
             serverName: UITestConfiguration.stubServerName,
             version: "10.10.3",
             productName: "Jellyfin Server",
-            id: "uitest-server-0001"
+            id: UITestFixtureIdentity.serverSystemID
         )
     }
 

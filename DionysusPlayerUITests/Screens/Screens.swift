@@ -75,9 +75,44 @@ struct ServerSetupScreen: Screen {
     var addressField: XCUIElement { app.textFields[A11yID.ServerSetup.addressField] }
     var connectButton: XCUIElement { app.buttons[A11yID.ServerSetup.connectButton] }
     var errorMessage: XCUIElement { app.descendants(matching: .any)[A11yID.ServerSetup.errorMessage] }
+    var scanButton: XCUIElement { app.buttons[A11yID.ServerSetup.scanButton] }
+    var httpsToggle: XCUIElement { app.switches[A11yID.ServerSetup.httpsToggle] }
+
+    func discoveredServer(_ id: String) -> XCUIElement {
+        app.buttons[A11yID.ServerSetup.discoveredServer(id)]
+    }
+
+    var insecureFallbackConfirmButton: XCUIElement {
+        app.alerts.buttons.matching(identifier: A11yID.ServerSetup.insecureFallbackConfirmButton).firstMatch
+    }
+
+    var insecureFallbackCancelButton: XCUIElement {
+        app.alerts.buttons.matching(identifier: A11yID.ServerSetup.insecureFallbackCancelButton).firstMatch
+    }
+
+    /// The alert's only text field. Not by identifier: SwiftUI doesn't carry
+    /// `.accessibilityIdentifier` through to a `TextField` inside an alert
+    /// (its buttons keep theirs), so there is none to match.
+    var httpPortField: XCUIElement {
+        app.alerts.textFields.firstMatch
+    }
+
+    var httpPortConfirmButton: XCUIElement {
+        app.alerts.buttons.matching(identifier: A11yID.ServerSetup.httpPortConfirmButton).firstMatch
+    }
 
     func awaitLoaded(file: StaticString = #filePath, line: UInt = #line) {
         addressField.awaitExistence("the server address field", file: file, line: line)
+    }
+
+    /// Scans and waits for the stub server `UITestServerDiscovery` reports.
+    @discardableResult
+    func scanForStubServer(file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        awaitLoaded(file: file, line: line)
+        scanButton.tap()
+        let row = discoveredServer(UITestFixtureIdentity.discoveredServerID)
+        row.awaitExistence("the discovered stub server", file: file, line: line)
+        return row
     }
 
     func connect(to address: String, file: StaticString = #filePath, line: UInt = #line) {
