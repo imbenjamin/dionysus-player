@@ -26,6 +26,9 @@
     "%@ bitrate, in kilobits per second" : {
 
     },
+    "%@ didn't answer over HTTP on port %@." : {
+
+    },
     "%@ megabits per second" : {
 
     },
@@ -38,6 +41,15 @@
           }
         }
       }
+    },
+    "%@'s security certificate can't be verified, but the server also answers over unencrypted HTTP at %@. Your password and everything you watch would be sent without encryption, readable by others on this network." : {
+
+    },
+    "%@'s security certificate can't be verified. If the server also accepts unencrypted HTTP connections, enter the port it uses for them." : {
+
+    },
+    "%@'s security certificate isn't valid for %@." : {
+
     },
     "%@, %@" : {
       "localizations" : {
@@ -348,7 +360,22 @@
     "Connect" : {
 
     },
+    "Connect Over HTTP" : {
+
+    },
+    "Connect Over HTTP?" : {
+
+    },
+    "Connect to Wi-Fi to scan for servers on your network." : {
+
+    },
+    "Connect Without Encryption?" : {
+
+    },
     "Connecting" : {
+
+    },
+    "Connects to this server" : {
 
     },
     "Continue Watching" : {
@@ -502,6 +529,12 @@
     "Deselect All" : {
 
     },
+    "Dionysus doesn't have access to your local network." : {
+
+    },
+    "Dionysus doesn't have access to your local network. Turn on Local Network for Dionysus in Settings, then scan again." : {
+
+    },
     "Dionysus needs the address of your Jellyfin server to get started." : {
 
     },
@@ -572,6 +605,9 @@
 
     },
     "Duration: %@" : {
+
+    },
+    "Enter a port number between 1 and 65535." : {
 
     },
     "Enter a valid server address, like 192.168.1.50:8096." : {
@@ -656,6 +692,9 @@
     "Home" : {
 
     },
+    "HTTP Port" : {
+
+    },
     "Image-based subtitle tracks can't be included in offline downloads." : {
 
     },
@@ -681,6 +720,9 @@
 
     },
     "Lock rotation" : {
+
+    },
+    "Look for Jellyfin servers on the same Wi-Fi network as this device." : {
 
     },
     "Mark as Unwatched" : {
@@ -743,6 +785,12 @@
     "No items match these filters." : {
 
     },
+    "No servers found" : {
+
+    },
+    "No servers found. Check that this device is on the same Wi-Fi network as your server, or enter its address below." : {
+
+    },
     "No synopsis available." : {
 
     },
@@ -768,6 +816,9 @@
 
     },
     "Open Dionysus Player on GitHub" : {
+
+    },
+    "Open Settings" : {
 
     },
     "Order" : {
@@ -957,6 +1008,15 @@
     "Rewind 15 Seconds" : {
 
     },
+    "Scan Again" : {
+
+    },
+    "Scan for Servers" : {
+
+    },
+    "Scanning…" : {
+
+    },
     "Search" : {
 
     },
@@ -1015,6 +1075,12 @@
           }
         }
       }
+    },
+    "Servers found: %lld" : {
+
+    },
+    "Servers on Your Network" : {
+
     },
     "Show" : {
 
@@ -1245,6 +1311,9 @@
 
     },
     "Try Again" : {
+
+    },
+    "Try Port" : {
 
     },
     "Unlimited" : {

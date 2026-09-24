@@ -46,6 +46,19 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
+        // No fixture is served over HTTPS: every `https://` request fails the
+        // way a certificate issued for another name does, which is what
+        // `ServerSetupViewModel.connect(to:)`'s plain-HTTP fallback reacts to.
+        if url.scheme?.lowercased() == "https" {
+            finish(.failure(URLError(.serverCertificateUntrusted)))
+            return
+        }
+
+        if scenario == .customHTTPPort, url.port == ServerSetupViewModel.defaultHTTPPort {
+            finish(.failure(URLError(.cannotConnectToHost)))
+            return
+        }
+
         // Images resolve before scenario gating: an error scenario is about the
         // data endpoints, and failing artwork too would park every assertion on
         // a placeholder. `.slowLogoImage` is the one exception.
@@ -421,7 +434,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         // with `canDelete` cleared, and only `DELETE` refused in `startLoading`,
         // which has the method.
         case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission,
-             .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes:
+             .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort:
             return nil
         case .serverError:
             return 500

@@ -252,6 +252,32 @@ token header this keys off. `AppState.signOut()` clears the remembered
 credentials on the client it reuses across a sign-out/sign-back-in, so a
 request still in flight around sign-out can't silently re-authenticate as
 the just-signed-out user.
+**Server discovery** (`ServerDiscovery.swift`, Find Your Server → Scan for
+Servers) speaks Jellyfin's UDP auto-discovery protocol — `who is
+JellyfinServer?` to port 7359, answered with `{Address, Id, Name}` — but
+**unicast to every host on the subnet, never broadcast.** Sending to a
+broadcast or multicast address on iOS needs the restricted
+`com.apple.developer.networking.multicast` entitlement, which Apple grants
+only on request; the server (`AutoDiscoveryHost.cs`) answers the phrase in any
+datagram, so a unicast sweep finds the same servers with only the Local
+Network permission. Don't "simplify" it to a broadcast without that
+entitlement — it fails silently. There is no API to ask for Local Network
+access or read its state: the first probe triggers the prompt, and a scan in
+which every send is refused reads as denied. The device's own address stays in
+the sweep, which is what lets the Simulator find a server on its own Mac.
+
+**A discovered `https://` server whose certificate fails gets an opt-in HTTP
+fallback** (`ServerSetupViewModel.connect(to:)`). A server with HTTPS on and no
+published URL advertises `https://<LAN IP>:<HTTPS port>`, which a certificate
+issued for a domain name (or a self-signed one) can never validate. Both ports
+are configurable and **nothing a signed-out client can read reveals the HTTP
+port** — the discovery reply carries one address, and the ports live only in
+the admin-only network configuration — so 8096 is tried as a first guess and
+the user is asked for the port if it's silent. Whatever port answers must
+report the discovery reply's `SystemId` over `/System/Info/Public`, and nothing
+connects until the user confirms going unencrypted. Only certificate failures
+(`URLError.isCertificateFailure`) trigger any of it.
+
 `ImageURLBuilder` is deliberately *not* actor-isolated — it's a plain struct
 snapshotted via `client.makeImageURLBuilder()` so SwiftUI views can build
 image URLs synchronously without hopping through the actor on every render.
