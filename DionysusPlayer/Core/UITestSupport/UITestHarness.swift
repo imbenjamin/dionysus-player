@@ -28,6 +28,10 @@ enum UITestHarness {
             seedSession()
         }
 
+        if UITestConfiguration.seedsLongSearchHistory {
+            seedLongSearchHistory()
+        }
+
         if UITestConfiguration.disablesAnimations {
             UIView.setAnimationsEnabled(false)
         }
@@ -105,6 +109,18 @@ enum UITestHarness {
             accessToken: UITestConfiguration.stubAccessToken,
             userID: UITestConfiguration.stubUserID
         ))
+    }
+
+    /// Records one entry more than `SearchHistoryStore` keeps, so the list ends
+    /// at the store's own cap rather than a count this has to track. Placeholder
+    /// ids with no image tags: the entries only need to take up space, and a
+    /// tag would send a request the stub has no fixture for.
+    private static func seedLongSearchHistory() {
+        let store = SearchHistoryStore()
+        for index in 1...21 {
+            let hint = SearchHint(id: "uitest-history-\(index)", name: "Recent Search \(index)", type: .movie, productionYear: 2000 + index)
+            store.record(SearchResult(hint: hint), userID: UITestConfiguration.stubUserID)
+        }
     }
 }
 #endif

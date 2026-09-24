@@ -271,7 +271,7 @@ pattern, since ViewModels are constructed with an already-built client
   destination, and create → the new playlist is listed afterwards), and the
   `serverError`/`unauthorized`/`offline` scenarios, plus a
   `performAccessibilityAudit()` pass over every
-  screen — 70 tests across the smoke plan and the full plan, run against
+  screen — 71 tests across the smoke plan and the full plan, run against
   both an iPhone and an iPad nightly. What the audits deliberately do *not*
   gate on is contrast, Dynamic Type and text clipping; those are real
   findings but design-level ones, and they are recorded with counts under
@@ -423,7 +423,9 @@ because `ServerSessionStore` reads `UserDefaults` and the Keychain in its own
 initializer. `-UITestResetState` clears both (the Keychain matters: it
 outlives the app container, so without it one test's sign-in seeds the next
 test's "first launch"); `-UITestSeedSession` plants a session so a test can
-start on Home; `-UITestDisableAnimations` and `-UITestDisableControlAutoHide`
+start on Home; `-UITestSeedLongSearchHistory` fills search history to its cap
+so the Search landing page is taller than the screen (issue #244's regression
+test); `-UITestDisableAnimations` and `-UITestDisableControlAutoHide`
 remove the two timing races. The hero carousel's timer and the 3D tilt effect
 are switched off through the app's own `@AppStorage` keys straight from
 `app.launchArguments`, with no app code involved at all.

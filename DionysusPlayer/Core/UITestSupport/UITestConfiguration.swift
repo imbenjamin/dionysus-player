@@ -105,6 +105,12 @@ enum UITestConfiguration {
     /// group from outside.
     static var seedsSession: Bool { flag("UITestSeedSession") }
 
+    /// Fill the signed-in user's search history to `SearchHistoryStore`'s cap,
+    /// so the Search landing page is taller than the screen. Selecting results
+    /// one by one to get there would take a test twenty round trips through a
+    /// detail page.
+    static var seedsLongSearchHistory: Bool { flag("UITestSeedLongSearchHistory") }
+
     static var disablesAnimations: Bool { flag("UITestDisableAnimations") }
 
     /// `PlayerControlsOverlay` hides 3s after the last interaction except under
