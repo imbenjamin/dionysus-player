@@ -85,7 +85,7 @@ packages:
   # linked engine, so there is no constant here to keep in step.
   AetherEngine:
     url: https://github.com/superuser404notfound/AetherEngine
-    version: 7.15.0
+    version: 7.15.2
   # A small (single-file), MIT-licensed, dependency-free view modifier
   # (`.shimmering()`) — used by `MediaPlaceholderBox` for the "still
   # loading" placeholder animation. Purely a rendering effect — no

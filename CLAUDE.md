@@ -433,25 +433,35 @@ are guessable:
   renders the same track unstyled, so there is never a dead screen.
 
 **On a transcode, libass is timed off AVPlayer's own subtitle timing, not the
-playhead.** There the engine's `sourceTime` is AVPlayer's item time, which runs
-*ahead of the picture* after a seek: Jellyfin restarts the transcode at the
-source keyframe before the requested segment, and AVPlayer anchors its timeline
-to the first segment it loads, so the gap is that segment's slot minus its
-keyframe — measured anywhere from 1.1s to 8.3s on one film. It keeps that anchor
-across later job restarts, so reading segment timestamps can't recover it (tried
-and disproven). What does know it is AVPlayer's timing of the WebVTT rendition
-AetherEngine injects for the same track, which is why unstyled subtitles never
-drifted. So on that route the rendition stays selected with an app-owned
-`AVPlayerItemLegibleOutput` suppressing its drawing
-(`setNativeSubtitleCapture`), and `ASSCueTimingCalibrator` matches each line it
-reports to the script to measure the offset, holding styled lines back after a
-seek until the first one arrives (5s at most). Two traps, both found on device:
-an output that starts suppressing while AVPlayer is drawing a line freezes that
-line on screen for good — not even a deselect clears it afterwards — so the
-rendition is deselected *before* the output attaches; and a (re)attached output
-re-delivers the line on screen as though it had just started, which must not be
-measured. Direct play and offline never need any of this: there `sourceTime` is
-the source PTS.
+raw playhead.** There AVPlayer's item time runs *ahead of the picture* after a
+seek: Jellyfin restarts the transcode at the source keyframe before the
+requested segment, and AVPlayer anchors its timeline to the first segment it
+loads, so the gap is that segment's slot minus its keyframe — measured anywhere
+from 0.8s to 8.3s on one film. It keeps that anchor across later job restarts,
+so reading segment timestamps can't recover it (tried and disproven). What does
+know it is AVPlayer's timing of the WebVTT rendition AetherEngine injects for
+the same track. Since AetherEngine 7.15.2 (AetherEngine#616, which this app
+filed and verified on device) the engine measures the lead off that rendition
+itself and publishes `sourceTime` minus it, so libass renders at `sourceTime`
+unmodified. Don't reintroduce a host-side offset on top — it would subtract the
+lead twice and draw every line late. Three things remain the app's job:
+
+- **The rendition must stay selected**, or the engine has nothing to measure.
+  An app-owned `AVPlayerItemLegibleOutput` suppresses its drawing instead
+  (`setNativeSubtitleCapture`). Two traps, both found on device: an output
+  that starts suppressing while AVPlayer is drawing a line freezes that line on
+  screen for good — not even a deselect clears it afterwards — so the rendition
+  is deselected *before* the output attaches; and a (re)attached output
+  re-delivers the line on screen as though it had just started.
+- **The engine re-measures only when a line starts**, so between a seek landing
+  and that line `sourceTime` still carries the previous seek's lead (off by up
+  to 1.8s on device). `ASSSeekHold` paints nothing in that window (5s at most).
+- **Seeks are detected on item time** (`currentTime`, still item time on this
+  route), never on `sourceTime`, which jumps by the size of the correction
+  whenever the engine re-measures.
+
+Direct play and offline never need any of this: there `sourceTime` is the
+source PTS.
 
 **The user can turn styling off** — Profile → Playback → Advanced → Subtitle
 Styling, on by default (`styledASSSubtitlesEnabledDefault`). It sits in
