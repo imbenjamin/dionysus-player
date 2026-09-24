@@ -1466,6 +1466,56 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.nextUpSecondsRemaining)
     }
 
+    func test_closesWhenPlaybackEnds_nothingQueued_isTrue() async {
+        let (viewModel, _) = makeViewModel(itemID: "item-1")
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Toy Story", type: .movie), mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")])
+
+        await viewModel.start()
+
+        XCTAssertNil(viewModel.nextEpisode)
+        XCTAssertTrue(viewModel.closesWhenPlaybackEnds)
+    }
+
+    /// Up Next owns the end of the item here — its countdown reaching 0 is what
+    /// advances, so closing on `.ended` would race it.
+    func test_closesWhenPlaybackEnds_nextEpisodeQueued_isFalseUntilCancelled() async {
+        let (viewModel, _) = makeViewModel(itemID: "ep-1")
+        stubStartWithNextEpisode()
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+
+        XCTAssertFalse(viewModel.closesWhenPlaybackEnds)
+
+        viewModel.dismissNextUp()
+        XCTAssertTrue(viewModel.closesWhenPlaybackEnds)
+    }
+
+    func test_closesWhenPlaybackEnds_countdownOff_isTrueDespiteNextEpisode() async {
+        defaults.set(NextUpCountdownPreference.off.rawValue, forKey: nextUpCountdownStorageKey)
+        let (viewModel, _) = makeViewModel(itemID: "ep-1")
+        stubStartWithNextEpisode()
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+
+        XCTAssertNotNil(viewModel.nextEpisode)
+        XCTAssertTrue(viewModel.closesWhenPlaybackEnds)
+    }
+
+    /// PiP only defers the countdown; it advances once PiP ends, so the end of
+    /// the item must not close the player out from under it.
+    func test_closesWhenPlaybackEnds_pictureInPictureWithNextEpisode_isFalse() async {
+        let (viewModel, engine) = makeViewModel(itemID: "ep-1")
+        stubStartWithNextEpisode()
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+        engine.onPictureInPictureActiveChange?(true)
+
+        XCTAssertFalse(viewModel.closesWhenPlaybackEnds)
+    }
+
     func test_nextUpSecondsRemaining_countdownOff_neverReportsRemainingSeconds() async {
         defaults.set(NextUpCountdownPreference.off.rawValue, forKey: nextUpCountdownStorageKey)
         let (viewModel, engine) = makeViewModel(itemID: "ep-1")

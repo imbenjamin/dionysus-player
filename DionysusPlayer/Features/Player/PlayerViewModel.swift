@@ -111,6 +111,18 @@ final class PlayerViewModel {
     /// countdown rather than dismissing once.
     private(set) var isNextUpDismissed = false
 
+    /// Whether `PlayerView` should close itself once the engine reports
+    /// `.ended`, rather than leaving the last frame on screen. True whenever
+    /// Up Next won't take over: nothing to play next, the countdown turned off,
+    /// or the user cancelled it.
+    ///
+    /// Deliberately ignores `isPictureInPictureActive`, which suppresses the
+    /// countdown only until PiP ends — `nextUpSecondsRemaining` recomputes to
+    /// `0` then and advances, so closing here would pre-empt the next episode.
+    var closesWhenPlaybackEnds: Bool {
+        nextEpisode == nil || isNextUpDismissed || nextUpPreferenceStore.countdownSeconds == nil
+    }
+
     /// Skippable time ranges, fetched fire-and-forget in `start()` alongside
     /// `nextEpisode`. Empty rather than `nil` both before that resolves and when
     /// there are none; nothing downstream distinguishes the two.

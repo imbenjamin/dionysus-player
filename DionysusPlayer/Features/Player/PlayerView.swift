@@ -96,11 +96,12 @@ struct PlayerView: View {
     /// Whether `PlaybackStatsOverlay` is showing. Unlike `showControls` it has no
     /// auto-hide: a plain toggle only the info button flips.
     @State private var showPlaybackStats = false
-    /// Guards `advanceToNextItem()` against re-firing while its
-    /// `await viewModel.stop()` is in flight: the
-    /// `.onChange(of: nextUpSecondsRemaining)` trigger could otherwise fire again
-    /// on an intermediate render before `onRequestNextItem` swaps this screen out.
-    @State private var isAdvancingToNextEpisode = false
+    /// Set as `tearDown(nextItemID:)` begins, making it run once. Its
+    /// `await viewModel.stop()` leaves room for another trigger to fire before
+    /// the dismiss lands: the `.onChange(of: nextUpSecondsRemaining)` countdown
+    /// on an intermediate render, or `.ended` closing the player — which
+    /// `stop()` itself can report.
+    @State private var isTearingDown = false
     /// The pending fade-out, armed by `scheduleAutoHide()` while playback runs
     /// and cancelled the moment it doesn't.
     @State private var autoHideTask: Task<Void, Never>?
@@ -442,6 +443,13 @@ struct PlayerView: View {
             isSkippingSegment = false
             scheduleAutoHide()
         }
+        // With nothing queued, or Up Next cancelled, the end of the item closes
+        // the player back to whatever presented it instead of holding on the
+        // last frame. Otherwise the countdown below reaches 0 and advances.
+        .onChange(of: viewModel?.state) { _, newState in
+            guard newState == .ended, viewModel?.closesWhenPlaybackEnds == true else { return }
+            Task { await close() }
+        }
         // Zoom is landscape-only, and both gestures are gated on
         // `isLandscapeWindow`, so leaving landscape with `.fill` active would
         // strand a cropped portrait video with no way to un-zoom it.
@@ -596,11 +604,8 @@ struct PlayerView: View {
     }
 
     /// `NextUpOverlay`'s Play Now button and the countdown reaching zero.
-    /// Guarded separately from `tearDown(nextItemID:)`, which `close()` also
-    /// calls with no id to guard on.
     private func advanceToNextItem() async {
-        guard let viewModel, let nextEpisode = viewModel.nextEpisode, !isAdvancingToNextEpisode else { return }
-        isAdvancingToNextEpisode = true
+        guard let viewModel, let nextEpisode = viewModel.nextEpisode else { return }
         await tearDown(nextItemID: nextEpisode.id)
     }
 
@@ -617,6 +622,8 @@ struct PlayerView: View {
     /// mid-`close()`, firing the auto-advance `.onChange` and re-opening the next
     /// episode despite the user tapping close.
     private func tearDown(nextItemID: String? = nil) async {
+        guard !isTearingDown else { return }
+        isTearingDown = true
         autoHideTask?.cancel()
         if isRotationLocked {
             RotationLock.unlock()
