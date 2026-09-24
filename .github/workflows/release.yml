@@ -244,17 +244,6 @@ jobs:
           api-key-id: ${{ vars.APPSTORE_API_KEY_ID }}
           api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
 
-      - name: Write App Store Connect API key
-        if: steps.signing.outputs.available == 'true'
-        # -authenticationKeyPath takes a path, not a value, so the .p8 has to
-        # land on disk. RUNNER_TEMP is wiped when the job ends. Only the
-        # archive needs this; the export signs from the profile above.
-        env:
-          KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
-        run: |
-          printf '%s' "$KEY" > "$RUNNER_TEMP/asc-key.p8"
-          chmod 600 "$RUNNER_TEMP/asc-key.p8"
-
       - name: Archive and export
         if: steps.signing.outputs.available == 'true'
         id: export
@@ -264,23 +253,24 @@ jobs:
         # src/main.ts, 2026-08-30) — so the archive's signing flags could
         # never reach an export that needed them.
         #
-        # The two invocations sign differently, on purpose:
+        # Both invocations sign manually, against the distribution
+        # certificate and the profile installed above, and neither talks to
+        # Apple. The archive's settings live on the app target's Release
+        # config in project.yml (see its comment for why not here).
         #
-        #   archive — automatic (-allowProvisioningUpdates + API key),
-        #     matching project.yml's CODE_SIGN_STYLE.
-        #   export  — manual, against the profile installed above, needing no
-        #     credentials at all. Automatic export was tried first and fails
-        #     with "Cloud signing permission error" even with an Admin-level
-        #     key, because it asks Apple to mint a profile at export time.
+        # Automatic signing was tried for each half and dropped:
+        #   export  — fails with "Cloud signing permission error" even with an
+        #     Admin-level key, because it asks Apple to mint a profile
+        #     (2026-08-30; see Config/ExportOptions.plist).
+        #   archive — worked, but a fresh runner has no development identity,
+        #     so every run created a new Apple Development certificate until
+        #     the account hit its cap and v1.1.0-alpha.6's archive failed
+        #     (2026-09-23). Don't add -allowProvisioningUpdates back: nothing
+        #     here should be able to create a certificate.
         #
-        # Both halves were verified by a local dry-run against the real
-        # credentials (2026-08-30) before this first ran in CI: the archive
-        # succeeded, automatic export failed, manual export produced a
-        # correctly-signed .ipa with the tag's version fields intact.
-        env:
-          KEY_PATH: ${{ runner.temp }}/asc-key.p8
-          KEY_ID: ${{ vars.APPSTORE_API_KEY_ID }}
-          ISSUER_ID: ${{ vars.APPSTORE_ISSUER_ID }}
+        # Verified by a local archive + export on 2026-09-24 with no API key
+        # at all: signed "Apple Distribution", profile "Dionysus App Store",
+        # and the account's certificate count unchanged.
         run: |
           xcodebuild archive \
             -project DionysusPlayer.xcodeproj \
@@ -288,10 +278,6 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath .build/Dionysus.xcarchive \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$KEY_PATH" \
-            -authenticationKeyID "$KEY_ID" \
-            -authenticationKeyIssuerID "$ISSUER_ID" \
             | xcbeautify --renderer github-actions
 
           xcodebuild -exportArchive \

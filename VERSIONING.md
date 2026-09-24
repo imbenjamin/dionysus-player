@@ -198,9 +198,8 @@ One-time setup:
 
 1. **App Store Connect API key.** ASC → Users and Access → Integrations →
    App Store Connect API → generate a team key with the **App Manager**
-   role. Admin or App Manager is required — `-allowProvisioningUpdates`
-   needs to create and update provisioning profiles, and a Developer-role
-   key will fail the archive. The `.p8` downloads **once**; there is no
+   role. CI uses it to download the provisioning profile and to upload the
+   build; nothing signs with it. The `.p8` downloads **once**; there is no
    second chance.
 2. **Distribution certificate.** Keychain Access → your *Apple Distribution*
    certificate → expand it and select both the certificate **and** its
@@ -220,23 +219,33 @@ This repo is public. Secrets are unavailable to fork PRs by design, and the
 signing steps live only in `release.yml`, which runs on tag pushes — never in
 `pr-checks.yml`.
 
-### The archive and the export sign differently
+### Both the archive and the export sign manually
 
-- **Archive** — automatic (`-allowProvisioningUpdates` + the API key),
-  matching `project.yml`'s `CODE_SIGN_STYLE: Automatic`.
-- **Export** — *manual*, against a named provisioning profile, needing no
-  credentials at all.
+Both sign with the distribution certificate and the named provisioning
+profile, and neither talks to Apple. The archive's settings are on the app
+target's **Release** config in `project.yml` (`CODE_SIGN_STYLE: Manual`,
+`Apple Distribution`, `Dionysus App Store`); Debug keeps the project-wide
+Automatic, so Simulator and device builds are unaffected. They can't be
+`xcodebuild` overrides in `release.yml` instead: those reach every target,
+and SwiftPM resource-bundle targets refuse a named profile.
 
-Automatic export was tried first and does not work. At export time it asks
+**The archive used to sign automatically**, and that is what to avoid
+reintroducing. A fresh runner has no development identity, so every run's
+`-allowProvisioningUpdates` created a new "Created via API" Apple Development
+certificate, and after ten of them `v1.1.0-alpha.6`'s archive failed with
+"Your account has reached the maximum number of certificates" (2026-09-23).
+They were revoked by hand. Nothing in `release.yml` should be able to create
+a certificate.
+
+**Automatic export was tried first and does not work.** At export time it asks
 Apple to mint the provisioning profile via cloud signing, which fails:
 
 ```
 error: exportArchive Cloud signing permission error
 ```
 
-— even with an Admin-role API key. Only the export needs a profile, which is
-why the archive succeeds and the export doesn't. Naming an existing profile
-sidesteps the cloud-signing path entirely.
+— even with an Admin-role API key. Naming an existing profile sidesteps the
+cloud-signing path entirely.
 
 `apple-actions/xcodebuild` was also evaluated and rejected: it passes
 `extra-arguments` to the archive only, building its export argument list from
