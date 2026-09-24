@@ -79,4 +79,79 @@ final class ServerDiscoveryTests: XCTestCase {
         XCTAssertTrue(LocalSubnet(address: ip(10, 0, 0, 1), netmask: ip(255, 255, 255, 254)).hostAddresses.isEmpty)
         XCTAssertTrue(LocalSubnet(address: ip(10, 0, 0, 1), netmask: ip(255, 255, 255, 255)).hostAddresses.isEmpty)
     }
+
+    // MARK: ScanSchedule
+
+    private let t0 = Date(timeIntervalSinceReferenceDate: 0)
+    private func at(_ seconds: TimeInterval) -> Date { t0.addingTimeInterval(seconds) }
+
+    func test_schedule_acceptedProbe_listensForTheWindowThenFinishes() {
+        var schedule = ScanSchedule(start: t0, timing: .init())
+        XCTAssertTrue(schedule.isRoundDue(at: t0))
+
+        schedule.roundSent(accepted: true, at: t0)
+
+        XCTAssertFalse(schedule.isRoundDue(at: at(0.5)))
+        XCTAssertTrue(schedule.isRoundDue(at: at(1)))
+        XCTAssertFalse(schedule.isFinished(at: at(2.9), appIsActive: true))
+        XCTAssertTrue(schedule.isFinished(at: at(3), appIsActive: true))
+        XCTAssertFalse(schedule.accessLooksDenied)
+    }
+
+    func test_schedule_everyProbeRefused_givesUpAfterTheGraceAsDenied() {
+        var schedule = ScanSchedule(start: t0, timing: .init())
+        for second in 0..<8 {
+            schedule.roundSent(accepted: false, at: at(TimeInterval(second)))
+        }
+
+        XCTAssertFalse(schedule.isFinished(at: at(7.9), appIsActive: true))
+        XCTAssertTrue(schedule.isFinished(at: at(8), appIsActive: true))
+        XCTAssertTrue(schedule.accessLooksDenied)
+    }
+
+    /// Seen on device: under the Local Network prompt, probes are accepted and
+    /// silently dropped, so the listen window used to run out behind the
+    /// prompt and the scan ended empty. The app is inactive while it's up.
+    func test_schedule_neverFinishesWhileTheAppIsInactive() {
+        var schedule = ScanSchedule(start: t0, timing: .init())
+        schedule.roundSent(accepted: true, at: t0)
+
+        XCTAssertFalse(schedule.isFinished(at: at(30), appIsActive: false))
+    }
+
+    /// Answering the prompt reactivates the app; the scan starts over — probe
+    /// now, and a full grace period — rather than inheriting a window that
+    /// expired behind the prompt.
+    func test_schedule_reactivation_startsOver() {
+        var schedule = ScanSchedule(start: t0, timing: .init())
+        schedule.roundSent(accepted: true, at: t0)
+
+        schedule.appBecameActive(at: at(20))
+
+        XCTAssertTrue(schedule.isRoundDue(at: at(20)))
+        XCTAssertTrue(schedule.accessLooksDenied, "Nothing accepted since reactivating yet.")
+        XCTAssertFalse(schedule.isFinished(at: at(27.9), appIsActive: true))
+
+        schedule.roundSent(accepted: true, at: at(20))
+        XCTAssertFalse(schedule.isFinished(at: at(22.9), appIsActive: true))
+        XCTAssertTrue(schedule.isFinished(at: at(23), appIsActive: true))
+    }
+
+    /// "Don't Allow": every probe after reactivation is refused.
+    func test_schedule_reactivationThenRefused_endsDenied() {
+        var schedule = ScanSchedule(start: t0, timing: .init())
+        schedule.roundSent(accepted: true, at: t0)
+        schedule.appBecameActive(at: at(10))
+        schedule.roundSent(accepted: false, at: at(10))
+
+        XCTAssertTrue(schedule.isFinished(at: at(18), appIsActive: true))
+        XCTAssertTrue(schedule.accessLooksDenied)
+    }
+
+    func test_schedule_hardStopAppliesEvenWhileInactive() {
+        let schedule = ScanSchedule(start: t0, timing: .init())
+
+        XCTAssertFalse(schedule.isFinished(at: at(59.9), appIsActive: false))
+        XCTAssertTrue(schedule.isFinished(at: at(60), appIsActive: false))
+    }
 }

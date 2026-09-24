@@ -29,9 +29,20 @@ final class ServerSetupViewModel {
 
     private let discovery: any ServerDiscovering
     private var scanTask: Task<Void, Never>?
+    private let activity: any AppActivityObserving
+    private let isLocalNetworkDenied: @Sendable (URLError) -> Bool
 
-    init(discovery: any ServerDiscovering = ServerSetupViewModel.defaultDiscovery()) {
+    /// `activity` and `isLocalNetworkDenied` exist to be replaced in tests:
+    /// neither the Local Network prompt nor the error it causes can be
+    /// produced outside a device.
+    init(
+        discovery: any ServerDiscovering = ServerSetupViewModel.defaultDiscovery(),
+        activity: any AppActivityObserving = AppActivityMonitor(),
+        isLocalNetworkDenied: @escaping @Sendable (URLError) -> Bool = { $0.isLocalNetworkDenied }
+    ) {
         self.discovery = discovery
+        self.activity = activity
+        self.isLocalNetworkDenied = isLocalNetworkDenied
     }
 
     /// The real scanner, or under the UI-test harness one that answers with
@@ -124,7 +135,7 @@ final class ServerSetupViewModel {
         defer { isTesting = false }
 
         do {
-            return try await Self.probe(configuration).configuration
+            return try await probeAcrossLocalNetworkPrompt(configuration).configuration
         } catch let error as URLError where error.isCertificateFailure && server.address.scheme?.lowercased() == "https" {
             // Stays up behind the alerts, and explains the screen if the user
             // cancels out of them.
@@ -132,6 +143,9 @@ final class ServerSetupViewModel {
             if await offerInsecureFallback(for: server, port: Self.defaultHTTPPort) == false {
                 httpPortRequest = HTTPPortRequest(server: server, problem: nil)
             }
+            return nil
+        } catch is LocalNetworkAccessDenied {
+            errorMessage = Self.localNetworkDeniedMessage
             return nil
         } catch {
             errorMessage = String(localized: "Couldn't reach a Jellyfin server at that address. Check it and try again.")
@@ -270,10 +284,59 @@ final class ServerSetupViewModel {
         defer { isTesting = false }
 
         do {
-            return try await Self.probe(configuration).configuration
+            return try await probeAcrossLocalNetworkPrompt(configuration).configuration
+        } catch is LocalNetworkAccessDenied {
+            errorMessage = Self.localNetworkDeniedMessage
+            return nil
         } catch {
             errorMessage = String(localized: "Couldn't reach a Jellyfin server at that address. Check it and try again.")
             return nil
+        }
+    }
+
+    // MARK: Local Network prompt
+    //
+    // The first request to a LAN address is what makes iOS ask for Local
+    // Network access, and that request fails at once, behind the prompt, while
+    // the user is still reading it — so without this, connecting to a typed
+    // LAN address the first time reported "Couldn't reach a Jellyfin server"
+    // over a prompt the user hadn't answered yet (seen on device). A scan
+    // normally raises the prompt first, but typing an address skips the scan.
+
+    /// Local Network access is off, and no prompt came up to change that.
+    struct LocalNetworkAccessDenied: Error {}
+
+    static var localNetworkDeniedMessage: String {
+        String(localized: "Dionysus doesn't have access to your local network. Turn on Local Network for Dionysus in Settings, then try again.")
+    }
+
+    /// `probe`, but a failure caused by the Local Network prompt waits for the
+    /// user to answer it and tries once more.
+    ///
+    /// Two signals, since neither is guaranteed: the error's own
+    /// local-network-denied reason (`URLError.isLocalNetworkDenied`), and the
+    /// app going inactive during the attempt, which a system prompt causes.
+    /// The error can arrive a moment before the app resigns, so a
+    /// denied-looking error with no prompt yet gets a second to see one.
+    private func probeAcrossLocalNetworkPrompt(_ configuration: ServerConfiguration) async throws -> (configuration: ServerConfiguration, info: PublicSystemInfo) {
+        let deactivationsBefore = activity.state.deactivations
+        let promptAppeared = { [activity] in activity.state.deactivations != deactivationsBefore }
+        do {
+            return try await Self.probe(configuration)
+        } catch let error as URLError where isLocalNetworkDenied(error) || promptAppeared() {
+            if !promptAppeared() {
+                _ = await activity.wait(until: { $0.deactivations != deactivationsBefore }, timeout: .seconds(1))
+            }
+            // Denied with no prompt: the user turned it off earlier.
+            guard promptAppeared() else { throw LocalNetworkAccessDenied() }
+
+            _ = await activity.wait(until: { $0.isActive }, timeout: .seconds(60))
+            do {
+                return try await Self.probe(configuration)
+            } catch let retryError as URLError where isLocalNetworkDenied(retryError) {
+                // "Don't Allow".
+                throw LocalNetworkAccessDenied()
+            }
         }
     }
 

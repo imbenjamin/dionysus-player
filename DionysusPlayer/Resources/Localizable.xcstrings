@@ -535,6 +535,9 @@
     "Dionysus doesn't have access to your local network. Turn on Local Network for Dionysus in Settings, then scan again." : {
 
     },
+    "Dionysus doesn't have access to your local network. Turn on Local Network for Dionysus in Settings, then try again." : {
+
+    },
     "Dionysus needs the address of your Jellyfin server to get started." : {
 
     },
