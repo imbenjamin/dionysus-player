@@ -121,6 +121,8 @@ enum A11yID {
         static let favoriteButton = "assetDetail.favoriteButton"
         static let watchedButton = "assetDetail.watchedButton"
         static let unsupportedAudioMessage = "assetDetail.unsupportedAudioMessage"
+        /// `SeasonEpisodeList`'s empty state, for a season holding no episodes.
+        static let noEpisodesMessage = "assetDetail.noEpisodesMessage"
 
         /// A show's episode list row — its title/overview half (`onSelect`,
         /// which switches the page's own content to that episode in place,

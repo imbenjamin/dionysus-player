@@ -421,7 +421,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         // with `canDelete` cleared, and only `DELETE` refused in `startLoading`,
         // which has the method.
         case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission,
-             .slowLogoImage, .slowSubtitleFonts:
+             .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes:
             return nil
         case .serverError:
             return 500
@@ -464,12 +464,14 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return try encode(result(scoped(resumable)))
 
         case path.hasSuffix("/Shows/NextUp"):
+            guard UITestConfiguration.scenario != .showWithoutEpisodes else { return try encode(result([])) }
             return try encode(result(scoped([library.episodes[1]])))
 
         case path.hasSuffix("/Seasons"):
             return try encode(result(scoped(library.seasons)))
 
         case path.hasSuffix("/Episodes"):
+            guard UITestConfiguration.scenario != .showWithoutEpisodes else { return try encode(result([])) }
             let seasonID = query.first(where: { $0.name.caseInsensitiveCompare("SeasonId") == .orderedSame })?.value
             let episodes = seasonID.map { id in library.episodes.filter { $0.seasonId == id } } ?? library.episodes
             return try encode(result(scoped(episodes)))

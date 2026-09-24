@@ -69,6 +69,11 @@ enum UITestScenario: String {
     /// else can catch a change that makes them: on every other scenario the
     /// stub answers instantly, so a version that waited would still look fine.
     case slowSubtitleFonts
+
+    /// `.standard`'s catalogue with the series' seasons still listed but every
+    /// episode gone, and nothing in Next Up — a show the server lists ahead of
+    /// any episode arriving. Lets a test observe the show page's empty state.
+    case showWithoutEpisodes
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a
