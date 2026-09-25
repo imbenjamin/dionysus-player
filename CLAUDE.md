@@ -488,10 +488,14 @@ lead twice and draw every line late. Three things remain the app's job:
   re-delivers the line on screen as though it had just started.
 - **The engine re-measures only when a line starts**, so between a seek landing
   and that line `sourceTime` still carries the previous seek's lead (off by up
-  to 1.8s on device). `ASSSeekHold` paints nothing in that window (5s at most).
-- **Seeks are detected on item time** (`currentTime`, still item time on this
-  route), never on `sourceTime`, which jumps by the size of the correction
-  whenever the engine re-measures.
+  to 1.8s on device). `ASSSeekHold` paints nothing in that window, gated on the
+  engine's own `clock.sourceTimeFollowsPicture` (7.16.0, added upstream at this
+  app's request) rather than on seeks the app detects itself. The engine
+  re-assigns `false` at every time jump, so the sink must not deduplicate it.
+- **The hold gives up after 5s of playback**, because the flag only turns true
+  on a line the WebVTT rendition carries and libass can have things to draw
+  that it doesn't. That time is summed from small item-time steps, so a pause
+  never releases the hold and a seek never counts towards it.
 
 Direct play and offline never need any of this: there `sourceTime` is the
 source PTS.

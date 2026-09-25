@@ -35,15 +35,13 @@ protocol PlaybackEngine: AnyObject {
     /// Whether a PiP window is showing this session's video. `PlayerView` swaps
     /// the video surface for a placeholder while it is `true`.
     var onPictureInPictureActiveChange: ((Bool) -> Void)? { get set }
-    /// The lines AVKit presents for the selected subtitle track, with the item
-    /// time it presents them at, while `setNativeSubtitleCapture(true)` is in
-    /// effect. An empty list is a line ending. See `ASSSeekHold` for what this
-    /// is for.
-    var onNativeSubtitleCues: (([String], TimeInterval) -> Void)? { get set }
-    /// Called each time capture (re)attaches — on request, on a new item, and
-    /// on leaving PiP. AVKit then re-delivers whatever line is showing as
-    /// though it had just started, which must not be read as one.
-    var onNativeSubtitleCaptureAttached: (() -> Void)? { get set }
+    /// Every value AetherEngine publishes for `sourceTimeFollowsPicture`:
+    /// whether `onSourceTimeUpdate` is known to be on the picture. Always
+    /// `true` except on a server transcode, where it turns `false` at load and
+    /// at every time jump, and `true` once a presented line of the selected
+    /// rendition has re-measured the playhead's lead. A repeated `false` is
+    /// another jump. See `ASSSeekHold`.
+    var onSourceTimeFollowsPictureChange: ((Bool) -> Void)? { get set }
 
     /// Fonts the container carries as attachments, for rendering an authored
     /// ASS track that names one. AetherEngine reads them off its own probe, so
@@ -128,14 +126,12 @@ protocol PlaybackEngine: AnyObject {
 
     /// The server-transcode alternative to `setNativeSubtitleRendering(false)`
     /// for a track libass draws. The native rendition stays selected so AVKit
-    /// keeps timing it, but draws nothing, and reports each line through
-    /// `onNativeSubtitleCues` instead.
+    /// keeps timing it, but draws nothing.
     ///
     /// That timing is the only reliable measure of where the picture is on
     /// that route, and AetherEngine corrects `sourceTime` from it — see
-    /// `ASSSeekHold`. In PiP AVKit draws the
-    /// rendition itself again, since the app's overlay isn't in the captured
-    /// layer, and reporting resumes when PiP ends.
+    /// `ASSSeekHold`. In PiP AVKit draws the rendition itself again, since the
+    /// app's overlay isn't in the captured layer, and stops when PiP ends.
     func setNativeSubtitleCapture(_ active: Bool)
 
     /// A no-op when PiP isn't possible, so callers need no guard of their own.

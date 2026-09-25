@@ -59,8 +59,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
     var onSourceTimeUpdate: ((TimeInterval) -> Void)?
     var onPictureInPicturePossibleChange: ((Bool) -> Void)?
     var onPictureInPictureActiveChange: ((Bool) -> Void)?
-    var onNativeSubtitleCues: (([String], TimeInterval) -> Void)?
-    var onNativeSubtitleCaptureAttached: (() -> Void)?
+    var onSourceTimeFollowsPictureChange: ((Bool) -> Void)?
 
     /// Built around `engine.nativePlayerLayer`, so the native AVPlayer route
     /// only. Rebuilt from the `engine.$currentAVPlayer` sink below, which
@@ -284,6 +283,17 @@ final class AetherPlaybackEngine: PlaybackEngine {
             .sink { [weak self] sourceTime in
                 MainActor.assumeIsolated {
                     self?.onSourceTimeUpdate?(sourceTime)
+                }
+            }
+            .store(in: &cancellables)
+
+        // Not deduplicated: the engine re-assigns `false` at every time jump,
+        // and a repeated `false` is exactly what restarts `ASSSeekHold`'s wait.
+        engine.clock.$sourceTimeFollowsPicture
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] follows in
+                MainActor.assumeIsolated {
+                    self?.onSourceTimeFollowsPictureChange?(follows)
                 }
             }
             .store(in: &cancellables)
@@ -780,13 +790,10 @@ final class AetherPlaybackEngine: PlaybackEngine {
                 return
             }
             self.legibleCueTapAttachingItem = nil
-            self.legibleCueTap = LegibleCueTap(item: wanted) { [weak self] texts, itemTime in
-                self?.onNativeSubtitleCues?(texts, itemTime)
-            }
+            self.legibleCueTap = LegibleCueTap(item: wanted)
             if let group, let option {
                 wanted.select(option, in: group)
             }
-            self.onNativeSubtitleCaptureAttached?()
         }
     }
 
@@ -1178,53 +1185,25 @@ final class AetherPlaybackEngine: PlaybackEngine {
     }
 }
 
-// MARK: - AVPlayerItemLegibleOutputPushDelegate
+// MARK: - Legible output
 
-/// An `AVPlayerItemLegibleOutput` on one item, with rendering suppressed, that
-/// reports each set of lines AVPlayer would have drawn and the item time it
-/// would have drawn them at. See `AetherPlaybackEngine.setNativeSubtitleCapture`.
+/// An `AVPlayerItemLegibleOutput` on one item whose only job is
+/// `suppressesPlayerRendering`: AVPlayer stops drawing the selected rendition
+/// while it stays selected, so AetherEngine's own output can keep timing it.
+/// See `AetherPlaybackEngine.setNativeSubtitleCapture`.
 @MainActor
 private final class LegibleCueTap {
     private(set) weak var item: AVPlayerItem?
     private let output = AVPlayerItemLegibleOutput()
-    private let delegate: LegibleOutputDelegate
 
-    init(item: AVPlayerItem, onCues: @escaping @MainActor ([String], TimeInterval) -> Void) {
+    init(item: AVPlayerItem) {
         self.item = item
-        delegate = LegibleOutputDelegate(onCues: onCues)
         output.suppressesPlayerRendering = true
-        output.setDelegate(delegate, queue: .main)
         item.add(output)
     }
 
     func detach() {
-        output.setDelegate(nil, queue: nil)
         item?.remove(output)
-    }
-}
-
-/// Separate from `LegibleCueTap` because AVFoundation requires the delegate to
-/// be `Sendable`, which a main-actor class can't satisfy. It is only ever
-/// called on the main queue it was registered with.
-private final class LegibleOutputDelegate: NSObject, AVPlayerItemLegibleOutputPushDelegate, @unchecked Sendable {
-    private let onCues: @MainActor ([String], TimeInterval) -> Void
-
-    init(onCues: @escaping @MainActor ([String], TimeInterval) -> Void) {
-        self.onCues = onCues
-    }
-
-    func legibleOutput(
-        _ output: AVPlayerItemLegibleOutput,
-        didOutputAttributedStrings strings: [NSAttributedString],
-        nativeSampleBuffers nativeSamples: [Any],
-        forItemTime itemTime: CMTime
-    ) {
-        guard itemTime.isNumeric else { return }
-        let texts = strings.map(\.string)
-        let seconds = itemTime.seconds
-        MainActor.assumeIsolated {
-            onCues(texts, seconds)
-        }
     }
 }
 
