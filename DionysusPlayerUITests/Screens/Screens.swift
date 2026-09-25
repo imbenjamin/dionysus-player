@@ -766,6 +766,30 @@ struct DownloadsScreen: Screen {
 
 // MARK: - Profile
 
+/// Approving another device's code (`QuickConnectApprovalView`), pushed from
+/// the account details.
+struct QuickConnectApprovalScreen: Screen {
+    let app: XCUIApplication
+
+    var codeField: XCUIElement { app.textFields[A11yID.QuickConnectApproval.codeField] }
+    var authorizeButton: XCUIElement { app.buttons[A11yID.QuickConnectApproval.authorizeButton] }
+    var errorMessage: XCUIElement { app.descendants(matching: .any)[A11yID.QuickConnectApproval.errorMessage] }
+    var successMessage: XCUIElement { app.descendants(matching: .any)[A11yID.QuickConnectApproval.successMessage] }
+    var doneButton: XCUIElement { app.buttons[A11yID.QuickConnectApproval.doneButton] }
+
+    /// Replaces whatever is in the field, then taps Authorize. The field
+    /// takes focus on appear, but is tapped anyway so a retry after an error
+    /// doesn't depend on that.
+    func authorize(code: String, file: StaticString = #filePath, line: UInt = #line) {
+        codeField.tap()
+        if let current = codeField.value as? String, !current.isEmpty, current != codeField.placeholderValue {
+            codeField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
+        }
+        codeField.typeText(code)
+        authorizeButton.tap()
+    }
+}
+
 /// Covers only what's reachable through the account card — sign out and
 /// change server. Every other Profile row (`advancedPlaybackLink`,
 /// `licenseLink`, ...) sits behind a device-specific fork this screen object
@@ -813,6 +837,19 @@ struct ProfileScreen: Screen {
         let confirm = app.sheets.buttons["Sign Out"]
         confirm.awaitExistence("the sign-out confirmation dialog", file: file, line: line)
         confirm.tap()
+    }
+
+    var quickConnectRow: XCUIElement { app.buttons[A11yID.Profile.quickConnectRow] }
+
+    /// Opens the account details and pushes Quick Connect from them.
+    @discardableResult
+    func openQuickConnect(file: StaticString = #filePath, line: UInt = #line) -> QuickConnectApprovalScreen {
+        openAccountDetails(file: file, line: line)
+        quickConnectRow.awaitExistence("the Quick Connect row", file: file, line: line)
+        quickConnectRow.tap()
+        let screen = QuickConnectApprovalScreen(app: app)
+        screen.codeField.awaitExistence("the Quick Connect code field", file: file, line: line)
+        return screen
     }
 
     /// Taps Change Server, then the confirmation dialog's own Change Server

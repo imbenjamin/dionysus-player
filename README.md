@@ -79,8 +79,9 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
   the global permission), so it's invisible to accounts without the right.
   A local download of the same item can be removed at the same time.
 - **Accounts** — Jellyfin sign-in by password or Quick Connect (a code
-  approved from another signed-in client), silent session restore,
-  per-server config, profile/settings screen.
+  approved from another signed-in client), approving other devices' Quick
+  Connect codes from the Account screen, silent session restore, per-server
+  config, profile/settings screen.
 
 ### Downloads
 

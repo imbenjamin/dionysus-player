@@ -503,6 +503,21 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
                 authenticated: scenario != .quickConnectPending
             ))
 
+        case path.hasSuffix("/QuickConnect/Authorize"):
+            // With Quick Connect off, Jellyfin refuses with 401 before it
+            // looks at the code.
+            guard scenario != .quickConnectDisabled else {
+                return (401, Data("\"Quick connect is disabled\"".utf8), "application/json")
+            }
+            switch query.first(where: { $0.name == "code" })?.value {
+            case UITestFixtureIdentity.quickConnectApprovableCode:
+                return json(true)
+            case UITestFixtureIdentity.quickConnectUsedCode:
+                return (500, Data("Error processing request.".utf8), "text/plain")
+            default:
+                return (404, Data("Error processing request.".utf8), "text/plain")
+            }
+
         default:
             return (404, Data(), "application/json")
         }

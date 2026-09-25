@@ -207,6 +207,53 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(passwordSignIns, 1, "Only the explicit sign-in; the 401 must not replay it.")
     }
 
+    /// No `userId`: naming one needs admin rights unless it's the caller,
+    /// and leaving it out approves for whoever the token belongs to.
+    func test_authorizeQuickConnect_postsCodeWithTokenAndNoUserID() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, body: Data("true".utf8))
+        }
+
+        let approved = try await client.authorizeQuickConnect(code: "482913")
+
+        XCTAssertTrue(approved)
+        let request = try XCTUnwrap(MockURLProtocol.lastRequest)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/QuickConnect/Authorize")
+        XCTAssertEqual(request.url?.query, "code=482913")
+        XCTAssertTrue((request.value(forHTTPHeaderField: "Authorization") ?? "").contains(#"Token="tok""#))
+    }
+
+    /// With Quick Connect off, the server answers 401 — a refusal, not an
+    /// expired token. One re-authentication at most, then `.notPermitted`,
+    /// rather than the full ~7.5s backoff.
+    func test_authorizeQuickConnect_persistent401_reauthenticatesOnceOnly() async throws {
+        let client = makeClient()
+        var signIns = 0
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path == "/Users/AuthenticateByName" {
+                signIns += 1
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: AuthenticationResult(user: UserDto(id: "user-1", name: "ben"), accessToken: "tok-\(signIns)", serverId: nil)
+                )
+            }
+            return MockURLProtocol.jsonResponse(for: request, status: 401, body: Data(#""Quick connect is disabled""#.utf8))
+        }
+        try await client.authenticate(username: "ben", password: "pw")
+
+        do {
+            _ = try await client.authorizeQuickConnect(code: "482913")
+            XCTFail("Expected .notPermitted")
+        } catch JellyfinAPIError.notPermitted {
+            // expected
+        } catch {
+            XCTFail("Expected .notPermitted, got \(error)")
+        }
+        XCTAssertEqual(signIns, 2, "The explicit sign-in plus exactly one re-authentication.")
+    }
+
     func test_currentUser_getsUsersMe() async throws {
         let client = makeClient(accessToken: "qc-token")
         MockURLProtocol.requestHandler = { request in

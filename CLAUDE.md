@@ -276,8 +276,21 @@ Then, because there is no password:
 - **The instruction text names no menu path** ("open Quick Connect"), because
   where Quick Connect lives differs between Jellyfin clients.
 
-Approving other devices' codes from inside the app (`POST
-/QuickConnect/Authorize`) is not built yet.
+**The other direction — approving someone else's code — lives in the Account
+screen** (`QuickConnectApprovalView`, pushed from `AccountDetailsContent`,
+shown only when Quick Connect is enabled). `POST /QuickConnect/Authorize`
+answers, measured against 10.11.11: 200 `true`, **404** for an unknown or
+expired code, **500** for one already approved (an unhandled
+`InvalidOperationException`, indistinguishable from any other server error, so
+the message says both), and 401 with Quick Connect off. Two things about it:
+- **It sends no `userId`.** The server then approves for the caller; naming
+  another user needs admin rights and answers 403 otherwise.
+- **It runs with `maxReauthAttempts: 1`**, like `deleteItem`: its 401 is a
+  refusal, not an expired token. `QuickConnectApprovalViewModel` tells "turned
+  off" from "session expired" by asking `/QuickConnect/Enabled` again.
+
+There is no "approve this device?" step because there's nothing to show in
+one: only the requesting device can look up which device and app asked.
 
 **Server discovery** (`ServerDiscovery.swift`, Find Your Server → Scan for
 Servers) speaks Jellyfin's UDP auto-discovery protocol — `who is
