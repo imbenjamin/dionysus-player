@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last updated: September 24, 2026**
+**Last updated: September 25, 2026**
 
 Dionysus Player is a client for [Jellyfin](https://jellyfin.org) media
 servers. It has no backend of its own: everything the app does happens
@@ -20,7 +20,8 @@ All of the following stays on your device, in Apple's Keychain or app
 storage, and is never sent anywhere except where noted:
 
 - **Account credentials** — your Jellyfin username, password (if your
-  account has one), and access token, stored in the iOS Keychain.
+  account has one and you signed in with it — signing in with Quick Connect
+  stores no password at all), and access token, stored in the iOS Keychain.
 - **Server address** — the URL of the Jellyfin server you configured.
 - **A random device identifier** — a UUID generated once on first launch,
   used only to identify this app installation to your Jellyfin server (the

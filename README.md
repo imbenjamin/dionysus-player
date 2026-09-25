@@ -78,8 +78,9 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
   per-item `CanDelete`, which respects per-folder delete rights, not just
   the global permission), so it's invisible to accounts without the right.
   A local download of the same item can be removed at the same time.
-- **Accounts** — Jellyfin sign-in with silent session restore, per-server
-  config, profile/settings screen.
+- **Accounts** — Jellyfin sign-in by password or Quick Connect (a code
+  approved from another signed-in client), silent session restore,
+  per-server config, profile/settings screen.
 
 ### Downloads
 

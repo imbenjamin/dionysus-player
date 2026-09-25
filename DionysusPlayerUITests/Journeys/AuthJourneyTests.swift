@@ -39,6 +39,90 @@ final class AuthJourneyTests: UITestCase {
         XCTAssertTrue(login.usernameField.exists, "A failed sign-in should leave the login form on screen.")
     }
 
+    /// Quick Connect end to end: Login offers it, the sheet shows the code
+    /// the server issued, and once the stub approves it on the first poll the
+    /// app signs in without a username or password ever being typed.
+    func testQuickConnectSignsIn() {
+        launch(signedIn: false)
+        ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
+
+        let login = LoginScreen(app: app)
+        login.awaitLoaded()
+        login.quickConnectButton.awaitExistence("the Quick Connect button")
+        login.quickConnectButton.tap()
+
+        QuickConnectScreen(app: app).awaitCode(UITestFixtureIdentity.quickConnectCode(1))
+        HomeScreen(app: app).awaitLoaded()
+    }
+
+    /// A Quick Connect session has no password, so launch restores it by
+    /// checking its token (`GET /Users/Me`) rather than signing in again. A
+    /// relaunch that fell back to the password path would post an empty
+    /// password, which the stub refuses, and land on Login instead.
+    func testQuickConnectSessionSurvivesRelaunch() {
+        testQuickConnectSignsIn()
+        app.terminate()
+
+        launch(signedIn: false, resetsState: false)
+        HomeScreen(app: app).awaitLoaded()
+    }
+
+    /// An expired code (Jellyfin's 404, after 10 minutes) offers a new one,
+    /// and the new one signs in.
+    func testExpiredQuickConnectCodeCanBeReplaced() {
+        launch(scenario: "quickConnectExpiring", signedIn: false)
+        ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
+
+        let login = LoginScreen(app: app)
+        login.awaitLoaded()
+        login.quickConnectButton.awaitExistence("the Quick Connect button")
+        login.quickConnectButton.tap()
+
+        let quickConnect = QuickConnectScreen(app: app)
+        quickConnect.newCodeButton.awaitExistence("the Get New Code button")
+        quickConnect.errorMessage.awaitExistence("the expiry message")
+        quickConnect.newCodeButton.tap()
+
+        quickConnect.awaitCode(UITestFixtureIdentity.quickConnectCode(2))
+        HomeScreen(app: app).awaitLoaded()
+    }
+
+    /// Cancelling the sheet returns to the login form, still signed out.
+    func testCancellingQuickConnectReturnsToLogin() {
+        launch(scenario: "quickConnectPending", signedIn: false)
+        ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
+
+        let login = LoginScreen(app: app)
+        login.awaitLoaded()
+        login.quickConnectButton.awaitExistence("the Quick Connect button")
+        login.quickConnectButton.tap()
+
+        let quickConnect = QuickConnectScreen(app: app)
+        quickConnect.awaitCode(UITestFixtureIdentity.quickConnectCode(1))
+        quickConnect.cancelButton.tap()
+
+        XCTAssertTrue(
+            quickConnect.code.waitForNonExistence(timeout: UITestCase.defaultTimeout),
+            "Cancel should close the Quick Connect sheet."
+        )
+        XCTAssertTrue(login.usernameField.exists, "Cancelling should leave the login form on screen.")
+    }
+
+    /// A server with Quick Connect turned off gets no button for it.
+    func testQuickConnectIsHiddenWhenTheServerDisablesIt() {
+        launch(scenario: "quickConnectDisabled", signedIn: false)
+        ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
+
+        let login = LoginScreen(app: app)
+        login.awaitLoaded()
+        // The stub answers `/QuickConnect/Enabled` immediately, so a button
+        // that was going to appear would have by now.
+        XCTAssertFalse(
+            login.quickConnectButton.waitForExistence(timeout: 3),
+            "Login shouldn't offer Quick Connect on a server that has it turned off."
+        )
+    }
+
     /// Scanning lists the server `UITestServerDiscovery` answers with, and
     /// picking it connects exactly as typing its address would — through the
     /// stub's `/System/Info/Public` — landing on Login with no typing at all.

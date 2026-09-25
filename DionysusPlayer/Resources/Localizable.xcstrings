@@ -42,15 +42,6 @@
         }
       }
     },
-    "%@'s security certificate can't be verified, but the server also answers over unencrypted HTTP at %@. Your password and everything you watch would be sent without encryption, readable by others on this network." : {
-
-    },
-    "%@'s security certificate can't be verified. If the server also accepts unencrypted HTTP connections, enter the port it uses for them." : {
-
-    },
-    "%@'s security certificate isn't valid for %@." : {
-
-    },
     "%@, %@" : {
       "localizations" : {
         "en" : {
@@ -83,6 +74,15 @@
           }
         }
       }
+    },
+    "%@'s security certificate can't be verified, but the server also answers over unencrypted HTTP at %@. Your password and everything you watch would be sent without encryption, readable by others on this network." : {
+
+    },
+    "%@'s security certificate can't be verified. If the server also accepts unencrypted HTTP connections, enter the port it uses for them." : {
+
+    },
+    "%@'s security certificate isn't valid for %@." : {
+
     },
     "%lld" : {
 
@@ -399,6 +399,9 @@
     "Couldn't fetch playback info for this item." : {
 
     },
+    "Couldn't get a Quick Connect code from the server." : {
+
+    },
     "Couldn't load this collection." : {
 
     },
@@ -677,6 +680,9 @@
     "Genres" : {
 
     },
+    "Get New Code" : {
+
+    },
     "gigabytes" : {
 
     },
@@ -726,6 +732,9 @@
 
     },
     "Look for Jellyfin servers on the same Wi-Fi network as this device." : {
+
+    },
+    "Lost contact with the server while waiting for approval." : {
 
     },
     "Mark as Unwatched" : {
@@ -816,6 +825,9 @@
 
     },
     "OK" : {
+
+    },
+    "On a device already signed in to %@, open Quick Connect and enter this code." : {
 
     },
     "Open Dionysus Player on GitHub" : {
@@ -920,6 +932,9 @@
     "Queued…" : {
 
     },
+    "Quick Connect" : {
+
+    },
     "Random Item" : {
 
     },
@@ -960,6 +975,9 @@
 
     },
     "Renders the fonts, colours and on-screen positioning authored into ASS and SSA subtitles. Turn this off to show them as plain text instead. Other subtitle formats are unaffected." : {
+
+    },
+    "Requesting a code" : {
 
     },
     "Reset" : {
@@ -1109,6 +1127,9 @@
     "Sign In" : {
 
     },
+    "Sign In with Quick Connect" : {
+
+    },
     "Sign Out" : {
 
     },
@@ -1116,6 +1137,9 @@
 
     },
     "Signing In" : {
+
+    },
+    "Signing In…" : {
 
     },
     "Simultaneous Downloads" : {
@@ -1190,6 +1214,9 @@
     "That doesn't look like a valid server address." : {
 
     },
+    "The code was approved, but signing in failed. Try again." : {
+
+    },
     "The connection to the server kept dropping and the download couldn't finish. Check your network and try again." : {
 
     },
@@ -1254,6 +1281,9 @@
 
     },
     "This clears every custom bitrate you've set above. It can't be undone." : {
+
+    },
+    "This code has expired." : {
 
     },
     "This creates \"%@\" and adds \"%@\" to it." : {
@@ -1350,6 +1380,9 @@
 
     },
     "Visible to Everyone" : {
+
+    },
+    "Waiting for approval…" : {
 
     },
     "Watched" : {

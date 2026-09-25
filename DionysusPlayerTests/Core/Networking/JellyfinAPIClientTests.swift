@@ -66,6 +66,161 @@ final class JellyfinAPIClientTests: XCTestCase {
         }
     }
 
+    // MARK: Quick Connect
+
+    func test_quickConnectEnabled_decodesBareBooleanWithoutAToken() async throws {
+        // A leftover token from before a sign-out must not ride along.
+        let client = makeClient(accessToken: "previous-session")
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, body: Data("true".utf8))
+        }
+
+        let enabled = try await client.quickConnectEnabled()
+
+        XCTAssertTrue(enabled)
+        let request = try XCTUnwrap(MockURLProtocol.lastRequest)
+        XCTAssertEqual(request.url?.path, "/QuickConnect/Enabled")
+        XCTAssertFalse((request.value(forHTTPHeaderField: "Authorization") ?? "").contains("Token="))
+    }
+
+    /// The server builds the eventual session from the device fields in the
+    /// header and throws without any of them, so they must be there even
+    /// though no token is.
+    func test_initiateQuickConnect_postsWithDeviceIdentityAndDecodesCode() async throws {
+        let client = makeClient()
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, body: Data(#"""
+                {"Authenticated":false,"Secret":"abc123","Code":"482913","DeviceId":"d","DeviceName":"n",
+                 "AppName":"a","AppVersion":"1","DateAdded":"2026-09-25T09:00:00.0000000Z"}
+                """#.utf8))
+        }
+
+        let result = try await client.initiateQuickConnect()
+
+        XCTAssertEqual(result, QuickConnectResult(secret: "abc123", code: "482913", authenticated: false))
+        let request = try XCTUnwrap(MockURLProtocol.lastRequest)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/QuickConnect/Initiate")
+        let header = request.value(forHTTPHeaderField: "Authorization") ?? ""
+        for field in ["Client=", "Device=", "DeviceId=", "Version="] {
+            XCTAssertTrue(header.contains(field), "Missing \(field) in \(header)")
+        }
+        XCTAssertFalse(header.contains("Token="))
+    }
+
+    func test_quickConnectState_sendsSecretAsQuery() async throws {
+        let client = makeClient()
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request,
+                value: QuickConnectResult(secret: "abc123", code: "482913", authenticated: true)
+            )
+        }
+
+        let result = try await client.quickConnectState(secret: "abc123")
+
+        XCTAssertTrue(result.authenticated)
+        let request = try XCTUnwrap(MockURLProtocol.lastRequest)
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertEqual(request.url?.path, "/QuickConnect/Connect")
+        XCTAssertEqual(request.url?.query, "secret=abc123")
+    }
+
+    /// Jellyfin forgets a code 10 minutes after issuing it and answers 404,
+    /// which `QuickConnectViewModel` reads as "expired". It must stay a raw
+    /// `.http(404)` for that to work.
+    func test_quickConnectState_unknownSecret_throwsHTTP404() async {
+        let client = makeClient()
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 404, body: Data(#""Unknown secret""#.utf8))
+        }
+
+        do {
+            _ = try await client.quickConnectState(secret: "gone")
+            XCTFail("Expected a 404")
+        } catch JellyfinAPIError.http(status: 404, message: _) {
+            // expected
+        } catch {
+            XCTFail("Expected .http(404), got \(error)")
+        }
+    }
+
+    func test_authenticateWithQuickConnect_postsSecretAndStoresToken() async throws {
+        let client = makeClient()
+        MockURLProtocol.requestHandler = { request in
+            let body = try JSONDecoder().decode([String: String].self, from: request.capturedHTTPBody ?? Data())
+            XCTAssertEqual(body, ["Secret": "abc123"])
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request,
+                value: AuthenticationResult(user: UserDto(id: "user-1", name: "ben"), accessToken: "qc-token", serverId: nil)
+            )
+        }
+
+        let result = try await client.authenticateWithQuickConnect(secret: "abc123")
+
+        XCTAssertEqual(result.user.id, "user-1")
+        let token = await client.accessToken
+        XCTAssertEqual(token, "qc-token")
+        let request = try XCTUnwrap(MockURLProtocol.lastRequest)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/Users/AuthenticateWithQuickConnect")
+    }
+
+    /// A Quick Connect session has no password, so a 401 must not
+    /// re-authenticate — least of all with a password sign-in this same client
+    /// made earlier, which would silently swap users.
+    func test_401_afterQuickConnect_doesNotReauthenticateWithEarlierPassword() async throws {
+        let client = makeClient()
+        var passwordSignIns = 0
+        var quickConnectDone = false
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/AuthenticateByName":
+                passwordSignIns += 1
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: AuthenticationResult(user: UserDto(id: "someone-else", name: "other"), accessToken: "pw-token", serverId: nil)
+                )
+            case "/Users/AuthenticateWithQuickConnect":
+                quickConnectDone = true
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: AuthenticationResult(user: UserDto(id: "user-1", name: "ben"), accessToken: "qc-token", serverId: nil)
+                )
+            default:
+                XCTAssertTrue(quickConnectDone)
+                return MockURLProtocol.jsonResponse(for: request, status: 401, body: Self.jellyfinHTML401Body)
+            }
+        }
+
+        try await client.authenticate(username: "other", password: "pw")
+        try await client.authenticateWithQuickConnect(secret: "abc123")
+
+        do {
+            _ = try await client.userViews(userID: "user-1")
+            XCTFail("Expected .notAuthenticated")
+        } catch JellyfinAPIError.notAuthenticated {
+            // expected
+        } catch {
+            XCTFail("Expected .notAuthenticated, got \(error)")
+        }
+        XCTAssertEqual(passwordSignIns, 1, "Only the explicit sign-in; the 401 must not replay it.")
+    }
+
+    func test_currentUser_getsUsersMe() async throws {
+        let client = makeClient(accessToken: "qc-token")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: UserDto(id: "user-1", name: "ben"))
+        }
+
+        let user = try await client.currentUser()
+
+        XCTAssertEqual(user.id, "user-1")
+        let request = try XCTUnwrap(MockURLProtocol.lastRequest)
+        XCTAssertEqual(request.url?.path, "/Users/Me")
+        XCTAssertTrue((request.value(forHTTPHeaderField: "Authorization") ?? "").contains(#"Token="qc-token""#))
+    }
+
     // MARK: 401 auto re-authentication
     //
     // Confirmed live against a heavily-shared public demo server: a

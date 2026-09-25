@@ -29,6 +29,10 @@ enum UITestFixtureIdentity {
 
     /// A second editable playlist, so the picker has more than one row and a
     /// test can add to a playlist other than the one it inspects.
+    /// The Quick Connect code the stub issues for the `number`-th request of
+    /// a run, 1-based, so a journey can tell a fresh code from an expired one.
+    static func quickConnectCode(_ number: Int) -> String { String(format: "48291%d", number % 10) }
+
     static let secondPlaylistID = "playlist-late-night"
     static let secondPlaylistName = "Late Night"
 

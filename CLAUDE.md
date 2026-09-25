@@ -252,6 +252,33 @@ token header this keys off. `AppState.signOut()` clears the remembered
 credentials on the client it reuses across a sign-out/sign-back-in, so a
 request still in flight around sign-out can't silently re-authenticate as
 the just-signed-out user.
+
+**Quick Connect sessions have no password, and that shapes three things.**
+Login offers "Sign In with Quick Connect" when `/QuickConnect/Enabled` says so
+(`QuickConnectView`/`QuickConnectViewModel`): the server issues a 6-digit code,
+the user approves it on another signed-in client, and the approved secret is
+exchanged via `/Users/AuthenticateWithQuickConnect` for an ordinary session.
+Behaviour read from `QuickConnectManager.cs` (10.11 and 12.z agree) and checked
+against the LAN test server: a code expires 10 minutes after it's issued, after
+which polling its secret answers **404**, which is how expiry is detected.
+Then, because there is no password:
+- **`StoredCredentials.authMethod` says which kind of session it is**, and launch
+  branches on it. A `.quickConnect` session validates its stored token with
+  `GET /Users/Me` instead of signing in again. It is explicit rather than
+  inferred from `password == nil` because passwordless accounts sign in by
+  password too and store `""`. It decodes as `.password` when absent, which is
+  every keychain entry written before it existed.
+- **A mid-session 401 can't recover.** `authenticateWithQuickConnect` clears
+  `reauthCredentials`, so `sendRaw` surfaces `.notAuthenticated` at once —
+  and never replays an earlier password sign-in on the same client, which would
+  silently swap users. Jellyfin tokens don't expire on their own, so this only
+  happens when the session is revoked server-side.
+- **The instruction text names no menu path** ("open Quick Connect"), because
+  where Quick Connect lives differs between Jellyfin clients.
+
+Approving other devices' codes from inside the app (`POST
+/QuickConnect/Authorize`) is not built yet.
+
 **Server discovery** (`ServerDiscovery.swift`, Find Your Server → Scan for
 Servers) speaks Jellyfin's UDP auto-discovery protocol — `who is
 JellyfinServer?` to port 7359, answered with `{Address, Id, Name}` — but

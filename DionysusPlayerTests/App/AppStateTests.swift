@@ -129,6 +129,82 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(appState.phase, .login)
     }
 
+    // MARK: start() — Quick Connect sessions
+
+    /// No password to sign in with again, so the stored token is checked
+    /// instead — and `AuthenticateByName` is never called with an empty one.
+    func test_start_quickConnectSession_validatesTokenInsteadOfSigningIn() async throws {
+        let store = ServerSessionStore(defaults: defaults)
+        store.saveServer(exampleServer)
+        store.saveCredentials(StoredCredentials(
+            username: "ben", password: nil, accessToken: "qc-token", userID: "user-1", authMethod: .quickConnect
+        ))
+        var paths: [String] = []
+        MockURLProtocol.requestHandler = { request in
+            paths.append(request.url?.path ?? "")
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: UserDto(id: "user-1", name: "ben"))
+        }
+        let appState = AppState(sessionStore: store)
+
+        await appState.start()
+
+        XCTAssertEqual(appState.phase, .main)
+        XCTAssertEqual(appState.currentUser?.id, "user-1")
+        XCTAssertEqual(paths, ["/Users/Me"])
+        let token = await appState.apiClient?.accessToken
+        XCTAssertEqual(token, "qc-token")
+    }
+
+    func test_start_quickConnectSessionRevoked_fallsBackToLogin() async {
+        let store = ServerSessionStore(defaults: defaults)
+        store.saveServer(exampleServer)
+        store.saveCredentials(StoredCredentials(
+            username: "ben", password: nil, accessToken: "revoked", userID: "user-1", authMethod: .quickConnect
+        ))
+        MockURLProtocol.requestHandler = { request in MockURLProtocol.jsonResponse(for: request, status: 401, body: Data()) }
+        let appState = AppState(sessionStore: store)
+
+        await appState.start()
+
+        XCTAssertEqual(appState.phase, .login)
+    }
+
+    func test_start_quickConnectSessionServerUnreachable_resumesFromCache() async {
+        let store = ServerSessionStore(defaults: defaults)
+        store.saveServer(exampleServer)
+        store.saveCredentials(StoredCredentials(
+            username: "ben", password: nil, accessToken: "qc-token", userID: "user-1", authMethod: .quickConnect
+        ))
+        MockURLProtocol.requestHandler = { _ in throw URLError(.cannotConnectToHost) }
+        let appState = AppState(sessionStore: store)
+
+        await appState.start()
+
+        XCTAssertEqual(appState.phase, .main)
+        let token = await appState.apiClient?.accessToken
+        XCTAssertEqual(token, "qc-token")
+    }
+
+    func test_signInWithQuickConnect_savesTokenOnlyCredentials() async throws {
+        let appState = makeAppState()
+        appState.completeServerSetup(exampleServer)
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request,
+                value: AuthenticationResult(user: UserDto(id: "user-1", name: "ben"), accessToken: "qc-token", serverId: nil)
+            )
+        }
+
+        try await appState.signInWithQuickConnect(secret: "abc123")
+
+        XCTAssertEqual(appState.phase, .main)
+        XCTAssertEqual(appState.currentUser?.id, "user-1")
+        XCTAssertEqual(
+            appState.sessionStore.credentials,
+            StoredCredentials(username: "ben", password: nil, accessToken: "qc-token", userID: "user-1", authMethod: .quickConnect)
+        )
+    }
+
     // MARK: completeServerSetup / signIn / signOut / changeServer
 
     func test_completeServerSetup_savesServerAndMovesToLogin() {

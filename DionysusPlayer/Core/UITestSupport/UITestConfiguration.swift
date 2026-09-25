@@ -80,6 +80,20 @@ enum UITestScenario: String {
     /// plain-HTTP fallback then has to ask the user for the port (see
     /// `ServerSetupViewModel.httpPortRequest`), which any other port satisfies.
     case customHTTPPort
+
+    /// `.standard`, but `/QuickConnect/Enabled` answers `false`, so Login
+    /// offers no Quick Connect button.
+    case quickConnectDisabled
+
+    /// `.standard`, but the first Quick Connect code expires on its first poll
+    /// (404, as Jellyfin answers once the code is 10 minutes old). A second
+    /// code is approved as usual, so "Get New Code" can recover.
+    case quickConnectExpiring
+
+    /// `.standard`, but no Quick Connect code is ever approved, so the sheet
+    /// holds still on its code for as long as a test needs — an audit of it
+    /// would otherwise race the approval that closes it.
+    case quickConnectPending
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a

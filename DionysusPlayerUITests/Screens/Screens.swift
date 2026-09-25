@@ -133,6 +133,7 @@ struct LoginScreen: Screen {
     var signInButton: XCUIElement { app.buttons[A11yID.Login.signInButton] }
     var changeServerButton: XCUIElement { app.buttons[A11yID.Login.changeServerButton] }
     var errorMessage: XCUIElement { app.descendants(matching: .any)[A11yID.Login.errorMessage] }
+    var quickConnectButton: XCUIElement { app.buttons[A11yID.Login.quickConnectButton] }
 
     func awaitLoaded(file: StaticString = #filePath, line: UInt = #line) {
         usernameField.awaitExistence("the username field", file: file, line: line)
@@ -145,6 +146,35 @@ struct LoginScreen: Screen {
         passwordField.tap()
         passwordField.typeText(password)
         signInButton.tap()
+    }
+}
+
+struct QuickConnectScreen: Screen {
+    let app: XCUIApplication
+
+    /// The `Text` showing the code. Its label is the digits spelled out for
+    /// VoiceOver, so a journey matches a code with `code(_:)`, not by label.
+    var code: XCUIElement { app.staticTexts[A11yID.QuickConnect.code] }
+    var cancelButton: XCUIElement { app.buttons[A11yID.QuickConnect.cancelButton] }
+    var newCodeButton: XCUIElement { app.buttons[A11yID.QuickConnect.newCodeButton] }
+    var errorMessage: XCUIElement { app.descendants(matching: .any)[A11yID.QuickConnect.errorMessage] }
+
+    /// Whether the code on screen is `expected`. Digits aren't localized, so
+    /// comparing the spoken label is safe here, unlike a word label.
+    func isShowing(code expected: String) -> Bool {
+        code.exists && code.label.replacingOccurrences(of: " ", with: "") == expected
+    }
+
+    func awaitCode(_ expected: String, file: StaticString = #filePath, line: UInt = #line) {
+        let shown = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in isShowing(code: expected) },
+            object: nil
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [shown], timeout: UITestCase.defaultTimeout), .completed,
+            "Quick Connect should show code \(expected); showing \"\(code.exists ? code.label : "nothing")\".",
+            file: file, line: line
+        )
     }
 }
 

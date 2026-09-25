@@ -64,6 +64,15 @@ enum A11yID {
         static let signInButton = "login.signInButton"
         static let changeServerButton = "login.changeServerButton"
         static let errorMessage = "login.errorMessage"
+        /// Present only when the server reports Quick Connect enabled.
+        static let quickConnectButton = "login.quickConnectButton"
+    }
+
+    enum QuickConnect {
+        static let code = "quickConnect.code"
+        static let cancelButton = "quickConnect.cancelButton"
+        static let newCodeButton = "quickConnect.newCodeButton"
+        static let errorMessage = "quickConnect.errorMessage"
     }
 
     /// iPad only, in practice. SwiftUI's floating tab bar keeps an
