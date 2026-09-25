@@ -321,6 +321,8 @@ enum A11yID {
         static let accountSheet = "profile.accountSheet"
         static let signOutButton = "profile.signOutButton"
         static let changeServerButton = "profile.changeServerButton"
+        /// Present only when the server reports Quick Connect enabled.
+        static let quickConnectRow = "profile.quickConnectRow"
         static let advancedPlaybackLink = "profile.advancedPlaybackLink"
         static let styledSubtitlesToggle = "profile.styledSubtitlesToggle"
         static let downloadsSettingsLink = "profile.downloadsSettingsLink"
@@ -331,6 +333,15 @@ enum A11yID {
 
     /// Shared across every surface that renders a media tile, so a test can
     /// address one specific item wherever it appears.
+    /// Approving another device's code, pushed from the Account screen.
+    enum QuickConnectApproval {
+        static let codeField = "quickConnectApproval.codeField"
+        static let authorizeButton = "quickConnectApproval.authorizeButton"
+        static let errorMessage = "quickConnectApproval.errorMessage"
+        static let successMessage = "quickConnectApproval.successMessage"
+        static let doneButton = "quickConnectApproval.doneButton"
+    }
+
     enum Media {
         static func card(_ itemID: String) -> String { "media.card.\(itemID)" }
 

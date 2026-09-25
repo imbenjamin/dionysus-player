@@ -145,6 +145,35 @@ actor JellyfinAPIClient {
         return result
     }
 
+    /// Approves another device's pending code, signing that device in as the
+    /// current user. The other half of the flow above, run from the device
+    /// that is already signed in.
+    ///
+    /// No `userId`: the server then approves for whoever the token belongs
+    /// to, while naming anyone else needs admin rights (403 otherwise).
+    ///
+    /// Answers, measured against 10.11.11: 200 `true`; 404 for a code that
+    /// doesn't exist or has expired; **500** for one already approved (an
+    /// unhandled `InvalidOperationException` — indistinguishable from any
+    /// other server error); 401 with Quick Connect turned off.
+    ///
+    /// `maxReauthAttempts: 1` for the same reason as `deleteItem`: that 401 is
+    /// a refusal, not an expired token, and the default budget would spend
+    /// ~7.5s re-signing-in before reporting it.
+    func authorizeQuickConnect(code: String) async throws -> Bool {
+        let request = try makeRequest(
+            path: "/QuickConnect/Authorize",
+            method: "POST",
+            query: [URLQueryItem(name: "code", value: code)]
+        )
+        let data = try await sendRaw(request, maxReauthAttempts: 1)
+        do {
+            return try JellyfinJSON.decoder.decode(Bool.self, from: data)
+        } catch {
+            throw JellyfinAPIError.decoding(error)
+        }
+    }
+
     // MARK: - Browsing
 
     // `Genres`/`Studios` must be named explicitly or the server omits them;

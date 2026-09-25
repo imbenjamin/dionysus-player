@@ -33,6 +33,13 @@ enum UITestFixtureIdentity {
     /// a run, 1-based, so a journey can tell a fresh code from an expired one.
     static func quickConnectCode(_ number: Int) -> String { String(format: "48291%d", number % 10) }
 
+    /// Codes another device is "waiting on", for approving from the Account
+    /// screen. The stub authorizes the first, answers the second as Jellyfin
+    /// does an already-approved code (500), and any other code as unknown or
+    /// expired (404).
+    static let quickConnectApprovableCode = "246810"
+    static let quickConnectUsedCode = "135790"
+
     static let secondPlaylistID = "playlist-late-night"
     static let secondPlaylistName = "Late Night"
 

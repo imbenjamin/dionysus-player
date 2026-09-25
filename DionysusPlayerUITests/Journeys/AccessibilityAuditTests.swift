@@ -230,6 +230,26 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen()
     }
 
+    func testQuickConnectApprovalHasNoAccessibilityIssues() throws {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).openQuickConnect()
+
+        try auditCurrentScreen()
+    }
+
+    func testQuickConnectApprovalSuccessHasNoAccessibilityIssues() throws {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        let quickConnect = ProfileScreen(app: app).openQuickConnect()
+        quickConnect.authorize(code: UITestFixtureIdentity.quickConnectApprovableCode)
+        quickConnect.successMessage.awaitExistence("the signed-in confirmation")
+
+        try auditCurrentScreen()
+    }
+
     // MARK: - State screens
 
     /// The offline branch renders `OfflineStateView` in place of the normal
