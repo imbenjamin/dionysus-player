@@ -75,7 +75,9 @@ struct AccountDetailsContent: View {
             }
         }
         .confirmationDialog(
-            "Sign out of \(appState.currentUser?.name ?? "your account")?",
+            // The server, not the user: you sign out *of* a server, and the
+            // username is already on the sheet behind this dialog.
+            "Sign out of \(appState.sessionStore.serverConfiguration?.name ?? String(localized: "your server"))?",
             isPresented: $showSignOutConfirmation,
             titleVisibility: .visible
         ) {
