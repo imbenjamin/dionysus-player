@@ -16,6 +16,7 @@ struct LoginView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel = LoginViewModel()
     @FocusState private var focusedField: Field?
+    @State private var isShowingQuickConnect = false
 
     var body: some View {
         ScrollView {
@@ -80,11 +81,21 @@ struct LoginView: View {
             guard let message else { return }
             AccessibilityNotification.Announcement(message).post()
         }
+        .task { await viewModel.loadQuickConnectAvailability(using: appState) }
+        .sheet(isPresented: $isShowingQuickConnect) {
+            if let client = appState.apiClient {
+                QuickConnectView(client: client, serverName: serverName)
+            }
+        }
+    }
+
+    private var serverName: String {
+        appState.sessionStore.serverConfiguration?.name ?? String(localized: "Your Server")
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(appState.sessionStore.serverConfiguration?.name ?? String(localized: "Your Server"))
+            Text(serverName)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             Text("Welcome Back")
@@ -112,6 +123,21 @@ struct LoginView: View {
             .accessibilityLabel("Sign In")
             .accessibilityIdentifier(A11yID.Login.signInButton)
             .accessibilityValue(viewModel.isSigningIn ? String(localized: "Signing In") : "")
+
+            if viewModel.isQuickConnectAvailable {
+                Button {
+                    focusedField = nil
+                    isShowingQuickConnect = true
+                } label: {
+                    Text("Sign In with Quick Connect")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(viewModel.isSigningIn)
+                .accessibilityIdentifier(A11yID.Login.quickConnectButton)
+                .padding(.top, 4)
+            }
 
             // Stays visually tertiary — footnote text, no button styling
             // — but gets a real target. As a bare `Button` its tappable

@@ -69,7 +69,12 @@ final class AppState {
         }
 
         do {
-            try await signIn(username: credentials.username, password: credentials.password ?? "", client: client)
+            switch credentials.authMethod {
+            case .password:
+                try await signIn(username: credentials.username, password: credentials.password ?? "", client: client)
+            case .quickConnect:
+                try await resumeQuickConnectSession(credentials, client: client)
+            }
         } catch {
             // `ConnectivityMonitor` reflects this specific attempt's outcome
             // since `sendRaw`'s reporting call is awaited inline in the same
@@ -81,8 +86,11 @@ final class AppState {
             // A connectivity failure instead resumes the last known session
             // from cache rather than stalling on a separate offline phase —
             // `credentials.accessToken`/`.userID` are always populated here,
-            // since `saveCredentials` is only ever called from this same
-            // `signIn()`'s success path below. `currentUser` stays `nil`
+            // since `saveCredentials` is only ever called from the success
+            // paths of `signIn()` and `signInWithQuickConnect` below. A Quick
+            // Connect session restores with no password, so once connectivity
+            // returns a 401 has nothing to re-authenticate with and surfaces
+            // as `.notAuthenticated`. `currentUser` stays `nil`
             // until a real sign-in eventually succeeds; everywhere that
             // needs the signed-in user's ID falls back to
             // `sessionStore.credentials?.userID` in the meantime (see e.g.
@@ -90,7 +98,11 @@ final class AppState {
             if ConnectivityMonitor.shared.isOffline,
                let accessToken = credentials.accessToken,
                credentials.userID != nil {
-                await client.restoreSession(accessToken: accessToken, username: credentials.username, password: credentials.password ?? "")
+                await client.restoreSession(
+                    accessToken: accessToken,
+                    username: credentials.username,
+                    password: credentials.authMethod == .password ? credentials.password ?? "" : nil
+                )
                 phase = .main
             } else {
                 phase = .login
@@ -122,6 +134,38 @@ final class AppState {
         ))
         phase = .main
         return result.user
+    }
+
+    /// Completes a Quick Connect sign-in once another client has approved
+    /// the code: exchanges the approved `secret` for a session. The username
+    /// is stored so the login screen can still prefill it after a sign-out.
+    @discardableResult
+    func signInWithQuickConnect(secret: String) async throws -> UserDto {
+        guard let client = apiClient else { throw JellyfinAPIError.invalidServerAddress }
+        let result = try await client.authenticateWithQuickConnect(secret: secret)
+        currentUser = result.user
+        sessionStore.saveCredentials(StoredCredentials(
+            username: result.user.name,
+            password: nil,
+            accessToken: result.accessToken,
+            userID: result.user.id,
+            authMethod: .quickConnect
+        ))
+        phase = .main
+        return result.user
+    }
+
+    /// Launch-time counterpart of `signIn` for a Quick Connect session, which
+    /// has no password to sign in with again: its stored token is the whole
+    /// credential, so this checks it still works. A token the server has
+    /// revoked answers 401 and throws, landing on `.login` like a stale
+    /// password does; an unreachable server throws a connectivity error,
+    /// which `start()` resumes from cache.
+    private func resumeQuickConnectSession(_ credentials: StoredCredentials, client: JellyfinAPIClient) async throws {
+        guard let accessToken = credentials.accessToken else { throw JellyfinAPIError.notAuthenticated }
+        await client.restoreSession(accessToken: accessToken, username: credentials.username, password: nil)
+        currentUser = try await client.currentUser()
+        phase = .main
     }
 
     func signOut() {

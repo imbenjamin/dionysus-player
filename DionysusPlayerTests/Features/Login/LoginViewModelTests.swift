@@ -72,4 +72,30 @@ final class LoginViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isSigningIn)
         XCTAssertEqual(appState.phase, .login)
     }
+    // MARK: Quick Connect availability
+
+    func test_quickConnectAvailability_followsTheServer() async {
+        let viewModel = LoginViewModel()
+        let appState = makeSignedOutAppState()
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, body: Data("true".utf8))
+        }
+
+        await viewModel.loadQuickConnectAvailability(using: appState)
+
+        XCTAssertTrue(viewModel.isQuickConnectAvailable)
+    }
+
+    /// A server that can't answer never gets a button that would only fail.
+    func test_quickConnectAvailability_hiddenWhenTheCheckFails() async {
+        let viewModel = LoginViewModel()
+        let appState = makeSignedOutAppState()
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+        }
+
+        await viewModel.loadQuickConnectAvailability(using: appState)
+
+        XCTAssertFalse(viewModel.isQuickConnectAvailable)
+    }
 }

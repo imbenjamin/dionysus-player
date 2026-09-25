@@ -26,6 +26,22 @@ struct AuthenticationResult: Codable {
     var serverId: String?
 }
 
+/// A pending Quick Connect request, from `POST /QuickConnect/Initiate` and
+/// then from each `GET /QuickConnect/Connect` poll. `code` is what the user
+/// types into another client; `secret` never leaves this device except to
+/// poll and to exchange for a session once `authenticated` turns true.
+struct QuickConnectResult: Codable, Equatable {
+    var secret: String
+    var code: String
+    var authenticated: Bool
+}
+
+/// Body of `POST /Users/AuthenticateWithQuickConnect`. `Codable` for the same
+/// reason as `AuthenticateByNameRequest`: the UI-test stub decodes it.
+struct QuickConnectRequest: Codable {
+    var secret: String
+}
+
 struct UserDto: Codable, Identifiable {
     var id: String
     var name: String

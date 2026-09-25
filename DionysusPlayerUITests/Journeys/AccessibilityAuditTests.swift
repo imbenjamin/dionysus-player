@@ -73,6 +73,19 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen()
     }
 
+    /// Held on its code by `.quickConnectPending`, which never approves it.
+    func testQuickConnectHasNoAccessibilityIssues() throws {
+        launch(scenario: "quickConnectPending", signedIn: false)
+        ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
+        let login = LoginScreen(app: app)
+        login.awaitLoaded()
+        login.quickConnectButton.awaitExistence("the Quick Connect button")
+        login.quickConnectButton.tap()
+        QuickConnectScreen(app: app).awaitCode(UITestFixtureIdentity.quickConnectCode(1))
+
+        try auditCurrentScreen()
+    }
+
     // MARK: - Browse
 
     func testHomeHasNoAccessibilityIssues() throws {

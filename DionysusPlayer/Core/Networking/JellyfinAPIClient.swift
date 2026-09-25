@@ -78,9 +78,71 @@ actor JellyfinAPIClient {
     /// for a launch where the server is unreachable but `ServerSessionStore`
     /// holds a token. Sets the same state as a successful `authenticate(...)`,
     /// so `sendRaw`'s 401 retry works once connectivity returns.
-    func restoreSession(accessToken: String, username: String, password: String) {
+    ///
+    /// `password` is `nil` for a Quick Connect session, which has no
+    /// credentials to re-authenticate with: its 401 surfaces as
+    /// `.notAuthenticated` straight away.
+    func restoreSession(accessToken: String, username: String, password: String?) {
         self.accessToken = accessToken
-        reauthCredentials = (username, password)
+        reauthCredentials = password.map { (username, $0) }
+    }
+
+    /// The signed-in user, by token alone. Validates a restored Quick Connect
+    /// session at launch, where there is no password to sign in with again.
+    func currentUser() async throws -> UserDto {
+        try await get("/Users/Me")
+    }
+
+    // MARK: - Quick Connect
+    //
+    // Jellyfin's code-based sign-in: this device asks for a code, the user
+    // approves it from a client that is already signed in, and the approved
+    // secret is exchanged for an ordinary session. None of these requests
+    // carry a token. The server builds the session from the `DeviceId`,
+    // `Device`, `Client` and `Version` in the `Authorization` header, which
+    // `JellyfinAuthorization` always sends.
+    //
+    // Behaviour read from `QuickConnectManager.cs` (10.11 and 12.z agree):
+    // a code expires 10 minutes after it's issued, after which polling its
+    // secret answers 404; with Quick Connect turned off, every endpoint but
+    // `Enabled` answers 401.
+
+    /// Sent without a token: after a sign-out this client still holds the
+    /// previous session's, which has nothing to do with the login screen.
+    func quickConnectEnabled() async throws -> Bool {
+        let request = try makeRequest(path: "/QuickConnect/Enabled", method: "GET", requiresAuth: false)
+        return try await send(request)
+    }
+
+    func initiateQuickConnect() async throws -> QuickConnectResult {
+        let request = try makeRequest(path: "/QuickConnect/Initiate", method: "POST", requiresAuth: false)
+        return try await send(request)
+    }
+
+    func quickConnectState(secret: String) async throws -> QuickConnectResult {
+        let request = try makeRequest(
+            path: "/QuickConnect/Connect",
+            method: "GET",
+            query: [URLQueryItem(name: "secret", value: secret)],
+            requiresAuth: false
+        )
+        return try await send(request)
+    }
+
+    /// Exchanges an approved secret for a session. Leaves no credentials for
+    /// `sendRaw` to re-authenticate with — the secret is single-use and
+    /// expires — so it clears any a previous sign-in left behind rather than
+    /// letting a 401 silently sign in as whoever that was.
+    @discardableResult
+    func authenticateWithQuickConnect(secret: String) async throws -> AuthenticationResult {
+        let result: AuthenticationResult = try await post(
+            "/Users/AuthenticateWithQuickConnect",
+            body: QuickConnectRequest(secret: secret),
+            requiresAuth: false
+        )
+        accessToken = result.accessToken
+        reauthCredentials = nil
+        return result
     }
 
     // MARK: - Browsing

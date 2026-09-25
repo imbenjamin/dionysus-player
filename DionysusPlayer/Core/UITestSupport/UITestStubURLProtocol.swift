@@ -105,6 +105,11 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
+        if path.contains("/QuickConnect/") {
+            finish(.success(Self.quickConnectResponse(scenario: scenario, path: path, query: query)))
+            return
+        }
+
         if let failure = Self.scenarioFailure(scenario: scenario, path: path) {
             finish(.success((failure, Data("{}".utf8), "application/json")))
             return
@@ -227,6 +232,8 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         path.hasSuffix("/System/Info/Public")
             || path.hasSuffix("/health")
             || path.hasSuffix("/Users/AuthenticateByName")
+            || path.hasSuffix("/Users/AuthenticateWithQuickConnect")
+            || path.hasSuffix("/Users/Me")
     }
 
     /// Paths already served a 401 this process, so `.unauthorized` fails each
@@ -434,7 +441,8 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         // with `canDelete` cleared, and only `DELETE` refused in `startLoading`,
         // which has the method.
         case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission,
-             .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort:
+             .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort,
+             .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending:
             return nil
         case .serverError:
             return 500
@@ -444,6 +452,59 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             guard !challengedPaths.contains(path) else { return nil }
             challengedPaths.insert(path)
             return 401
+        }
+    }
+
+    // MARK: - Quick Connect
+
+    /// Codes issued this process, so `.quickConnectExpiring` can expire only
+    /// the first one. Guarded by `lock`, like `challengedPaths`.
+    nonisolated(unsafe) private static var quickConnectCodesIssued = 0
+
+    /// Every code is approved by its first poll — as if the user typed it on
+    /// another device during the app's 5s poll interval — except the first
+    /// code under `.quickConnectExpiring`, which is already gone, and every
+    /// code under `.quickConnectPending`, which never is.
+    private static func quickConnectResponse(
+        scenario: UITestScenario,
+        path: String,
+        query: [URLQueryItem]
+    ) -> (Int, Data, String) {
+        func json(_ value: some Encodable) -> (Int, Data, String) {
+            ((try? encode(value)).map { (200, $0, "application/json") }) ?? (500, Data(), "application/json")
+        }
+
+        switch true {
+        case path.hasSuffix("/QuickConnect/Enabled"):
+            return json(scenario != .quickConnectDisabled)
+
+        case path.hasSuffix("/QuickConnect/Initiate"):
+            lock.lock()
+            quickConnectCodesIssued += 1
+            let number = quickConnectCodesIssued
+            lock.unlock()
+            return json(QuickConnectResult(
+                secret: "uitest-quick-connect-secret-\(number)",
+                code: UITestFixtureIdentity.quickConnectCode(number),
+                authenticated: false
+            ))
+
+        case path.hasSuffix("/QuickConnect/Connect"):
+            guard let secret = query.first(where: { $0.name == "secret" })?.value,
+                  let number = Int(secret.split(separator: "-").last ?? "") else {
+                return (404, Data("\"Unknown secret\"".utf8), "application/json")
+            }
+            if scenario == .quickConnectExpiring, number == 1 {
+                return (404, Data("\"Unknown secret\"".utf8), "application/json")
+            }
+            return json(QuickConnectResult(
+                secret: secret,
+                code: UITestFixtureIdentity.quickConnectCode(number),
+                authenticated: scenario != .quickConnectPending
+            ))
+
+        default:
+            return (404, Data(), "application/json")
         }
     }
 
@@ -461,8 +522,12 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         case path.hasSuffix("/health"):
             return Data("Healthy".utf8)
 
-        case path.hasSuffix("/Users/AuthenticateByName"):
+        case path.hasSuffix("/Users/AuthenticateByName"),
+             path.hasSuffix("/Users/AuthenticateWithQuickConnect"):
             return try encode(library.authenticationResult)
+
+        case path.hasSuffix("/Users/Me"):
+            return try encode(library.user)
 
         case path.hasSuffix("/Views"):
             return try encode(result(scoped(library.libraries)))
