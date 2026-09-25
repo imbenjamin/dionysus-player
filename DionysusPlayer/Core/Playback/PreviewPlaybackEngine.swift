@@ -19,8 +19,7 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     var fontAttachments: [ASSFontAttachment] = []
     var onPictureInPicturePossibleChange: ((Bool) -> Void)?
     var onPictureInPictureActiveChange: ((Bool) -> Void)?
-    var onNativeSubtitleCues: (([String], TimeInterval) -> Void)?
-    var onNativeSubtitleCaptureAttached: (() -> Void)?
+    var onSourceTimeFollowsPictureChange: ((Bool) -> Void)?
 
     var audioTracks: [PlaybackTrack] = [
         PlaybackTrack(id: 0, kind: .audio, title: "Dolby Digital Plus Atmos 7.1", metadata: "DD+ · Atmos · 7.1 · Default", isSelected: true),

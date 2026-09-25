@@ -412,6 +412,8 @@ final class PlayerViewModelTests: XCTestCase {
             id: 40, kind: .subtitle, title: "English", metadata: nil,
             isSelected: true, codec: "ass", isExternal: true
         )]
+        // What AetherEngine publishes at a transcode's load: no line measured yet.
+        engine.onSourceTimeFollowsPictureChange?(false)
 
         engine.onSubtitleTrackChange?(40)
 
@@ -425,8 +427,13 @@ final class PlayerViewModelTests: XCTestCase {
             "Deselecting the rendition would take away the timing AetherEngine corrects sourceTime with."
         )
 
-        // Held back until AVPlayer presents a line, since the transcode's
-        // playhead may be running ahead of the picture.
+        // Held back until the engine has measured the picture off a presented
+        // line, since the transcode's playhead may be running ahead of it.
+        XCTAssertTrue(viewModel.isStyledASSTimingPending)
+        engine.onSourceTimeFollowsPictureChange?(true)
+        XCTAssertFalse(viewModel.isStyledASSTimingPending)
+        // And again after a seek, until the next line re-measures.
+        engine.onSourceTimeFollowsPictureChange?(false)
         XCTAssertTrue(viewModel.isStyledASSTimingPending)
 
         // Turning styling off for this track hands the drawing back to AVKit.

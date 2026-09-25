@@ -49,6 +49,9 @@ final class PlayerViewModel {
     /// Only on a server transcode, where the engine's playhead is briefly off
     /// the picture after every seek. See `ASSSeekHold`.
     private var assSeekHold: ASSSeekHold?
+    /// The engine's latest `sourceTimeFollowsPicture`, kept so a hold created
+    /// mid-session starts from it.
+    private var sourceTimeFollowsPicture = true
     /// Whether this session plays a server transcode through AVPlayer, the one
     /// route whose styled track needs `assSeekHold`.
     private var isRemoteHLSSession = false
@@ -438,7 +441,7 @@ final class PlayerViewModel {
             self.currentTime = time
             self.duration = duration
             self.updateNextUpCountdownAnchor()
-            // Item time on a transcode, the axis `assSeekHold` detects seeks on.
+            // Item time on a transcode, the axis `assSeekHold` counts playback on.
             if self.assSeekHold != nil {
                 self.assSeekHold?.observeItemTime(time)
                 self.applyASSRenderTime()
@@ -450,16 +453,15 @@ final class PlayerViewModel {
             self.sourceTime = sourceTime
             self.applyASSRenderTime()
         }
-        engine.onNativeSubtitleCues = { [weak self] texts, itemTime in
-            guard let self, self.assSeekHold != nil else { return }
-            self.assSeekHold?.observeCues(texts, at: itemTime)
+        engine.onSourceTimeFollowsPictureChange = { [weak self] follows in
+            guard let self else { return }
+            self.sourceTimeFollowsPicture = follows
+            guard self.assSeekHold != nil else { return }
+            self.assSeekHold?.observeFollowsPicture(follows)
             self.applyASSRenderTime()
         }
         engine.onPictureInPicturePossibleChange = { [weak self] possible in self?.isPictureInPicturePossible = possible }
         engine.onPictureInPictureActiveChange = { [weak self] active in self?.isPictureInPictureActive = active }
-        engine.onNativeSubtitleCaptureAttached = { [weak self] in
-            self?.assSeekHold?.ignoreLinesAlreadyShowing()
-        }
         engine.onSubtitleTrackChange = { [weak self] id in self?.handleSubtitleTrackChange(id) }
         // The render session is a plain object, so it pokes the view model to
         // re-run the overlay's body.
@@ -904,7 +906,7 @@ final class PlayerViewModel {
             // because the app's overlay isn't inside the captured layer, and
             // `AetherPlaybackEngine` hands it back on either route.
             if self.isRemoteHLSSession {
-                self.assSeekHold = ASSSeekHold()
+                self.assSeekHold = ASSSeekHold(followsPicture: self.sourceTimeFollowsPicture)
                 self.engine.setNativeSubtitleCapture(true)
             } else {
                 self.engine.setNativeSubtitleRendering(false)

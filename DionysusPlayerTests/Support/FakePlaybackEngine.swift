@@ -19,8 +19,7 @@ final class FakePlaybackEngine: PlaybackEngine {
     var fontAttachments: [ASSFontAttachment] = []
     var onPictureInPicturePossibleChange: ((Bool) -> Void)?
     var onPictureInPictureActiveChange: ((Bool) -> Void)?
-    var onNativeSubtitleCues: (([String], TimeInterval) -> Void)?
-    var onNativeSubtitleCaptureAttached: (() -> Void)?
+    var onSourceTimeFollowsPictureChange: ((Bool) -> Void)?
 
     var audioTracks: [PlaybackTrack] = []
     var subtitleTracks: [PlaybackTrack] = []
