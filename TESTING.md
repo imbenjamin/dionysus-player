@@ -658,7 +658,7 @@ Every UI-test run goes through one reusable workflow,
 | iOS | Why | PR smoke | Nightly, release |
 | --- | --- | --- | --- |
 | 26.5 | Latest runtime for the pinned Xcode (26.6) | ✓ | ✓ |
-| 18.6 | Previous major *and* the deployment floor | | ✓ (non-blocking for now) |
+| 18.6 | Previous major *and* the deployment floor | | ✓ |
 
 Apple went from iOS 18 straight to 26, so on Xcode 26 the previous major and
 the floor are the same version. iOS 18 is the environment that matters most
@@ -669,10 +669,15 @@ each version brings its own image and Xcode: 26.5 on `macos-26` with Xcode
 26.6 (the release toolchain), 18.6 on `macos-15` with Xcode 26.3, the newest
 that image has. The iOS 18 leg is testing the OS, not the toolchain.
 
-**iOS 18 doesn't block yet.** Its first run surfaced failures iOS 26 doesn't
-have (issue #259), so its jobs run with `continue-on-error`: a failure shows
-red on the run but doesn't fail it or stop a release. Flip `blocking` in
-`ui-tests.yml` once the nightly is green there.
+iOS 18 differs from 26 in ways that have already bitten (#259), so write
+journeys that hold on both: the navigation back button has no `BackButton`
+identifier on 18 (use `app.navigationBackButton`), XCUITest there won't
+scroll a horizontal row to an off-screen control and `isHittable` throws for
+one (judge by frame, as `CollectionScreen.openFilter` does), and iPad split
+views overlay the sidebar in portrait unless styled `.balanced`. Locally,
+Apple's downloads site offers an iOS 18.2 simulator runtime (`xcrun simctl
+runtime add <dmg>`); iPad (A16) needs 18.3, so use iPad (10th generation),
+the same 820×1180pt screen.
 
 The simulator is the image's own device of that model and version when the
 image has one, and a newly created one otherwise (iPhone 16 on iOS 26.5).
