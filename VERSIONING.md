@@ -335,18 +335,24 @@ string isn't user-visible anyway.
   iPhone simulator`, and both branch rulesets require that exact string.
   GitHub keys required checks on the **job** name, not the workflow name or
   filename — renaming the job without updating both rulesets first makes every
-  PR hang on a check that never reports.
+  PR hang on a check that never reports. The same applies to the two UI smoke
+  checks (`UI smoke tests / iPhone, iOS 26.5` and `… / iPad, iOS 26.5`) —
+  see TESTING.md's "Where they run in CI".
 
 - **`.github/workflows/release.yml`** — runs on any `v*.*.*` tag push: sets up
   the project, stamps the version from that tag via `Scripts/update-version.sh`,
   builds and tests the exact
-  tagged commit, archives and signs it, uploads it to App Store Connect, and
+  tagged commit — the full UI suite on every device and iOS version
+  `ui-tests.yml` covers must pass before anything is signed — archives and
+  signs it, uploads it to App Store Connect, and
   publishes a GitHub Release with the tag's own message above GitHub's
   generated notes (`--prerelease` for `-alpha`/`-beta` tags and for any `0.x`
   version). It also refuses a tag on the wrong branch — see "Final releases
-  come from `stable`" above. A `workflow_dispatch` input re-runs a release for
-  an existing tag without re-tagging, for recovering from an infrastructure
-  failure partway through.
+  come from `stable`" above. To re-run a release for an existing tag without
+  re-tagging (recovering from an infrastructure failure partway through),
+  dispatch it on the tag: `gh workflow run release.yml --ref <tag>`. That runs
+  the workflow as it was at the tag, so a fix to `release.yml` itself needs a
+  new tag.
 
 - **`.github/workflows/promote-to-stable.yml`** — `workflow_dispatch` only:
   opens (or finds) the `develop` → `stable` PR that a final release is tagged

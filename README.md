@@ -218,8 +218,8 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 `DionysusPlayerUITests` drives the real app in the Simulator with XCUITest,
 against an in-process stub server and a fake playback engine, so journeys
 like "sign in → open a title → play it" are deterministic and run in CI. A
-smoke subset gates every PR; the full suite runs nightly on an iPhone and an
-iPad, and on release tags.
+smoke subset gates every PR on an iPhone and an iPad; the full suite runs
+nightly and on release tags on both, on iOS 26 and on the iOS 18 floor.
 
 ```sh
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \

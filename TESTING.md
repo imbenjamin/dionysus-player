@@ -51,8 +51,8 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 | Plan | Contents | Where it runs |
 | --- | --- | --- |
 | `UnitTests` | The whole `DionysusPlayerTests` target | Every PR, every release |
-| `UITests-Smoke` | Seven journeys + the keychain-reset check | Every PR (`ui-smoke` job) |
-| `UITests-Full` | Every UI test | Nightly on iPhone + iPad, and on release tags |
+| `UITests-Smoke` | Seven journeys + the keychain-reset check | Every PR (`ui-smoke` job), on iPhone + iPad, latest iOS |
+| `UITests-Full` | Every UI test | Nightly and on release tags, on iPhone + iPad, every supported iOS version |
 
 **Verified:** the full suite has been run for real via
 `xcodebuild test` against the iOS 26.5 Simulator — all passing, 0 failures.
@@ -649,6 +649,53 @@ than the synchronous path switch (the delay needs `asyncAfter`, never
 costs) and ahead of the scenario gate, for the same reason images are: failing
 a decoration under `.serverError` only obscures what that scenario is about.
 
+### Where they run in CI
+
+Every UI-test run goes through one reusable workflow,
+`.github/workflows/ui-tests.yml`, which owns the device/OS matrix: an
+**iPhone 16** and an **iPad (A16)**, each on
+
+| iOS | Why | PR smoke | Nightly, release |
+| --- | --- | --- | --- |
+| 26.5 | Latest runtime for the pinned Xcode (26.6) | ✓ | ✓ |
+| 18.6 | Previous major *and* the deployment floor | | ✓ (non-blocking for now) |
+
+Apple went from iOS 18 straight to 26, so on Xcode 26 the previous major and
+the floor are the same version. iOS 18 is the environment that matters most
+here: it is the only place the pre-26 branch of any `#available(iOS 26, *)`
+check runs. No runner image carries both versions, and Xcode won't download
+an iOS 18 runtime at all ("not available for download", for every 18.x), so
+each version brings its own image and Xcode: 26.5 on `macos-26` with Xcode
+26.6 (the release toolchain), 18.6 on `macos-15` with Xcode 26.3, the newest
+that image has. The iOS 18 leg is testing the OS, not the toolchain.
+
+**iOS 18 doesn't block yet.** Its first run surfaced failures iOS 26 doesn't
+have (issue #259), so its jobs run with `continue-on-error`: a failure shows
+red on the run but doesn't fail it or stop a release. Flip `blocking` in
+`ui-tests.yml` once the nightly is green there.
+
+The simulator is the image's own device of that model and version when the
+image has one, and a newly created one otherwise (iPhone 16 on iOS 26.5).
+
+The models are the same on both versions, so a failure on only one OS can't
+be a screen-size difference; the iPhone is a 16 because the 17 can't run
+iOS 18. Each environment runs on its own runner with `fail-fast: false`, so
+every one reports, and a failed one uploads its `.xcresult` as
+`ui-test-results-<plan>-<device>-iOS-<version>`.
+
+A release doesn't sign or upload anything until every environment has
+passed. Because nightly and release call the same workflow, dispatching
+"Nightly UI tests" on a branch (`gh workflow run nightly-ui-tests.yml --ref
+<branch>`) is a dry run of a release's UI stage.
+
+When CI moves to a new Xcode, the Xcode version (`setup-ios-project`), the
+runner labels and `ui-tests.yml`'s version list change together.
+From Xcode 27, iOS 26 becomes the previous major and 18 stays as the floor,
+so the full matrix grows to three versions. Changing the latest version or a
+device also renames the two smoke checks (`UI smoke tests / iPhone, iOS
+26.5` and `UI smoke tests / iPad, iOS 26.5`), which both branch rulesets
+require by name — update them in the same change.
+
 ### Selectors
 
 Tests address elements by `A11yID` (`Shared/Accessibility/`), which is
@@ -763,14 +810,19 @@ cannot resize; and the hit-region minimum on non-interactive `StaticText`
 metadata lines ("Genres: Drama"), where a 44pt floor would insert large dead
 gaps between rows purely to satisfy a rule about touch targets.
 
-One more allowance is per-audit rather than global: `auditCurrentScreen(underAlert: true)`,
-used only by the two Server Setup audits taken with an alert up. Every system
-alert — a plain two-button one included, measured — draws the screen dimmed
-behind it, whose text the audit still sees but which iOS rightly takes out of
-the accessibility tree while the alert is modal. That reports as one
-`.elementDetection` "Potentially inaccessible text" issue with no element
-attached, and only that exact shape is let through; everything in the alert
-itself is still audited.
+One more allowance is per-audit rather than global: `auditCurrentScreen(underModal: true)`,
+for audits taken with something modal up that leaves the screen behind it
+visible but dimmed. That covers the two Server Setup audits taken under a
+system alert, plus the login password step (a popover on iPad) and the Add to
+Playlist picker and New Playlist form (form sheets on iPad, which don't cover
+the screen the way the iPhone's full-height sheet does). The audit still sees
+the dimmed screen's text, but iOS rightly takes it out of the accessibility
+tree while the modal is up. That reports as one `.elementDetection`
+"Potentially inaccessible text" issue with no element attached, and only that
+exact shape is let through; everything in the modal itself is still audited.
+The iPad cases failed every night for weeks unnoticed: the nightly job piped
+`xcodebuild` into `xcbeautify` without `pipefail`, so the run reported
+success regardless. That was fixed in PR #258.
 
 ### Adding a journey
 
