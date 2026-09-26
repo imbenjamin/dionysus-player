@@ -51,8 +51,8 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 | Plan | Contents | Where it runs |
 | --- | --- | --- |
 | `UnitTests` | The whole `DionysusPlayerTests` target | Every PR, every release |
-| `UITests-Smoke` | Seven journeys + the keychain-reset check | Every PR (`ui-smoke` job) |
-| `UITests-Full` | Every UI test | Nightly on iPhone + iPad, and on release tags |
+| `UITests-Smoke` | Seven journeys + the keychain-reset check | Every PR (`ui-smoke` job), on iPhone + iPad, latest iOS |
+| `UITests-Full` | Every UI test | Nightly and on release tags, on iPhone + iPad, every supported iOS version |
 
 **Verified:** the full suite has been run for real via
 `xcodebuild test` against the iOS 26.5 Simulator — all passing, 0 failures.
@@ -648,6 +648,43 @@ than the synchronous path switch (the delay needs `asyncAfter`, never
 `Thread.sleep` — see `.slowLogoImage` for what blocking that serial queue
 costs) and ahead of the scenario gate, for the same reason images are: failing
 a decoration under `.serverError` only obscures what that scenario is about.
+
+### Where they run in CI
+
+Every UI-test run goes through one reusable workflow,
+`.github/workflows/ui-tests.yml`, which owns the device/OS matrix: an
+**iPhone 16** and an **iPad (A16)**, each on
+
+| iOS | Why | PR smoke | Nightly, release |
+| --- | --- | --- | --- |
+| 26.5 | Latest runtime for the pinned Xcode (26.6) | ✓ | ✓ |
+| 18.6 | Previous major *and* the deployment floor | | ✓ |
+
+Apple went from iOS 18 straight to 26, so on Xcode 26 the previous major and
+the floor are the same version. iOS 18 is the environment that matters most
+here: it is the only place the pre-26 branch of any `#available(iOS 26, *)`
+check runs. Its runtime isn't on the `macos-26` runner image, so the
+`build-and-test` action downloads it (`xcodebuild -downloadPlatform`) before
+creating the simulator — expect those jobs to take several minutes longer.
+
+The models are the same on both versions, so a failure on only one OS can't
+be a screen-size difference; the iPhone is a 16 because the 17 can't run
+iOS 18. Each environment runs on its own runner with `fail-fast: false`, so
+every one reports, and a failed one uploads its `.xcresult` as
+`ui-test-results-<plan>-<device>-iOS-<version>`.
+
+A release doesn't sign or upload anything until every environment has
+passed. Because nightly and release call the same workflow, dispatching
+"Nightly UI tests" on a branch (`gh workflow run nightly-ui-tests.yml --ref
+<branch>`) is a dry run of a release's UI stage.
+
+When CI moves to a new Xcode, the Xcode version (`setup-ios-project`), the
+`macos-26` runner labels and `ui-tests.yml`'s version list change together.
+From Xcode 27, iOS 26 becomes the previous major and 18 stays as the floor,
+so the full matrix grows to three versions. Changing the latest version or a
+device also renames the two smoke checks (`UI smoke tests / iPhone, iOS
+26.5` and `UI smoke tests / iPad, iOS 26.5`), which both branch rulesets
+require by name — update them in the same change.
 
 ### Selectors
 

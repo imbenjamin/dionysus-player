@@ -43,9 +43,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  ui-tests:
+    # The full UI suite on every environment the nightly run covers — one
+    # iPhone and one iPad on each supported iOS version (see ui-tests.yml).
+    # Its own stage, not steps in the job below: the environments run in
+    # parallel on separate runners, and nothing below starts — so nothing is
+    # signed, uploaded or published — unless every one of them passes.
+    #
+    # That makes a release take longer end to end (roughly the slowest UI
+    # environment, then the unit tests and archive), which is the right trade
+    # for the last gate before TestFlight. A misplaced tag is still caught by
+    # the job below before anything is signed, just later than it used to be.
+    #
+    # The ref is the unvalidated tag name on the workflow_dispatch path, but
+    # it only reaches `actions/checkout`'s `ref:`, never a script, and a name
+    # that isn't a real ref fails the checkout.
+    name: UI tests
+    uses: ./.github/workflows/ui-tests.yml
+    with:
+      test-plan: UITests-Full
+      ref: ${{ inputs.tag || github.ref_name }}
+
   build-test-release:
     name: Build, test, and publish a GitHub Release for the tag
-    runs-on: macos-latest
+    needs: ui-tests
+    runs-on: macos-26
     timeout-minutes: 60
 
     steps:
@@ -159,29 +181,6 @@ jobs:
 
       - name: Build and test
         uses: ./.github/actions/build-and-test
-
-      - name: Shut down all simulators
-        # See pr-checks.yml's identical step: a device left booted is the
-        # main cause of UI-test flake on a shared runner.
-        run: xcrun simctl shutdown all || true
-
-      - name: UI tests
-        # The full UI suite, not the smoke subset PRs run — a tagged build is
-        # the last gate before TestFlight, and this job is already sequential,
-        # so a failure here aborts before anything is signed or uploaded.
-        uses: ./.github/actions/build-and-test
-        with:
-          test-plan: UITests-Full
-          result-bundle-path: .build/UITestResults.xcresult
-
-      - name: Upload UI test results
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: ui-test-results
-          path: .build/UITestResults.xcresult
-          retention-days: 7
-          if-no-files-found: ignore
 
       - name: Upload test results
         if: failure()

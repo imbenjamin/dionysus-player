@@ -36,7 +36,7 @@ jobs:
     # longer reports, including the PR doing the rename. The name is
     # starter-template boilerplate and reads oddly; it stays anyway.
     name: Build and Test default scheme using any available iPhone simulator
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 45
 
     steps:
@@ -70,11 +70,10 @@ jobs:
     #
     # Unsigned and for a generic device, so it needs no credentials — the
     # signing half of the archive is release.yml's alone. A separate job, not
-    # a step in `build`, for the same reason `ui-smoke` is one (see below);
-    # like it, this does not *block* a merge until it is added to the
-    # "develop protection" and "Secure stable" rulesets.
+    # a step in `build`, for the same reason `ui-smoke` is one (see below).
+    # Required by both branch rulesets.
     name: Release configuration compiles
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 30
 
     steps:
@@ -98,48 +97,22 @@ jobs:
   ui-smoke:
     # A separate job from `build`, deliberately. That one's name is required
     # verbatim by both branch rulesets (see its own comment), so it must not
-    # grow a second responsibility or change shape. This one is also a new
-    # check context: it reports on every PR from the moment it merges, but it
-    # does not *block* anything until it is added to the "develop protection"
-    # and "Secure stable" rulesets by hand.
+    # grow a second responsibility or change shape.
     #
-    # Runs the smoke plan only — seven journeys, no per-feature coverage. The
-    # full suite runs nightly (nightly-ui-tests.yml) and on release tags. The
-    # split exists because UI tests are slow and a shared runner is variable;
-    # the point of this job is fast pre-merge feedback on the paths that stop
-    # the app being usable at all.
+    # Runs the smoke plan only — a handful of journeys, no per-feature
+    # coverage — on one iPhone and one iPad, latest iOS only. The full suite,
+    # on every supported iOS version, runs nightly (nightly-ui-tests.yml) and
+    # on release tags. The split exists because UI tests are slow and a shared
+    # runner is variable; the point of this job is fast pre-merge feedback on
+    # the paths that stop the app being usable at all.
+    #
+    # ⚠️ Both rulesets require the two checks this reports, by their full
+    # names: "UI smoke tests / iPhone, iOS 26.5" and "UI smoke tests / iPad,
+    # iOS 26.5". Renaming this job, or changing the latest iOS version in
+    # ui-tests.yml, changes those names — update both rulesets in step.
     name: UI smoke tests
-    runs-on: macos-latest
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up iOS project
-        uses: ./.github/actions/setup-ios-project
-
-      - name: Shut down all simulators
-        # A simulator left booted by the image (or by a previous step) is the
-        # single most common source of UI-test flake on a shared runner:
-        # xcodebuild picks a device that is already mid-boot and times out
-        # launching the app. Start from a known-clean state instead.
-        run: xcrun simctl shutdown all || true
-
-      - name: Build and test
-        uses: ./.github/actions/build-and-test
-        with:
-          test-plan: UITests-Smoke
-          result-bundle-path: .build/UITestResults.xcresult
-
-      - name: Upload UI test results
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          # A failed UI test's .xcresult carries the screenshots and the
-          # recorded interaction, which is the only practical way to see what
-          # the runner actually saw.
-          name: ui-test-results
-          path: .build/UITestResults.xcresult
-          retention-days: 7
-          if-no-files-found: ignore
+    uses: ./.github/workflows/ui-tests.yml
+    with:
+      test-plan: UITests-Smoke
+      latest-only: true
+      timeout-minutes: 30

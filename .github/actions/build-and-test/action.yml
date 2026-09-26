@@ -1,8 +1,8 @@
 name: Build and test
 description: >-
-  Builds the app and runs one test plan on an iPhone simulator that actually
-  exists on this runner. Shared by pr-checks.yml, release.yml and
-  nightly-ui-tests.yml.
+  Builds the app and runs one test plan on a simulator of an exact device type
+  and iOS version, installing that iOS runtime first if the runner lacks it.
+  Shared by pr-checks.yml, release.yml and ui-tests.yml.
 
 inputs:
   scheme:
@@ -28,32 +28,88 @@ inputs:
       for by name.
     required: false
     default: UnitTests
+  device-type:
+    description: >-
+      Simulator device type, by name as `xcrun simctl list devicetypes` prints
+      it. It must support every iOS version it's paired with — iPhone 17
+      can't run iOS 18, which is why the default is an iPhone 16.
+    required: false
+    default: iPhone 16
+  ios-version:
+    description: >-
+      iOS runtime version, e.g. "26.5". Installed with `xcodebuild
+      -downloadPlatform` if the runner image doesn't carry it.
+    required: false
+    default: "26.5"
+  retry-tests-on-failure:
+    description: >-
+      Pass `-retry-tests-on-failure` on top of the plan's own repetition
+      settings, so a test that fails once and then passes is reported as
+      flaky rather than as a break.
+    required: false
+    default: "false"
 
 runs:
   using: composite
   steps:
-    - name: Select simulator
-      id: select_simulator
+    - name: Install iOS ${{ inputs.ios-version }} runtime if missing
       shell: bash
+      env:
+        IOS_VERSION: ${{ inputs.ios-version }}
       run: |
-        # `xcrun xctrace list devices` (the usual boilerplate here) lists
-        # a bare device name with no guarantee it's paired with the
-        # runner's "latest" iOS runtime — `-destination
-        # platform=...,name=X` with no OS resolves to "OS:latest", which
-        # then fails to match if X isn't provisioned for that runtime
-        # (confirmed failure: 2026-08-13, picked "iPhone 16e", which only
-        # had an older runtime installed on the runner). Selecting a UDID
-        # directly from `simctl`'s own available-devices listing instead
-        # guarantees a name+runtime pairing that actually exists.
-        UDID=$(xcrun simctl list devices available -j \
-          | jq -r '[.devices | to_entries[] | .key as $rt | .value[] | select(.name | test("^iPhone")) | {runtime: $rt, udid: .udid, name: .name}] | sort_by(.runtime) | last')
-        echo "$UDID" | jq .
-        udid=$(echo "$UDID" | jq -r '.udid')
-        if [ -z "$udid" ] || [ "$udid" = "null" ]; then
-          echo "error: no available iPhone simulator found" >&2
-          xcrun simctl list devices available
+        # Each runner image carries only the runtimes of the Xcode versions
+        # installed on it — macos-26 has iOS 26.x and nothing older. The iOS
+        # 18 floor (project.yml's deployment target) has to be downloaded,
+        # which takes minutes, so only do it when it's actually missing.
+        # arm64-only: the runner is Apple silicon, and the universal variant
+        # is roughly twice the size.
+        has_runtime() {
+          xcrun simctl list runtimes available -j \
+            | jq -e --arg v "$IOS_VERSION" '.runtimes[] | select(.platform == "iOS" and .version == $v)' >/dev/null
+        }
+        if has_runtime; then
+          echo "iOS $IOS_VERSION runtime already installed."
+          exit 0
+        fi
+        echo "::group::Downloading iOS $IOS_VERSION runtime"
+        start=$SECONDS
+        xcodebuild -downloadPlatform iOS -buildVersion "$IOS_VERSION" -architectureVariant arm64
+        echo "::endgroup::"
+        echo "Downloaded and installed in $((SECONDS - start))s."
+        if ! has_runtime; then
+          echo "::error::iOS $IOS_VERSION runtime still missing after download." >&2
+          xcrun simctl list runtimes
           exit 1
         fi
+
+    - name: Create simulator
+      id: select_simulator
+      shell: bash
+      env:
+        DEVICE_TYPE: ${{ inputs.device-type }}
+        IOS_VERSION: ${{ inputs.ios-version }}
+      run: |
+        # A fresh device of exactly the requested type and runtime, rather
+        # than picking one of the image's pre-made devices. Picking used to
+        # mean "the newest iPhone on the newest runtime", which moved whenever
+        # the image changed, and naming a device without its runtime once
+        # resolved to a pairing that didn't exist (2026-08-13: "iPhone 16e"
+        # was only provisioned for an older runtime). Creating it makes the
+        # pairing explicit, and fails loudly here if it's impossible.
+        runtime=$(xcrun simctl list runtimes available -j \
+          | jq -r --arg v "$IOS_VERSION" '.runtimes[] | select(.platform == "iOS" and .version == $v) | .identifier' \
+          | head -1)
+        if [ -z "$runtime" ]; then
+          echo "::error::No available iOS $IOS_VERSION runtime." >&2
+          xcrun simctl list runtimes
+          exit 1
+        fi
+        if ! udid=$(xcrun simctl create "CI $DEVICE_TYPE" "$DEVICE_TYPE" "$runtime"); then
+          echo "::error::Couldn't create a '$DEVICE_TYPE' simulator on $runtime — is the device type supported by that runtime?" >&2
+          xcrun simctl list devicetypes
+          exit 1
+        fi
+        echo "Created '$DEVICE_TYPE' on $runtime: $udid"
         echo "udid=$udid" >> "$GITHUB_OUTPUT"
 
     - name: Build
@@ -74,10 +130,15 @@ runs:
     - name: Test
       shell: bash
       run: |
+        retry=()
+        if [ "${{ inputs.retry-tests-on-failure }}" = "true" ]; then
+          retry=(-retry-tests-on-failure)
+        fi
         xcodebuild test-without-building \
           -scheme "${{ inputs.scheme }}" \
           -project "${{ inputs.project }}" \
           -testPlan "${{ inputs.test-plan }}" \
           -destination "platform=iOS Simulator,id=${{ steps.select_simulator.outputs.udid }}" \
+          "${retry[@]}" \
           -resultBundlePath "${{ inputs.result-bundle-path }}" \
           | xcbeautify --renderer github-actions

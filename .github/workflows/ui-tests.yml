@@ -1,0 +1,120 @@
+name: UI tests
+
+# The UI-test device/OS matrix, in one place. Called by pr-checks.yml (smoke
+# plan, latest iOS only), nightly-ui-tests.yml and release.yml (full plan,
+# every environment) — so the nightly run exercises exactly what gates a
+# release, and a manual nightly dispatch on a branch is a dry run of the
+# release's UI stage.
+#
+# The matrix is one iPhone and one iPad on:
+#   - the latest iOS the pinned Xcode ships a runtime for (26.5 on Xcode 26.6)
+#   - the previous major, which today is also the deployment floor: Apple went
+#     from iOS 18 straight to 26, and project.yml's target is 18.0. This is the
+#     only place the pre-26 branch of every `#available(iOS 26, *)` check runs.
+#
+# When CI moves to a new Xcode (setup-ios-project's `xcode-version`, and the
+# `runs-on` label below), bump `latest`; on the move to Xcode 27, iOS 26
+# becomes the previous major and 18 stays as the floor, so the full list grows
+# to three versions.
+#
+# The device models are the same on every OS, so a failure on only one OS
+# can't be a screen-size difference. iPhone 16 rather than 17 because the 17
+# can't run iOS 18; iPad (A16) runs both.
+on:
+  workflow_call:
+    inputs:
+      test-plan:
+        description: Test plan to run (see TestPlans/).
+        required: true
+        type: string
+      latest-only:
+        description: >-
+          Run only the latest iOS version (the PR gate), rather than every
+          supported one.
+        required: false
+        type: boolean
+        default: false
+      ref:
+        description: Git ref to test. Empty means the triggering ref.
+        required: false
+        type: string
+        default: ""
+      retry-tests-on-failure:
+        description: See the build-and-test action's input of the same name.
+        required: false
+        type: boolean
+        default: false
+      timeout-minutes:
+        description: >-
+          Per-environment job timeout. The full plan took 46 min on iPhone and
+          54 min on iPad on 2026-09-26, before any runtime download.
+        required: false
+        type: number
+        default: 90
+
+permissions:
+  contents: read
+
+jobs:
+  ui-tests:
+    # ⚠️ This name is part of a required status check. For a reusable
+    # workflow GitHub reports each job as "<caller job name> / <this name>" —
+    # e.g. "UI smoke tests / iPhone, iOS 26.5" — and both branch rulesets
+    # require the smoke ones by that exact string. Renaming it, or changing a
+    # device or the latest OS below, means updating both rulesets in the same
+    # breath, or every PR waits forever on a check that no longer reports.
+    name: ${{ matrix.family }}, iOS ${{ matrix.os }}
+    runs-on: macos-26
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    strategy:
+      # Every environment always reports. Without this, one failure cancels
+      # the rest and hides whether the break is device- or OS-specific —
+      # which, for a layout that forks on size class and a codebase full of
+      # `#available(iOS 26, *)`, is the first thing worth knowing.
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.latest-only && '["26.5"]' || '["26.5", "18.6"]') }}
+        family: [iPhone, iPad]
+        include:
+          - family: iPhone
+            device: iPhone 16
+          - family: iPad
+            device: iPad (A16)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up iOS project
+        uses: ./.github/actions/setup-ios-project
+
+      - name: Shut down all simulators
+        # A simulator left booted by the image (or by a previous step) is the
+        # single most common source of UI-test flake on a shared runner:
+        # xcodebuild picks a device that is already mid-boot and times out
+        # launching the app. Start from a known-clean state instead.
+        run: xcrun simctl shutdown all || true
+
+      - name: Build and test
+        uses: ./.github/actions/build-and-test
+        with:
+          test-plan: ${{ inputs.test-plan }}
+          device-type: ${{ matrix.device }}
+          ios-version: ${{ matrix.os }}
+          retry-tests-on-failure: ${{ inputs.retry-tests-on-failure }}
+          result-bundle-path: .build/UITestResults.xcresult
+
+      - name: Upload UI test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          # A failed UI test's .xcresult carries the screenshots and the
+          # recorded interaction, which is the only practical way to see what
+          # the runner actually saw.
+          name: ui-test-results-${{ inputs.test-plan }}-${{ matrix.family }}-iOS-${{ matrix.os }}
+          path: .build/UITestResults.xcresult
+          retention-days: 7
+          if-no-files-found: ignore

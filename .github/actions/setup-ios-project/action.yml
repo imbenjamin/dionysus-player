@@ -1,24 +1,34 @@
 name: Set up iOS project
 description: >-
   Pins the Xcode toolchain, installs the CLI tools every job here needs, and
-  generates the Xcode project from project.yml. Shared by pr-checks.yml and
-  release.yml so the two can't drift apart — they used to carry byte-identical
+  generates the Xcode project from project.yml. Shared by every workflow that
+  builds the app so they can't drift apart — they used to carry byte-identical
   copies of these steps.
+
+inputs:
+  xcode-version:
+    description: >-
+      Exact Xcode version to select. Every job defaults to the same one, so
+      the build a test job checks is the build release.yml archives.
+    required: false
+    default: "26.6"
 
 runs:
   using: composite
   steps:
     - name: Select Xcode
-      # Both workflows used to take whatever Xcode `macos-latest` happened to
-      # default to. That's a silent toolchain change waiting to happen on the
-      # next runner-image rollover, which matters here: project.yml pins
-      # SWIFT_VERSION 6.0 against an iOS 18 deployment target, and AetherEngine
-      # is resolved fresh (uncached) on every run. `latest-stable` at least
-      # makes the choice explicit and greppable; swap it for an exact version
-      # (e.g. "26.4") the moment a rollover actually breaks something.
+      # An exact version, not `latest-stable`. This used to take whatever
+      # `latest-stable` resolved to, which is a silent toolchain change on the
+      # next runner-image rollover — and it matters here: project.yml pins
+      # SWIFT_VERSION 6.0 against an iOS 18 deployment target, AetherEngine is
+      # resolved fresh (uncached) on every run, and the UI-test matrix
+      # (ui-tests.yml) names simulator runtimes that only this Xcode's image
+      # carries. The callers pin `runs-on: macos-26` for the same reason: this
+      # version exists on that image. Moving to a new Xcode is a deliberate
+      # edit here, alongside the runner label and ui-tests.yml's OS list.
       uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
       with:
-        xcode-version: latest-stable
+        xcode-version: ${{ inputs.xcode-version }}
 
     - name: Install XcodeGen and xcbeautify
       # xcbeautify's github-actions renderer turns compile errors and test
@@ -27,7 +37,7 @@ runs:
       # runner images and not others, and a missing binary would fail the pipe
       # rather than degrade.
       #
-      # `brew untap aws/tap` first: the `macos-latest` image ships that tap
+      # `brew untap aws/tap` first: the macOS runner image ships that tap
       # pre-added but untrusted, and any `brew install`/`brew update` on the
       # runner logs an "ignoring formulae ... tap trust is required" warning
       # about it — unrelated to anything this repo installs. `|| true` so a

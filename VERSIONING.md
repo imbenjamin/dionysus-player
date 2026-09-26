@@ -335,12 +335,16 @@ string isn't user-visible anyway.
   iPhone simulator`, and both branch rulesets require that exact string.
   GitHub keys required checks on the **job** name, not the workflow name or
   filename — renaming the job without updating both rulesets first makes every
-  PR hang on a check that never reports.
+  PR hang on a check that never reports. The same applies to the two UI smoke
+  checks (`UI smoke tests / iPhone, iOS 26.5` and `… / iPad, iOS 26.5`) —
+  see TESTING.md's "Where they run in CI".
 
 - **`.github/workflows/release.yml`** — runs on any `v*.*.*` tag push: sets up
   the project, stamps the version from that tag via `Scripts/update-version.sh`,
   builds and tests the exact
-  tagged commit, archives and signs it, uploads it to App Store Connect, and
+  tagged commit — the full UI suite on every device and iOS version
+  `ui-tests.yml` covers must pass before anything is signed — archives and
+  signs it, uploads it to App Store Connect, and
   publishes a GitHub Release with the tag's own message above GitHub's
   generated notes (`--prerelease` for `-alpha`/`-beta` tags and for any `0.x`
   version). It also refuses a tag on the wrong branch — see "Final releases
