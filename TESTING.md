@@ -658,7 +658,7 @@ Every UI-test run goes through one reusable workflow,
 | iOS | Why | PR smoke | Nightly, release |
 | --- | --- | --- | --- |
 | 26.5 | Latest runtime for the pinned Xcode (26.6) | ✓ | ✓ |
-| 18.6 | Previous major *and* the deployment floor | | ✓ |
+| 18.6 | Previous major *and* the deployment floor | | ✓ (non-blocking for now) |
 
 Apple went from iOS 18 straight to 26, so on Xcode 26 the previous major and
 the floor are the same version. iOS 18 is the environment that matters most
@@ -668,6 +668,17 @@ an iOS 18 runtime at all ("not available for download", for every 18.x), so
 each version brings its own image and Xcode: 26.5 on `macos-26` with Xcode
 26.6 (the release toolchain), 18.6 on `macos-15` with Xcode 26.3, the newest
 that image has. The iOS 18 leg is testing the OS, not the toolchain.
+
+**iOS 18 doesn't block yet.** Its first run surfaced failures iOS 26 doesn't
+have (issue #259), so its jobs run with `continue-on-error`: a failure shows
+red on the run but doesn't fail it or stop a release. Flip `blocking` in
+`ui-tests.yml` once the nightly is green there.
+
+The simulator is the image's own device of that model and version when the
+image has one, and a newly created one otherwise. A freshly created iPad
+(A16) on iOS 26.5 failed three accessibility audits that the image's own
+passes on the same commit, and why hasn't been pinned down. So don't switch
+to always-create without finding that out first.
 
 The models are the same on both versions, so a failure on only one OS can't
 be a screen-size difference; the iPhone is a 16 because the 17 can't run

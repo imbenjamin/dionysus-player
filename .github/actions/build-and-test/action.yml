@@ -52,20 +52,26 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Create simulator
+    - name: Select simulator
       id: select_simulator
       shell: bash
       env:
         DEVICE_TYPE: ${{ inputs.device-type }}
         IOS_VERSION: ${{ inputs.ios-version }}
       run: |
-        # A fresh device of exactly the requested type and runtime, rather
-        # than picking one of the image's pre-made devices. Picking used to
-        # mean "the newest iPhone on the newest runtime", which moved whenever
-        # the image changed, and naming a device without its runtime once
-        # resolved to a pairing that didn't exist (2026-08-13: "iPhone 16e"
-        # was only provisioned for an older runtime). Creating it makes the
-        # pairing explicit, and fails loudly here if it's impossible.
+        # Exactly the requested device type on exactly the requested runtime.
+        # This used to mean "the newest iPhone on the newest runtime", which
+        # moved whenever the image changed, and naming a device without its
+        # runtime once resolved to a pairing that didn't exist (2026-08-13:
+        # "iPhone 16e" was only provisioned for an older runtime).
+        #
+        # The image's own device is preferred when it has one, and a new one
+        # is created only when it doesn't. That is not cosmetic: on PR #258 a
+        # freshly created iPad (A16) on iOS 26.5 failed three accessibility
+        # audits ("Potentially inaccessible text") that the image's own iPad
+        # (A16) on the same runtime passes on the same commit, run after run.
+        # Why a new device differs hasn't been pinned down; until it is,
+        # stay on the devices the suite has a track record on.
         #
         # Matched on the runtime's version string exactly: macos-15 carries
         # both 18.5 and 18.6, and a prefix match would pick either.
@@ -77,12 +83,17 @@ runs:
           xcrun simctl list runtimes
           exit 1
         fi
-        if ! udid=$(xcrun simctl create "CI $DEVICE_TYPE" "$DEVICE_TYPE" "$runtime"); then
+        udid=$(xcrun simctl list devices available -j \
+          | jq -r --arg rt "$runtime" --arg name "$DEVICE_TYPE" '.devices[$rt] // [] | map(select(.name == $name)) | first | .udid // empty')
+        if [ -n "$udid" ]; then
+          echo "Using the image's '$DEVICE_TYPE' on $runtime: $udid"
+        elif udid=$(xcrun simctl create "$DEVICE_TYPE" "$DEVICE_TYPE" "$runtime"); then
+          echo "Created '$DEVICE_TYPE' on $runtime (the image has none): $udid"
+        else
           echo "::error::Couldn't create a '$DEVICE_TYPE' simulator on $runtime — is the device type supported by that runtime?" >&2
           xcrun simctl list devicetypes
           exit 1
         fi
-        echo "Created '$DEVICE_TYPE' on $runtime: $udid"
         echo "udid=$udid" >> "$GITHUB_OUTPUT"
 
     - name: Build

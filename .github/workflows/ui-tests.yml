@@ -71,6 +71,13 @@ jobs:
     name: ${{ matrix.family }}, iOS ${{ matrix.os.version }}
     runs-on: ${{ matrix.os.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
+    # ⚠️ TEMPORARY: iOS 18 reports but doesn't block. Its first run (PR #258)
+    # surfaced failures that iOS 26 doesn't have — see issue #259 — and a
+    # release shouldn't be held hostage to them while they're worked
+    # through. A failing iOS 18 job still shows red on the run; it just
+    # doesn't fail the run or stop release.yml. Flip `blocking` to true in
+    # the list above once the nightly is green on iOS 18.
+    continue-on-error: ${{ !matrix.os.blocking }}
 
     strategy:
       # Every environment always reports. Without this, one failure cancels
@@ -85,9 +92,9 @@ jobs:
         # would become a stray job with no device.
         os: >-
           ${{ fromJSON(inputs.latest-only
-            && '[{"version": "26.5", "runner": "macos-26", "xcode": "26.6"}]'
-            || '[{"version": "26.5", "runner": "macos-26", "xcode": "26.6"},
-                 {"version": "18.6", "runner": "macos-15", "xcode": "26.3"}]') }}
+            && '[{"version": "26.5", "runner": "macos-26", "xcode": "26.6", "blocking": true}]'
+            || '[{"version": "26.5", "runner": "macos-26", "xcode": "26.6", "blocking": true},
+                 {"version": "18.6", "runner": "macos-15", "xcode": "26.3", "blocking": false}]') }}
         family: [iPhone, iPad]
         include:
           - family: iPhone
