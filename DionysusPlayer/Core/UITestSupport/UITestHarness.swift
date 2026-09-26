@@ -58,6 +58,15 @@ enum UITestHarness {
         UITestConfiguration.isActive && UITestConfiguration.disablesControlAutoHide
     }
 
+    /// Holds the pre-sign-in journey's ambient motion still — the drifting
+    /// background and the scan radar. Continuously
+    /// redrawing views keep the accessibility tree in motion under every
+    /// assertion, the same reason the hero carousel and 3D depth are switched
+    /// off from `UITestCase.launch`.
+    nonisolated static var freezesAmbientMotion: Bool {
+        UITestConfiguration.isActive && UITestConfiguration.disablesAnimations
+    }
+
     // MARK: - State
 
     /// Clears everything surviving a relaunch, so one test can't see another's

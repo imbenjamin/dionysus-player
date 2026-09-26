@@ -26,18 +26,34 @@ import XCTest
 final class AccessibilityAuditTests: UITestCase {
     // MARK: - Auth
 
-    func testServerSetupHasNoAccessibilityIssues() throws {
-        launch(signedIn: false)
-        ServerSetupScreen(app: app).awaitLoaded()
+    func testWelcomeHasNoAccessibilityIssues() throws {
+        launch(signedIn: false, skipsWelcome: false)
+        WelcomeScreen(app: app).awaitLoaded()
 
         try auditCurrentScreen()
     }
 
-    /// The same screen with a scan's results listed, which the audit above
-    /// never sees.
+    /// With the arrival scan's results listed.
     func testServerSetupScanResultsHaveNoAccessibilityIssues() throws {
         launch(signedIn: false)
         ServerSetupScreen(app: app).scanForStubServer()
+
+        try auditCurrentScreen()
+    }
+
+    /// A server listed while the scan still runs, under "Still searching…".
+    func testServerSetupMidScanHasNoAccessibilityIssues() throws {
+        launch(scenario: "slowScan", signedIn: false)
+        let serverSetup = ServerSetupScreen(app: app)
+        serverSetup.scanForStubServer()
+        serverSetup.scanningIndicator.awaitExistence("the still-searching indicator")
+
+        try auditCurrentScreen()
+    }
+
+    func testServerAddressSheetHasNoAccessibilityIssues() throws {
+        launch(signedIn: false)
+        ServerSetupScreen(app: app).openAddressSheet()
 
         try auditCurrentScreen()
     }
@@ -65,10 +81,42 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen(underAlert: true)
     }
 
+    /// The user grid, with the server's disclaimer under it.
     func testLoginHasNoAccessibilityIssues() throws {
         launch(signedIn: false)
         ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
-        LoginScreen(app: app).awaitLoaded()
+        let login = LoginScreen(app: app)
+        login.awaitLoaded()
+        login.disclaimer.awaitExistence("the server's disclaimer")
+
+        try auditCurrentScreen()
+    }
+
+    /// A user with a password chosen: the password step under the grid.
+    func testLoginPasswordStepHasNoAccessibilityIssues() throws {
+        launch(signedIn: false)
+        ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
+        let login = LoginScreen(app: app)
+        login.awaitLoaded()
+        login.fixtureUserTile.tap()
+        login.passwordField.awaitExistence("the password field")
+
+        try auditCurrentScreen()
+    }
+
+    func testOtherUserSheetHasNoAccessibilityIssues() throws {
+        launch(signedIn: false)
+        ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
+        LoginScreen(app: app).openOtherUser()
+
+        try auditCurrentScreen()
+    }
+
+    /// The form a server with every user hidden gets instead of the grid.
+    func testLoginFormHasNoAccessibilityIssues() throws {
+        launch(scenario: "hiddenUsers", signedIn: false)
+        ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
+        LoginScreen(app: app).usernameField.awaitExistence("the username field")
 
         try auditCurrentScreen()
     }
@@ -77,10 +125,7 @@ final class AccessibilityAuditTests: UITestCase {
     func testQuickConnectHasNoAccessibilityIssues() throws {
         launch(scenario: "quickConnectPending", signedIn: false)
         ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
-        let login = LoginScreen(app: app)
-        login.awaitLoaded()
-        login.quickConnectButton.awaitExistence("the Quick Connect button")
-        login.quickConnectButton.tap()
+        LoginScreen(app: app).openQuickConnect()
         QuickConnectScreen(app: app).awaitCode(UITestFixtureIdentity.quickConnectCode(1))
 
         try auditCurrentScreen()

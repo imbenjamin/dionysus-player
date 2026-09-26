@@ -93,6 +93,32 @@ actor JellyfinAPIClient {
         try await get("/Users/Me")
     }
 
+    // MARK: - Sign-in screen
+    //
+    // Both unauthenticated, and sent without a token for the same reason as
+    // `quickConnectEnabled()`: after a sign-out this client still holds the
+    // previous session's.
+
+    /// The users a server lists on its login screen — every user an admin
+    /// hasn't hidden from it. Empty is a normal answer (every user hidden),
+    /// not an error.
+    ///
+    /// `hasPassword` doesn't mean a password is *needed*: Jellyfin's demo
+    /// server lists `demo` with `HasPassword: true`, and signs it in with an
+    /// empty one (checked 2026-09-25). Only `false` is conclusive.
+    func publicUsers() async throws -> [UserDto] {
+        let request = try makeRequest(path: "/Users/Public", method: "GET", requiresAuth: false)
+        return try await send(request)
+    }
+
+    /// The server's login-screen branding: its disclaimer, and whether its
+    /// splashscreen is switched on. Asked before fetching the splashscreen,
+    /// which otherwise answers 404 — and is off by default.
+    func brandingConfiguration() async throws -> BrandingConfiguration {
+        let request = try makeRequest(path: "/Branding/Configuration", method: "GET", requiresAuth: false)
+        return try await send(request)
+    }
+
     // MARK: - Quick Connect
     //
     // Jellyfin's code-based sign-in: this device asks for a code, the user

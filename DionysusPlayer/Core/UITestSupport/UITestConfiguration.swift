@@ -90,6 +90,16 @@ enum UITestScenario: String {
     /// code is approved as usual, so "Get New Code" can recover.
     case quickConnectExpiring
 
+    /// `.standard`, but `/Users/Public` lists nobody — every user hidden from
+    /// the login screen — so sign-in falls back to the plain username and
+    /// password form.
+    case hiddenUsers
+
+    /// `.standard`, but a server scan finds the stub server and then keeps
+    /// running for two minutes before finding the second — long enough to see
+    /// Find Your Server list a result while still searching.
+    case slowScan
+
     /// `.standard`, but no Quick Connect code is ever approved, so the sheet
     /// holds still on its code for as long as a test needs — an audit of it
     /// would otherwise race the approval that closes it.
@@ -148,7 +158,7 @@ enum UITestConfiguration {
     /// `UITestStubURLProtocol.respond` claims to have responded from.
     static let stubServerURL = URL(string: UITestFixtureIdentity.serverAddress)!
 
-    static let stubUserID = "uitest-user-0001"
+    static let stubUserID = UITestFixtureIdentity.userID
     static let stubUsername = UITestFixtureIdentity.username
     static let stubPassword = UITestFixtureIdentity.password
     static let stubAccessToken = "uitest-access-token"

@@ -76,6 +76,9 @@ final class ProfileJourneyTests: UITestCase {
         ProfileScreen(app: app).signOut()
 
         LoginScreen(app: app).awaitLoaded()
+        // The sheet closes before the sign-out runs (`AccountAction`), rather
+        // than lingering — tappable — while the app changes behind it.
+        XCTAssertFalse(app.descendants(matching: .any)[A11yID.Profile.accountSheet].exists)
     }
 
     /// Distinct from `AuthJourneyTests.testChangingServerFromLoginReturnsToServerSetup`,
@@ -89,5 +92,6 @@ final class ProfileJourneyTests: UITestCase {
         ProfileScreen(app: app).changeServer()
 
         ServerSetupScreen(app: app).awaitLoaded()
+        XCTAssertFalse(app.descendants(matching: .any)[A11yID.Profile.accountSheet].exists)
     }
 }

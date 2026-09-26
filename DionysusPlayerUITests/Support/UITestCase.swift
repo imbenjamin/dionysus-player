@@ -58,6 +58,9 @@ class UITestCase: XCTestCase {
     ///     something surviving a relaunch — search history, say — and needs
     ///     a second `launch()` in the same test that doesn't undo the
     ///     first's state on the way in.
+    ///   - skipsWelcome: Starts a signed-out launch on server setup, as for
+    ///     anyone who has already been through the first-run welcome. `false`
+    ///     only for journeys about the welcome itself.
     ///   - extraArguments: Appended verbatim, for a test that needs to force
     ///     one of the app's own `@AppStorage` keys.
     @discardableResult
@@ -65,6 +68,7 @@ class UITestCase: XCTestCase {
         scenario: String = "standard",
         signedIn: Bool = true,
         resetsState: Bool = true,
+        skipsWelcome: Bool = true,
         extraArguments: [String] = []
     ) -> XCUIApplication {
         let app = XCUIApplication()
@@ -85,6 +89,12 @@ class UITestCase: XCTestCase {
         ]
         if signedIn {
             app.launchArguments += ["-UITestSeedSession", "YES"]
+        }
+        // Straight to server setup, as for anyone who has seen the first-run
+        // welcome — every journey but the welcome's own. The app's own key,
+        // through the argument domain like the two settings above.
+        if skipsWelcome {
+            app.launchArguments += ["-onboarding.welcomeCompleted", "YES"]
         }
         app.launchArguments += extraArguments
         app.launch()

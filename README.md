@@ -37,11 +37,15 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
 
 ## Features
 
-- **Server discovery** — "Scan for Servers" on first run finds Jellyfin
-  servers on the same Wi-Fi network (Jellyfin's own UDP auto-discovery) and
-  connects with one tap; typing an address still works. A discovered HTTPS
-  server whose certificate can't be verified can fall back to plain HTTP,
-  only after you confirm.
+- **Welcome and sign-in** — a first-run welcome, then server setup that
+  scans for Jellyfin servers on the same Wi-Fi network as soon as you arrive
+  (Jellyfin's own UDP auto-discovery) and connects with one tap; typing an
+  address still works. A discovered HTTPS server whose certificate can't be
+  verified can fall back to plain HTTP, only after you confirm. Sign-in shows
+  the server's own user list — one tap for a user without a password — with
+  the server's login artwork and disclaimer when it has them. Laid out for
+  iPhone, iPad portrait and landscape, and a foldable's outer and inner
+  screens.
 - **Browse & search** — home rails, library grids (Movies/Shows/Collections/
   Playlists) with cascading genre/studio/decade/watched/favorite filters,
   search, cast & crew, "Up Next"/continue-watching.

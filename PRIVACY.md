@@ -47,13 +47,27 @@ the Dionysus Player development team or contributors.
 
 ### Finding a server on your network
 
-If you tap **Scan for Servers** during setup, the app sends a short
+When you reach the **Find Your Server** step of setup (after tapping **Get
+Started**), and again whenever you tap **Scan Again**, the app sends a short
 discovery message ("who is JellyfinServer?", Jellyfin's standard discovery
 protocol) to each device on your current Wi-Fi network, and lists any Jellyfin
-server that replies with its name and address. The message contains nothing
-about you or your device, nothing is stored from devices that don't reply,
-and it only happens when you ask for it. iOS asks for your permission to
-access the local network the first time you scan.
+server that replies with its name and address. To show which version of
+Jellyfin each of those servers runs, it then asks each server that replied for
+its public system information — the same unauthenticated request any Jellyfin
+app makes before signing in. None of this contains anything about you or your
+device, nothing is stored from devices that don't reply, and it only happens
+during setup, never once you're signed in. iOS asks for your permission to
+access the local network the first time the app scans; you can decline and
+enter your server's address instead.
+
+### Signing in
+
+Before you sign in, the app asks your server for the users it shows on its
+login screen (names and profile pictures — the same list Jellyfin's own web
+page shows, and one your server's administrator controls), and for the
+server's login-screen branding (its disclaimer text and background image, if
+it has them). These come from your server and are only displayed; nothing is
+sent in return, and none of it is stored.
 
 ## What We Don't Collect
 

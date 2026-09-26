@@ -110,6 +110,11 @@ final class AppState {
         }
     }
 
+    /// Leaves the first-run welcome for server setup, for good.
+    func completeWelcome() {
+        sessionStore.markWelcomeCompleted()
+    }
+
     func completeServerSetup(_ configuration: ServerConfiguration) {
         sessionStore.saveServer(configuration)
         apiClient = JellyfinAPIClient(baseURL: configuration.baseURL)

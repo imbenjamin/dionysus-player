@@ -313,4 +313,27 @@ final class AppStateTests: XCTestCase {
         XCTAssertNil(appState.currentUser)
         XCTAssertNil(appState.sessionStore.serverConfiguration)
     }
+
+    // MARK: Welcome
+
+    func test_completeWelcome_marksItDoneWithoutLeavingServerSetup() {
+        let appState = makeAppState()
+        XCTAssertFalse(appState.sessionStore.hasCompletedWelcome)
+
+        appState.completeWelcome()
+
+        XCTAssertTrue(appState.sessionStore.hasCompletedWelcome)
+        XCTAssertEqual(appState.phase, .serverSetup)
+    }
+
+    func test_changeServer_doesNotBringTheWelcomeBack() {
+        let appState = makeAppState()
+        appState.completeWelcome()
+        appState.completeServerSetup(ServerConfiguration(name: "Home", baseURL: URL(string: "https://jellyfin.example.com")!))
+
+        appState.changeServer()
+
+        XCTAssertEqual(appState.phase, .serverSetup)
+        XCTAssertTrue(appState.sessionStore.hasCompletedWelcome)
+    }
 }

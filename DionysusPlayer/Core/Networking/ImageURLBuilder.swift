@@ -40,6 +40,22 @@ struct ImageURLBuilder: Equatable {
         return components.url
     }
 
+    /// The server's login splashscreen (`Branding/Splashscreen`), as JPEG.
+    ///
+    /// The route takes only `tag` and `format` — no `maxWidth`, so it comes at
+    /// the admin's original size (4MB for the demo server's PNG collage). JPEG
+    /// shrinks that on the wire; `OnboardingBackground` downscales it before
+    /// display, since it's shown blurred anyway.
+    /// Answers 404 unless `BrandingConfiguration.splashscreenEnabled`.
+    func splashscreenURL() -> URL? {
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent("Branding/Splashscreen"),
+            resolvingAgainstBaseURL: false
+        ) else { return nil }
+        components.queryItems = [.init(name: "format", value: "Jpg")]
+        return components.url
+    }
+
     /// A user's profile picture, from `Users/{id}/Images/{type}` rather than the
     /// item-image route. `tag` should be `UserDto.primaryImageTag`.
     func userImageURL(userID: String, imageType: String = "Primary", tag: String? = nil, maxWidth: Int? = nil) -> URL? {

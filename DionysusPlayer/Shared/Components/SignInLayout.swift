@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Layout constants shared by the two pre-authentication screens,
-/// `ServerSetupView` and `LoginView`.
+/// The readable column the pre-authentication screens' forms sit in — the
+/// compact composition of `OnboardingScreen`, and the Quick Connect sheets.
 enum SignInLayout {
     /// Cap for the credentials column — see `signInColumn()`.
     ///
@@ -71,59 +71,5 @@ extension View {
     /// relationship `SignInLayout.credentialsWidth` is derived against.
     func signInColumn() -> some View {
         modifier(SignInColumn())
-    }
-}
-
-/// Fades scrolled content out under the status bar on a pre-authentication
-/// screen, which has no navigation bar to do it: without this, text scrolled
-/// up runs straight through the clock.
-///
-/// Solid background across the status bar itself, fading to clear over
-/// `fadeHeight` below it. Shown only once the content has scrolled, so the
-/// resting layout's top item — flush with the safe area — is never dimmed.
-///
-/// The inset is measured on the scroll view (`onGeometryChange`), the way
-/// `HomeView.topSafeAreaInset` does and for the same reason: a window lookup
-/// misses any inset SwiftUI adds itself.
-private struct StatusBarScrollFade: ViewModifier {
-    static let fadeHeight: CGFloat = 20
-
-    @State private var topInset: CGFloat = 0
-    @State private var isScrolled = false
-
-    func body(content: Content) -> some View {
-        let background = Color(uiColor: .systemBackground)
-        let height = topInset + Self.fadeHeight
-        content
-            .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                geometry.contentOffset.y + geometry.contentInsets.top > 0.5
-            } action: { _, scrolled in
-                isScrolled = scrolled
-            }
-            .overlay(alignment: .top) {
-                LinearGradient(
-                    stops: [
-                        .init(color: background, location: 0),
-                        .init(color: background, location: height > 0 ? topInset / height : 0),
-                        .init(color: background.opacity(0), location: 1)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: height)
-                .ignoresSafeArea(edges: .top)
-                .opacity(isScrolled ? 1 : 0)
-                .animation(.easeOut(duration: 0.2), value: isScrolled)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            }
-    }
-}
-
-extension View {
-    /// See `StatusBarScrollFade`. Apply to the `ScrollView` itself.
-    func statusBarScrollFade() -> some View {
-        modifier(StatusBarScrollFade())
     }
 }

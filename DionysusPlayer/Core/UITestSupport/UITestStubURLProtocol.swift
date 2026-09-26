@@ -62,7 +62,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         // Images resolve before scenario gating: an error scenario is about the
         // data endpoints, and failing artwork too would park every assertion on
         // a placeholder. `.slowLogoImage` is the one exception.
-        if path.contains("/Images/") {
+        if path.contains("/Images/") || path.hasSuffix("/Branding/Splashscreen") {
             if scenario == .slowLogoImage, path.hasSuffix("/Images/Logo") {
                 // Scheduled on a background queue, *never* `Thread.sleep`ed
                 // here. `startLoading()` runs on one serial queue per
@@ -234,6 +234,8 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             || path.hasSuffix("/Users/AuthenticateByName")
             || path.hasSuffix("/Users/AuthenticateWithQuickConnect")
             || path.hasSuffix("/Users/Me")
+            || path.hasSuffix("/Users/Public")
+            || path.hasSuffix("/Branding/Configuration")
     }
 
     /// Paths already served a 401 this process, so `.unauthorized` fails each
@@ -405,12 +407,16 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     /// Whether the posted password matches the fixture credential, which is all
-    /// a bad-credentials journey needs. An undecodable or absent body counts as
-    /// not matching rather than crashing the stub.
+    /// a bad-credentials journey needs — or is the empty one the passwordless
+    /// public user signs in with. An undecodable or absent body counts as not
+    /// matching rather than crashing the stub.
     private static func suppliesTheFixturePassword(_ request: URLRequest) -> Bool {
         guard let body = requestBody(of: request),
               let decoded = try? JellyfinJSON.decoder.decode(AuthenticateByNameRequest.self, from: body) else {
             return false
+        }
+        if decoded.username == UITestFixtureIdentity.passwordlessUsername {
+            return decoded.pw.isEmpty
         }
         return decoded.pw == UITestFixtureIdentity.password
     }
@@ -442,7 +448,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         // which has the method.
         case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission,
              .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort,
-             .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending:
+             .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan:
             return nil
         case .serverError:
             return 500
@@ -543,6 +549,12 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
 
         case path.hasSuffix("/Users/Me"):
             return try encode(library.user)
+
+        case path.hasSuffix("/Users/Public"):
+            return try encode(UITestConfiguration.scenario == .hiddenUsers ? [UserDto]() : library.publicUsers)
+
+        case path.hasSuffix("/Branding/Configuration"):
+            return try encode(library.brandingConfiguration)
 
         case path.hasSuffix("/Views"):
             return try encode(result(scoped(library.libraries)))

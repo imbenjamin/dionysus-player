@@ -11,16 +11,16 @@ import SwiftUI
 /// iPhone only. On iPad the same rows appear as a detail pane instead —
 /// see `AccountDetailsContent`.
 struct AccountDetailsSheet: View {
+    /// Called for Sign Out or Change Server, once confirmed. The presenter
+    /// closes the sheet and performs the action from its `onDismiss` — see
+    /// `AccountAction`.
+    let onAction: (AccountAction) -> Void
+
     @Environment(\.dismiss) private var dismiss
-    /// Medium for the account rows; large while Quick Connect is pushed, whose
-    /// code field and keyboard don't fit in half a screen.
-    @State private var detent: PresentationDetent = .medium
 
     var body: some View {
         NavigationStack {
-            AccountDetailsContent(onQuickConnectPresentedChange: { isPresented in
-                detent = isPresented ? .large : .medium
-            })
+            AccountDetailsContent(performAction: onAction)
                 .accessibilityIdentifier(A11yID.Profile.accountSheet)
                 .navigationTitle("Account")
                 .navigationBarTitleDisplayMode(.inline)
@@ -30,14 +30,35 @@ struct AccountDetailsSheet: View {
                     }
                 }
         }
-        // `AppState.signOut()`/`changeServer()` flip `AppState.phase`, which
-        // tears down `MainTabView` (and this sheet along with it) — same
-        // behavior as before this sheet existed, just triggered from in here
-        // instead of directly from `ProfileView`.
-        // Not `[.medium]` alone: `AddToPlaylistSheet` records that a push
-        // inside a fixed `.medium` detent loses its taps to the sheet's
-        // resize gesture, and Quick Connect pushes from here.
-        .presentationDetents([.medium, .large], selection: $detent)
+        // Full height from the start: identity, Quick Connect and the two
+        // account actions, with their footers, more than fill half a screen,
+        // and the Quick Connect code field pushed from here needs the height
+        // for its keyboard anyway. A single detent, so there's no resize
+        // gesture to steal taps from a push inside it (see
+        // `AddToPlaylistSheet`).
+        .presentationDetents([.large])
+    }
+}
+
+/// Sign Out or Change Server, performed only once the account sheet has fully
+/// closed (`ProfileView`'s `.sheet(onDismiss:)`).
+///
+/// Performing either straight from the sheet flipped `AppState.phase` with
+/// the sheet still up: SwiftUI tore `MainTabView` down around it, the sheet
+/// lingered — still tappable — for a second or so, and only then did the
+/// sign-in screens appear. Closing first gives two clean animations instead
+/// of one stalled one. Nothing is loading in that time (both actions are
+/// local and instant), so a spinner would only have covered the stall up.
+enum AccountAction {
+    case signOut
+    case changeServer
+
+    @MainActor
+    func perform(on appState: AppState) {
+        switch self {
+        case .signOut: appState.signOut()
+        case .changeServer: appState.changeServer()
+        }
     }
 }
 
@@ -48,9 +69,9 @@ struct AccountDetailsSheet: View {
 /// Split out of `AccountDetailsSheet` so iPad can show exactly the same
 /// content as a detail pane rather than a sheet. On iPad the contact card
 /// is a selectable sidebar row, and selecting it should fill the detail
-/// column the way every other sidebar row does; throwing a medium-detent
-/// sheet over a screen with a half-empty detail column already open would
-/// be covering space it could simply have used.
+/// column the way every other sidebar row does; throwing a sheet over a
+/// screen with a half-empty detail column already open would be covering
+/// space it could simply have used.
 ///
 /// The confirmation dialogs live here, with the buttons that raise them,
 /// so both presentations get them without either having to remember to
@@ -62,9 +83,13 @@ struct AccountDetailsContent: View {
     @State private var isQuickConnectAvailable = false
     @State private var isShowingQuickConnect = false
 
-    /// Lets `AccountDetailsSheet` size itself for the pushed Quick Connect
-    /// screen. The iPad detail pane has the room already and ignores it.
-    var onQuickConnectPresentedChange: (Bool) -> Void = { _ in }
+    /// Set when the rows sit in a sheet that has to close before the action
+    /// runs (`AccountDetailsSheet`). The iPad detail pane has nothing to close
+    /// and leaves it `nil`, performing the action directly.
+    var performAction: ((AccountAction) -> Void)?
+    /// Set once an action is confirmed, so nothing here can be tapped while
+    /// the sheet closes.
+    @State private var isLeaving = false
 
     var body: some View {
         List {
@@ -126,7 +151,7 @@ struct AccountDetailsContent: View {
             isPresented: $showSignOutConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Sign Out", role: .destructive) { appState.signOut() }
+            Button("Sign Out", role: .destructive) { request(.signOut) }
             Button("Cancel", role: .cancel) {}
         }
         .task {
@@ -142,21 +167,28 @@ struct AccountDetailsContent: View {
                 )
             }
         }
-        .onChange(of: isShowingQuickConnect) { _, isPresented in
-            onQuickConnectPresentedChange(isPresented)
-        }
         .confirmationDialog(
             "Change server?",
             isPresented: $showChangeServerConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Change Server", role: .destructive) { appState.changeServer() }
+            Button("Change Server", role: .destructive) { request(.changeServer) }
             Button("Cancel", role: .cancel) {}
+        }
+        .disabled(isLeaving)
+    }
+
+    private func request(_ action: AccountAction) {
+        if let performAction {
+            isLeaving = true
+            performAction(action)
+        } else {
+            action.perform(on: appState)
         }
     }
 }
 
 #Preview {
-    AccountDetailsSheet()
+    AccountDetailsSheet { _ in }
         .environment(AppState())
 }
