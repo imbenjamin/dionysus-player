@@ -11,17 +11,26 @@ import Foundation
 struct UITestServerDiscovery: ServerDiscovering {
     func discoverServers() -> AsyncThrowingStream<DiscoveredServer, Error> {
         AsyncThrowingStream { continuation in
-            continuation.yield(DiscoveredServer(
-                id: UITestFixtureIdentity.discoveredServerID,
-                name: UITestFixtureIdentity.serverName,
-                address: UITestConfiguration.stubServerURL
-            ))
-            continuation.yield(DiscoveredServer(
-                id: UITestFixtureIdentity.serverSystemID,
-                name: UITestFixtureIdentity.discoveredHTTPSServerName,
-                address: URL(string: UITestFixtureIdentity.discoveredHTTPSServerAddress)!
-            ))
-            continuation.finish()
+            let task = Task {
+                continuation.yield(DiscoveredServer(
+                    id: UITestFixtureIdentity.discoveredServerID,
+                    name: UITestFixtureIdentity.serverName,
+                    address: UITestConfiguration.stubServerURL
+                ))
+                // `.slowScan`: one server found, the scan still running long
+                // past any assertion — what the "Still searching…" indicator
+                // is for.
+                if UITestConfiguration.scenario == .slowScan {
+                    try? await Task.sleep(for: .seconds(120))
+                }
+                continuation.yield(DiscoveredServer(
+                    id: UITestFixtureIdentity.serverSystemID,
+                    name: UITestFixtureIdentity.discoveredHTTPSServerName,
+                    address: URL(string: UITestFixtureIdentity.discoveredHTTPSServerAddress)!
+                ))
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 }

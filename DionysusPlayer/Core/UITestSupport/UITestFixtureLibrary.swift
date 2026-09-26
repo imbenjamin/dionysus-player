@@ -274,6 +274,23 @@ enum UITestFixtureLibrary {
         )
     }
 
+    /// `/Users/Public`: the signed-in fixture user, who has a password, and
+    /// one who doesn't.
+    static var publicUsers: [UserDto] {
+        [
+            user,
+            UserDto(
+                id: UITestFixtureIdentity.passwordlessUserID,
+                name: UITestFixtureIdentity.passwordlessUsername,
+                hasPassword: false
+            )
+        ]
+    }
+
+    static var brandingConfiguration: BrandingConfiguration {
+        BrandingConfiguration(loginDisclaimer: UITestFixtureIdentity.loginDisclaimer, splashscreenEnabled: true)
+    }
+
     // MARK: - Construction helpers
 
     private static func base(id: String, name: String, type: BaseItemKind) -> BaseItemDto {

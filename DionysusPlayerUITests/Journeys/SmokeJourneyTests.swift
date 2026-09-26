@@ -7,20 +7,19 @@ import XCTest
 /// and the point of running them on every PR is fast feedback, not coverage.
 /// The broader per-feature journeys belong in the full plan.
 final class SmokeJourneyTests: UITestCase {
-    /// First run: no server, no credentials. Types a real address, signs in,
-    /// and lands on Home with content.
+    /// First run: no server, no credentials. Through the welcome, picks the
+    /// server the arrival scan finds, signs in as a listed user, and lands on
+    /// Home with content.
     ///
-    /// The one test that exercises `AppState`'s whole `.serverSetup` →
-    /// `.login` → `.main` machine rather than being seeded past it.
+    /// The one test that exercises the whole journey — welcome, then
+    /// `AppState`'s `.serverSetup` → `.login` → `.main` — rather than being
+    /// seeded past any of it.
     func testFirstRunSetupAndSignIn() {
-        launch(signedIn: false)
+        launch(signedIn: false, skipsWelcome: false)
 
-        ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
-
-        LoginScreen(app: app).signIn(
-            username: UITestFixtureIdentity.username,
-            password: UITestFixtureIdentity.password
-        )
+        WelcomeScreen(app: app).getStarted()
+        ServerSetupScreen(app: app).scanForStubServer().tap()
+        LoginScreen(app: app).signIn(password: UITestFixtureIdentity.password)
 
         HomeScreen(app: app).awaitLoaded()
     }

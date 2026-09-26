@@ -175,9 +175,6 @@
     "60s" : {
 
     },
-    "192.168.1.50:8096" : {
-
-    },
     "480p SD" : {
 
     },
@@ -272,6 +269,12 @@
     "Appearance" : {
 
     },
+    "Approve this device from another app already signed in to %@." : {
+
+    },
+    "Artwork-first browsing, Continue Watching, collections and playlists." : {
+
+    },
     "Ascending" : {
 
     },
@@ -346,6 +349,9 @@
 
     },
     "Choose an Audio Track" : {
+
+    },
+    "Choose your server to continue." : {
 
     },
     "Clear All" : {
@@ -430,6 +436,12 @@
 
     },
     "Couldn't retry this download." : {
+
+    },
+    "Couldn't sign in as %@. Try again." : {
+
+    },
+    "Couldn't sign in. Check the password and try again." : {
 
     },
     "Couldn't sign in. Check your username and password." : {
@@ -556,7 +568,7 @@
     "Dionysus doesn't have access to your local network. Turn on Local Network for Dionysus in Settings, then try again." : {
 
     },
-    "Dionysus needs the address of your Jellyfin server to get started." : {
+    "Dionysus plays from your own Jellyfin media server." : {
 
     },
     "Direct Play Always" : {
@@ -575,6 +587,9 @@
 
     },
     "Dolby Digital Plus" : {
+
+    },
+    "Dolby Vision, HDR10 and surround sound, straight from your server." : {
 
     },
     "Done" : {
@@ -596,6 +611,9 @@
 
     },
     "Download failed." : {
+
+    },
+    "Download movies and shows to watch offline, anywhere." : {
 
     },
     "Download Paused" : {
@@ -632,6 +650,12 @@
 
     },
     "Enter a valid server address, like 192.168.1.50:8096." : {
+
+    },
+    "Enter Address Manually" : {
+
+    },
+    "Enter the password for %@" : {
 
     },
     "Enter your server's local IP and port, a domain name, or a full URL." : {
@@ -698,6 +722,9 @@
     "Get New Code" : {
 
     },
+    "Get Started" : {
+
+    },
     "gigabytes" : {
 
     },
@@ -746,10 +773,13 @@
     "Lock rotation" : {
 
     },
-    "Look for Jellyfin servers on the same Wi-Fi network as this device." : {
+    "Looking for Jellyfin servers on your Wi-Fi. If iOS asks, allow Local Network access so Dionysus can find yours." : {
 
     },
     "Lost contact with the server while waiting for approval." : {
+
+    },
+    "Make sure this device is on the same Wi-Fi as your server, or enter its address instead." : {
 
     },
     "Mark as Unwatched" : {
@@ -812,10 +842,10 @@
     "No items match these filters." : {
 
     },
-    "No servers found" : {
+    "No local network access" : {
 
     },
-    "No servers found. Check that this device is on the same Wi-Fi network as your server, or enter its address below." : {
+    "No servers found" : {
 
     },
     "No synopsis available." : {
@@ -828,6 +858,9 @@
 
     },
     "Normal" : {
+
+    },
+    "Not on Wi-Fi" : {
 
     },
     "Nothing here yet." : {
@@ -869,7 +902,16 @@
     "Overrides your default download settings for this item only." : {
 
     },
+    "Password" : {
+
+    },
     "Password (optional)" : {
+
+    },
+    "Password for %@" : {
+
+    },
+    "Password required" : {
 
     },
     "Pause" : {
@@ -918,6 +960,9 @@
 
     },
     "Playlist Name" : {
+
+    },
+    "Plays it as it was made" : {
 
     },
     "Preparing Download" : {
@@ -1056,12 +1101,6 @@
     "Scan Again" : {
 
     },
-    "Scan for Servers" : {
-
-    },
-    "Scanning…" : {
-
-    },
     "Search" : {
 
     },
@@ -1069,6 +1108,9 @@
 
     },
     "Search Your Library" : {
+
+    },
+    "Searching for servers" : {
 
     },
     "Season" : {
@@ -1124,9 +1166,6 @@
     "Servers found: %lld" : {
 
     },
-    "Servers on Your Network" : {
-
-    },
     "Show" : {
 
     },
@@ -1151,6 +1190,9 @@
     "Sign In" : {
 
     },
+    "Sign In Another Way" : {
+
+    },
     "Sign in on another device with a code, instead of typing your password." : {
 
     },
@@ -1163,7 +1205,10 @@
     "Sign out of %@?" : {
 
     },
-    "Signing In" : {
+    "Signing in as %@" : {
+
+    },
+    "Signing in to **%@**" : {
 
     },
     "Signing In…" : {
@@ -1202,6 +1247,9 @@
     "Stereo" : {
 
     },
+    "Still searching…" : {
+
+    },
     "Storage" : {
 
     },
@@ -1236,6 +1284,9 @@
 
     },
     "Tagline: %@" : {
+
+    },
+    "Take it with you" : {
 
     },
     "terabytes" : {
@@ -1400,9 +1451,6 @@
     "Up to %@" : {
 
     },
-    "Use a Different Server" : {
-
-    },
     "Use HTTPS" : {
 
     },
@@ -1427,10 +1475,16 @@
     "Watched" : {
 
     },
-    "Welcome Back" : {
+    "What's Jellyfin?" : {
+
+    },
+    "Who's Watching?" : {
 
     },
     "Wi-Fi Only" : {
+
+    },
+    "You can still connect by entering your server's address." : {
 
     },
     "You don't have edit access to any existing playlists. Create a new one instead." : {
@@ -1448,6 +1502,9 @@
     "You're Offline" : {
 
     },
+    "Your Jellyfin library, in its best light." : {
+
+    },
     "Your Playlists" : {
 
     },
@@ -1458,6 +1515,9 @@
 
     },
     "Your session has expired. Sign out and back in to use Quick Connect." : {
+
+    },
+    "Your whole library, beautifully" : {
 
     },
     "Zoom to Fill Screen" : {

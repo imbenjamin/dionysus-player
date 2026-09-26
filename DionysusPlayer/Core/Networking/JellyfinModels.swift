@@ -42,7 +42,16 @@ struct QuickConnectRequest: Codable {
     var secret: String
 }
 
-struct UserDto: Codable, Identifiable {
+/// `/Branding/Configuration`. `CustomCss` is the third field, and of no use
+/// to a native client.
+struct BrandingConfiguration: Codable, Equatable {
+    /// Free text an admin sets for the login screen. May carry HTML — the demo
+    /// server's has `<br/>` — see `LoginDisclaimer.plainText(from:)`.
+    var loginDisclaimer: String?
+    var splashscreenEnabled: Bool?
+}
+
+struct UserDto: Codable, Identifiable, Equatable {
     var id: String
     var name: String
     var hasPassword: Bool?

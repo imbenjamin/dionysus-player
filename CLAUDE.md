@@ -218,15 +218,73 @@ user is in the app, driven by a `Phase` enum: `.serverSetup` → `.login` →
 `.main`. It also owns the `JellyfinAPIClient` instance, since the client's
 base URL depends on which server was configured — there is one client per
 configured server, created in `completeServerSetup` and recreated on
-`start()`. `RootView` switches on `appState.phase`, but shows `SplashView`
-(`App/SplashView.swift`) instead whenever `appState.isRestoringSession` is
-true — a branded gradient/glass splash covering the brief window before the
-phase is known at all, rather than a phase of its own. Session persistence
+`start()`. `RootView` shows `MainTabView` once the user is in `.main` and
+the session has restored, and `OnboardingFlowView` otherwise — everything
+before the app, as one continuous scene (see "Welcome, server setup and
+sign-in" below). Session persistence
 (`ServerSessionStore`, `Core/Persistence/`) splits storage by sensitivity:
 server config in `UserDefaults`, credentials/access token in the Keychain
 (`KeychainStore`). On launch, `AppState.start()` restores the server, then
 attempts silent sign-in with stored credentials before falling back to the
 login screen.
+
+### Welcome, server setup and sign-in (`Features/Onboarding/`)
+
+`OnboardingFlowView` hosts four stages — the splash (`SplashView`, while
+`AppState.isRestoringSession`), the first-run welcome (`WelcomeView`), server
+setup and sign-in — and owns what they share, so nothing cuts between them:
+the brand background (`OnboardingBackground`), the glyph's matched-geometry
+namespace (the glyph *moves* from screen to screen), an always-dark
+appearance scoped to the flow rather than forced on the window, the
+composition, and the orientation lock. The shared pieces live in
+`Shared/Components/Onboarding/`. Five things about it aren't guessable:
+
+- **The composition is chosen from the window, never the device**
+  (`OnboardingLayout.resolve`): compact (one column, actions pinned to the
+  bottom edge) unless the size class is regular *and* the window is at least
+  600pt wide; then regular (one centred block, actions inline) or, for a
+  window wider than tall and at least 900pt, landscape (brand pane left, task
+  right). The size is the *whole* window, safe areas included — a foldable's
+  vertical status bar otherwise took enough off its 951pt inner screen to miss
+  the threshold. `OnboardingLayoutTests` pins every measured device size.
+- **Portrait-only on a phone-sized screen** — shorter side under 600pt
+  (`RotationLock.isPhoneSized`), keyed on the screen rather than the idiom
+  because a foldable iPhone is both a phone (outer, 466pt) and not (inner,
+  669pt, held in landscape). **Known gap, parked until that hardware ships**
+  (all tooling pre-release as of 2026-09-25): unfolding after folding releases
+  the lock but iOS leaves the interface sideways until the device is turned;
+  `requestGeometryUpdate(.all)` didn't move it, and `UIDevice.orientation`
+  reads `.portrait` on the inner screen, so it can't choose a target.
+- **The welcome shows once** (`ServerSessionStore.hasCompletedWelcome`):
+  "Get Started", or having *ever* configured a server — which covers everyone
+  who set the app up before the welcome existed. `clearAll()` leaves it set,
+  so changing server never replays it. UI tests skip it with
+  `-onboarding.welcomeCompleted YES` (`UITestCase.launch(skipsWelcome:)`).
+- **`HasPassword: true` doesn't mean a password is needed.** Sign-in is built
+  on `/Users/Public` (unauthenticated — what Jellyfin's own login page lists),
+  and the demo server reports `demo` as `HasPassword: true` while signing it in
+  with an empty password (checked 2026-09-25). So only `false` signs in on one
+  tap; anyone else is asked, and an empty password is still submitted rather
+  than blocked. An empty list — every user hidden by an admin — falls back to
+  a plain username/password form.
+- **Server branding comes with two traps.** `/Branding/Configuration`'s
+  `LoginDisclaimer` is HTML (the demo server's has `<br/>`), so it goes
+  through `LoginDisclaimer.plainText(from:)`. And `/Branding/Splashscreen` is
+  off by default (404) and ignores `maxWidth` — it serves the admin's
+  original, 4MB for the demo server — so it's only fetched when
+  `SplashscreenEnabled`, as JPEG, and downscaled before display.
+
+Also: the splash glyph used to tilt with the device, pivoting 150pt in front
+of itself — and SwiftUI's perspective projection scales a view by 1 / (1 +
+perspective × anchorZ / size) *even at zero tilt*, which is why its 179pt
+frame rendered at 134pt. The tilt is gone from the whole flow (the user found
+it pointless once the glyph was one piece of a composed screen; the detail
+pages' hero keeps its own). The splash is sized to that measured 134, and
+`LaunchScreen.storyboard`'s 157pt glyph frame matches it (its SVG's artwork
+fills 1068/1253 of its viewBox). Ambient motion (the drifting background and
+the scan radar) stops under Reduce Motion and under the UI-test harness
+(`UITestHarness.freezesAmbientMotion`), where a continuously redrawing view
+keeps the accessibility tree in motion.
 
 ### Networking (`Core/Networking/`)
 
@@ -292,8 +350,8 @@ the message says both), and 401 with Quick Connect off. Two things about it:
 There is no "approve this device?" step because there's nothing to show in
 one: only the requesting device can look up which device and app asked.
 
-**Server discovery** (`ServerDiscovery.swift`, Find Your Server → Scan for
-Servers) speaks Jellyfin's UDP auto-discovery protocol — `who is
+**Server discovery** (`ServerDiscovery.swift`, run by Find Your Server as
+soon as it appears — `ServerSetupViewModel.startScanOnArrival`) speaks Jellyfin's UDP auto-discovery protocol — `who is
 JellyfinServer?` to port 7359, answered with `{Address, Id, Name}` — but
 **unicast to every host on the subnet, never broadcast.** Sending to a
 broadcast or multicast address on iOS needs the restricted

@@ -148,8 +148,67 @@ final class ServerSetupViewModelTests: XCTestCase {
     private let flix = DiscoveredServer(id: "flix", name: "Flix", address: URL(string: "http://192.168.0.222:8096/flix")!)
     private let secure = DiscoveredServer(id: "secure", name: "Secure", address: URL(string: "https://media.local:8920")!)
 
+    /// For scans whose servers' versions aren't the point: without it each
+    /// discovered server starts a real `/System/Info/Public` lookup that can
+    /// outlive the test and land in a later one's `MockURLProtocol` handler.
+    private static let noVersion: @Sendable (URL) async -> String? = { _ in nil }
+
+    // MARK: Scanning on arrival
+
+    func test_startScanOnArrival_scansOnceAndLeavesResultsAloneAfterwards() async throws {
+        let discovery = StubServerDiscovery(servers: [flix])
+        let viewModel = ServerSetupViewModel(discovery: discovery, versionLookup: Self.noVersion)
+
+        viewModel.startScanOnArrival()
+        try await waitUntil { viewModel.scanState == .finished }
+        XCTAssertEqual(viewModel.discoveredServers, [flix])
+
+        // Coming back to the screen (or `.task` running again) must not
+        // throw the list away and scan over it.
+        discovery.servers = []
+        viewModel.startScanOnArrival()
+        XCTAssertEqual(viewModel.scanState, .finished)
+        XCTAssertEqual(viewModel.discoveredServers, [flix])
+    }
+
+    // MARK: Versions
+
+    func test_scan_looksUpEachDiscoveredServersVersionInTheBackground() async throws {
+        let viewModel = ServerSetupViewModel(
+            discovery: StubServerDiscovery(servers: [flix, secure]),
+            versionLookup: { address in address.scheme == "http" ? "10.11.11" : nil }
+        )
+
+        await viewModel.scanForServers()
+        try await waitUntil { viewModel.serverVersions[self.flix.id] != nil }
+
+        XCTAssertEqual(viewModel.serverVersions[flix.id], "10.11.11")
+        // The HTTPS one couldn't be asked: no version, and no error either.
+        XCTAssertNil(viewModel.serverVersions[secure.id])
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    func test_scan_looksUpAServersVersionOnlyOnceAcrossRescans() async throws {
+        let lookups = LookupCounter()
+        let viewModel = ServerSetupViewModel(
+            discovery: StubServerDiscovery(servers: [flix]),
+            versionLookup: { _ in
+                await lookups.increment()
+                return "10.11.11"
+            }
+        )
+
+        await viewModel.scanForServers()
+        try await waitUntil { viewModel.serverVersions[self.flix.id] != nil }
+        await viewModel.scanForServers()
+        try await Task.sleep(for: .milliseconds(100))
+
+        let count = await lookups.value
+        XCTAssertEqual(count, 1)
+    }
+
     func test_scanForServers_publishesServersInAnswerOrderAndFinishes() async {
-        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: [flix, secure]))
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: [flix, secure]), versionLookup: Self.noVersion)
 
         await viewModel.scanForServers()
 
@@ -167,7 +226,7 @@ final class ServerSetupViewModelTests: XCTestCase {
     }
 
     func test_scanForServers_accessDenied_reportsItAndKeepsWhateverAnswered() async {
-        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: [flix], error: .localNetworkAccessDenied))
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: [flix], error: .localNetworkAccessDenied), versionLookup: Self.noVersion)
 
         await viewModel.scanForServers()
 
@@ -179,7 +238,7 @@ final class ServerSetupViewModelTests: XCTestCase {
     /// has gone away shouldn't linger.
     func test_scanForServers_rescan_replacesPreviousResults() async {
         let discovery = StubServerDiscovery(servers: [flix, secure])
-        let viewModel = ServerSetupViewModel(discovery: discovery)
+        let viewModel = ServerSetupViewModel(discovery: discovery, versionLookup: Self.noVersion)
         await viewModel.scanForServers()
 
         discovery.servers = [secure]
@@ -526,6 +585,11 @@ private final class RequestCounter: @unchecked Sendable {
             return value
         }
     }
+}
+
+private actor LookupCounter {
+    private(set) var value = 0
+    func increment() { value += 1 }
 }
 
 /// Yields `servers`, then finishes — or fails with `error` if one is set.

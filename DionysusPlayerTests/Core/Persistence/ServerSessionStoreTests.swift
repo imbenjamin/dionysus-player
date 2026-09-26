@@ -94,4 +94,40 @@ final class ServerSessionStoreTests: XCTestCase {
         XCTAssertNil(reloaded.serverConfiguration)
         XCTAssertNil(reloaded.credentials)
     }
+
+    // MARK: Welcome
+
+    func test_welcome_startsIncompleteAndPersistsOnceCompleted() {
+        XCTAssertFalse(ServerSessionStore(defaults: defaults).hasCompletedWelcome)
+
+        ServerSessionStore(defaults: defaults).markWelcomeCompleted()
+
+        XCTAssertTrue(ServerSessionStore(defaults: defaults).hasCompletedWelcome)
+    }
+
+    /// Someone who set the app up before the welcome existed has a server but
+    /// never tapped "Get Started" — and mustn't meet the first-run welcome the
+    /// next time they change server.
+    func test_welcome_countsAsCompletedForAnExistingServerConfiguration() {
+        let config = ServerConfiguration(name: "Home", baseURL: URL(string: "https://jellyfin.example.com")!)
+        let data = try! JSONEncoder().encode(config)
+        defaults.set(data, forKey: "server.configuration")
+
+        let store = ServerSessionStore(defaults: defaults)
+        XCTAssertTrue(store.hasCompletedWelcome)
+
+        store.clearAll()
+        XCTAssertTrue(ServerSessionStore(defaults: defaults).hasCompletedWelcome)
+    }
+
+    /// Changing server or signing out shouldn't replay the introduction.
+    func test_clearAll_keepsTheWelcomeCompleted() {
+        let store = ServerSessionStore(defaults: defaults)
+        store.markWelcomeCompleted()
+
+        store.clearAll()
+
+        XCTAssertTrue(store.hasCompletedWelcome)
+        XCTAssertTrue(ServerSessionStore(defaults: defaults).hasCompletedWelcome)
+    }
 }

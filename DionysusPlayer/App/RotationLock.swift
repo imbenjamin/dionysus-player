@@ -60,6 +60,33 @@ enum RotationLock {
         notifyUIKit()
     }
 
+    /// Whether the screen the app is on is phone-sized — its shorter side
+    /// under 600pt. Keyed on the screen rather than the device idiom because
+    /// a foldable iPhone is both: its outer screen (~466pt across) is a phone,
+    /// its unfolded inner one (~669pt) is closer to an iPad mini (744pt) and
+    /// is held in landscape. Every non-foldable iPhone is at most 440pt.
+    @MainActor
+    static var isOnPhoneSizedScreen: Bool {
+        guard let bounds = keyWindowScene?.screen.bounds else { return true }
+        return isPhoneSized(bounds.size)
+    }
+
+    static func isPhoneSized(_ screenSize: CGSize) -> Bool {
+        min(screenSize.width, screenSize.height) < 600
+    }
+
+    /// Portrait only, rotating there first if the device is held sideways.
+    /// For the pre-sign-in journey on a phone-sized screen, which has no
+    /// landscape composition worth having: a phone on its side leaves a
+    /// two-line strip for the content under the keyboard. Released with
+    /// `unlock()`.
+    @MainActor
+    static func lockToPortrait() {
+        mask = .portrait
+        notifyUIKit()
+        keyWindowScene?.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
+    }
+
     /// Restores free rotation (within whatever this device's own
     /// `UISupportedInterfaceOrientations` Info.plist entry already allows —
     /// `.all` doesn't need to special-case iPhone vs iPad itself, since

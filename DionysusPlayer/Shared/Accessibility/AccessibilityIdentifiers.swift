@@ -44,13 +44,26 @@ import Foundation
 ///   "Downloads" is simultaneously a tab, a Profile section, a settings
 ///   screen and a settings row.
 enum A11yID {
+    enum Welcome {
+        static let getStartedButton = "welcome.getStartedButton"
+        static let jellyfinLink = "welcome.jellyfinLink"
+    }
+
     enum ServerSetup {
+        /// Opens the address sheet, which holds `addressField`,
+        /// `httpsToggle` and `connectButton`.
+        static let manualEntryButton = "serverSetup.manualEntryButton"
+        static let addressSheetCancelButton = "serverSetup.addressSheet.cancel"
         static let addressField = "serverSetup.addressField"
         static let httpsToggle = "serverSetup.httpsToggle"
         static let connectButton = "serverSetup.connectButton"
         static let errorMessage = "serverSetup.errorMessage"
+        /// "Scan Again", or "Try Again" after a scan found nothing. There is
+        /// no button while a scan runs: one starts on arrival.
         static let scanButton = "serverSetup.scanButton"
         static let scanStatus = "serverSetup.scanStatus"
+        /// Under the servers found so far, while the scan is still running.
+        static let scanningIndicator = "serverSetup.scanningIndicator"
         static func discoveredServer(_ id: String) -> String { "serverSetup.discoveredServer.\(id)" }
         static let insecureFallbackConfirmButton = "serverSetup.insecureFallback.confirm"
         static let insecureFallbackCancelButton = "serverSetup.insecureFallback.cancel"
@@ -59,12 +72,24 @@ enum A11yID {
     }
 
     enum Login {
+        /// A user from the server's public list, keyed by user id.
+        static func userTile(_ userID: String) -> String { "login.userTile.\(userID)" }
+        /// The last tile: manual sign-in and Quick Connect, in a sheet.
+        static let otherUserButton = "login.otherUserButton"
+        static let otherUserCancelButton = "login.otherUser.cancel"
+        /// In the "Other" sheet, or on the screen itself when the server lists
+        /// no users.
         static let usernameField = "login.usernameField"
+        /// Wherever a password is asked for: under a chosen user (a panel on a
+        /// phone, a popover on iPad), in the "Other" sheet, or the fallback form.
         static let passwordField = "login.passwordField"
         static let signInButton = "login.signInButton"
+        /// The server's own login disclaimer, when it has one.
+        static let disclaimer = "login.disclaimer"
         static let changeServerButton = "login.changeServerButton"
         static let errorMessage = "login.errorMessage"
-        /// Present only when the server reports Quick Connect enabled.
+        /// Present only when the server reports Quick Connect enabled; in the
+        /// "Other" sheet, or on the fallback form.
         static let quickConnectButton = "login.quickConnectButton"
     }
 

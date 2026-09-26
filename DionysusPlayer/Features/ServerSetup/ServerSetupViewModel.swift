@@ -26,11 +26,17 @@ final class ServerSetupViewModel {
     /// The discovered server a connection is being tested against, so its row
     /// can show progress rather than the Connect button.
     private(set) var connectingServerID: DiscoveredServer.ID?
+    /// Each discovered server's Jellyfin version, filled in the background as
+    /// answers arrive: the discovery reply carries only an address, an id and
+    /// a name. A server whose `/System/Info/Public` fails simply has none.
+    private(set) var serverVersions: [DiscoveredServer.ID: String] = [:]
 
     private let discovery: any ServerDiscovering
     private var scanTask: Task<Void, Never>?
     private let activity: any AppActivityObserving
     private let isLocalNetworkDenied: @Sendable (URLError) -> Bool
+    private let versionLookup: @Sendable (URL) async -> String?
+    private var versionTasks: [DiscoveredServer.ID: Task<Void, Never>] = [:]
 
     /// `activity` and `isLocalNetworkDenied` exist to be replaced in tests:
     /// neither the Local Network prompt nor the error it causes can be
@@ -38,11 +44,20 @@ final class ServerSetupViewModel {
     init(
         discovery: any ServerDiscovering = ServerSetupViewModel.defaultDiscovery(),
         activity: any AppActivityObserving = AppActivityMonitor(),
-        isLocalNetworkDenied: @escaping @Sendable (URLError) -> Bool = { $0.isLocalNetworkDenied }
+        isLocalNetworkDenied: @escaping @Sendable (URLError) -> Bool = { $0.isLocalNetworkDenied },
+        versionLookup: @escaping @Sendable (URL) async -> String? = ServerSetupViewModel.publicVersion
     ) {
         self.discovery = discovery
         self.activity = activity
         self.isLocalNetworkDenied = isLocalNetworkDenied
+        self.versionLookup = versionLookup
+    }
+
+    /// The version a server reports over `/System/Info/Public`, or `nil` if
+    /// it can't be asked — an `https://` address whose certificate fails, for
+    /// one. Not worth an error: the row just shows no version.
+    nonisolated static func publicVersion(at address: URL) async -> String? {
+        try? await JellyfinAPIClient(baseURL: address).publicSystemInfo().version
     }
 
     /// The real scanner, or under the UI-test harness one that answers with
@@ -80,6 +95,15 @@ final class ServerSetupViewModel {
         scanTask = Task { await scanForServers() }
     }
 
+    /// Scans on arrival — the user has just said "Get Started", and the screen
+    /// explains the Local Network prompt a scan may raise. Only from `.idle`,
+    /// so coming back to the screen (or SwiftUI re-running `.task`) doesn't
+    /// throw away results already on screen.
+    func startScanOnArrival() {
+        guard scanState == .idle else { return }
+        startScan()
+    }
+
     func cancelScan() {
         scanTask?.cancel()
         scanTask = nil
@@ -97,6 +121,7 @@ final class ServerSetupViewModel {
             for try await server in discovery.discoverServers() {
                 found.append(server)
                 discoveredServers = found
+                lookUpVersion(of: server)
             }
             discoveredServers = found
             scanState = Task.isCancelled ? .idle : .finished
@@ -106,6 +131,20 @@ final class ServerSetupViewModel {
         } catch {
             discoveredServers = found
             scanState = .failed(.noLocalNetwork)
+        }
+    }
+
+    /// At most one lookup per server, however many rescans list it.
+    private func lookUpVersion(of server: DiscoveredServer) {
+        guard serverVersions[server.id] == nil, versionTasks[server.id] == nil else { return }
+        let lookup = versionLookup
+        versionTasks[server.id] = Task { [weak self] in
+            let version = await lookup(server.address)
+            guard let self else { return }
+            self.versionTasks[server.id] = nil
+            if let version, !version.isEmpty {
+                self.serverVersions[server.id] = version
+            }
         }
     }
 

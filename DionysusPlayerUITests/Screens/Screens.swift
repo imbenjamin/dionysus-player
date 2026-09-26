@@ -67,15 +67,39 @@ extension Screen {
     }
 }
 
+// MARK: - Welcome
+
+struct WelcomeScreen: Screen {
+    let app: XCUIApplication
+
+    var getStartedButton: XCUIElement { app.buttons[A11yID.Welcome.getStartedButton] }
+    var jellyfinLink: XCUIElement { app.descendants(matching: .any)[A11yID.Welcome.jellyfinLink] }
+
+    func awaitLoaded(file: StaticString = #filePath, line: UInt = #line) {
+        getStartedButton.awaitExistence("the Get Started button", file: file, line: line)
+    }
+
+    func getStarted(file: StaticString = #filePath, line: UInt = #line) {
+        awaitLoaded(file: file, line: line)
+        getStartedButton.tap()
+    }
+}
+
 // MARK: - Server setup
 
 struct ServerSetupScreen: Screen {
     let app: XCUIApplication
 
+    var manualEntryButton: XCUIElement { app.buttons[A11yID.ServerSetup.manualEntryButton] }
     var addressField: XCUIElement { app.textFields[A11yID.ServerSetup.addressField] }
     var connectButton: XCUIElement { app.buttons[A11yID.ServerSetup.connectButton] }
+    var addressSheetCancelButton: XCUIElement { app.buttons[A11yID.ServerSetup.addressSheetCancelButton] }
     var errorMessage: XCUIElement { app.descendants(matching: .any)[A11yID.ServerSetup.errorMessage] }
+    /// "Scan Again", or "Try Again" after an empty scan. A scan starts by
+    /// itself on arrival, so there is none while that runs.
     var scanButton: XCUIElement { app.buttons[A11yID.ServerSetup.scanButton] }
+    var scanStatus: XCUIElement { app.descendants(matching: .any)[A11yID.ServerSetup.scanStatus] }
+    var scanningIndicator: XCUIElement { app.descendants(matching: .any)[A11yID.ServerSetup.scanningIndicator] }
     var httpsToggle: XCUIElement { app.switches[A11yID.ServerSetup.httpsToggle] }
 
     func discoveredServer(_ id: String) -> XCUIElement {
@@ -102,21 +126,28 @@ struct ServerSetupScreen: Screen {
     }
 
     func awaitLoaded(file: StaticString = #filePath, line: UInt = #line) {
-        addressField.awaitExistence("the server address field", file: file, line: line)
+        manualEntryButton.awaitExistence("the Enter Address Manually button", file: file, line: line)
     }
 
-    /// Scans and waits for the stub server `UITestServerDiscovery` reports.
+    /// Waits for the stub server `UITestServerDiscovery` reports, from the
+    /// scan that starts on arrival.
     @discardableResult
     func scanForStubServer(file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
         awaitLoaded(file: file, line: line)
-        scanButton.tap()
         let row = discoveredServer(UITestFixtureIdentity.discoveredServerID)
         row.awaitExistence("the discovered stub server", file: file, line: line)
         return row
     }
 
-    func connect(to address: String, file: StaticString = #filePath, line: UInt = #line) {
+    /// Opens the address sheet with its field focused.
+    func openAddressSheet(file: StaticString = #filePath, line: UInt = #line) {
         awaitLoaded(file: file, line: line)
+        manualEntryButton.tap()
+        addressField.awaitExistence("the server address field", file: file, line: line)
+    }
+
+    func connect(to address: String, file: StaticString = #filePath, line: UInt = #line) {
+        openAddressSheet(file: file, line: line)
         addressField.tap()
         addressField.typeText(address)
         connectButton.tap()
@@ -128,19 +159,58 @@ struct ServerSetupScreen: Screen {
 struct LoginScreen: Screen {
     let app: XCUIApplication
 
+    /// A user from the server's public list. The fixture user
+    /// (`UITestFixtureIdentity.userID`) has a password; the passwordless one
+    /// is `UITestFixtureIdentity.passwordlessUserID`.
+    func userTile(_ userID: String) -> XCUIElement {
+        app.buttons[A11yID.Login.userTile(userID)]
+    }
+
+    var fixtureUserTile: XCUIElement { userTile(UITestFixtureIdentity.userID) }
+    var otherUserButton: XCUIElement { app.buttons[A11yID.Login.otherUserButton] }
+    var otherUserCancelButton: XCUIElement { app.buttons[A11yID.Login.otherUserCancelButton] }
     var usernameField: XCUIElement { app.textFields[A11yID.Login.usernameField] }
     var passwordField: XCUIElement { app.secureTextFields[A11yID.Login.passwordField] }
     var signInButton: XCUIElement { app.buttons[A11yID.Login.signInButton] }
     var changeServerButton: XCUIElement { app.buttons[A11yID.Login.changeServerButton] }
     var errorMessage: XCUIElement { app.descendants(matching: .any)[A11yID.Login.errorMessage] }
     var quickConnectButton: XCUIElement { app.buttons[A11yID.Login.quickConnectButton] }
+    var disclaimer: XCUIElement { app.staticTexts[A11yID.Login.disclaimer] }
 
+    /// The user grid, which every scenario but `.hiddenUsers` shows.
     func awaitLoaded(file: StaticString = #filePath, line: UInt = #line) {
+        fixtureUserTile.awaitExistence("the fixture user's tile", file: file, line: line)
+    }
+
+    /// Signs in as the fixture user from their tile, typing `password` where
+    /// the screen asks for it.
+    func signIn(password: String, file: StaticString = #filePath, line: UInt = #line) {
+        awaitLoaded(file: file, line: line)
+        fixtureUserTile.tap()
+        passwordField.awaitExistence("the password field", file: file, line: line)
+        passwordField.tap()
+        passwordField.typeText(password)
+        signInButton.tap()
+    }
+
+    /// "Other" → the manual sheet, for a user the server doesn't list.
+    func openOtherUser(file: StaticString = #filePath, line: UInt = #line) {
+        awaitLoaded(file: file, line: line)
+        otherUserButton.tap()
         usernameField.awaitExistence("the username field", file: file, line: line)
     }
 
-    func signIn(username: String, password: String, file: StaticString = #filePath, line: UInt = #line) {
-        awaitLoaded(file: file, line: line)
+    /// "Other" → Quick Connect, which closes that sheet for its own.
+    func openQuickConnect(file: StaticString = #filePath, line: UInt = #line) {
+        openOtherUser(file: file, line: line)
+        quickConnectButton.awaitExistence("the Quick Connect button", file: file, line: line)
+        quickConnectButton.tap()
+    }
+
+    /// Fills whichever username and password fields are on screen — the
+    /// "Other" sheet's, or the fallback form's — and submits.
+    func signInManually(username: String, password: String, file: StaticString = #filePath, line: UInt = #line) {
+        usernameField.awaitExistence("the username field", file: file, line: line)
         usernameField.tap()
         usernameField.typeText(username)
         passwordField.tap()

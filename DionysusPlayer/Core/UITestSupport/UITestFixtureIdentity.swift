@@ -100,9 +100,20 @@ enum UITestFixtureIdentity {
     static let styledSubtitleMinimumTopY: Double = 150
 
     static let serverName = "Dionysus UI Test Server"
+    /// The fixture user's id — the tile a journey taps on the sign-in screen.
+    static let userID = "uitest-user-0001"
     static let username = "uitester"
     static let password = "uitest-password"
     static let serverAddress = "http://dionysus-uitest.invalid"
+
+    /// A second user on the sign-in screen's public list, with no password:
+    /// one tap signs in. The stub accepts this name with an empty password.
+    static let passwordlessUserID = "uitest-user-guest"
+    static let passwordlessUsername = "Guest"
+
+    /// The stub server's login disclaimer, markup and all, as an admin might
+    /// write it.
+    static let loginDisclaimer = "A test server.<br/>Nothing here is real."
 
     /// The `SystemId` `UITestServerDiscovery` reports for the stub server, which
     /// is also the suffix of its result row's identifier.

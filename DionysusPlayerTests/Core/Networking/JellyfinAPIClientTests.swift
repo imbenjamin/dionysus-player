@@ -66,6 +66,45 @@ final class JellyfinAPIClientTests: XCTestCase {
         }
     }
 
+    // MARK: Sign-in screen
+
+    /// Jellyfin's real `/Users/Public` shape, trimmed. `HasPassword` decodes
+    /// as given — `true` here even though this account signs in with an empty
+    /// password on the demo server, which is why the app doesn't gate on it.
+    func test_publicUsers_decodesTheListWithoutAToken() async throws {
+        let client = makeClient(accessToken: "previous-session")
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, body: Data(#"""
+            [{"Name":"demo","ServerId":"s","Id":"u1","PrimaryImageTag":"tag1","HasPassword":true,"HasConfiguredPassword":true},
+             {"Name":"Ben","ServerId":"s","Id":"u2","HasPassword":false}]
+            """#.utf8))
+        }
+
+        let users = try await client.publicUsers()
+
+        XCTAssertEqual(users.map(\.name), ["demo", "Ben"])
+        XCTAssertEqual(users.map(\.hasPassword), [true, false])
+        XCTAssertEqual(users.first?.primaryImageTag, "tag1")
+        let request = try XCTUnwrap(MockURLProtocol.lastRequest)
+        XCTAssertEqual(request.url?.path, "/Users/Public")
+        XCTAssertFalse((request.value(forHTTPHeaderField: "Authorization") ?? "").contains("Token="))
+    }
+
+    func test_brandingConfiguration_decodesDisclaimerAndSplashscreenSwitch() async throws {
+        let client = makeClient()
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, body: Data(#"""
+            {"LoginDisclaimer":"Reset daily.<br/>Enjoy.","CustomCss":"","SplashscreenEnabled":true}
+            """#.utf8))
+        }
+
+        let branding = try await client.brandingConfiguration()
+
+        XCTAssertEqual(branding.loginDisclaimer, "Reset daily.<br/>Enjoy.")
+        XCTAssertEqual(branding.splashscreenEnabled, true)
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.path, "/Branding/Configuration")
+    }
+
     // MARK: Quick Connect
 
     func test_quickConnectEnabled_decodesBareBooleanWithoutAToken() async throws {

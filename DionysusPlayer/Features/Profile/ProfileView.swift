@@ -89,6 +89,7 @@ struct ProfileView: View {
     @AppStorage(chaptersInScrubberEnabledStorageKey) private var isChaptersInScrubberEnabled = chaptersInScrubberEnabledDefault
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showAccountDetails = false
+    @State private var pendingAccountAction: AccountAction?
     @State private var avatarImageURL: URL?
 
     /// Non-optional default so the detail column never opens on a "select
@@ -166,8 +167,17 @@ struct ProfileView: View {
             }
         }
         .task(id: appState.currentUser?.id) { await loadAvatarImageURL() }
-        .sheet(isPresented: $showAccountDetails) {
-            AccountDetailsSheet()
+        // Sign Out and Change Server close the sheet first and run from here,
+        // once it's gone — see `AccountAction`.
+        .sheet(isPresented: $showAccountDetails, onDismiss: {
+            guard let action = pendingAccountAction else { return }
+            pendingAccountAction = nil
+            action.perform(on: appState)
+        }) {
+            AccountDetailsSheet { action in
+                pendingAccountAction = action
+                showAccountDetails = false
+            }
         }
         // Drives `DeviceTiltObserver.shared` from the toggle itself rather
         // than through whichever `HeroHeaderView` happens to still be mounted

@@ -55,4 +55,12 @@ final class ImageURLBuilderTests: XCTestCase {
         let url = try XCTUnwrap(builder.trickplayTileURL(itemID: "item-1", width: 320, sheetIndex: 0))
         XCTAssertFalse(url.absoluteString.contains("ApiKey"))
     }
+
+    /// JPEG to cut the admin's original down on the wire, and no token or
+    /// `maxWidth`: the route takes neither.
+    func test_splashscreenURL_asksForJPEGWithNothingElse() throws {
+        let builder = ImageURLBuilder(baseURL: URL(string: "http://192.168.0.222:8096/flix")!, accessToken: "tok")
+        let url = try XCTUnwrap(builder.splashscreenURL())
+        XCTAssertEqual(url.absoluteString, "http://192.168.0.222:8096/flix/Branding/Splashscreen?format=Jpg")
+    }
 }
