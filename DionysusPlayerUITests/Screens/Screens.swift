@@ -396,6 +396,29 @@ struct CollectionScreen: Screen {
         app.buttons[A11yID.Collection.filterPill(facet)]
     }
 
+    /// Opens one filter pill's `Menu`, scrolling the pill row to it first.
+    ///
+    /// On iPhone the pills don't fit, so they sit in a horizontal
+    /// `ScrollView` and the later ones start off-screen. iOS 26's XCUITest
+    /// scrolls to them by itself on `tap()`; iOS 18's doesn't, and fails
+    /// with "Activation point invalid" for a pill at x=420 on a 393pt
+    /// screen. So swipe the row, on whichever pill is on screen, until this
+    /// one is. On-screen is judged by frame, not `isHittable`, which on
+    /// iOS 18 throws for an off-screen pill rather than answering false.
+    func openFilter(_ facet: String) {
+        let pill = filterPill(facet)
+        let facets = ["genre", "studio", "decade", "watched", "favorites"]
+        let screenWidth = app.frame.width
+        func isOnScreen(_ element: XCUIElement) -> Bool {
+            element.exists && element.frame.minX >= 0 && element.frame.maxX <= screenWidth
+        }
+        for _ in 0..<4 where !isOnScreen(pill) {
+            guard let visible = facets.map(filterPill).first(where: isOnScreen) else { break }
+            visible.swipeLeft()
+        }
+        pill.tap()
+    }
+
     /// Picks one option out of an already-open filter `Menu` — the options
     /// render as plain `Button`s labelled with the option's own display text
     /// (fixture data — a genre/studio name, a decade, "Favorites" — not app

@@ -178,3 +178,28 @@ extension XCUIElement {
         )
     }
 }
+
+@MainActor
+extension XCUIApplication {
+    /// The navigation bar's system back button, or a non-existent element
+    /// when the stack is at its root.
+    ///
+    /// iOS 26 identifies it `BackButton`. iOS 18 gives it no identifier at
+    /// all, only a label, which is localized and so off-limits here (see
+    /// `A11yID`). There it's the bar's leading button with no identifier,
+    /// found by position: every toolbar item this app adds carries an
+    /// identifier, and none sits at the leading edge.
+    var navigationBackButton: XCUIElement {
+        let identified = navigationBars.buttons["BackButton"]
+        if identified.exists { return identified }
+
+        let unidentified = navigationBars.buttons.matching(NSPredicate(format: "identifier == ''"))
+        for index in 0..<unidentified.count {
+            let candidate = unidentified.element(boundBy: index)
+            if candidate.frame.minX < 20 {
+                return candidate
+            }
+        }
+        return identified
+    }
+}

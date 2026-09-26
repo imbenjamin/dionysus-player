@@ -363,8 +363,9 @@ final class AddToPlaylistJourneyTests: UITestCase {
     /// Two things here are the result of measuring rather than guessing, and
     /// both are why this is the only back-navigation in the suite:
     ///
-    /// - The stack is popped by UIKit's own back button, addressed by its
-    ///   `BackButton` identifier. Tapping the already-selected Home tab does
+    /// - The stack is popped by UIKit's own back button
+    ///   (`XCUIApplication.navigationBackButton`, which also finds it on
+    ///   iOS 18, where it has no identifier). Tapping the already-selected Home tab does
     ///   *not* pop this app's stack, and Home has no toolbar buttons of its
     ///   own at the root, so its absence is what "fully unwound" means.
     /// - Home restores its **scroll position** on the way back, and
@@ -379,7 +380,7 @@ final class AddToPlaylistJourneyTests: UITestCase {
     /// assertion, not spin.
     private func popToHome(file: StaticString = #filePath, line: UInt = #line) {
         for _ in 0..<3 {
-            let back = app.navigationBars.buttons["BackButton"]
+            let back = app.navigationBackButton
             guard back.exists else { break }
             back.tap()
         }

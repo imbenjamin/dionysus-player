@@ -82,8 +82,10 @@ final class SearchJourneyTests: UITestCase {
         // anything this harness controls. Pop back to Search's root before
         // asserting on history, rather than assuming the relaunch landed
         // there directly.
-        while app.buttons["BackButton"].exists {
-            app.buttons["BackButton"].tap()
+        for _ in 0..<3 {
+            let back = app.navigationBackButton
+            guard back.exists else { break }
+            back.tap()
         }
 
         SearchScreen(app: app).result(UITestFixtureIdentity.primaryMovieID)
