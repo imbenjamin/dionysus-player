@@ -65,13 +65,13 @@ runs:
         # runtime once resolved to a pairing that didn't exist (2026-08-13:
         # "iPhone 16e" was only provisioned for an older runtime).
         #
-        # The image's own device is preferred when it has one, and a new one
-        # is created only when it doesn't. That is not cosmetic: on PR #258 a
-        # freshly created iPad (A16) on iOS 26.5 failed three accessibility
-        # audits ("Potentially inaccessible text") that the image's own iPad
-        # (A16) on the same runtime passes on the same commit, run after run.
-        # Why a new device differs hasn't been pinned down; until it is,
-        # stay on the devices the suite has a track record on.
+        # The image's own device is preferred when it has one — it's what the
+        # suite ran on before this action created devices — and a new one is
+        # created only when it doesn't (e.g. iPhone 16 on iOS 26.5). Either
+        # behaves the same as far as measured: PR #258 briefly blamed three
+        # iPad audit failures on freshly created devices, but they failed on
+        # the image's own iPad too, and turned out to have failed every night
+        # for weeks behind a missing `pipefail` (see TESTING.md).
         #
         # Matched on the runtime's version string exactly: macos-15 carries
         # both 18.5 and 18.6, and a prefix match would pick either.

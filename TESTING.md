@@ -675,10 +675,7 @@ red on the run but doesn't fail it or stop a release. Flip `blocking` in
 `ui-tests.yml` once the nightly is green there.
 
 The simulator is the image's own device of that model and version when the
-image has one, and a newly created one otherwise. A freshly created iPad
-(A16) on iOS 26.5 failed three accessibility audits that the image's own
-passes on the same commit, and why hasn't been pinned down. So don't switch
-to always-create without finding that out first.
+image has one, and a newly created one otherwise (iPhone 16 on iOS 26.5).
 
 The models are the same on both versions, so a failure on only one OS can't
 be a screen-size difference; the iPhone is a 16 because the 17 can't run
