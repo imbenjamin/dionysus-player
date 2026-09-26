@@ -21,12 +21,19 @@ on:
     tags:
       - "v*.*.*"
   # Re-run a release for a tag that already exists, without re-tagging —
-  # for recovering from an infrastructure failure partway through.
+  # for recovering from an infrastructure failure partway through. Dispatch
+  # it *on the tag*, not on a branch:
+  #
+  #   gh workflow run release.yml --ref v1.2.3-beta.1
+  #
+  # This used to take the tag as a text input and run from a branch. That
+  # meant ui-tests.yml had to accept a ref to check out, which CodeQL rightly
+  # flags as cache poisoning: a reusable workflow that checks out a
+  # caller-chosen ref and then runs that ref's own local actions. Dispatching
+  # on the tag makes the triggering commit the tagged one, so nothing needs
+  # choosing. The catch is that the run uses release.yml *as of that tag*, so
+  # a fix to this file itself needs a new tag rather than a re-run.
   workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing tag to (re-)release, e.g. v0.9.0-alpha.1
-        required: true
 
 # This repo's default GITHUB_TOKEN permissions are read-only (repo Settings
 # > Actions > General), so `gh release create` 403s without this — scoped
@@ -39,34 +46,56 @@ concurrency:
   # Never cancel a release mid-flight — unlike a PR run, there's no
   # superseding commit coming, and a half-finished release is worse than a
   # slow one.
-  group: release-${{ inputs.tag || github.ref_name }}
+  group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
+  ui-tests:
+    # The full UI suite on every environment the nightly run covers — one
+    # iPhone and one iPad on each supported iOS version (see ui-tests.yml).
+    # Its own stage, not steps in the job below: the environments run in
+    # parallel on separate runners, and nothing below starts — so nothing is
+    # signed, uploaded or published — unless every one of them passes.
+    #
+    # That makes a release take longer end to end (roughly the slowest UI
+    # environment, then the unit tests and archive), which is the right trade
+    # for the last gate before TestFlight. A misplaced tag is still caught by
+    # the job below before anything is signed, just later than it used to be.
+    #
+    # It tests the triggering commit — the tag's, on both a tag push and a
+    # dispatch on the tag (see `workflow_dispatch` above for why it must be
+    # dispatched that way).
+    name: UI tests
+    uses: ./.github/workflows/ui-tests.yml
+    with:
+      test-plan: UITests-Full
+
   build-test-release:
     name: Build, test, and publish a GitHub Release for the tag
-    runs-on: macos-latest
+    needs: ui-tests
+    runs-on: macos-26
     timeout-minutes: 60
 
     steps:
       - name: Resolve tag
         id: tag
-        # One place that decides what's being released, so the tag-push and
-        # workflow_dispatch paths can't diverge.
+        # One place that decides what's being released. Both triggers run on
+        # the tag itself, so the ref name *is* the tag — and a dispatch on a
+        # branch by mistake fails the format check below with a pointer to
+        # the right command.
         #
-        # Via env, not `${{ }}` interpolation: on the workflow_dispatch path
-        # this value is typed by a human and would otherwise be pasted into
-        # the script text verbatim. It also has to name a real tag, so
-        # validate it rather than trusting the input.
+        # Via env, not `${{ }}` interpolation: a ref name is chosen by whoever
+        # pushed it and would otherwise be pasted into the script text
+        # verbatim.
         env:
-          RAW_TAG: ${{ inputs.tag || github.ref_name }}
+          RAW_TAG: ${{ github.ref_name }}
         run: |
           # Format only — this step runs before checkout, so there's no repo
           # to check existence against yet. A tag that doesn't exist fails at
           # the Checkout step below, which is a clear enough error.
           TAG="$RAW_TAG"
           if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9]+)?$ ]]; then
-            echo "::error::'$TAG' is not a version tag. Expected vX.Y.Z, vX.Y.Z-alpha.N, or vX.Y.Z-beta.N — see VERSIONING.md." >&2
+            echo "::error::'$TAG' is not a version tag. Expected vX.Y.Z, vX.Y.Z-alpha.N, or vX.Y.Z-beta.N — see VERSIONING.md. To re-run a release, dispatch this workflow on the tag itself: gh workflow run release.yml --ref <tag>" >&2
             exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -159,29 +188,6 @@ jobs:
 
       - name: Build and test
         uses: ./.github/actions/build-and-test
-
-      - name: Shut down all simulators
-        # See pr-checks.yml's identical step: a device left booted is the
-        # main cause of UI-test flake on a shared runner.
-        run: xcrun simctl shutdown all || true
-
-      - name: UI tests
-        # The full UI suite, not the smoke subset PRs run — a tagged build is
-        # the last gate before TestFlight, and this job is already sequential,
-        # so a failure here aborts before anything is signed or uploaded.
-        uses: ./.github/actions/build-and-test
-        with:
-          test-plan: UITests-Full
-          result-bundle-path: .build/UITestResults.xcresult
-
-      - name: Upload UI test results
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: ui-test-results
-          path: .build/UITestResults.xcresult
-          retention-days: 7
-          if-no-files-found: ignore
 
       - name: Upload test results
         if: failure()
@@ -333,7 +339,7 @@ jobs:
           fi
 
           # create-or-update, so re-running a release that failed after this
-          # point (or a workflow_dispatch re-run) isn't blocked by the release
+          # point (or a workflow_dispatch re-run on the tag) isn't blocked by the release
           # already existing.
           gh release create "$TAG" --notes-file "$RUNNER_TEMP/notes.md" $PRERELEASE_FLAG \
             || gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md" $PRERELEASE_FLAG

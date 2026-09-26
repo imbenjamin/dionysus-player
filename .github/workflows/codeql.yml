@@ -101,7 +101,7 @@ jobs:
 
   analyze-swift:
     name: Analyze (swift)
-    runs-on: macos-latest
+    runs-on: macos-26
     # 45 was sized against the default query suite's own ~43-minute
     # baseline (PR #166's first live run, see the header comment above) —
     # comfortable at the time, but `security-extended` (added on top for
