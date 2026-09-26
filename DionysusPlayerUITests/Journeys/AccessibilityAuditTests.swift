@@ -67,7 +67,7 @@ final class AccessibilityAuditTests: UITestCase {
         serverSetup.discoveredServer(UITestFixtureIdentity.serverSystemID).tap()
         serverSetup.httpPortField.awaitExistence("the HTTP port field")
 
-        try auditCurrentScreen(underAlert: true)
+        try auditCurrentScreen(underModal: true)
     }
 
     /// The confirmation before connecting to that server unencrypted.
@@ -78,7 +78,7 @@ final class AccessibilityAuditTests: UITestCase {
         serverSetup.discoveredServer(UITestFixtureIdentity.serverSystemID).tap()
         serverSetup.insecureFallbackConfirmButton.awaitExistence("the connect-over-HTTP button")
 
-        try auditCurrentScreen(underAlert: true)
+        try auditCurrentScreen(underModal: true)
     }
 
     /// The user grid, with the server's disclaimer under it.
@@ -101,7 +101,8 @@ final class AccessibilityAuditTests: UITestCase {
         login.fixtureUserTile.tap()
         login.passwordField.awaitExistence("the password field")
 
-        try auditCurrentScreen()
+        // On iPad the password step is a popover over the user grid.
+        try auditCurrentScreen(underModal: true)
     }
 
     func testOtherUserSheetHasNoAccessibilityIssues() throws {
@@ -187,7 +188,8 @@ final class AccessibilityAuditTests: UITestCase {
         detail.openAddToPlaylist()
         AddToPlaylistScreen(app: app).awaitLoaded()
 
-        try auditCurrentScreen()
+        // On iPad the picker is a form sheet over the detail page.
+        try auditCurrentScreen(underModal: true)
     }
 
     /// The pushed "New Playlist" form, likewise: a text field, a toggle and
@@ -207,7 +209,8 @@ final class AccessibilityAuditTests: UITestCase {
         picker.newPlaylistButton.tap()
         picker.nameField.awaitExistence("the playlist name field")
 
-        try auditCurrentScreen()
+        // On iPad the picker is a form sheet over the detail page.
+        try auditCurrentScreen(underModal: true)
     }
 
     func testSearchHasNoAccessibilityIssues() throws {
@@ -322,16 +325,23 @@ final class AccessibilityAuditTests: UITestCase {
 private extension AccessibilityAuditTests {
     /// Runs the full audit against whatever is currently on screen,
     /// suppressing only the documented exceptions below.
-    /// `underAlert`: a system alert is up. Every alert — a plain two-button
-    /// one included — draws the screen dimmed behind it, whose text the audit
-    /// still sees but which iOS rightly takes out of the accessibility tree
-    /// while the alert is modal. That surfaces as one `.elementDetection`
-    /// issue ("Potentially inaccessible text") with no element attached, so
-    /// only that exact shape is let through, and only for audits taken under
-    /// an alert; everything in the alert itself is still checked.
-    func auditCurrentScreen(underAlert: Bool = false, file: StaticString = #filePath, line: UInt = #line) throws {
+    /// `underModal`: something modal is up that leaves the screen behind it
+    /// visible but dimmed — a system alert, or on iPad a popover or form
+    /// sheet, which don't cover the screen the way the iPhone's full-height
+    /// sheet does. The audit still sees that screen's text, but iOS rightly
+    /// takes it out of the accessibility tree while the modal is up. That
+    /// surfaces as one `.elementDetection` issue ("Potentially inaccessible
+    /// text") with no element attached, so only that exact shape is let
+    /// through, and only for audits taken under a modal; everything in the
+    /// modal itself is still checked.
+    ///
+    /// The iPad cases went unnoticed for weeks: the nightly job piped
+    /// `xcodebuild` into `xcbeautify` without `pipefail`, so the three iPad
+    /// audits using this failed every night while the run reported success
+    /// (fixed in PR #258).
+    func auditCurrentScreen(underModal: Bool = false, file: StaticString = #filePath, line: UInt = #line) throws {
         try app.performAccessibilityAudit(for: Self.auditedTypes) { issue in
-            if underAlert, issue.auditType == .elementDetection, issue.element == nil {
+            if underModal, issue.auditType == .elementDetection, issue.element == nil {
                 return true
             }
             return Self.isKnownAcceptable(issue)

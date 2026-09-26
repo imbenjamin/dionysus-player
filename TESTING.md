@@ -813,14 +813,19 @@ cannot resize; and the hit-region minimum on non-interactive `StaticText`
 metadata lines ("Genres: Drama"), where a 44pt floor would insert large dead
 gaps between rows purely to satisfy a rule about touch targets.
 
-One more allowance is per-audit rather than global: `auditCurrentScreen(underAlert: true)`,
-used only by the two Server Setup audits taken with an alert up. Every system
-alert — a plain two-button one included, measured — draws the screen dimmed
-behind it, whose text the audit still sees but which iOS rightly takes out of
-the accessibility tree while the alert is modal. That reports as one
-`.elementDetection` "Potentially inaccessible text" issue with no element
-attached, and only that exact shape is let through; everything in the alert
-itself is still audited.
+One more allowance is per-audit rather than global: `auditCurrentScreen(underModal: true)`,
+for audits taken with something modal up that leaves the screen behind it
+visible but dimmed. That covers the two Server Setup audits taken under a
+system alert, plus the login password step (a popover on iPad) and the Add to
+Playlist picker and New Playlist form (form sheets on iPad, which don't cover
+the screen the way the iPhone's full-height sheet does). The audit still sees
+the dimmed screen's text, but iOS rightly takes it out of the accessibility
+tree while the modal is up. That reports as one `.elementDetection`
+"Potentially inaccessible text" issue with no element attached, and only that
+exact shape is let through; everything in the modal itself is still audited.
+The iPad cases failed every night for weeks unnoticed: the nightly job piped
+`xcodebuild` into `xcbeautify` without `pipefail`, so the run reported
+success regardless. That was fixed in PR #258.
 
 ### Adding a journey
 
