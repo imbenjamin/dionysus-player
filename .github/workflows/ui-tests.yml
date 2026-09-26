@@ -34,11 +34,6 @@ on:
         required: false
         type: boolean
         default: false
-      ref:
-        description: Git ref to test. Empty means the triggering ref.
-        required: false
-        type: string
-        default: ""
       retry-tests-on-failure:
         description: See the build-and-test action's input of the same name.
         required: false
@@ -84,9 +79,12 @@ jobs:
 
     steps:
       - name: Checkout
+        # Always the triggering commit. There is deliberately no `ref` input:
+        # a reusable workflow that checks out a caller-chosen ref and then runs
+        # that ref's local actions (setup-ios-project, build-and-test) is
+        # CodeQL's cache-poisoning pattern (PR #258). release.yml gets the
+        # tagged commit by being dispatched on the tag instead.
         uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.ref }}
 
       - name: Set up iOS project
         uses: ./.github/actions/setup-ios-project

@@ -348,9 +348,11 @@ string isn't user-visible anyway.
   publishes a GitHub Release with the tag's own message above GitHub's
   generated notes (`--prerelease` for `-alpha`/`-beta` tags and for any `0.x`
   version). It also refuses a tag on the wrong branch — see "Final releases
-  come from `stable`" above. A `workflow_dispatch` input re-runs a release for
-  an existing tag without re-tagging, for recovering from an infrastructure
-  failure partway through.
+  come from `stable`" above. To re-run a release for an existing tag without
+  re-tagging (recovering from an infrastructure failure partway through),
+  dispatch it on the tag: `gh workflow run release.yml --ref <tag>`. That runs
+  the workflow as it was at the tag, so a fix to `release.yml` itself needs a
+  new tag.
 
 - **`.github/workflows/promote-to-stable.yml`** — `workflow_dispatch` only:
   opens (or finds) the `develop` → `stable` PR that a final release is tagged
