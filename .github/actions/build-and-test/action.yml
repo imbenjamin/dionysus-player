@@ -1,8 +1,7 @@
 name: Build and test
 description: >-
   Builds the app and runs one test plan on a simulator of an exact device type
-  and iOS version, installing that iOS runtime first if the runner lacks it.
-  Shared by pr-checks.yml, release.yml and ui-tests.yml.
+  and iOS version. Shared by pr-checks.yml, release.yml and ui-tests.yml.
 
 inputs:
   scheme:
@@ -37,8 +36,9 @@ inputs:
     default: iPhone 16
   ios-version:
     description: >-
-      iOS runtime version, e.g. "26.5". Installed with `xcodebuild
-      -downloadPlatform` if the runner image doesn't carry it.
+      iOS runtime version, e.g. "26.5". The runner image must already carry
+      it — there's no download fallback, because Xcode won't download an iOS
+      18 runtime at all (see ui-tests.yml), so pick the image instead.
     required: false
     default: "26.5"
   retry-tests-on-failure:
@@ -52,36 +52,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install iOS ${{ inputs.ios-version }} runtime if missing
-      shell: bash
-      env:
-        IOS_VERSION: ${{ inputs.ios-version }}
-      run: |
-        # Each runner image carries only the runtimes of the Xcode versions
-        # installed on it — macos-26 has iOS 26.x and nothing older. The iOS
-        # 18 floor (project.yml's deployment target) has to be downloaded,
-        # which takes minutes, so only do it when it's actually missing.
-        # arm64-only: the runner is Apple silicon, and the universal variant
-        # is roughly twice the size.
-        has_runtime() {
-          xcrun simctl list runtimes available -j \
-            | jq -e --arg v "$IOS_VERSION" '.runtimes[] | select(.platform == "iOS" and .version == $v)' >/dev/null
-        }
-        if has_runtime; then
-          echo "iOS $IOS_VERSION runtime already installed."
-          exit 0
-        fi
-        echo "::group::Downloading iOS $IOS_VERSION runtime"
-        start=$SECONDS
-        xcodebuild -downloadPlatform iOS -buildVersion "$IOS_VERSION" -architectureVariant arm64
-        echo "::endgroup::"
-        echo "Downloaded and installed in $((SECONDS - start))s."
-        if ! has_runtime; then
-          echo "::error::iOS $IOS_VERSION runtime still missing after download." >&2
-          xcrun simctl list runtimes
-          exit 1
-        fi
-
     - name: Create simulator
       id: select_simulator
       shell: bash
@@ -96,11 +66,14 @@ runs:
         # resolved to a pairing that didn't exist (2026-08-13: "iPhone 16e"
         # was only provisioned for an older runtime). Creating it makes the
         # pairing explicit, and fails loudly here if it's impossible.
+        #
+        # Matched on the runtime's version string exactly: macos-15 carries
+        # both 18.5 and 18.6, and a prefix match would pick either.
         runtime=$(xcrun simctl list runtimes available -j \
           | jq -r --arg v "$IOS_VERSION" '.runtimes[] | select(.platform == "iOS" and .version == $v) | .identifier' \
           | head -1)
         if [ -z "$runtime" ]; then
-          echo "::error::No available iOS $IOS_VERSION runtime." >&2
+          echo "::error::No iOS $IOS_VERSION runtime on this runner image. It can't be downloaded; run this environment on an image that carries it (see ui-tests.yml)." >&2
           xcrun simctl list runtimes
           exit 1
         fi

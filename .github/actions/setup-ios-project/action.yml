@@ -24,8 +24,10 @@ runs:
       # resolved fresh (uncached) on every run, and the UI-test matrix
       # (ui-tests.yml) names simulator runtimes that only this Xcode's image
       # carries. The callers pin `runs-on: macos-26` for the same reason: this
-      # version exists on that image. Moving to a new Xcode is a deliberate
-      # edit here, alongside the runner label and ui-tests.yml's OS list.
+      # version exists on that image. (ui-tests.yml's iOS 18 leg is the one
+      # exception: it runs on macos-15 and passes 26.3 — see that file.)
+      # Moving to a new Xcode is a deliberate edit here, alongside the runner
+      # labels and ui-tests.yml's OS list.
       uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
       with:
         xcode-version: ${{ inputs.xcode-version }}

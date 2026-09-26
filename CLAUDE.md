@@ -61,8 +61,9 @@ in `TestPlans/` — `UnitTests` (the scheme default), `UITests-Smoke` (the PR
 gate) and `UITests-Full`. See `TESTING.md` for the strategy and what's
 covered. CI runs the UI plans on an iPhone 16 and an iPad (A16), on iOS 26.5
 (the smoke gate) and also on iOS 18.6, the deployment floor, for nightly and
-release. `.github/workflows/ui-tests.yml` owns that matrix, and CI pins Xcode
-26.6 on `macos-26`. The two smoke checks' names embed the device and OS and are
+release. `.github/workflows/ui-tests.yml` owns that matrix. CI pins Xcode
+26.6 on `macos-26`, except the iOS 18 leg: no image has both runtimes and
+Xcode won't download an iOS 18 one, so it runs on `macos-15` with Xcode 26.3. The two smoke checks' names embed the device and OS and are
 required by both rulesets. See TESTING.md's "Where they run in CI" before
 changing any of it. Run it from Xcode with
 the `DionysusPlayer` scheme (Cmd+U), or from the CLI once a Simulator runtime

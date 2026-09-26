@@ -663,9 +663,11 @@ Every UI-test run goes through one reusable workflow,
 Apple went from iOS 18 straight to 26, so on Xcode 26 the previous major and
 the floor are the same version. iOS 18 is the environment that matters most
 here: it is the only place the pre-26 branch of any `#available(iOS 26, *)`
-check runs. Its runtime isn't on the `macos-26` runner image, so the
-`build-and-test` action downloads it (`xcodebuild -downloadPlatform`) before
-creating the simulator — expect those jobs to take several minutes longer.
+check runs. No runner image carries both versions, and Xcode won't download
+an iOS 18 runtime at all ("not available for download", for every 18.x), so
+each version brings its own image and Xcode: 26.5 on `macos-26` with Xcode
+26.6 (the release toolchain), 18.6 on `macos-15` with Xcode 26.3, the newest
+that image has. The iOS 18 leg is testing the OS, not the toolchain.
 
 The models are the same on both versions, so a failure on only one OS can't
 be a screen-size difference; the iPhone is a 16 because the 17 can't run
@@ -679,7 +681,7 @@ passed. Because nightly and release call the same workflow, dispatching
 <branch>`) is a dry run of a release's UI stage.
 
 When CI moves to a new Xcode, the Xcode version (`setup-ios-project`), the
-`macos-26` runner labels and `ui-tests.yml`'s version list change together.
+runner labels and `ui-tests.yml`'s version list change together.
 From Xcode 27, iOS 26 becomes the previous major and 18 stays as the floor,
 so the full matrix grows to three versions. Changing the latest version or a
 device also renames the two smoke checks (`UI smoke tests / iPhone, iOS

@@ -12,10 +12,20 @@ name: UI tests
 #     from iOS 18 straight to 26, and project.yml's target is 18.0. This is the
 #     only place the pre-26 branch of every `#available(iOS 26, *)` check runs.
 #
-# When CI moves to a new Xcode (setup-ios-project's `xcode-version`, and the
-# `runs-on` label below), bump `latest`; on the move to Xcode 27, iOS 26
-# becomes the previous major and 18 stays as the floor, so the full list grows
-# to three versions.
+# Each OS version carries its own runner image and Xcode, because no single
+# image has both. `macos-26` has only iOS 26.x runtimes, and Xcode won't
+# download an iOS 18 one — `xcodebuild -downloadPlatform iOS -buildVersion
+# 18.6` answers "not available for download" (exit 70) for every 18.x version
+# and build number, on Xcode 26.6 and 27.1 alike. So iOS 18.6 runs on
+# `macos-15`, whose newest Xcode is 26.3. That leg is therefore built with a
+# slightly older Xcode than the one that archives the release; it's testing
+# the OS, not the toolchain, and 26.x is the same major.
+#
+# When CI moves to a new Xcode, update the list below together with
+# setup-ios-project's default and release.yml's `runs-on`. On the move to
+# Xcode 27, iOS 26 becomes the previous major and 18 stays as the floor, so
+# the full list grows to three versions — and if the macos-15 image is retired
+# first, the iOS 18 leg needs a new home before then.
 #
 # The device models are the same on every OS, so a failure on only one OS
 # can't be a screen-size difference. iPhone 16 rather than 17 because the 17
@@ -42,7 +52,7 @@ on:
       timeout-minutes:
         description: >-
           Per-environment job timeout. The full plan took 46 min on iPhone and
-          54 min on iPad on 2026-09-26, before any runtime download.
+          54 min on iPad on 2026-09-26.
         required: false
         type: number
         default: 90
@@ -58,8 +68,8 @@ jobs:
     # require the smoke ones by that exact string. Renaming it, or changing a
     # device or the latest OS below, means updating both rulesets in the same
     # breath, or every PR waits forever on a check that no longer reports.
-    name: ${{ matrix.family }}, iOS ${{ matrix.os }}
-    runs-on: macos-26
+    name: ${{ matrix.family }}, iOS ${{ matrix.os.version }}
+    runs-on: ${{ matrix.os.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
 
     strategy:
@@ -69,7 +79,15 @@ jobs:
       # `#available(iOS 26, *)`, is the first thing worth knowing.
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(inputs.latest-only && '["26.5"]' || '["26.5", "18.6"]') }}
+        # Objects rather than a version list plus `include:` entries for the
+        # runner and Xcode: an `include:` entry that matches no combination is
+        # added as a job of its own, so with `latest-only` the 18.6 entry
+        # would become a stray job with no device.
+        os: >-
+          ${{ fromJSON(inputs.latest-only
+            && '[{"version": "26.5", "runner": "macos-26", "xcode": "26.6"}]'
+            || '[{"version": "26.5", "runner": "macos-26", "xcode": "26.6"},
+                 {"version": "18.6", "runner": "macos-15", "xcode": "26.3"}]') }}
         family: [iPhone, iPad]
         include:
           - family: iPhone
@@ -88,6 +106,8 @@ jobs:
 
       - name: Set up iOS project
         uses: ./.github/actions/setup-ios-project
+        with:
+          xcode-version: ${{ matrix.os.xcode }}
 
       - name: Shut down all simulators
         # A simulator left booted by the image (or by a previous step) is the
@@ -101,7 +121,7 @@ jobs:
         with:
           test-plan: ${{ inputs.test-plan }}
           device-type: ${{ matrix.device }}
-          ios-version: ${{ matrix.os }}
+          ios-version: ${{ matrix.os.version }}
           retry-tests-on-failure: ${{ inputs.retry-tests-on-failure }}
           result-bundle-path: .build/UITestResults.xcresult
 
@@ -112,7 +132,7 @@ jobs:
           # A failed UI test's .xcresult carries the screenshots and the
           # recorded interaction, which is the only practical way to see what
           # the runner actually saw.
-          name: ui-test-results-${{ inputs.test-plan }}-${{ matrix.family }}-iOS-${{ matrix.os }}
+          name: ui-test-results-${{ inputs.test-plan }}-${{ matrix.family }}-iOS-${{ matrix.os.version }}
           path: .build/UITestResults.xcresult
           retention-days: 7
           if-no-files-found: ignore
