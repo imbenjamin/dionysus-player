@@ -5,7 +5,8 @@ import SwiftUI
 /// - Not-yet-watched: single "Play" button.
 /// - Part-watched: "Resume" button (shortened to make room), a small
 ///   icon-only "Restart" button next to it, and a thin `dionysusProgress`
-///   bar along the bottom of the primary button showing playback progress.
+///   bar inset along the bottom of the primary button showing playback
+///   progress (`resumeProgressOverlay`).
 ///
 /// Favorite and watched live separately, in `HeroActionButtons` over the hero
 /// image rather than in this row.
@@ -99,10 +100,6 @@ struct PlayResumeButtonRow: View {
         return String(localized: "Resume from \(resumeText)")
     }
 
-    /// Applied to both the button's border shape and the outer clip; matching them
-    /// tucks the progress bar behind the button's curved edges.
-    private let cornerRadius: CGFloat = 12
-
     var body: some View {
         HStack(spacing: 8) {
             Button(action: { effectiveItem.isPartWatched ? onResume() : beginFreshStart(.play) }) {
@@ -113,40 +110,19 @@ struct PlayResumeButtonRow: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.roundedRectangle(radius: cornerRadius))
-            .tint(.dionysusPrimary)
-            .controlSize(.large)
+            .primaryActionButtonStyle()
             .accessibilityLabel(accessibilityLabelText)
             // One identifier for both Play and Resume: the label changes with
             // watch state, the action doesn't, and a test shouldn't have to know
             // which it gets.
             .accessibilityIdentifier(A11yID.AssetDetail.playButton)
-            .overlay(alignment: .bottom) {
-                if effectiveItem.isPartWatched, let fraction = effectiveItem.playedFraction {
-                    GeometryReader { geo in
-                        Color.dionysusProgress
-                            .frame(width: geo.size.width * fraction)
-                    }
-                    .frame(height: 3)
-                    .allowsHitTesting(false)
-                }
-            }
-            // Clips button and overlay together to the rounded rect the button's
-            // border shape uses, masking the progress bar's square corners.
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .resumeProgressOverlay(effectiveItem.isPartWatched ? effectiveItem.playedFraction : nil)
 
             if effectiveItem.isPartWatched {
                 Button(action: { beginFreshStart(.restart) }) {
                     Image(systemName: "arrow.counterclockwise")
-                        // Manual foreground: `.borderedProminent` defaults to
-                        // white, which has poor contrast on a 70%-lightened tint.
-                        .foregroundStyle(Color.dionysusPrimary)
                 }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.roundedRectangle(radius: cornerRadius))
-                .tint(.dionysusPrimaryLight)
-                .controlSize(.large)
+                .secondaryActionButtonStyle()
                 // Without this, VoiceOver reads the SF Symbol's name ("arrow
                 // counterclockwise") rather than what the button does.
                 .accessibilityLabel(String(localized: "Restart"))

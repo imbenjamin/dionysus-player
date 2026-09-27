@@ -67,7 +67,7 @@ struct ChapterCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 thumbnail
                     .frame(width: width, height: imageHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .clipShape(.artworkCard)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(chapter.name)

@@ -151,9 +151,11 @@ struct DownloadedShowView: View {
             if isSelecting {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { cancelSelecting() }
+                        .neutralToolbarItem()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(isAllSelected ? "Deselect All" : "Select All") { toggleSelectAll() }
+                        .neutralToolbarItem()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .destructive) {
@@ -161,6 +163,7 @@ struct DownloadedShowView: View {
                     } label: {
                         Image(systemName: "trash").downloadsToolbarTapTarget()
                     }
+                    .destructiveToolbarItem()
                     .disabled(selectedRowIDs.isEmpty)
                 }
             } else {
@@ -170,6 +173,7 @@ struct DownloadedShowView: View {
                     } label: {
                         Image(systemName: "trash").downloadsToolbarTapTarget()
                     }
+                    .neutralToolbarItem()
                 }
             }
         }
@@ -414,7 +418,7 @@ struct DownloadedEpisodeRow: View {
                 placeholderSystemImage: "play.tv"
             )
                 .frame(width: 88, height: 50)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .clipShape(.artworkThumbnail)
             VStack(alignment: .leading, spacing: 2) {
                 if let episodeLabel = episode.episodeLabel {
                     Text(episodeLabel).font(.caption).foregroundStyle(.secondary)

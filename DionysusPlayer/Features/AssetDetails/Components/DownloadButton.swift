@@ -16,7 +16,8 @@ struct DownloadButton: View {
     /// Which chrome this renders with. The state logic below is identical
     /// either way; only the visual weight differs.
     enum Style {
-        /// The bordered-prominent chip next to Play/Resume/Restart.
+        /// The neutral circle next to Play/Resume/Restart
+        /// (`secondaryActionButtonStyle()`).
         case prominent
         /// A circular badge, matching the black-circle/white-icon Play button
         /// it sits alongside in `EpisodeRow`, for overlaying on artwork where
@@ -138,29 +139,23 @@ struct DownloadButton: View {
     }
     private var isBusy: Bool { isBusy(for: downloadedRow) }
 
-    /// Matches `PlayResumeButtonRow`'s "Restart" button: same
-    /// bordered-prominent/rounded-rect/large/light-tint shape, and no explicit
-    /// `.frame`, so the system sizes it around its glyph rather than as a fixed
-    /// square, reading as a peer transport action.
-    private let cornerRadius: CGFloat = 12
     /// Only the progress ring needs an explicit size, having no intrinsic one
     /// unlike an SF Symbol — picked to match Restart's glyph at `.large`.
     private let ringSize: CGFloat = 20
 
     /// White on the `.overlay` badge, matching the Play button on the same
-    /// black circle; brand primary on the `.prominent` chip, matching
-    /// Restart and the checkmark elsewhere on the detail page.
-    private var iconColor: Color { style == .overlay ? .white : Color.dionysusPrimary }
+    /// black circle; the label colour on the `.prominent` circle, matching
+    /// Restart beside it.
+    private var iconColor: Color { style == .overlay ? .white : .primary }
 
     var body: some View {
         Group {
             switch style {
             case .prominent:
+                // Same chrome as `PlayResumeButtonRow`'s Restart button, so the
+                // two read as peer actions beside Play.
                 content
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.roundedRectangle(radius: cornerRadius))
-                    .tint(.dionysusPrimaryLight)
-                    .controlSize(.large)
+                    .secondaryActionButtonStyle()
             case .overlay:
                 content
                     .buttonStyle(.plain)
@@ -251,7 +246,7 @@ struct DownloadButton: View {
             // Already downloaded: a second tap opens the download's page to
             // play, inspect or delete it, rather than re-downloading.
             NavigationLink(value: AppRoute.downloadedAsset(itemID: item.id)) {
-                badge { Image(systemName: "checkmark.circle.fill").foregroundStyle(iconColor) }
+                badge { Image(systemName: "checkmark").foregroundStyle(iconColor) }
             }
             .accessibilityLabel(withContext(String(localized: "Downloaded")))
             .accessibilityIdentifier(A11yID.AssetDetail.downloadButton)
@@ -268,7 +263,10 @@ struct DownloadButton: View {
                     // `markedForDeletion` row isn't.
                     badge { ProgressView().tint(iconColor) }
                 } else {
-                    badge { Image(systemName: "arrow.down.circle").foregroundStyle(iconColor) }
+                    // Bare `arrow.down`, not `.circle`: both styles already
+                    // draw a circle around the glyph, and the symbol's own
+                    // would be a second one inside it.
+                    badge { Image(systemName: "arrow.down").foregroundStyle(iconColor) }
                 }
             }
             .disabled(isBusy(for: row))
@@ -324,8 +322,12 @@ struct DownloadButton: View {
             inner().frame(width: ringSize, height: ringSize)
         case .overlay:
             // Same black-circle/white-icon treatment as `EpisodeRow`'s Play
-            // button, at 32pt against its 36pt so it reads as secondary.
+            // button, at 32pt against its 36pt so it reads as secondary. Its
+            // glyph weight too, a size down: at the default `.body` the bare
+            // `arrow.down`/`checkmark` overflowed the 16pt frame, and read
+            // thin beside the play glyph's `.subheadline.bold()`.
             inner()
+                .font(.footnote.bold())
                 .frame(width: 16, height: 16)
                 .frame(width: 32, height: 32)
                 .background(Circle().fill(.black.opacity(0.55)))

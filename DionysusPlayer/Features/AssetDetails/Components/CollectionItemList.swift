@@ -144,7 +144,7 @@ private struct CollectionItemRow: View {
                         AsyncRemoteImage(url: item.primaryImageURL, placeholderSystemImage: item.kind.placeholderSystemImage)
                             .frame(width: posterWidth, height: posterHeight)
                             .watchStatusOverlay(for: item)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .clipShape(.artworkThumbnail)
 
                         Circle()
                             .fill(.black.opacity(0.55))

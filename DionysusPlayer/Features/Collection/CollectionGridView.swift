@@ -57,6 +57,7 @@ struct CollectionGridView: View {
         } label: {
             Image(systemName: "dice")
         }
+        .neutralToolbarItem()
         .disabled((viewModel?.filteredItems ?? []).isEmpty)
         .accessibilityLabel(String(localized: "Random Item"))
         .accessibilityIdentifier(A11yID.Collection.randomButton)
@@ -91,6 +92,7 @@ struct CollectionGridView: View {
         } label: {
             Image(systemName: "arrow.up.arrow.down")
         }
+        .neutralToolbarItem()
         .accessibilityLabel(String(localized: "Sort Options"))
         .accessibilityIdentifier(A11yID.Collection.sortMenu)
     }
@@ -281,7 +283,8 @@ struct CollectionGridView: View {
 
     /// A filled heart for Favorites, a slashed one for Non-Favorites (SF
     /// Symbols' stand-in for a strikethrough), a plain outline while nothing's
-    /// selected — as in `watchStatusSystemImage`.
+    /// selected — as in `watchStatusSystemImage`. A heart, as favourite is
+    /// everywhere in the app, matching Jellyfin's own clients.
     private var favoriteStatusSystemImage: String {
         switch viewModel?.selectedFavoriteStatus {
         case .favorite: "heart.fill"

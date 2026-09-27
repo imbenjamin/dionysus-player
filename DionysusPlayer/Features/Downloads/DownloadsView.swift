@@ -96,6 +96,7 @@ struct DownloadsView: View {
             if viewModel.isSelecting {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { viewModel.cancelSelecting() }
+                        .neutralToolbarItem()
                 }
                 // Both in the top nav bar, not `.bottomBar`: iOS 26's floating
                 // tab bar sits above `.bottomBar` and covers it. The asset count
@@ -105,6 +106,7 @@ struct DownloadsView: View {
                     Button(viewModel.isAllSelected ? "Deselect All" : "Select All") {
                         viewModel.toggleSelectAll()
                     }
+                    .neutralToolbarItem()
                     .accessibilityIdentifier(A11yID.Downloads.selectAllButton)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -113,6 +115,7 @@ struct DownloadsView: View {
                     } label: {
                         Image(systemName: "trash").downloadsToolbarTapTarget()
                     }
+                    .destructiveToolbarItem()
                     .disabled(viewModel.selectedRowIDs.isEmpty)
                     .accessibilityLabel(String(localized: "Delete Selected Downloads"))
                     .accessibilityIdentifier(A11yID.Downloads.deleteSelectedButton)
@@ -124,6 +127,7 @@ struct DownloadsView: View {
                     } label: {
                         Image(systemName: "trash").downloadsToolbarTapTarget()
                     }
+                    .neutralToolbarItem()
                     .accessibilityLabel(String(localized: "Select Downloads to Delete"))
                     .accessibilityIdentifier(A11yID.Downloads.selectButton)
                 }
@@ -138,7 +142,7 @@ struct DownloadsView: View {
                 ErrorStateView(
                     message: String(localized: "No downloads yet. Start downloading and they'll appear here."),
                     retry: nil,
-                    icon: "square.and.arrow.down.on.square"
+                    icon: "arrow.down.circle"
                 )
                 .accessibilityIdentifier(A11yID.Downloads.emptyState)
             } else if usesGridLayout {
@@ -487,6 +491,6 @@ private struct DownloadsRowView: View {
             placeholderSystemImage: placeholderSystemImage
         )
             .frame(width: thumbnailSize.width, height: thumbnailSize.height)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(.artworkThumbnail)
     }
 }

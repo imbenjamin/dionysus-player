@@ -295,7 +295,7 @@ private struct EpisodeRow: View {
                             // button's when its episode is also the page's
                             // content — a harmless overlap, left as is.
                             .watchStatusOverlay(for: episode)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .clipShape(.artworkThumbnail)
 
                         Circle()
                             .fill(.black.opacity(0.55))

@@ -87,34 +87,27 @@ struct SeasonDownloadButton: View {
 
     var body: some View {
         let rows = rowsByEpisodeID
-        // Not `.borderedProminent` — too heavy beside the season `Picker`,
-        // but a bare icon under-reads as tappable. Splits the difference:
-        // a filled circular badge in `dionysusPrimaryLight` (the Restart
-        // button's "secondary but related" tint), with `.padding(8)`
-        // around the icon for a larger tap target than the circle alone.
+        // The same neutral circle as the page-level `DownloadButton`, one size
+        // down so it sits level with the season `Picker`'s text.
         Button(action: startBulkDownload) {
             Group {
                 if let progress = aggregateProgress(in: rows) {
-                    DownloadProgressRing(progress: progress)
+                    DownloadProgressRing(progress: progress, tint: .primary)
                 } else if isQueuing || isAnyInProgress(in: rows) {
                     // Nothing to show a ring for yet — either just tapped,
                     // or every in-progress episode is still in its own
                     // "preparing" window with no estimated total yet.
                     ProgressView()
-                        .tint(Color.dionysusPrimary)
                 } else if isFullyDownloaded(in: rows) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Color.dionysusPrimary)
+                    Image(systemName: "checkmark")
                 } else {
-                    Image(systemName: "arrow.down.circle")
-                        .foregroundStyle(Color.dionysusPrimary)
+                    // Bare `arrow.down`: the button already draws the circle.
+                    Image(systemName: "arrow.down")
                 }
             }
             .frame(width: 20, height: 20)
-            .padding(8)
-            .background(Circle().fill(Color.dionysusPrimaryLight))
         }
-        .buttonStyle(.plain)
+        .secondaryActionButtonStyle(controlSize: .regular)
         .disabled(isQueuing || isAnyInProgress(in: rows) || missingEpisodes(in: rows).isEmpty)
         .accessibilityLabel(accessibilityLabel(in: rows))
         .alert("Couldn't Download Season", isPresented: $isShowingError) {
