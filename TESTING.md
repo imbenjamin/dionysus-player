@@ -506,9 +506,9 @@ every item and any `DELETE` refused — the signed-in user who simply isn't
 allowed to delete anything, which is what gates `AssetActionsButton`'s delete
 half. It exists as a *scenario* rather than a second set of fixtures so both
 halves of the permission gate come from one catalogue. Note the toolbar item
-doesn't vanish with it: `AssetActionsButton` collapses from its `ellipsis`
-overflow to the lone "Add to Playlist" control, so the journey asserts the
-absence of `moreButton`/`deleteButton` rather than of the whole control.
+doesn't vanish with it: `AssetActionsButton` always draws its `ellipsis`
+overflow, so the journey opens it and asserts "Add to Playlist" is there and
+`deleteButton` isn't.
 
 `noPlaylistEditPermission` is the same idea for playlist membership edits:
 the standard catalogue, but `GET /Playlists/{id}/Users/{userID}`

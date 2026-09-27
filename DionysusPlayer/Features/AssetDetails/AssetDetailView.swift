@@ -13,29 +13,13 @@ struct AssetDetailView: View {
     let itemID: String
     @State private var viewModel: AssetDetailViewModel
 
-    /// Bumped once `viewModel.loadIfNeeded()` returns, forcing an identity reset
-    /// of `content` so the detail layout re-renders with the fully-loaded
-    /// `viewModel.item` — cast, technical details, similar/collections rails —
-    /// rather than the shallow `preloadedItem` it first rendered with.
-    ///
-    /// `viewModel.item` mutating isn't reliably enough for this page to pick it
-    /// up: the same class of bug the detail views' own `refreshTrigger` works
-    /// around for the post-playback refresh, which nothing covered for the
-    /// initial load. Reaching an item from a Home rail card, which seeds a
-    /// preload, `MovieDetailView.body` intermittently never re-ran after
-    /// `load()` finished even though `viewModel.item` had been replaced with the
-    /// full item — leaving the page stuck on preload-level fields with no cast,
-    /// Details tab, format badges or rails, and no error since nothing failed.
-    /// Search, with no preload, never reproduced it: that path renders `content`
-    /// once, already loaded.
-    ///
-    /// A plain `@State` write is what makes this reliable where re-reading
-    /// `viewModel.item`/`loadState` isn't — see `refreshTrigger`. Bumped
-    /// unconditionally after `loadIfNeeded()` rather than gated on
-    /// `preloadedItem`: a redundant reset costs nothing this early, and
-    /// re-deriving "did this session need it" could drift from
-    /// `AssetDetailViewModel.load()`'s behavior.
-    @State private var loadCompletionTrigger = UUID()
+    // No identity reset once the full item loads. This used to bump a
+    // `.id(loadCompletionTrigger)` on `content` after `loadIfNeeded()`, because
+    // the page could stay stuck on the shallow preloaded item — but that was the
+    // id-only `MediaItem.==` (see its doc comment), fixed three days later, and
+    // the reset outlived it. It also rebuilt everything under `content`,
+    // `.toolbar` included, so every push from a rail or grid blanked the
+    // trailing toolbar icons about 300ms after landing.
 
     /// `client`/`userID` are passed in rather than read from
     /// `@Environment(AppState.self)`, so `viewModel` can be built in `init`:
@@ -50,12 +34,8 @@ struct AssetDetailView: View {
 
     var body: some View {
         content
-            .id(loadCompletionTrigger)
             .navigationBarTitleDisplayMode(.inline)
-            .task {
-                await viewModel.loadIfNeeded()
-                loadCompletionTrigger = UUID()
-            }
+            .task { await viewModel.loadIfNeeded() }
             // Stops any in-flight toggle confirmation poll or post-playback
             // refresh once this page leaves the screen — see
             // `AssetDetailViewModel.cancelBackgroundWork()`. Here because this is

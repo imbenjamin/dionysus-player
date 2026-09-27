@@ -463,37 +463,31 @@ struct AssetDetailScreen: Screen {
     var favoriteButton: XCUIElement { app.buttons[A11yID.AssetDetail.favoriteButton] }
     var watchedButton: XCUIElement { app.buttons[A11yID.AssetDetail.watchedButton] }
 
-    /// `AssetActionsButton`'s `ellipsis` overflow — present only when *both*
-    /// of its groups apply, which in practice means "this user may also
-    /// delete". With no delete rights it collapses to `addToPlaylistButton`
-    /// and this is absent, which is how the permission journeys assert the
-    /// gate.
+    /// `AssetActionsButton`'s `ellipsis` overflow — always present on a
+    /// movie/show/episode page, holding Add to Playlist and, with permission,
+    /// Delete.
     var moreButton: XCUIElement { app.buttons[A11yID.AssetDetail.moreButton] }
 
     /// Present only when the server says this user may delete this item, so
-    /// asserting its *absence* is asserting the permission gate — see
-    /// `A11yID.AssetDetail.deleteButton`. Note that when it *is* present it
-    /// lives inside `moreButton`'s menu, not in the toolbar directly — use
-    /// `openDelete()` rather than tapping this straight off the page.
+    /// asserting its *absence* (with the overflow open) is asserting the
+    /// permission gate — see `A11yID.AssetDetail.deleteButton`. It lives inside
+    /// `moreButton`'s menu, not in the toolbar — use `openDelete()` rather
+    /// than tapping this straight off the page.
     var deleteButton: XCUIElement { app.buttons[A11yID.AssetDetail.deleteButton] }
 
-    /// Always present on a movie/show/episode page — adding to a playlist
-    /// needs no server permission, since a user with no editable playlist
-    /// can still create one.
+    /// Always inside `moreButton`'s menu on a movie/show/episode page — adding
+    /// to a playlist needs no server permission, since a user with no editable
+    /// playlist can still create one.
     var addToPlaylistButton: XCUIElement { app.buttons[A11yID.AssetDetail.addToPlaylistButton] }
 
-    /// Opens the toolbar overflow when there is one, so the caller can then
-    /// tap `deleteButton`/`addToPlaylistButton` inside it. A no-op when
-    /// `AssetActionsButton` has collapsed to a single control, which is what
-    /// makes this safe to call from either kind of journey.
+    /// Opens the toolbar overflow, so the caller can then tap
+    /// `deleteButton`/`addToPlaylistButton` inside it.
     func openActionsOverflow(file: StaticString = #filePath, line: UInt = #line) {
-        guard moreButton.waitForExistence(timeout: 2) else { return }
+        moreButton.awaitExistence("the actions overflow", file: file, line: line)
         moreButton.tap()
     }
 
-    /// Reaches the delete affordance wherever `AssetActionsButton` has put
-    /// it — behind the overflow when the user can also add to a playlist
-    /// (the normal case), or straight in the toolbar otherwise.
+    /// Reaches the delete affordance inside the overflow and taps it.
     func openDelete(file: StaticString = #filePath, line: UInt = #line) {
         openActionsOverflow(file: file, line: line)
         deleteButton.awaitExistence("the delete action", file: file, line: line)

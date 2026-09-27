@@ -12,34 +12,39 @@ import SwiftUI
 ///
 /// ## Which control gets drawn
 ///
-/// The two actions have *independent* availability, so this collapses rather
-/// than always drawing an overflow:
+/// Always one `ellipsis` `Menu`, the overflow (`A11yID.AssetDetail.moreButton`):
+/// "Add to Playlist" for everyone, then "Delete" below a divider when the
+/// server allows it.
 ///
-/// | available | drawn |
-/// |---|---|
-/// | both | one `ellipsis` `Menu` — the overflow (`A11yID.AssetDetail.moreButton`) |
-/// | add only | the add control alone (`text.badge.plus`) |
-/// | delete only | the delete control alone (`trash`) |
-/// | neither | nothing at all |
+/// This used to collapse to whichever single action was available — a bare
+/// `text.badge.plus` button for a user without delete rights — which made the
+/// control's *kind* depend on `MediaItem.canDelete`. That's only known once
+/// the full item has loaded (`Fields=CanDelete` is too expensive for the rail
+/// and grid fetches a preloaded item comes from; see
+/// `JellyfinAPIClient.detailFields`), so every push from a rail or grid by a
+/// user who *could* delete started as the button and became the menu about
+/// 300ms later. On iOS 26 swapping a bar button for a menu rebuilds the whole
+/// trailing toolbar group, and every glyph in it — heart and eye included —
+/// blanked for around 100ms. A control that never changes kind can't do
+/// that; its contents can change freely, because a menu builds them only
+/// when it opens.
 ///
-/// In practice the third row is unreachable and the first means "this user may
-/// also delete": adding to a playlist is always available, since Jellyfin's
-/// `POST /Playlists` has no permission gate at all (see
-/// `JellyfinAPIClient.createPlaylist`) and a user with no editable playlist can
-/// still create one. The branch stays because the collapse rule is about the two
-/// groups, not about delete.
+/// Adding to a playlist is always available — Jellyfin's `POST /Playlists`
+/// has no permission gate (see `JellyfinAPIClient.createPlaylist`) and a user
+/// with no editable playlist can still create one — so the menu is never
+/// empty.
 ///
-/// Within each group the same collapse applies one level down: a single target
-/// is a flat row or button, two or three become a submenu naming each entity,
-/// as `HeroActionButtons` collapses its menu on a Movie page.
+/// Inside the menu, a single target is a flat row and two or three become a
+/// submenu naming each entity, as `HeroActionButtons` collapses its menu on a
+/// Movie page.
 ///
 /// ## Permissions
 ///
 /// Deletion is gated on `MediaItem.canDelete`, the server's per-item verdict
 /// rather than anything derived locally — see `BaseItemDto.canDelete` for why
 /// that matters and `JellyfinAPIClient.deleteItem` for what happens when the
-/// gate is wrong. Nothing renders when it's false, rather than a disabled
-/// control advertising a permission the user doesn't have. Adding to a playlist
+/// gate is wrong. The Delete row is absent when it's false, rather than a
+/// disabled row advertising a permission the user doesn't have. Adding to a playlist
 /// is gated the same way one level in: `AddToPlaylistSheet` lists only playlists
 /// the server says this user may edit.
 ///
@@ -141,64 +146,32 @@ struct AssetActionsButton: View {
         }
     }
 
-    @ViewBuilder
+    /// Always the one `ellipsis` overflow, whatever is available inside it —
+    /// see "Which control gets drawn" on this type.
     private var control: some View {
-        if !deletableTargets.isEmpty && !playlistTargets.isEmpty {
-            Menu {
-                addToPlaylistMenuContent
+        Menu {
+            addToPlaylistMenuContent
+            if !deletableTargets.isEmpty {
                 // Destructive action last and visually separated, per iOS
                 // convention, and what stands between a mis-tap on "Add to
                 // Playlist" and one on "Delete".
                 Divider()
                 deleteMenuContent
-            } label: {
-                HeroToolbarGlyph(systemName: "ellipsis", isPending: isPending)
             }
-            // Plain "More": the actions are the menu's rows, which VoiceOver
-            // reads on opening it.
-            .accessibilityLabel(String(localized: "More Actions"))
-            .accessibilityIdentifier(A11yID.AssetDetail.moreButton)
-        } else if !playlistTargets.isEmpty {
-            addToPlaylistControl
-        } else {
-            deleteControl
+        } label: {
+            HeroToolbarGlyph(systemName: "ellipsis", isPending: isPending)
         }
+        .neutralToolbarItem()
+        // Plain "More": the actions are the menu's rows, which VoiceOver
+        // reads on opening it.
+        .accessibilityLabel(String(localized: "More Actions"))
+        .accessibilityIdentifier(A11yID.AssetDetail.moreButton)
     }
 
     // MARK: - Delete
 
-    /// The delete action as the toolbar's own control, for a page with nothing
-    /// else to offer alongside it.
-    @ViewBuilder
-    private var deleteControl: some View {
-        // A single target collapses to a plain button, as `HeroActionButtons`
-        // does on a Movie page: a one-row menu is a pointless extra tap.
-        if deletableTargets.count == 1, let only = deletableTargets.first {
-            Button(role: .destructive) {
-                pendingTarget = only
-            } label: {
-                HeroToolbarGlyph(systemName: "trash", tint: .red, isPending: isPending)
-            }
-            .buttonStyle(.plain)
-            .disabled(isPending)
-            .accessibilityLabel(deleteActionLabel(for: only))
-            .accessibilityIdentifier(A11yID.AssetDetail.deleteButton)
-        } else {
-            Menu {
-                deleteTargetRows
-            } label: {
-                HeroToolbarGlyph(systemName: "trash", tint: .red, isPending: isPending)
-            }
-            // Plain "Delete": the targets are the menu's rows, which VoiceOver
-            // reads on opening it.
-            .accessibilityLabel(String(localized: "Delete"))
-            .accessibilityIdentifier(A11yID.AssetDetail.deleteButton)
-        }
-    }
-
-    /// The delete action as rows inside the overflow menu. Same collapse rule as
-    /// `deleteControl` one level down: a lone target is a flat row, several
-    /// become a submenu.
+    /// The delete action as rows inside the overflow menu: a lone target is a
+    /// flat row, several become a submenu.
     @ViewBuilder
     private var deleteMenuContent: some View {
         if deletableTargets.count == 1, let only = deletableTargets.first {
@@ -236,30 +209,6 @@ struct AssetActionsButton: View {
     }
 
     // MARK: - Add to playlist
-
-    /// The add action as the toolbar's own control — what a user without delete
-    /// rights sees, the common case on a shared server.
-    @ViewBuilder
-    private var addToPlaylistControl: some View {
-        if playlistTargets.count == 1, let only = playlistTargets.first {
-            Button {
-                playlistTarget = only
-            } label: {
-                HeroToolbarGlyph(systemName: "text.badge.plus", isPending: false)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(String(localized: "Add to Playlist"))
-            .accessibilityIdentifier(A11yID.AssetDetail.addToPlaylistButton)
-        } else {
-            Menu {
-                playlistTargetRows
-            } label: {
-                HeroToolbarGlyph(systemName: "text.badge.plus", isPending: false)
-            }
-            .accessibilityLabel(String(localized: "Add to Playlist"))
-            .accessibilityIdentifier(A11yID.AssetDetail.addToPlaylistButton)
-        }
-    }
 
     /// The add action as rows inside the overflow menu.
     @ViewBuilder

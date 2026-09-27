@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The offline counterpart to `PlayResumeButtonRow` — same visual shape
-/// (bordered-prominent Play/Resume button with a progress-bar overlay, plus
-/// a small icon-only Restart button once part-watched), simplified since a
+/// (capsule Play/Resume button with a progress-bar overlay, plus a small
+/// icon-only Restart button once part-watched), simplified since a
 /// download only ever has the one version that was actually fetched (no
 /// version-choice prompt to make).
 ///
@@ -55,11 +55,6 @@ struct DownloadedPlayResumeButtonRow: View {
         return String(localized: "Resume from \(resumeText)")
     }
 
-    /// Same corner radius on both the button's border shape and the outer
-    /// clip as `PlayResumeButtonRow` — what tucks the progress bar in
-    /// behind the button's curved edges instead of poking past them.
-    private let cornerRadius: CGFloat = 12
-
     var body: some View {
         if item.status == .completed {
             HStack(spacing: 8) {
@@ -71,32 +66,15 @@ struct DownloadedPlayResumeButtonRow: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.roundedRectangle(radius: cornerRadius))
-                .tint(.dionysusPrimary)
-                .controlSize(.large)
+                .primaryActionButtonStyle()
                 .accessibilityLabel(accessibilityLabelText)
-                .overlay(alignment: .bottom) {
-                    if isPartWatched {
-                        GeometryReader { geo in
-                            Color.dionysusProgress
-                                .frame(width: geo.size.width * item.playedPercentage / 100)
-                        }
-                        .frame(height: 3)
-                        .allowsHitTesting(false)
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .resumeProgressOverlay(isPartWatched ? item.playedPercentage / 100 : nil)
 
                 if isPartWatched {
                     Button(action: onRestart) {
                         Image(systemName: "arrow.counterclockwise")
-                            .foregroundStyle(Color.dionysusPrimary)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.roundedRectangle(radius: cornerRadius))
-                    .tint(.dionysusPrimaryLight)
-                    .controlSize(.large)
+                    .secondaryActionButtonStyle()
                     // See `PlayResumeButtonRow`'s identical fix — without
                     // this, VoiceOver falls back to the SF Symbol's name.
                     .accessibilityLabel(String(localized: "Restart"))

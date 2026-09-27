@@ -306,7 +306,7 @@ private struct SearchResultRow: View {
             HStack(spacing: 12) {
                 AsyncRemoteImage(url: imageURL, placeholderSystemImage: kind?.placeholderSystemImage ?? "photo")
                     .frame(width: imageWidth, height: Self.imageHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .clipShape(.artworkThumbnail)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(name)
@@ -356,7 +356,7 @@ private struct SearchResultGridCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     AsyncRemoteImage(url: imageURL, placeholderSystemImage: result.kind?.placeholderSystemImage ?? "photo")
                         .frame(width: width, height: imageHeight)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .clipShape(.artworkCard)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(result.name)

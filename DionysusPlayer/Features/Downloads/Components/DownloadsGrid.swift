@@ -129,7 +129,7 @@ struct DownloadsGridCard: View {
             placeholderSystemImage: placeholderSystemImage
         )
             .frame(width: width, height: imageHeight)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(.artworkCard)
             .overlay(alignment: .bottomTrailing) { progressOverlay }
             .overlay(alignment: .topLeading) { selectionOverlay }
     }

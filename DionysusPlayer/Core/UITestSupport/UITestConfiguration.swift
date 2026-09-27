@@ -32,10 +32,10 @@ enum UITestScenario: String {
     /// than disabling it, and — via a forced request — the
     /// 401-means-not-permitted path in `JellyfinAPIClient.deleteItem`.
     ///
-    /// The toolbar item remains: without delete, `AssetActionsButton` collapses
-    /// from its `ellipsis` overflow to the lone "Add to Playlist" control, which
-    /// is always available. A journey asserting the gate therefore asserts the
-    /// absence of `moreButton`/`deleteButton`, not of the toolbar item.
+    /// The toolbar item remains: `AssetActionsButton` always draws its
+    /// `ellipsis` overflow, holding "Add to Playlist", which is always
+    /// available. A journey asserting the gate therefore opens the overflow and
+    /// asserts the absence of `deleteButton`, not of the toolbar item.
     case noDeletePermission
 
     /// `.standard`'s catalogue with every playlist's permissions lookup

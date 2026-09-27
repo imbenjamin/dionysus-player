@@ -83,7 +83,7 @@ private struct LibraryCard: View {
                     placeholderSystemImage: "square.grid.2x2"
                 )
                     .frame(width: width, height: width * 9 / 16)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .clipShape(.artworkCard)
             }
             .buttonStyle(.plain)
             // No title row on this card at all (see this type's doc

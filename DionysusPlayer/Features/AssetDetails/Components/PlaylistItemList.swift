@@ -220,7 +220,7 @@ private struct PlaylistItemRow: View {
                         // bottom-left underneath it.
                         .episodeLogoOverlay(for: item)
                         .watchStatusOverlay(for: item)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .clipShape(.artworkThumbnail)
 
                         Circle()
                             .fill(.black.opacity(0.55))

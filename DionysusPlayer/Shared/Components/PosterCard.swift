@@ -44,7 +44,7 @@ struct PosterCard: View {
                         // view (see `LandscapeMediaCard`'s identical ordering
                         // for where this actually became visible: an opaque
                         // overlay painted right through the rounded corners).
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .clipShape(.artworkCard)
 
                     MediaCardLabel(item: item)
                 }
@@ -108,7 +108,7 @@ struct LandscapeMediaCard: View {
                         // the top ones (where the gradient is `.clear`) still
                         // looked fine. Clipping the whole composited stack at
                         // the end fixes both corners at once.
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .clipShape(.artworkCard)
 
                     MediaCardLabel(item: item)
                 }
@@ -189,11 +189,11 @@ extension View {
         }
     }
 
-    /// Composites the in-progress bar / fully-watched eye / favorite star
+    /// Composites the in-progress bar / fully-watched eye / favorite heart
     /// treatment shared by `PosterCard`, `LandscapeMediaCard`, and
     /// `CollectionItemList`'s own row thumbnail, onto
     /// `self` (expected to already be the clipped artwork image). The eye
-    /// and star sit on opposite top corners so both can show at once (a
+    /// and heart sit on opposite top corners so both can show at once (a
     /// favorited, fully-watched item is a completely ordinary
     /// combination). Decorations must not intercept taps: with the progress
     /// bar as a ZStack sibling of the (rounded-clip) image, its rectangular
@@ -204,10 +204,12 @@ extension View {
         self
             .overlay(alignment: .bottom) {
                 if let fraction = item.playedFraction, fraction > 0, !item.isPlayed {
+                    // Inset clear of the card's 12pt corners (see
+                    // `artworkCard`), which at 4pt clipped the bar's ends.
                     ProgressView(value: fraction)
                         .tint(.dionysusHighlight)
-                        .padding(.horizontal, 4)
-                        .padding(.bottom, 4)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 6)
                 }
             }
             .overlay(alignment: .topLeading) {
@@ -218,13 +220,11 @@ extension View {
                     // what makes the two-color `.foregroundStyle` below
                     // actually paint two different colors instead of the
                     // second one going unused on a single-layer glyph.
-                    // `.dionysusFavorite`, not `.dionysusHighlight` — see
-                    // that constant's doc comment: the favorite star stays
-                    // amber in dark mode too, rather than following
-                    // `dionysusHighlight`'s usual light/dark swap.
-                    Image(systemName: "star.circle.fill")
+                    // `.dionysusFavorite`, Jellyfin's favourite red — see
+                    // that constant's doc comment.
+                    Image(systemName: "heart.circle.fill")
                         .foregroundStyle(Color.white, Color.dionysusFavorite)
-                        .padding(4)
+                        .padding(6)
                 }
             }
             .overlay(alignment: .topTrailing) {
@@ -239,7 +239,7 @@ extension View {
                     // `dionysusPrimary`'s usual light/dark swap.
                     Image(systemName: "eye.circle.fill")
                         .foregroundStyle(Color.white, Color.dionysusWatched)
-                        .padding(4)
+                        .padding(6)
                 }
             }
             .allowsHitTesting(false)

@@ -121,9 +121,11 @@ struct DownloadedSeasonView: View {
             if isSelecting {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { cancelSelecting() }
+                        .neutralToolbarItem()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(isAllSelected ? "Deselect All" : "Select All") { toggleSelectAll() }
+                        .neutralToolbarItem()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .destructive) {
@@ -131,6 +133,7 @@ struct DownloadedSeasonView: View {
                     } label: {
                         Image(systemName: "trash").downloadsToolbarTapTarget()
                     }
+                    .destructiveToolbarItem()
                     .disabled(selectedEpisodeIDs.isEmpty)
                 }
             } else {
@@ -140,6 +143,7 @@ struct DownloadedSeasonView: View {
                     } label: {
                         Image(systemName: "trash").downloadsToolbarTapTarget()
                     }
+                    .neutralToolbarItem()
                 }
             }
         }

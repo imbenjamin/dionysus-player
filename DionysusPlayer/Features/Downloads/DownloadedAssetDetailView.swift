@@ -125,6 +125,7 @@ struct DownloadedAssetDetailView: View {
                         Button(role: .destructive) { showDeleteConfirmation = true } label: {
                             Image(systemName: "trash").downloadsToolbarTapTarget()
                         }
+                        .destructiveToolbarItem()
                         // Without this, VoiceOver reads the SF Symbol's name
                         // ("bin"), as in `PlayResumeButtonRow`'s Restart button.
                         .accessibilityLabel(String(localized: "Delete Download"))

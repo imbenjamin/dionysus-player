@@ -114,6 +114,7 @@ struct HomeView: View {
                 Image(systemName: "arrow.clockwise")
             }
         }
+        .neutralToolbarItem()
         .accessibilityLabel(String(localized: "Refresh"))
         .accessibilityIdentifier(A11yID.Home.refreshButton)
         .disabled(viewModel?.isHardRefreshing == true)

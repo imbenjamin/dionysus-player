@@ -286,7 +286,7 @@ final class MediaItemTests: XCTestCase {
     /// `MediaItem.==` must be structural, not id-only — SwiftUI relies on
     /// it to decide whether a view changed (see its doc comment). Each of
     /// these four `userData` fields drives something visible on a card
-    /// (progress bar, watched eye, favorite star), so each must break
+    /// (progress bar, watched eye, favorite heart), so each must break
     /// equality.
     func test_equality_differsWhenPlaybackPositionDiffers() {
         let original = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000))
