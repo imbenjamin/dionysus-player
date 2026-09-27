@@ -427,7 +427,18 @@ private extension AccessibilityAuditTests {
         // (the only place the class name shows up — `XCUIElement` doesn't
         // expose it) rather than the element itself, so a real unlabeled
         // element elsewhere still fails.
+        //
+        // iOS 18 reports the same cell with a generic description ("This
+        // element is missing useful accessibility information") and no class
+        // name, so there it's recognised by where it sits instead: its path
+        // runs through the keyboard's `SystemInputAssistantView`, which only
+        // the system keyboard draws. Same scoping idea: an unlabeled element
+        // of this app's own never has that ancestor.
         if issue.detailedDescription.contains("TUIPredictionViewCell") {
+            return true
+        }
+        if issue.auditType == .sufficientElementDescription,
+           element.debugDescription.contains("identifier: 'SystemInputAssistantView'") {
             return true
         }
 

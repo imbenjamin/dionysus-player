@@ -251,6 +251,14 @@ struct ProfileView: View {
             }
             .id(pane)
         }
+        // `.balanced` is what actually keeps the sidebar beside the detail in
+        // portrait. Without it iOS 18 shows the sidebar as an overlay there,
+        // slides it away once a row is picked, and — the binding being a
+        // constant — leaves an invisible layer over the detail column that
+        // swallows every tap: Sign Out, Change Server and Quick Connect were
+        // all dead on an iPad in portrait (#259). iOS 26 already tiled the
+        // two columns, so it looks the same there with or without this.
+        .navigationSplitViewStyle(.balanced)
     }
 
     private var sidebar: some View {

@@ -18,7 +18,7 @@ final class CollectionJourneyTests: UITestCase {
         let sciFiMovie = collection.card(UITestFixtureIdentity.partWatchedMovieID)
         let actionMovie = collection.card(UITestFixtureIdentity.movieID(4))
 
-        collection.filterPill("genre").tap()
+        collection.openFilter("genre")
         collection.selectFilterOption("Action")
 
         sciFiMovie.awaitDisappearance("the filtered-out Sci-Fi title")
@@ -42,10 +42,10 @@ final class CollectionJourneyTests: UITestCase {
         let collection = CollectionScreen(app: app)
         collection.awaitLoaded(UITestFixtureIdentity.partWatchedMovieID)
 
-        collection.filterPill("genre").tap()
+        collection.openFilter("genre")
         collection.selectFilterOption("Action")
 
-        collection.filterPill("favorites").tap()
+        collection.openFilter("favorites")
         collection.selectFilterOption("Favorites")
 
         collection.card(UITestFixtureIdentity.movieID(4))
