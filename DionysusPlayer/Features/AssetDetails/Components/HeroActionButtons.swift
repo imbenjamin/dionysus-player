@@ -16,7 +16,7 @@ struct FavoriteWatchedShowScope {
     let episode: MediaItem?
 }
 
-/// Favorite (star) and watched (eye) buttons as a trailing `ToolbarItem`,
+/// Favorite (heart) and watched (eye) buttons as a trailing `ToolbarItem`,
 /// mirroring the leading system back button. A real `ToolbarItem` gets the
 /// pinned, floats-over-the-hero-at-rest behavior for free. Two rejected
 /// alternatives: extra labeled controls alongside Play/Resume/Restart read as
@@ -38,7 +38,7 @@ struct FavoriteWatchedShowScope {
 /// `toggleFavorite`/`toggleWatched` poll until the server confirms, which can
 /// take a couple of seconds.
 ///
-/// The collapsed button uses plain `star`/`star.fill` and `eye.slash`/`eye.fill`
+/// The collapsed button uses plain `heart`/`heart.fill` and `eye.slash`/`eye.fill`
 /// rather than the `.circle` variants `PosterCard.watchStatusOverlay` uses: the
 /// nav bar already draws a capsule behind these controls, and the symbol's
 /// built-in circle reads as a second enclosing shape inside it — the same
@@ -49,13 +49,13 @@ struct FavoriteWatchedShowScope {
 /// Unwatched uses `eye.slash` rather than a plain `eye`, which read too close to
 /// `eye.fill` at a glance; the slash reads as "off" as it does for
 /// `CollectionGridView`'s Unwatched filter pill. The glyph shape carries the
-/// state, with colour as a second signal once active: the filled star and
+/// state, with colour as a second signal once active: the filled heart and
 /// non-slashed eye take the same `.dionysusFavorite`/`.dionysusWatched` brand
 /// colours `PosterCard.watchStatusOverlay` uses, while the inactive glyphs stay
 /// uncoloured, so colour never appears without the shape agreeing.
 ///
-/// With `favoriteWatchedShowScope` `nil` each is a plain toggle on `item`; on a
-/// Show-content page each becomes a `Menu` offering Show/Season/Episode
+/// On a Movie page each is a plain toggle on `item`; on a Show-content page
+/// (`isShowContent(_:)`) each is a `Menu` offering Show/Season/Episode
 /// independently with each row's own status — see `FavoriteWatchedShowScope`.
 struct HeroActionButtons: View {
     let viewModel: AssetDetailViewModel
@@ -82,6 +82,29 @@ struct HeroActionButtons: View {
         }
     }
 
+    /// Whether this page's toggles are Show/Season/Episode menus rather than
+    /// plain buttons. Decided from the item's own kind as well as
+    /// `favoriteWatchedShowScope`, because the kind is known from the first
+    /// frame — the item preloaded from a rail or grid carries it — while the
+    /// scope waits on `viewModel.seriesItem`. Keyed on the scope alone, a
+    /// pushed episode drew plain buttons and swapped them for menus a moment
+    /// later, and on iOS 26 swapping a bar button for a menu rebuilds the
+    /// toolbar group, blanking every glyph in it (see `AssetActionsButton`).
+    private func isShowContent(_ item: MediaItem) -> Bool {
+        viewModel.seriesItem != nil || [.series, .season, .episode].contains(item.kind)
+    }
+
+    /// The rows a Show-content menu offers: the resolved scope, or until it
+    /// resolves, just the page's own item, so the menu is never empty.
+    private func menuTargets(fallback item: MediaItem) -> [MediaItem] {
+        guard let scope = favoriteWatchedShowScope else { return [item] }
+        return [scope.show, scope.season, scope.episode].compactMap { $0 }
+    }
+
+    private func menuRowLabel(for target: MediaItem) -> String {
+        target.episodeLabel.map { "\($0)  \(target.name)" } ?? target.name
+    }
+
     var body: some View {
         if let item {
             // One plain `HStack` on every OS version. This used to wrap the iOS
@@ -103,23 +126,20 @@ struct HeroActionButtons: View {
     @ViewBuilder
     private func favoriteButton(item: MediaItem) -> some View {
         let isPending = viewModel.pendingFavoriteIDs.contains(item.id)
-        if let scope = favoriteWatchedShowScope {
+        if isShowContent(item) {
             Menu {
-                favoriteMenuRow(for: scope.show, label: scope.show.name)
-                if let season = scope.season {
-                    favoriteMenuRow(for: season, label: season.name)
-                }
-                if let episode = scope.episode {
-                    favoriteMenuRow(for: episode, label: episode.episodeLabel.map { "\($0)  \(episode.name)" } ?? episode.name)
+                ForEach(menuTargets(fallback: item), id: \.id) { target in
+                    favoriteMenuRow(for: target, label: menuRowLabel(for: target))
                 }
             } label: {
-                icon(item.isFavorite ? "star.fill" : "star", tint: item.isFavorite ? .dionysusFavorite : nil, isPending: isPending)
+                icon(item.isFavorite ? "heart.fill" : "heart", tint: item.isFavorite ? .dionysusFavorite : nil, isPending: isPending)
             }
+            .neutralToolbarItem()
             .accessibilityLabel(String(localized: "Favorite"))
             .accessibilityIdentifier(A11yID.AssetDetail.favoriteButton)
         } else {
             Button(action: { toggleFavorite(item) }) {
-                icon(item.isFavorite ? "star.fill" : "star", tint: item.isFavorite ? .dionysusFavorite : nil, isPending: isPending)
+                icon(item.isFavorite ? "heart.fill" : "heart", tint: item.isFavorite ? .dionysusFavorite : nil, isPending: isPending)
             }
             .buttonStyle(.plain)
             .disabled(isPending)
@@ -131,18 +151,15 @@ struct HeroActionButtons: View {
     @ViewBuilder
     private func watchedButton(item: MediaItem) -> some View {
         let isPending = viewModel.pendingWatchedIDs.contains(item.id)
-        if let scope = favoriteWatchedShowScope {
+        if isShowContent(item) {
             Menu {
-                watchedMenuRow(for: scope.show, label: scope.show.name)
-                if let season = scope.season {
-                    watchedMenuRow(for: season, label: season.name)
-                }
-                if let episode = scope.episode {
-                    watchedMenuRow(for: episode, label: episode.episodeLabel.map { "\($0)  \(episode.name)" } ?? episode.name)
+                ForEach(menuTargets(fallback: item), id: \.id) { target in
+                    watchedMenuRow(for: target, label: menuRowLabel(for: target))
                 }
             } label: {
                 icon(item.isPlayed ? "eye.fill" : "eye.slash", tint: item.isPlayed ? .dionysusWatched : nil, isPending: isPending)
             }
+            .neutralToolbarItem()
             .accessibilityLabel(String(localized: "Watched"))
             .accessibilityIdentifier(A11yID.AssetDetail.watchedButton)
         } else {
@@ -163,7 +180,7 @@ struct HeroActionButtons: View {
             Label {
                 Text(label)
             } icon: {
-                Image(systemName: target.isFavorite ? "star.circle.fill" : "star.circle")
+                Image(systemName: target.isFavorite ? "heart.circle.fill" : "heart.circle")
                     .foregroundStyle(target.isFavorite ? Color.dionysusFavorite : Color.primary)
             }
         }

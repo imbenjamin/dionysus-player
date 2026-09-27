@@ -181,12 +181,9 @@ enum A11yID {
         /// `AssetActionsButton`'s delete affordance — present only when the
         /// server says this user may delete this item (`MediaItem.canDelete`),
         /// so a UI test asserting its *absence* is asserting the permission
-        /// gate, not just a missing view. One identifier covers all four of
-        /// its forms: the plain toolbar button on a movie, the toolbar
-        /// Show/Season/Episode menu on a show page, and the equivalent row
-        /// or submenu inside `moreButton`'s overflow. Note that when the
-        /// user *can* delete, this now sits one tap deep behind
-        /// `moreButton` rather than in the toolbar directly.
+        /// gate, not just a missing view. It is always inside `moreButton`'s
+        /// overflow: a flat row on a movie, a Show/Season/Episode submenu on a
+        /// show page.
         static let deleteButton = "assetDetail.deleteButton"
 
         /// The destructive confirm action inside the deletion dialog. Needed
@@ -201,21 +198,16 @@ enum A11yID {
         /// only when a local download of the target actually exists.
         static let deleteWithDownloadButton = "assetDetail.deleteWithDownloadButton"
 
-        /// `AssetActionsButton`'s overflow — present only when *both* of its
-        /// action groups have something to offer, which in practice means
-        /// "this user may also delete this item" (adding to a playlist is
-        /// always available; see `JellyfinAPIClient.createPlaylist`). When
-        /// only one group applies, that group's own control is drawn
-        /// directly and this identifier is absent, so a test asserting its
-        /// absence is asserting the collapse rule, not a missing view.
+        /// `AssetActionsButton`'s overflow — always drawn, so the control never
+        /// changes kind once the server's delete verdict arrives (see that
+        /// type's "Which control gets drawn"). Holds Add to Playlist, and
+        /// Delete when permitted.
         static let moreButton = "assetDetail.moreButton"
 
-        /// The "Add to Playlist" affordance, in every one of its three
-        /// forms: the standalone button on a movie page without delete
-        /// rights, the standalone scope menu on a show page without them,
-        /// and the row (or submenu) inside `moreButton`'s overflow. One
-        /// identifier covers all three by design, the same rule
-        /// `deleteButton` above follows.
+        /// The "Add to Playlist" affordance inside `moreButton`'s overflow: a
+        /// flat row on a movie, a Show/Season/Episode submenu on a show page.
+        /// One identifier covers both, the same rule `deleteButton` above
+        /// follows.
         static let addToPlaylistButton = "assetDetail.addToPlaylistButton"
     }
 

@@ -784,8 +784,11 @@ from the API docs — all were read out of `jellyfin/jellyfin`'s
   is `[Authorize]`-only; `UserPolicy` has `EnableCollectionManagement`, which
   governs *collections*, not playlists. So every signed-in user can always
   create one — which is why "Add to Playlist" renders unconditionally, and
-  why the toolbar's `ellipsis` overflow appears exactly when the user *also*
-  has delete rights. Don't add a permission check for it.
+  why the toolbar's `ellipsis` overflow is never empty. Don't add a
+  permission check for it. (The overflow is drawn for everyone rather than
+  collapsing to a bare add button without delete rights: `CanDelete` only
+  arrives with the full item, and swapping a bar button for a menu on iOS 26
+  blanks the whole toolbar group — see `AssetActionsButton`.)
 - **Adding to and removing from an existing playlist share one gate**:
   `OwnerUserId == caller || Shares.Any(CanEdit && caller)`, refused as a
   clean 403. There is no bulk "which playlists may I edit" query and no DTO
