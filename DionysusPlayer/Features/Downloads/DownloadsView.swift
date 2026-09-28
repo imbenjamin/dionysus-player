@@ -217,7 +217,7 @@ struct DownloadsView: View {
         case .standalone(let item):
             guard item.status == .completed else { return nil }
             if item.isEpisode {
-                return item.episodeLabel.map { "\($0) \u{00B7} \(item.title)" } ?? item.title
+                return item.numberedEpisodeTitle
             }
             return item.yearAndDurationText
         case .show(let group):
@@ -437,7 +437,7 @@ private struct DownloadsRowView: View {
         case .completed:
             if item.isEpisode {
                 // "S1:E4 · Episode Name", as in `MediaItem.railSubtitle`.
-                captionLine([.init(text: item.episodeLabel.map { "\($0) \u{00B7} \(item.title)" } ?? item.title)])
+                captionLine([.init(text: item.numberedEpisodeTitle)])
             } else if let yearAndDuration = item.yearAndDurationText {
                 // "2019 · 1h 32m", as in `MediaItem.railSubtitle`, so a completed
                 // download reads like its live counterpart rather than a bare

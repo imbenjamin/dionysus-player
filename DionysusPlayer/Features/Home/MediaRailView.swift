@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// A titled horizontal-scrolling row of posters, with an optional
-/// "See All" link to the full collection.
+/// A titled horizontal-scrolling row of posters. When the rail has a full
+/// collection behind it, its title is the link: "Recently Added Movies ›".
 ///
 /// Used on both the Home page and detail pages (`MovieDetailView`'s/
 /// `ShowDetailView`'s "Included In"/"More Like This" rails),
@@ -104,10 +104,14 @@ struct MediaRailView: View {
         }
     }
 
-    /// The title/"See All" row — when there's a `seeAllQuery`, the whole
-    /// row is one tap target (title text included, not just the "See All"
-    /// label), so tapping anywhere across the header pushes the full
-    /// collection.
+    /// The title row. When there's a `seeAllQuery`, the title gains a trailing
+    /// chevron and the whole row is one tap target that pushes the full
+    /// collection, the shape Apple's own apps use for a shelf header. This
+    /// replaced a tinted "See All" at the far end of the row.
+    ///
+    /// One line, truncating: a long title ("Movies from Metro-Goldwyn-Mayer")
+    /// used to wrap onto a second line on a phone, pushing its rail down out of
+    /// step with its neighbours.
     ///
     /// Wrapped in a (single-child) `ZStack`, not a bare `NavigationLink` —
     /// same bare-NavigationLink-in-a-Lazy-stack freeze fix as
@@ -118,29 +122,35 @@ struct MediaRailView: View {
         if let query = rail.seeAllQuery {
             ZStack {
                 NavigationLink(value: AppRoute.collection(query)) {
-                    headerLabel(showsSeeAll: true)
+                    headerLabel(showsChevron: true)
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier(A11yID.Home.seeAll(query))
             }
         } else {
-            headerLabel(showsSeeAll: false)
+            headerLabel(showsChevron: false)
         }
     }
 
-    private func headerLabel(showsSeeAll: Bool) -> some View {
-        HStack {
+    private func headerLabel(showsChevron: Bool) -> some View {
+        HStack(spacing: 4) {
             Text(rail.title)
                 .font(.title3.bold())
                 .foregroundStyle(.primary)
+                .lineLimit(1)
 
-            Spacer()
-
-            if showsSeeAll {
-                Text("See All")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.dionysusPrimary)
+            if showsChevron {
+                // Hidden from VoiceOver: the link's button trait already says
+                // it goes somewhere, and the symbol would otherwise be read
+                // aloud by name.
+                Image(systemName: "chevron.right")
+                    .font(.title3.bold())
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
             }
+
+            Spacer(minLength: 0)
         }
         .contentShape(Rectangle())
     }

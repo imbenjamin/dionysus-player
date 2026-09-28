@@ -58,6 +58,9 @@ struct DionysusPlayerApp: App {
             RootView()
                 .environment(appState)
                 .preferredColorScheme(themePreference.colorScheme)
+                // Light over a page's hero, on iOS 27. Here rather than on the
+                // page: see `HeroStatusBarScheme`.
+                .statusBarColorScheme(HeroStatusBarScheme.shared.scheme)
                 .task {
                     await appState.start()
                 }

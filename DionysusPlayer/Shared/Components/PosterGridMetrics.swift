@@ -39,7 +39,10 @@ struct PosterGridMetrics {
         itemWidth = (available - Self.spacing * CGFloat(columnCount - 1)) / CGFloat(columnCount)
     }
 
+    /// Top-aligned: a row is as tall as its tallest card, and the Collections
+    /// grid lets a title run to two lines, so a centred one-line card would sit
+    /// lower than its neighbours and its poster out of line with theirs.
     var columns: [GridItem] {
-        Array(repeating: GridItem(.fixed(itemWidth), spacing: Self.spacing), count: columnCount)
+        Array(repeating: GridItem(.fixed(itemWidth), spacing: Self.spacing, alignment: .top), count: columnCount)
     }
 }

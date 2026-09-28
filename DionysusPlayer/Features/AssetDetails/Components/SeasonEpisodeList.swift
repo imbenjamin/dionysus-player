@@ -324,7 +324,7 @@ private struct EpisodeRow: View {
             Button(action: onSelect) {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(episode.episodeLabel.map { "\($0)  \(episode.name)" } ?? episode.name)
+                        Text(episode.numberedEpisodeName)
                             .font(.subheadline.bold())
                             .foregroundStyle(isCurrent ? Color.dionysusPrimary : .primary)
                             .lineLimit(2)

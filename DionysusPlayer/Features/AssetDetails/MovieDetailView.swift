@@ -112,6 +112,8 @@ struct MovieDetailView: View {
             }
         }
         .ignoresSafeArea(edges: .top)
+        // Keeps the bars legible once the hero scrolls away.
+        .heroScrollEdgeScrim()
         // Trailing toolbar items float in the nav bar opposite the system back
         // button, staying pinned once the page scrolls, unlike a hand-placed
         // `.overlay` on the hero, which scrolled away with it. See

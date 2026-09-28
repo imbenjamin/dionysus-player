@@ -291,7 +291,7 @@ struct HomeScreen: Screen {
 
     var heroCarousel: XCUIElement { app.descendants(matching: .any)[A11yID.Home.heroCarousel] }
 
-    /// The "Recently Added Movies" rail's "See All" link, pushing the
+    /// The "Recently Added Movies" rail's header link (title and chevron), pushing the
     /// Movies library's collection grid. The identifier key mirrors
     /// `CollectionQuery.identifierKey`'s format
     /// (`\(parentID ?? "all").\(includeItemTypes)`) rather than being built
@@ -462,6 +462,8 @@ struct AssetDetailScreen: Screen {
     var restartButton: XCUIElement { app.buttons[A11yID.AssetDetail.restartButton] }
     var favoriteButton: XCUIElement { app.buttons[A11yID.AssetDetail.favoriteButton] }
     var watchedButton: XCUIElement { app.buttons[A11yID.AssetDetail.watchedButton] }
+    /// The About panel's synopsis text; see `A11yID.AssetDetail.synopsis`.
+    var synopsis: XCUIElement { app.staticTexts[A11yID.AssetDetail.synopsis] }
 
     /// `AssetActionsButton`'s `ellipsis` overflow — always present on a
     /// movie/show/episode page, holding Add to Playlist and, with permission,

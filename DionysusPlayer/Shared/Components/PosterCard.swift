@@ -16,6 +16,11 @@ import SwiftUI
 struct PosterCard: View {
     let item: MediaItem
     var width: CGFloat = 130
+    /// How many lines the title may take. One in a rail, where cards scroll
+    /// sideways and a ragged bottom edge would show; `CollectionGridView`
+    /// passes two, since a grid is where a title is read to pick something
+    /// and one line cut "Addams Family Values" to "Addams Family V…".
+    var titleLineLimit: Int = 1
 
     private var imageHeight: CGFloat { width * 1.5 }
 
@@ -46,7 +51,7 @@ struct PosterCard: View {
                         // overlay painted right through the rounded corners).
                         .clipShape(.artworkCard)
 
-                    MediaCardLabel(item: item)
+                    MediaCardLabel(item: item, titleLineLimit: titleLineLimit)
                 }
                 .frame(width: width)
                 .contentShape(Rectangle())
@@ -132,12 +137,14 @@ struct LandscapeMediaCard: View {
 /// — identical in both, just sitting under differently-shaped artwork.
 private struct MediaCardLabel: View {
     let item: MediaItem
+    /// See `PosterCard.titleLineLimit`.
+    var titleLineLimit: Int = 1
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(item.railTitle)
                 .font(.caption)
-                .lineLimit(1)
+                .lineLimit(titleLineLimit)
                 .foregroundStyle(.primary)
 
             if let subtitle = item.railSubtitle {

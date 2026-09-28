@@ -229,10 +229,10 @@ struct DownloadButton: View {
     private var sourceMediaSource: MediaSourceInfo? { item.dto.mediaSources?.first }
     private var sourceVideoStream: MediaStream? { sourceMediaSource?.mediaStreams?.first { $0.type == "Video" } }
 
-    /// "S1:E4 · Pilot" for an episode, the plain title otherwise — the same
-    /// per-type formatting as `MediaItem.railSubtitle`.
+    /// "S1:E4 · Pilot" for an episode, the plain title otherwise
+    /// (`MediaItem.numberedEpisodeName`).
     private var advancedOptionsTitle: String {
-        item.episodeLabel.map { "\($0) \u{00B7} \(item.name)" } ?? item.name
+        item.numberedEpisodeName
     }
 
     /// The tap target and state icon, identical between styles; only the chrome

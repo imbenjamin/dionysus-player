@@ -122,6 +122,23 @@ final class MediaItemTests: XCTestCase {
         XCTAssertNil(makeMovie().episodeLabel)
     }
 
+    // MARK: numberedEpisodeName
+
+    func test_numberedEpisodeName_joinsLabelAndNameWithOneDot() {
+        let item = makeEpisode(indexNumber: 1, parentIndexNumber: 1, name: "Pilot")
+        XCTAssertEqual(item.numberedEpisodeName, "S1:E1 \u{00B7} Pilot")
+    }
+
+    func test_numberedEpisodeName_isJustTheNameWithoutNumbering() {
+        XCTAssertEqual(makeEpisode(indexNumber: nil, name: "Pilot").numberedEpisodeName, "Pilot")
+        XCTAssertEqual(makeEpisode(parentIndexNumber: nil, name: "Pilot").numberedEpisodeName, "Pilot")
+    }
+
+    func test_numberedEpisodeName_isJustTheNameForNonEpisodes() {
+        let movie = makeMovie()
+        XCTAssertEqual(movie.numberedEpisodeName, movie.name)
+    }
+
     // MARK: railTitle
 
     func test_railTitle_episode_usesSeriesName() {

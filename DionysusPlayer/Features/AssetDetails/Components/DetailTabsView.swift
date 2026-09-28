@@ -96,11 +96,13 @@ private struct AboutTabContent: View {
                 Text(overview)
                     .font(.body)
                     .accessibilityLabel(String(localized: "Synopsis: \(overview)"))
+                    .accessibilityIdentifier(A11yID.AssetDetail.synopsis)
             } else {
                 Text("No synopsis available.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .accessibilityLabel(String(localized: "Synopsis: No synopsis available."))
+                    .accessibilityIdentifier(A11yID.AssetDetail.synopsis)
             }
         }
     }

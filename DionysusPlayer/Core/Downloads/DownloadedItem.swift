@@ -297,6 +297,12 @@ final class DownloadedItem: Identifiable {
         return Self.spokenDuration(totalMinutes: Int(resumePositionTicks / 10_000_000 / 60))
     }
 
+    /// An episode's title led by its number, "S1:E4 \u{00B7} Pilot", spelled as
+    /// `MediaItem.numberedEpisodeName` spells it.
+    var numberedEpisodeTitle: String {
+        episodeLabel.map { "\($0) \u{00B7} \(title)" } ?? title
+    }
+
     /// `episodeLabel` worded out for VoiceOver, which can't read "S1:E4".
     var episodeLabelAccessibilityText: String? {
         guard let seasonNumber, let episodeNumber else { return nil }

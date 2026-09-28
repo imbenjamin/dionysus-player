@@ -214,6 +214,8 @@ struct HeroRailView: View {
             heroContent(pageWidth: proxy.size.width)
         }
         .frame(height: heroHeight)
+        // For `HeroScrollEdgeScrim` on Home's scroll view.
+        .preference(key: HeroHeightKey.self, value: heroHeight)
         .accessibilityIdentifier(A11yID.Home.heroCarousel)
         // `proxy.size` reports the size within the safe area, not the full
         // available width: nothing above `HeroRailView` ignores the horizontal

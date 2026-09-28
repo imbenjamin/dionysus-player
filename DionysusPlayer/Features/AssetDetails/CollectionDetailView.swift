@@ -80,6 +80,8 @@ struct CollectionDetailView: View {
             }
         }
         .ignoresSafeArea(edges: .top)
+        // Keeps the bars legible once the hero scrolls away.
+        .heroScrollEdgeScrim()
         // See `MovieDetailView`'s matching call site for the reasoning —
         // trailing toolbar items float in the nav bar rather than a
         // hand-placed `.overlay` on the hero, which would scroll away

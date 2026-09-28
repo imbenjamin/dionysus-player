@@ -348,7 +348,7 @@ struct AssetActionsButton: View {
         case .series, .season:
             return target.name
         case .episode:
-            return target.episodeLabel.map { "\($0)  \(target.name)" } ?? target.name
+            return target.numberedEpisodeName
         default:
             return target.name
         }

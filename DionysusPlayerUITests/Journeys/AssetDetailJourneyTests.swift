@@ -148,6 +148,34 @@ final class AssetDetailJourneyTests: UITestCase {
         AssetDetailScreen(app: app).awaitLoaded()
     }
 
+    /// A playlist with a description gets the About panel; one without gets
+    /// no panel at all, rather than a pooled genre list over "No synopsis
+    /// available." (see `PlaylistDetailView`). The fixture's main playlist
+    /// has a description and `secondPlaylist` has none.
+    func testPlaylistAboutPanelShowsOnlyWithADescription() {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openLibrary(UITestFixtureIdentity.playlistsLibraryID)
+
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.playlistID)
+        collection.card(UITestFixtureIdentity.playlistID).tap()
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.synopsis.awaitExistence("the playlist's description")
+
+        app.navigationBackButton.tap()
+        collection.awaitLoaded(UITestFixtureIdentity.secondPlaylistID)
+        collection.card(UITestFixtureIdentity.secondPlaylistID).tap()
+
+        // An empty playlist has nothing to play, so wait on the favourite
+        // button instead of Play.
+        detail.favoriteButton.awaitExistence("the second playlist's favourite button")
+        XCTAssertFalse(detail.synopsis.exists, "A playlist without a description shouldn't show the About panel.")
+    }
+
     // MARK: - Deletion
 
     /// The permission gate. `.noDeletePermission` serves the same catalogue

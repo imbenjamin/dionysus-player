@@ -18,7 +18,7 @@ struct MediaCollectionRail: Identifiable {
     let id = UUID()
     var title: String
     var items: [MediaItem]
-    /// When set, the rail shows a "See All" link pushing a `CollectionGridView`
+    /// When set, the rail's title becomes a link (with a chevron) pushing a `CollectionGridView`
     /// scoped to this query.
     var seeAllQuery: CollectionQuery? = nil
 
