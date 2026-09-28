@@ -346,4 +346,50 @@ final class DownloadsViewModelTests: XCTestCase {
         XCTAssertTrue(store.visibleItems().isEmpty)
         XCTAssertTrue(viewModel.rows.isEmpty)
     }
+
+    // MARK: Following the store
+
+    /// A download finishing while the list is on screen. Each row snapshots its
+    /// status (see `DownloadsRow.StandaloneItem`), and completion clears the
+    /// row's live byte progress before it saves `.completed`, so a list that
+    /// only re-read the store on appear was left on "Preparing download…" with
+    /// a spinner until the user left the tab and came back.
+    func test_rowStatus_followsAStoreSaveWithoutAnotherRefresh() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1", status: .downloading)
+        store.insert(item)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
+
+        item.status = .completed
+        store.save()
+
+        for _ in 0..<50 where standaloneStatus(viewModel, itemID: "item-1") != .completed {
+            await Task.yield()
+        }
+        XCTAssertEqual(standaloneStatus(viewModel, itemID: "item-1"), .completed)
+    }
+
+    /// A row enqueued elsewhere — from a detail page, while this tab's list
+    /// stays alive underneath — appears without a trip away and back.
+    func test_rows_pickUpAnItemInsertedAfterCreation() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = DownloadManager(store: store)
+        let viewModel = DownloadsViewModel(downloadManager: manager, deferredDeleteScheduler: { $0() })
+        XCTAssertTrue(viewModel.rows.isEmpty)
+
+        store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .queued))
+
+        for _ in 0..<50 where viewModel.rows.isEmpty {
+            await Task.yield()
+        }
+        XCTAssertEqual(standaloneStatus(viewModel, itemID: "item-1"), .queued)
+    }
+
+    private func standaloneStatus(_ viewModel: DownloadsViewModel, itemID: String) -> DownloadStatus? {
+        for row in viewModel.rows {
+            if case .standalone(let item) = row, item.itemID == itemID { return item.status }
+        }
+        return nil
+    }
 }

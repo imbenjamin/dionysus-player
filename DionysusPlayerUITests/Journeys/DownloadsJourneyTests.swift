@@ -44,6 +44,48 @@ final class DownloadsJourneyTests: UITestCase {
         DownloadsScreen(app: app).list.awaitExistence("the Downloads list with the completed download")
     }
 
+    /// The Downloads tab opened while a download is still in flight, then left
+    /// on screen while it finishes. The row must leave its "Preparing
+    /// download…" state on its own: it once sat there indefinitely, because
+    /// the list snapshots each row's status and only re-read the store on
+    /// appear (see `DownloadsViewModel.followStoreChanges()`). The other
+    /// journeys here finish the download before opening the tab, so they
+    /// could never see it.
+    ///
+    /// Asserts on the row's label — English copy — because the status has no
+    /// element of its own: the list row and the grid tile each collapse to one.
+    func testADownloadFinishingWhileTheTabIsOpenUpdatesItsRow() {
+        launch(scenario: "slowVideoDownload")
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.downloadButton.tap()
+        app.buttons["ENG EAC3"].awaitExistence("the audio-track prompt's default track option").tap()
+
+        TabBar(app: app).downloads.tap()
+        let row = DownloadsScreen(app: app).standaloneRow(itemID: UITestFixtureIdentity.primaryMovieID)
+        row.awaitExistence("the in-flight download's row")
+        XCTAssertTrue(
+            row.label.contains("Preparing download"),
+            "Expected the row to still be in flight when the tab opened, but its label was \"\(row.label)\"; the stub's hold is too short to test anything."
+        )
+
+        let finished = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "NOT (label CONTAINS[c] %@)", "Preparing download"),
+            object: row
+        )
+        XCTAssertEqual(
+            // The stub's 10s hold (`slowVideoDownloadDelay`, app-side) plus the
+            // usual budget for the rest.
+            XCTWaiter().wait(for: [finished], timeout: 10 + UITestCase.defaultTimeout),
+            .completed,
+            "The row never left \"Preparing download…\" after its download finished; its label is still \"\(row.label)\"."
+        )
+    }
+
     /// Downloads an item, then removes it again through selection mode —
     /// Select, Select All, the trash button, and the confirmation dialog —
     /// back down to the empty state.

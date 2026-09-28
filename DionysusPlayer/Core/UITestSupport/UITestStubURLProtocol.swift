@@ -105,6 +105,20 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
+        // A download's stream (`JellyfinAPIClient.downloadStreamURL`), held
+        // back under `.slowVideoDownload`; answered below as usual otherwise.
+        if scenario == .slowVideoDownload, path.hasSuffix("/stream.mp4") {
+            // Background queue, never `Thread.sleep` — see the
+            // `.slowLogoImage` branch above for what blocking here costs.
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.slowVideoDownloadDelay) {
+                let video = Self.syntheticMP4(durationSeconds: Self.runtimeSeconds(forVideoPath: path))
+                // Same content type as the instant path below, so the timing is
+                // the only thing this scenario changes.
+                self.finish(.success((200, video, "application/json")))
+            }
+            return
+        }
+
         if path.contains("/QuickConnect/") {
             finish(.success(Self.quickConnectResponse(scenario: scenario, path: path, query: query)))
             return
@@ -448,7 +462,8 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         // which has the method.
         case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission,
              .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort,
-             .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan:
+             .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
+             .slowVideoDownload:
             return nil
         case .serverError:
             return 500
@@ -1027,6 +1042,11 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     /// the delay has to be long enough that a build which waited for the fonts
     /// could not pass by happening to finish early.
     static let slowFontAttachmentDelay: TimeInterval = 120
+
+    /// How long `.slowVideoDownload` holds a download's stream: enough to get
+    /// from the detail page's Download button to the Downloads tab, short
+    /// enough that the row finishing is well inside an assertion's budget.
+    static let slowVideoDownloadDelay: TimeInterval = 10
 
     /// Stand-in bytes for a font attachment.
     ///

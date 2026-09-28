@@ -27,9 +27,9 @@ struct DownloadsView: View {
                 if viewModel == nil {
                     viewModel = DownloadsViewModel(downloadManager: appState.downloadManager)
                 } else {
-                    // Re-reads local storage: a download finished, or a delete
-                    // happened on a pushed detail page. See `DownloadsViewModel`
-                    // for why there's no automatic observation.
+                    // The view model already follows every store save (see
+                    // `DownloadsViewModel.followStoreChanges()`); this re-read
+                    // is insurance for anything that changed without one.
                     viewModel?.refresh()
                 }
             }
@@ -137,6 +137,7 @@ struct DownloadsView: View {
                             onToggleSelection: { viewModel.toggleSelection(row.id) },
                             onRetry: retryAction(row)
                         )
+                        .accessibilityIdentifier(A11yID.Downloads.row(row.id))
                         .swipeActions {
                             // Only the single-item delete: bulk selection has its
                             // own action, and swiping mid-selection would be a
@@ -194,6 +195,7 @@ struct DownloadsView: View {
                 onRetry: retryAction(row),
                 isRetrying: isRetrying(row)
             )
+            .accessibilityIdentifier(A11yID.Downloads.row(row.id))
         }
     }
 
