@@ -53,8 +53,10 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
   Vision on supported source+device combinations, trickplay-thumbnail
   scrubbing, subtitle/audio track selection, intro/outro skip segments,
   Picture in Picture, Now Playing/lock-screen/Control Center integration,
-  a live "stats for nerds" overlay (codec, bitrate, resolution, dropped
-  frames, streaming session info, offline-vs-live playback method), and
+  a live "stats for nerds" overlay (codec, pixel format and colour
+  description, bitrate, resolution, audio profile and sampling, dropped
+  frames and throughput, streaming session info, offline-vs-live playback
+  method), and
   sequential playlist playback (mixed movies/episodes, start-to-finish with
   its own client-driven "Up Next" — Jellyfin has no server-side equivalent
   for playlists).

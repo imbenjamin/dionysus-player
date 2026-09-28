@@ -1,9 +1,9 @@
 import XCTest
 
 /// Deeper Player coverage than `SmokeJourneyTests.testPlayingAndClosingAnItem`
-/// — transport, the track picker, and the chapter picker.
+/// — transport, the track picker, the chapter picker, and Stats for Nerds.
 ///
-/// All three run against `PreviewPlaybackEngine` (see `PlaybackEngineFactory`),
+/// All of them run against `PreviewPlaybackEngine` (see `PlaybackEngineFactory`),
 /// not real media — its canned, hardcoded audio/subtitle tracks (ids 0/1
 /// either way) are what these tests select against, not anything from
 /// `UITestFixtureLibrary`'s own `MediaSourceInfo`. So these tests assert what
@@ -82,6 +82,43 @@ final class PlayerJourneyTests: UITestCase {
         secondChapter.tap()
 
         player.chapterPicker.awaitDisappearance("the chapter picker after selecting a chapter")
+    }
+
+    /// Opens Stats for Nerds and pages through all three pages and back to
+    /// the first, reading one row from each. The values are
+    /// `PreviewPlaybackEngine`'s canned stats, so this proves the panel lays
+    /// out and pages, not what AetherEngine reports; `StreamFormatDescription`
+    /// has the unit tests for that.
+    ///
+    /// The page counter is the proof of paging, not which rows resolve: every
+    /// page stays mounted to keep the box a constant size, and XCUITest
+    /// reaches the hidden ones' rows too.
+    func testStatsPanelPagesThroughAllThreePages() {
+        let player = openPlayer()
+
+        player.statsButton.tap()
+        player.statsPageIndicator.awaitExistence("the stats panel's page counter")
+        XCTAssertEqual(player.statsPageIndicator.label, "1/3")
+        XCTAssertEqual(player.statsValue("Codec").label, "HEVC Main 10")
+        XCTAssertEqual(player.statsValue("Pixel Format").label, "yuv420p10le (10-bit)")
+        XCTAssertEqual(player.statsValue("Sampling").label, "48 kHz")
+        XCTAssertEqual(player.statsValue("Frames").label, "0 dropped")
+
+        // The panel sits beneath the controls, so while they're up the first
+        // tap lands on their blank-space catcher and hides them, as it would
+        // for anyone. Pages turn from the second tap on.
+        player.statsPageIndicator.tap()
+        for expected in ["2/3", "3/3", "1/3"] {
+            player.statsPageIndicator.tap()
+            let turned = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "label == %@", expected),
+                object: player.statsPageIndicator
+            )
+            XCTAssertEqual(
+                XCTWaiter().wait(for: [turned], timeout: Self.defaultTimeout), .completed,
+                "Tapping the panel should turn to page \(expected)."
+            )
+        }
     }
 
     /// A movie has nothing queued after it, so reaching the end closes the

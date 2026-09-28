@@ -308,6 +308,13 @@ enum A11yID {
         static let rotationLockButton = "player.rotationLockButton"
         static let pictureInPictureButton = "player.pictureInPictureButton"
         static let statsButton = "player.statsButton"
+        /// `PlaybackStatsOverlay`'s "1/3" page counter.
+        static let statsPageIndicator = "player.stats.pageIndicator"
+        /// A stats row's VALUE text, keyed by the row's English label ("Codec",
+        /// "Sampling"), or its own key where two sections share a label ("Audio
+        /// Decoder"). Every page's rows resolve, not just the showing page's:
+        /// they all stay mounted, so read `statsPageIndicator` for the page.
+        static func statsValue(_ rowLabel: String) -> String { "player.stats.value.\(rowLabel)" }
 
         /// The track picker's root page — its two "Audio"/"Subtitles"
         /// navigation rows, keyed by `TrackPickerLeaf`'s raw kind ("audio"/

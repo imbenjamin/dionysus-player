@@ -536,6 +536,8 @@ struct MediaStream: Codable, Identifiable, Hashable {
     // `nil` for audio and subtitle streams.
     var width: Int?
     var height: Int?
+    /// The codec profile in libavcodec's names, for audio streams too: "Main
+    /// 10", "LC", "DTS-HD MA + DTS:X", "Dolby TrueHD + Dolby Atmos".
     var profile: String?
     /// Simple SDR/HDR classification.
     var videoRange: String?
@@ -552,8 +554,21 @@ struct MediaStream: Codable, Identifiable, Hashable {
     /// this rather than a figure inflated by the file's audio tracks. `nil` for
     /// an older library item or a container the server couldn't fully probe.
     var bitRate: Int?
+    /// libav's names, as `ffprobe` reports them ("yuv420p10le", "bt2020",
+    /// "smpte2084", "bt2020nc"), for `PlaybackStatsOverlay`'s fallback on a
+    /// server transcode. Absent, not "bt709", when the file leaves one
+    /// unspecified. Jellyfin reports no colour range.
+    var pixelFormat: String?
+    var colorPrimaries: String?
+    var colorTransfer: String?
+    var colorSpace: String?
+    /// Bits per sample for both kinds: 10 for a Main 10 video stream, 24 for
+    /// a TrueHD track. Absent for codecs that decode to float (AAC, AC-3,
+    /// E-AC-3, Opus).
+    var bitDepth: Int?
 
     // Audio-specific.
+    var sampleRate: Int?
     var channelLayout: String?
     /// Server-detected spatial format ("None"/"DolbyAtmos"/"DTSX"), more
     /// reliable than text-matching the codec or title for Atmos.

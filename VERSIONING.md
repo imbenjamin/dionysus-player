@@ -148,7 +148,10 @@ nothing to predict and nothing to verify. If you find yourself re-adding a
 "stamp before tagging" step, re-read this section first.
 
 **The trade:** `Config/Version.xcconfig` and `AppVersion.swift` on `develop`
-now reflect the *last release*, not the current commit. That's intended. A
+reflect whenever someone last ran `update-version.sh`, not the current commit
+or even the last release — CI stamps the shipped build without committing
+anything back, so they had fallen a month behind (still `0.8.0-alpha.1` at
+`v1.1.0-beta.2`) before anyone noticed. That's intended. A
 local build between releases reports e.g. `0.8.0-alpha.1+12.gabc1234` — the
 off-tag build metadata `update-version.sh` has always emitted — which is
 honest about being 12 commits past the tag rather than silently claiming to

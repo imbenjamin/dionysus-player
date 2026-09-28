@@ -720,6 +720,14 @@ struct PlayerScreen: Screen {
     var tracksButton: XCUIElement { app.buttons[A11yID.Player.tracksButton] }
     var chaptersButton: XCUIElement { app.buttons[A11yID.Player.chaptersButton] }
     var chapterPicker: XCUIElement { app.descendants(matching: .any)[A11yID.Player.chapterPicker] }
+    var statsButton: XCUIElement { app.buttons[A11yID.Player.statsButton] }
+    var statsPageIndicator: XCUIElement { app.staticTexts[A11yID.Player.statsPageIndicator] }
+
+    /// The value half of a stats row, keyed by its English label. Rows on
+    /// every page resolve — see `A11yID.Player.statsValue(_:)`.
+    func statsValue(_ rowLabel: String) -> XCUIElement {
+        app.staticTexts[A11yID.Player.statsValue(rowLabel)]
+    }
 
     /// The close button appearing means the controls overlay is up and
     /// drivable, not merely that the cover presented. Launched with

@@ -25,7 +25,8 @@ import AVFAudio
 /// six sections taller than an iPhone's landscape height, running off the
 /// bottom and colliding with the transport row above it in the `ZStack`. Every
 /// page still mounts — see `content` — which is what keeps the box a constant
-/// size across a page tap.
+/// size across a page tap. The size is the tallest page's, so a new row goes on
+/// whichever page has room rather than on the one it reads best on.
 ///
 /// Only the visible box is tappable to page through, which is why it needs its
 /// own `.contentShape`/`.onTapGesture` rather than this view's usual
@@ -55,13 +56,15 @@ struct PlaybackStatsOverlay: View {
     /// panel (`advancePage()`), looping past the last. Reset to `0` when the
     /// panel hides, so a reopen starts from the beginning.
     @State private var currentPage = 0
-    /// Two fixed pages — "what's playing" (Video/Audio/Playback) and
-    /// "device/server" (Display/Streaming/Build) — rather than measuring
-    /// available height at runtime. `GeometryReader` is avoided for the same
-    /// reason as in `PlayerControlsOverlay.estimatedHeight(for:)`: the measured
-    /// view renders at zero size. The cost is not adapting to how much content
-    /// each page actually has.
-    private static let pageCount = 2
+    /// Three fixed pages — Video; Audio and Playback; and "device/server"
+    /// (Display/Streaming/Build) — rather than measuring available height at
+    /// runtime. `GeometryReader` is avoided for the same reason as in
+    /// `PlayerControlsOverlay.estimatedHeight(for:)`: the measured view renders
+    /// at zero size. The cost is not adapting to how much content each page
+    /// actually has. Video got a page to itself when AetherEngine 7.21.0's
+    /// stream-format rows pushed Video/Audio/Playback past an iPhone's
+    /// landscape height.
+    private static let pageCount = 3
 
     /// Slow relative to the ~10 Hz playback clock: bitrate, decoder, buffer
     /// depth and thermal state don't change faster, and a diagnostic overlay
@@ -153,6 +156,7 @@ struct PlaybackStatsOverlay: View {
         Text("\(currentPage + 1)/\(Self.pageCount)")
             .font(.system(size: 10, weight: .semibold, design: .monospaced))
             .foregroundStyle(.white.opacity(0.5))
+            .accessibilityIdentifier(A11yID.Player.statsPageIndicator)
     }
 
     private func advancePage() {
@@ -177,9 +181,9 @@ struct PlaybackStatsOverlay: View {
         }
     }
 
-    /// Page 1: "what's playing" — the media and where it's up to. Page 2:
-    /// "device/server" — the display/host and diagnostics that don't change
-    /// moment to moment.
+    /// Page 1: the video stream. Page 2: the audio stream and where playback
+    /// is up to. Page 3: "device/server" — the display/host and diagnostics
+    /// that don't change moment to moment.
     ///
     /// Every page mounts, the inactive ones at `.opacity(0)`: a `ZStack` sizes
     /// itself to its largest child per dimension, so keeping them all in the
@@ -213,6 +217,7 @@ struct PlaybackStatsOverlay: View {
             switch page {
             case 0:
                 videoSection(stats)
+            case 1:
                 audioSection(stats)
                 playbackSection(stats)
             default:
@@ -235,14 +240,26 @@ struct PlaybackStatsOverlay: View {
         row("Resolution", stats.videoSize ?? Self.sourceResolutionText(viewModel.sourceVideoStream) ?? "—")
         row("Frame Rate", stats.frameRate ?? Self.sourceFrameRateText(viewModel.sourceVideoStream) ?? "—")
         row("Bitrate", stats.bitrate ?? Self.sourceBitrateText(viewModel.sourceVideoStream) ?? "—")
+        // Same fallback again. Jellyfin reports these in libav's names too,
+        // and `StreamFormatDescription` formats both, so a row reads the same
+        // whichever probe filled it. A source has one video stream, so mixing
+        // the two per row can't describe two different streams.
+        row("Codec", stats.videoCodec ?? StreamFormatDescription.codec(viewModel.sourceVideoStream) ?? "—")
+        row("Container", stats.container ?? "—")
+        row("Pixel Format", stats.pixelFormat ?? StreamFormatDescription.pixelFormat(viewModel.sourceVideoStream) ?? "—")
+        row("Color", stats.colorDescription ?? StreamFormatDescription.color(viewModel.sourceVideoStream) ?? "—")
         row("Source Color", stats.sourceColorFormat)
         if stats.sourceColorFormat.hasPrefix("Dolby Vision") {
             row("Enhancement Layer", Self.describeEnhancementLayer(viewModel.sourceVideoStream?.videoRangeType))
         }
-        // No fallback, unlike the rows above: which decoder AVPlayer picked
-        // for a `nativeRemoteHLS` session isn't exposed by AetherEngine and
-        // isn't something Jellyfin's probe can answer, so this stays "—".
+        // Reads "AVPlayer" on a server transcode, where AetherEngine names no
+        // decoder: AVPlayer decodes the server's HLS itself.
         row("Decoder", stats.videoDecoder ?? "—")
+        // Software route only, and constant for a session, so the row coming
+        // and going never moves the box mid-session.
+        if let decoded = stats.decodedFormat {
+            row("Decoded", decoded)
+        }
         row("Backend", stats.backend)
         row("Route", stats.route)
     }
@@ -253,33 +270,54 @@ struct PlaybackStatsOverlay: View {
     /// as separate rows because a 7.1 source plays over stereo speakers
     /// downmixed — the same split `videoSection`/`displaySection` draw between
     /// "Source Color" and "Displayed Color".
+    ///
+    /// "Profile" is where TrueHD Atmos and DTS:X show ("Dolby TrueHD + Dolby
+    /// Atmos"), which "Source Channels" can't: its "Atmos" covers E-AC-3 JOC
+    /// only. Next to "Decoder" ("TrueHD → FLAC bridge") it shows the Atmos is
+    /// in the source and not reaching the output.
     @ViewBuilder
     private func audioSection(_ stats: PlaybackStats) -> some View {
-        Text("Audio").bold().padding(.top, 4)
-        // Stays "—" for the session, same reasoning as the video Decoder row.
-        row("Decoder", stats.audioDecoder ?? "—")
+        // Page 2's leading section — no top padding, matching `videoSection`.
+        Text("Audio").bold()
+        row("Decoder", stats.audioDecoder ?? "—", id: "Audio Decoder")
         // Same probe-never-runs gap as the video section — falls back to
-        // `viewModel.sourceAudioStream`, Jellyfin's probe of the first audio
+        // `viewModel.sourceAudioStream`, Jellyfin's probe of the default audio
         // track.
         row("Source Channels", stats.audioChannels ?? Self.sourceChannelsText(viewModel.sourceAudioStream) ?? "—")
+        // Unlike video, a source has several audio tracks, and Jellyfin's is
+        // the default one rather than necessarily the one playing. So these
+        // fall back only when the engine knows nothing about the active track
+        // (`audioChannels` nil), never to fill one field the engine left
+        // empty — an E-AC-3 track with no profile would otherwise borrow
+        // another track's.
+        let engineKnowsTrack = stats.audioChannels != nil
+        let fallbackStream = engineKnowsTrack ? nil : viewModel.sourceAudioStream
+        row("Profile", stats.audioProfile ?? fallbackStream?.profile ?? "—")
+        row("Sampling", stats.audioSampling ?? StreamFormatDescription.audioSampling(fallbackStream) ?? "—")
         row("Output Route", audioOutputRoute ?? "—")
         row("Output Channels", Self.describeChannelCount(audioOutputChannelCount))
     }
 
     @ViewBuilder
     private func playbackSection(_ stats: PlaybackStats) -> some View {
-        // Always page 1's third section, never its leading one, so the top
+        // Always page 2's second section, never its leading one, so the top
         // padding is unconditional.
         Text("Playback").bold().padding(.top, 4)
         row("State", Self.describe(viewModel.state))
         row("Position", "\(Self.formatTime(stats.currentTime)) / \(Self.formatTime(stats.duration))")
         row("Buffered", Self.describeBuffered(seconds: stats.bufferedSeconds, bytes: stats.bufferedBytes))
+        // Live, from AetherEngine's 1 Hz sampler — the first rows to read when
+        // playback stutters: is the link keeping up, and is the display
+        // dropping frames?
+        row("Live Bitrate", stats.liveBitrate ?? "—")
+        row("Throughput", stats.networkThroughput ?? "—")
+        row("Frames", stats.frames ?? "—")
         row("Zoom", zoomMode == .fill ? "Fill" : "Fit")
     }
 
     @ViewBuilder
     private func displaySection(_ stats: PlaybackStats) -> some View {
-        // Page 2's leading section — no top padding, matching `videoSection`.
+        // Page 3's leading section — no top padding, matching `videoSection`.
         Text("Display").bold()
         row("Screen", "\(Int(Self.screenSize.width))×\(Int(Self.screenSize.height)) pt")
         row("Displayed Color", stats.displayColorFormat)
@@ -330,11 +368,14 @@ struct PlaybackStatsOverlay: View {
         row("iOS Version", Self.iOSVersion)
     }
 
-    private func row(_ label: String, _ value: String) -> some View {
+    /// `id` keys the value's accessibility identifier where `label` alone
+    /// isn't unique across pages (Video and Audio both have a "Decoder").
+    private func row(_ label: String, _ value: String, id: String? = nil) -> some View {
         HStack(spacing: 6) {
             Text("\(label):")
                 .foregroundStyle(.white.opacity(0.6))
             Text(value)
+                .accessibilityIdentifier(A11yID.Player.statsValue(id ?? label))
         }
     }
 
