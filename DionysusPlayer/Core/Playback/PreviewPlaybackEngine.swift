@@ -71,7 +71,15 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         bufferedSeconds: 24,
         bufferedBytes: 8_400_000,
         currentTime: 0,
-        duration: 5400
+        duration: 5400,
+        videoCodec: "HEVC Main 10",
+        container: "Matroska",
+        pixelFormat: "yuv420p10le (10-bit)",
+        colorDescription: "BT.2020 · PQ (SMPTE ST 2084) · BT.2020 NCL · Limited",
+        audioSampling: "48 kHz",
+        liveBitrate: "38.4 Mbps (avg 37.9)",
+        networkThroughput: "212.0 Mbps",
+        frames: "0 dropped"
     )
 
     func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool) async throws {

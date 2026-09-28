@@ -120,15 +120,24 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// `PlaybackStatsOverlay` polls this a couple of times a second, which
     /// doesn't justify duplicating AetherEngine's bookkeeping.
     var stats: PlaybackStats {
-        PlaybackStats(
+        let activeAudioTrack = engine.audioTracks.first { $0.id == engine.activeAudioTrackIndex }
+        let sourceFormat = engine.sourceVideoStreamFormat
+        let telemetry = engine.liveTelemetry
+        return PlaybackStats(
             videoSize: engine.sourceVideoWidth > 0 ? "\(engine.sourceVideoWidth)×\(engine.sourceVideoHeight)" : nil,
             frameRate: engine.sourceVideoFrameRate.map { String(format: "%.3g fps", $0) },
             bitrate: engine.sourceVideoBitrate > 0 ? Self.formatBitrate(engine.sourceVideoBitrate) : nil,
-            sourceColorFormat: Self.describeColorFormat(engine.sourceVideoFormat, dvProfile: engine.sourceDVProfile),
+            sourceColorFormat: Self.describeColorFormat(
+                engine.sourceVideoFormat, dvProfile: engine.sourceDVProfile, conversion: engine.dolbyVisionConversion
+            ),
             displayColorFormat: Self.describeColorFormat(engine.videoFormat, dvProfile: nil),
-            videoDecoder: engine.activeVideoDecoder,
+            // AetherEngine leaves this nil on a server transcode, where AVPlayer
+            // decodes the server's HLS and the engine never sees a frame. Its
+            // 7.21.0 notes ask a panel to name AVPlayer there rather than show
+            // a gap — the same label it gives audio-only sessions.
+            videoDecoder: engine.activeVideoDecoder ?? (engine.videoRoute == .remoteBypass ? "AVPlayer" : nil),
             audioDecoder: engine.activeAudioDecoder,
-            audioChannels: Self.describeChannels(engine.audioTracks.first { $0.id == engine.activeAudioTrackIndex }),
+            audioChannels: Self.describeChannels(activeAudioTrack),
             backend: engine.playbackBackend.rawValue.capitalized,
             route: Self.describeVideoRoute(engine.videoRoute),
             // Native-only, per `PlaybackStats.bufferedSeconds`. On the software
@@ -154,7 +163,25 @@ final class AetherPlaybackEngine: PlaybackEngine {
             // reason.
             bufferedBytes: engine.liveTelemetry?.cachedBytes,
             currentTime: engine.currentTime,
-            duration: engine.duration
+            duration: engine.duration,
+            // `sourceVideoCodecName` is mapped back from AVPlayer's sample
+            // type on a server transcode, so there it names the transcode, not
+            // the source. It is gated on the source probe with the rest, which
+            // keeps the Video section describing one stream: on a transcode
+            // every one of these falls back to Jellyfin's probe of the source.
+            videoCodec: sourceFormat.flatMap { StreamFormatDescription.codec($0, codecName: engine.sourceVideoCodecName) },
+            container: StreamFormatDescription.container(engine.sourceContainerFormat)
+                ?? (engine.videoRoute == .remoteBypass ? "HLS" : nil),
+            pixelFormat: sourceFormat.flatMap(StreamFormatDescription.pixelFormat),
+            colorDescription: sourceFormat.flatMap(StreamFormatDescription.color),
+            decodedFormat: engine.decodedVideoFormat.map(StreamFormatDescription.decoded),
+            audioProfile: activeAudioTrack?.profile,
+            audioSampling: activeAudioTrack.flatMap {
+                StreamFormatDescription.audioSampling(sampleRate: $0.sampleRate, bitsPerSample: $0.bitsPerSample)
+            },
+            liveBitrate: telemetry.flatMap(Self.describeLiveBitrate),
+            networkThroughput: telemetry?.networkThroughputMbps.map { String(format: "%.1f Mbps", $0) },
+            frames: telemetry.flatMap(Self.describeFrames)
         )
     }
 
@@ -948,14 +975,47 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// `describe(_:)`'s cases for `PlaybackStats` rather than the scrubber
     /// badge: always returns a label, including "SDR" where `describe(_:)`
     /// returns `nil`, and folds in the Dolby Vision profile number when known.
-    private static func describeColorFormat(_ format: VideoFormat, dvProfile: Int?) -> String {
+    ///
+    /// A Profile 7 source rewritten to 8.1 for the panel reads "Dolby Vision
+    /// (Profile 7 → 8.1)": `sourceDVProfile` keeps 7, and the rewrite discards
+    /// the enhancement layer, which is worth seeing next to the Enhancement
+    /// Layer row.
+    private static func describeColorFormat(
+        _ format: VideoFormat, dvProfile: Int?, conversion: DolbyVisionConversion? = nil
+    ) -> String {
         switch format {
         case .sdr: return "SDR"
         case .hdr10: return "HDR10"
         case .hdr10Plus: return "HDR10+"
-        case .dolbyVision: return dvProfile.map { "Dolby Vision (Profile \($0))" } ?? "Dolby Vision"
+        case .dolbyVision:
+            guard let dvProfile else { return "Dolby Vision" }
+            switch conversion {
+            case .profile7ToProfile81: return "Dolby Vision (Profile \(dvProfile) → 8.1)"
+            case nil: return "Dolby Vision (Profile \(dvProfile))"
+            }
         case .hlg: return "HLG"
         }
+    }
+
+    /// "12.3 Mbps (avg 10.1)". The average is a mean over the seconds the
+    /// session spent consuming media, so a pause doesn't drag it down.
+    private static func describeLiveBitrate(_ telemetry: LiveTelemetry) -> String? {
+        switch (telemetry.instantBitrateMbps, telemetry.averageBitrateMbps) {
+        case let (instant?, average?): return String(format: "%.1f Mbps (avg %.1f)", instant, average)
+        case let (instant?, nil): return String(format: "%.1f Mbps", instant)
+        case let (nil, average?): return String(format: "avg %.1f Mbps", average)
+        case (nil, nil): return nil
+        }
+    }
+
+    /// "0 dropped" on the native routes, where AVPlayer's access log counts
+    /// dropped frames but nothing measures a rendered rate;
+    /// "23.9 fps · 0 dropped" on the software route, which measures both.
+    private static func describeFrames(_ telemetry: LiveTelemetry) -> String? {
+        let fps = telemetry.observedFps.map { String(format: "%.1f fps", $0) }
+        let dropped = telemetry.droppedFrameCount.map { "\($0) dropped" }
+        let parts = [fps, dropped].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private static func formatBitrate(_ bitsPerSecond: Int64) -> String {
