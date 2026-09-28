@@ -832,6 +832,11 @@ struct DownloadsScreen: Screen {
     var selectAllButton: XCUIElement { app.buttons[A11yID.Downloads.selectAllButton] }
     var deleteSelectedButton: XCUIElement { app.buttons[A11yID.Downloads.deleteSelectedButton] }
 
+    /// A movie's (or lone episode's) row, in whichever layout rendered.
+    func standaloneRow(itemID: String) -> XCUIElement {
+        app.descendants(matching: .any)[A11yID.Downloads.row("standalone-\(itemID)")]
+    }
+
     /// Selects every row and deletes them, confirming the dialog.
     ///
     /// `app.buttons["Delete"]` for the confirmation dialog's own destructive

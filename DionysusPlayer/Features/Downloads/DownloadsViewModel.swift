@@ -132,9 +132,9 @@ enum DownloadsRow: Identifiable {
 
 /// Backs `DownloadsView`'s landing screen. Not `@Query`-driven:
 /// `DownloadManager` owns its `ModelContainer` privately rather than injecting
-/// it into the environment, so this re-reads `DownloadStore` explicitly via
-/// `refresh()` on appear and after every mutation — the same ViewModel +
-/// explicit reload shape as every other feature, without a network round trip.
+/// it into the environment, so this re-reads `DownloadStore` via `refresh()` —
+/// on appear, after its own mutations, and after every save anywhere else (see
+/// `followStoreChanges()`).
 @MainActor
 @Observable
 final class DownloadsViewModel {
@@ -174,6 +174,35 @@ final class DownloadsViewModel {
         self.downloadManager = downloadManager
         self.deferredDeleteScheduler = deferredDeleteScheduler
         refresh()
+        followStoreChanges()
+    }
+
+    /// Re-runs `refresh()` after every `DownloadStore.save()`, for as long as
+    /// this view model lives.
+    ///
+    /// Rows snapshot their status (see `DownloadsRow.StandaloneItem`), so
+    /// nothing else tells the list that a status changed. Completion is where
+    /// that showed: `DownloadManager` clears a row's live byte progress before
+    /// it validates the file and saves `.completed`, and a `.downloading` row
+    /// with no progress draws "Preparing download…" with a spinner. With only
+    /// the on-appear refresh, a download that finished while the tab was on
+    /// screen sat there until the user left the tab and came back.
+    ///
+    /// Byte progress is never saved (it lives in `activeDownloads`), so this
+    /// fires on status transitions, inserts and deletes, not per chunk. The
+    /// refresh is a hop rather than inline: `onChange` fires before the new
+    /// value is stored, and the hop also folds a burst of saves into one
+    /// re-read.
+    private func followStoreChanges() {
+        withObservationTracking {
+            _ = downloadManager.store.changeCount
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.refresh()
+                self.followStoreChanges()
+            }
+        }
     }
 
     func refresh() {

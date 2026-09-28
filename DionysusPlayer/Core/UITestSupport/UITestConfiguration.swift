@@ -100,6 +100,13 @@ enum UITestScenario: String {
     /// Find Your Server list a result while still searching.
     case slowScan
 
+    /// `.standard`, with a download's video stream held for
+    /// `UITestStubURLProtocol.slowVideoDownloadDelay` — long enough to open
+    /// the Downloads tab while the download is still in flight and watch its
+    /// row finish there. On every other scenario the stub answers instantly,
+    /// so the download is done before the tab can be reached.
+    case slowVideoDownload
+
     /// `.standard`, but no Quick Connect code is ever approved, so the sheet
     /// holds still on its code for as long as a test needs — an audit of it
     /// would otherwise race the approval that closes it.
