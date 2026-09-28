@@ -19,7 +19,7 @@ struct CollectionGridView: View {
         GeometryReader { proxy in
             ScrollView {
                 content(containerWidth: proxy.size.width)
-                    .padding()
+                    .padding(pageMargin)
             }
         }
         .navigationTitle(query.title)
@@ -128,6 +128,13 @@ struct CollectionGridView: View {
     /// adjacent `.glassEffect` shapes blend as one material rather than each
     /// rendering its own pass. Pre-26 falls back to `FilterPill`'s flat colour.
     ///
+    /// The scrolling row runs to the screen edges, with the page margin moved
+    /// inside it as a content margin, so a pill scrolls off the edge of the
+    /// screen instead of being cut off 16pt short of it. On the trailing side
+    /// that only applies without Reset, which stays pinned inside the margin.
+    /// Its iOS 26 scroll edge effects are hidden: the row drew them as a faint
+    /// grey band behind the pills.
+    ///
     /// `.scrollClipDisabled()` stops the scroll view clipping each pill's glass
     /// and shadow at its pill-tight bounds, but it disables clipping on every
     /// edge, so a scrolled pill drew over the Reset button. The `.mask` — the
@@ -135,6 +142,7 @@ struct CollectionGridView: View {
     /// the horizontal clipping back.
     @ViewBuilder
     private var filterRow: some View {
+        let showsReset = viewModel?.hasActiveFilters == true
         let genres = viewModel?.availableGenres ?? []
         let studios = viewModel?.availableStudios ?? []
         let decades = viewModel?.availableDecades ?? []
@@ -150,22 +158,31 @@ struct CollectionGridView: View {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) {
                     pills
-                    resetButton
+                    resetButton(shows: showsReset)
                 }
 
                 HStack(spacing: 8) {
                     ScrollView(.horizontal, showsIndicators: false) { pills }
+                        .contentMargins(.leading, pageMargin, for: .scrollContent)
+                        .contentMargins(.trailing, showsReset ? 0 : pageMargin, for: .scrollContent)
                         .scrollClipDisabled()
                         .mask(Rectangle().padding(.vertical, -16))
-                    resetButton
+                        .hidingScrollEdgeEffects()
+                        .padding(.leading, -pageMargin)
+                        .padding(.trailing, showsReset ? 0 : -pageMargin)
+                    resetButton(shows: showsReset)
                 }
             }
         }
     }
 
+    /// The page's own padding, which the scrolling filter row cancels to reach
+    /// the screen edges. The grid's own margin, so the pills line up with it.
+    private let pageMargin = PosterGridMetrics.horizontalPadding
+
     @ViewBuilder
-    private var resetButton: some View {
-        if viewModel?.hasActiveFilters == true {
+    private func resetButton(shows: Bool) -> some View {
+        if shows {
             ResetFiltersButton { viewModel?.resetFilters() }
                 .accessibilityIdentifier(A11yID.Collection.resetFiltersButton)
         }
@@ -376,7 +393,7 @@ struct CollectionGridView: View {
                             )
                             LazyVGrid(columns: metrics.columns, spacing: 20) {
                                 ForEach(filtered) { item in
-                                    PosterCard(item: item, width: metrics.itemWidth)
+                                    PosterCard(item: item, width: metrics.itemWidth, titleLineLimit: 2)
                                 }
                             }
                             .accessibilityIdentifier(A11yID.Collection.grid)
@@ -525,4 +542,17 @@ private struct ResetFiltersButton: View {
         CollectionGridView(query: CollectionQuery(title: "Movies", includeItemTypes: ["Movie"]))
     }
     .environment(AppState())
+}
+
+private extension View {
+    /// Hides every iOS 26 scroll edge effect on a scroll view. No-op earlier,
+    /// where there are none.
+    @ViewBuilder
+    func hidingScrollEdgeEffects() -> some View {
+        if #available(iOS 26.0, *) {
+            scrollEdgeEffectHidden(true, for: .all)
+        } else {
+            self
+        }
+    }
 }

@@ -113,6 +113,7 @@ struct HeroHeaderView: View {
     }
 
     var body: some View {
+        let height = heroHeight(forWidth: measuredWidth)
         BackdropLogoOverlay(
             backdropURL: backdropURL,
             logoURL: logoURL,
@@ -130,7 +131,9 @@ struct HeroHeaderView: View {
             // bleeds under — see `BackdropLogoOverlay.body`.
             accessibilityTopInset: statusBarInset
         )
-        .frame(height: heroHeight(forWidth: measuredWidth))
+        .frame(height: height)
+        // For `HeroScrollEdgeScrim` on the page's scroll view.
+        .preference(key: HeroHeightKey.self, value: height)
         // See `measuredWidth`. Fires after layout, so a rotation shows one frame
         // at the old height before correcting.
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { newWidth in

@@ -160,16 +160,27 @@ struct SearchView: View {
                         }
                 }
             } header: {
-                HStack {
-                    Text("Recent Searches")
-                    Spacer()
-                    Button("Clear All") { viewModel?.clearHistory() }
-                        .font(.footnote)
-                        .textCase(nil)
-                }
+                recentSearchesHeader
+                    .textCase(nil)
             }
         }
         .listStyle(.plain)
+    }
+
+    /// The "Recent Searches"/"Clear All" row over both the list and the grid.
+    /// One view so the two can't drift apart again: they had become a small
+    /// grey list header with a footnote button on iPhone, and a secondary-grey
+    /// title with a subheadline button on iPad. Styled like a rail header
+    /// (`MediaRailView`), the other titled section in the app.
+    private var recentSearchesHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("Recent Searches")
+                .font(.title3.bold())
+                .foregroundStyle(.primary)
+            Spacer()
+            Button("Clear All") { viewModel?.clearHistory() }
+                .font(.subheadline)
+        }
     }
 
     /// `.regular` counterpart to `resultsList` (see `usesGridLayout`). No
@@ -192,15 +203,8 @@ struct SearchView: View {
         GeometryReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    HStack {
-                        Text("Recent Searches")
-                            .font(.title3.bold())
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Clear All") { viewModel?.clearHistory() }
-                            .font(.subheadline)
-                    }
-                    .padding(.horizontal)
+                    recentSearchesHeader
+                        .padding(.horizontal)
 
                     grid(history, containerWidth: proxy.size.width) { entry in
                         viewModel?.removeFromHistory(entry)

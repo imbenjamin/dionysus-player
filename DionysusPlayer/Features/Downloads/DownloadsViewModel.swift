@@ -34,6 +34,7 @@ enum DownloadsRow: Identifiable {
         let isEpisode: Bool
         let seriesTitle: String?
         let episodeLabel: String?
+        let numberedEpisodeTitle: String
         let status: DownloadStatus
         let errorMessage: String?
         let yearAndDurationText: String?
@@ -51,6 +52,7 @@ enum DownloadsRow: Identifiable {
             isEpisode = item.kind == .episode
             seriesTitle = item.seriesTitle
             episodeLabel = item.episodeLabel
+            numberedEpisodeTitle = item.numberedEpisodeTitle
             status = item.status
             errorMessage = item.errorMessage
             yearAndDurationText = item.yearAndDurationText

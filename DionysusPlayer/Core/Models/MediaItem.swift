@@ -184,6 +184,21 @@ struct MediaItem: Identifiable {
         return "S\(season):E\(episode)"
     }
 
+    /// Whether there's a non-empty overview to show. Gates the playlist page's
+    /// About panel (see `PlaylistDetailView`).
+    var hasDescription: Bool {
+        !(overview?.isEmpty ?? true)
+    }
+
+    /// An episode's name led by its number, "S1:E4 \u{00B7} Pilot", or the name
+    /// alone when there's no numbering (or this isn't an episode). The one
+    /// spelling for every place that lists episodes by name: episode rows,
+    /// poster subtitles and the toolbar menus. Those used to join the two with
+    /// a double space in some places and a middle dot in others.
+    var numberedEpisodeName: String {
+        episodeLabel.map { "\($0) \u{00B7} \(name)" } ?? name
+    }
+
     /// `episodeLabel` worded out for VoiceOver: "season 1 episode 4" rather
     /// than letters and a colon, which are spelled out or misread.
     var episodeLabelAccessibilityText: String? {
@@ -214,7 +229,7 @@ struct MediaItem: Identifiable {
             let parts = [yearText, durationText].compactMap { $0 }
             return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
         case .episode:
-            return episodeLabel.map { "\($0) \u{00B7} \(name)" } ?? name
+            return numberedEpisodeName
         case .series:
             return yearText
         default:

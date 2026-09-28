@@ -116,7 +116,9 @@ enum A11yID {
         static let refreshButton = "home.refreshButton"
         static let libraryRail = "home.libraryRail"
 
-        /// A rail header's "See All", keyed by where it goes —
+        /// A rail header's link to its full collection (the title and its
+        /// chevron, once a separate "See All"; the name is kept so existing
+        /// tests still address it), keyed by where it goes —
         /// `CollectionQuery.identifierKey`.
         ///
         /// Not keyed by the rail itself: `MediaCollectionRail.id` is a fresh
@@ -162,6 +164,11 @@ enum A11yID {
         static let favoriteButton = "assetDetail.favoriteButton"
         static let watchedButton = "assetDetail.watchedButton"
         static let unsupportedAudioMessage = "assetDetail.unsupportedAudioMessage"
+        /// The About panel's synopsis line: the synopsis, or "No synopsis
+        /// available." without one. The line is always there when the panel
+        /// is, so its absence on a playlist without a description proves the
+        /// whole panel was left out (see `PlaylistDetailView`).
+        static let synopsis = "assetDetail.synopsis"
         /// `SeasonEpisodeList`'s empty state, for a season holding no episodes.
         static let noEpisodesMessage = "assetDetail.noEpisodesMessage"
 

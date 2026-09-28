@@ -53,6 +53,8 @@ struct HomeView: View {
                 // `placeholderState` is `nil`, so it's unreachable during the
                 // load/offline/error states, which have nothing to refresh over.
                 .refreshable { await viewModel?.hardRefresh() }
+                // Keeps the status bar legible once the hero scrolls away.
+                .heroScrollEdgeScrim()
             }
         }
         .navigationBarTitleDisplayMode(.inline)

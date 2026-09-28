@@ -180,10 +180,11 @@ enum UITestFixtureLibrary {
     }()
 
     /// A second editable playlist, so the picker offers a real choice rather
-    /// than one row. Left empty; nothing browses into it.
+    /// than one row. Ships empty, and with no description, which is how most
+    /// real playlists look: `AssetDetailJourneyTests` checks its page has no
+    /// About panel.
     static let secondPlaylist: BaseItemDto = {
         var item = base(id: secondPlaylistID, name: secondPlaylistName, type: .playlist)
-        item.overview = "A second destination for the Add to Playlist picker."
         item.childCount = 0
         item.mediaType = "Video"
         item.userData = UserItemDataDto(playbackPositionTicks: 0, playedPercentage: 0, played: false, isFavorite: false)

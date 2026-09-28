@@ -102,7 +102,7 @@ struct HeroActionButtons: View {
     }
 
     private func menuRowLabel(for target: MediaItem) -> String {
-        target.episodeLabel.map { "\($0)  \(target.name)" } ?? target.name
+        target.numberedEpisodeName
     }
 
     var body: some View {

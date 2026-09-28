@@ -1,11 +1,15 @@
 import SwiftUI
 
-/// Detail page for a Playlist: no synopsis (a Playlist DTO carries no
-/// overview/genres/studios/tagline/cast/technicalDetails, so
-/// `DetailTabsView` would only show an empty About tab — omitted
-/// entirely), a Play/Resume button that plays through the whole playlist
-/// in server-given order, and `PlaylistItemList` browsing straight into
-/// any member's own detail page.
+/// Detail page for a Playlist: a Play/Resume button that plays through the
+/// whole playlist in server-given order, the About panel when the playlist
+/// has a description, and `PlaylistItemList` browsing straight into any
+/// member's own detail page.
+///
+/// The panel is gated on the description alone. A playlist has no cast,
+/// tagline or media file of its own, and its genres are only its members'
+/// genres pooled (eleven of them on a real server), so without a description
+/// the panel would be a genre list over "No synopsis available." Most
+/// playlists have none: a description is only ever typed in by hand.
 ///
 /// Unlike `CollectionDetailView` (a BoxSet isn't itself playable), a
 /// Playlist *is* — structurally closer to `MovieDetailView`, with
@@ -68,17 +72,17 @@ struct PlaylistDetailView: View {
                             // label can stop updating after playback.
                             .id(resumeTarget.playbackProgressIdentity)
                         }
+
+                        if item.hasDescription {
+                            DetailTabsView(item: item)
+                                .detailTabsPanel()
+                        }
                     }
                     .padding(.horizontal)
-                    // Caps this column — metadata and the Play/Resume row —
-                    // to a readable measure on regular width, leaving the
-                    // hero above and the item list/rails below full-bleed.
-                    // See `ReadableDetailColumn`.
-                    //
-                    // This page has no tabs panel to share the column with
-                    // (a Playlist gets no `DetailTabsView`, see above), so
-                    // on regular width the cap is really just constraining
-                    // the Play/Resume button.
+                    // Caps this column — metadata, the Play/Resume row and
+                    // the About panel — to a readable measure on regular
+                    // width, leaving the hero above and the item list/rails
+                    // below full-bleed. See `ReadableDetailColumn`.
                     .readableDetailColumn()
                     .id(refreshTrigger)
 
@@ -101,6 +105,8 @@ struct PlaylistDetailView: View {
             }
         }
         .ignoresSafeArea(edges: .top)
+        // Keeps the bars legible once the hero scrolls away.
+        .heroScrollEdgeScrim()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HeroActionButtons(viewModel: viewModel)

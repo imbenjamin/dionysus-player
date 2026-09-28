@@ -1,7 +1,7 @@
 import XCTest
 
 /// Deeper Home coverage than `SmokeJourneyTests` — the hero carousel and the
-/// rail "See All" push.
+/// rail header's push to its full collection.
 ///
 /// Not covered here, deliberately: the VoiceOver-only refresh button, which
 /// only mounts under `accessibilityVoiceOverEnabled` — something XCUITest
@@ -14,7 +14,7 @@ final class HomeJourneyTests: UITestCase {
         HomeScreen(app: app).heroCarousel.awaitExistence("Home's hero carousel")
     }
 
-    /// The "Recently Added Movies" rail's "See All" pushes the Movies
+    /// The "Recently Added Movies" rail's header (its title and chevron) pushes the Movies
     /// library's collection grid, preset to newest-first — a different path
     /// to the same grid `SmokeJourneyTests.testOpeningAnItemFromACollectionGrid`
     /// reaches through the library card instead.
@@ -24,7 +24,7 @@ final class HomeJourneyTests: UITestCase {
         home.awaitLoaded()
 
         let seeAll = home.seeAllRecentMoviesButton
-        seeAll.awaitExistence("the Recently Added Movies rail's See All link")
+        seeAll.awaitExistence("the Recently Added Movies rail's header link")
         seeAll.tap()
 
         CollectionScreen(app: app).awaitLoaded(UITestFixtureIdentity.primaryMovieID)

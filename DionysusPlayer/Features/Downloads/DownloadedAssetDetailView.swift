@@ -120,6 +120,8 @@ struct DownloadedAssetDetailView: View {
                 // Same hero-bleeds-under-the-status-bar treatment as the live
                 // detail pages; see `HeroHeaderView`.
                 .ignoresSafeArea(edges: .top)
+                // Keeps the bars legible once the hero scrolls away.
+                .heroScrollEdgeScrim()
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button(role: .destructive) { showDeleteConfirmation = true } label: {
