@@ -36,12 +36,16 @@ struct DownloadProgressRing: View {
     /// this in white instead of the usual brand primary color, the same
     /// way that badge's icon/spinner already do.
     var tint: Color = .dionysusPrimary
+    /// The unfilled track's opacity. 0.2 suits the brand tint on a plain
+    /// background; white on a dark artwork badge needs more, or at a few
+    /// percent the ring reads as an empty dark circle.
+    var trackOpacity: Double = 0.2
 
     var body: some View {
         ZStack {
             if progress.isDeterminate {
                 Circle()
-                    .stroke(tint.opacity(0.2), lineWidth: lineWidth)
+                    .stroke(tint.opacity(trackOpacity), lineWidth: lineWidth)
                 Circle()
                     // A sliver (2%) floor rather than 0 — a fresh download
                     // reads as "nothing's happening" at a literal empty

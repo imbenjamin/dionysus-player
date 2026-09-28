@@ -23,7 +23,8 @@ struct DownloadedInfoMetadataRow: View {
     /// below the Play row stays leading-aligned.
     var body: some View {
         VStack(alignment: .center, spacing: 8) {
-            HStack(spacing: 10) {
+            // Dot-separated, like the badges line below; see `DotSeparatedRow`.
+            DotSeparatedRow {
                 if let date = item.metadataDateText {
                     Text(date).accessibilityLabel(String(localized: "Released: \(date)"))
                 }

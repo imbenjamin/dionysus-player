@@ -20,9 +20,13 @@ extension View {
 
     /// Restart, Download and the season download button: an icon-only circle
     /// in neutral grey, so colour stays with the primary action. See
-    /// `SecondaryActionButtonStyle`.
-    func secondaryActionButtonStyle(controlSize: ControlSize = .large) -> some View {
-        modifier(SecondaryActionButtonStyle(controlSize: controlSize))
+    /// `SecondaryActionButtonStyle`. A titled secondary button, such as an
+    /// error state's Close, passes `.capsule`.
+    func secondaryActionButtonStyle(
+        controlSize: ControlSize = .large,
+        shape: ButtonBorderShape = .circle
+    ) -> some View {
+        modifier(SecondaryActionButtonStyle(controlSize: controlSize, shape: shape))
     }
 }
 
@@ -40,11 +44,12 @@ extension View {
 /// back to full `.primary` separately.
 private struct SecondaryActionButtonStyle: ViewModifier {
     let controlSize: ControlSize
+    let shape: ButtonBorderShape
 
     func body(content: Content) -> some View {
         content
             .buttonStyle(.bordered)
-            .buttonBorderShape(.circle)
+            .buttonBorderShape(shape)
             .controlSize(controlSize)
             .tint(.primary.opacity(0.5))
             .foregroundStyle(.primary)

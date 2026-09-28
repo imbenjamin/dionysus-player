@@ -5,8 +5,7 @@ import SwiftUI
 /// `DownloadsRow`/`DownloadsViewModel`. Reachable regardless of connectivity or
 /// sign-in state, since everything here reads local storage.
 ///
-/// The trash toolbar button enters selection mode, in the Photos/Files shape of
-/// Cancel top-left, Select All top-right and a destructive action: each row,
+/// "Select" enters selection mode (see `DownloadsSelectionToolbar`): each row,
 /// including a show group selected as one unit, gets a checkbox in place of its
 /// navigation. The confirmation dialog counts assets rather than rows, so a
 /// selected show's episodes count individually (see
@@ -93,45 +92,15 @@ struct DownloadsView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         if let viewModel, !viewModel.rows.isEmpty {
-            if viewModel.isSelecting {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { viewModel.cancelSelecting() }
-                        .neutralToolbarItem()
-                }
-                // Both in the top nav bar, not `.bottomBar`: iOS 26's floating
-                // tab bar sits above `.bottomBar` and covers it. The asset count
-                // goes in the confirmation dialog's title, keeping this button
-                // icon-only so both fit alongside Cancel/Select All.
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(viewModel.isAllSelected ? "Deselect All" : "Select All") {
-                        viewModel.toggleSelectAll()
-                    }
-                    .neutralToolbarItem()
-                    .accessibilityIdentifier(A11yID.Downloads.selectAllButton)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(role: .destructive) {
-                        showDeleteConfirmation = true
-                    } label: {
-                        Image(systemName: "trash").downloadsToolbarTapTarget()
-                    }
-                    .destructiveToolbarItem()
-                    .disabled(viewModel.selectedRowIDs.isEmpty)
-                    .accessibilityLabel(String(localized: "Delete Selected Downloads"))
-                    .accessibilityIdentifier(A11yID.Downloads.deleteSelectedButton)
-                }
-            } else {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        viewModel.beginSelecting()
-                    } label: {
-                        Image(systemName: "trash").downloadsToolbarTapTarget()
-                    }
-                    .neutralToolbarItem()
-                    .accessibilityLabel(String(localized: "Select Downloads to Delete"))
-                    .accessibilityIdentifier(A11yID.Downloads.selectButton)
-                }
-            }
+            DownloadsSelectionToolbar(
+                isSelecting: viewModel.isSelecting,
+                isAllSelected: viewModel.isAllSelected,
+                hasSelection: !viewModel.selectedRowIDs.isEmpty,
+                onBeginSelecting: { viewModel.beginSelecting() },
+                onCancel: { viewModel.cancelSelecting() },
+                onToggleSelectAll: { viewModel.toggleSelectAll() },
+                onDelete: { showDeleteConfirmation = true }
+            )
         }
     }
 
@@ -139,11 +108,14 @@ struct DownloadsView: View {
     private var content: some View {
         if let viewModel {
             if viewModel.rows.isEmpty {
-                ErrorStateView(
-                    message: String(localized: "No downloads yet. Start downloading and they'll appear here."),
-                    retry: nil,
-                    icon: "arrow.down.circle"
-                )
+                // Titled, like Search's empty states, rather than
+                // `ErrorStateView`'s lone grey sentence: an empty Downloads tab
+                // is a normal state, not a failure.
+                ContentUnavailableView {
+                    Label("No Downloads", systemImage: "arrow.down.circle")
+                } description: {
+                    Text("Movies and episodes you download appear here, ready to watch without a connection.")
+                }
                 .accessibilityIdentifier(A11yID.Downloads.emptyState)
             } else if usesGridLayout {
                 // One identifier for both layouts: which renders is a size-class
@@ -175,7 +147,14 @@ struct DownloadsView: View {
                             }
                         }
                     }
+                    // A plain list otherwise rules a line above the first row
+                    // and below the last, framing a one-row list in a box.
+                    .listSectionSeparator(.hidden)
                 }
+                // Plain, not the default inset-grouped: every other content
+                // list (Search results, the detail pages' episode lists) sits
+                // on the normal background, and grey made this the odd one out.
+                .listStyle(.plain)
                 .accessibilityIdentifier(A11yID.Downloads.list)
             }
         } else {
@@ -368,13 +347,7 @@ private struct DownloadsRowView: View {
                     subtitleLine(for: item)
                 }
                 Spacer()
-                // Selection mode's trailing element takes priority over the
-                // in-progress indicators below. `sizeText` is `nil` for anything
-                // but a completed row, so it never fights the progress
-                // ring/spinner for this spot.
-                if isSelecting, let sizeText {
-                    Text(sizeText).font(.caption).foregroundStyle(.secondary)
-                } else if let progress = progress(for: item) {
+                if let progress = progress(for: item) {
                     DownloadProgressRing(progress: progress)
                         .frame(width: 28, height: 28)
                 } else if item.status == .downloading || item.status == .queued {
@@ -393,22 +366,23 @@ private struct DownloadsRowView: View {
                 )
                 VStack(alignment: .leading, spacing: 2) {
                     Text(group.seriesTitle).lineLimit(1)
-                    Text("\(group.episodeCount) Episodes").font(.caption).foregroundStyle(.secondary)
-                }
-                if isSelecting, let sizeText {
-                    Spacer()
-                    Text(sizeText).font(.caption).foregroundStyle(.secondary)
+                    captionLine([.init(text: String(localized: "\(group.episodeCount) Episodes"))])
                 }
             }
         }
     }
 
-    /// `sizeBytes`, formatted. `nil` when there's nothing to show — a row with no
-    /// completed content — so callers can `if let` rather than each guarding
-    /// against a meaningless "0 B".
-    private var sizeText: String? {
-        guard let sizeBytes, sizeBytes > 0 else { return nil }
-        return FileSizeText.text(bytes: sizeBytes)
+    /// The row's secondary line, size included; see `DownloadsRowCaption`.
+    /// One `Text`, so it truncates as a line rather than squeezing the title.
+    @ViewBuilder
+    private func captionLine(_ parts: [DownloadsRowCaption.Part]) -> some View {
+        if let caption = DownloadsRowCaption(parts: parts, sizeBytes: sizeBytes) {
+            Text(caption.text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .accessibilityLabel(caption.accessibilityText)
+        }
     }
 
     /// `.buttonStyle(.borderless)`, not `.plain`: this sits inside a row that is
@@ -463,15 +437,14 @@ private struct DownloadsRowView: View {
         case .completed:
             if item.isEpisode {
                 // "S1:E4 · Episode Name", as in `MediaItem.railSubtitle`.
-                Text(item.episodeLabel.map { "\($0) \u{00B7} \(item.title)" } ?? item.title)
-                    .font(.caption).foregroundStyle(.secondary)
+                captionLine([.init(text: item.episodeLabel.map { "\($0) \u{00B7} \(item.title)" } ?? item.title)])
             } else if let yearAndDuration = item.yearAndDurationText {
                 // "2019 · 1h 32m", as in `MediaItem.railSubtitle`, so a completed
                 // download reads like its live counterpart rather than a bare
                 // title.
-                Text(yearAndDuration)
-                    .font(.caption).foregroundStyle(.secondary)
-                    .accessibilityLabel(item.yearAndDurationAccessibilityText ?? yearAndDuration)
+                captionLine([.init(text: yearAndDuration, spoken: item.yearAndDurationAccessibilityText)])
+            } else {
+                captionLine([])
             }
         }
     }
