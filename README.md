@@ -313,8 +313,9 @@ Producing a set is two steps:
    --time "9:41" --batteryLevel 100 ...` for a clean status bar, sign in
    against the demo server, and capture Home, the Movies grid, an asset
    detail page, the player (landscape — `xcrun simctl` has no orientation
-   flag, so rotate via Simulator's Device ▸ Orientation menu, screenshot,
-   then `sips -r 270` the PNG back to landscape), Downloads with a mix of
+   flag, so rotate via the Device ▸ Orientation menu and screenshot; with
+   Xcode 27's Device Hub the PNG comes out upright, while the older
+   Simulator app needed `sips -r 270` to put it back), Downloads with a mix of
    complete/in-progress items, and Home again in the opposite appearance.
    Name them to match `Scripts/store-screenshots/gen.py`'s `SLIDES` list
    (`01-home.png` … `06-light.png`) into `<raw>/iphone/` and `<raw>/ipad/`.

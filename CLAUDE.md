@@ -943,10 +943,12 @@ the claim. Don't invent HDR-looking source video to fake it.
 
 **`xcrun simctl` has no orientation control.** The player slide needs a
 landscape capture (a portrait screenshot of the player is ~70% black
-bars). Rotate via Simulator's own UI — `osascript` driving Simulator's
-Device ▸ Orientation menu works from a script — screenshot, then `sips -r
-270 <file>` to correct the PNG's rotation before handing it to the render
-step (`gen.py`'s landscape frame expects an already-upright image).
+bars). Rotate via the Simulator's own UI — `osascript` driving the
+Device ▸ Orientation menu works from a script — then screenshot.
+`gen.py`'s landscape frame expects an already-upright image: Xcode 27's
+Device Hub (`DeviceHub` process, one window showing whichever device is
+selected in its source list, so select the right one first) saves it
+upright, while the older Simulator app needed `sips -r 270 <file>`.
 
 **iOS defers a download task created while the Simulator is
 backgrounded** (same mechanism as `ios-defers-background-created-download-tasks`
