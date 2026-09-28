@@ -253,7 +253,14 @@ struct DownloadButton: View {
         } else {
             Button(action: startResolving) {
                 if let progress = progress(for: row) {
-                    badge { DownloadProgressRing(progress: progress, tint: iconColor) }
+                    badge {
+                        DownloadProgressRing(
+                            progress: progress,
+                            lineWidth: style == .overlay ? 2.5 : 3,
+                            tint: iconColor,
+                            trackOpacity: style == .overlay ? 0.4 : 0.2
+                        )
+                    }
                 } else if isResolving || isPreparing(for: row) || isPendingDeletion(for: row) {
                     // A plain spinner, not the progress ring: there's no byte
                     // progress yet (see `isPreparing`), and a ring at 0% reads

@@ -137,17 +137,25 @@ struct DownloadsGridCard: View {
     /// Bottom-trailing, per the app-wide thumbnail overlay scheme — favorite
     /// top-left, watched top-right, logo bottom-left, download bottom-right — so
     /// progress sits where a download button would.
+    ///
+    /// In the same white-on-dark badge `DownloadButton`'s `.overlay` style
+    /// draws over artwork. A bare brand-tinted ring vanished against bright
+    /// artwork.
     @ViewBuilder
     private var progressOverlay: some View {
         if let progress {
-            DownloadProgressRing(progress: progress)
-                .frame(width: 28, height: 28)
-                .padding(6)
+            progressBadge { DownloadProgressRing(progress: progress, lineWidth: 2.5, tint: .white, trackOpacity: 0.4) }
         } else if isPreparing {
-            ProgressView()
-                .controlSize(.small)
-                .padding(6)
+            progressBadge { ProgressView().controlSize(.small).tint(.white) }
         }
+    }
+
+    private func progressBadge<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .frame(width: 16, height: 16)
+            .frame(width: 32, height: 32)
+            .background(Circle().fill(.black.opacity(0.55)))
+            .padding(6)
     }
 
     /// Top-left, the corner the app-wide scheme gives the favorite badge:

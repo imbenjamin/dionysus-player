@@ -328,7 +328,10 @@ enum A11yID {
     enum Downloads {
         static let list = "downloads.list"
         static let emptyState = "downloads.emptyState"
+        /// The shared `DownloadsSelectionToolbar`'s controls, the same on the
+        /// Downloads tab and the downloaded show and season pages.
         static let selectButton = "downloads.selectButton"
+        static let cancelSelectionButton = "downloads.cancelSelectionButton"
         static let deleteSelectedButton = "downloads.deleteSelectedButton"
         static let selectAllButton = "downloads.selectAllButton"
     }

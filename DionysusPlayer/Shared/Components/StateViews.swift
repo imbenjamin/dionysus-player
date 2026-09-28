@@ -26,9 +26,11 @@ struct ErrorStateView: View {
     var message: String
     var retry: (() -> Void)?
     /// Defaults to the generic error triangle — every real-error call site
-    /// leaves this unset. A caller using this view for an *empty* state
-    /// rather than a failure (e.g. `DownloadsView`'s "no downloads yet")
-    /// can pass something more on-topic instead.
+    /// leaves this unset. A caller using this view for a content-type
+    /// refusal rather than a failure (e.g. `AssetDetailView`'s music
+    /// fallback) can pass something more on-topic instead. A genuinely
+    /// *empty* screen wants `ContentUnavailableView`, with a title, as
+    /// Search and Downloads use.
     var icon: String = "exclamationmark.triangle"
     /// A second, non-destructive action alongside `retry` — e.g. a Close
     /// button for a failure `retry` can't plausibly fix (the Player's
@@ -49,12 +51,12 @@ struct ErrorStateView: View {
                 .foregroundStyle(.secondary)
             if let retry {
                 Button("Try Again", action: retry)
-                    .buttonStyle(.bordered)
+                    .stateActionButtonStyle()
                     .accessibilityIdentifier(A11yID.State.retryButton)
             }
             if let secondaryActionTitle, let secondaryAction {
                 Button(secondaryActionTitle, action: secondaryAction)
-                    .buttonStyle(.bordered)
+                    .stateSecondaryActionButtonStyle()
             }
         }
         .padding()
@@ -89,15 +91,35 @@ struct OfflineStateView: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
             Button("Try Again", action: retry)
-                .buttonStyle(.borderedProminent)
+                .stateActionButtonStyle()
                 .accessibilityIdentifier(A11yID.State.retryButton)
             if let secondaryActionTitle, let secondaryAction {
                 Button(secondaryActionTitle, action: secondaryAction)
-                    .buttonStyle(.bordered)
+                    .stateSecondaryActionButtonStyle()
             }
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier(A11yID.State.offline)
+    }
+}
+
+extension View {
+    /// "Try Again" in `ErrorStateView` and `OfflineStateView` alike. The two
+    /// used to differ (`.bordered` in one, `.borderedProminent` in the other)
+    /// for the same action. It's the one thing either screen offers, so it
+    /// takes the primary treatment, as a capsule to match the rest of the
+    /// app's buttons. Regular size rather than the action row's `.large`,
+    /// since it sits under a line of body text rather than spanning a page.
+    fileprivate func stateActionButtonStyle() -> some View {
+        buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .tint(.dionysusPrimary)
+    }
+
+    /// The optional second action beside "Try Again", such as the Player's
+    /// Close: the app's neutral secondary treatment, in the same capsule.
+    fileprivate func stateSecondaryActionButtonStyle() -> some View {
+        secondaryActionButtonStyle(controlSize: .regular, shape: .capsule)
     }
 }

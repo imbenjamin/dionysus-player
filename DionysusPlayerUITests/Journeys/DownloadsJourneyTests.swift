@@ -67,4 +67,35 @@ final class DownloadsJourneyTests: UITestCase {
 
         downloads.emptyState.awaitExistence("the Downloads empty state after deleting everything")
     }
+
+    /// Select, then Cancel: selection mode ends with nothing deleted, and the
+    /// trash (which only ever deletes) goes away with it. Pins the shared
+    /// `DownloadsSelectionToolbar`'s round trip, which the delete journey above
+    /// never takes.
+    func testCancellingSelectionKeepsTheDownloads() {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.downloadButton.tap()
+        app.buttons["ENG EAC3"].awaitExistence("the audio-track prompt's default track option").tap()
+        detail.awaitDownloadCompletion()
+
+        TabBar(app: app).downloads.tap()
+        let downloads = DownloadsScreen(app: app)
+        downloads.list.awaitExistence("the Downloads list with the completed download")
+
+        downloads.selectButton.awaitExistence("the Select button").tap()
+        downloads.deleteSelectedButton.awaitExistence("the trash button in selection mode")
+        XCTAssertFalse(downloads.deleteSelectedButton.isEnabled, "trash with nothing selected")
+
+        downloads.cancelSelectionButton.tap()
+        downloads.selectButton.awaitExistence("the Select button again after cancelling")
+        XCTAssertFalse(downloads.deleteSelectedButton.exists, "trash outside selection mode")
+        XCTAssertTrue(downloads.list.exists, "the download, still there")
+    }
 }
+

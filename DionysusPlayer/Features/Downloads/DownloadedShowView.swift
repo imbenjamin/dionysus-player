@@ -128,6 +128,7 @@ struct DownloadedShowView: View {
                         }
                     }
                 }
+                .listSectionSeparator(.hidden)
             } else {
                 ForEach(sortedEpisodes.map(DownloadedEpisodeSummary.init)) { episode in
                     DownloadedEpisodeRow(
@@ -141,41 +142,26 @@ struct DownloadedShowView: View {
                         }
                     }
                 }
+                .listSectionSeparator(.hidden)
             }
         }
+        // See `DownloadsView`'s list for why plain, and for the hidden
+        // section separators.
+        .listStyle(.plain)
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         if !episodes.isEmpty {
-            if isSelecting {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { cancelSelecting() }
-                        .neutralToolbarItem()
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(isAllSelected ? "Deselect All" : "Select All") { toggleSelectAll() }
-                        .neutralToolbarItem()
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(role: .destructive) {
-                        showDeleteConfirmation = true
-                    } label: {
-                        Image(systemName: "trash").downloadsToolbarTapTarget()
-                    }
-                    .destructiveToolbarItem()
-                    .disabled(selectedRowIDs.isEmpty)
-                }
-            } else {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        beginSelecting()
-                    } label: {
-                        Image(systemName: "trash").downloadsToolbarTapTarget()
-                    }
-                    .neutralToolbarItem()
-                }
-            }
+            DownloadsSelectionToolbar(
+                isSelecting: isSelecting,
+                isAllSelected: isAllSelected,
+                hasSelection: !selectedRowIDs.isEmpty,
+                onBeginSelecting: { beginSelecting() },
+                onCancel: { cancelSelecting() },
+                onToggleSelectAll: { toggleSelectAll() },
+                onDelete: { showDeleteConfirmation = true }
+            )
         }
     }
 

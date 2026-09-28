@@ -806,6 +806,9 @@
     "Movies" : {
 
     },
+    "Movies and episodes you download appear here, ready to watch without a connection." : {
+
+    },
     "Movies, shows, episodes…" : {
 
     },
@@ -833,7 +836,7 @@
     "No cast or crew information available." : {
 
     },
-    "No downloads yet. Start downloading and they'll appear here." : {
+    "No Downloads" : {
 
     },
     "No episodes available." : {
@@ -1141,10 +1144,10 @@
     "Seeking is taking longer than expected — playback may be stuck." : {
 
     },
-    "Select All" : {
+    "Select" : {
 
     },
-    "Select Downloads to Delete" : {
+    "Select All" : {
 
     },
     "Server" : {

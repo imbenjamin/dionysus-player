@@ -826,6 +826,7 @@ struct DownloadsScreen: Screen {
     var emptyState: XCUIElement { app.descendants(matching: .any)[A11yID.Downloads.emptyState] }
     var list: XCUIElement { app.descendants(matching: .any)[A11yID.Downloads.list] }
     var selectButton: XCUIElement { app.buttons[A11yID.Downloads.selectButton] }
+    var cancelSelectionButton: XCUIElement { app.buttons[A11yID.Downloads.cancelSelectionButton] }
     var selectAllButton: XCUIElement { app.buttons[A11yID.Downloads.selectAllButton] }
     var deleteSelectedButton: XCUIElement { app.buttons[A11yID.Downloads.deleteSelectedButton] }
 
@@ -836,7 +837,7 @@ struct DownloadsScreen: Screen {
     /// of its own, and nothing else on screen at that moment is labeled
     /// bare "Delete": `deleteSelectedButton`'s own accessibility *label* is
     /// "Delete Selected Downloads" (an icon-only button, see
-    /// `DownloadsView.toolbarContent`), and the per-row swipe action that
+    /// `DownloadsSelectionToolbar`), and the per-row swipe action that
     /// also says "Delete" only exists outside selection mode, which this
     /// method never leaves.
     func deleteAllRows(file: StaticString = #filePath, line: UInt = #line) {
