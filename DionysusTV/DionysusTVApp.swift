@@ -19,8 +19,7 @@ struct DionysusTVApp: App {
     }
 }
 
-/// Where the user is in the app: `AppState.phase`, as on iOS. Task 4 replaces
-/// the placeholders with the onboarding screens and the browse launcher.
+/// Where the user is in the app: `AppState.phase`, as on iOS.
 struct TVRootView: View {
     @Environment(AppState.self) private var appState
 
@@ -30,10 +29,9 @@ struct TVRootView: View {
                 ProgressView()
             } else {
                 switch appState.phase {
-                case .serverSetup:
-                    Text("Find Your Server").accessibilityIdentifier(A11yID.TV.Onboarding.findServerTitle)
-                case .login: Text("Who's Watching?")
-                case .main: Text("Home")
+                case .serverSetup: TVServerSetupView()
+                case .login: TVLoginView()
+                case .main: Text("Home").accessibilityIdentifier(A11yID.TV.Main.root)
                 }
             }
         }

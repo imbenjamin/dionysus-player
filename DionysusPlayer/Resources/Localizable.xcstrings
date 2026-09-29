@@ -773,6 +773,9 @@
     "Lock rotation" : {
 
     },
+    "Looking for Jellyfin servers on this network…" : {
+
+    },
     "Looking for Jellyfin servers on your Wi-Fi. If iOS asks, allow Local Network access so Dionysus can find yours." : {
 
     },
@@ -849,6 +852,9 @@
 
     },
     "No servers found" : {
+
+    },
+    "No servers found. Enter an address below." : {
 
     },
     "No synopsis available." : {
@@ -1166,6 +1172,9 @@
     "Servers found: %lld" : {
 
     },
+    "Servers on this network" : {
+
+    },
     "Show" : {
 
     },
@@ -1296,6 +1305,9 @@
 
     },
     "That doesn't look like a valid server address." : {
+
+    },
+    "The code expired." : {
 
     },
     "The code was approved, but signing in failed. Try again." : {
