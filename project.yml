@@ -263,6 +263,7 @@ targets:
           - "Components/LogoImageView.swift"
           - "Components/MediaPlaceholderBox.swift"
           - "Components/ArtworkShape.swift"
+          - "Components/Onboarding/UserAvatar.swift"
           - "Navigation/AppRoute.swift"
       - path: DionysusPlayer/Features
         includes:

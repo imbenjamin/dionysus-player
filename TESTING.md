@@ -79,6 +79,12 @@ suite's rules: never select on a label, never tag a screen-root container.
 Focus moves only by remote presses (`TVUITestCase.press`), so a journey
 reads as the presses a person would make.
 
+Focus settles asynchronously — after a press, and after data arrives — so
+check it with `TVUITestCase.waitForFocus`, never a bare `hasFocus` read. A
+failed wait attaches the element tree to the result bundle. Rails are lazy
+stacks: only what is on screen is in the tree, so a journey reaches a later
+rail by pressing down to it rather than querying for it.
+
 The PR check that runs it, "tvOS build and unit tests", is deliberately not in
 either branch ruleset yet. It joins them once it has been green on a run of
 PRs; renaming it after that needs the rulesets updated in step.
