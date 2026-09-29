@@ -30,7 +30,8 @@ struct TVRootView: View {
                 ProgressView()
             } else {
                 switch appState.phase {
-                case .serverSetup: Text("Find Your Server")
+                case .serverSetup:
+                    Text("Find Your Server").accessibilityIdentifier(A11yID.TV.Onboarding.findServerTitle)
                 case .login: Text("Who's Watching?")
                 case .main: Text("Home")
                 }

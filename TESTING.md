@@ -54,6 +54,7 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 | `UITests-Smoke` | Seven journeys + the keychain-reset check | Every PR (`ui-smoke` job), on iPhone + iPad, latest iOS |
 | `UITests-Full` | Every UI test | Nightly and on release tags, on iPhone + iPad, every supported iOS version |
 | `TVUnitTests` | `DionysusTVTests`: the shared unit tests, run on tvOS | Every PR (`tvos-build` job, not yet required), Apple TV 4K (3rd generation) |
+| `TVUITests` | `DionysusTVUITests`: Siri Remote journeys for the Apple TV app | Locally for now; `-scheme DionysusTV -testPlan TVUITests` |
 
 ### The tvOS unit tests
 
@@ -70,6 +71,13 @@ iOS targets define. Never change an assertion to make it pass on tvOS.
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
   -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)'
 ```
+
+`DionysusTVUITests` drives the Apple TV app with `XCUIRemote` against the
+same in-process stub server and launch arguments as the iOS suite
+(`TVUITestCase.launch`). Its selectors live under `A11yID.TV`, with the iOS
+suite's rules: never select on a label, never tag a screen-root container.
+Focus moves only by remote presses (`TVUITestCase.press`), so a journey
+reads as the presses a person would make.
 
 The PR check that runs it, "tvOS build and unit tests", is deliberately not in
 either branch ruleset yet. It joins them once it has been green on a run of

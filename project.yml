@@ -340,6 +340,25 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Dionysus.app/Dionysus"
         BUNDLE_LOADER: "$(TEST_HOST)"
 
+  # Siri Remote journeys for the Apple TV app, against the same in-process
+  # stub server as the iOS suite. Shares the selector and fixture-id files
+  # with the app for the reason DionysusPlayerUITests does (see there).
+  DionysusTVUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: DionysusTVUITests
+      - path: DionysusPlayer/Shared/Accessibility/AccessibilityIdentifiers.swift
+      - path: DionysusPlayer/Core/UITestSupport/UITestFixtureIdentity.swift
+    dependencies:
+      - target: DionysusTV
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.tvuitests
+        TEST_TARGET_NAME: DionysusTV
+
   DionysusPlayerTests:
     type: bundle.unit-test
     platform: iOS
@@ -415,6 +434,7 @@ schemes:
       targets:
         DionysusTV: all
         DionysusTVTests: [test]
+        DionysusTVUITests: [test]
     run:
       config: Debug
     test:
@@ -422,5 +442,6 @@ schemes:
       testPlans:
         - path: TestPlans/TVUnitTests.xctestplan
           defaultPlan: true
+        - path: TestPlans/TVUITests.xctestplan
     archive:
       config: Release
