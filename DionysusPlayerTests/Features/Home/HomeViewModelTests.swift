@@ -1585,4 +1585,23 @@ final class HomeViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewsRequestCount, 1, "Two concurrent callers should coalesce into a single attempt")
     }
+
+    /// A tvOS tab rebuild cancels the first `.task` mid-request. That must not
+    /// leave `.loading` (or a failure) behind, or `loadIfNeeded()` skips forever
+    /// and Home stays empty (spike finding, 2026-09-28).
+    func test_cancelledFirstLoad_returnsToIdle_soLoadIfNeededRetries() async throws {
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            // Holds the first request open long enough to cancel it.
+            Thread.sleep(forTimeInterval: 0.5)
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0)
+            )
+        }
+        let task = Task { await viewModel.loadIfNeeded() }
+        try await waitUntil { viewModel.loadState == .loading }
+        task.cancel()
+        await task.value
+        XCTAssertEqual(viewModel.loadState, .idle)
+    }
 }

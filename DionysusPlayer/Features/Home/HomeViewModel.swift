@@ -241,6 +241,13 @@ final class HomeViewModel {
             hasMoreDynamicRails = false
             dynamicRailCandidatesFailed = false
             await loadDynamicRailCandidates()
+        } catch where Self.isCancellation(error) {
+            // Superseded rather than failed — on tvOS a tab rebuild cancels the
+            // first `.task` mid-request. Back to `.idle` so the next
+            // `loadIfNeeded()` runs; left at `.loading` or `.failed`, Home stayed
+            // empty for good. A hard refresh never moved `loadState`, so it
+            // leaves it alone here too.
+            if resetLoadState { setLoadState(.idle) }
         } catch {
             if resetLoadState {
                 setLoadState(.failed(
@@ -254,6 +261,14 @@ final class HomeViewModel {
             // `retryDynamicRailCandidatesIfNeeded`'s existing best-effort
             // philosophy.
         }
+    }
+
+    /// A cancelled task surfaces as `CancellationError` or as URLSession's own
+    /// `.cancelled`, depending on where the request was when it happened.
+    nonisolated static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let error = error as? URLError, error.code == .cancelled { return true }
+        return Task.isCancelled
     }
 
     /// Builds Home's four curated rails (Continue Watching, Next Up,

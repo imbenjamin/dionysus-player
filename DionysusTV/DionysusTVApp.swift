@@ -31,7 +31,10 @@ struct TVRootView: View {
                 switch appState.phase {
                 case .serverSetup: TVServerSetupView()
                 case .login: TVLoginView()
-                case .main: Text("Home").accessibilityIdentifier(A11yID.TV.Main.root)
+                case .main:
+                    if let client = appState.apiClient, let userID = appState.currentUser?.id {
+                        TVBrowseLauncher(client: client, userID: userID)
+                    }
                 }
             }
         }
