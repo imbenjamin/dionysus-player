@@ -53,6 +53,27 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 | `UnitTests` | The whole `DionysusPlayerTests` target | Every PR, every release |
 | `UITests-Smoke` | Seven journeys + the keychain-reset check | Every PR (`ui-smoke` job), on iPhone + iPad, latest iOS |
 | `UITests-Full` | Every UI test | Nightly and on release tags, on iPhone + iPad, every supported iOS version |
+| `TVUnitTests` | `DionysusTVTests`: the shared unit tests, run on tvOS | Every PR (`tvos-build` job, not yet required), Apple TV 4K (3rd generation) |
+
+### The tvOS unit tests
+
+The Apple TV app (`DionysusTV` scheme) has no test files of its own yet.
+`DionysusTVTests` compiles a subset of `DionysusPlayerTests` against the tvOS
+build of the shared core: everything that tests `Core/`, `AppState` and the
+shared view models, minus the Downloads code tvOS doesn't have. The list is
+`project.yml`'s `includes` on that target. A test that exercises iOS-only
+behaviour stays out of the list with a comment saying why; a test that only
+partly touches Downloads wraps that part in `#if DOWNLOADS`, which only the
+iOS targets define. Never change an assertion to make it pass on tvOS.
+
+```sh
+xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
+  -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)'
+```
+
+The PR check that runs it, "tvOS build and unit tests", is deliberately not in
+either branch ruleset yet. It joins them once it has been green on a run of
+PRs; renaming it after that needs the rulesets updated in step.
 
 **Verified:** the full suite has been run for real via
 `xcodebuild test` against the iOS 26.5 Simulator — all passing, 0 failures.

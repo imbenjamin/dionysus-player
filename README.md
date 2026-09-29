@@ -203,6 +203,14 @@ open DionysusPlayer.xcodeproj
 Then let Xcode resolve Swift Package dependencies (AetherEngine) and build
 the `DionysusPlayer` scheme.
 
+An Apple TV app is in progress under the `DionysusTV` scheme (tvOS 26 or
+later), sharing the iOS app's core. Its unit tests run with:
+
+```sh
+xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
+  -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)'
+```
+
 ## Testing
 
 Two layers, neither of which touches a real Jellyfin server.
