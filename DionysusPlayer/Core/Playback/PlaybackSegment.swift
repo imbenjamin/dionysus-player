@@ -48,6 +48,7 @@ struct PlaybackSegment: Identifiable, Equatable {
         self.endSeconds = Double(dto.endTicks) / 10_000_000
     }
 
+    #if DOWNLOADS
     /// Builds from a stored `DownloadedSegment`, which offline playback seeds
     /// `PlayerViewModel.mediaSegments` from instead of a live fetch. There is no
     /// server-assigned `id` to reuse, so kind and start stand in. Not failable
@@ -58,8 +59,10 @@ struct PlaybackSegment: Identifiable, Equatable {
         self.startSeconds = downloaded.startSeconds
         self.endSeconds = downloaded.endSeconds
     }
+    #endif
 }
 
+#if DOWNLOADS
 private extension PlaybackSegment.Kind {
     init(downloadedKind: DownloadedSegment.Kind) {
         switch downloadedKind {
@@ -71,3 +74,4 @@ private extension PlaybackSegment.Kind {
         }
     }
 }
+#endif

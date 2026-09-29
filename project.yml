@@ -137,6 +137,9 @@ targets:
         product: SwiftLibass
     settings:
       base:
+        # Offline downloads exist only on iOS. Shared code guards its download
+        # paths with `#if DOWNLOADS`; the tvOS targets never define it.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DOWNLOADS"
         # No platform suffix (contrast the test target below) — this is the
         # ID Apple's Universal Purchase mechanism needs shared identically
         # across platforms if tvOS/macOS versions later join this same App
@@ -248,6 +251,9 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: true
         PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.tests
+        # Offline downloads exist only on iOS. Shared code guards its download
+        # paths with `#if DOWNLOADS`; the tvOS targets never define it.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DOWNLOADS"
         # DionysusPlayer's PRODUCT_NAME is "Dionysus" (not the target name),
         # so XcodeGen's auto-inferred host-application path is wrong —
         # override it explicitly to match.

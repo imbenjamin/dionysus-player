@@ -751,7 +751,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
         controller?.delegate = pipDelegateProxy
         // Auto-starts PiP when the app backgrounds mid-playback, with no
         // scene-phase observing needed anywhere in the app.
+        #if os(iOS)
         controller?.canStartPictureInPictureAutomaticallyFromInline = true
+        #endif
         pipController = controller
         pipPossibleObservation = controller?.observe(\.isPictureInPicturePossible, options: [.initial, .new]) { [weak self] _, change in
             let possible = change.newValue ?? false

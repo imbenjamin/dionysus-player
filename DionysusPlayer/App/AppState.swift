@@ -19,6 +19,7 @@ final class AppState {
     private(set) var apiClient: JellyfinAPIClient?
 
     let sessionStore: ServerSessionStore
+    #if DOWNLOADS
     /// Offline downloads are local-device storage, not tied to which
     /// server is configured — unlike `apiClient`, this is created once
     /// here and never recreated on sign-out/change-server, so an in-flight
@@ -39,6 +40,11 @@ final class AppState {
             Task { await DownloadSyncManager.syncIfNeeded(client: client, store: self.downloadManager.store) }
         }
     }
+    #else
+    init(sessionStore: ServerSessionStore = ServerSessionStore()) {
+        self.sessionStore = sessionStore
+    }
+    #endif
 
     /// Call once at launch: restores the configured server and attempts to
     /// sign the user back in with their remembered credentials. If the
@@ -53,7 +59,9 @@ final class AppState {
         // Effects" toggle or a detail page — see
         // `DeviceTiltObserver.warmUp()`'s doc comment. Must never delay
         // showing the actual app once sign-in restore finishes.
+        #if os(iOS)
         Task { await DeviceTiltObserver.shared.warmUp() }
+        #endif
 
         guard let server = sessionStore.serverConfiguration else {
             phase = .serverSetup

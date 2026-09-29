@@ -962,6 +962,7 @@ final class JellyfinAPIClientTests: XCTestCase {
         }
     }
 
+    #if DOWNLOADS
     // MARK: downloadStreamURL (pure, no network)
 
     func test_downloadStreamURL_alwaysTranscodesToHEVCMp4Stereo() async {
@@ -1151,6 +1152,8 @@ final class JellyfinAPIClientTests: XCTestCase {
         )
         XCTAssertEqual(URLRequest(url: url!).queryDictionary["ApiKey"], "tok")
     }
+
+    #endif
 
     // MARK: makeImageURLBuilder
 

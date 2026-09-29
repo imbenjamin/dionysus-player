@@ -194,6 +194,7 @@ final class ASSSubtitleMappingTests: XCTestCase {
         )
     }
 
+    #if DOWNLOADS
     // MARK: - Downloaded sidecar mapping
 
     private func downloadedFile(index: Int, path: String) -> DownloadedSubtitleFile {
@@ -301,6 +302,8 @@ final class ASSSubtitleMappingTests: XCTestCase {
             )
         )
     }
+
+    #endif
 
     // MARK: - Which streams become sidecars
 
