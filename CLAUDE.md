@@ -51,6 +51,22 @@ tvOS build breaks. Scheme `DionysusTV`; its unit tests (`DionysusTVTests`,
 plan `TVUnitTests`) reuse the shared test files. Design, decisions and
 milestones: `docs/superpowers/specs/2026-09-29-tvos-app-design.md`.
 
+**HDR on the Apple TV works, but not through the HDR master, and the engine
+labels it SDR** (measured 2026-09-29, AetherEngine 7.22.0, Apple TV 4K 3rd gen
+on tvOS 27.0, an HDR10-only TV). The engine requests the HDR10 mode and the
+right frame rate, and the TV switches. But the switch takes 2.9s there, the
+engine's criteria gate gives up at 2s, and AVPlayer refuses the HDR master
+(`-11868`) mid-switch. The engine then latches that refusal until the app is
+backgrounded (AetherEngine#588) and plays the media playlist, which is still HDR10/PQ on screen but carries no
+subtitle or audio renditions. `$videoFormat` stays `.sdr` because it confirms
+HDR through `currentEDRHeadroom`, which read a flat 1.00 while the TV showed
+HDR10. So trust the TV's own info banner, not `displayColorFormat` or
+EDR headroom, when checking HDR here. The timing is filed upstream as
+AetherEngine#667.
+`DisplayContext` passes the real Match Content setting, and deliberately
+asserts nothing about the panel's HDR state, since EDR headroom is the only
+thing it could read and the engine reads that itself.
+
 ## Commands
 
 The Xcode project (`DionysusPlayer.xcodeproj`) is generated from `project.yml`
