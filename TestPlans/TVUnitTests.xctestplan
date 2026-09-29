@@ -1,0 +1,28 @@
+{
+  "configurations" : [
+    {
+      "id" : "9A1C0E2B-0000-4000-9000-0000000000A1",
+      "name" : "Configuration 1",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:DionysusPlayer.xcodeproj",
+      "identifier" : "DionysusTV",
+      "name" : "DionysusTV"
+    }
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:DionysusPlayer.xcodeproj",
+        "identifier" : "DionysusTVTests",
+        "name" : "DionysusTVTests"
+      }
+    }
+  ],
+  "version" : 1
+}

@@ -37,6 +37,20 @@ supports iOS 17; iOS 17 devices keep that build and stop receiving updates.
 Read AetherEngine's floor from `Package.swift` at the tag, never from its
 release notes — 7.13.0's notes said "iOS 17" while its manifest said 18.
 
+### tvOS app (in progress)
+
+`DionysusTV` is a separate tvOS target (floor **tvOS 26.0**, same bundle ID as
+iOS for Universal Purchase) with its own UI under `DionysusTV/`. It compiles
+the iOS app's `Core/`, `App/AppState.swift`, a short list of `Shared/` files
+and every `Features/**/*ViewModel.swift` — `project.yml`'s `includes` on the
+target is the list. **Downloads don't exist on tvOS**: `Core/Downloads` isn't
+compiled, and shared code guards its download paths with `#if DOWNLOADS`, a
+compilation condition only `DionysusPlayer` and `DionysusPlayerTests` define.
+Shared code that names a Downloads type must sit inside that guard, or the
+tvOS build breaks. Scheme `DionysusTV`; its unit tests (`DionysusTVTests`,
+plan `TVUnitTests`) reuse the shared test files. Design, decisions and
+milestones: `docs/superpowers/specs/2026-09-29-tvos-app-design.md`.
+
 ## Commands
 
 The Xcode project (`DionysusPlayer.xcodeproj`) is generated from `project.yml`

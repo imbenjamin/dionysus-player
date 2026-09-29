@@ -94,6 +94,42 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             | xcbeautify --renderer github-actions
 
+  tvos-build:
+    # Builds the Apple TV app and runs the shared unit tests on tvOS
+    # (TestPlans/TVUnitTests.xctestplan). Not a required check yet: it joins
+    # the branch rulesets once it has proven stable. Renaming it after that
+    # needs the rulesets updated first.
+    name: tvOS build and unit tests
+    runs-on: macos-26
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up iOS project
+        uses: ./.github/actions/setup-ios-project
+
+      - name: List tvOS runtimes
+        run: xcrun simctl list runtimes | grep -i tvos || (echo "::error::No tvOS runtime on this image" && exit 1)
+
+      - name: Build and test (tvOS)
+        run: |
+          set -o pipefail
+          xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
+            -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)' \
+            -resultBundlePath .build/TVTestResults.xcresult \
+            | xcbeautify --renderer github-actions
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tvos-test-results
+          path: .build/TVTestResults.xcresult
+          retention-days: 7
+          if-no-files-found: ignore
+
   ui-smoke:
     # A separate job from `build`, deliberately. That one's name is required
     # verbatim by both branch rulesets (see its own comment), so it must not

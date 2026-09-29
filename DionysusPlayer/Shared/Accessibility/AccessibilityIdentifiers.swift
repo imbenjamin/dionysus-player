@@ -407,4 +407,25 @@ enum A11yID {
         static let offline = "state.offline"
         static let retryButton = "state.retryButton"
     }
+
+    /// The Apple TV app's identifiers. Never on a screen-root container (see the
+    /// file's header); each sits on a concrete element inside the screen.
+    enum TV {
+        enum Onboarding {
+            static let findServerTitle = "tv.onboarding.findServer.title"
+            static func serverRow(_ id: String) -> String { "tv.onboarding.server.\(id)" }
+            static let whosWatchingTitle = "tv.onboarding.whosWatching.title"
+            static func user(_ id: String) -> String { "tv.onboarding.user.\(id)" }
+        }
+        enum Main {
+            static let root = "tv.main.firstRail"
+            static func tile(_ itemID: String) -> String { "tv.main.tile.\(itemID)" }
+        }
+        enum Player {
+            static let transport = "tv.player.transport"
+            static let titleBlock = "tv.player.title"
+            static let elapsed = "tv.player.elapsed"
+            static let formatLabel = "tv.player.format"
+        }
+    }
 }

@@ -856,6 +856,7 @@ actor JellyfinAPIClient {
         }
     }
 
+    #if DOWNLOADS
     /// A device-transcoded download URL: HEVC MP4, capped to
     /// `resolution`/`preset` and never above the source's own values (see
     /// `DownloadTranscodeCalculator.target`). Always `Static=false`, unlike
@@ -940,6 +941,7 @@ actor JellyfinAPIClient {
         components.queryItems = query
         return components.url
     }
+    #endif
 
     /// The live session Jellyfin tracks for this device: server-reported play
     /// method and live transcode parameters, used by `PlaybackStatsOverlay`'s

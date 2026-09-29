@@ -1819,4 +1819,16 @@ final class PlayerViewModelTests: XCTestCase {
 
         XCTAssertTrue(engine.seekedTimes.isEmpty)
     }
+
+    /// The download-free designated init is the one tvOS builds against, so it
+    /// must stay callable without naming any Downloads type, and must never
+    /// report an offline session.
+    func test_designatedInit_withoutDownloadParameters_isNotOffline() {
+        let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
+        let viewModel = PlayerViewModel(
+            client: client, userID: "user", itemID: "item",
+            engine: FakePlaybackEngine(), playbackQueue: []
+        )
+        XCTAssertFalse(viewModel.isOfflinePlayback)
+    }
 }

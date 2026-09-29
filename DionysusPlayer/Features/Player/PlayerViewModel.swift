@@ -200,17 +200,22 @@ final class PlayerViewModel {
     private let trackPreferenceStore: TrackPreferenceStore
     private let nextUpPreferenceStore: NextUpPreferenceStore
     private let streamPreferenceStore: StreamPreferenceStore
-    /// Set via `init`'s `downloadedItem:`. When non-nil, `start()`, `stop()` and
-    /// progress reporting route through the local-only offline paths rather than
-    /// the network. `itemID` should still be `downloadedItem.itemID` — the same
-    /// Jellyfin item, played from a local file — and `client`/`userID` remain
-    /// valid to pass through, so callers need no offline-only initializer.
-    private let downloadedItem: DownloadedItem?
-    private let downloadStore: DownloadStore?
+    #if DOWNLOADS
+    /// Set via the download-taking convenience `init`. When non-nil, `start()`,
+    /// `stop()` and progress reporting route through the local-only offline
+    /// paths rather than the network. `itemID` should still be
+    /// `downloadedItem.itemID` — the same Jellyfin item, played from a local
+    /// file — and `client`/`userID` remain valid to pass through.
+    @ObservationIgnored private var downloadedItem: DownloadedItem?
+    @ObservationIgnored private var downloadStore: DownloadStore?
     /// `true` for a session playing an offline download.
     /// `PlaybackStatsOverlay`'s Streaming section reads it to show "Download" as
     /// the play method and skip the network-only rows.
     var isOfflinePlayback: Bool { downloadedItem != nil }
+    #else
+    /// Always `false`: this platform has no downloads.
+    var isOfflinePlayback: Bool { false }
+    #endif
     private var progressReportTask: Task<Void, Never>?
     /// Resolved in `start()`/`startOffline()` once `activeMediaSourceID` is known.
     /// Existential rather than concrete, since `startOffline()` installs
@@ -405,9 +410,6 @@ final class PlayerViewModel {
         trackPreferenceStore: TrackPreferenceStore = TrackPreferenceStore(),
         nextUpPreferenceStore: NextUpPreferenceStore = NextUpPreferenceStore(),
         streamPreferenceStore: StreamPreferenceStore = StreamPreferenceStore(),
-        // Non-nil routes this session through the offline playback path.
-        downloadedItem: DownloadedItem? = nil,
-        downloadStore: DownloadStore? = nil,
         playbackQueue: [MediaItem] = []
     ) {
         self.client = client
@@ -419,8 +421,6 @@ final class PlayerViewModel {
         self.trackPreferenceStore = trackPreferenceStore
         self.nextUpPreferenceStore = nextUpPreferenceStore
         self.streamPreferenceStore = streamPreferenceStore
-        self.downloadedItem = downloadedItem
-        self.downloadStore = downloadStore
         self.playbackQueue = playbackQueue
 
         engine.onStateChange = { [weak self] state in
@@ -468,6 +468,32 @@ final class PlayerViewModel {
         assRenderSession.onFrameChange = { [weak self] in self?.assFrameGeneration &+= 1 }
     }
 
+    #if DOWNLOADS
+    /// The offline entry point: the same session, played from a download.
+    /// Non-nil `downloadedItem` routes it through the offline playback path.
+    convenience init(
+        client: JellyfinAPIClient, userID: String, itemID: String, engine: PlaybackEngine,
+        startFromBeginning: Bool = false, mediaSourceID: String? = nil,
+        trackPreferenceStore: TrackPreferenceStore = TrackPreferenceStore(),
+        nextUpPreferenceStore: NextUpPreferenceStore = NextUpPreferenceStore(),
+        streamPreferenceStore: StreamPreferenceStore = StreamPreferenceStore(),
+        downloadedItem: DownloadedItem?,
+        downloadStore: DownloadStore?,
+        playbackQueue: [MediaItem] = []
+    ) {
+        self.init(
+            client: client, userID: userID, itemID: itemID, engine: engine,
+            startFromBeginning: startFromBeginning, mediaSourceID: mediaSourceID,
+            trackPreferenceStore: trackPreferenceStore,
+            nextUpPreferenceStore: nextUpPreferenceStore,
+            streamPreferenceStore: streamPreferenceStore,
+            playbackQueue: playbackQueue
+        )
+        self.downloadedItem = downloadedItem
+        self.downloadStore = downloadStore
+    }
+    #endif
+
     /// - Parameter resumeSeconds: Seeks here after loading instead of consulting
     ///   the server's possibly-stale `resumePositionSeconds`. Used to resume in
     ///   place after a connectivity-loss retry, where the caller knows exactly
@@ -475,10 +501,12 @@ final class PlayerViewModel {
     func start(resumeSeconds: TimeInterval? = nil) async {
         errorMessage = nil
         failureCategory = nil
+        #if DOWNLOADS
         if let downloadedItem {
             await startOffline(downloadedItem, resumeSeconds: resumeSeconds)
             return
         }
+        #endif
         do {
             let images = await client.makeImageURLBuilder()
             // The one caller of `item(userID:itemID:)` needing `Trickplay`, for
@@ -613,6 +641,7 @@ final class PlayerViewModel {
         }
     }
 
+    #if DOWNLOADS
     /// `start()`'s offline counterpart. Builds a `file://` URL and local
     /// `ExternalSubtitleSource`s from `DownloadFileStore`, and skips every
     /// network call `start()` makes — item fetch, `playbackInfo`,
@@ -739,6 +768,7 @@ final class PlayerViewModel {
         downloadedItem.pendingSync = true
         downloadStore?.save()
     }
+    #endif
 
     /// Fire-and-forget: fetches the poster and re-stages Now Playing with it.
     /// Title and subtitle already went in synchronously in `start()`, so this only
@@ -1017,6 +1047,7 @@ final class PlayerViewModel {
     /// the defect worth catching here (every track resolving to the same
     /// script) lives in this wiring rather than in either mapping.
     func assScriptSource(for track: PlaybackTrack) async -> ASSScriptSource? {
+        #if DOWNLOADS
         if let downloadedItem {
             guard let file = Self.registeredSidecar(
                 forTrack: track, engineTracks: engine.subtitleTracks,
@@ -1024,6 +1055,7 @@ final class PlayerViewModel {
             ), Self.isAuthoredASSPath(file.relativePath) else { return nil }
             return .localFile(DownloadFileStore.url(forRelativePath: file.relativePath))
         }
+        #endif
         guard let mediaSourceID = activeMediaSourceID else { return nil }
         // Two kinds of track reach here and they map differently. A track the
         // engine demuxed out of the container is paired with its `MediaStream`
@@ -1077,9 +1109,11 @@ final class PlayerViewModel {
     /// renders the script in a fallback one, which is how the app behaved
     /// before any of this and is not worth failing a subtitle over.
     private func fetchASSFonts() async -> [ASSFontAttachment] {
+        #if DOWNLOADS
         if let downloadedItem {
             return Self.assFonts(fromDownloaded: downloadedItem.fontFiles)
         }
+        #endif
         guard let mediaSourceID = activeMediaSourceID else { return [] }
         var fonts: [ASSFontAttachment] = []
         // Serial rather than a task group: a container carries a handful of
@@ -1109,6 +1143,7 @@ final class PlayerViewModel {
         return fonts
     }
 
+    #if DOWNLOADS
     /// Reads a download's stored font sidecars back into memory.
     ///
     /// A file that has gone missing is skipped rather than failing the set: the
@@ -1123,6 +1158,7 @@ final class PlayerViewModel {
             return ASSFontAttachment(filename: file.fileName, data: data)
         }
     }
+    #endif
 
     /// Shorter than `scriptRequestTimeout`, deliberately. The same on-demand
     /// extraction is behind both, but the script IS the subtitle while the
@@ -1437,6 +1473,7 @@ final class PlayerViewModel {
 
     func stop() async {
         progressReportTask?.cancel()
+        #if DOWNLOADS
         if let downloadedItem {
             // Captured before `engine.stop()`, which synchronously zeroes
             // AetherEngine's clock and duration. Those reach
@@ -1449,6 +1486,7 @@ final class PlayerViewModel {
             writeOfflineProgress(downloadedItem, currentTime: capturedTime, duration: capturedDuration)
             return
         }
+        #endif
         let ticks = Int64(currentTime * 10_000_000)
         engine.stop()
         // Skipped while known-offline rather than awaited: a guaranteed failure

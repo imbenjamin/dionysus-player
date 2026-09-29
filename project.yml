@@ -137,6 +137,9 @@ targets:
         product: SwiftLibass
     settings:
       base:
+        # Offline downloads exist only on iOS. Shared code guards its download
+        # paths with `#if DOWNLOADS`; the tvOS targets never define it.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DOWNLOADS"
         # No platform suffix (contrast the test target below) — this is the
         # ID Apple's Universal Purchase mechanism needs shared identically
         # across platforms if tvOS/macOS versions later join this same App
@@ -236,6 +239,126 @@ targets:
         NSBonjourServices:
           - _jellyfin._tcp
 
+  # The Apple TV app: its own UI under DionysusTV/, on the iOS app's Core,
+  # AppState and view models. Downloads are left out (no DOWNLOADS condition);
+  # see docs/superpowers/specs/2026-09-29-tvos-app-design.md.
+  DionysusTV:
+    type: application
+    platform: tvOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: DionysusTV
+      - path: DionysusPlayer/Core
+        excludes:
+          - "Downloads/**"
+          - "Persistence/Download*.swift"
+      - path: DionysusPlayer/App/AppState.swift
+      - path: DionysusPlayer/Shared
+        includes:
+          - "BrandColors.swift"
+          - "AppVersion.swift"
+          - "AppVersionInfo.swift"
+          - "Accessibility/**"
+          - "Components/AsyncRemoteImage.swift"
+          - "Components/LogoImageView.swift"
+          - "Components/MediaPlaceholderBox.swift"
+          - "Components/ArtworkShape.swift"
+          - "Navigation/AppRoute.swift"
+      - path: DionysusPlayer/Features
+        includes:
+          - "**/*ViewModel.swift"
+          - "Home/DynamicRailCandidate.swift"
+          - "Player/PlaybackSessionOutcome.swift"
+          - "Player/PlaybackRequest.swift"
+        excludes:
+          - "Downloads/**"
+      - path: DionysusPlayer/Resources/Assets.xcassets
+      - path: DionysusPlayer/Resources/Localizable.xcstrings
+    dependencies:
+      - package: AetherEngine
+        product: AetherEngine
+      - package: SwiftUIShimmer
+        product: Shimmer
+      - package: SwiftAssRenderer
+        product: SwiftAssRenderer
+      - package: SwiftLibass
+        product: SwiftLibass
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer
+        PRODUCT_NAME: Dionysus
+        TARGETED_DEVICE_FAMILY: "3"
+        SWIFT_EMIT_LOC_STRINGS: YES
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    info:
+      path: Generated/Info-tvOS.plist
+      properties:
+        CFBundleDisplayName: Dionysus
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSApplicationCategoryType: public.app-category.entertainment
+        ITSAppUsesNonExemptEncryption: false
+        UIUserInterfaceStyle: Dark
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: "Dionysus looks for and connects to your Jellyfin media server on your local network."
+        NSBonjourServices:
+          - _jellyfin._tcp
+
+  DionysusTVTests:
+    type: bundle.unit-test
+    platform: tvOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: DionysusPlayerTests
+        includes:
+          - "Support/**"
+          - "App/AppStateTests.swift"
+          - "Core/Networking/**"
+          - "Core/Models/**"
+          - "Core/Playback/**"
+          - "Core/Persistence/**"
+          - "Features/Home/**"
+          - "Features/Collection/**"
+          - "Features/AssetDetails/**"
+          - "Features/Search/**"
+          - "Features/ServerSetup/**"
+          - "Features/Login/**"
+          - "Features/Profile/**"
+          - "Features/Player/PlaybackRequestTests.swift"
+          - "Features/Player/PlayerViewModelTests.swift"
+          - "Features/Player/ASSSubtitleMappingTests.swift"
+          - "Shared/AppVersionInfoTests.swift"
+        excludes:
+          - "Core/Persistence/Download*.swift"
+    dependencies:
+      - target: DionysusTV
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.tvtests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Dionysus.app/Dionysus"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+  # Siri Remote journeys for the Apple TV app, against the same in-process
+  # stub server as the iOS suite. Shares the selector and fixture-id files
+  # with the app for the reason DionysusPlayerUITests does (see there).
+  DionysusTVUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: DionysusTVUITests
+      - path: DionysusPlayer/Shared/Accessibility/AccessibilityIdentifiers.swift
+      - path: DionysusPlayer/Core/UITestSupport/UITestFixtureIdentity.swift
+    dependencies:
+      - target: DionysusTV
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.tvuitests
+        TEST_TARGET_NAME: DionysusTV
+
   DionysusPlayerTests:
     type: bundle.unit-test
     platform: iOS
@@ -248,6 +371,9 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: true
         PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.tests
+        # Offline downloads exist only on iOS. Shared code guards its download
+        # paths with `#if DOWNLOADS`; the tvOS targets never define it.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DOWNLOADS"
         # DionysusPlayer's PRODUCT_NAME is "Dionysus" (not the target name),
         # so XcodeGen's auto-inferred host-application path is wrong —
         # override it explicitly to match.
@@ -301,5 +427,21 @@ schemes:
           defaultPlan: true
         - path: TestPlans/UITests-Smoke.xctestplan
         - path: TestPlans/UITests-Full.xctestplan
+    archive:
+      config: Release
+  DionysusTV:
+    build:
+      targets:
+        DionysusTV: all
+        DionysusTVTests: [test]
+        DionysusTVUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      testPlans:
+        - path: TestPlans/TVUnitTests.xctestplan
+          defaultPlan: true
+        - path: TestPlans/TVUITests.xctestplan
     archive:
       config: Release
