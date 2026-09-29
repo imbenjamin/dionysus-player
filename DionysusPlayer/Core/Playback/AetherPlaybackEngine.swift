@@ -469,19 +469,26 @@ final class AetherPlaybackEngine: PlaybackEngine {
         }
     }
 
-    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool) async throws {
-        // A fresh source carries its own playhead; the previous session's
-        // stand-in must not leak into it.
-        pausedRebuildAnchor = nil
-        hasSessionBeenReady = false
-        self.knownAtmosAudioTrackIndices = knownAtmosAudioTrackIndices
+    /// The options every `load(...)` passes, pulled out so they can be pinned
+    /// by test without an engine. `display` is `.unknown` on iOS, which keeps
+    /// the engine's own defaults.
+    nonisolated static func makeLoadOptions(
+        isRemoteHLS: Bool, externalSubtitles: [ExternalSubtitleTrack], display: DisplayContext
+    ) -> LoadOptions {
         // Order matters here beyond just readability: `LoadOptions`' own
-        // memberwise init takes ~30 named, defaulted parameters, but Swift
+        // memberwise init takes ~40 named, defaulted parameters, but Swift
         // still requires whichever ones a call site does supply to appear
-        // in the init's own declared order, even with keyword syntax —
-        // `isLive` before `nativeRemoteHLS` before `prepareNativeSubtitles`
-        // before `externalSubtitles`.
-        let options = LoadOptions(
+        // in the init's own declared order, even with keyword syntax.
+        LoadOptions(
+            // The engine stays the only display-criteria writer; the tvOS
+            // host turns AVKit's automatic criteria off for the same reason.
+            suppressDisplayCriteria: false,
+            // tvOS's Match Content setting, which AetherEngine's criteria
+            // handshake needs ("Host setup on tvOS"), and the host's
+            // assertion about the panel's HDR state (none yet: see
+            // `DisplayContext`).
+            matchContentEnabled: display.matchContentEnabled,
+            panelIsInHDRMode: display.panelIsInHDRMode,
             // A Jellyfin VOD transcode is not a live source, even when
             // consumed via the nativeRemoteHLS bypass below.
             isLive: false,
@@ -493,7 +500,20 @@ final class AetherPlaybackEngine: PlaybackEngine {
             // Gives `setNativeSubtitleRendering(_:)`, called on PiP entry and
             // exit below, a native WebVTT rendition to select.
             prepareNativeSubtitles: true,
-            externalSubtitles: externalSubtitles.map(Self.makeExternalSubtitleTrack)
+            externalSubtitles: externalSubtitles
+        )
+    }
+
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool) async throws {
+        // A fresh source carries its own playhead; the previous session's
+        // stand-in must not leak into it.
+        pausedRebuildAnchor = nil
+        hasSessionBeenReady = false
+        self.knownAtmosAudioTrackIndices = knownAtmosAudioTrackIndices
+        let options = Self.makeLoadOptions(
+            isRemoteHLS: isRemoteHLS,
+            externalSubtitles: externalSubtitles.map(Self.makeExternalSubtitleTrack),
+            display: DisplayContext.current()
         )
         do {
             _ = try await engine.load(url: url, options: options)
