@@ -185,18 +185,28 @@ final class AetherPlaybackEngine: PlaybackEngine {
         )
     }
 
-    init() throws {
+    /// `ownsNowPlayingSession: false` is the AVPlayerViewController host's
+    /// setting: AVKit owns Now Playing there, and a second owner breaks it.
+    init(ownsNowPlayingSession: Bool = true) throws {
         self.engine = try AetherEngine()
         pipDelegateProxy.engine = self
         // Takes ownership of the system Now-Playing session on the native video
         // path. AetherEngine defaults this off for `AVPlayerViewController`
         // hosts, where AVKit owns Now-Playing; this app renders its own
         // transport chrome, so it is the custom-UI case meant to opt in. Must
-        // precede `load()`.
-        engine.ownsVideoNowPlayingSession = true
+        // precede `load()`. The tvOS host is an AVPlayerViewController, so it
+        // passes `false`.
+        engine.ownsVideoNowPlayingSession = ownsNowPlayingSession
         observeEngine()
         observeAppLifecycle()
     }
+
+    #if os(tvOS)
+    /// The tvOS player host binds the engine's own view on the software route
+    /// and hands `$currentAVPlayer` to AVKit on the native one. The protocol
+    /// keeps AetherEngine out of feature code; this is the one door.
+    var hostEngine: AetherEngine { engine }
+    #endif
 
     // `isolated deinit`: `didBecomeActiveObserver` is `@MainActor` state, which
     // a `nonisolated deinit` can't touch under Swift 6 strict concurrency.
@@ -872,6 +882,8 @@ final class AetherPlaybackEngine: PlaybackEngine {
     // MARK: - Now Playing
 
     func setNowPlayingInfo(title: String, subtitle: String?, artwork: UIImage?) {
+        // Under an AVPlayerViewController host AVKit owns Now Playing.
+        guard engine.ownsVideoNowPlayingSession else { return }
         var info: [String: Any] = [MPMediaItemPropertyTitle: title]
         info[MPMediaItemPropertyArtist] = subtitle
         if let artwork {

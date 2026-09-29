@@ -58,8 +58,9 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 
 ### The tvOS unit tests
 
-The Apple TV app (`DionysusTV` scheme) has no test files of its own yet.
-`DionysusTVTests` compiles a subset of `DionysusPlayerTests` against the tvOS
+`DionysusTVTests` holds the Apple TV app's own tests (the player host's
+surface policy and session lifecycle, in `DionysusTVTests/`), and also
+compiles a subset of `DionysusPlayerTests` against the tvOS
 build of the shared core: everything that tests `Core/`, `AppState` and the
 shared view models, minus the Downloads code tvOS doesn't have. The list is
 `project.yml`'s `includes` on that target. A test that exercises iOS-only
@@ -84,6 +85,18 @@ check it with `TVUITestCase.waitForFocus`, never a bare `hasFocus` read. A
 failed wait attaches the element tree to the result bundle. Rails are lazy
 stacks: only what is on screen is in the tree, so a journey reaches a later
 rail by pressing down to it rather than querying for it.
+
+`PlayerJourneyTests` opens the player from a browse tile. Under the harness
+the host gets the fake engine, so nothing is handed to AVKit; the journeys
+check that the remote reaches the host's own handlers (Right skips 10s) and
+that Menu dismisses, including while the item is still loading
+(`slowPlaybackInfo`). `SearchJourneyTests` opens the sidebar with Left from
+Home's first tile, types a query into the system search field
+(`typeText` works on tvOS once the field exists) and plays a result.
+
+Launch focus lands on the sidebar before Home's rails exist, so the launcher
+moves it to the first tile when that tile arrives; every journey that starts
+from Home depends on it.
 
 The PR check that runs it, "tvOS build and unit tests", is deliberately not in
 either branch ruleset yet. It joins them once it has been green on a run of
@@ -494,8 +507,10 @@ DTO change is a compile error instead of a silent rot. Scenarios
 `customHTTPPort`, `quickConnectDisabled`, `quickConnectExpiring`,
 `quickConnectPending`, `hiddenUsers`, `slowScan` (the stub discovery
 finds one server, then keeps scanning for two minutes — Find Your Server's
-"Still searching…" state) and `slowVideoDownload` (a download's stream held
-for 10s, so the Downloads tab can be opened while it is in flight).
+"Still searching…" state), `slowVideoDownload` (a download's stream held
+for 10s, so the Downloads tab can be opened while it is in flight) and
+`slowPlaybackInfo` (`/PlaybackInfo` held for 30s, so the Apple TV player can
+be closed while it is still loading).
 
 Sign-in is built on `/Users/Public`, which the stub answers with two users:
 the fixture user (`UITestFixtureIdentity.userID`, password

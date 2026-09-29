@@ -421,6 +421,9 @@ enum A11yID {
             static let root = "tv.main.firstRail"
             static func tile(_ itemID: String) -> String { "tv.main.tile.\(itemID)" }
         }
+        enum Search {
+            static func result(_ itemID: String) -> String { "tv.search.result.\(itemID)" }
+        }
         enum Player {
             static let transport = "tv.player.transport"
             static let titleBlock = "tv.player.title"

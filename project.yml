@@ -332,6 +332,8 @@ targets:
           - "Shared/AppVersionInfoTests.swift"
         excludes:
           - "Core/Persistence/Download*.swift"
+      # TV-only unit tests.
+      - path: DionysusTVTests
     dependencies:
       - target: DionysusTV
     settings:

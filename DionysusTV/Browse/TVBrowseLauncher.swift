@@ -6,6 +6,10 @@ struct TVBrowseLauncher: View {
     let client: JellyfinAPIClient
     let userID: String
     @State private var viewModel: HomeViewModel
+    /// Rail and item together: the same item can sit in two rails (a
+    /// part-watched movie in Continue Watching and Recently Added).
+    @FocusState private var focusedTileKey: String?
+    @State private var userMovedFocus = false
 
     init(client: JellyfinAPIClient, userID: String) {
         self.client = client
@@ -23,7 +27,7 @@ struct TVBrowseLauncher: View {
                         ScrollView(.horizontal) {
                             LazyHStack(spacing: 48) {
                                 ForEach(rail.items) { item in
-                                    tile(item)
+                                    tile(item, focusKey: Self.focusKey(rail: rail.id, item: item.id))
                                 }
                             }
                             .padding(.vertical, 30)
@@ -35,9 +39,24 @@ struct TVBrowseLauncher: View {
             }
         }
         .task { await viewModel.loadIfNeeded() }
+        // The sidebar takes the first focus pass, before any rail exists, so
+        // focus moves to the first tile when it arrives, as the Apple TV app
+        // opens in its content. Not once the user has moved it themselves.
+        .onChange(of: firstTileKey, initial: true) { _, firstKey in
+            guard !userMovedFocus, focusedTileKey == nil, let firstKey else { return }
+            focusedTileKey = firstKey
+        }
+        .onMoveCommand { _ in userMovedFocus = true }
     }
 
-    private func tile(_ item: MediaItem) -> some View {
+    private var firstTileKey: String? {
+        guard let rail = viewModel.rails.first, let item = rail.items.first else { return nil }
+        return Self.focusKey(rail: rail.id, item: item.id)
+    }
+
+    private static func focusKey(rail: UUID, item: String) -> String { "\(rail.uuidString)/\(item)" }
+
+    private func tile(_ item: MediaItem, focusKey: String) -> some View {
         Button {
             TVPlayerPresenter.present(item: item, client: client, userID: userID)
         } label: {
@@ -45,12 +64,8 @@ struct TVBrowseLauncher: View {
                 .frame(width: 250, height: 375)
         }
         .buttonStyle(.card)
+        .focused($focusedTileKey, equals: focusKey)
         .accessibilityLabel(item.railTitle)
         .accessibilityIdentifier(A11yID.TV.Main.tile(item.id))
     }
-}
-
-/// Stand-in until the player host lands (Task 6), which replaces it.
-enum TVPlayerPresenter {
-    static func present(item: MediaItem, client: JellyfinAPIClient, userID: String) {}
 }

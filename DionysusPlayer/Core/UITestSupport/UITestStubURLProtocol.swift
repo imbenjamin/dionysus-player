@@ -119,6 +119,21 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
+        // Held back under `.slowPlaybackInfo`; answered below as usual otherwise.
+        if scenario == .slowPlaybackInfo, path.hasSuffix("/PlaybackInfo") {
+            // Background queue, never `Thread.sleep` — see the
+            // `.slowLogoImage` branch above for what blocking here costs.
+            let request = request
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.slowPlaybackInfoDelay) {
+                do {
+                    self.finish(.success((200, try Self.body(forPath: path, query: query, request: request), "application/json")))
+                } catch {
+                    self.finish(.failure(error))
+                }
+            }
+            return
+        }
+
         if path.contains("/QuickConnect/") {
             finish(.success(Self.quickConnectResponse(scenario: scenario, path: path, query: query)))
             return
@@ -463,7 +478,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission,
              .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort,
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
-             .slowVideoDownload:
+             .slowVideoDownload, .slowPlaybackInfo:
             return nil
         case .serverError:
             return 500
@@ -1047,6 +1062,10 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     /// from the detail page's Download button to the Downloads tab, short
     /// enough that the row finishing is well inside an assertion's budget.
     static let slowVideoDownloadDelay: TimeInterval = 10
+
+    /// How long `.slowPlaybackInfo` holds `/PlaybackInfo`: far past the Menu
+    /// press its journey makes, so the player is certainly still loading.
+    static let slowPlaybackInfoDelay: TimeInterval = 30
 
     /// Stand-in bytes for a font attachment.
     ///

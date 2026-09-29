@@ -111,6 +111,12 @@ enum UITestScenario: String {
     /// holds still on its code for as long as a test needs — an audit of it
     /// would otherwise race the approval that closes it.
     case quickConnectPending
+
+    /// `.standard`, with `/PlaybackInfo` held for
+    /// `UITestStubURLProtocol.slowPlaybackInfoDelay`, so the player stays in
+    /// `.loading` for as long as a test needs: the Apple TV journey that
+    /// presses Menu before the item has loaded.
+    case slowPlaybackInfo
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a
