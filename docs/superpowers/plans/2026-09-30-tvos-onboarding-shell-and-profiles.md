@@ -5,7 +5,8 @@
 **Goal:** Give the Apple TV app the following:
 - the prototype's onboarding (Welcome, Find Your Server, Who's Watching?, Quick Connect first);
 - the designed sidebar shell (Home, Search, the user's libraries folded into "Libraries" above 5, and Profile);
-- per-Apple-TV-user sessions: one server for the household, each person signed in to their own Jellyfin account.
+- per-Apple-TV-user sessions: one server for the household, each person signed in to their own Jellyfin account;
+- in-app account switching as the fallback when tvOS's own user switching misbehaves: every account signed in on this Apple TV is remembered and one press away on Who's Watching?.
 
 **Architecture:**
 - **Per-user sessions come from the platform, not from our code.** The `com.apple.developer.user-management` entitlement (`runs-as-current-user-with-user-independent-keychain`) gives each Apple TV user their own `UserDefaults` and Keychain. tvOS terminates the app when the user switches and relaunches it as the new user, so there is no in-app "user changed" event to handle.
@@ -15,6 +16,7 @@
   - prime the device name, which the tvOS app never did.
 - The onboarding and shell are TV-only SwiftUI under `DionysusTV/`, on the shared `LoginViewModel`, `QuickConnectViewModel`, `ServerSetupViewModel` and `CollectionGridViewModel`.
 - The sidebar's library list and fold rule are a small TV-only model with its own unit tests.
+- **tvOS's user switching is unreliable** (see "Platform facts"), so the app never depends on it alone. `ServerSessionStore` remembers every account signed in on this container (tvOS only), Who's Watching? lists them first and signs them in on one press, and Profile's Switch User is the way back to it (Task 7).
 
 **Tech Stack:** Swift 6, SwiftUI (tvOS 26 `TabView` + `.sidebarAdaptable`, `TabSection`), Security.framework, XcodeGen, XCTest/XCUITest (`XCUIRemote`).
 
@@ -80,6 +82,8 @@ From Apple's "Personalizing your app for each user on Apple TV" and "Mapping App
 
 From Jellyfin `SessionManager.GetAuthorizationToken` (release-10.11.z): signing in logs out existing tokens matching **both** `DeviceId` **and** `UserId`. Two different Jellyfin accounts on one device id don't disturb each other. The same account signed in by two Apple TV users under one device id would, so `DeviceIdentity.deviceID` must stay per Apple TV user. It already does, since it lives in `UserDefaults`, and nothing here may move it to shared storage.
 
+**tvOS routes launches to the wrong user's container, often.** Measured on the Bedroom Apple TV (tvOS 27.0) on 2026-09-30 with a probe that printed the container path and a per-user keychain marker: separation itself works (a secondary user gets `/var/PersonaVolumes/<id>/…`, the primary `/var/mobile/…`, and neither sees the other's per-user keychain items), but cold launches from the Home screen repeatedly ran as the other user, before and after restarts. It is the known system bug in Firecore's "User Switching Broken (tvOS 26.4)" thread, which Firecore reproduced with a sample app and filed with Apple ("we don't have the ability to fix this from the app side"); Apple fixed it in tvOS 26.6/27.0 beta 1, and "User switching still broken on tvOS 27" (September 2026) reports it recurring 20–30% of the time. Hence Task 7.
+
 The spike's **one-off session loss after a reinstall** has a likely cause: before this plan, the server configuration lived in `UserDefaults`, which a reinstall erases, while the credentials live in the Keychain, which a reinstall keeps. `start()` then finds no server and goes to Find Your Server. Task 1 moves the tvOS server configuration into the Keychain, and Task 2 re-checks the reinstall on the Simulator and on the device.
 
 ## Review Focus
@@ -89,6 +93,7 @@ The spike's **one-off session loss after a reinstall** has a likely cause: befor
 3. **A server whose only extra library is Music.** The fold counts libraries *after* the audio filter, so 5 video libraries plus Music stay unfolded, and a Music library never appears. (Pinned in Task 5.)
 4. **The sidebar's first library load cancelled by a `TabView` rebuild.** This is the same bug Home had in M1. The model must return to a state from which `loadIfNeeded()` loads again, never stay stuck at `.loading` with no libraries. (Pinned in Task 5.)
 5. **A second Apple TV user's first launch.** The server is already configured, so they skip the Welcome and Find Your Server and land on Who's Watching, on the shared server. (Pinned in Task 1 as a store test; checked on the device in Task 2.)
+6. **A remembered account from another server, or with a password changed since.** Who's Watching? lists only accounts bound to the configured server. A remembered password account that no longer signs in falls back to its password screen with the error shown, and stays remembered until the person forgets it. (Pinned in Task 7.)
 
 ## Pull requests
 
@@ -97,6 +102,7 @@ The spike's **one-off session loss after a reinstall** has a likely cause: befor
 | 1 | 1–2: per-user sessions | `feature/tvos-profiles` |
 | 2 | 3–4: onboarding design | `feature/tvos-onboarding-design` |
 | 3 | 5–6: sidebar shell and Profile | `feature/tvos-sidebar` |
+| 4 | 7: in-app account switching | `feature/tvos-account-switching` |
 
 ---
 
@@ -1908,7 +1914,310 @@ git commit -m "Add the Apple TV sidebar: libraries, the Libraries fold, and Prof
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-After PR 3 merges, run one final review of the whole milestone: a fresh reviewer on the most capable model, reviewing all three PRs against this plan and the spec. That's how plan 1 ended.
+After PR 4 merges, run one final review of the whole milestone: a fresh reviewer on the most capable model, reviewing all four PRs against this plan and the spec. That's how plan 1 ended.
+
+---
+
+### Task 7: In-app account switching, the fallback for tvOS user switching
+
+Added 2026-09-30 after the device checks in Task 2 showed tvOS sending cold launches to the wrong Apple TV user's container (see "Platform facts"). When that happens, the person gets someone else's container: that container's stored session, and none of their own. So every account ever signed in on this container is remembered, Who's Watching? lists those accounts first, and one press signs any of them in without a code or password. Switch User in Profile is the way back to Who's Watching?.
+
+**Files:**
+- Modify: `DionysusPlayer/Core/Persistence/ServerSessionStore.swift` (remembered accounts)
+- Modify: `DionysusPlayer/App/AppState.swift` (`signIn(rememberedAccount:)`)
+- Modify: `DionysusTV/Onboarding/TVSignInRoute.swift` (a `.rememberedAccount` route)
+- Modify: `DionysusTV/Onboarding/TVLoginView.swift` (remembered lockups, Forget)
+- Modify: `DionysusTV/Shell/TVProfileView.swift` (Switch User first, default focus)
+- Modify: `DionysusPlayer/Shared/Accessibility/AccessibilityIdentifiers.swift`
+- Test: `DionysusPlayerTests/Core/Persistence/ServerSessionStoreTests.swift`, `DionysusPlayerTests/App/AppStateTests.swift`, `DionysusTVTests/TVSignInRouteTests.swift`
+- Test: `DionysusTVUITests/AccountSwitchingJourneyTests.swift`
+- Docs: `CLAUDE.md` (the per-user sessions paragraph), the spec's Profiles row
+
+**Interfaces:**
+- Consumes:
+  - Task 1's `StoredCredentials.serverID` and `KeychainStore`.
+  - Task 4's `TVSignInRoute` and `TVLoginView`.
+  - Task 6's `TVProfileView`, and `AppState.signOut()` (unchanged: it clears the *current* credentials only).
+- Produces:
+  - `ServerSessionStore.init(defaults:serverLocation:remembersAccounts:)`, where `remembersAccounts` defaults to `.platformDefault` (tvOS `true`, iOS `false`, so iOS stores nothing new).
+  - `ServerSessionStore.rememberedAccounts(forServer serverID: String) -> [StoredCredentials]`, in most-recently-used order.
+  - `ServerSessionStore.forgetAccount(userID: String)`.
+  - `AppState.signIn(rememberedAccount: StoredCredentials) async throws`.
+  - `TVSignInRoute.rememberedAccount`.
+  - `TVSignInRoute.forUser(_:quickConnectAvailable:isRemembered:)`.
+  - Ids `A11yID.TV.Onboarding.rememberedUser(_ userID:)` and `A11yID.TV.Onboarding.forgetAccount`.
+
+**Rules:**
+- **Remembering is per container, like the credentials.** The list lives in the current user's keychain (`server.rememberedAccounts`), never the shared one. Remembering across all Apple TV users would hand every person's session to everyone, which the per-user design exists to avoid.
+- **An account is remembered on every successful sign-in** (password, passwordless or Quick Connect). It is keyed by `userID` + `serverID`: signing in again replaces the entry and moves it to the front.
+- **Switch User (`signOut()`) keeps the remembered list.** Change Server (`clearAll()`) clears it, since every entry belongs to the old server anyway.
+- **Only accounts bound to the configured server are listed.** An entry without a `serverID` is never listed; remembering begins with this task, so every entry has one.
+- **A remembered password account that fails to sign in** (wrong password now, or a revoked Quick Connect token) opens the password screen for that user with the error, and stays remembered.
+
+- [ ] **Step 1: Write the failing store tests**
+
+Append to `ServerSessionStoreTests`. Use explicit `remembersAccounts: true` so these run on iOS too, and add `KeychainStore.delete(forKey: "server.rememberedAccounts")` to `tearDown`.
+
+```swift
+    // MARK: Remembered accounts (tvOS fallback for user switching)
+
+    private func account(_ userID: String, server: String = "https://a.example.com", token: String = "tok") -> StoredCredentials {
+        StoredCredentials(username: userID, password: "", accessToken: token, userID: userID, serverID: server)
+    }
+
+    func test_signingIn_remembersTheAccount_mostRecentFirst() {
+        let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true)
+        store.saveCredentials(account("ben"))
+        store.saveCredentials(account("tara"))
+        store.saveCredentials(account("ben", token: "tok2"))
+
+        let reloaded = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true)
+        XCTAssertEqual(reloaded.rememberedAccounts(forServer: "https://a.example.com").map(\.userID), ["ben", "tara"])
+        XCTAssertEqual(reloaded.rememberedAccounts(forServer: "https://a.example.com").first?.accessToken, "tok2")
+    }
+
+    func test_rememberedAccounts_listOnlyTheConfiguredServer() {
+        let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true)
+        store.saveCredentials(account("ben", server: "https://a.example.com"))
+        store.saveCredentials(account("tara", server: "https://b.example.com"))
+        XCTAssertEqual(store.rememberedAccounts(forServer: "https://a.example.com").map(\.userID), ["ben"])
+    }
+
+    func test_switchUser_keepsRememberedAccounts_changeServerClearsThem() {
+        let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true)
+        store.saveCredentials(account("ben"))
+        store.clearCredentials()
+        XCTAssertEqual(store.rememberedAccounts(forServer: "https://a.example.com").count, 1)
+        store.clearAll()
+        XCTAssertTrue(ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true)
+            .rememberedAccounts(forServer: "https://a.example.com").isEmpty)
+    }
+
+    func test_forgetAccount_removesOnlyThatAccount() {
+        let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true)
+        store.saveCredentials(account("ben"))
+        store.saveCredentials(account("tara"))
+        store.forgetAccount(userID: "ben")
+        XCTAssertEqual(store.rememberedAccounts(forServer: "https://a.example.com").map(\.userID), ["tara"])
+    }
+
+    /// iOS has no tvOS user switching to fall back from, so it remembers nothing.
+    func test_notRemembering_storesNoAccounts() {
+        let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: false)
+        store.saveCredentials(account("ben"))
+        XCTAssertTrue(store.rememberedAccounts(forServer: "https://a.example.com").isEmpty)
+        XCTAssertNil(KeychainStore.load(forKey: "server.rememberedAccounts"))
+    }
+```
+
+Add one test to `TVAppLaunchTests` pinning the platform default: `XCTAssertTrue(ServerSessionStore.RememberedAccounts.platformDefault)`.
+
+Run the iOS unit command with `-only-testing:DionysusPlayerTests/ServerSessionStoreTests`. Expected: build failure (no `remembersAccounts:`).
+
+- [ ] **Step 2: Implement remembered accounts**
+
+In `ServerSessionStore`:
+
+```swift
+    /// Whether every account signed in here is remembered for Who's Watching?.
+    /// tvOS only: its user switching often launches the app in another Apple
+    /// TV user's container (a system bug, see the tvOS plan's "Platform
+    /// facts"), and remembered accounts make the right one a single press
+    /// away. iOS has one user and stores nothing extra.
+    enum RememberedAccounts {
+        static var platformDefault: Bool {
+            #if os(tvOS)
+            true
+            #else
+            false
+            #endif
+        }
+    }
+
+    private let remembersAccounts: Bool
+    private var rememberedAccounts: [StoredCredentials] = []
+```
+
+- Add `Keys.rememberedAccounts = "server.rememberedAccounts"`.
+- Add the `remembersAccounts: Bool = RememberedAccounts.platformDefault` init parameter, assigned before loading; load the list from the Keychain (current user) when it's `true`.
+- `saveCredentials(_:)`, after saving: when remembering and `credentials.userID != nil`, remove any entry with the same `userID` and `serverID`, insert the new one at index 0, and persist.
+- `clearAll()`: also empty the list and `KeychainStore.delete(forKey: Keys.rememberedAccounts)`.
+- Add:
+
+```swift
+    func rememberedAccounts(forServer serverID: String) -> [StoredCredentials] {
+        rememberedAccounts.filter { $0.serverID == serverID }
+    }
+
+    func forgetAccount(userID: String) {
+        rememberedAccounts.removeAll { $0.userID == userID }
+        persistRememberedAccounts()
+    }
+```
+
+`rememberedAccounts` is `private` storage behind the filtered accessor on purpose, so no caller can list another server's accounts. The accessor needs a different name from the stored property: call the stored property `accounts`.
+
+Run the Step 1 command. Expected: PASS.
+
+- [ ] **Step 3: Write the failing `AppState` tests, then add `signIn(rememberedAccount:)`**
+
+Append to `AppStateTests`:
+
+```swift
+    func test_signInRememberedPasswordAccount_signsInWithItsStoredPassword() async throws {
+        let appState = makeAppState()
+        appState.completeServerSetup(exampleServer)
+        var sentBody: String?
+        MockURLProtocol.requestHandler = { request in
+            sentBody = request.httpBodyStreamString ?? request.httpBody.flatMap { String(data: $0, encoding: .utf8) }
+            return try Self.authenticateByNameHandler(request)
+        }
+        let remembered = StoredCredentials(username: "ben", password: "pw", accessToken: "old", userID: "user-1", serverID: exampleServer.id)
+
+        try await appState.signIn(rememberedAccount: remembered)
+
+        XCTAssertEqual(appState.phase, .main)
+        XCTAssertTrue(sentBody?.contains("\"Pw\":\"pw\"") ?? false)
+    }
+
+    func test_signInRememberedQuickConnectAccount_validatesItsTokenInsteadOfSigningIn() async throws {
+        let appState = makeAppState()
+        appState.completeServerSetup(exampleServer)
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertTrue(request.url!.path.hasSuffix("/Users/Me"), "A Quick Connect account has no password to send")
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: UserDto(id: "user-1", name: "ben"))
+        }
+        let remembered = StoredCredentials(username: "ben", password: nil, accessToken: "qc", userID: "user-1",
+                                           authMethod: .quickConnect, serverID: exampleServer.id)
+
+        try await appState.signIn(rememberedAccount: remembered)
+
+        XCTAssertEqual(appState.phase, .main)
+        XCTAssertEqual(appState.sessionStore.credentials?.accessToken, "qc")
+    }
+```
+
+Match the request-body and `/Users/Me` handling to how `test_start_quickConnectSession_validatesTokenInsteadOfSigningIn` and `MockURLProtocol` already do it (`httpBodyStreamString` stands for whichever helper that file uses to read a streamed body). Run them: build failure.
+
+Then in `AppState`:
+
+```swift
+    /// One press on a remembered account on Who's Watching?: signs in the way
+    /// launch restores a session. A password account signs in again with its
+    /// stored password; a Quick Connect one validates its token.
+    func signIn(rememberedAccount account: StoredCredentials) async throws {
+        guard let client = apiClient else { throw JellyfinAPIError.invalidServerAddress }
+        switch account.authMethod {
+        case .password:
+            try await signIn(username: account.username, password: account.password ?? "", client: client)
+        case .quickConnect:
+            try await resumeQuickConnectSession(account, client: client)
+            sessionStore.saveCredentials(account)
+        }
+    }
+```
+
+`resumeQuickConnectSession` doesn't save credentials, because launch already has them stored. Here they must become current, hence the explicit save. Run the tests: PASS.
+
+- [ ] **Step 4: Route remembered accounts**
+
+In `TVSignInRouteTests`, add:
+
+```swift
+    func test_rememberedAccount_signsInOnOnePress_beforeQuickConnect() {
+        XCTAssertEqual(TVSignInRoute.forUser(user(hasPassword: true), quickConnectAvailable: true, isRemembered: true), .rememberedAccount)
+    }
+```
+
+Change the existing four tests to pass `isRemembered: false`. Run: build failure. Then add `case rememberedAccount` and the `isRemembered: Bool` parameter, checked first:
+
+```swift
+    static func forUser(_ user: UserDto, quickConnectAvailable: Bool, isRemembered: Bool) -> TVSignInRoute {
+        if isRemembered { return .rememberedAccount }
+        if user.hasPassword == false { return .signInNow }
+        return quickConnectAvailable ? .quickConnect : .password
+    }
+```
+
+Run: PASS.
+
+- [ ] **Step 5: Write the failing journey**
+
+`DionysusTVUITests/AccountSwitchingJourneyTests.swift`:
+
+```swift
+import XCTest
+
+/// The fallback for tvOS user switching: an account signed in on this Apple TV
+/// is remembered, so Switch User then one press on that account returns to
+/// Home, with no code and no password.
+final class AccountSwitchingJourneyTests: TVUITestCase {
+    func test_switchUser_thenRememberedAccount_signsBackInOnOnePress() {
+        let app = launch(seedSession: true)
+        let firstTile = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
+        XCTAssertTrue(waitForFocus(firstTile, timeout: 10))
+
+        press(.left)
+        press(.down, times: 6)   // Home, Search, four libraries, Profile
+        press(.select)
+        let switchUser = app.buttons[A11yID.TV.Profile.switchUser]
+        XCTAssertTrue(waitForFocus(switchUser), "Switch User takes default focus on Profile")
+        press(.select)
+
+        let remembered = app.buttons[A11yID.TV.Onboarding.rememberedUser(UITestConfiguration.stubUserID)]
+        XCTAssertTrue(remembered.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(remembered), "The most recent remembered account takes first focus")
+        press(.select)
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Main.root].waitForExistence(timeout: 10))
+    }
+}
+```
+
+`UITestHarness.seedSession()` saves its credentials through `saveCredentials`, so on tvOS the seeded account is remembered with no harness change. But it passes no `serverID`, and unbound entries are never listed. Give the seeded `StoredCredentials` `serverID: UITestConfiguration.stubServerURL.absoluteString` (the `ServerConfiguration.id` of the seeded server). If `UITestConfiguration.stubUserID` isn't visible to the UI-test target, use the `UITestFixtureIdentity` constant for the same id.
+
+Use the Profile position and identifier conventions Task 6 settled on. If Task 6 switched the sidebar journeys to identifiers, do the same here.
+
+Run: FAIL (no remembered lockups yet).
+
+- [ ] **Step 6: Show remembered accounts on Who's Watching?**
+
+In `TVLoginView`:
+- Read `appState.sessionStore.rememberedAccounts(forServer: server.id)` for the configured server.
+- Lay the users out in this order:
+  1. Remembered accounts first, most recent first. Each is shown by its public `UserDto` when the server lists it (so the avatar appears), otherwise by `UserDto(id: userID, name: username)`.
+  2. Then the public users that aren't remembered.
+  3. Then "Other".
+- The first focus rule (`firstUserID`) takes the first lockup, which is now the most recently used account.
+- Remembered lockups carry `A11yID.TV.Onboarding.rememberedUser(userID)` instead of `user(_:)`, plus a small "signed in on this Apple TV" cue: a `checkmark.circle.fill` badge at the avatar's bottom trailing edge, `.accessibilityHidden(true)`. The lockup's accessibility label is still the name.
+- Choosing one goes through `TVSignInRoute.forUser(_:quickConnectAvailable:isRemembered:)`. `.rememberedAccount` calls `appState.signIn(rememberedAccount:)`:
+  - on failure with a password account, open the password screen for that user with `viewModel`'s error set to "Couldn't sign in. Check your password.";
+  - on failure with a Quick Connect account, open Quick Connect for that user.
+- Each remembered lockup gets `.contextMenu { Button("Forget This Account", role: .destructive) { appState.sessionStore.forgetAccount(userID:) } }` (long-press Select on the remote). The Forget button carries `A11yID.TV.Onboarding.forgetAccount`.
+
+`ServerSessionStore` is `@Observable` and `accounts` is stored state, so forgetting redraws the list.
+
+- [ ] **Step 7: Make Switch User the easy way back**
+
+In `TVProfileView`, give Switch User default focus (`@FocusState` + `.defaultFocus`). Place it first, above Change Server, as the Task 6 layout already does. The route is then two presses from anywhere: Menu to the sidebar → Profile → Select.
+
+- [ ] **Step 8: Run the journey and the suites**
+
+Run the Step 5 journey: PASS. Then the whole `TVUITests` plan, and the tvOS and iOS unit plans. The iOS smoke plan must be unaffected, since iOS remembers nothing.
+
+- [ ] **Step 9: Docs, then commit after sign-off and open PR 4**
+
+- **CLAUDE.md, the per-user sessions paragraph.** Add: "tvOS's user switching is unreliable: cold launches often run in another Apple TV user's container (a system bug Firecore reproduced for Infuse, fixed in tvOS 26.6, recurring on 27). So `ServerSessionStore` remembers every account signed in on a container (tvOS only, per user), Who's Watching? lists them first and signs them in on one press, and Profile's Switch User is the way back to it. Don't design anything that assumes the container matches the Apple TV user."
+- **The spec's Profiles row.** Append: "with remembered accounts and one-press switching in the app as the fallback when tvOS's own switching misbehaves."
+- **TESTING.md.** List the journey.
+
+```bash
+git switch -c feature/tvos-account-switching develop   # after PR 3 merges
+git add DionysusPlayer DionysusPlayerTests DionysusTV DionysusTVTests DionysusTVUITests CLAUDE.md TESTING.md \
+  docs/superpowers/specs/2026-09-29-tvos-app-design.md DionysusPlayer/Resources/Localizable.xcstrings
+git commit -m "Remember accounts on Apple TV for one-press switching when tvOS user switching fails
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
 
 ---
 

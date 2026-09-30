@@ -66,6 +66,19 @@ token on the same device id (`SessionManager.GetAuthorizationToken`), so a
 shared id would sign one person out whenever another signs in to the same
 account.
 
+**tvOS's user switching is unreliable, and no app can fix it.** Measured on
+the Bedroom Apple TV (tvOS 27.0, 2026-09-30): the per-user split itself works
+(a secondary user runs in `/var/PersonaVolumes/<id>/…`, the primary in
+`/var/mobile/…`, and neither sees the other's per-user keychain), but cold
+launches repeatedly ran in the *other* user's container, before and after
+restarts, and installing a build from the Mac made it worse. It's the system
+bug in Firecore's "User Switching Broken (tvOS 26.4)" thread (reproduced by
+Firecore with a sample app; fixed in 26.6, reported recurring on 27). Don't
+debug it as an app bug, and don't design anything that assumes the container
+matches the Apple TV user: the M2 plan's Task 7 adds remembered accounts and
+one-press switching in the app as the fallback. To check which container a
+launch got, print `NSHomeDirectory()`.
+
 **HDR on the Apple TV plays through the HDR master as of AetherEngine 7.22.2**
 (measured 2026-09-30 on an Apple TV 4K 3rd gen, tvOS 27.0, HDR10-only TV). The
 engine requests the HDR10 mode and the right frame rate, and the TV takes about
