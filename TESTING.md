@@ -94,6 +94,19 @@ that Menu dismisses, including while the item is still loading
 Home's first tile, types a query into the system search field
 (`typeText` works on tvOS once the field exists) and plays a result.
 
+The transport journeys pin the player's own chrome: the title block sits
+top-left, the elapsed time and scrubber are on screen, and the format chip is
+not (it's hidden on tvOS until the engine labels HDR correctly). They
+pass `-UITestDisableControlAutoHide YES` so the chrome can't fade mid-read.
+The logo fallback is observed through the same DEBUG marker the iOS hero uses
+(`A11yID.Media.heroLogoFallbackVisible`), because the title block's label is
+set explicitly and so doesn't change when the text stands in for the logo;
+`slowLogoImage` holds every logo past the journey.
+Play/Pause is checked with auto-hide left on: the journey pauses, waits past
+the fade and checks the transport is still up and the time hasn't moved. The
+harness engine's `togglePlayPause()` used to do nothing, so any journey
+pressing Play/Pause on either platform tested nothing until it was filled in.
+
 Launch focus lands on the sidebar before Home's rails exist, so the launcher
 moves it to the first tile when that tile arrives; every journey that starts
 from Home depends on it.
