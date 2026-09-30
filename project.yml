@@ -291,6 +291,10 @@ targets:
         TARGETED_DEVICE_FAMILY: "3"
         SWIFT_EMIT_LOC_STRINGS: YES
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        # The brand-assets set in DionysusTV/Resources/TVAssets.xcassets:
+        # actool compiles no tvOS icon from dionysus.icon, so this set is
+        # rendered from it by Scripts/render-tvos-app-icon.py.
+        ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
     # Each Apple TV user gets their own UserDefaults and Keychain, so their own
     # Jellyfin sign-in; tvOS relaunches the app as the new user on a switch.
     # Items written with kSecUseUserIndependentKeychain (the server

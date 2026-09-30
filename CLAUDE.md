@@ -47,7 +47,12 @@ target is the list. **Downloads don't exist on tvOS**: `Core/Downloads` isn't
 compiled, and shared code guards its download paths with `#if DOWNLOADS`, a
 compilation condition only `DionysusPlayer` and `DionysusPlayerTests` define.
 Shared code that names a Downloads type must sit inside that guard, or the
-tvOS build breaks. Scheme `DionysusTV`; its unit tests (`DionysusTVTests`,
+tvOS build breaks. **The tvOS icon can't be `dionysus.icon`**: actool compiles
+no tvOS icon from an Icon Composer file and wants an "App Icon & Top Shelf
+Image" brand-assets set instead. That set (`DionysusTV/Resources/TVAssets.xcassets`)
+is rendered from `dionysus.icon`'s gradient and glyph by
+`Scripts/render-tvos-app-icon.py` (ImageMagick), so re-run it and commit the
+result whenever the iOS icon changes. Scheme `DionysusTV`; its unit tests (`DionysusTVTests`,
 plan `TVUnitTests`) reuse the shared test files. Design, decisions and
 milestones: `docs/superpowers/specs/2026-09-29-tvos-app-design.md`.
 
