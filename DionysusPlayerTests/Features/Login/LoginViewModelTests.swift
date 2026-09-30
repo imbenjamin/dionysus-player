@@ -19,6 +19,7 @@ final class LoginViewModelTests: XCTestCase {
         MockURLProtocol.reset()
         UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
         KeychainStore.delete(forKey: credentialsKey)
+        KeychainStore.delete(forKey: "server.configuration", scope: .allUsers)
         super.tearDown()
     }
 

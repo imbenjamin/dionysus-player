@@ -68,6 +68,14 @@ behaviour stays out of the list with a comment saying why; a test that only
 partly touches Downloads wraps that part in `#if DOWNLOADS`, which only the
 iOS targets define. Never change an assertion to make it pass on tvOS.
 
+On tvOS the server configuration lives in the keychain every Apple TV user
+shares, not in `UserDefaults`, so a shared test that saves a server must also
+delete `server.configuration` with `scope: .allUsers` in its `tearDown`
+(`ServerSessionStoreTests`, `AppStateTests`, `LoginViewModelTests`).
+Otherwise one test's server leaks into the next on tvOS only.
+`TVAppLaunchTests` checks what the app's own launch sets up, since the test
+host runs `DionysusTVApp.init`.
+
 ```sh
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
   -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)'

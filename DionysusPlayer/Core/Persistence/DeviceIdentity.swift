@@ -26,8 +26,9 @@ enum DeviceIdentity {
     nonisolated(unsafe) private static var cachedDeviceName: String?
     nonisolated(unsafe) private static var cachedIsPad: Bool?
 
-    /// Called once from `AppDelegate`'s launch callback, which UIKit invokes on
-    /// the main thread well before the first network request.
+    /// Called once at launch, on the main thread and well before the first
+    /// network request: from `AppDelegate`'s launch callback on iOS, and from
+    /// `DionysusTVApp.init` on tvOS.
     @MainActor
     static func primeCache() {
         #if canImport(UIKit)

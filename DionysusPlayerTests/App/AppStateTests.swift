@@ -15,6 +15,7 @@ final class AppStateTests: XCTestCase {
     private var defaults: UserDefaults!
     private let suiteName = "com.dionysusplayer.tests.AppStateTests"
     private let credentialsKey = "server.credentials" // matches ServerSessionStore.Keys.credentials
+    private let serverKey = "server.configuration" // matches ServerSessionStore.Keys.serverConfiguration
     private let exampleServer = ServerConfiguration(name: "Home", baseURL: URL(string: "https://jellyfin.example.com")!)
 
     override func setUp() async throws {
@@ -30,6 +31,7 @@ final class AppStateTests: XCTestCase {
         ConnectivityMonitor.shared.reset()
         defaults.removePersistentDomain(forName: suiteName)
         KeychainStore.delete(forKey: credentialsKey)
+        KeychainStore.delete(forKey: serverKey, scope: .allUsers)
         try await super.tearDown()
     }
 
@@ -217,7 +219,10 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(appState.currentUser?.id, "user-1")
         XCTAssertEqual(
             appState.sessionStore.credentials,
-            StoredCredentials(username: "ben", password: nil, accessToken: "qc-token", userID: "user-1", authMethod: .quickConnect)
+            StoredCredentials(
+                username: "ben", password: nil, accessToken: "qc-token", userID: "user-1",
+                authMethod: .quickConnect, serverID: exampleServer.id
+            )
         )
     }
 
@@ -235,12 +240,7 @@ final class AppStateTests: XCTestCase {
     func test_signIn_success_setsUserPhaseAndPersistsCredentials() async throws {
         let appState = makeAppState()
         appState.completeServerSetup(exampleServer)
-        MockURLProtocol.requestHandler = { request in
-            try MockURLProtocol.encodedJSONResponse(
-                for: request,
-                value: AuthenticationResult(user: UserDto(id: "user-1", name: "ben"), accessToken: "tok", serverId: nil)
-            )
-        }
+        MockURLProtocol.requestHandler = Self.authenticateByNameHandler
 
         let user = try await appState.signIn(username: "ben", password: "hunter2")
 
@@ -351,5 +351,47 @@ final class AppStateTests: XCTestCase {
 
         XCTAssertEqual(appState.phase, .serverSetup)
         XCTAssertTrue(appState.sessionStore.hasCompletedWelcome)
+    }
+
+    // MARK: Credentials bound to a server
+
+    private static let authenticateByNameHandler: @Sendable (URLRequest) throws -> (HTTPURLResponse, Data) = { request in
+        try MockURLProtocol.encodedJSONResponse(
+            for: request,
+            value: AuthenticationResult(user: UserDto(id: "user-1", name: "ben"), accessToken: "tok", serverId: nil)
+        )
+    }
+
+    /// Another Apple TV user changed the shared server. This user's own
+    /// credentials were issued by the old one and must not be replayed against
+    /// the new one, where the same username could be someone else.
+    func test_start_credentialsBoundToAnotherServer_discardsThemAndGoesToLogin() async {
+        let store = ServerSessionStore(defaults: defaults)
+        store.saveServer(exampleServer)
+        store.saveCredentials(StoredCredentials(
+            username: "ben", password: "pw", accessToken: "tok", userID: "u1",
+            serverID: "https://old.example.com"
+        ))
+        MockURLProtocol.requestHandler = { _ in
+            XCTFail("No request may be sent with credentials from another server")
+            throw URLError(.badServerResponse)
+        }
+        let appState = AppState(sessionStore: store)
+
+        await appState.start()
+
+        XCTAssertEqual(appState.phase, .login)
+        XCTAssertNil(store.credentials)
+    }
+
+    func test_signIn_bindsCredentialsToTheConfiguredServer() async throws {
+        let store = ServerSessionStore(defaults: defaults)
+        let appState = AppState(sessionStore: store)
+        appState.completeServerSetup(exampleServer)
+        MockURLProtocol.requestHandler = Self.authenticateByNameHandler
+
+        try await appState.signIn(username: "ben", password: "pw")
+
+        XCTAssertEqual(store.credentials?.serverID, exampleServer.id)
     }
 }

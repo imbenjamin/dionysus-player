@@ -5,6 +5,9 @@ struct DionysusTVApp: App {
     @State private var appState = AppState()
 
     init() {
+        // Jellyfin names this Apple TV from it on every request; the iOS app
+        // primes it from its AppDelegate, which tvOS doesn't have.
+        DeviceIdentity.primeCache()
         #if DEBUG
         UITestHarness.installIfNeeded()
         #endif

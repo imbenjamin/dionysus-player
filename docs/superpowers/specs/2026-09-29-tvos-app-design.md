@@ -68,8 +68,8 @@ Tiles carry iOS's corner badges (`PosterCard.watchStatusOverlay`): a heart top-l
 
 - **HDR output.** The TV stays in SDR (EDR headroom 1.00), and the engine reports "source HDR10, display SDR", in both host modes, with both Match Content settings on. Infuse shows HDR on the same box. `AVDisplayManager.isDisplayCriteriaMatchingEnabled` read inconsistently across runs.
 - **Now Playing** appears in neither host mode (deferred).
-- **Per-user profiles.** The entitlement is granted, but switching tvOS users has no effect yet.
-- **One unexplained loss** of the saved session after a reinstall.
+- **Per-user profiles.** The spike built without the User Management capability, so tvOS ran it as the default user for everyone. Milestone 2 adds the entitlement, shares the server configuration across users and keeps each user's sign-in separate. On the device (2026-09-30) the separation works, but tvOS often launches the app in the wrong user's container: a known system bug (Firecore's "User Switching Broken (tvOS 26.4)" thread), recurring on tvOS 27. The app therefore also remembers the accounts signed in on this Apple TV and switches between them in one press (M2 plan, Task 7).
+- **Session loss after a reinstall: explained and fixed.** The server configuration lived in `UserDefaults`, which a reinstall erases, while the credentials survived in the Keychain. It now lives in the Keychain too; a reinstall on the Simulator returns straight to Home (2026-09-30).
 
 **Design finding:** the tvOS 26 `TabView` sidebar collapses to a "‹ Home" pill, not the icon rail in the prototype. The system behaviour is accepted unless reviewed otherwise.
 

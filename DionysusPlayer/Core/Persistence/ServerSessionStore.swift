@@ -2,14 +2,34 @@ import Foundation
 import Observation
 
 /// Persists the configured server and the signed-in user's credentials
-/// across launches. Server config lives in `UserDefaults` (not secret);
-/// credentials live in the Keychain.
+/// across launches. Server config lives in `UserDefaults` on iOS and in the
+/// keychain every Apple TV user shares on tvOS; credentials live in the
+/// (per-user) Keychain.
 @Observable
 final class ServerSessionStore {
     private enum Keys {
         static let serverConfiguration = "server.configuration"
         static let credentials = "server.credentials"
         static let welcomeCompleted = "onboarding.welcomeCompleted"
+    }
+
+    /// Where the configured server is kept. On tvOS it's the household's, not
+    /// one person's: it goes in the keychain every Apple TV user shares, while
+    /// each person's credentials stay in their own. It also survives a
+    /// reinstall there, alongside the credentials, which `UserDefaults`
+    /// doesn't. That mismatch is the likeliest cause of the spike's one
+    /// unexplained session loss.
+    enum ServerLocation {
+        case userDefaults
+        case sharedKeychain
+
+        static var platformDefault: ServerLocation {
+            #if os(tvOS)
+            .sharedKeychain
+            #else
+            .userDefaults
+            #endif
+        }
     }
 
     private(set) var serverConfiguration: ServerConfiguration?
@@ -22,11 +42,13 @@ final class ServerSessionStore {
     private(set) var hasCompletedWelcome = false
 
     private let defaults: UserDefaults
+    private let serverLocation: ServerLocation
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, serverLocation: ServerLocation = .platformDefault) {
         self.defaults = defaults
+        self.serverLocation = serverLocation
         loadServerConfiguration()
         loadCredentials()
         hasCompletedWelcome = defaults.bool(forKey: Keys.welcomeCompleted)
@@ -39,8 +61,11 @@ final class ServerSessionStore {
     }
 
     private func loadServerConfiguration() {
-        guard let data = defaults.data(forKey: Keys.serverConfiguration),
-              let config = try? decoder.decode(ServerConfiguration.self, from: data) else { return }
+        let data: Data? = switch serverLocation {
+        case .userDefaults: defaults.data(forKey: Keys.serverConfiguration)
+        case .sharedKeychain: KeychainStore.load(forKey: Keys.serverConfiguration, scope: .allUsers)
+        }
+        guard let data, let config = try? decoder.decode(ServerConfiguration.self, from: data) else { return }
         serverConfiguration = config
     }
 
@@ -54,7 +79,10 @@ final class ServerSessionStore {
         markWelcomeCompleted()
         serverConfiguration = configuration
         guard let data = try? encoder.encode(configuration) else { return }
-        defaults.set(data, forKey: Keys.serverConfiguration)
+        switch serverLocation {
+        case .userDefaults: defaults.set(data, forKey: Keys.serverConfiguration)
+        case .sharedKeychain: KeychainStore.save(data, forKey: Keys.serverConfiguration, scope: .allUsers)
+        }
     }
 
     func saveCredentials(_ credentials: StoredCredentials) {
@@ -70,15 +98,19 @@ final class ServerSessionStore {
         KeychainStore.delete(forKey: Keys.credentials)
     }
 
-    /// Forgets the server entirely, sending the user back to first-run setup.
+    /// Records that the first-run welcome is behind the user.
     func markWelcomeCompleted() {
         hasCompletedWelcome = true
         defaults.set(true, forKey: Keys.welcomeCompleted)
     }
 
+    /// Forgets the server entirely, sending the user back to first-run setup.
     func clearAll() {
         clearCredentials()
         serverConfiguration = nil
-        defaults.removeObject(forKey: Keys.serverConfiguration)
+        switch serverLocation {
+        case .userDefaults: defaults.removeObject(forKey: Keys.serverConfiguration)
+        case .sharedKeychain: KeychainStore.delete(forKey: Keys.serverConfiguration, scope: .allUsers)
+        }
     }
 }
