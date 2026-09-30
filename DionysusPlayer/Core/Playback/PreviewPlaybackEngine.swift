@@ -55,6 +55,7 @@ final class PreviewPlaybackEngine: PlaybackEngine {
 
     private var currentTime: TimeInterval = 0
     private var ticker: Task<Void, Never>?
+    private var isPlaying = false
 
     deinit { ticker?.cancel() }
     var stats = PlaybackStats(
@@ -88,22 +89,27 @@ final class PreviewPlaybackEngine: PlaybackEngine {
             return
         }
         currentTime = 0
+        isPlaying = true
         onStateChange?(.playing)
         onTimeUpdate?(currentTime, duration)
         startTickingIfNeeded()
     }
 
     func play() {
+        isPlaying = true
         onStateChange?(.playing)
         startTickingIfNeeded()
     }
 
     func pause() {
+        isPlaying = false
         stopTicking()
         onStateChange?(.paused)
     }
 
-    func togglePlayPause() {}
+    func togglePlayPause() {
+        isPlaying ? pause() : play()
+    }
 
     func seek(to time: TimeInterval) async {
         currentTime = min(max(time, 0), duration)

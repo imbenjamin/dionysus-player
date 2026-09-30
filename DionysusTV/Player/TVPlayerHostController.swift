@@ -19,6 +19,7 @@ import UIKit
 final class TVPlayerHostController: AVPlayerViewController {
     private let session: TVPlaybackSession
     private let engine: PlaybackEngine
+    private let chrome = TVTransportChrome()
     private var viewModel: PlayerViewModel { session.viewModel }
 
     private var aetherView: AetherPlayerView?
@@ -49,7 +50,7 @@ final class TVPlayerHostController: AVPlayerViewController {
             showFakeSurface()
         }
 
-        let overlay = UIHostingController(rootView: TVTransportOverlay(viewModel: viewModel))
+        let overlay = UIHostingController(rootView: TVTransportOverlay(viewModel: viewModel, chrome: chrome))
         overlay.view.backgroundColor = .clear
         overlay.view.isUserInteractionEnabled = false
         overlay.view.frame = view.bounds
@@ -59,10 +60,25 @@ final class TVPlayerHostController: AVPlayerViewController {
         overlay.didMove(toParent: self)
         overlayHost = overlay
 
-        addPress(.playPause) { [weak self] in self?.viewModel.togglePlayPause() }
+        // Every handled press shows the transport; Select does nothing else.
+        addPress(.select) { [weak self] in self?.chrome.poke() }
+        addPress(.playPause) { [weak self] in self?.togglePlayPause() }
         addPress(.leftArrow) { [weak self] in self?.skip(by: -10) }
         addPress(.rightArrow) { [weak self] in self?.skip(by: 10) }
         addPress(.menu) { [weak self] in self?.close() }
+    }
+
+    /// Keyboard keys with no remote press of their own (`TVKeyboardCommand`).
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        var unhandled = presses
+        for press in presses {
+            guard let keyCode = press.key?.keyCode, let command = TVKeyboardCommand(keyCode: keyCode) else { continue }
+            switch command {
+            case .playPause: togglePlayPause()
+            }
+            unhandled.remove(press)
+        }
+        if !unhandled.isEmpty { super.pressesEnded(unhandled, with: event) }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -71,6 +87,8 @@ final class TVPlayerHostController: AVPlayerViewController {
         hideAVKitChrome(in: view)
         // Menu pressed during the presentation: its dismiss was deferred to here.
         guard !session.hasEnded else { return dismiss(animated: true) }
+        // The transport is up already; its fade starts with playback
+        // (`TVTransportChrome.playbackStateChanged`), not here.
         session.begin()
     }
 
@@ -155,9 +173,15 @@ final class TVPlayerHostController: AVPlayerViewController {
 
     // MARK: - Remote
 
+    private func togglePlayPause() {
+        viewModel.togglePlayPause()
+        chrome.poke()
+    }
+
     private func skip(by seconds: TimeInterval) {
         let target = max(0, min(viewModel.duration, viewModel.currentTime + seconds))
         viewModel.seek(to: target)
+        chrome.poke()
     }
 
     /// Ends the session before dismissing, in any state, `.loading` included.
@@ -216,3 +240,4 @@ private final class PressRecognizer: UITapGestureRecognizer {
 
     @objc private func fire() { action() }
 }
+

@@ -65,10 +65,30 @@ trusted on its own: `currentEDRHeadroom` reads a flat 1.00 while the TV shows
 HDR10, so the engine only corrects `$videoFormat` from `.sdr` once AVPlayer
 accepts the master, and a session that falls back would still read SDR. Trust
 the TV's own info banner, not `displayColorFormat` or EDR headroom, when
-checking HDR here.
+checking HDR here. For the same reason the player's format chip stays hidden on
+tvOS (`TVTransportOverlay.showsFormatChip`).
 `DisplayContext` passes the real Match Content setting, and deliberately
 asserts nothing about the panel's HDR state, since EDR headroom is the only
 thing it could read and the engine reads that itself.
+
+**The player host has three rules, each learned from AetherEngine's README or
+Sodalite rather than guessable** (`DionysusTV/Player/`). It is presented with
+UIKit `present`, never `fullScreenCover`, which takes the Menu button for
+itself. The engine's own `AetherPlayerView` is hidden whenever
+`currentAVPlayer` is non-nil, because AVKit draws the native route and the
+software route has no AVPlayer at all (`TVPlayerSurfacePolicy`). And the
+engine is made with `ownsNowPlayingSession: false`, since the
+`AVPlayerViewController` already runs Now Playing and a second session
+conflicts with it. AVKit's chrome is hidden and the transport is ours
+(`TVTransportOverlay`), inset by the safe area alone. It fades four seconds
+after playback starts or the last press, never while loading or paused
+(`TVTransportChrome`); timing the first fade from the player appearing let a
+slow load use up the title's time on screen.
+The space bar is Play/Pause too (`TVKeyboardCommand`): a keyboard, and the
+Simulator's on-screen remote, send it as a keyboard press (type 2044, HID
+usage 0x2C), never `.playPause`, so a `.playPause` recognizer alone leaves
+Play/Pause dead there. XCUITest can't type into the player (nothing has
+keyboard focus), so check that path with `idb ui key <udid> 44`.
 
 ## Commands
 
