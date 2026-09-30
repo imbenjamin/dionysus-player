@@ -291,6 +291,16 @@ targets:
         TARGETED_DEVICE_FAMILY: "3"
         SWIFT_EMIT_LOC_STRINGS: YES
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    # Each Apple TV user gets their own UserDefaults and Keychain, so their own
+    # Jellyfin sign-in; tvOS relaunches the app as the new user on a switch.
+    # Items written with kSecUseUserIndependentKeychain (the server
+    # configuration) are shared by every user. Without this capability tvOS
+    # runs the app as the default user for everyone.
+    entitlements:
+      path: Generated/DionysusTV.entitlements
+      properties:
+        com.apple.developer.user-management:
+          - runs-as-current-user-with-user-independent-keychain
     info:
       path: Generated/Info-tvOS.plist
       properties:

@@ -51,6 +51,21 @@ tvOS build breaks. Scheme `DionysusTV`; its unit tests (`DionysusTVTests`,
 plan `TVUnitTests`) reuse the shared test files. Design, decisions and
 milestones: `docs/superpowers/specs/2026-09-29-tvos-app-design.md`.
 
+**Each Apple TV user has their own session.** The `DionysusTV` target runs
+as the current Apple TV user (`com.apple.developer.user-management` =
+`runs-as-current-user-with-user-independent-keychain`), so `UserDefaults` and
+the Keychain are per user, and tvOS terminates the app on a user switch and
+relaunches it as the new user. There is no in-app user-change event to handle.
+The server configuration is the household's: `ServerSessionStore.ServerLocation
+.platformDefault` puts it in the keychain every user shares
+(`KeychainStore.Scope.allUsers`), where it also survives a reinstall.
+Credentials carry the server they were issued by (`StoredCredentials.serverID`)
+and are discarded at launch when another user has since changed it.
+`DeviceIdentity.deviceID` must stay per user: Jellyfin revokes a user's older
+token on the same device id (`SessionManager.GetAuthorizationToken`), so a
+shared id would sign one person out whenever another signs in to the same
+account.
+
 **HDR on the Apple TV plays through the HDR master as of AetherEngine 7.22.2**
 (measured 2026-09-30 on an Apple TV 4K 3rd gen, tvOS 27.0, HDR10-only TV). The
 engine requests the HDR10 mode and the right frame rate, and the TV takes about

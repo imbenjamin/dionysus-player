@@ -22,19 +22,28 @@ struct StoredCredentials: Codable, Equatable {
     var accessToken: String?
     var userID: String?
     var authMethod: AuthMethod = .password
+    /// The `ServerConfiguration.id` these were issued by. On tvOS the server is
+    /// shared by every Apple TV user while credentials are per user, so another
+    /// user changing the server leaves these pointing at the old one; launch
+    /// discards them rather than replaying a username and password against a
+    /// server where the name may belong to someone else. `nil` for entries
+    /// written before this existed, which are trusted as before.
+    var serverID: String?
 
     init(
         username: String,
         password: String?,
         accessToken: String?,
         userID: String?,
-        authMethod: AuthMethod = .password
+        authMethod: AuthMethod = .password,
+        serverID: String? = nil
     ) {
         self.username = username
         self.password = password
         self.accessToken = accessToken
         self.userID = userID
         self.authMethod = authMethod
+        self.serverID = serverID
     }
 
     /// Keychain entries written before Quick Connect existed have no
@@ -46,5 +55,6 @@ struct StoredCredentials: Codable, Equatable {
         accessToken = try container.decodeIfPresent(String.self, forKey: .accessToken)
         userID = try container.decodeIfPresent(String.self, forKey: .userID)
         authMethod = try container.decodeIfPresent(AuthMethod.self, forKey: .authMethod) ?? .password
+        serverID = try container.decodeIfPresent(String.self, forKey: .serverID)
     }
 }

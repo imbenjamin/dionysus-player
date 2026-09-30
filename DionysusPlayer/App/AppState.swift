@@ -82,6 +82,14 @@ final class AppState {
             return
         }
 
+        // Another Apple TV user changed the shared server since these were
+        // saved (see `StoredCredentials.serverID`).
+        if let boundServerID = credentials.serverID, boundServerID != server.id {
+            sessionStore.clearCredentials()
+            phase = .login
+            return
+        }
+
         do {
             switch credentials.authMethod {
             case .password:
@@ -149,7 +157,8 @@ final class AppState {
             username: username,
             password: password,
             accessToken: result.accessToken,
-            userID: result.user.id
+            userID: result.user.id,
+            serverID: sessionStore.serverConfiguration?.id
         ))
         phase = .main
         return result.user
@@ -168,7 +177,8 @@ final class AppState {
             password: nil,
             accessToken: result.accessToken,
             userID: result.user.id,
-            authMethod: .quickConnect
+            authMethod: .quickConnect,
+            serverID: sessionStore.serverConfiguration?.id
         ))
         phase = .main
         return result.user
