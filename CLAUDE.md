@@ -51,18 +51,21 @@ tvOS build breaks. Scheme `DionysusTV`; its unit tests (`DionysusTVTests`,
 plan `TVUnitTests`) reuse the shared test files. Design, decisions and
 milestones: `docs/superpowers/specs/2026-09-29-tvos-app-design.md`.
 
-**HDR on the Apple TV works, but not through the HDR master, and the engine
-labels it SDR** (measured 2026-09-29, AetherEngine 7.22.0, Apple TV 4K 3rd gen
-on tvOS 27.0, an HDR10-only TV). The engine requests the HDR10 mode and the
-right frame rate, and the TV switches. But the switch takes 2.9s there, the
-engine's criteria gate gives up at 2s, and AVPlayer refuses the HDR master
-(`-11868`) mid-switch. The engine then latches that refusal until the app is
-backgrounded (AetherEngine#588) and plays the media playlist, which is still HDR10/PQ on screen but carries no
-subtitle or audio renditions. `$videoFormat` stays `.sdr` because it confirms
-HDR through `currentEDRHeadroom`, which read a flat 1.00 while the TV showed
-HDR10. So trust the TV's own info banner, not `displayColorFormat` or
-EDR headroom, when checking HDR here. The timing is filed upstream as
-AetherEngine#667.
+**HDR on the Apple TV plays through the HDR master as of AetherEngine 7.22.2**
+(measured 2026-09-30 on an Apple TV 4K 3rd gen, tvOS 27.0, HDR10-only TV). The
+engine requests the HDR10 mode and the right frame rate, and the TV takes about
+2.9s to switch there, longer than the engine's 2s criteria gate. Up to 7.22.1
+the engine served the master mid-switch, AVPlayer refused it (`-11868`), and
+the refusal latched until the app was backgrounded (AetherEngine#588), so every
+HDR title fell back to the media playlist: still HDR10/PQ on screen, but with no
+subtitle or audio renditions. 7.22.2 waits for the switch to end before serving
+the master and no longer latches a refusal raised mid-switch (AetherEngine#667,
+which this app filed and retested on device). The HDR label still can't be
+trusted on its own: `currentEDRHeadroom` reads a flat 1.00 while the TV shows
+HDR10, so the engine only corrects `$videoFormat` from `.sdr` once AVPlayer
+accepts the master, and a session that falls back would still read SDR. Trust
+the TV's own info banner, not `displayColorFormat` or EDR headroom, when
+checking HDR here.
 `DisplayContext` passes the real Match Content setting, and deliberately
 asserts nothing about the panel's HDR state, since EDR headroom is the only
 thing it could read and the engine reads that itself.
