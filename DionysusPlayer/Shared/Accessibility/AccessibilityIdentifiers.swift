@@ -413,9 +413,18 @@ enum A11yID {
     enum TV {
         enum Onboarding {
             static let findServerTitle = "tv.onboarding.findServer.title"
+            static let welcomeTitle = "tv.onboarding.welcome.title"
+            static let getStarted = "tv.onboarding.welcome.getStarted"
+            static let enterAddress = "tv.onboarding.findServer.enterAddress"
+            static let addressField = "tv.onboarding.findServer.addressField"
             static func serverRow(_ id: String) -> String { "tv.onboarding.server.\(id)" }
             static let whosWatchingTitle = "tv.onboarding.whosWatching.title"
             static func user(_ id: String) -> String { "tv.onboarding.user.\(id)" }
+            static let otherUser = "tv.onboarding.user.other"
+            static let quickConnectCode = "tv.onboarding.quickConnect.code"
+            static let usePassword = "tv.onboarding.quickConnect.usePassword"
+            static let passwordField = "tv.onboarding.password.field"
+            static let changeServer = "tv.onboarding.whosWatching.changeServer"
         }
         enum Main {
             static let root = "tv.main.firstRail"
