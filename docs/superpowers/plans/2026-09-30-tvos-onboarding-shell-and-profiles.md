@@ -6,7 +6,8 @@
 - the prototype's onboarding (Welcome, Find Your Server, Who's Watching?, Quick Connect first);
 - the designed sidebar shell (Home, Search, the user's libraries folded into "Libraries" above 5, and Profile);
 - per-Apple-TV-user sessions: one server for the household, each person signed in to their own Jellyfin account;
-- in-app account switching as the fallback when tvOS's own user switching misbehaves: every account signed in on this Apple TV is remembered and one press away on Who's Watching?.
+- in-app account switching as the fallback when tvOS's own user switching misbehaves: every account signed in on this Apple TV is remembered and one press away on Who's Watching?;
+- a "Follow Apple TV Users" setting (on by default) that, turned off, shares one sign-in and one list of remembered accounts across every Apple TV user, for households where tvOS's switching is too unreliable.
 
 **Architecture:**
 - **Per-user sessions come from the platform, not from our code.** The `com.apple.developer.user-management` entitlement (`runs-as-current-user-with-user-independent-keychain`) gives each Apple TV user their own `UserDefaults` and Keychain. tvOS terminates the app when the user switches and relaunches it as the new user, so there is no in-app "user changed" event to handle.
@@ -103,6 +104,7 @@ The spike's **one-off session loss after a reinstall** has a likely cause: befor
 | 2 | 3–4: onboarding design | `feature/tvos-onboarding-design` |
 | 3 | 5–6: sidebar shell and Profile | `feature/tvos-sidebar` |
 | 4 | 7: in-app account switching | `feature/tvos-account-switching` |
+| 5 | 8: the "Follow Apple TV Users" setting | `feature/tvos-follow-users-setting` |
 
 ---
 
@@ -1914,7 +1916,7 @@ git commit -m "Add the Apple TV sidebar: libraries, the Libraries fold, and Prof
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-After PR 4 merges, run one final review of the whole milestone: a fresh reviewer on the most capable model, reviewing all four PRs against this plan and the spec. That's how plan 1 ended.
+After PR 5 merges, run one final review of the whole milestone: a fresh reviewer on the most capable model, reviewing all five PRs against this plan and the spec. That's how plan 1 ended.
 
 ---
 
@@ -2221,12 +2223,259 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
+### Task 8: The "Follow Apple TV Users" setting
+
+Requested by Benjamin on 2026-09-30, as a follow-up to PR 1: a setting to stop following Apple TV users, for anyone who finds tvOS's switching bug too annoying and would rather switch accounts in the app.
+
+**What it can and can't do.** The User Management entitlement is part of the signed app, so a setting can't stop tvOS choosing which Apple TV user's container a launch runs in. What the setting controls is *where the session lives*:
+- **On (the default):** credentials and remembered accounts are per Apple TV user (Tasks 1 and 7).
+- **Off:** credentials and remembered accounts move to the keychain every Apple TV user shares. Whichever container tvOS picks, the app opens on the same account, and people change account with Switch User and Who's Watching?.
+
+**Rules:**
+- **The setting itself lives in the shared keychain** (`settings.followsAppleTVUsers`, `KeychainStore.Scope.allUsers`). A value stored per container would change with the very bug it exists to avoid. It is one setting for the whole Apple TV, and the copy says so.
+- **Turning it off moves this container's session** (current credentials plus remembered accounts) to the shared keychain, and deletes the per-user copies. Other Apple TV users' per-user sessions stay where they are, unused while the setting is off.
+- **Turning it on moves the shared session** into this container's per-user keychain and deletes the shared copies. Every other Apple TV user then starts from Who's Watching?, with nothing remembered.
+- **Not moved, accepted:**
+  - `UserDefaults` preferences (stream, track and Next Up settings, search history) and `DeviceIdentity.deviceID` stay per container either way.
+  - While the setting is off, a launch in another container reads that container's preferences and a different device id. The session still works: Jellyfin checks the token, not the device id.
+  - Moving preferences is out of scope unless Benjamin asks.
+- **tvOS only.** iOS has no Apple TV users; the setting is compiled out there, and `ServerSessionStore` on iOS behaves exactly as before.
+
+**Files:**
+- Create: `DionysusPlayer/Core/Persistence/SessionScopeSetting.swift` (the shared-keychain Bool, tvOS only)
+- Modify: `DionysusPlayer/Core/Persistence/ServerSessionStore.swift` (a `sessionScope` used for credentials and remembered accounts, plus `moveSession(to:)`)
+- Modify: `DionysusPlayer/App/AppState.swift` (`setFollowsAppleTVUsers(_:)`)
+- Modify: `DionysusTV/Shell/TVProfileView.swift` (the toggle)
+- Modify: `DionysusPlayer/Shared/Accessibility/AccessibilityIdentifiers.swift` (`A11yID.TV.Profile.followsAppleTVUsers`)
+- Test: `DionysusPlayerTests/Core/Persistence/ServerSessionStoreTests.swift`, `DionysusTVTests/SessionScopeSettingTests.swift`
+- Test: `DionysusTVUITests/AccountSwitchingJourneyTests.swift`
+- Docs: `CLAUDE.md` (the per-user sessions paragraph), the spec's Profiles row, TESTING.md
+
+**Interfaces:**
+- Consumes: Task 1's `KeychainStore.Scope`, and Task 7's remembered accounts and `forgetAccount(userID:)`.
+- Produces:
+  - `enum SessionScopeSetting { static var followsAppleTVUsers: Bool { get }; static func set(_ follows: Bool) }`. The default is `true` when nothing is stored.
+  - `ServerSessionStore.init(defaults:serverLocation:remembersAccounts:sessionScope:)`, where `sessionScope: KeychainStore.Scope` defaults to `.currentUser` on iOS, and on tvOS to `SessionScopeSetting.followsAppleTVUsers ? .currentUser : .allUsers`.
+  - `ServerSessionStore.moveSession(to scope: KeychainStore.Scope)`.
+  - `AppState.setFollowsAppleTVUsers(_ follows: Bool)`.
+
+- [ ] **Step 1: Write the failing store tests**
+
+In `ServerSessionStoreTests`:
+- Add `KeychainStore.delete(forKey: "server.credentials", scope: .allUsers)` and the same for `"server.rememberedAccounts"` to `tearDown`.
+- Append the tests below.
+
+On iOS both scopes are one keychain, so the scope assertions only mean something on tvOS. Guard the two scope-separation tests with `#if os(tvOS)` and keep the round-trip ones unguarded.
+
+```swift
+    // MARK: Session scope (tvOS "Follow Apple TV Users" off)
+
+    func test_sharedScope_roundTripsCredentialsAndRememberedAccounts() {
+        let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true, sessionScope: .allUsers)
+        store.saveCredentials(StoredCredentials(username: "ben", password: "", accessToken: "t", userID: "u1", serverID: "s"))
+
+        let reloaded = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true, sessionScope: .allUsers)
+        XCTAssertEqual(reloaded.credentials?.userID, "u1")
+        XCTAssertEqual(reloaded.rememberedAccounts(forServer: "s").map(\.userID), ["u1"])
+    }
+
+    #if os(tvOS)
+    func test_moveSessionToShared_leavesNothingPerUser() {
+        let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true, sessionScope: .currentUser)
+        store.saveCredentials(StoredCredentials(username: "ben", password: "", accessToken: "t", userID: "u1", serverID: "s"))
+
+        store.moveSession(to: .allUsers)
+
+        XCTAssertNil(KeychainStore.load(forKey: "server.credentials"))
+        XCTAssertNil(KeychainStore.load(forKey: "server.rememberedAccounts"))
+        let shared = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true, sessionScope: .allUsers)
+        XCTAssertEqual(shared.credentials?.userID, "u1")
+        XCTAssertEqual(shared.rememberedAccounts(forServer: "s").map(\.userID), ["u1"])
+    }
+
+    func test_moveSessionBackToPerUser_leavesNothingShared() {
+        let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true, sessionScope: .allUsers)
+        store.saveCredentials(StoredCredentials(username: "ben", password: "", accessToken: "t", userID: "u1", serverID: "s"))
+
+        store.moveSession(to: .currentUser)
+
+        XCTAssertNil(KeychainStore.load(forKey: "server.credentials", scope: .allUsers))
+        XCTAssertNil(KeychainStore.load(forKey: "server.rememberedAccounts", scope: .allUsers))
+        XCTAssertEqual(ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true, sessionScope: .currentUser).credentials?.userID, "u1")
+    }
+    #endif
+```
+
+`DionysusTVTests/SessionScopeSettingTests.swift`:
+
+```swift
+import XCTest
+@testable import Dionysus
+
+/// The setting is one value for the whole Apple TV, stored where every Apple
+/// TV user reads it, and on by default.
+final class SessionScopeSettingTests: XCTestCase {
+    override func tearDown() {
+        KeychainStore.delete(forKey: "settings.followsAppleTVUsers", scope: .allUsers)
+        super.tearDown()
+    }
+
+    func test_defaultsToFollowingAppleTVUsers() {
+        XCTAssertTrue(SessionScopeSetting.followsAppleTVUsers)
+    }
+
+    func test_turnedOff_persistsInTheSharedKeychain() {
+        SessionScopeSetting.set(false)
+        XCTAssertFalse(SessionScopeSetting.followsAppleTVUsers)
+        XCTAssertNotNil(KeychainStore.load(forKey: "settings.followsAppleTVUsers", scope: .allUsers))
+    }
+}
+```
+
+Run the tvOS unit command with `-only-testing:DionysusTVTests/ServerSessionStoreTests -only-testing:DionysusTVTests/SessionScopeSettingTests`. Expected: build failure.
+
+- [ ] **Step 2: Implement**
+
+1. **`SessionScopeSetting.swift`**, inside `#if os(tvOS)`:
+
+```swift
+import Foundation
+
+/// "Follow Apple TV Users": whether each Apple TV user keeps their own
+/// Dionysus session (on, the default) or everyone shares one (off). Stored in
+/// the keychain every Apple TV user shares, because tvOS's user-switching bug
+/// can launch the app in any user's container; a per-container value would
+/// flip with it.
+enum SessionScopeSetting {
+    private static let key = "settings.followsAppleTVUsers"
+
+    static var followsAppleTVUsers: Bool {
+        guard let data = KeychainStore.load(forKey: key, scope: .allUsers) else { return true }
+        return data != Data([0])
+    }
+
+    static func set(_ follows: Bool) {
+        KeychainStore.save(Data([follows ? 1 : 0]), forKey: key, scope: .allUsers)
+    }
+}
+```
+
+2. **`ServerSessionStore`:** replace the credentials' and remembered accounts' hard-coded `.currentUser` with a stored `sessionScope`:
+   - Add `private(set) var sessionScope: KeychainStore.Scope`, set from the new init parameter.
+   - Pass `scope: sessionScope` to every `KeychainStore` call on `Keys.credentials` and `Keys.rememberedAccounts`.
+   - Add:
+
+```swift
+    /// Moves the current credentials and remembered accounts to `scope`,
+    /// deleting them from the scope they were in (see `SessionScopeSetting`).
+    func moveSession(to scope: KeychainStore.Scope) {
+        guard scope != sessionScope else { return }
+        let previous = sessionScope
+        KeychainStore.delete(forKey: Keys.credentials, scope: previous)
+        KeychainStore.delete(forKey: Keys.rememberedAccounts, scope: previous)
+        sessionScope = scope
+        if let credentials, let data = try? encoder.encode(credentials) {
+            KeychainStore.save(data, forKey: Keys.credentials, scope: scope)
+        }
+        persistRememberedAccounts()
+    }
+```
+
+   `persistRememberedAccounts()` (Task 7) must write with `scope: sessionScope`.
+
+   Default for the init parameter: define `static var platformDefaultSessionScope: KeychainStore.Scope` as `#if os(tvOS) SessionScopeSetting.followsAppleTVUsers ? .currentUser : .allUsers #else .currentUser #endif`.
+
+3. **`AppState`**, inside `#if os(tvOS)`:
+
+```swift
+    /// The "Follow Apple TV Users" setting. The session moves with it, so
+    /// whoever is signed in stays signed in.
+    func setFollowsAppleTVUsers(_ follows: Bool) {
+        SessionScopeSetting.set(follows)
+        sessionStore.moveSession(to: follows ? .currentUser : .allUsers)
+    }
+```
+
+Run the Step 1 command: PASS. Then the full iOS unit plan, which must be unchanged.
+
+- [ ] **Step 3: The toggle**
+
+In `TVProfileView`, below Switch User and Change Server, add a section:
+
+```swift
+            Toggle("Follow Apple TV Users", isOn: Binding(
+                get: { SessionScopeSetting.followsAppleTVUsers },
+                set: { appState.setFollowsAppleTVUsers($0) }
+            ))
+            .frame(width: 900)
+            .accessibilityIdentifier(A11yID.TV.Profile.followsAppleTVUsers)
+            Text("On: each person on this Apple TV has their own Dionysus sign-in, following the user chosen in Control Center. Off: everyone shares one sign-in and switches accounts with Switch User. Turn this off if Dionysus opens as the wrong person. Applies to everyone on this Apple TV.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: 900)
+```
+
+`SessionScopeSetting` isn't observable, so the `Binding`'s getter won't redraw by itself after a change. Hold the value in `@State private var followsAppleTVUsers = SessionScopeSetting.followsAppleTVUsers`, and set both it and the app state in the binding's setter.
+
+Add `static let followsAppleTVUsers = "tv.profile.followsAppleTVUsers"` to `A11yID.TV.Profile`.
+
+The copy is new wording. Flag it to Benjamin at sign-off.
+
+- [ ] **Step 4: Write the failing journey, then make it pass**
+
+Append to `AccountSwitchingJourneyTests`:
+
+```swift
+    /// Turned off, the session moves to the keychain every Apple TV user
+    /// shares, and whoever is signed in stays signed in across a relaunch.
+    func test_followAppleTVUsersOff_keepsTheSignedInAccountAcrossRelaunch() {
+        let app = launch(seedSession: true)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)], timeout: 10))
+        press(.left)
+        press(.down, times: 6)   // Profile, as in Task 6
+        press(.select)
+        let toggle = app.switches[A11yID.TV.Profile.followsAppleTVUsers]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+        for _ in 0..<4 where !toggle.hasFocus { press(.down) }
+        XCTAssertTrue(waitForFocus(toggle))
+        press(.select)
+
+        app.terminate()
+        let relaunched = launch(extraArguments: ["-UITestResetState", "NO"])
+        XCTAssertTrue(relaunched.descendants(matching: .any)[A11yID.TV.Main.root].waitForExistence(timeout: 10))
+    }
+```
+
+**Two things to check in the harness before trusting this:**
+- `TVUITestCase.launch` always passes `-UITestResetState YES`. Check whether a later `NO` overrides it. If not, add a `resetsState: Bool = true` parameter to `launch` and pass `NO` for the relaunch.
+- `UITestHarness.resetPersistentState()` must also clear the shared session keys and `settings.followsAppleTVUsers`, or this test leaks the "off" setting into every later test. Add those three deletes there, using `.allUsers`.
+
+Run it: FAIL, then PASS after Step 3. Then run the whole `TVUITests` plan.
+
+- [ ] **Step 5: Docs, then commit after sign-off and open PR 5**
+
+- **CLAUDE.md, the per-user sessions paragraph.** Add: "The Profile setting 'Follow Apple TV Users' (`SessionScopeSetting`, stored in the shared keychain, on by default) moves the session between the per-user and shared keychains (`ServerSessionStore.moveSession(to:)`); off, every Apple TV user shares one sign-in and remembered list. It can't change which container tvOS launches into; preferences and the device id stay per container either way."
+- **The spec's Profiles row.** Append: "A Profile setting, Follow Apple TV Users, can turn per-user sessions off for the whole Apple TV."
+- **TESTING.md.** List the new tests, and the harness reset of the shared keys.
+
+```bash
+git switch -c feature/tvos-follow-users-setting develop   # after PR 4 merges
+git add DionysusPlayer DionysusPlayerTests DionysusTV DionysusTVTests DionysusTVUITests CLAUDE.md TESTING.md \
+  docs/superpowers/specs/2026-09-29-tvos-app-design.md DionysusPlayer/Resources/Localizable.xcstrings
+git commit -m "Add the Follow Apple TV Users setting: share one session when tvOS switching misbehaves
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
 ## Deviations from the prototype, to confirm with Benjamin at sign-off
 
 - **"What's Jellyfin?" is dropped from the Welcome.** tvOS has no browser to open it in.
 - **Profile is the last sidebar row, not pinned to the bottom.** The tvOS 26 sidebar has no bottom slot. Its avatar may be forced to a template symbol (Task 6, Step 3).
 - **The tvOS 26 sidebar collapses to a "‹ Home" pill**, not the prototype's icon rail. This was already accepted in the spec.
 - **The Change Server confirmation copy is new** (Task 6, Step 5).
+- **The Follow Apple TV Users setting and its footer copy are new** (Task 8, Step 3); the prototype's Profile screen has no such row.
 
 ## Out of scope (later milestones)
 
