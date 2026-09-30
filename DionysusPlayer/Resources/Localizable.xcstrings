@@ -589,6 +589,9 @@
     "Dolby Digital Plus" : {
 
     },
+    "Dolby Vision, HDR10 and surround sound, straight from your server, with the TV switched to match every frame rate and range." : {
+
+    },
     "Dolby Vision, HDR10 and surround sound, straight from your server." : {
 
     },
@@ -655,7 +658,13 @@
     "Enter Address Manually" : {
 
     },
+    "Enter Server Address" : {
+
+    },
     "Enter the password for %@" : {
+
+    },
+    "Enter Your Password" : {
 
     },
     "Enter your server's local IP and port, a domain name, or a full URL." : {
@@ -665,6 +674,9 @@
 
     },
     "Estimated Size" : {
+
+    },
+    "Everyone gets their own" : {
 
     },
     "External" : {
@@ -755,6 +767,9 @@
     "iOS interrupted this download several times and it couldn't be completed. Try downloading again." : {
 
     },
+    "Jellyfin servers on this network appear here as they're found." : {
+
+    },
     "Kbps" : {
 
     },
@@ -771,9 +786,6 @@
 
     },
     "Lock rotation" : {
-
-    },
-    "Looking for Jellyfin servers on this network…" : {
 
     },
     "Looking for Jellyfin servers on your Wi-Fi. If iOS asks, allow Local Network access so Dionysus can find yours." : {
@@ -854,7 +866,7 @@
     "No servers found" : {
 
     },
-    "No servers found. Enter an address below." : {
+    "No servers found." : {
 
     },
     "No synopsis available." : {
@@ -1172,9 +1184,6 @@
     "Servers found: %lld" : {
 
     },
-    "Servers on this network" : {
-
-    },
     "Show" : {
 
     },
@@ -1218,6 +1227,9 @@
 
     },
     "Signing in to **%@**" : {
+
+    },
+    "Signing in to %@" : {
 
     },
     "Signing In…" : {
@@ -1281,6 +1293,9 @@
 
     },
     "Subtitles" : {
+
+    },
+    "Switch Apple TV users in Control Center and Dionysus follows, each person signed in to their own Jellyfin account." : {
 
     },
     "Synopsis: %@" : {
@@ -1466,6 +1481,9 @@
     "Use HTTPS" : {
 
     },
+    "Use Password Instead" : {
+
+    },
     "Username" : {
 
     },
@@ -1479,6 +1497,9 @@
 
     },
     "Visible to Everyone" : {
+
+    },
+    "Waiting for approval" : {
 
     },
     "Waiting for approval…" : {

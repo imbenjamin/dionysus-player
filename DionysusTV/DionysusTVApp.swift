@@ -32,7 +32,12 @@ struct TVRootView: View {
                 ProgressView()
             } else {
                 switch appState.phase {
-                case .serverSetup: TVServerSetupView()
+                case .serverSetup:
+                    if appState.sessionStore.hasCompletedWelcome {
+                        TVServerSetupView()
+                    } else {
+                        TVWelcomeView()
+                    }
                 case .login: TVLoginView()
                 case .main:
                     // `signedInUserID`, not `currentUser`: a launch resumed from

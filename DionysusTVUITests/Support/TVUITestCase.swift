@@ -10,15 +10,20 @@ class TVUITestCase: XCTestCase {
     }
 
     @discardableResult
-    func launch(scenario: String = "standard", seedSession: Bool = false, extraArguments: [String] = []) -> XCUIApplication {
+    func launch(
+        scenario: String = "standard",
+        seedSession: Bool = false,
+        skipsWelcome: Bool = true,
+        extraArguments: [String] = []
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [
             "-UITestMode", "YES",
             "-UITestScenario", scenario,
             "-UITestResetState", "YES",
-            "-UITestDisableAnimations", "YES",
-            "-onboarding.welcomeCompleted", "YES"
-        ] + (seedSession ? ["-UITestSeedSession", "YES"] : []) + extraArguments
+            "-UITestDisableAnimations", "YES"
+        ] + (skipsWelcome ? ["-onboarding.welcomeCompleted", "YES"] : [])
+            + (seedSession ? ["-UITestSeedSession", "YES"] : []) + extraArguments
         app.launch()
         return app
     }

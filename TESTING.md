@@ -74,7 +74,9 @@ delete `server.configuration` with `scope: .allUsers` in its `tearDown`
 (`ServerSessionStoreTests`, `AppStateTests`, `LoginViewModelTests`).
 Otherwise one test's server leaks into the next on tvOS only.
 `TVAppLaunchTests` checks what the app's own launch sets up, since the test
-host runs `DionysusTVApp.init`.
+host runs `DionysusTVApp.init`. `TVSignInRouteTests` pins where choosing a
+user on Who's Watching? leads: one press for a user without a password,
+Quick Connect for anyone else when the server has it, a password otherwise.
 
 ```sh
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
@@ -93,6 +95,19 @@ check it with `TVUITestCase.waitForFocus`, never a bare `hasFocus` read. A
 failed wait attaches the element tree to the result bundle. Rails are lazy
 stacks: only what is on screen is in the tree, so a journey reaches a later
 rail by pressing down to it rather than querying for it.
+
+`TVUITestCase.launch` skips the Welcome by default, as the iOS suite does;
+`LaunchJourneyTests` passes `skipsWelcome: false` for the one journey that
+checks it. `OnboardingJourneyTests` covers Find Your Server (a discovered
+server, and Enter Server Address revealing the field) and Who's Watching?:
+a passwordless user, Quick Connect (the stub approves on the first poll),
+Use Password Instead (`quickConnectPending`) and a server with Quick Connect
+off (`quickConnectDisabled`). They stop at the password field rather than
+typing into it: `typeText` into a tvOS `SecureField` opens the system keyboard
+and is unreliable, and the sign-in behind it is `LoginViewModelTests`' job.
+The scan radar's motion is off under the harness, so its screenshots show the
+still rings; check the motion by launching with `-UITestScenario slowScan`
+and without `-UITestDisableAnimations`.
 
 `PlayerJourneyTests` opens the player from a browse tile. Under the harness
 the host gets the fake engine, so nothing is handed to AVKit; the journeys
