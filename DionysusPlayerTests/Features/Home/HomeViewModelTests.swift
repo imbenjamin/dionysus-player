@@ -1586,22 +1586,40 @@ final class HomeViewModelTests: XCTestCase {
         XCTAssertEqual(viewsRequestCount, 1, "Two concurrent callers should coalesce into a single attempt")
     }
 
-    /// A tvOS tab rebuild cancels the first `.task` mid-request. That must not
-    /// leave `.loading` (or a failure) behind, or `loadIfNeeded()` skips forever
-    /// and Home stays empty (spike finding, 2026-09-28).
-    func test_cancelledFirstLoad_returnsToIdle_soLoadIfNeededRetries() async throws {
+    /// A view's `.task` is cancelled when it disappears — a tab switch on iOS,
+    /// a tab rebuild on tvOS. The first load must finish anyway: when it was
+    /// cancelled with the caller, iOS was left on a spinner for good and tvOS
+    /// on an empty Home (final review, 2026-09-30).
+    func test_loadIfNeeded_callerCancelled_loadStillFinishes() async throws {
         let viewModel = makeViewModel()
-        MockURLProtocol.requestHandler = { request in
-            // Holds the first request open long enough to cancel it.
-            Thread.sleep(forTimeInterval: 0.5)
-            return try MockURLProtocol.encodedJSONResponse(
-                for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0)
-            )
-        }
+        MockURLProtocol.requestHandler = Self.slowEmptyHome
         let task = Task { await viewModel.loadIfNeeded() }
         try await waitUntil { viewModel.loadState == .loading }
         task.cancel()
         await task.value
-        XCTAssertEqual(viewModel.loadState, .idle)
+        try await waitUntil(timeout: 10) { viewModel.loadState == .loaded }
+    }
+
+    /// A second caller arriving while the first load is in flight — a view
+    /// reappearing before the old task has unwound — joins that load rather
+    /// than returning at once to a state that may never settle.
+    func test_loadIfNeeded_secondCallerJoinsTheInFlightLoad() async throws {
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = Self.slowEmptyHome
+        let first = Task { await viewModel.loadIfNeeded() }
+        try await waitUntil { viewModel.loadState == .loading }
+        first.cancel()
+        await viewModel.loadIfNeeded()
+        XCTAssertEqual(viewModel.loadState, .loaded)
+    }
+
+    /// An empty library, each request held briefly so a load can be caught
+    /// mid-flight.
+    nonisolated private static func slowEmptyHome(_ request: URLRequest) throws -> (HTTPURLResponse, Data) {
+        Thread.sleep(forTimeInterval: 0.1)
+        if request.url?.path == "/Users/user-1/Items/Latest" {
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]())
+        }
+        return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
     }
 }

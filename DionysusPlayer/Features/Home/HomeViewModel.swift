@@ -118,6 +118,7 @@ final class HomeViewModel {
     /// the real delays.
     private let reconnectRetrySchedule: [Double]
     /// Coalesces concurrent `retryLoadIfNeeded()` callers into one attempt.
+    private var inFlightLoad: Task<Void, Never>?
     private var inFlightRetry: Task<Void, Never>?
     /// Bumped at the top of every `performFullLoad(resetLoadState:)`, so
     /// `softRefresh()` can detect a concurrent `hardRefresh()` and defer to it.
@@ -151,9 +152,25 @@ final class HomeViewModel {
         self.reconnectRetrySchedule = reconnectRetrySchedule
     }
 
+    /// The first load runs in a task of its own rather than the caller's, so a
+    /// view's `.task` being cancelled when the view disappears (a tab switch
+    /// on iOS, a tab rebuild on tvOS) doesn't cancel it. Cancelled with the
+    /// caller, it left iOS on a spinner and tvOS on an empty Home for good,
+    /// since nothing calls this again once the view model exists. A caller
+    /// arriving mid-load joins it, the same shape as `inFlightRetry`.
     func loadIfNeeded() async {
+        if let inFlightLoad {
+            await inFlightLoad.value
+            return
+        }
         guard loadState == .idle else { return }
-        await load()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.load()
+        }
+        inFlightLoad = task
+        await task.value
+        inFlightLoad = nil
     }
 
     /// Every `loadState` write goes through this rather than a bare assignment,
@@ -241,13 +258,6 @@ final class HomeViewModel {
             hasMoreDynamicRails = false
             dynamicRailCandidatesFailed = false
             await loadDynamicRailCandidates()
-        } catch where Self.isCancellation(error) {
-            // Superseded rather than failed — on tvOS a tab rebuild cancels the
-            // first `.task` mid-request. Back to `.idle` so the next
-            // `loadIfNeeded()` runs; left at `.loading` or `.failed`, Home stayed
-            // empty for good. A hard refresh never moved `loadState`, so it
-            // leaves it alone here too.
-            if resetLoadState { setLoadState(.idle) }
         } catch {
             if resetLoadState {
                 setLoadState(.failed(
@@ -261,14 +271,6 @@ final class HomeViewModel {
             // `retryDynamicRailCandidatesIfNeeded`'s existing best-effort
             // philosophy.
         }
-    }
-
-    /// A cancelled task surfaces as `CancellationError` or as URLSession's own
-    /// `.cancelled`, depending on where the request was when it happened.
-    nonisolated static func isCancellation(_ error: Error) -> Bool {
-        if error is CancellationError { return true }
-        if let error = error as? URLError, error.code == .cancelled { return true }
-        return Task.isCancelled
     }
 
     /// Builds Home's four curated rails (Continue Watching, Next Up,

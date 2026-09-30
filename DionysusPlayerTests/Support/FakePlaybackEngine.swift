@@ -85,7 +85,13 @@ final class FakePlaybackEngine: PlaybackEngine {
     func play() { playCallCount += 1 }
     func pause() { pauseCallCount += 1 }
     func togglePlayPause() { togglePlayPauseCallCount += 1 }
-    func seek(to time: TimeInterval) async { seekedTimes.append(time) }
+    /// Runs inside `seek(to:)`, so a test can act mid-seek (e.g. cancel the
+    /// task that called it).
+    var onSeek: (() -> Void)?
+    func seek(to time: TimeInterval) async {
+        seekedTimes.append(time)
+        onSeek?()
+    }
     func stop() { stopCallCount += 1 }
     func selectAudioTrack(id: Int) { selectedAudioTrackIDs.append(id) }
     func selectSubtitleTrack(id: Int?) { selectedSubtitleTrackIDs.append(id) }

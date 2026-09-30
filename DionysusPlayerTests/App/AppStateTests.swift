@@ -111,6 +111,22 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(restoredToken, "cached-token")
     }
 
+    /// The resumed session has no `currentUser` yet, so the signed-in user
+    /// comes from the cached credentials. tvOS's root keyed on `currentUser`
+    /// alone and drew nothing at all on such a launch.
+    func test_start_serverUnreachable_signedInUserIDFallsBackToCachedCredentials() async {
+        let store = ServerSessionStore(defaults: defaults)
+        store.saveServer(exampleServer)
+        store.saveCredentials(StoredCredentials(username: "ben", password: "hunter2", accessToken: "cached-token", userID: "user-1"))
+        MockURLProtocol.requestHandler = { _ in throw URLError(.cannotConnectToHost) }
+        let appState = AppState(sessionStore: store)
+
+        await appState.start()
+
+        XCTAssertNil(appState.currentUser)
+        XCTAssertEqual(appState.signedInUserID, "user-1")
+    }
+
     /// Defensive fallback: a connectivity failure with remembered
     /// credentials that never actually carry a cached token/userID (not
     /// reachable in practice — `saveCredentials` is only ever called with

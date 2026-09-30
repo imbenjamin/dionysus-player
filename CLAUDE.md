@@ -559,6 +559,14 @@ PiP rebuilds on), and `PlayerViewModel.start()` stages title/subtitle
 subtitle:artwork:)` immediately, with artwork following separately once
 fetched through `RemoteImageLoader`.
 
+**A stop is reported only after a start** (`PlayerViewModel.stop()`).
+Jellyfin's `UserDataManager.UpdatePlayState` (10.11) writes a reported
+position straight to the resume point, so closing the player while it was
+still loading reported 0 and wiped it; omitting the position is worse, since
+the server then marks the item played. `start()` also checks for cancellation
+before playing, so a close during the resume seek can't play or report a start
+after the stop it raced.
+
 ### Subtitles
 
 Two renderers, split by codec. **ASS/SSA goes to libass**
