@@ -618,8 +618,13 @@ final class PlayerViewModel {
             } else if !startFromBeginning, let resumeSeconds = mediaItem.resumePositionSeconds, resumeSeconds > 0 {
                 await engine.seek(to: resumeSeconds)
             }
+            // Closed during the load or the resume seek: `stop()` has already
+            // run and skipped its report (nothing had started), so playing or
+            // reporting a start now would leave a session open behind it.
+            try Task.checkCancellation()
             engine.play()
 
+            hasReportedPlaybackStart = true
             try? await client.reportPlaybackStart(itemID: itemID, mediaSourceID: activeMediaSourceID, playSessionID: activePlaySessionID)
             startProgressReporting()
         } catch is CancellationError {
@@ -1471,6 +1476,10 @@ final class PlayerViewModel {
         }
     }
 
+    /// Set once `start()` has reported a start to the server; `stop()` reports
+    /// a stop only after one.
+    private var hasReportedPlaybackStart = false
+
     func stop() async {
         progressReportTask?.cancel()
         #if DOWNLOADS
@@ -1497,7 +1506,11 @@ final class PlayerViewModel {
         // Keyed on live connectivity rather than `isOfflinePlayback`: a download
         // takes the branch above, and this one only runs for a live session whose
         // server became unreachable mid-session.
-        if !ConnectivityMonitor.shared.isOffline {
+        // Nothing reported as started, nothing to stop. Jellyfin writes a
+        // reported position straight to the resume point, so the 0 of a player
+        // closed while loading wiped it (and omitting the position marks the
+        // item played), in `UserDataManager.UpdatePlayState`.
+        if hasReportedPlaybackStart, !ConnectivityMonitor.shared.isOffline {
             try? await client.reportPlaybackStopped(itemID: itemID, positionTicks: ticks, mediaSourceID: activeMediaSourceID, playSessionID: activePlaySessionID)
         }
     }

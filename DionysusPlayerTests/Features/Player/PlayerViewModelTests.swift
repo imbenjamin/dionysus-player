@@ -1083,6 +1083,8 @@ final class PlayerViewModelTests: XCTestCase {
 
     func test_stop_reportsCurrentPositionAsTicksAndStopsEngine() async throws {
         let (viewModel, engine) = makeViewModel()
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie), mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")])
+        await viewModel.start()
         // Simulate the engine reporting playback progress, same as it would
         // mid-session via the `onTimeUpdate` callback wired up in `init`.
         engine.onTimeUpdate?(75, 5400)
@@ -1101,6 +1103,47 @@ final class PlayerViewModelTests: XCTestCase {
 
         XCTAssertEqual(engine.stopCallCount, 1)
         XCTAssertEqual(reportedTicks, 75 * 10_000_000)
+    }
+
+    /// Closing before playback started — Menu while the player is still
+    /// loading — must not report a stop. Jellyfin writes a reported position
+    /// straight to the resume point, so the 0 of a player that never played
+    /// wiped it; and omitting the position marks the item played. Nothing was
+    /// reported as started, so there is nothing to stop.
+    func test_stop_beforePlaybackStarted_sendsNoStoppedReport() async {
+        let (viewModel, engine) = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            XCTFail("No request expected, got \(request.url?.path ?? "?")")
+            return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+
+        await viewModel.stop()
+
+        XCTAssertEqual(engine.stopCallCount, 1)
+    }
+
+    /// Menu landing during the resume seek cancels `start()`. It must not then
+    /// play, or report a start the stop it raced has already skipped.
+    func test_start_cancelledDuringResumeSeek_neitherPlaysNorReportsStart() async {
+        let engine = FakePlaybackEngine()
+        let (viewModel, _) = makeViewModel(engine: engine)
+        var startReported = false
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie, runTimeTicks: 100 * 10_000_000, userData: UserItemDataDto(playbackPositionTicks: 30 * 10_000_000)),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")]
+        )
+        let stubbed = MockURLProtocol.requestHandler
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path == "/Sessions/Playing" { startReported = true }
+            return try stubbed!(request)
+        }
+        let task = Task { await viewModel.start() }
+        engine.onSeek = { task.cancel() }
+        await task.value
+
+        XCTAssertEqual(engine.seekedTimes, [30], "It should have reached the resume seek")
+        XCTAssertEqual(engine.playCallCount, 0)
+        XCTAssertFalse(startReported)
     }
 
     /// A close affordance (the top bar's X, or the offline screen's own

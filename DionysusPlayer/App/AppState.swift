@@ -18,6 +18,12 @@ final class AppState {
     private(set) var currentUser: UserDto?
     private(set) var apiClient: JellyfinAPIClient?
 
+    /// The signed-in user, falling back to the cached credentials while a
+    /// session resumed from cache has no `currentUser` yet (see `start()`).
+    var signedInUserID: String? {
+        currentUser?.id ?? sessionStore.credentials?.userID
+    }
+
     let sessionStore: ServerSessionStore
     #if DOWNLOADS
     /// Offline downloads are local-device storage, not tied to which

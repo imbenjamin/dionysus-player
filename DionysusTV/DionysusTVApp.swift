@@ -32,7 +32,9 @@ struct TVRootView: View {
                 case .serverSetup: TVServerSetupView()
                 case .login: TVLoginView()
                 case .main:
-                    if let client = appState.apiClient, let userID = appState.currentUser?.id {
+                    // `signedInUserID`, not `currentUser`: a launch resumed from
+                    // cache has no `currentUser` yet, and this drew nothing.
+                    if let client = appState.apiClient, let userID = appState.signedInUserID {
                         TVMainView(client: client, userID: userID)
                     }
                 }
