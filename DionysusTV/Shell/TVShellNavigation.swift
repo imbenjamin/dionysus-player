@@ -15,7 +15,9 @@ struct TVShellNavigation: Equatable {
 
     /// Never `.librariesGroup`.
     private(set) var destination: Row = .home
-    var librariesExpanded = false
+    /// Open to start with (Benjamin, 2026-10-01): the fold groups the
+    /// libraries under one row, it doesn't hide them.
+    var librariesExpanded = true
 
     mutating func select(_ row: Row) -> Selection {
         if row == .librariesGroup {

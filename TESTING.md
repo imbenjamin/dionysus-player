@@ -124,7 +124,8 @@ Menu open it on the page's own row, Right returns and closes it, and Menu with
 it open sends the app to the background. Choosing a row opens its page with
 the rail collapsed and the first item focused. Profile sits above Home and
 reads "Profile & Settings". The `manyLibraries` scenario (six video libraries
-and a Music one) folds them behind a Libraries row that expands on Select; its
+and a Music one) puts them under a Libraries row that starts open and closes and reopens on
+Select; its
 Documentaries library is empty, which pins focus going back to the rail when a
 page has nothing to focus. The rail's width says whether it's open (under 100pt
 collapsed, over 300pt open), and it's polled (`waitForExpanded`,
