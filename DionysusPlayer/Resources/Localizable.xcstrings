@@ -333,6 +333,9 @@
     "Change server?" : {
 
     },
+    "Change Server?" : {
+
+    },
     "Chapter %lld" : {
 
     },
@@ -679,6 +682,9 @@
     "Everyone gets their own" : {
 
     },
+    "Everyone on this Apple TV will need to find a server and sign in again." : {
+
+    },
     "External" : {
 
     },
@@ -774,6 +780,9 @@
 
     },
     "kilobytes" : {
+
+    },
+    "Libraries" : {
 
     },
     "License" : {
@@ -1296,6 +1305,9 @@
 
     },
     "Switch Apple TV users in Control Center and Dionysus follows, each person signed in to their own Jellyfin account." : {
+
+    },
+    "Switch User" : {
 
     },
     "Synopsis: %@" : {

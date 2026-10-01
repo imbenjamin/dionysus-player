@@ -204,7 +204,8 @@ Then let Xcode resolve Swift Package dependencies (AetherEngine) and build
 the `DionysusPlayer` scheme.
 
 An Apple TV app is in progress under the `DionysusTV` scheme (tvOS 26 or
-later), sharing the iOS app's core. Its unit tests run with:
+later), sharing the iOS app's core. Each Apple TV user signs in to their own
+Jellyfin account on the household's server. Its unit tests run with:
 
 ```sh
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \

@@ -478,7 +478,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission,
              .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort,
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
-             .slowVideoDownload, .slowPlaybackInfo:
+             .slowVideoDownload, .slowPlaybackInfo, .manyLibraries:
             return nil
         case .serverError:
             return 500
@@ -587,7 +587,8 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return try encode(library.brandingConfiguration)
 
         case path.hasSuffix("/Views"):
-            return try encode(result(scoped(library.libraries)))
+            let views = UITestConfiguration.scenario == .manyLibraries ? library.manyLibraries : library.libraries
+            return try encode(result(scoped(views)))
 
         case path.hasSuffix("/Items/Latest"):
             // The one endpoint returning a bare array, not a query result.

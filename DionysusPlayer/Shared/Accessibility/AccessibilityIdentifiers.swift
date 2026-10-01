@@ -433,11 +433,33 @@ enum A11yID {
         enum Search {
             static func result(_ itemID: String) -> String { "tv.search.result.\(itemID)" }
         }
+        enum Library {
+            static func title(_ libraryID: String) -> String { "tv.library.title.\(libraryID)" }
+            static func tile(_ itemID: String) -> String { "tv.library.tile.\(itemID)" }
+        }
+        enum Profile {
+            static let name = "tv.profile.name"
+            static let server = "tv.profile.server"
+            static let switchUser = "tv.profile.switchUser"
+            static let changeServer = "tv.profile.changeServer"
+            static let changeServerConfirm = "tv.profile.changeServer.confirm"
+        }
+        /// The custom sidebar's rows (collapsed rail and open panel alike).
+        enum Sidebar {
+            static let profile = "tv.sidebar.profile"
+            static let home = "tv.sidebar.home"
+            static let search = "tv.sidebar.search"
+            static let librariesGroup = "tv.sidebar.libraries"
+            static func library(_ libraryID: String) -> String { "tv.sidebar.library.\(libraryID)" }
+        }
         enum Player {
             static let transport = "tv.player.transport"
             static let titleBlock = "tv.player.title"
             static let elapsed = "tv.player.elapsed"
             static let formatLabel = "tv.player.format"
+            /// DEBUG, UI-test harness only: how many pages cover the shell
+            /// while the player is up (`TVPageStack.depth`).
+            static func coveringPages(_ depth: Int) -> String { "tv.player.debug.coveringPages.\(depth)" }
         }
     }
 }

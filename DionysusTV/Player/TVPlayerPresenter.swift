@@ -17,7 +17,11 @@ enum TVPlayerPresenter {
         let viewModel = PlayerViewModel(client: client, userID: userID, itemID: itemID, engine: engine)
         let host = TVPlayerHostController(viewModel: viewModel, engine: engine)
         host.modalPresentationStyle = .fullScreen
-        topViewController()?.present(host, animated: true)
+        guard let presenter = topViewController() else { return }
+        // Whatever the player covers is torn down until it goes.
+        let page = TVPageStack.shared.push()
+        host.onDismissed = { TVPageStack.shared.pop(page) }
+        presenter.present(host, animated: true)
     }
 
     /// The harness's fake under UI tests; otherwise AetherEngine, without Now

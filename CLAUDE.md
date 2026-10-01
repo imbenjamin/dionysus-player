@@ -56,6 +56,75 @@ result whenever the iOS icon changes. Scheme `DionysusTV`; its unit tests (`Dion
 plan `TVUnitTests`) reuse the shared test files. Design, decisions and
 milestones: `docs/superpowers/specs/2026-09-29-tvos-app-design.md`.
 
+**The shell is a custom sidebar, not tvOS's `TabView` one** (`TVMainView`,
+`TVSidebar`), because the system sidebar looks nothing like the prototype
+(screens 5, 6 and 6b). Collapsed, it's a glass icon rail on the left of
+**every signed-in page** (not onboarding, not the player). Open (whenever one
+of its rows has focus), it's a 520pt glass panel of pill rows, with the page
+pushed right and the screen dimmed. Profile is pinned at the top (avatar,
+name, server; VoiceOver reads "Profile & Settings"), then Home, Search and
+the libraries, which above five fold behind one expandable "Libraries" row
+(`TVSidebarLayout.rows(libraries:librariesExpanded:)`). Library icons come
+from Jellyfin's `CollectionType`, the admin's "Content type", never the name.
+**Every row but the Libraries group is a top-level page** (Benjamin,
+2026-10-01): Profile, Home, Search and each library. Left from a page's
+leftmost item, or Menu on a page, opens the rail on that page's row; Menu
+with it open has no handler, so tvOS leaves the app. Choosing a row opens its
+page, collapses the rail and puts focus on the page's first item. Where the
+shell is and which rows can take focus is `TVShellNavigation`, unit-tested.
+Every page sits in `TVPageScaffold`: the shell draws the plum glow once
+beneath every page (a page drawing its own faded in with it, showing the
+window's black for a frame), a page's own background fills the screen behind
+the rail, and its content starts right of the
+rail (`TVShellMetrics.contentInset`) and is clipped there. Four focus facts
+cost a debugging session each:
+- **Collapsed, only the page's own row is enabled**
+  (`TVShellNavigation.focusableRows`). The rail's focus section spans the
+  screen's height, so Left from any height lands on that row, never on the
+  nearest one. A folded library's row isn't drawn collapsed, so the Libraries
+  row stands in and focus moves on to the library once the panel opens.
+- **Each page claims focus itself** (`tvClaimsFocus`): the first item on
+  arrival and on each handoff from the sidebar, the remembered one when
+  rebuilt after the player. Never with `.defaultFocus`: on Profile it pulled
+  every later move back to Switch User, so Change Server couldn't be reached.
+- **Handing focus from the sidebar to a page needs the focus system asked.**
+  Choosing a row holds the whole rail disabled and calls
+  `UIFocusSystem.requestFocusUpdate(to:)` on the window's root; disabling a
+  SwiftUI view alone never moved focus. This is what reaches Search's
+  keyboard, a UIKit control SwiftUI can't focus. The rail stays held until
+  the page reports it has claimed focus (`tvPageClaimedFocus`), also on a
+  fresh shell, where tvOS's first focus pass would otherwise open the rail.
+  After three seconds with focus nowhere (an empty library), focus goes to
+  the page's row, since Menu reaches nothing while nothing has focus. The
+  same goes for focus left elsewhere in the rail: holding it sometimes pushes
+  focus off the chosen row onto Profile's.
+- **Each page's content is a focus section**, so Right from any row enters
+  it; Profile's buttons are mid-screen, level with no row. Left from
+  Search's keyboard stays in the keyboard (it keeps the press at its edge);
+  Menu still opens the rail there.
+
+**Only the topmost page draws its content** (`TVPageStack`; Benjamin,
+2026-10-01, since the app is image heavy). Only the page on show is built:
+choosing another tears the old one down. A full-screen cover (today only the
+player) pushes onto `TVPageStack`, and the whole shell, rail included, tears
+down until it's popped. M3's details page is a page *within* the shell, with
+the rail beside it: a per-page path where only the top is drawn and Menu
+pops before it opens the rail.
+What survives is the small state: the shell owns Home's, Search's and each
+library's view model, and each page remembers which item had focus and
+restores it when rebuilt, so coming back from the player lands on the title
+just played and Search keeps its query. A cover must push when it opens and
+pop when it's really dismissed, from whoever presents it; never from its own
+`onDisappear`. The player is pushed by `TVPlayerPresenter` and popped by its
+host's `onDismissed`. XCUITest can't see beneath a UIKit modal, so the player
+exposes the stack depth to UI tests (`A11yID.TV.Player.coveringPages`).
+
+`.searchable` draws its field only inside a navigation container, which the
+`TabView` used to supply, so Search sits in a `NavigationStack`. Sign-in puts
+Quick Connect first (`TVSignInRoute`): a user with a password goes to a code,
+with "Use Password Instead" one press away, and only a user the server reports
+as passwordless signs in on Select.
+
 **Each Apple TV user has their own session.** The `DionysusTV` target runs
 as the current Apple TV user (`com.apple.developer.user-management` =
 `runs-as-current-user-with-user-independent-keychain`), so `UserDefaults` and

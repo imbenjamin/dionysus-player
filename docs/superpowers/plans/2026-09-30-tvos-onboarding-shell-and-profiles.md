@@ -1920,6 +1920,42 @@ After PR 5 merges, run one final review of the whole milestone: a fresh reviewer
 
 ---
 
+### Task 6b: The custom sidebar shell (replaces Task 6's system sidebar)
+
+Added 2026-09-30 at Benjamin's review of Task 6: tvOS 26's `TabView` sidebar looks nothing like the prototype (screens 5, 6 and 6b of the canvas), so the shell becomes a custom component that matches it, with Profile pinned at the top. Task 6's models (`TVSidebarLayout`, `TVSidebarModel`, `TVProfileIdentity`), its library grid and Profile screen stay; `TVMainView`'s `TabView` and `TVProfileAvatarImage` go.
+
+**Decisions (Benjamin, 2026-09-30):**
+- Profile is a pill at the top of the open panel, replacing the prototype's glyph-and-wordmark header: avatar, name, and the server's name beneath. VoiceOver reads it as "Profile & Settings".
+- Menu on Home, Search or Profile opens the sidebar; Menu with the sidebar open leaves the app (no handler, so tvOS takes it).
+- A library opens as a full-screen page with no rail; Menu returns to the sidebar.
+
+**Layout (tv.css in the canvas):**
+- Collapsed: a glass rail 104pt wide, 52pt corners, 40pt from the left edge and centred vertically; 72pt circular icon buttons (60pt avatar for Profile), a 44x2 divider after Search. Shown on Home, Search and Profile. Content is inset so the rail never covers a tile.
+- Open (any rail row focused): a glass panel 520pt wide, inset 40pt on every side, 48pt corners; rows are 84pt pills with 36pt icons and 31pt semibold labels; a divider after Search; Profile's pill is 108pt with a 68pt avatar. The content behind dims (`rgba(8,1,6,0.45)`) and shifts 440pt right.
+- Row states: selected = white at 14%; focused = white with a dark label, scaled 1.05.
+- More than five libraries: one "Libraries" row (folder icon, chevron) that expands in place to indented 64pt rows with 29pt labels. Collapsed by default.
+
+**Behaviour:**
+- Focus entering the sidebar from the content lands on the selected destination's row, whichever row was nearest.
+- Selecting Profile, Home or Search shows it and returns focus to the content.
+- The row order is one pure function, `TVSidebarLayout.rows(libraries:librariesExpanded:)`, unit-tested: `profile, home, search`, then each library, or `librariesGroup` followed by its libraries only when expanded.
+
+**Files:** create `DionysusTV/Shell/TVSidebar.swift` (rail, panel, row style); rewrite `DionysusTV/Browse/TVMainView.swift` as the shell; delete `DionysusTV/Shell/TVProfileAvatarImage.swift`; `A11yID.TV.Sidebar` (`profile`, `home`, `search`, `librariesGroup`, `library(_:)`) replaces `A11yID.TV.Profile.sidebarEntry`.
+
+**Covered pages are torn down (Benjamin, 2026-10-01):** only the topmost page draws its content (`TVPageStack`): a library page, the player and every future page push themselves; whatever they cover tears its views down and keeps only its view model and its focused tile. The shell owns Home's and Search's view models. `TVPageStackTests` and `PageCoveringJourneyTests` pin it.
+
+**Tests:** `TVSidebarLayoutTests` gains the row-order cases; `SidebarJourneyTests` selects rows by identifier (no press counts): Menu opens on Home's row; a library opens full-screen and Menu returns; Profile is above Home and labelled "Profile & Settings"; the fold expands on Select. M1's Search journey (Left, Down, Select) must still pass.
+
+**Redesign at review (Benjamin, 2026-10-01), superseding the full-screen library page and the covering-page parts above.** The plan for it is the approved `virtual-forging-riddle` plan; the outcome:
+- The collapsed rail is on every signed-in page (not onboarding, not the player). Profile, Home, Search and each library are top-level pages; only the page on show is built.
+- Left from a page's leftmost item, or Menu on a page, opens the rail on that page's row. Choosing a row opens its page, collapses the rail and focuses the page's first item.
+- Page content starts right of the rail (`TVShellMetrics.contentInset`, 184pt) and is clipped there; the plum glow, drawn once by the shell beneath every page so a page switch never shows the window's black, fills the screen behind it (a page may add its own via `TVPageScaffold`). The open panel pushes the content 440pt and dims the screen, as the prototype does.
+- `TVShellNavigation` (unit-tested) holds the destination and which rows can take focus: only the page's own row while collapsed, so focus never lands on the nearest row and jumps.
+- `TVPageStack` is left with full-screen covers, which today means the player; M3's details page will be a path within the shell, with the rail beside it.
+- Library icons come from the content type, now also music videos, photos, books and live TV.
+
+---
+
 ### Task 7: In-app account switching, the fallback for tvOS user switching
 
 Added 2026-09-30 after the device checks in Task 2 showed tvOS sending cold launches to the wrong Apple TV user's container (see "Platform facts"). When that happens, the person gets someone else's container: that container's stored session, and none of their own. So every account ever signed in on this container is remembered, Who's Watching? lists those accounts first, and one press signs any of them in without a code or password. Switch User in Profile is the way back to Who's Watching?.
@@ -2472,8 +2508,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ## Deviations from the prototype, to confirm with Benjamin at sign-off
 
 - **"What's Jellyfin?" is dropped from the Welcome.** tvOS has no browser to open it in.
-- **Profile is the last sidebar row, not pinned to the bottom.** The tvOS 26 sidebar has no bottom slot. Its avatar may be forced to a template symbol (Task 6, Step 3).
-- **The tvOS 26 sidebar collapses to a "‹ Home" pill**, not the prototype's icon rail. This was already accepted in the spec.
+- **Profile is pinned at the top of the sidebar**, not the bottom, replacing the glyph-and-wordmark header (Benjamin, 2026-09-30; Task 6b).
+- **The sidebar is custom, as the prototype draws it** (Task 6b): the system `TabView` sidebar and its "‹ Home" pill were rejected at review.
+- **Libraries are pages beside the rail, not full-screen** (Benjamin, 2026-10-01; Task 6b redesign), and every page uses the library grid's plum glow as its background.
 - **The Change Server confirmation copy is new** (Task 6, Step 5).
 - **The Follow Apple TV Users setting and its footer copy are new** (Task 8, Step 3); the prototype's Profile screen has no such row.
 

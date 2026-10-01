@@ -1,0 +1,21 @@
+import SwiftUI
+
+extension EnvironmentValues {
+    /// Bumped by the shell each time it hands focus from the sidebar to the
+    /// page on show, after asking the focus system to look again. A page with
+    /// a SwiftUI focus target (Profile's Switch User, a first tile) sets it
+    /// again on each change: claiming it only on appear raced the shell's
+    /// request, which under load could land elsewhere.
+    @Entry var tvFocusHandoff = 0
+
+    /// Whether the sidebar is open, which is whenever one of its rows has
+    /// focus. `TVPageScaffold` pushes the content right while it is, and a
+    /// page doesn't pull focus out of it when its items arrive.
+    @Entry var tvSidebarExpanded = false
+
+    /// Called by the page on show once it has put focus on one of its items,
+    /// so the shell can let the rail take focus again: it holds the rail
+    /// disabled until then, or tvOS's first focus pass would land on the
+    /// rail (leftmost) and open it.
+    @Entry var tvPageClaimedFocus: @MainActor () -> Void = {}
+}

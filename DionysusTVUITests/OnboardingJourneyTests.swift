@@ -10,12 +10,14 @@ final class OnboardingJourneyTests: TVUITestCase {
         connectToDiscoveredServer(app)
         let user = app.buttons[A11yID.TV.Onboarding.user(UITestFixtureIdentity.passwordlessUserID)]
         XCTAssertTrue(user.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons[A11yID.TV.Sidebar.home].exists, "No rail before signing in")
         press(.right)
         XCTAssertTrue(waitForFocus(user))
         press(.select)
         let main = app.descendants(matching: .any)[A11yID.TV.Main.root].waitForExistence(timeout: 10)
         if !main { attachTree() }
         XCTAssertTrue(main)
+        XCTAssertTrue(waitForCollapsed(app.buttons[A11yID.TV.Sidebar.home]), "Signed in, the rail is there, collapsed")
     }
 
     /// Typing an address is the secondary route: a button below the found

@@ -77,6 +77,14 @@ Otherwise one test's server leaks into the next on tvOS only.
 host runs `DionysusTVApp.init`. `TVSignInRouteTests` pins where choosing a
 user on Who's Watching? leads: one press for a user without a password,
 Quick Connect for anyone else when the server has it, a password otherwise.
+`TVSidebarLayoutTests`, `TVSidebarModelTests` and `TVProfileIdentityTests`
+pin the sidebar: the fold rule (counted after the Music suppression), each
+library's icon from its content type, its library load (which, like Home's,
+survives a rebuild cancelling the caller), and the Profile entry's offline
+fallback to the stored account. `TVShellNavigationTests` pins where the shell
+is: choosing a row, the Libraries row toggling in place, and which row focus
+may land on (only the page's own while collapsed, the Libraries row standing
+in for a folded library).
 
 ```sh
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
@@ -109,11 +117,35 @@ The scan radar's motion is off under the harness, so its screenshots show the
 still rings; check the motion by launching with `-UITestScenario slowScan`
 and without `-UITestDisableAnimations`.
 
+`SidebarJourneyTests` drives the shell by identifier (`A11yID.TV.Sidebar`).
+The rail is collapsed beside Home, Search, Profile and a library, with each
+page's content starting right of it. Left (from the top row or a lower one) and
+Menu open it on the page's own row, Right returns and closes it, and Menu with
+it open sends the app to the background. Choosing a row opens its page with
+the rail collapsed and the first item focused. Profile sits above Home and
+reads "Profile & Settings". The `manyLibraries` scenario (six video libraries
+and a Music one) folds them behind a Libraries row that expands on Select; its
+Documentaries library is empty, which pins focus going back to the rail when a
+page has nothing to focus. The rail's width says whether it's open (under 100pt
+collapsed, over 300pt open), and it's polled (`waitForExpanded`,
+`waitForCollapsed` in `Support/TVShellJourney.swift`): an `NSPredicate` on
+`frame` never matches. Profile's Change Server asks first, in a cover of the
+app's own rather than a `.confirmationDialog`, whose buttons lose their
+identifiers on tvOS.
+
+`PageCoveringJourneyTests` pins `TVPageStack`'s rule that a full-screen cover
+tears the shell down. XCUITest can't see beneath the player, so a harness-only
+marker reports how many pages cover the shell (`A11yID.TV.Player.coveringPages`).
+On the way back the rail is there again, collapsed, and focus returns to the
+tile played (Home's second tile, a library's second, so a return to the first
+can't pass for it), with Search's query intact. `TVPageStackTests` covers the
+stack itself.
+
 `PlayerJourneyTests` opens the player from a browse tile. Under the harness
 the host gets the fake engine, so nothing is handed to AVKit; the journeys
 check that the remote reaches the host's own handlers (Right skips 10s) and
 that Menu dismisses, including while the item is still loading
-(`slowPlaybackInfo`). `SearchJourneyTests` opens the sidebar with Left from
+(`slowPlaybackInfo`). `SearchJourneyTests` opens the rail with Left from
 Home's first tile, types a query into the system search field
 (`typeText` works on tvOS once the field exists) and plays a result.
 
@@ -130,9 +162,9 @@ the fade and checks the transport is still up and the time hasn't moved. The
 harness engine's `togglePlayPause()` used to do nothing, so any journey
 pressing Play/Pause on either platform tested nothing until it was filled in.
 
-Launch focus lands on the sidebar before Home's rails exist, so the launcher
-moves it to the first tile when that tile arrives; every journey that starts
-from Home depends on it.
+The rail is held disabled at launch until Home claims focus, so focus goes
+straight to the first tile when it arrives; every journey that starts from Home
+depends on it.
 
 The PR check that runs it, "tvOS build and unit tests", is deliberately not in
 either branch ruleset yet. It joins them once it has been green on a run of
