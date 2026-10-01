@@ -41,4 +41,13 @@ final class TVWhosWatchingLayoutTests: XCTestCase {
         XCTAssertEqual(lockups.map(\.user.id), ["ben", "sam"])
         XCTAssertTrue(lockups.allSatisfy { $0.account == nil })
     }
+
+    /// Five lockups to a row, "Other" included (Benjamin, 2026-10-01): four
+    /// users and Other sit centred, a fifth user makes the row scroll.
+    func test_rowScrolls_aboveFiveLockupsCountingOther() {
+        XCTAssertFalse(TVWhosWatchingLayout.scrolls(users: 0))
+        XCTAssertFalse(TVWhosWatchingLayout.scrolls(users: 4))
+        XCTAssertTrue(TVWhosWatchingLayout.scrolls(users: 5))
+        XCTAssertTrue(TVWhosWatchingLayout.scrolls(users: 12))
+    }
 }

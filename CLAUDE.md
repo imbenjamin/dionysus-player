@@ -64,7 +64,8 @@ of its rows has focus), it's a 520pt glass panel of pill rows, with the page
 pushed right and the screen dimmed. Profile is pinned at the top (avatar,
 name, server; VoiceOver reads "Profile & Settings"), then Home, Search and
 the libraries, which above five fold behind one expandable "Libraries" row
-(`TVSidebarLayout.rows(libraries:librariesExpanded:)`). Library icons come
+(`TVSidebarLayout.rows(libraries:librariesExpanded:)`). A library load that failed at launch is tried again
+whenever the rail takes focus. Library icons come
 from Jellyfin's `CollectionType`, the admin's "Content type", never the name.
 **Every row but the Libraries group is a top-level page** (Benjamin,
 2026-10-01): Profile, Home, Search and each library. Left from a page's
@@ -103,21 +104,20 @@ cost a debugging session each:
   Search's keyboard stays in the keyboard (it keeps the press at its edge);
   Menu still opens the rail there.
 
-**Only the topmost page draws its content** (`TVPageStack`; Benjamin,
-2026-10-01, since the app is image heavy). Only the page on show is built:
-choosing another tears the old one down. A full-screen cover (today only the
-player) pushes onto `TVPageStack`, and the whole shell, rail included, tears
-down until it's popped. M3's details page is a page *within* the shell, with
-the rail beside it: a per-page path where only the top is drawn and Menu
-pops before it opens the rail.
-What survives is the small state: the shell owns Home's, Search's and each
-library's view model, and each page remembers which item had focus and
-restores it when rebuilt, so coming back from the player lands on the title
-just played and Search keeps its query. A cover must push when it opens and
-pop when it's really dismissed, from whoever presents it; never from its own
-`onDisappear`. The player is pushed by `TVPlayerPresenter` and popped by its
-host's `onDismissed`. XCUITest can't see beneath a UIKit modal, so the player
-exposes the stack depth to UI tests (`A11yID.TV.Player.coveringPages`).
+**Only the page on show is built, and the player is laid over it**
+(Benjamin, 2026-10-01, since the app is image heavy). Choosing another page
+tears the old one down; the shell owns Home's, Search's and each library's
+view model, and each page remembers which item had focus, so a page chosen
+again comes back as it was. The player is the exception: `TVPlayerPresenter`
+presents it over the page, which stays alive beneath, so leaving the player is
+immediate, with the scroll position and focus where they were. It used to tear
+the shell down (`TVPageStack`, removed): the rebuilt page then asked a lazy
+grid to focus a tile it hadn't built, and anything below the first screen came
+back at the top. M3's details page is a page *within* the shell, with the rail
+beside it: a per-page path where only the top is drawn and Menu pops before it
+opens the rail. After the player closes, XCUITest reports `hasFocus` false for
+a library's tiles though focus is on the right one, so
+`PlayerReturnJourneyTests` reads the focused card's lifted frame there.
 
 `.searchable` draws its field only inside a navigation container, which the
 `TabView` used to supply, so Search sits in a `NavigationStack`. Sign-in puts
@@ -146,7 +146,8 @@ below. The list sits in the current user's keychain beside the credentials,
 not the shared one, which would hand each person's session to everyone
 (unless the household chooses that, below).
 Who's Watching? lists remembered accounts for the configured server first,
-most recent first (`TVWhosWatchingLayout`), and one press signs one in the way
+most recent first, five lockups to a row ("Other" included) before the row
+scrolls (`TVWhosWatchingLayout`), and one press signs one in the way
 launch restores a session (`AppState.signIn(rememberedAccount:)`): a password
 account with its stored password, a Quick Connect one by validating its token.
 Switch User (`signOut()`) keeps the list, since it's the way back to it;
@@ -161,13 +162,30 @@ cell, so the journey finds it with `descendants(matching: .any)`.
 (`SessionScopeSetting`, on by default). The setting lives in the shared
 keychain, since a per-container value would flip with the very bug it exists
 for, so it is one setting for the whole Apple TV. Changing it moves the
-credentials and remembered accounts between the per-user and shared keychains
-(`ServerSessionStore.moveSession(to:)`); off, every Apple TV user shares one
-sign-in and remembered list, which PRIVACY.md says. It
+session between the per-user and shared keychains
+(`ServerSessionStore.moveSession(to:)`), written to the destination before it
+is deleted from the source and merged with what the destination holds, never
+over it. Off, every remembered account moves and every Apple TV user shares
+one sign-in and list, which PRIVACY.md says. Back on, only the account in use
+moves, ahead of the accounts that Apple TV user had before; the rest of the
+shared list is deleted, since other people's passwords don't belong in one
+person's keychain. It
 can't change which container tvOS launches into, and preferences and the
 device id stay per container either way. Another user's per-user session left
 behind while it was off is untouched, and is theirs again once it's back on.
-The UI-test reset clears the setting and the shared session too.
+The UI-test reset clears the settings and the shared session too.
+
+**With Follow off, "Select a User Every Relaunch" starts each launch at Who's
+Watching?** (Benjamin, 2026-10-01; `WhoIsWatchingPolicy`, on by default, shown
+on Profile only while Follow is off, stored beside it in the shared keychain).
+`AppState.start()` then signs out the way Switch User does, with no request,
+so the accounts stay remembered and one press signs one in. Two rules: with
+exactly one remembered account there's nothing to choose, so it signs straight
+in; and since tvOS suspends the app through sleep, coming back to the
+foreground after 30 minutes away counts as a relaunch (`TVRootView` watches
+`scenePhase`, closes the player, then signs out). Off, the app stays on
+whoever was signed in until Switch User. An unreachable server leaves the
+person on Who's Watching? there, where a launch otherwise resumes from cache.
 
 **tvOS's user switching is unreliable, and no app can fix it.** Measured on
 the Bedroom Apple TV (tvOS 27.0, 2026-09-30): the per-user split itself works

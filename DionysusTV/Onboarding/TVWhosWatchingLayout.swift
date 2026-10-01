@@ -9,6 +9,12 @@ enum TVWhosWatchingLayout {
         var id: String { user.id }
     }
 
+    /// Lockups to a row, "Other" included (Benjamin, 2026-10-01). Up to this
+    /// many sit centred; more, and the row scrolls sideways.
+    static let rowCap = 5
+
+    static func scrolls(users: Int) -> Bool { users + 1 > rowCap }
+
     /// A remembered account is shown by the server's own entry when it lists
     /// one, which carries the avatar; a user hidden from the login screen, or
     /// a server that couldn't be asked, by its stored username.

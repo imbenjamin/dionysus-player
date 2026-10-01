@@ -202,6 +202,17 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
+        // The guest signs in as the guest: a second account, so journeys can
+        // tell two remembered accounts apart. Here because `body(forPath:)`
+        // has no request body to read the username from.
+        if path.hasSuffix("/Users/AuthenticateByName"),
+           let sent = Self.requestBody(of: request).flatMap({ try? JellyfinJSON.decoder.decode(AuthenticateByNameRequest.self, from: $0) }),
+           sent.username == UITestFixtureIdentity.passwordlessUsername,
+           let data = try? Self.encode(UITestFixtureLibrary.guestAuthenticationResult) {
+            finish(.success((200, data, "application/json")))
+            return
+        }
+
         // `POST /Playlists`. Handled here rather than in `body(forPath:)`, whose
         // `default:` arm answers an unmatched POST with empty `Data()` the app
         // can't decode as a `PlaylistCreationResult`, and which has no access to
@@ -275,6 +286,8 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     /// `nonisolated(unsafe)`: `URLProtocol` instances load on URLSession's
     /// queues, so `lock` guards this rather than isolation.
     nonisolated(unsafe) private static var challengedPaths: Set<String> = []
+    /// When `.librariesFailAtFirst` first saw `/Views`.
+    nonisolated(unsafe) private static var firstViewsRequest: Date?
     private static let lock = NSLock()
 
     /// Items deleted during this app session.
@@ -478,8 +491,15 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission,
              .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort,
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
-             .slowVideoDownload, .slowPlaybackInfo, .manyLibraries:
+             .slowVideoDownload, .slowPlaybackInfo, .manyLibraries, .manyUsers:
             return nil
+        case .librariesFailAtFirst:
+            guard path.hasSuffix("/Views") else { return nil }
+            lock.lock()
+            defer { lock.unlock() }
+            let first = firstViewsRequest ?? Date()
+            firstViewsRequest = first
+            return Date().timeIntervalSince(first) < 5 ? 500 : nil
         case .serverError:
             return 500
         case .unauthorized:
@@ -581,7 +601,11 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return try encode(library.user)
 
         case path.hasSuffix("/Users/Public"):
-            return try encode(UITestConfiguration.scenario == .hiddenUsers ? [UserDto]() : library.publicUsers)
+            switch UITestConfiguration.scenario {
+            case .hiddenUsers: return try encode([UserDto]())
+            case .manyUsers: return try encode(library.manyPublicUsers)
+            default: return try encode(library.publicUsers)
+            }
 
         case path.hasSuffix("/Branding/Configuration"):
             return try encode(library.brandingConfiguration)

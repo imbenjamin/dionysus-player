@@ -277,6 +277,15 @@ enum UITestFixtureLibrary {
         )
     }
 
+    /// What signing in as the passwordless fixture user answers.
+    static var guestAuthenticationResult: AuthenticationResult {
+        AuthenticationResult(
+            user: publicUsers[1],
+            accessToken: UITestConfiguration.stubAccessToken,
+            serverId: "uitest-server-0001"
+        )
+    }
+
     static var user: UserDto {
         UserDto(
             id: UITestConfiguration.stubUserID,
@@ -297,6 +306,12 @@ enum UITestFixtureLibrary {
                 hasPassword: false
             )
         ]
+    }
+
+    /// The `manyUsers` scenario's `/Users/Public`: six, so with "Other" there
+    /// are seven lockups, more than fit across an Apple TV screen.
+    static var manyPublicUsers: [UserDto] {
+        publicUsers + UITestFixtureIdentity.extraUserIDs.map { UserDto(id: $0, name: $0.capitalized, hasPassword: true) }
     }
 
     static var brandingConfiguration: BrandingConfiguration {

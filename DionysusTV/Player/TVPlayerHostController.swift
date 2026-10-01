@@ -27,9 +27,6 @@ final class TVPlayerHostController: AVPlayerViewController {
     private var overlayHost: UIHostingController<TVTransportOverlay>?
     private var ourRecognizers: [UIGestureRecognizer] = []
     private var cancellables: Set<AnyCancellable> = []
-    /// Called once the player has gone, so `TVPlayerPresenter` can take its
-    /// page off `TVPageStack` and what was beneath rebuilds.
-    var onDismissed: (() -> Void)?
 
     init(viewModel: PlayerViewModel, engine: PlaybackEngine) {
         self.session = TVPlaybackSession(viewModel: viewModel)
@@ -93,13 +90,6 @@ final class TVPlayerHostController: AVPlayerViewController {
         // The transport is up already; its fade starts with playback
         // (`TVTransportChrome.playbackStateChanged`), not here.
         session.begin()
-    }
-
-    override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-        guard isBeingDismissed || presentingViewController == nil else { return }
-        onDismissed?()
-        onDismissed = nil
     }
 
     override func viewDidLayoutSubviews() {
@@ -197,7 +187,7 @@ final class TVPlayerHostController: AVPlayerViewController {
     /// Ends the session before dismissing, in any state, `.loading` included.
     /// UIKit ignores a dismiss while the presentation is still animating, so
     /// one pressed then is left to `viewDidAppear`.
-    private func close() {
+    func close() {
         session.end()
         guard !isBeingPresented else { return }
         dismiss(animated: true)

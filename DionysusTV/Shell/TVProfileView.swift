@@ -10,12 +10,19 @@ struct TVProfileView: View {
     @Environment(AppState.self) private var appState
     @State private var confirmsChangeServer = false
     /// Switch User is the default focus (`tvClaimsFocus`).
-    private enum Action: Hashable { case switchUser, changeServer, followsAppleTVUsers }
+    private enum Action: Hashable { case switchUser, changeServer, followsAppleTVUsers, selectsUserEveryRelaunch }
     @FocusState private var focusedAction: Action?
     @State private var rememberedAction: Action?
     /// A copy to draw from: the setting lives in the keychain, which nothing
     /// observes.
     @State private var followsAppleTVUsers = SessionScopeSetting.followsAppleTVUsers
+    @State private var selectsUserEveryRelaunch = SessionScopeSetting.selectsUserEveryRelaunch
+
+    /// The second setting only means something with one shared session, so
+    /// it's only there while the first is off.
+    private var actions: [Action] {
+        [.switchUser, .changeServer, .followsAppleTVUsers] + (followsAppleTVUsers ? [] : [.selectsUserEveryRelaunch])
+    }
 
     private var user: UserDto? {
         TVProfileIdentity.user(currentUser: appState.currentUser, credentials: appState.sessionStore.credentials)
@@ -25,7 +32,7 @@ struct TVProfileView: View {
         TVPageScaffold {
             details
         }
-        .tvClaimsFocus($focusedAction, ids: [.switchUser, .changeServer, .followsAppleTVUsers], remembered: $rememberedAction)
+        .tvClaimsFocus($focusedAction, ids: actions, remembered: $rememberedAction)
         // A cover of our own rather than `.confirmationDialog`, whose buttons
         // lose their accessibility identifiers on tvOS.
         .fullScreenCover(isPresented: $confirmsChangeServer) {
@@ -64,8 +71,8 @@ struct TVProfileView: View {
                 Toggle("Follow Apple TV Users", isOn: Binding(
                     get: { followsAppleTVUsers },
                     set: { follows in
-                        followsAppleTVUsers = follows
                         appState.setFollowsAppleTVUsers(follows)
+                        followsAppleTVUsers = SessionScopeSetting.followsAppleTVUsers
                     }
                 ))
                 .frame(width: 560)
@@ -76,6 +83,18 @@ struct TVProfileView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 900)
+                if !followsAppleTVUsers {
+                    Toggle("Select a User Every Relaunch", isOn: Binding(
+                        get: { selectsUserEveryRelaunch },
+                        set: { selects in
+                            SessionScopeSetting.setSelectsUserEveryRelaunch(selects)
+                            selectsUserEveryRelaunch = SessionScopeSetting.selectsUserEveryRelaunch
+                        }
+                    ))
+                    .frame(width: 560)
+                    .focused($focusedAction, equals: .selectsUserEveryRelaunch)
+                    .accessibilityIdentifier(A11yID.TV.Profile.selectsUserEveryRelaunch)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -141,6 +141,16 @@ can't show the two keychains apart; `ServerSessionStoreTests`' tvOS-only
 and where the setting is stored. The harness's reset puts the setting back and
 clears the shared session, or one run's "off" would leak into every later test.
 
+Select a User Every Relaunch: `SessionScopeSettingTests` pins
+`WhoIsWatchingPolicy` (asked only with Follow off, the setting on, and more
+than one remembered account; from 30 minutes away), and `AppStateTests`'
+tvOS-only cases pin that such a launch reaches Who's Watching? with no request
+and every account still remembered, that one account or the setting off signs
+straight in, and the time-away rule with injected dates. The journey signs in
+a second account (the stub now answers the guest's sign-in as the guest), turns
+Follow off, sees the second toggle appear, and relaunches to Who's Watching?
+with the last account used focused. The 30-minute return has no journey.
+
 `AccountSwitchingJourneyTests` covers the fallback for tvOS's user switching:
 after Profile's Switch User, the seeded account is on Who's Watching? as a
 remembered one (`A11yID.TV.Onboarding.rememberedUser`), focused, and one press
@@ -151,13 +161,22 @@ with `descendants(matching: .any)`: it isn't a button to XCUITest. An account
 the server refuses, or a server that can't be reached, is `LoginViewModelTests`'
 and `AppStateTests`' job; the order of the lockups is `TVWhosWatchingLayoutTests`'.
 
-`PageCoveringJourneyTests` pins `TVPageStack`'s rule that a full-screen cover
-tears the shell down. XCUITest can't see beneath the player, so a harness-only
-marker reports how many pages cover the shell (`A11yID.TV.Player.coveringPages`).
-On the way back the rail is there again, collapsed, and focus returns to the
-tile played (Home's second tile, a library's second, so a return to the first
-can't pass for it), with Search's query intact. `TVPageStackTests` covers the
-stack itself.
+`PlayerReturnJourneyTests` pins what leaving the player comes back to: the
+page as it was, since the player is laid over it. Focus is on the tile played
+(Home's second, a library's second, so a return to the first can't pass for
+it), a tile two rows down a library is still on screen with the grid where it
+was left, and Search keeps its query. The two library journeys read focus from
+the tile's frame (a focused card is drawn larger): after the player closes,
+XCUITest reports `hasFocus` false for those tiles though focus is there.
+
+`OnboardingJourneyTests`' `manyUsers` journey (six users) checks that Who's
+Watching?'s row scrolls above five lockups: the first isn't cut off, and Other
+is fully on screen once focused. `SidebarJourneyTests`' `librariesFailAtFirst`
+journey (the stub's `/Views` answers 500 for five seconds) checks that
+libraries which failed at launch load once the rail is used again.
+`ServerSessionStoreTests`' two-user `moveSession` tests (tvOS only) pin that
+turning Follow Apple TV Users either way merges into what the destination
+keychain holds and never overwrites it.
 
 `PlayerJourneyTests` opens the player from a browse tile. Under the harness
 the host gets the fake engine, so nothing is handed to AVKit; the journeys

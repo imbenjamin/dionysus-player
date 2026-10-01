@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import Observation
 
 /// Persists the configured server and the signed-in user's credentials
@@ -123,9 +124,7 @@ final class ServerSessionStore {
     }
 
     private func loadRememberedAccounts() {
-        guard remembersAccounts, let data = KeychainStore.load(forKey: Keys.rememberedAccounts, scope: sessionScope),
-              let stored = try? decoder.decode([StoredCredentials].self, from: data) else { return }
-        accounts = stored
+        accounts = storedAccounts(in: sessionScope)
     }
 
     private func persistRememberedAccounts() {
@@ -174,19 +173,55 @@ final class ServerSessionStore {
         persistRememberedAccounts()
     }
 
-    /// Moves the current credentials and remembered accounts to `scope`,
-    /// deleting them from the scope they were in (see `SessionScopeSetting`).
-    func moveSession(to scope: KeychainStore.Scope) {
-        guard scope != sessionScope else { return }
-        KeychainStore.delete(forKey: Keys.credentials, scope: sessionScope)
-        KeychainStore.delete(forKey: Keys.rememberedAccounts, scope: sessionScope)
-        sessionScope = scope
-        if let credentials, let data = try? encoder.encode(credentials) {
-            KeychainStore.save(data, forKey: Keys.credentials, scope: scope)
+    /// Moves the session to `scope` (see `SessionScopeSetting`), written there
+    /// before it's deleted from where it was, so a failed write loses nothing
+    /// and returns `false` with the session still in place. What `scope`
+    /// already holds is merged, never overwritten:
+    /// - To the shared keychain, every remembered account moves, ahead of any
+    ///   already shared.
+    /// - To the current user's, only the account in use moves, ahead of the
+    ///   ones this Apple TV user had before. The rest of the shared list is
+    ///   deleted: other people's passwords don't belong in one person's
+    ///   keychain, and they sign in again.
+    @discardableResult
+    func moveSession(to scope: KeychainStore.Scope) -> Bool {
+        guard scope != sessionScope else { return true }
+        let moving = scope == .allUsers ? accounts : accounts.filter { isCurrent($0) }
+        let existing = storedAccounts(in: scope).filter { held in
+            !moving.contains { $0.userID == held.userID && $0.serverID == held.serverID }
+        }
+        let merged = remembersAccounts ? moving + existing : []
+
+        if let credentials {
+            guard let data = try? encoder.encode(credentials),
+                  KeychainStore.save(data, forKey: Keys.credentials, scope: scope) == errSecSuccess else { return false }
         } else {
             KeychainStore.delete(forKey: Keys.credentials, scope: scope)
         }
-        persistRememberedAccounts()
+        if !merged.isEmpty {
+            guard let data = try? encoder.encode(merged),
+                  KeychainStore.save(data, forKey: Keys.rememberedAccounts, scope: scope) == errSecSuccess else { return false }
+        }
+
+        // Only tvOS tells the scopes apart; elsewhere they're one keychain,
+        // and deleting the source would delete what was just written.
+        #if os(tvOS)
+        KeychainStore.delete(forKey: Keys.credentials, scope: sessionScope)
+        KeychainStore.delete(forKey: Keys.rememberedAccounts, scope: sessionScope)
+        #endif
+        sessionScope = scope
+        accounts = merged
+        return true
+    }
+
+    private func isCurrent(_ account: StoredCredentials) -> Bool {
+        guard let credentials, let userID = credentials.userID else { return false }
+        return account.userID == userID && account.serverID == credentials.serverID
+    }
+
+    private func storedAccounts(in scope: KeychainStore.Scope) -> [StoredCredentials] {
+        guard remembersAccounts, let data = KeychainStore.load(forKey: Keys.rememberedAccounts, scope: scope) else { return [] }
+        return (try? decoder.decode([StoredCredentials].self, from: data)) ?? []
     }
 
     /// Signs the user out but keeps the server configured, so they land

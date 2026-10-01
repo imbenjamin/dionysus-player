@@ -62,6 +62,38 @@ final class AccountSwitchingJourneyTests: TVUITestCase {
         XCTAssertEqual(relaunchedToggle.value as? String, "0", "The setting is kept too")
     }
 
+    /// Sharing one session with two accounts remembered: a relaunch starts at
+    /// Who's Watching?, the last account used first, and one press signs in.
+    /// The setting that asks appears only once Follow Apple TV Users is off.
+    func test_followOff_withTwoAccounts_aRelaunchAsksWhoIsWatching() {
+        // A second account: Switch User, then the passwordless Guest.
+        var app = switchUser()
+        let guest = app.buttons[A11yID.TV.Onboarding.user(UITestFixtureIdentity.passwordlessUserID)]
+        press(.right)
+        XCTAssertTrue(waitForFocus(guest))
+        press(.select)
+
+        app = openProfile(app)
+        let follows = app.descendants(matching: .any)[A11yID.TV.Profile.followsAppleTVUsers]
+        let selects = app.descendants(matching: .any)[A11yID.TV.Profile.selectsUserEveryRelaunch]
+        XCTAssertTrue(follows.waitForExistence(timeout: 10))
+        XCTAssertFalse(selects.exists, "Nothing to choose while each Apple TV user has their own session")
+        press(.down, times: 2)
+        XCTAssertTrue(waitForFocus(follows))
+        press(.select)
+        XCTAssertTrue(selects.waitForExistence(timeout: 5))
+        XCTAssertEqual(selects.value as? String, "1", "On by default")
+
+        app.terminate()
+        let relaunched = launch(scenario: "quickConnectPending", resetsState: false)
+        XCTAssertTrue(relaunched.staticTexts[A11yID.TV.Onboarding.whosWatchingTitle].waitForExistence(timeout: 10))
+        let lastUsed = relaunched.buttons[A11yID.TV.Onboarding.rememberedUser(UITestFixtureIdentity.passwordlessUserID)]
+        XCTAssertTrue(waitForFocus(lastUsed), "The account last used takes focus")
+        XCTAssertTrue(remembered.exists)
+        press(.select)
+        XCTAssertTrue(relaunched.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)].waitForExistence(timeout: 10))
+    }
+
     /// From Home to Profile, with Switch User focused.
     private func openProfile(_ app: XCUIApplication) -> XCUIApplication {
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)], timeout: 10))
