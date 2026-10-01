@@ -73,6 +73,12 @@ enum UITestHarness {
     /// leftovers. The Keychain matters most: it outlives the app container, so a
     /// signed-in run would otherwise seed every later first-launch test.
     private static func resetPersistentState() {
+        #if os(tvOS)
+        // A test that turned "Follow Apple TV Users" off left the setting and
+        // a session in the keychain every Apple TV user shares.
+        SessionScopeSetting.reset()
+        ServerSessionStore(sessionScope: .allUsers).clearAll()
+        #endif
         ServerSessionStore().clearAll()
 
         if let domain = Bundle.main.bundleIdentifier {

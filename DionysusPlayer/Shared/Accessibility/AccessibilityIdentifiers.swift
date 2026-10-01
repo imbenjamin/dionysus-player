@@ -446,6 +446,7 @@ enum A11yID {
             static let switchUser = "tv.profile.switchUser"
             static let changeServer = "tv.profile.changeServer"
             static let changeServerConfirm = "tv.profile.changeServer.confirm"
+            static let followsAppleTVUsers = "tv.profile.followsAppleTVUsers"
         }
         /// The custom sidebar's rows (collapsed rail and open panel alike).
         enum Sidebar {

@@ -233,6 +233,15 @@ final class AppState {
         }
     }
 
+    #if os(tvOS)
+    /// The "Follow Apple TV Users" setting. The session moves with it, so
+    /// whoever is signed in stays signed in.
+    func setFollowsAppleTVUsers(_ follows: Bool) {
+        SessionScopeSetting.set(follows)
+        sessionStore.moveSession(to: SessionScopeSetting.sessionScope)
+    }
+    #endif
+
     /// Forgets the server entirely and returns to first-run setup.
     func changeServer() {
         sessionStore.clearAll()

@@ -27,7 +27,7 @@ extension TVUITestCase {
 
     /// `frame` can't be read through an `NSPredicate` key path (it never
     /// matches), so geometry is polled.
-    private func poll(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
+    func poll(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             if condition() { return true }

@@ -133,6 +133,14 @@ collapsed, over 300pt open), and it's polled (`waitForExpanded`,
 app's own rather than a `.confirmationDialog`, whose buttons lose their
 identifiers on tvOS.
 
+`AccountSwitchingJourneyTests` also turns Follow Apple TV Users off on Profile
+and relaunches without a reset (`launch(resetsState: false)`): still signed in,
+with the toggle still off. The Simulator has one Apple TV user, so the journey
+can't show the two keychains apart; `ServerSessionStoreTests`' tvOS-only
+`moveSession` tests do that, and `SessionScopeSettingTests` pins the default
+and where the setting is stored. The harness's reset puts the setting back and
+clears the shared session, or one run's "off" would leak into every later test.
+
 `AccountSwitchingJourneyTests` covers the fallback for tvOS's user switching:
 after Profile's Switch User, the seeded account is on Who's Watching? as a
 remembered one (`A11yID.TV.Onboarding.rememberedUser`), focused, and one press
