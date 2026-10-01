@@ -22,6 +22,7 @@ final class ServerSessionStoreTests: XCTestCase {
         defaults.removePersistentDomain(forName: suiteName)
         KeychainStore.delete(forKey: credentialsKey)
         KeychainStore.delete(forKey: serverKey, scope: .allUsers)
+        KeychainStore.delete(forKey: "server.rememberedAccounts")
         super.tearDown()
     }
 
@@ -175,5 +176,75 @@ final class ServerSessionStoreTests: XCTestCase {
         let decoded = try JSONDecoder().decode(StoredCredentials.self, from: Data(legacy.utf8))
         XCTAssertNil(decoded.serverID)
         XCTAssertEqual(decoded.username, "ben")
+    }
+
+    // MARK: Remembered accounts (tvOS fallback for user switching)
+
+    private func account(_ userID: String, server: String = "https://a.example.com", token: String = "tok") -> StoredCredentials {
+        StoredCredentials(username: userID, password: "", accessToken: token, userID: userID, serverID: server)
+    }
+
+    func test_signingIn_remembersTheAccount_mostRecentFirst() {
+        let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true)
+        store.saveCredentials(account("ben"))
+        store.saveCredentials(account("tara"))
+        store.saveCredentials(account("ben", token: "tok2"))
+
+        let reloaded = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true)
+        XCTAssertEqual(reloaded.rememberedAccounts(forServer: "https://a.example.com").map(\.userID), ["ben", "tara"])
+        XCTAssertEqual(reloaded.rememberedAccounts(forServer: "https://a.example.com").first?.accessToken, "tok2")
+    }
+
+    func test_rememberedAccounts_listOnlyTheConfiguredServer() {
+        let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true)
+        store.saveCredentials(account("ben", server: "https://a.example.com"))
+        store.saveCredentials(account("tara", server: "https://b.example.com"))
+        XCTAssertEqual(store.rememberedAccounts(forServer: "https://a.example.com").map(\.userID), ["ben"])
+    }
+
+    /// The same Jellyfin user id on two servers is two accounts.
+    func test_sameUserOnAnotherServer_isRememberedSeparately() {
+        let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true)
+        store.saveCredentials(account("ben", server: "https://a.example.com"))
+        store.saveCredentials(account("ben", server: "https://b.example.com"))
+        XCTAssertEqual(store.rememberedAccounts(forServer: "https://a.example.com").count, 1)
+        XCTAssertEqual(store.rememberedAccounts(forServer: "https://b.example.com").count, 1)
+    }
+
+    /// Entries written before credentials carried a server can't be placed, so
+    /// they're never offered.
+    func test_credentialsWithoutAServer_areNotRemembered() {
+        let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true)
+        store.saveCredentials(StoredCredentials(username: "ben", password: "", accessToken: "tok", userID: "ben"))
+        XCTAssertNil(KeychainStore.load(forKey: "server.rememberedAccounts"))
+    }
+
+    func test_switchUser_keepsRememberedAccounts_changeServerClearsThem() {
+        let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true)
+        store.saveCredentials(account("ben"))
+        store.clearCredentials()
+        XCTAssertEqual(store.rememberedAccounts(forServer: "https://a.example.com").count, 1)
+        store.clearAll()
+        XCTAssertTrue(store.rememberedAccounts(forServer: "https://a.example.com").isEmpty)
+        XCTAssertTrue(ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true)
+            .rememberedAccounts(forServer: "https://a.example.com").isEmpty)
+    }
+
+    func test_forgetAccount_removesOnlyThatAccount() {
+        let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true)
+        store.saveCredentials(account("ben"))
+        store.saveCredentials(account("tara"))
+        store.forgetAccount(userID: "ben")
+        XCTAssertEqual(store.rememberedAccounts(forServer: "https://a.example.com").map(\.userID), ["tara"])
+        XCTAssertEqual(ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true)
+            .rememberedAccounts(forServer: "https://a.example.com").map(\.userID), ["tara"])
+    }
+
+    /// iOS has no tvOS user switching to fall back from, so it remembers nothing.
+    func test_notRemembering_storesNoAccounts() {
+        let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: false)
+        store.saveCredentials(account("ben"))
+        XCTAssertTrue(store.rememberedAccounts(forServer: "https://a.example.com").isEmpty)
+        XCTAssertNil(KeychainStore.load(forKey: "server.rememberedAccounts"))
     }
 }

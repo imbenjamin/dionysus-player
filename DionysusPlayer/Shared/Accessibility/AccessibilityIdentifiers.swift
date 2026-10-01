@@ -421,6 +421,9 @@ enum A11yID {
             static let whosWatchingTitle = "tv.onboarding.whosWatching.title"
             static func user(_ id: String) -> String { "tv.onboarding.user.\(id)" }
             static let otherUser = "tv.onboarding.user.other"
+            /// A user already signed in on this Apple TV, in place of `user(_:)`.
+            static func rememberedUser(_ id: String) -> String { "tv.onboarding.rememberedUser.\(id)" }
+            static let forgetAccount = "tv.onboarding.forgetAccount"
             static let quickConnectCode = "tv.onboarding.quickConnect.code"
             static let usePassword = "tv.onboarding.quickConnect.usePassword"
             static let passwordField = "tv.onboarding.password.field"

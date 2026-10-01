@@ -11,19 +11,25 @@ final class TVSignInRouteTests: XCTestCase {
     }
 
     func test_passwordlessUser_signsInNow_evenWithQuickConnect() {
-        XCTAssertEqual(TVSignInRoute.forUser(user(hasPassword: false), quickConnectAvailable: true), .signInNow)
+        XCTAssertEqual(TVSignInRoute.forUser(user(hasPassword: false), quickConnectAvailable: true, isRemembered: false), .signInNow)
     }
 
     func test_passwordUser_goesToQuickConnect_whenTheServerHasIt() {
-        XCTAssertEqual(TVSignInRoute.forUser(user(hasPassword: true), quickConnectAvailable: true), .quickConnect)
+        XCTAssertEqual(TVSignInRoute.forUser(user(hasPassword: true), quickConnectAvailable: true, isRemembered: false), .quickConnect)
     }
 
     func test_passwordUser_goesToPassword_whenQuickConnectIsOff() {
-        XCTAssertEqual(TVSignInRoute.forUser(user(hasPassword: true), quickConnectAvailable: false), .password)
+        XCTAssertEqual(TVSignInRoute.forUser(user(hasPassword: true), quickConnectAvailable: false, isRemembered: false), .password)
     }
 
     /// The server didn't say: treated as needing a password, as iOS does.
     func test_unknownPasswordState_isTreatedAsHavingOne() {
-        XCTAssertEqual(TVSignInRoute.forUser(user(hasPassword: nil), quickConnectAvailable: true), .quickConnect)
+        XCTAssertEqual(TVSignInRoute.forUser(user(hasPassword: nil), quickConnectAvailable: true, isRemembered: false), .quickConnect)
+    }
+
+    /// An account already signed in on this Apple TV needs no code and no
+    /// password, whatever the server says about it.
+    func test_rememberedAccount_signsInOnOnePress_beforeQuickConnect() {
+        XCTAssertEqual(TVSignInRoute.forUser(user(hasPassword: true), quickConnectAvailable: true, isRemembered: true), .rememberedAccount)
     }
 }

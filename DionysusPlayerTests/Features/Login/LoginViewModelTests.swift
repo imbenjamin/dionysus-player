@@ -20,6 +20,8 @@ final class LoginViewModelTests: XCTestCase {
         UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
         KeychainStore.delete(forKey: credentialsKey)
         KeychainStore.delete(forKey: "server.configuration", scope: .allUsers)
+        KeychainStore.delete(forKey: "server.rememberedAccounts")
+        ConnectivityMonitor.shared.reset()
         super.tearDown()
     }
 
@@ -278,5 +280,78 @@ final class LoginViewModelTests: XCTestCase {
     func test_disclaimer_blankOrMarkupOnlyIsNone() {
         XCTAssertNil(LoginDisclaimer.plainText(from: "   "))
         XCTAssertNil(LoginDisclaimer.plainText(from: "<br/><p></p>"))
+    }
+
+    // MARK: Remembered accounts (tvOS)
+
+    private let rememberedUser = UserDto(id: "user-1", name: "ben")
+
+    private func remembered(_ method: StoredCredentials.AuthMethod = .password) -> StoredCredentials {
+        StoredCredentials(
+            username: "ben", password: method == .password ? "pw" : nil, accessToken: "tok", userID: "user-1",
+            authMethod: method, serverID: "https://jellyfin.example.com"
+        )
+    }
+
+    func test_signInRemembered_success_signsInWithNoError() async {
+        let viewModel = LoginViewModel()
+        let appState = makeSignedOutAppState()
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request,
+                value: AuthenticationResult(user: UserDto(id: "user-1", name: "ben"), accessToken: "tok", serverId: nil)
+            )
+        }
+
+        let outcome = await viewModel.signIn(rememberedAccount: remembered(), as: rememberedUser, using: appState)
+
+        XCTAssertEqual(outcome, .signedIn)
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertEqual(appState.phase, .main)
+    }
+
+    /// The password was changed elsewhere: they're asked for it, with the
+    /// reason, as the selected user, so what they type is theirs.
+    func test_signInRemembered_passwordRefused_asksForThePasswordWithAnError() async {
+        let viewModel = LoginViewModel()
+        let appState = makeSignedOutAppState()
+        MockURLProtocol.requestHandler = { request in MockURLProtocol.jsonResponse(for: request, status: 401, body: Data()) }
+
+        let outcome = await viewModel.signIn(rememberedAccount: remembered(), as: rememberedUser, using: appState)
+
+        XCTAssertEqual(outcome, .refused)
+        XCTAssertEqual(viewModel.selectedUser?.id, "user-1")
+        XCTAssertEqual(viewModel.selectedUserPassword, "")
+        XCTAssertNotNil(viewModel.errorMessage)
+        XCTAssertFalse(viewModel.isSigningIn)
+        XCTAssertEqual(appState.phase, .login)
+    }
+
+    /// A revoked Quick Connect token has no password to ask for: the screen
+    /// sends them to a new code.
+    func test_signInRemembered_quickConnectTokenRevoked_isRefusedWithNobodySelected() async {
+        let viewModel = LoginViewModel()
+        let appState = makeSignedOutAppState()
+        MockURLProtocol.requestHandler = { request in MockURLProtocol.jsonResponse(for: request, status: 401, body: Data()) }
+
+        let outcome = await viewModel.signIn(rememberedAccount: remembered(.quickConnect), as: rememberedUser, using: appState)
+
+        XCTAssertEqual(outcome, .refused)
+        XCTAssertNil(viewModel.selectedUser)
+    }
+
+    /// The server can't be reached: nothing is wrong with the account, so
+    /// they stay on Who's Watching? with the reason and aren't asked for a
+    /// password.
+    func test_signInRemembered_serverUnreachable_staysPutWithAnError() async {
+        let viewModel = LoginViewModel()
+        let appState = makeSignedOutAppState()
+        MockURLProtocol.requestHandler = { _ in throw URLError(.cannotConnectToHost) }
+
+        let outcome = await viewModel.signIn(rememberedAccount: remembered(), as: rememberedUser, using: appState)
+
+        XCTAssertEqual(outcome, .unreachable)
+        XCTAssertNil(viewModel.selectedUser)
+        XCTAssertNotNil(viewModel.errorMessage)
     }
 }

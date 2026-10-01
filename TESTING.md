@@ -133,6 +133,16 @@ collapsed, over 300pt open), and it's polled (`waitForExpanded`,
 app's own rather than a `.confirmationDialog`, whose buttons lose their
 identifiers on tvOS.
 
+`AccountSwitchingJourneyTests` covers the fallback for tvOS's user switching:
+after Profile's Switch User, the seeded account is on Who's Watching? as a
+remembered one (`A11yID.TV.Onboarding.rememberedUser`), focused, and one press
+returns to Home with no code. Holding Select and choosing Forget This Account
+puts it back among the server's users, where it asks for a code again
+(`quickConnectPending`, so the code stays on screen). The menu's row is found
+with `descendants(matching: .any)`: it isn't a button to XCUITest. An account
+the server refuses, or a server that can't be reached, is `LoginViewModelTests`'
+and `AppStateTests`' job; the order of the lockups is `TVWhosWatchingLayoutTests`'.
+
 `PageCoveringJourneyTests` pins `TVPageStack`'s rule that a full-screen cover
 tears the shell down. XCUITest can't see beneath the player, so a harness-only
 marker reports how many pages cover the shell (`A11yID.TV.Player.coveringPages`).

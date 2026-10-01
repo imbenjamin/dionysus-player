@@ -32,6 +32,7 @@ final class AppStateTests: XCTestCase {
         defaults.removePersistentDomain(forName: suiteName)
         KeychainStore.delete(forKey: credentialsKey)
         KeychainStore.delete(forKey: serverKey, scope: .allUsers)
+        KeychainStore.delete(forKey: "server.rememberedAccounts")
         try await super.tearDown()
     }
 
@@ -393,5 +394,94 @@ final class AppStateTests: XCTestCase {
         try await appState.signIn(username: "ben", password: "pw")
 
         XCTAssertEqual(store.credentials?.serverID, exampleServer.id)
+    }
+
+    // MARK: Remembered accounts (tvOS)
+
+    private func makeRememberingAppState() -> AppState {
+        AppState(sessionStore: ServerSessionStore(defaults: defaults, remembersAccounts: true))
+    }
+
+    func test_signInRememberedPasswordAccount_signsInWithItsStoredPassword() async throws {
+        let appState = makeRememberingAppState()
+        appState.completeServerSetup(exampleServer)
+        // The handler runs on a URL loading thread: it only stores the bytes.
+        nonisolated(unsafe) var sentData: Data?
+        MockURLProtocol.requestHandler = { request in
+            sentData = request.capturedHTTPBody
+            return try Self.authenticateByNameHandler(request)
+        }
+        let remembered = StoredCredentials(username: "ben", password: "pw", accessToken: "old", userID: "user-1", serverID: exampleServer.id)
+
+        try await appState.signIn(rememberedAccount: remembered)
+
+        XCTAssertEqual(appState.phase, .main)
+        let sentBody = String(data: sentData ?? Data(), encoding: .utf8) ?? ""
+        XCTAssertTrue(sentBody.contains("\"Pw\":\"pw\""), sentBody)
+        XCTAssertEqual(appState.sessionStore.credentials?.accessToken, "tok")
+    }
+
+    func test_signInRememberedQuickConnectAccount_validatesItsTokenInsteadOfSigningIn() async throws {
+        let appState = makeRememberingAppState()
+        appState.completeServerSetup(exampleServer)
+        var paths: [String] = []
+        MockURLProtocol.requestHandler = { request in
+            paths.append(request.url?.path ?? "")
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: UserDto(id: "user-1", name: "ben"))
+        }
+        let remembered = StoredCredentials(username: "ben", password: nil, accessToken: "qc", userID: "user-1",
+                                           authMethod: .quickConnect, serverID: exampleServer.id)
+
+        try await appState.signIn(rememberedAccount: remembered)
+
+        XCTAssertEqual(paths, ["/Users/Me"], "A Quick Connect account has no password to send")
+        XCTAssertEqual(appState.phase, .main)
+        XCTAssertEqual(appState.currentUser?.id, "user-1")
+        XCTAssertEqual(appState.sessionStore.credentials?.accessToken, "qc")
+    }
+
+    /// The password was changed elsewhere, or the token revoked: the person
+    /// stays on Who's Watching?, signed in as nobody, and the account stays
+    /// remembered until they forget it.
+    func test_signInRememberedAccount_thatNoLongerWorks_throwsAndStaysRemembered() async {
+        let appState = makeRememberingAppState()
+        appState.completeServerSetup(exampleServer)
+        MockURLProtocol.requestHandler = Self.authenticateByNameHandler
+        _ = try? await appState.signIn(username: "ben", password: "pw")
+        appState.signOut()
+        let remembered = appState.sessionStore.rememberedAccounts(forServer: exampleServer.id)
+        XCTAssertEqual(remembered.map(\.userID), ["user-1"])
+        MockURLProtocol.requestHandler = { request in MockURLProtocol.jsonResponse(for: request, status: 401, body: Data()) }
+
+        do {
+            try await appState.signIn(rememberedAccount: remembered[0])
+            XCTFail("Expected the stale account to be refused")
+        } catch {}
+
+        XCTAssertEqual(appState.phase, .login)
+        XCTAssertNil(appState.sessionStore.credentials)
+        XCTAssertNil(appState.currentUser)
+        XCTAssertEqual(appState.sessionStore.rememberedAccounts(forServer: exampleServer.id).map(\.userID), ["user-1"])
+    }
+
+    /// An account remembered for another server is never replayed against
+    /// this one, where the same name could be someone else.
+    func test_signInRememberedAccount_fromAnotherServer_isRefusedWithoutARequest() async {
+        let appState = makeRememberingAppState()
+        appState.completeServerSetup(exampleServer)
+        var requests = 0
+        MockURLProtocol.requestHandler = { request in
+            requests += 1
+            return try Self.authenticateByNameHandler(request)
+        }
+        let foreign = StoredCredentials(username: "ben", password: "pw", accessToken: "old", userID: "user-1", serverID: "https://other.example.com")
+
+        do {
+            try await appState.signIn(rememberedAccount: foreign)
+            XCTFail("Expected an account from another server to be refused")
+        } catch {}
+
+        XCTAssertEqual(requests, 0)
+        XCTAssertEqual(appState.phase, .login)
     }
 }

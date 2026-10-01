@@ -22,6 +22,9 @@ storage, and is never sent anywhere except where noted:
 - **Account credentials** — your Jellyfin username, password (if your
   account has one and you signed in with it — signing in with Quick Connect
   stores no password at all), and access token, stored in the iOS Keychain.
+  On Apple TV, the app keeps these for every account you have signed in
+  with, so you can switch between them on the "Who's Watching?" screen
+  without signing in again. They are kept separately for each Apple TV user.
 - **Server address** — the URL of the Jellyfin server you configured.
 - **A random device identifier** — a UUID generated once on first launch,
   used only to identify this app installation to your Jellyfin server (the
@@ -104,9 +107,12 @@ There is no Dionysus Player account to delete, because there is no
 Dionysus Player account — your account belongs to your Jellyfin server.
 Within the app:
 
-- **Sign Out** removes your stored credentials from the Keychain.
+- **Sign Out** removes your stored credentials from the Keychain. On Apple
+  TV, **Switch User** signs you out but keeps the account on "Who's
+  Watching?"; hold Select on it there and choose **Forget This Account** to
+  remove its stored credentials.
 - **Change Server** does that and also forgets the configured server
-  address.
+  address, along with every account remembered on Apple TV.
 - Neither clears downloaded content, saved preferences, or the random
   device identifier described above — those persist until you delete
   downloads individually, or delete the app entirely, which removes

@@ -19,4 +19,10 @@ final class TVAppLaunchTests: XCTestCase {
     func test_serverConfiguration_isSharedAcrossAppleTVUsers() {
         XCTAssertEqual(ServerSessionStore.ServerLocation.platformDefault, .sharedKeychain)
     }
+
+    /// tvOS's user switching can launch the app as another Apple TV user, so
+    /// accounts are remembered here; see `ServerSessionStore.RememberedAccounts`.
+    func test_accounts_areRememberedOnAppleTV() {
+        XCTAssertTrue(ServerSessionStore.RememberedAccounts.platformDefault)
+    }
 }

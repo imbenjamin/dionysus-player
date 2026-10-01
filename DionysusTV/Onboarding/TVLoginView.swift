@@ -1,11 +1,16 @@
 import SwiftUI
 
 /// Who's Watching?, on the shared `LoginViewModel`, in the prototype's layout:
-/// the server's public users as circular lockups, then "Other". Choosing a
-/// user follows `TVSignInRoute`: a user without a password signs in on Select,
-/// anyone else goes to Quick Connect when the server has it, and to a password
-/// otherwise. With no public users, the username and password form fills the
-/// users area.
+/// circular lockups for the accounts already signed in on this Apple TV, then
+/// the server's other public users, then "Other" (`TVWhosWatchingLayout`).
+/// Choosing a user follows `TVSignInRoute`: a remembered account or a user
+/// without a password signs in on Select, anyone else goes to Quick Connect
+/// when the server has it, and to a password otherwise. With nobody to show,
+/// the username and password form fills the users area.
+///
+/// Remembered accounts are the fallback for tvOS's user switching, which can
+/// launch the app as another Apple TV user: the right account is then one
+/// press away. Holding Select on one offers to forget it.
 struct TVLoginView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel = LoginViewModel()
@@ -93,25 +98,55 @@ struct TVLoginView: View {
         }
     }
 
-    private var firstUserID: String? {
-        if case .loaded(let users) = viewModel.usersState { users.first?.id } else { nil }
+    /// Nobody while the server's list is still loading, so the lockups
+    /// arrive once and in their final order.
+    private var lockups: [TVWhosWatchingLayout.Lockup] {
+        let listed: [UserDto]
+        switch viewModel.usersState {
+        case .loading: return []
+        case .loaded(let users): listed = users
+        case .unavailable: listed = []
+        }
+        let serverID = appState.sessionStore.serverConfiguration?.id
+        let remembered = serverID.map(appState.sessionStore.rememberedAccounts(forServer:)) ?? []
+        return TVWhosWatchingLayout.lockups(remembered: remembered, listed: listed)
     }
+
+    private var firstUserID: String? { lockups.first?.id }
 
     @ViewBuilder
     private var users: some View {
-        switch viewModel.usersState {
-        case .loading:
+        let lockups = lockups
+        if viewModel.usersState == .loading {
             ProgressView()
-        case .loaded(let users) where !users.isEmpty:
+        } else if !lockups.isEmpty {
             HStack(spacing: 70) {
-                ForEach(users) { user in
-                    lockup(name: user.name) {
-                        choose(user)
-                    } avatar: {
-                        UserAvatar(user: user, serverURL: serverURL, size: 230)
+                ForEach(lockups) { entry in
+                    if let account = entry.account {
+                        lockup(name: entry.user.name) {
+                            choose(entry.user, remembered: account)
+                        } avatar: {
+                            UserAvatar(user: entry.user, serverURL: serverURL, size: 230)
+                        } badge: {
+                            signedInBadge
+                        }
+                        .focused($focusedUserID, equals: entry.id)
+                        .accessibilityIdentifier(A11yID.TV.Onboarding.rememberedUser(entry.id))
+                        .contextMenu {
+                            Button("Forget This Account", role: .destructive) {
+                                appState.sessionStore.forgetAccount(userID: entry.id)
+                            }
+                            .accessibilityIdentifier(A11yID.TV.Onboarding.forgetAccount)
+                        }
+                    } else {
+                        lockup(name: entry.user.name) {
+                            choose(entry.user, remembered: nil)
+                        } avatar: {
+                            UserAvatar(user: entry.user, serverURL: serverURL, size: 230)
+                        }
+                        .focused($focusedUserID, equals: entry.id)
+                        .accessibilityIdentifier(A11yID.TV.Onboarding.user(entry.id))
                     }
-                    .focused($focusedUserID, equals: user.id)
-                    .accessibilityIdentifier(A11yID.TV.Onboarding.user(user.id))
                 }
                 lockup(name: String(localized: "Other")) {
                     chooseOther()
@@ -127,22 +162,36 @@ struct TVLoginView: View {
                 }
                 .accessibilityIdentifier(A11yID.TV.Onboarding.otherUser)
             }
-        default:
+            .disabled(viewModel.isSigningIn)
+        } else {
             TVManualSignInForm(viewModel: viewModel)
         }
     }
 
+    /// Marks an account already signed in on this Apple TV.
+    private var signedInBadge: some View {
+        Image(systemName: "checkmark.circle.fill")
+            .font(.system(size: 54))
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(.white, Color.dionysusHighlight)
+            .accessibilityHidden(true)
+    }
+
     /// A circular lockup: the avatar lifts on focus, the name sits below it.
+    /// The badge sits over the avatar's bottom trailing edge, outside the
+    /// highlight, which clips to the circle.
     private func lockup(
         name: String,
         action: @escaping () -> Void,
-        @ViewBuilder avatar: () -> some View
+        @ViewBuilder avatar: () -> some View,
+        @ViewBuilder badge: () -> some View = { EmptyView() }
     ) -> some View {
         Button(action: action) {
             VStack(spacing: 26) {
                 avatar()
                     .contentShape(.hoverEffect, Circle())
                     .hoverEffect(.highlight)
+                    .overlay(alignment: .bottomTrailing) { badge() }
                 Text(verbatim: name).font(.callout.weight(.semibold))
             }
         }
@@ -150,11 +199,30 @@ struct TVLoginView: View {
         .buttonBorderShape(.circle)
     }
 
-    private func choose(_ user: UserDto) {
-        switch TVSignInRoute.forUser(user, quickConnectAvailable: viewModel.isQuickConnectAvailable) {
+    private func choose(_ user: UserDto, remembered account: StoredCredentials?) {
+        let route = TVSignInRoute.forUser(
+            user, quickConnectAvailable: viewModel.isQuickConnectAvailable, isRemembered: account != nil
+        )
+        switch route {
+        case .rememberedAccount:
+            guard let account else { return }
+            Task { await signIn(user, remembered: account) }
         case .signInNow: Task { await viewModel.choose(user, using: appState) }
         case .quickConnect: quickConnectTarget = QuickConnectTarget(user: user)
         case .password: passwordUser = user
+        }
+    }
+
+    /// One press. An account the server now turns down goes the way a new
+    /// sign-in would, less the remembered shortcut: a password account to its
+    /// password screen, where the view model has put the reason, a Quick
+    /// Connect one to a new code. It stays remembered until it's forgotten.
+    private func signIn(_ user: UserDto, remembered account: StoredCredentials) async {
+        guard await viewModel.signIn(rememberedAccount: account, as: user, using: appState) == .refused else { return }
+        if account.authMethod == .quickConnect, viewModel.isQuickConnectAvailable {
+            quickConnectTarget = QuickConnectTarget(user: user)
+        } else {
+            passwordUser = user
         }
     }
 
