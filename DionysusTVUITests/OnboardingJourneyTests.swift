@@ -20,6 +20,24 @@ final class OnboardingJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForCollapsed(app.buttons[A11yID.TV.Sidebar.home]), "Signed in, the rail is there, collapsed")
     }
 
+    /// Above five lockups the row scrolls, so the first one, which takes
+    /// focus, and "Other" at the far end are each fully on screen when focused.
+    func test_manyUsers_theRowScrolls_soEveryLockupIsReachable() {
+        let app = launch(scenario: "manyUsers")
+        connectToDiscoveredServer(app)
+        let window = app.windows.firstMatch.frame
+        let first = app.buttons[A11yID.TV.Onboarding.user(UITestFixtureIdentity.userID)]
+        XCTAssertTrue(waitForFocus(first, timeout: 10))
+        XCTAssertGreaterThanOrEqual(first.frame.minX, 0, "The first lockup isn't cut off at the left edge")
+        let other = app.buttons[A11yID.TV.Onboarding.otherUser]
+        for _ in 0..<8 where !other.hasFocus {
+            press(.right)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        }
+        XCTAssertTrue(waitForFocus(other))
+        XCTAssertLessThanOrEqual(other.frame.maxX, window.maxX, "Other is fully on screen once focused")
+    }
+
     /// Typing an address is the secondary route: a button below the found
     /// servers reveals the field.
     func test_enterServerAddress_revealsTheAddressField() {

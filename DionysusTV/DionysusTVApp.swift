@@ -25,6 +25,7 @@ struct DionysusTVApp: App {
 /// Where the user is in the app: `AppState.phase`, as on iOS.
 struct TVRootView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -46,6 +47,19 @@ struct TVRootView: View {
                         TVMainView(client: client, userID: userID)
                     }
                 }
+            }
+        }
+        // tvOS suspends the app through sleep, so a long time away counts as
+        // a relaunch: back to Who's Watching? when the settings ask
+        // (`WhoIsWatchingPolicy`), closing the player first.
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background: appState.didEnterBackground()
+            case .active:
+                guard appState.asksWhoIsWatching(returningAt: Date()) else { return }
+                TVPlayerPresenter.dismissPlayer()
+                appState.signOut()
+            default: break
             }
         }
     }

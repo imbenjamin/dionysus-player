@@ -447,6 +447,7 @@ enum A11yID {
             static let changeServer = "tv.profile.changeServer"
             static let changeServerConfirm = "tv.profile.changeServer.confirm"
             static let followsAppleTVUsers = "tv.profile.followsAppleTVUsers"
+            static let selectsUserEveryRelaunch = "tv.profile.selectsUserEveryRelaunch"
         }
         /// The custom sidebar's rows (collapsed rail and open panel alike).
         enum Sidebar {
@@ -461,9 +462,6 @@ enum A11yID {
             static let titleBlock = "tv.player.title"
             static let elapsed = "tv.player.elapsed"
             static let formatLabel = "tv.player.format"
-            /// DEBUG, UI-test harness only: how many pages cover the shell
-            /// while the player is up (`TVPageStack.depth`).
-            static func coveringPages(_ depth: Int) -> String { "tv.player.debug.coveringPages.\(depth)" }
         }
     }
 }

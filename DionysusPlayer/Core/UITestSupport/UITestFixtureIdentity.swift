@@ -114,6 +114,8 @@ enum UITestFixtureIdentity {
     /// one tap signs in. The stub accepts this name with an empty password.
     static let passwordlessUserID = "uitest-user-guest"
     static let passwordlessUsername = "Guest"
+    /// The `manyUsers` scenario's users beyond the standard two.
+    static let extraUserIDs = ["ana", "ben", "cleo", "dev"]
 
     /// The stub server's login disclaimer, markup and all, as an admin might
     /// write it.

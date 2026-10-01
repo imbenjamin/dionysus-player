@@ -25,6 +25,10 @@ final class AppState {
     }
 
     let sessionStore: ServerSessionStore
+    #if os(tvOS)
+    /// When the app last left the foreground (`asksWhoIsWatching(returningAt:)`).
+    private var backgroundedAt: Date?
+    #endif
     #if DOWNLOADS
     /// Offline downloads are local-device storage, not tied to which
     /// server is configured — unlike `apiClient`, this is created once
@@ -89,6 +93,17 @@ final class AppState {
             phase = .login
             return
         }
+
+        // One session shared by every Apple TV user: each launch asks who it
+        // is (`WhoIsWatchingPolicy`). Signed out as Switch User does, so the
+        // accounts stay remembered and one press signs one in.
+        #if os(tvOS)
+        if asksWhoIsWatching {
+            sessionStore.clearCredentials()
+            phase = .login
+            return
+        }
+        #endif
 
         do {
             switch credentials.authMethod {
@@ -235,10 +250,35 @@ final class AppState {
 
     #if os(tvOS)
     /// The "Follow Apple TV Users" setting. The session moves with it, so
-    /// whoever is signed in stays signed in.
+    /// whoever is signed in stays signed in (`ServerSessionStore.moveSession`).
     func setFollowsAppleTVUsers(_ follows: Bool) {
+        // The session first: if it can't be moved, the setting stays as it
+        // was and still points at where the session is.
+        guard sessionStore.moveSession(to: follows ? .currentUser : .allUsers) else { return }
         SessionScopeSetting.set(follows)
-        sessionStore.moveSession(to: SessionScopeSetting.sessionScope)
+    }
+
+    private var asksWhoIsWatching: Bool {
+        let accounts = sessionStore.serverConfiguration.map { sessionStore.rememberedAccounts(forServer: $0.id).count } ?? 0
+        return WhoIsWatchingPolicy.asks(
+            followsAppleTVUsers: SessionScopeSetting.followsAppleTVUsers,
+            selectsUserEveryRelaunch: SessionScopeSetting.selectsUserEveryRelaunch,
+            rememberedAccounts: accounts
+        )
+    }
+
+    func didEnterBackground(at date: Date = Date()) {
+        backgroundedAt = date
+    }
+
+    /// Whether coming back to the foreground should return to Who's
+    /// Watching?: signed in, away for `WhoIsWatchingPolicy.timeAway` or more,
+    /// and the settings ask. The caller closes the player and signs out.
+    /// Each time away is answered once.
+    func asksWhoIsWatching(returningAt date: Date = Date()) -> Bool {
+        guard let left = backgroundedAt else { return false }
+        backgroundedAt = nil
+        return phase == .main && WhoIsWatchingPolicy.asks(afterSecondsAway: date.timeIntervalSince(left)) && asksWhoIsWatching
     }
     #endif
 

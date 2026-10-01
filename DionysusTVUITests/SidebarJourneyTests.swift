@@ -136,6 +136,21 @@ final class SidebarJourneyTests: TVUITestCase {
         XCTAssertFalse(app.buttons[A11yID.TV.Sidebar.home].exists, "No rail before signing in")
     }
 
+    /// Libraries that failed to load at launch (a server still starting up)
+    /// load once the rail is used again, not only at the next launch.
+    func test_librariesThatFailedAtLaunch_loadWhenTheRailIsUsedAgain() {
+        let app = launch(scenario: "librariesFailAtFirst", seedSession: true)
+        let home = app.buttons[A11yID.TV.Sidebar.home]
+        XCTAssertTrue(home.waitForExistence(timeout: 10))
+        let movies = app.buttons[A11yID.TV.Sidebar.library(UITestFixtureIdentity.moviesLibraryID)]
+        // Past the stub's five seconds of failing `/Views`.
+        RunLoop.current.run(until: Date().addingTimeInterval(8))
+        XCTAssertFalse(movies.exists, "The launch's load failed")
+        press(.left)
+        press(.down)
+        XCTAssertTrue(movies.waitForExistence(timeout: 10), "Using the rail retries the load")
+    }
+
     /// Change Server affects every Apple TV user, so it asks first, with
     /// Cancel focused: Up reaches the confirmation.
     func test_changeServer_asksBeforeForgettingTheServer() {

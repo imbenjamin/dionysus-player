@@ -33,6 +33,11 @@ final class AppStateTests: XCTestCase {
         KeychainStore.delete(forKey: credentialsKey)
         KeychainStore.delete(forKey: serverKey, scope: .allUsers)
         KeychainStore.delete(forKey: "server.rememberedAccounts")
+        #if os(tvOS)
+        SessionScopeSetting.reset()
+        KeychainStore.delete(forKey: credentialsKey, scope: .allUsers)
+        KeychainStore.delete(forKey: "server.rememberedAccounts", scope: .allUsers)
+        #endif
         try await super.tearDown()
     }
 
@@ -484,4 +489,86 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(requests, 0)
         XCTAssertEqual(appState.phase, .login)
     }
+
+    // MARK: Who's Watching? at every relaunch (tvOS, Follow Apple TV Users off)
+
+    #if os(tvOS)
+    /// A shared-session store with `accounts` remembered, the last signed in.
+    private func makeSharedAppState(accounts: [String]) -> AppState {
+        let store = ServerSessionStore(defaults: defaults, remembersAccounts: true, sessionScope: .allUsers)
+        store.saveServer(exampleServer)
+        for id in accounts {
+            store.saveCredentials(StoredCredentials(username: id, password: "pw", accessToken: "tok", userID: id, serverID: exampleServer.id))
+        }
+        return AppState(sessionStore: store)
+    }
+
+    func test_start_sharedSessionWithSeveralAccounts_asksWhoIsWatching_withoutSigningIn() async {
+        SessionScopeSetting.set(false)
+        let appState = makeSharedAppState(accounts: ["ben", "tara"])
+        nonisolated(unsafe) var requests = 0
+        MockURLProtocol.requestHandler = { request in
+            requests += 1
+            return try Self.authenticateByNameHandler(request)
+        }
+
+        await appState.start()
+
+        XCTAssertEqual(appState.phase, .login)
+        XCTAssertEqual(requests, 0)
+        XCTAssertNil(appState.sessionStore.credentials, "Nobody is signed in until someone is chosen")
+        XCTAssertEqual(appState.sessionStore.rememberedAccounts(forServer: exampleServer.id).count, 2)
+    }
+
+    func test_start_sharedSessionWithOneAccount_signsStraightIn() async {
+        SessionScopeSetting.set(false)
+        let appState = makeSharedAppState(accounts: ["ben"])
+        MockURLProtocol.requestHandler = Self.authenticateByNameHandler
+
+        await appState.start()
+
+        XCTAssertEqual(appState.phase, .main)
+    }
+
+    func test_start_selectAUserEveryRelaunchOff_signsStraightIn() async {
+        SessionScopeSetting.set(false)
+        SessionScopeSetting.setSelectsUserEveryRelaunch(false)
+        let appState = makeSharedAppState(accounts: ["ben", "tara"])
+        MockURLProtocol.requestHandler = Self.authenticateByNameHandler
+
+        await appState.start()
+
+        XCTAssertEqual(appState.phase, .main)
+    }
+
+    func test_returningAfterHalfAnHourAway_asksWhoIsWatching_soonerDoesNot() async {
+        SessionScopeSetting.set(false)
+        let appState = makeSharedAppState(accounts: ["ben", "tara"])
+        appState.completeServerSetup(exampleServer)
+        MockURLProtocol.requestHandler = Self.authenticateByNameHandler
+        _ = try? await appState.signIn(username: "tara", password: "pw")
+        XCTAssertEqual(appState.phase, .main)
+        let left = Date(timeIntervalSince1970: 1_000_000)
+
+        XCTAssertFalse(appState.asksWhoIsWatching(returningAt: left), "Never away")
+        appState.didEnterBackground(at: left)
+        XCTAssertFalse(appState.asksWhoIsWatching(returningAt: left.addingTimeInterval(29 * 60)))
+        appState.didEnterBackground(at: left)
+        XCTAssertTrue(appState.asksWhoIsWatching(returningAt: left.addingTimeInterval(30 * 60)))
+        XCTAssertFalse(appState.asksWhoIsWatching(returningAt: left.addingTimeInterval(31 * 60)), "Asked once per time away")
+    }
+
+    func test_returningAfterHalfAnHourAway_followingAppleTVUsers_doesNotAsk() async {
+        let appState = makeSharedAppState(accounts: ["ben", "tara"])
+        appState.completeServerSetup(exampleServer)
+        MockURLProtocol.requestHandler = Self.authenticateByNameHandler
+        _ = try? await appState.signIn(username: "tara", password: "pw")
+        XCTAssertEqual(appState.phase, .main)
+        XCTAssertGreaterThan(appState.sessionStore.rememberedAccounts(forServer: exampleServer.id).count, 1)
+        let left = Date(timeIntervalSince1970: 1_000_000)
+
+        appState.didEnterBackground(at: left)
+        XCTAssertFalse(appState.asksWhoIsWatching(returningAt: left.addingTimeInterval(60 * 60)))
+    }
+    #endif
 }

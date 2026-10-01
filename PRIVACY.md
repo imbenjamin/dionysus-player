@@ -27,8 +27,11 @@ storage, and is never sent anywhere except where noted:
   without signing in again. They are kept separately for each Apple TV user,
   unless you turn off **Follow Apple TV Users** on the Profile screen: they
   are then shared by every user of that Apple TV, and anyone using it can
-  open any account signed in there. Turning the setting back on moves them
-  to the Apple TV user who turned it on.
+  open any account signed in there. Turning the setting back on moves only
+  the account then in use to the Apple TV user who turned it on, and removes
+  the rest of the shared accounts. Both this setting and **Select a User
+  Every Relaunch** are stored on the Apple TV as on/off values and nothing
+  else.
 - **Server address** — the URL of the Jellyfin server you configured.
 - **A random device identifier** — a UUID generated once on first launch,
   used only to identify this app installation to your Jellyfin server (the
@@ -116,7 +119,10 @@ Within the app:
   Watching?"; hold Select on it there and choose **Forget This Account** to
   remove its stored credentials.
 - **Change Server** does that and also forgets the configured server
-  address, along with every account remembered on Apple TV.
+  address. On Apple TV it removes the accounts remembered for the current
+  Apple TV user (or the shared ones, with Follow Apple TV Users off);
+  accounts remembered for other Apple TV users stay in their keychains,
+  unused, since they belong to the old server.
 - Neither clears downloaded content, saved preferences, or the random
   device identifier described above — those persist until you delete
   downloads individually, or delete the app entirely, which removes

@@ -265,7 +265,7 @@ final class ServerSessionStoreTests: XCTestCase {
         let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true, sessionScope: .currentUser)
         store.saveCredentials(StoredCredentials(username: "ben", password: "", accessToken: "t", userID: "u1", serverID: "s"))
 
-        store.moveSession(to: .allUsers)
+        XCTAssertTrue(store.moveSession(to: .allUsers))
 
         XCTAssertEqual(store.credentials?.userID, "u1")
         let reloaded = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true, sessionScope: .allUsers)
@@ -278,7 +278,7 @@ final class ServerSessionStoreTests: XCTestCase {
         let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true, sessionScope: .currentUser)
         store.saveCredentials(StoredCredentials(username: "ben", password: "", accessToken: "t", userID: "u1", serverID: "s"))
 
-        store.moveSession(to: .allUsers)
+        XCTAssertTrue(store.moveSession(to: .allUsers))
 
         XCTAssertNil(KeychainStore.load(forKey: credentialsKey))
         XCTAssertNil(KeychainStore.load(forKey: "server.rememberedAccounts"))
@@ -291,13 +291,56 @@ final class ServerSessionStoreTests: XCTestCase {
         let store = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true, sessionScope: .allUsers)
         store.saveCredentials(StoredCredentials(username: "ben", password: "", accessToken: "t", userID: "u1", serverID: "s"))
 
-        store.moveSession(to: .currentUser)
+        XCTAssertTrue(store.moveSession(to: .currentUser))
 
         XCTAssertNil(KeychainStore.load(forKey: credentialsKey, scope: .allUsers))
         XCTAssertNil(KeychainStore.load(forKey: "server.rememberedAccounts", scope: .allUsers))
         let perUser = ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true, sessionScope: .currentUser)
         XCTAssertEqual(perUser.credentials?.userID, "u1")
         XCTAssertEqual(perUser.rememberedAccounts(forServer: "s").map(\.userID), ["u1"])
+    }
+
+    private func sessionStore(_ scope: KeychainStore.Scope) -> ServerSessionStore {
+        ServerSessionStore(defaults: defaults, serverLocation: .userDefaults, remembersAccounts: true, sessionScope: scope)
+    }
+
+    private func member(_ userID: String) -> StoredCredentials {
+        StoredCredentials(username: userID, password: "pw-\(userID)", accessToken: "t-\(userID)", userID: userID, serverID: "s")
+    }
+
+    /// Follow turned back on by an Apple TV user who had their own account
+    /// before: they keep it, gain the account in use, and nobody else's
+    /// password lands in their keychain.
+    func test_moveSessionBackToPerUser_keepsThatUsersOwnAccounts_andTakesOnlyTheCurrentOne() {
+        sessionStore(.currentUser).saveCredentials(member("bob"))
+        let shared = sessionStore(.allUsers)
+        shared.saveCredentials(member("carol"))
+        shared.saveCredentials(member("alice"))
+
+        XCTAssertTrue(shared.moveSession(to: .currentUser))
+
+        XCTAssertEqual(shared.rememberedAccounts(forServer: "s").map(\.userID), ["alice", "bob"])
+        let perUser = sessionStore(.currentUser)
+        XCTAssertEqual(perUser.credentials?.userID, "alice")
+        XCTAssertEqual(perUser.rememberedAccounts(forServer: "s").map(\.userID), ["alice", "bob"])
+        XCTAssertNil(KeychainStore.load(forKey: credentialsKey, scope: .allUsers))
+        XCTAssertNil(KeychainStore.load(forKey: "server.rememberedAccounts", scope: .allUsers))
+    }
+
+    /// Follow turned off: this user's accounts join whatever is already shared.
+    func test_moveSessionToShared_mergesIntoWhatIsAlreadyShared() {
+        let leftover = sessionStore(.allUsers)
+        leftover.saveCredentials(member("carol"))
+        leftover.clearCredentials()
+        let perUser = sessionStore(.currentUser)
+        perUser.saveCredentials(member("alice"))
+
+        XCTAssertTrue(perUser.moveSession(to: .allUsers))
+
+        let shared = sessionStore(.allUsers)
+        XCTAssertEqual(shared.credentials?.userID, "alice")
+        XCTAssertEqual(shared.rememberedAccounts(forServer: "s").map(\.userID), ["alice", "carol"])
+        XCTAssertNil(KeychainStore.load(forKey: "server.rememberedAccounts"))
     }
 
     /// Signing out while sharing mustn't touch a per-user session left behind.

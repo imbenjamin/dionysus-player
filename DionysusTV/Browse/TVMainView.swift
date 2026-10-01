@@ -11,10 +11,10 @@ import UIKit
 /// page's first item. Where the shell is, and which rows can take focus, is
 /// `TVShellNavigation`.
 ///
-/// Only the page on show is built, and nothing is while the player covers the
-/// shell (`TVPageStack`; the app is image heavy). The shell keeps each page's
-/// data and the item that last had focus, so a rebuilt page comes back as it
-/// was.
+/// Only the page on show is built (the app is image heavy): choosing another
+/// tears the old one down. The shell keeps each page's data and the item that
+/// last had focus, so a rebuilt page comes back as it was. The player is the
+/// exception: it's laid over the page, which stays as it is beneath.
 struct TVMainView: View {
     @Environment(AppState.self) private var appState
     let client: JellyfinAPIClient
@@ -27,7 +27,6 @@ struct TVMainView: View {
     @State private var rememberedHomeTile: String?
     @State private var rememberedSearchResult: String?
     @State private var rememberedLibraryItems: [String: String] = [:]
-    private let pages = TVPageStack.shared
     @State private var nav = TVShellNavigation()
     /// Holds the whole sidebar disabled while focus is on its way to the page,
     /// until the page says it has claimed it (`tvPageClaimedFocus`): on a
@@ -57,39 +56,37 @@ struct TVMainView: View {
 
     var body: some View {
         ZStack(alignment: .leading) {
-            if !pages.isShellCovered {
-                // Beneath every page, so switching pages never shows the
-                // window's plain black while the new one fades in.
-                TVPageBackground()
-                    .ignoresSafeArea()
-
-                page
-                    .id(nav.destination)
-                    // Removed at once: a page fading out could still take focus.
-                    .transition(.asymmetric(insertion: .opacity, removal: .identity))
-
-                Color(red: 8 / 255, green: 1 / 255, blue: 6 / 255)
-                    .opacity(isExpanded ? TVShellMetrics.dimOpacity : 0)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-
-                TVSidebar(
-                    rows: TVSidebarLayout.rows(libraries: libraries, librariesExpanded: nav.librariesExpanded),
-                    libraries: libraries,
-                    profileUser: profileUser,
-                    serverName: appState.sessionStore.serverConfiguration?.name,
-                    serverURL: appState.sessionStore.serverConfiguration?.baseURL,
-                    highlighted: Set(TVSidebarLayout.rows(libraries: libraries, librariesExpanded: true)
-                        .filter { nav.isHighlighted($0, isExpanded: isExpanded, libraries: libraries) }),
-                    focusable: nav.focusableRows(isExpanded: isExpanded, libraries: libraries),
-                    isExpanded: isExpanded,
-                    librariesExpanded: nav.librariesExpanded,
-                    focus: $focusedRow,
-                    onSelect: select
-                )
-                .disabled(railHeld)
+            // Beneath every page, so switching pages never shows the
+            // window's plain black while the new one fades in.
+            TVPageBackground()
                 .ignoresSafeArea()
-            }
+
+            page
+                .id(nav.destination)
+                // Removed at once: a page fading out could still take focus.
+                .transition(.asymmetric(insertion: .opacity, removal: .identity))
+
+            Color(red: 8 / 255, green: 1 / 255, blue: 6 / 255)
+                .opacity(isExpanded ? TVShellMetrics.dimOpacity : 0)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+
+            TVSidebar(
+                rows: TVSidebarLayout.rows(libraries: libraries, librariesExpanded: nav.librariesExpanded),
+                libraries: libraries,
+                profileUser: profileUser,
+                serverName: appState.sessionStore.serverConfiguration?.name,
+                serverURL: appState.sessionStore.serverConfiguration?.baseURL,
+                highlighted: Set(TVSidebarLayout.rows(libraries: libraries, librariesExpanded: true)
+                    .filter { nav.isHighlighted($0, isExpanded: isExpanded, libraries: libraries) }),
+                focusable: nav.focusableRows(isExpanded: isExpanded, libraries: libraries),
+                isExpanded: isExpanded,
+                librariesExpanded: nav.librariesExpanded,
+                focus: $focusedRow,
+                onSelect: select
+            )
+            .disabled(railHeld)
+            .ignoresSafeArea()
         }
         .environment(\.tvSidebarExpanded, isExpanded)
         .environment(\.tvFocusHandoff, focusHandoff)
@@ -114,11 +111,14 @@ struct TVMainView: View {
                 }
             }
         }
-        .onChange(of: pages.isShellCovered) { _, covered in
-            if covered { railHeld = true } else { holdRail() }
-        }
         .onAppear { holdRail() }
         .task { await sidebar.loadIfNeeded() }
+        // A load that failed at launch (offline, or a server still starting)
+        // is tried again whenever the rail is used, not only at next launch.
+        .onChange(of: focusedRow) { _, row in
+            guard row != nil, sidebar.loadState == .failed else { return }
+            Task { await sidebar.loadIfNeeded() }
+        }
     }
 
     /// The page on show, built only while it's on show.

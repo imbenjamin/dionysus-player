@@ -2,7 +2,8 @@ import SwiftUI
 
 /// Who's Watching?, on the shared `LoginViewModel`, in the prototype's layout:
 /// circular lockups for the accounts already signed in on this Apple TV, then
-/// the server's other public users, then "Other" (`TVWhosWatchingLayout`).
+/// the server's other public users, then "Other" (`TVWhosWatchingLayout`),
+/// five to a row before it scrolls.
 /// Choosing a user follows `TVSignInRoute`: a remembered account or a user
 /// without a password signs in on Select, anyone else goes to Quick Connect
 /// when the server has it, and to a password otherwise. With nobody to show,
@@ -120,52 +121,75 @@ struct TVLoginView: View {
         if viewModel.usersState == .loading {
             ProgressView()
         } else if !lockups.isEmpty {
-            HStack(spacing: 70) {
-                ForEach(lockups) { entry in
-                    if let account = entry.account {
-                        lockup(name: entry.user.name) {
-                            choose(entry.user, remembered: account)
-                        } avatar: {
-                            UserAvatar(user: entry.user, serverURL: serverURL, size: 230)
-                        } badge: {
-                            signedInBadge
-                        }
-                        .focused($focusedUserID, equals: entry.id)
-                        .accessibilityIdentifier(A11yID.TV.Onboarding.rememberedUser(entry.id))
-                        .contextMenu {
-                            Button("Forget This Account", role: .destructive) {
-                                appState.sessionStore.forgetAccount(userID: entry.id)
-                            }
-                            .accessibilityIdentifier(A11yID.TV.Onboarding.forgetAccount)
-                        }
-                    } else {
-                        lockup(name: entry.user.name) {
-                            choose(entry.user, remembered: nil)
-                        } avatar: {
-                            UserAvatar(user: entry.user, serverURL: serverURL, size: 230)
-                        }
-                        .focused($focusedUserID, equals: entry.id)
-                        .accessibilityIdentifier(A11yID.TV.Onboarding.user(entry.id))
-                    }
+            // Five to a row, centred; more, and the row scrolls, starting
+            // where the centred row would (`TVWhosWatchingLayout.rowCap`).
+            if TVWhosWatchingLayout.scrolls(users: lockups.count) {
+                ScrollView(.horizontal) {
+                    lockupRow(lockups)
+                        .padding(.horizontal, Self.rowInset)
+                        .padding(.vertical, 40)
                 }
-                lockup(name: String(localized: "Other")) {
-                    chooseOther()
-                } avatar: {
-                    Circle()
-                        .fill(.white.opacity(0.14))
-                        .frame(width: 230, height: 230)
-                        .overlay {
-                            Image(systemName: "plus")
-                                .font(.system(size: 70, weight: .medium))
-                                .accessibilityHidden(true)
-                        }
-                }
-                .accessibilityIdentifier(A11yID.TV.Onboarding.otherUser)
+                .scrollClipDisabled()
+            } else {
+                lockupRow(lockups)
             }
-            .disabled(viewModel.isSigningIn)
         } else {
             TVManualSignInForm(viewModel: viewModel)
         }
+    }
+
+    private static let lockupSize: CGFloat = 230
+    private static let lockupSpacing: CGFloat = 70
+    /// Where a full, centred row of `rowCap` lockups starts on a 1920pt screen.
+    private static var rowInset: CGFloat {
+        let cap = CGFloat(TVWhosWatchingLayout.rowCap)
+        return (1920 - cap * lockupSize - (cap - 1) * lockupSpacing) / 2
+    }
+
+    private func lockupRow(_ lockups: [TVWhosWatchingLayout.Lockup]) -> some View {
+        HStack(spacing: Self.lockupSpacing) {
+            ForEach(lockups) { entry in
+                if let account = entry.account {
+                    lockup(name: entry.user.name) {
+                        choose(entry.user, remembered: account)
+                    } avatar: {
+                        UserAvatar(user: entry.user, serverURL: serverURL, size: Self.lockupSize)
+                    } badge: {
+                        signedInBadge
+                    }
+                    .focused($focusedUserID, equals: entry.id)
+                    .accessibilityIdentifier(A11yID.TV.Onboarding.rememberedUser(entry.id))
+                    .contextMenu {
+                        Button("Forget This Account", role: .destructive) {
+                            appState.sessionStore.forgetAccount(userID: entry.id)
+                        }
+                        .accessibilityIdentifier(A11yID.TV.Onboarding.forgetAccount)
+                    }
+                } else {
+                    lockup(name: entry.user.name) {
+                        choose(entry.user, remembered: nil)
+                    } avatar: {
+                        UserAvatar(user: entry.user, serverURL: serverURL, size: Self.lockupSize)
+                    }
+                    .focused($focusedUserID, equals: entry.id)
+                    .accessibilityIdentifier(A11yID.TV.Onboarding.user(entry.id))
+                }
+            }
+            lockup(name: String(localized: "Other")) {
+                chooseOther()
+            } avatar: {
+                Circle()
+                    .fill(.white.opacity(0.14))
+                    .frame(width: Self.lockupSize, height: Self.lockupSize)
+                    .overlay {
+                        Image(systemName: "plus")
+                            .font(.system(size: 70, weight: .medium))
+                            .accessibilityHidden(true)
+                    }
+            }
+            .accessibilityIdentifier(A11yID.TV.Onboarding.otherUser)
+        }
+        .disabled(viewModel.isSigningIn)
     }
 
     /// Marks an account already signed in on this Apple TV.

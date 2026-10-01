@@ -123,6 +123,15 @@ enum UITestScenario: String {
     /// folds them into its "Libraries" entry. Six are shown after the Music one
     /// is suppressed, one over the fold threshold.
     case manyLibraries
+
+    /// `.standard`, but `/Users/Public` lists six users, more than Who's
+    /// Watching? on Apple TV shows in one row.
+    case manyUsers
+
+    /// `.standard`, but `/Views` answers 500 for five seconds after it is
+    /// first asked, as a server still starting up does: whatever loads the
+    /// libraries at launch fails, and a later retry succeeds.
+    case librariesFailAtFirst
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a
