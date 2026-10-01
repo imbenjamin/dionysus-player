@@ -116,7 +116,10 @@ enum UITestHarness {
             username: UITestConfiguration.stubUsername,
             password: UITestConfiguration.stubPassword,
             accessToken: UITestConfiguration.stubAccessToken,
-            userID: UITestConfiguration.stubUserID
+            userID: UITestConfiguration.stubUserID,
+            // Bound to the seeded server, as a real sign-in is: tvOS only
+            // remembers an account it can place.
+            serverID: UITestConfiguration.stubServerURL.absoluteString
         ))
     }
 

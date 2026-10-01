@@ -17,7 +17,7 @@ A native tvOS app with a TV-specific UI on the iOS app's shared core. It should 
 | Code sharing | A separate `DionysusTV` target compiles the iOS app's `Core/`, `App/AppState.swift`, selected `Shared/` files and every `Features/**/*ViewModel.swift`. TV views live under `DionysusTV/`. |
 | Downloads | Absent on tvOS. `Core/Downloads` isn't compiled; shared code guards its download paths with the `DOWNLOADS` Swift compilation condition, which only the iOS app and its unit tests define. |
 | Navigation | A left sidebar (`TabView` + `.sidebarAdaptable`) with **Home, Search, the user's libraries, and Profile**. More than 5 libraries fold into one expandable **Libraries** entry. Profile is the only way to Settings. |
-| Profiles | Follow the tvOS user ("Runs as Current User", `com.apple.developer.user-management`). Each tvOS user keeps their own Jellyfin sign-in. |
+| Profiles | Follow the tvOS user ("Runs as Current User", `com.apple.developer.user-management`). Each tvOS user keeps their own Jellyfin sign-in, with remembered accounts and one-press switching in the app as the fallback when tvOS's own switching misbehaves. |
 | Appearance | Dark only. Onboarding is always dark, in the iPad landscape composition: brand pane on the left, task on the right. |
 | Player host | AetherEngine's recommended tvOS pattern, which Sodalite uses: an `AVPlayerViewController` subclass with AVKit's chrome and gestures switched off, our own SwiftUI transport, `AetherPlayerView` in `contentOverlayView` **only on the software route**, presented with UIKit `present(_:animated:)`, never `fullScreenCover`. |
 | Priorities | Core app and playback, **HDR included**, come first. Now Playing / Control Center is deferred to a later milestone. |

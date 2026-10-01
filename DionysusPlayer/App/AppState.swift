@@ -197,6 +197,27 @@ final class AppState {
         phase = .main
     }
 
+    /// One press on a remembered account on Who's Watching? (tvOS): signs in
+    /// the way launch restores a session. A password account signs in again
+    /// with its stored password; a Quick Connect one validates its token. On
+    /// failure nothing changes, and the account stays remembered.
+    func signIn(rememberedAccount account: StoredCredentials) async throws {
+        guard let client = apiClient, let server = sessionStore.serverConfiguration else {
+            throw JellyfinAPIError.invalidServerAddress
+        }
+        // Never replayed against another server, where the same name could be
+        // someone else (see `StoredCredentials.serverID`).
+        guard account.serverID == server.id else { throw JellyfinAPIError.notAuthenticated }
+        switch account.authMethod {
+        case .password:
+            try await signIn(username: account.username, password: account.password ?? "", client: client)
+        case .quickConnect:
+            try await resumeQuickConnectSession(account, client: client)
+            // Launch finds these already stored; here they become current.
+            sessionStore.saveCredentials(account)
+        }
+    }
+
     func signOut() {
         sessionStore.clearCredentials()
         currentUser = nil

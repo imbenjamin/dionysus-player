@@ -110,6 +110,48 @@ final class LoginViewModel {
         }
     }
 
+    /// What one press on a remembered account came to (tvOS).
+    enum RememberedSignInOutcome: Equatable {
+        case signedIn
+        /// The server turned the account down: its password has changed, or
+        /// its Quick Connect session was revoked.
+        case refused
+        case unreachable
+    }
+
+    /// Signs in an account already signed in on this Apple TV, with what was
+    /// stored for it. A password account that's refused becomes the selected
+    /// user, with the error set, ready for the password screen; a Quick
+    /// Connect one has no password to ask for. An unreachable server says
+    /// nothing about the account, so nobody is selected.
+    func signIn(
+        rememberedAccount account: StoredCredentials,
+        as user: UserDto,
+        using appState: AppState
+    ) async -> RememberedSignInOutcome {
+        guard !isSigningIn else { return .unreachable }
+        errorMessage = nil
+        isSigningIn = true
+        signingInUser = user
+        defer { isSigningIn = false }
+        do {
+            try await appState.signIn(rememberedAccount: account)
+            return .signedIn
+        } catch {
+            signingInUser = nil
+            if ConnectivityMonitor.shared.isOffline {
+                errorMessage = String(localized: "Couldn't sign in as \(user.name). Try again.")
+                return .unreachable
+            }
+            if account.authMethod == .password {
+                selectedUser = user
+                selectedUserPassword = ""
+                errorMessage = String(localized: "Couldn't sign in. Check the password and try again.")
+            }
+            return .refused
+        }
+    }
+
     private func signIn(as user: UserDto, password: String, using appState: AppState) async {
         guard !isSigningIn else { return }
         errorMessage = nil

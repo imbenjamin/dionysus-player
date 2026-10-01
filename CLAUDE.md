@@ -140,6 +140,22 @@ token on the same device id (`SessionManager.GetAuthorizationToken`), so a
 shared id would sign one person out whenever another signs in to the same
 account.
 
+**Every account signed in is remembered, on tvOS only**
+(`ServerSessionStore.RememberedAccounts`), as the fallback for the system bug
+below. The list sits in the current user's keychain beside the credentials,
+never the shared one, which would hand each person's session to everyone.
+Who's Watching? lists remembered accounts for the configured server first,
+most recent first (`TVWhosWatchingLayout`), and one press signs one in the way
+launch restores a session (`AppState.signIn(rememberedAccount:)`): a password
+account with its stored password, a Quick Connect one by validating its token.
+Switch User (`signOut()`) keeps the list, since it's the way back to it;
+Change Server clears it; holding Select on an account offers Forget This
+Account. An account the server now refuses goes to its password screen with
+the reason (or to a new code, for Quick Connect) and stays remembered; an
+unreachable server says nothing about the account, so the person stays put.
+XCUITest sees the system menu's row as `Other`, not a button, and focus on its
+cell, so the journey finds it with `descendants(matching: .any)`.
+
 **tvOS's user switching is unreliable, and no app can fix it.** Measured on
 the Bedroom Apple TV (tvOS 27.0, 2026-09-30): the per-user split itself works
 (a secondary user runs in `/var/PersonaVolumes/<id>/…`, the primary in
@@ -149,8 +165,8 @@ restarts, and installing a build from the Mac made it worse. It's the system
 bug in Firecore's "User Switching Broken (tvOS 26.4)" thread (reproduced by
 Firecore with a sample app; fixed in 26.6, reported recurring on 27). Don't
 debug it as an app bug, and don't design anything that assumes the container
-matches the Apple TV user: the M2 plan's Task 7 adds remembered accounts and
-one-press switching in the app as the fallback. To check which container a
+matches the Apple TV user: remembered accounts and one-press switching in the
+app (above) are the fallback. To check which container a
 launch got, print `NSHomeDirectory()`.
 
 **HDR on the Apple TV plays through the HDR master as of AetherEngine 7.22.2**

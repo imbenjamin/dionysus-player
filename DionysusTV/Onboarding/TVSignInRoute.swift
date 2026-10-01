@@ -2,11 +2,14 @@
 /// because typing a password with a Siri Remote is the worst part of any TV
 /// sign-in; the password stays one press away on its screen.
 enum TVSignInRoute: Equatable {
+    /// Already signed in on this Apple TV: one press, no code or password.
+    case rememberedAccount
     case signInNow
     case quickConnect
     case password
 
-    static func forUser(_ user: UserDto, quickConnectAvailable: Bool) -> TVSignInRoute {
+    static func forUser(_ user: UserDto, quickConnectAvailable: Bool, isRemembered: Bool) -> TVSignInRoute {
+        if isRemembered { return .rememberedAccount }
         if user.hasPassword == false { return .signInNow }
         return quickConnectAvailable ? .quickConnect : .password
     }
