@@ -24,7 +24,11 @@ storage, and is never sent anywhere except where noted:
   stores no password at all), and access token, stored in the iOS Keychain.
   On Apple TV, the app keeps these for every account you have signed in
   with, so you can switch between them on the "Who's Watching?" screen
-  without signing in again. They are kept separately for each Apple TV user.
+  without signing in again. They are kept separately for each Apple TV user,
+  unless you turn off **Follow Apple TV Users** on the Profile screen: they
+  are then shared by every user of that Apple TV, and anyone using it can
+  open any account signed in there. Turning the setting back on moves them
+  to the Apple TV user who turned it on.
 - **Server address** — the URL of the Jellyfin server you configured.
 - **A random device identifier** — a UUID generated once on first launch,
   used only to identify this app installation to your Jellyfin server (the

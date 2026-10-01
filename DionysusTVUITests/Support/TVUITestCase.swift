@@ -14,13 +14,14 @@ class TVUITestCase: XCTestCase {
         scenario: String = "standard",
         seedSession: Bool = false,
         skipsWelcome: Bool = true,
+        resetsState: Bool = true,
         extraArguments: [String] = []
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [
             "-UITestMode", "YES",
             "-UITestScenario", scenario,
-            "-UITestResetState", "YES",
+            "-UITestResetState", resetsState ? "YES" : "NO",
             "-UITestDisableAnimations", "YES"
         ] + (skipsWelcome ? ["-onboarding.welcomeCompleted", "YES"] : [])
             + (seedSession ? ["-UITestSeedSession", "YES"] : []) + extraArguments

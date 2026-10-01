@@ -3,14 +3,19 @@ import SwiftUI
 /// Profile: who is signed in, to which server, and the two ways out. Switch
 /// User signs this Apple TV user out of Jellyfin, back to Who's Watching.
 /// Change Server forgets the household's server for every Apple TV user, so
-/// it asks first. Milestone 3 adds the iOS settings sections above these.
+/// it asks first. Below them, Follow Apple TV Users chooses between a session
+/// per Apple TV user and one everyone shares (`SessionScopeSetting`).
+/// Milestone 3 adds the iOS settings sections above these.
 struct TVProfileView: View {
     @Environment(AppState.self) private var appState
     @State private var confirmsChangeServer = false
     /// Switch User is the default focus (`tvClaimsFocus`).
-    private enum Action: Hashable { case switchUser, changeServer }
+    private enum Action: Hashable { case switchUser, changeServer, followsAppleTVUsers }
     @FocusState private var focusedAction: Action?
     @State private var rememberedAction: Action?
+    /// A copy to draw from: the setting lives in the keychain, which nothing
+    /// observes.
+    @State private var followsAppleTVUsers = SessionScopeSetting.followsAppleTVUsers
 
     private var user: UserDto? {
         TVProfileIdentity.user(currentUser: appState.currentUser, credentials: appState.sessionStore.credentials)
@@ -20,7 +25,7 @@ struct TVProfileView: View {
         TVPageScaffold {
             details
         }
-        .tvClaimsFocus($focusedAction, ids: [.switchUser, .changeServer], remembered: $rememberedAction)
+        .tvClaimsFocus($focusedAction, ids: [.switchUser, .changeServer, .followsAppleTVUsers], remembered: $rememberedAction)
         // A cover of our own rather than `.confirmationDialog`, whose buttons
         // lose their accessibility identifiers on tvOS.
         .fullScreenCover(isPresented: $confirmsChangeServer) {
@@ -54,6 +59,23 @@ struct TVProfileView: View {
                 }
                 .focused($focusedAction, equals: .changeServer)
                 .accessibilityIdentifier(A11yID.TV.Profile.changeServer)
+            }
+            VStack(spacing: 20) {
+                Toggle("Follow Apple TV Users", isOn: Binding(
+                    get: { followsAppleTVUsers },
+                    set: { follows in
+                        followsAppleTVUsers = follows
+                        appState.setFollowsAppleTVUsers(follows)
+                    }
+                ))
+                .frame(width: 560)
+                .focused($focusedAction, equals: .followsAppleTVUsers)
+                .accessibilityIdentifier(A11yID.TV.Profile.followsAppleTVUsers)
+                Text("Attempts to match Jellyfin users to this Apple TV's users. Turn off to keep user switching inside the app, and when users become out of sync.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 900)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

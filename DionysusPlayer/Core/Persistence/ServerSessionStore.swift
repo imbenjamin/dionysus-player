@@ -49,6 +49,19 @@ final class ServerSessionStore {
         }
     }
 
+    /// Which keychain holds the credentials and remembered accounts. The
+    /// current user's, except on tvOS with "Follow Apple TV Users" off
+    /// (`SessionScopeSetting`), where every Apple TV user shares one session.
+    enum SessionScope {
+        static var platformDefault: KeychainStore.Scope {
+            #if os(tvOS)
+            SessionScopeSetting.sessionScope
+            #else
+            .currentUser
+            #endif
+        }
+    }
+
     private(set) var serverConfiguration: ServerConfiguration?
     private(set) var credentials: StoredCredentials?
     /// Whether the first-run welcome is behind the user: they tapped "Get
@@ -61,11 +74,13 @@ final class ServerSessionStore {
     private let defaults: UserDefaults
     private let serverLocation: ServerLocation
     private let remembersAccounts: Bool
+    private var sessionScope: KeychainStore.Scope
     /// Most recently used first, for every server. Private behind
     /// `rememberedAccounts(forServer:)`, so no caller can list another
-    /// server's accounts. In the current user's keychain like `credentials`,
-    /// never the shared one: that would hand each person's session to
-    /// everyone on the Apple TV.
+    /// server's accounts. In the same keychain as `credentials`
+    /// (`sessionScope`): the current user's unless the household chose to
+    /// share one session, since the shared one hands each person's session
+    /// to everyone on the Apple TV.
     private var accounts: [StoredCredentials] = []
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
@@ -73,11 +88,13 @@ final class ServerSessionStore {
     init(
         defaults: UserDefaults = .standard,
         serverLocation: ServerLocation = .platformDefault,
-        remembersAccounts: Bool = RememberedAccounts.platformDefault
+        remembersAccounts: Bool = RememberedAccounts.platformDefault,
+        sessionScope: KeychainStore.Scope = SessionScope.platformDefault
     ) {
         self.defaults = defaults
         self.serverLocation = serverLocation
         self.remembersAccounts = remembersAccounts
+        self.sessionScope = sessionScope
         loadServerConfiguration()
         loadCredentials()
         loadRememberedAccounts()
@@ -100,13 +117,13 @@ final class ServerSessionStore {
     }
 
     private func loadCredentials() {
-        guard let data = KeychainStore.load(forKey: Keys.credentials),
+        guard let data = KeychainStore.load(forKey: Keys.credentials, scope: sessionScope),
               let creds = try? decoder.decode(StoredCredentials.self, from: data) else { return }
         credentials = creds
     }
 
     private func loadRememberedAccounts() {
-        guard remembersAccounts, let data = KeychainStore.load(forKey: Keys.rememberedAccounts),
+        guard remembersAccounts, let data = KeychainStore.load(forKey: Keys.rememberedAccounts, scope: sessionScope),
               let stored = try? decoder.decode([StoredCredentials].self, from: data) else { return }
         accounts = stored
     }
@@ -114,9 +131,9 @@ final class ServerSessionStore {
     private func persistRememberedAccounts() {
         guard remembersAccounts else { return }
         if accounts.isEmpty {
-            KeychainStore.delete(forKey: Keys.rememberedAccounts)
+            KeychainStore.delete(forKey: Keys.rememberedAccounts, scope: sessionScope)
         } else if let data = try? encoder.encode(accounts) {
-            KeychainStore.save(data, forKey: Keys.rememberedAccounts)
+            KeychainStore.save(data, forKey: Keys.rememberedAccounts, scope: sessionScope)
         }
     }
 
@@ -133,7 +150,7 @@ final class ServerSessionStore {
     func saveCredentials(_ credentials: StoredCredentials) {
         self.credentials = credentials
         guard let data = try? encoder.encode(credentials) else { return }
-        KeychainStore.save(data, forKey: Keys.credentials)
+        KeychainStore.save(data, forKey: Keys.credentials, scope: sessionScope)
         remember(credentials)
     }
 
@@ -157,12 +174,27 @@ final class ServerSessionStore {
         persistRememberedAccounts()
     }
 
+    /// Moves the current credentials and remembered accounts to `scope`,
+    /// deleting them from the scope they were in (see `SessionScopeSetting`).
+    func moveSession(to scope: KeychainStore.Scope) {
+        guard scope != sessionScope else { return }
+        KeychainStore.delete(forKey: Keys.credentials, scope: sessionScope)
+        KeychainStore.delete(forKey: Keys.rememberedAccounts, scope: sessionScope)
+        sessionScope = scope
+        if let credentials, let data = try? encoder.encode(credentials) {
+            KeychainStore.save(data, forKey: Keys.credentials, scope: scope)
+        } else {
+            KeychainStore.delete(forKey: Keys.credentials, scope: scope)
+        }
+        persistRememberedAccounts()
+    }
+
     /// Signs the user out but keeps the server configured, so they land
     /// back on the login screen rather than server setup. Remembered accounts
     /// stay: this is Switch User, and they're the way back in.
     func clearCredentials() {
         credentials = nil
-        KeychainStore.delete(forKey: Keys.credentials)
+        KeychainStore.delete(forKey: Keys.credentials, scope: sessionScope)
     }
 
     /// Records that the first-run welcome is behind the user.

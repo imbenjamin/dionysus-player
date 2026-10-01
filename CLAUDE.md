@@ -143,7 +143,8 @@ account.
 **Every account signed in is remembered, on tvOS only**
 (`ServerSessionStore.RememberedAccounts`), as the fallback for the system bug
 below. The list sits in the current user's keychain beside the credentials,
-never the shared one, which would hand each person's session to everyone.
+not the shared one, which would hand each person's session to everyone
+(unless the household chooses that, below).
 Who's Watching? lists remembered accounts for the configured server first,
 most recent first (`TVWhosWatchingLayout`), and one press signs one in the way
 launch restores a session (`AppState.signIn(rememberedAccount:)`): a password
@@ -155,6 +156,18 @@ the reason (or to a new code, for Quick Connect) and stays remembered; an
 unreachable server says nothing about the account, so the person stays put.
 XCUITest sees the system menu's row as `Other`, not a button, and focus on its
 cell, so the journey finds it with `descendants(matching: .any)`.
+
+**Profile's "Follow Apple TV Users" can turn per-user sessions off**
+(`SessionScopeSetting`, on by default). The setting lives in the shared
+keychain, since a per-container value would flip with the very bug it exists
+for, so it is one setting for the whole Apple TV. Changing it moves the
+credentials and remembered accounts between the per-user and shared keychains
+(`ServerSessionStore.moveSession(to:)`); off, every Apple TV user shares one
+sign-in and remembered list, which PRIVACY.md says. It
+can't change which container tvOS launches into, and preferences and the
+device id stay per container either way. Another user's per-user session left
+behind while it was off is untouched, and is theirs again once it's back on.
+The UI-test reset clears the setting and the shared session too.
 
 **tvOS's user switching is unreliable, and no app can fix it.** Measured on
 the Bedroom Apple TV (tvOS 27.0, 2026-09-30): the per-user split itself works

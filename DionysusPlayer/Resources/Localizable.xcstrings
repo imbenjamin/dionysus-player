@@ -278,6 +278,9 @@
     "Ascending" : {
 
     },
+    "Attempts to match Jellyfin users to this Apple TV's users. Turn off to keep user switching inside the app, and when users become out of sync." : {
+
+    },
     "Audio" : {
 
     },
@@ -704,6 +707,9 @@
 
     },
     "Fine-tune the video bitrate the app requests for each resolution and quality level, in kilobits per second (Kbps). Everywhere else in the app continues to show the equivalent value in megabits per second (Mbps).\n\nDefaults assume a software-encoded HEVC transcode and may not be optimal for your own server's transcoder configuration." : {
+
+    },
+    "Follow Apple TV Users" : {
 
     },
     "Forced" : {
