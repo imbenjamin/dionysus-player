@@ -117,6 +117,12 @@ enum UITestScenario: String {
     /// `.loading` for as long as a test needs: the Apple TV journey that
     /// presses Menu before the item has loaded.
     case slowPlaybackInfo
+
+    /// `.standard`, but `/Views` lists seven libraries (the four standard ones,
+    /// two more video libraries, and a Music one), so the Apple TV sidebar
+    /// folds them into its "Libraries" entry. Six are shown after the Music one
+    /// is suppressed, one over the fold threshold.
+    case manyLibraries
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a

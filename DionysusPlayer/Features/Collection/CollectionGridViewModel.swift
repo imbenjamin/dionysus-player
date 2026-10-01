@@ -22,6 +22,7 @@ final class CollectionGridViewModel {
         items.removeAll { $0.id == itemID }
     }
     private(set) var loadState: LoadState = .idle
+    private var inFlightLoad: Task<Void, Never>?
     /// Seeded from `query.initialSortField`/`initialSortOrder` in `init` (see
     /// `CollectionQuery`), then user-changeable via
     /// `setSortField`/`setSortOrder`.
@@ -137,9 +138,24 @@ final class CollectionGridViewModel {
         self.selectedStudio = query.initialStudio
     }
 
+    /// The first load runs in a task of its own rather than the caller's, as
+    /// `HomeViewModel.loadIfNeeded()`'s does, so a view's `.task` being
+    /// cancelled when the view disappears (a tab switch on iOS, a tab rebuild
+    /// on tvOS, where each library is a sidebar tab) doesn't cancel it. A
+    /// caller arriving mid-load joins it rather than racing a second load.
     func loadIfNeeded() async {
+        if let inFlightLoad {
+            await inFlightLoad.value
+            return
+        }
         guard items.isEmpty else { return }
-        await load()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.load()
+        }
+        inFlightLoad = task
+        await task.value
+        inFlightLoad = nil
     }
 
     /// Changes which field the grid is ordered by and reloads; a no-op if `field`

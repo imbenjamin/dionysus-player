@@ -5,53 +5,55 @@ import SwiftUI
 struct TVBrowseLauncher: View {
     let client: JellyfinAPIClient
     let userID: String
-    @State private var viewModel: HomeViewModel
+    /// Owned by the shell, so Home's data outlives its views: Home is torn
+    /// down whenever another page is chosen or the player covers the shell.
+    let viewModel: HomeViewModel
+    /// The tile that last had focus, kept by the shell, so a rebuilt Home
+    /// (back from the player, say) puts focus back where it was.
+    @Binding var rememberedTileKey: String?
     /// Rail and item together: the same item can sit in two rails (a
     /// part-watched movie in Continue Watching and Recently Added).
     @FocusState private var focusedTileKey: String?
-    @State private var userMovedFocus = false
 
-    init(client: JellyfinAPIClient, userID: String) {
+    init(client: JellyfinAPIClient, userID: String, viewModel: HomeViewModel, rememberedTileKey: Binding<String?>) {
         self.client = client
         self.userID = userID
-        _viewModel = State(initialValue: HomeViewModel(client: client, userID: userID))
+        self.viewModel = viewModel
+        _rememberedTileKey = rememberedTileKey
     }
 
     var body: some View {
-        ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 50) {
-                ForEach(Array(viewModel.rails.enumerated()), id: \.element.id) { index, rail in
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(rail.title).font(.headline)
-                            .accessibilityIdentifier(index == 0 ? A11yID.TV.Main.root : "")
-                        ScrollView(.horizontal) {
-                            LazyHStack(spacing: 48) {
-                                ForEach(rail.items) { item in
-                                    tile(item, focusKey: Self.focusKey(rail: rail.id, item: item.id))
+        TVPageScaffold {
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: 50) {
+                    ForEach(Array(viewModel.rails.enumerated()), id: \.element.id) { index, rail in
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(rail.title).font(.headline)
+                                .accessibilityIdentifier(index == 0 ? A11yID.TV.Main.root : "")
+                            ScrollView(.horizontal) {
+                                LazyHStack(spacing: 48) {
+                                    ForEach(rail.items) { item in
+                                        tile(item, focusKey: Self.focusKey(rail: rail.id, item: item.id))
+                                    }
                                 }
+                                .padding(.vertical, 30)
                             }
-                            .padding(.vertical, 30)
+                            .scrollClipDisabled()
                         }
-                        .scrollClipDisabled()
+                        .focusSection()
                     }
-                    .focusSection()
                 }
+                .padding(.vertical, 60)
             }
+            .scrollClipDisabled()
         }
         .task { await viewModel.loadIfNeeded() }
-        // The sidebar takes the first focus pass, before any rail exists, so
-        // focus moves to the first tile when it arrives, as the Apple TV app
-        // opens in its content. Not once the user has moved it themselves.
-        .onChange(of: firstTileKey, initial: true) { _, firstKey in
-            guard !userMovedFocus, focusedTileKey == nil, let firstKey else { return }
-            focusedTileKey = firstKey
-        }
-        .onMoveCommand { _ in userMovedFocus = true }
+        .tvClaimsFocus($focusedTileKey, ids: tileKeys, remembered: $rememberedTileKey)
     }
 
-    private var firstTileKey: String? {
-        guard let rail = viewModel.rails.first, let item = rail.items.first else { return nil }
-        return Self.focusKey(rail: rail.id, item: item.id)
+    /// Every tile, top rail first, left to right.
+    private var tileKeys: [String] {
+        viewModel.rails.flatMap { rail in rail.items.map { Self.focusKey(rail: rail.id, item: $0.id) } }
     }
 
     private static func focusKey(rail: UUID, item: String) -> String { "\(rail.uuidString)/\(item)" }

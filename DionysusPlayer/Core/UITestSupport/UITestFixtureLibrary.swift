@@ -21,6 +21,9 @@ enum UITestFixtureLibrary {
     static let showsLibraryID = UITestFixtureIdentity.showsLibraryID
     static let boxSetsLibraryID = UITestFixtureIdentity.boxSetsLibraryID
     static let playlistsLibraryID = UITestFixtureIdentity.playlistsLibraryID
+    static let animeLibraryID = UITestFixtureIdentity.animeLibraryID
+    static let documentariesLibraryID = UITestFixtureIdentity.documentariesLibraryID
+    static let musicLibraryID = UITestFixtureIdentity.musicLibraryID
 
     static let seriesID = UITestFixtureIdentity.seriesID
     static let boxSetID = UITestFixtureIdentity.boxSetID
@@ -37,6 +40,14 @@ enum UITestFixtureLibrary {
         library(id: showsLibraryID, name: "TV Shows", collectionType: JellyfinCollectionType.tvShows),
         library(id: boxSetsLibraryID, name: "Collections", collectionType: JellyfinCollectionType.boxSets),
         library(id: playlistsLibraryID, name: "Playlists", collectionType: JellyfinCollectionType.playlists)
+    ]
+
+    /// The `manyLibraries` scenario's `/Views`: over the Apple TV sidebar's
+    /// fold threshold once the Music library is suppressed.
+    static let manyLibraries: [BaseItemDto] = libraries + [
+        library(id: animeLibraryID, name: "Anime", collectionType: JellyfinCollectionType.tvShows),
+        library(id: documentariesLibraryID, name: "Documentaries", collectionType: JellyfinCollectionType.movies),
+        library(id: musicLibraryID, name: "Music", collectionType: JellyfinCollectionType.music)
     ]
 
     // MARK: - Movies

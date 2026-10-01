@@ -103,6 +103,13 @@ struct TVTransportOverlay: View {
                         .frame(width: 1, height: 1)
                         .accessibilityIdentifier(A11yID.Media.heroLogoFallbackVisible)
                 }
+                // What lies beneath the player is torn down (`TVPageStack`),
+                // and XCUITest can't see under a UIKit modal to check.
+                if UITestConfiguration.isActive {
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .accessibilityIdentifier(A11yID.TV.Player.coveringPages(TVPageStack.shared.depth))
+                }
                 #endif
             }
         }

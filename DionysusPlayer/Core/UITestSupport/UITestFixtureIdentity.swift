@@ -18,6 +18,10 @@ enum UITestFixtureIdentity {
     static let showsLibraryID = "lib-tvshows"
     static let boxSetsLibraryID = "lib-boxsets"
     static let playlistsLibraryID = "lib-playlists"
+    /// The `manyLibraries` scenario's extra libraries.
+    static let animeLibraryID = "lib-anime"
+    static let documentariesLibraryID = "lib-docs"
+    static let musicLibraryID = "lib-music"
 
     static let seriesID = "series-northern-lights"
     static let seriesName = "Northern Lights"

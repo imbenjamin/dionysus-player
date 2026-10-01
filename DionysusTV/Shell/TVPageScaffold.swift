@@ -1,0 +1,80 @@
+import SwiftUI
+
+/// The shell's measurements, from the prototype (`tv.css`'s `.rail-nav` and
+/// the Sidebar board), in points from the screen's own edges.
+enum TVShellMetrics {
+    /// The collapsed rail: 40pt in from the left, 104pt wide.
+    static let railLeading: CGFloat = 40
+    static let railWidth: CGFloat = 104
+    /// Where page content starts: the rail's right edge and a 40pt gap.
+    /// Content never runs under the rail (Benjamin, 2026-10-01).
+    static let contentInset: CGFloat = railLeading + railWidth + 40
+    /// Room left of the content before it's clipped, for a focused first
+    /// column's lift and shadow.
+    static let clipSlack: CGFloat = 30
+    /// How far the open sidebar pushes the content right, and how much it
+    /// dims the screen behind it.
+    static let pushDistance: CGFloat = 440
+    static let dimOpacity = 0.45
+}
+
+/// Every signed-in page's frame: its background fills the screen, behind
+/// the rail too, while its content starts right of the rail and is clipped
+/// there, so a scrolled row never slides under it. While the sidebar is open
+/// the content (not the background) is pushed right, as the prototype draws
+/// it. Without a background of its own, a page sits on the shell's plum glow
+/// (Benjamin, 2026-10-01); M3's Home brings its own hero.
+struct TVPageScaffold<Background: View, Content: View>: View {
+    @Environment(\.tvSidebarExpanded) private var sidebarExpanded
+    private let background: Background
+    private let content: Content
+
+    init(@ViewBuilder background: () -> Background, @ViewBuilder content: () -> Content) {
+        self.background = background()
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            // The whole content area, so Right from any sidebar row enters
+            // the page, even where nothing sits level with the row (Profile's
+            // buttons are mid-screen, its row at the top).
+            .focusSection()
+            .padding(.leading, TVShellMetrics.clipSlack)
+            // Clipped on the left only: a focused tile still lifts past the
+            // top, bottom and right of the page.
+            .mask(alignment: .leading) {
+                Rectangle()
+                    .padding(.vertical, -400)
+                    .padding(.trailing, -400)
+            }
+            .padding(.leading, TVShellMetrics.contentInset - TVShellMetrics.clipSlack)
+            .ignoresSafeArea(edges: .leading)
+            .offset(x: sidebarExpanded ? TVShellMetrics.pushDistance : 0)
+            .background { background.ignoresSafeArea() }
+    }
+}
+
+extension TVPageScaffold where Background == EmptyView {
+    /// A page on the shell's own background (`TVPageBackground`), which the
+    /// shell draws once beneath every page rather than each page drawing its
+    /// own: a page fades in when chosen, and its own copy fading in with it
+    /// showed the window's plain black for a frame.
+    init(@ViewBuilder content: () -> Content) {
+        self.init(background: { EmptyView() }, content: content)
+    }
+}
+
+/// The default page ground, drawn once by the shell beneath every page: a
+/// plum glow from the top left.
+struct TVPageBackground: View {
+    var body: some View {
+        RadialGradient(
+            colors: [Color(red: 42 / 255, green: 10 / 255, blue: 28 / 255), Color(red: 11 / 255, green: 2 / 255, blue: 8 / 255)],
+            center: UnitPoint(x: 0.2, y: 0),
+            startRadius: 0,
+            endRadius: 1300
+        )
+    }
+}

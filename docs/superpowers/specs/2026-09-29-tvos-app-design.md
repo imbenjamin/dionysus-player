@@ -71,7 +71,7 @@ Tiles carry iOS's corner badges (`PosterCard.watchStatusOverlay`): a heart top-l
 - **Per-user profiles.** The spike built without the User Management capability, so tvOS ran it as the default user for everyone. Milestone 2 adds the entitlement, shares the server configuration across users and keeps each user's sign-in separate. On the device (2026-09-30) the separation works, but tvOS often launches the app in the wrong user's container: a known system bug (Firecore's "User Switching Broken (tvOS 26.4)" thread), recurring on tvOS 27. The app therefore also remembers the accounts signed in on this Apple TV and switches between them in one press (M2 plan, Task 7).
 - **Session loss after a reinstall: explained and fixed.** The server configuration lived in `UserDefaults`, which a reinstall erases, while the credentials survived in the Keychain. It now lives in the Keychain too; a reinstall on the Simulator returns straight to Home (2026-09-30).
 
-**Design finding:** the tvOS 26 `TabView` sidebar collapses to a "‹ Home" pill, not the icon rail in the prototype. The system behaviour is accepted unless reviewed otherwise.
+**Design finding:** the tvOS 26 `TabView` sidebar collapses to a "‹ Home" pill, not the icon rail in the prototype, and its open list looks nothing like screens 6 and 6b. Reviewed and rejected by Benjamin on 2026-09-30: the sidebar is a custom component matching the prototype, with Profile pinned at the top (M2 plan, Task 6b). Refined on 2026-10-01: the collapsed rail is on every signed-in page, each library is a page beside it rather than a full-screen one, and Left or Menu opens the rail on the current page's row. M3's details page will sit beside the rail too, with Menu popping it first.
 
 ## Non-goals (for now)
 
@@ -80,8 +80,8 @@ Downloads/offline, music (still suppressed app-wide), Top Shelf, and PiP on the 
 ## Milestones
 
 1. Foundation and core playback, including HDR: `docs/superpowers/plans/2026-09-29-tvos-foundation-and-playback.md`
-2. Onboarding, shell and profiles: onboarding, the sidebar with libraries, per-tvOS-user sessions.
-3. Browse: Home, detail pages, collection grid with alphabet bar, Search, Profile/Settings.
+2. Onboarding, shell and profiles: onboarding, the sidebar with libraries, per-tvOS-user sessions, in-app account switching and the Follow Apple TV Users setting: `docs/superpowers/plans/2026-09-30-tvos-onboarding-shell-and-profiles.md` (in progress; PRs #278, #279, #280 for the icon, and the sidebar next).
+3. Browse: Home, detail pages, collection grid with alphabet bar, Search, Profile/Settings. As on iOS, every tile on Home, a collection grid or Search opens a detail page, never playback directly; M2's library grid playing movies and episodes on Select is a stopgap until then (Benjamin, 2026-09-30).
 4. Playback features: tracks, libass subtitles, skip segments, Next Up, trickplay, stats, the swipe-down tabs.
 5. Now Playing, Top Shelf, release pipeline (tvOS archive and upload), store assets, docs.
 

@@ -1,17 +1,20 @@
 import XCTest
 
 final class SearchJourneyTests: TVUITestCase {
-    /// The sidebar opens with a Left press from Home's first tile, Search is
-    /// the item below Home, and a typed query lists a playable result that
-    /// opens the player.
+    /// The rail opens with a Left press from Home's first tile, Search is the
+    /// row below Home, and a typed query lists a playable result that opens
+    /// the player.
     func test_searchFromSidebar_findsTitle_andPlaysIt() {
         let app = launch(seedSession: true)
         let firstTile = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
         XCTAssertTrue(firstTile.waitForExistence(timeout: 10))
         XCTAssertTrue(waitForFocus(firstTile))
 
+        // The sidebar opens on Home's row; Search is the row below it.
         press(.left)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Sidebar.home]))
         press(.down)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Sidebar.search]))
         press(.select)
 
         let field = app.searchFields.firstMatch

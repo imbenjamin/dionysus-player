@@ -557,4 +557,44 @@ final class CollectionGridViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.selectedFavoriteStatus)
         XCTAssertEqual(viewModel.filteredItems.map(\.id), ["movie-1", "movie-2", "movie-3"])
     }
+
+    /// A view's `.task` is cancelled when it disappears: a tab switch on iOS, a
+    /// tab rebuild on tvOS, where the Apple TV sidebar opens each library as a
+    /// tab. The first load must finish anyway, as `HomeViewModel`'s does (M1
+    /// final review); cancelled with the caller, the grid showed "Couldn't
+    /// load this collection".
+    func test_loadIfNeeded_callerCancelled_loadStillFinishes() async throws {
+        let viewModel = makeViewModel(query: CollectionQuery(title: "Movies", parentID: "lib-movies", includeItemTypes: ["Movie"]))
+        MockURLProtocol.requestHandler = Self.slowOneMovie
+        let task = Task { await viewModel.loadIfNeeded() }
+        try await waitUntil { viewModel.loadState == .loading }
+        task.cancel()
+        await task.value
+        try await waitUntil(timeout: 10) { viewModel.loadState == .loaded }
+        XCTAssertEqual(viewModel.items.map(\.id), ["movie-1"])
+    }
+
+    /// A second caller arriving while the first load is in flight joins it
+    /// rather than starting a second load that races the first.
+    func test_loadIfNeeded_secondCallerJoinsTheInFlightLoad() async throws {
+        let viewModel = makeViewModel(query: CollectionQuery(title: "Movies", parentID: "lib-movies", includeItemTypes: ["Movie"]))
+        var requests = 0
+        MockURLProtocol.requestHandler = { request in
+            requests += 1
+            return try Self.slowOneMovie(request)
+        }
+        let first = Task { await viewModel.loadIfNeeded() }
+        try await waitUntil { viewModel.loadState == .loading }
+        first.cancel()
+        await viewModel.loadIfNeeded()
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(requests, 1)
+    }
+
+    /// One movie, the answer held briefly so a load can be caught mid-flight.
+    nonisolated private static func slowOneMovie(_ request: URLRequest) throws -> (HTTPURLResponse, Data) {
+        Thread.sleep(forTimeInterval: 0.1)
+        let movie = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie)
+        return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [movie], totalRecordCount: 1))
+    }
 }
