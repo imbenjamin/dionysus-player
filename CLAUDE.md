@@ -63,7 +63,8 @@ milestones: `docs/superpowers/specs/2026-09-29-tvos-app-design.md`.
 of its rows has focus), it's a 520pt glass panel of pill rows, with the page
 pushed right and the screen dimmed. Profile is pinned at the top (avatar,
 name, server; VoiceOver reads "Profile & Settings"), then Home, Search and
-the libraries, which above five fold behind one expandable "Libraries" row
+the libraries, which above five sit under one "Libraries" row that starts
+open and closes in place
 (`TVSidebarLayout.rows(libraries:librariesExpanded:)`). A library load that failed at launch is tried again
 whenever the rail takes focus. Library icons come
 from Jellyfin's `CollectionType`, the admin's "Content type", never the name.

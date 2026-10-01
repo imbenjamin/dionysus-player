@@ -200,10 +200,12 @@ final class SidebarJourneyTests: TVUITestCase {
         let row = app.buttons[A11yID.TV.Sidebar.library(id)]
         openRailFromHome(app)
         let group = app.buttons[A11yID.TV.Sidebar.librariesGroup]
-        XCTAssertFalse(row.exists, "Folded libraries stay hidden until the row is expanded")
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "The Libraries row starts open, its libraries listed beneath it")
         pressDown(until: group)
         press(.select)
-        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        XCTAssertTrue(poll(timeout: 5) { !row.exists }, "Select closes it in place")
+        press(.select)
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "And opens it again")
         pressDown(until: row)
         press(.select)
         XCTAssertTrue(app.staticTexts[A11yID.TV.Library.title(id)].waitForExistence(timeout: 10))

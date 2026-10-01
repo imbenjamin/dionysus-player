@@ -28,14 +28,16 @@ final class TVShellNavigationTests: XCTestCase {
         XCTAssertEqual(nav.railAnchor(libraries: four), .library("l2"))
     }
 
-    /// The Libraries row isn't a page: it opens and closes in place.
-    func test_selectingTheLibrariesGroup_togglesIt_andStaysPut() {
+    /// The Libraries row isn't a page: it closes and opens in place. It
+    /// starts open (Benjamin, 2026-10-01), as the prototype's 6b shows it.
+    func test_theLibrariesGroup_startsOpen_andSelectingItTogglesIt_andStaysPut() {
         var nav = TVShellNavigation()
-        XCTAssertEqual(nav.select(.librariesGroup), .toggledGroup)
         XCTAssertTrue(nav.librariesExpanded)
-        XCTAssertEqual(nav.destination, .home)
         XCTAssertEqual(nav.select(.librariesGroup), .toggledGroup)
         XCTAssertFalse(nav.librariesExpanded)
+        XCTAssertEqual(nav.destination, .home)
+        XCTAssertEqual(nav.select(.librariesGroup), .toggledGroup)
+        XCTAssertTrue(nav.librariesExpanded)
     }
 
     /// Collapsed, only the destination's row takes focus, so Left from any
@@ -50,7 +52,7 @@ final class TVShellNavigationTests: XCTestCase {
         let nav = TVShellNavigation()
         XCTAssertEqual(
             nav.focusableRows(isExpanded: true, libraries: four),
-            Set(TVSidebarLayout.rows(libraries: four, librariesExpanded: false))
+            Set(TVSidebarLayout.rows(libraries: four, librariesExpanded: true))
         )
     }
 
@@ -58,7 +60,6 @@ final class TVShellNavigationTests: XCTestCase {
     /// the Libraries row, which stands for it there.
     func test_foldedLibraryDestination_anchorsOnTheGroup() {
         var nav = TVShellNavigation()
-        _ = nav.select(.librariesGroup)
         _ = nav.select(.library("l6"))
         XCTAssertEqual(nav.railAnchor(libraries: six), .librariesGroup)
         XCTAssertEqual(nav.focusableRows(isExpanded: false, libraries: six), [.librariesGroup])
@@ -68,7 +69,6 @@ final class TVShellNavigationTests: XCTestCase {
     /// it was closed since, so the library's own row is there to focus.
     func test_enteringTheRail_revealsAFoldedDestination() {
         var nav = TVShellNavigation()
-        _ = nav.select(.librariesGroup)
         _ = nav.select(.library("l6"))
         _ = nav.select(.librariesGroup)
         XCTAssertFalse(nav.librariesExpanded)
@@ -81,14 +81,12 @@ final class TVShellNavigationTests: XCTestCase {
         XCTAssertEqual(nav.enterRail(libraries: four), .home)
         _ = nav.select(.library("l3"))
         XCTAssertEqual(nav.enterRail(libraries: four), .library("l3"))
-        XCTAssertFalse(nav.librariesExpanded)
     }
 
     /// The selected look sits on the destination's row, or on the Libraries
     /// row while that row stands for it (rail collapsed, or the group closed).
     func test_highlight_followsTheDestination_orTheGroupStandingForIt() {
         var nav = TVShellNavigation()
-        _ = nav.select(.librariesGroup)
         _ = nav.select(.library("l6"))
         XCTAssertTrue(nav.isHighlighted(.librariesGroup, isExpanded: false, libraries: six))
         XCTAssertFalse(nav.isHighlighted(.library("l6"), isExpanded: false, libraries: six))
