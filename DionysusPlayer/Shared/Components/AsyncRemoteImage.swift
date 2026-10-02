@@ -28,6 +28,10 @@ struct AsyncRemoteImage: View {
     var placeholderSystemImage: String = "photo"
     var glyphSize: CGFloat = 28
     var retryPatience: RetryPatience = .standard
+    /// `false` draws nothing while loading or after a failure, for an image
+    /// that sits behind a whole page (the Apple TV detail backdrop), where a
+    /// glyph in mid-screen reads as broken.
+    var showsPlaceholder = true
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var phase: Phase
@@ -48,8 +52,10 @@ struct AsyncRemoteImage: View {
         contentMode: ContentMode = .fill,
         placeholderSystemImage: String = "photo",
         glyphSize: CGFloat = 28,
-        retryPatience: RetryPatience = .standard
+        retryPatience: RetryPatience = .standard,
+        showsPlaceholder: Bool = true
     ) {
+        self.showsPlaceholder = showsPlaceholder
         self.url = url
         self.contentMode = contentMode
         self.placeholderSystemImage = placeholderSystemImage
@@ -92,6 +98,8 @@ struct AsyncRemoteImage: View {
         switch phase {
         case .success(let uiImage):
             Image(uiImage: uiImage).resizable().aspectRatio(contentMode: contentMode)
+        case .empty, .failure where !showsPlaceholder:
+            Color.clear
         case .empty:
             MediaPlaceholderBox(systemImage: placeholderSystemImage, glyphSize: glyphSize, isSettled: false)
         case .failure:

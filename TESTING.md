@@ -191,11 +191,43 @@ closes it; and moving back up to the action row returns the page to where it
 landed, with Down pressed the moment the page opens. `largeCast` gives a movie
 ten people, so a journey can press Up from one far to the right of the action
 row, where nothing sits directly above.
+`noBackdrop` strips the backdrop from an item fetched on its own, so a journey
+can check the poster shows beside the title, right of it and scrolling with
+the header, and that a title with a backdrop shows none.
+`TVDetailHeaderArtTests` pins which image is chosen for each kind.
 Two helpers in `TVShellJourney` are the way to a detail page and to the
 player: `openDetailFromFocusedTile` and `playFromFocusedTile`.
 `PlayerReturnJourneyTests` now pins the return from a detail page: to a tile
 that isn't the page's first, to one below the first screen of a lazy grid, and
 to Search with its query intact.
+
+`ShowDetailJourneyTests` covers a show's page: Play names the episode it
+starts and keeps focus while that episode is resolved; Down from the actions
+lands on the tab of the season on show, not the one nearest Play; focusing
+another tab switches the episode rail with no Select, and Up from the episodes
+returns to their season's tab; the format badges of the episode Play starts
+show in the header; More Like This sits below the episodes and Details below
+that, opening the full list and describing the episode Play starts; an
+episode tile doesn't play but turns the page to that episode, with focus on
+Play, the page back at its top and Details describing it (measured from Play's
+position: the header gains the episode's name, which moves the title); a
+Continue Watching episode on Home opens
+its show on that episode; and a show with no episodes (`showWithoutEpisodes`)
+has no Play button, a message for the rail, and focus on Watched, where Menu
+still pops. That last one doesn't use `launchAtHome`: with nothing in Next Up,
+Home's first tile is a different one. `TVSeasonEpisodesModelTests` pins the
+model behind the rail: a season is fetched once, an empty one isn't a failure,
+and a refresh that fails keeps what was on screen.
+
+`TVShowArtTests` pins whose imagery a show's page draws (the episode, then the
+season chosen, then the show) and that an item with none of its own uses the
+ancestor the server names. No journey checks it: the backdrop is hidden from
+accessibility, and the stub's images are all the same placeholder.
+
+`CollectionDetailJourneyTests` covers box sets and playlists: a box set opens
+with focus on its first movie, each opens its own detail page and Menu unwinds
+both; a playlist plays from Play and from a row; and an empty playlist (the
+fixture's Late Night) shows a message that takes focus, so Menu pops.
 
 `PlayerJourneyTests` opens the player from a detail page's Play. Under the harness
 the host gets the fake engine, so nothing is handed to AVKit; the journeys

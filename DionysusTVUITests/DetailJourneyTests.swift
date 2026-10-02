@@ -166,4 +166,26 @@ final class DetailJourneyTests: TVUITestCase {
         ])).firstMatch
         XCTAssertTrue(action.waitForExistence(timeout: 5), "Up reaches the action row")
     }
+
+    /// A title with no backdrop shows its poster beside the title instead,
+    /// and no placeholder glyph mid-screen; one with a backdrop shows neither.
+    func test_noBackdrop_showsThePosterBesideTheTitle() {
+        let app = launchAtHome(scenario: "noBackdrop")
+        openDetailFromFocusedTile(app)
+        let art = app.descendants(matching: .any)[A11yID.TV.Detail.headerArt]
+        XCTAssertTrue(art.waitForExistence(timeout: 10))
+        let title = app.descendants(matching: .any)[A11yID.TV.Detail.title]
+        XCTAssertGreaterThan(art.frame.minX, title.frame.maxX, "Opposite the title, on the right")
+        XCTAssertLessThanOrEqual(art.frame.maxX, app.frame.maxX)
+        let startY = art.frame.minY
+        press(.down)
+        XCTAssertTrue(poll(timeout: 5) { art.frame.minY < startY }, "It scrolls with the header")
+    }
+
+    func test_withABackdrop_thereIsNoHeaderArt() {
+        let app = launchAtHome()
+        openDetailFromFocusedTile(app)
+        XCTAssertTrue(app.buttons[A11yID.TV.Detail.watched].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.descendants(matching: .any)[A11yID.TV.Detail.headerArt].exists)
+    }
 }

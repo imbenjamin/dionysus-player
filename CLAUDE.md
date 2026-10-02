@@ -174,6 +174,62 @@ measured facts behind it:
   from the safe-area margin above it: `contentOffset.y + contentInsets.top` is
   zero at the top, and scrolling to the raw offset sat 60pt high.
 
+**Shows, box sets and playlists have their own pages** (`TVDetailPage`
+chooses by kind), all on `AssetDetailViewModel`. The header behaviour above is
+shared: `tvDetailLanding` and `TVDetailMetrics.headerHeight`. What isn't
+guessable:
+- **A show's episodes live in `TVSeasonEpisodesModel`**, a season at a time.
+  iOS keeps them in a view; here the shell rebuilds pages.
+- **Play is drawn before the show's episode is known**
+  (`TVDetailActions.isResolving`), or focus lands on Watched and Play appears
+  beside it. If the show has nothing to play, Play goes and focus is sent to
+  Watched; left alone, tvOS moves it up to the synopsis.
+- **The season tabs follow focus** (Benjamin, 2026-10-02): the tab with
+  focus is the season on show, no Select. So into the tabs from the actions
+  or the episodes, focus is sent to the season already on show; tvOS picks
+  the tab nearest the control it left (Season 2 from Play, which is wide),
+  which would switch season on the way past.
+- **A show's format badges are the episode's that Play starts.** A series
+  has no media source, and the view model resolves that episode without one,
+  so the badges are read from the season's episode list, which is fetched with
+  `detailFields`. The row's space is always held, since they land late.
+- Below the episodes a show has the movie page's Cast & Crew (`TVCastRail`;
+  the episode's own people when the page is on one and it has any), More
+  Like This and Details (`TVDetailsPanel`, shared with the movie page): the
+  episode's the page is on, and on the series the one Play starts
+  (Benjamin, 2026-10-02), named beside the heading. Never the show's,
+  which has no file to describe.
+- **A show's page is on the series or on one of its episodes**: an episode
+  tile from Home opens it on that episode, and Select on an episode in the
+  rail turns the page to that episode in place, with focus on Play, rather
+  than playing it (Benjamin, 2026-10-02; `chosenEpisodeID`). On an episode
+  its name, overview and Details show and Play is that episode; Watched and
+  Favorite act on the show, as on iOS. It isn't a push: Menu leaves the show.
+- **A show page's imagery follows what it is on** (Benjamin, 2026-10-02;
+  `TVShowDetailView.artItem`): the episode; otherwise the season chosen from
+  the tabs; otherwise the show. That covers the backdrop (handed up to
+  `TVDetailPage`), the logo and the no-backdrop side image. The fallback from
+  episode to season to show isn't the app's: Jellyfin names the nearest
+  ancestor with a backdrop or logo on every item, which
+  `MediaItem.backdropImageURL` and `logoImageURL` read, as iOS does.
+  What's on screen is held until the next image has loaded, then faded
+  (`TVHeldImage`): swapped at once, an uncached image left its space empty
+  until it arrived, a flash between two pictures.
+- **Box set tiles open detail pages; playlist rows play**, with the playlist
+  as the queue. Neither has the tall header, so their backdrop blurs by scroll
+  offset (`tvDetailDimsWhenScrolled`), not by focus. An empty one shows a
+  message that takes focus (`TVDetailEmptyMessage`): with focus nowhere, Menu
+  reaches nothing.
+
+**A title with no backdrop shows its poster or thumb beside the title**
+(Benjamin, 2026-10-02; `TVDetailHeaderArt`): a movie's poster; a show's or an
+episode's thumb, failing that an episode's still or a show's poster. It sits
+in the header, so it scrolls away with it, and the page draws no backdrop at
+all, leaving the shell's glow. A backdrop that is loading or fails draws
+nothing either (`AsyncRemoteImage.showsPlaceholder`): a glyph mid-screen read
+as broken. The art is an accessibility element with a label, not hidden, or
+XCUITest can't see it.
+
 The player reports where it stopped (`TVPlaybackSession.end()` returns the
 outcome once; `TVPlayerPresenter.present(_:queue:client:userID:onClose:)`), so
 the detail page beneath shows the new resume point at once, as iOS does.

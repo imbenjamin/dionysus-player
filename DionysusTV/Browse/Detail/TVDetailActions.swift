@@ -20,6 +20,9 @@ struct TVDetailActions: View {
     let playTarget: MediaItem?
     let statusTarget: MediaItem
     let isShow: Bool
+    /// A show's episode is still being resolved: Play is drawn already, so
+    /// focus has somewhere to land and the row doesn't shift when it arrives.
+    var isResolving = false
     let focus: FocusState<String?>.Binding
     let play: (PlaybackRequest) -> Void
 
@@ -29,23 +32,25 @@ struct TVDetailActions: View {
     }
 
     /// The ids in the order drawn, for the page's `tvClaimsFocus`.
-    static func focusIDs(playTarget: MediaItem?) -> [String] {
-        guard playTarget != nil else { return [TVDetailFocus.watched, TVDetailFocus.favorite] }
+    static func focusIDs(playTarget: MediaItem?, isResolving: Bool = false) -> [String] {
+        guard playTarget != nil || isResolving else { return [TVDetailFocus.watched, TVDetailFocus.favorite] }
         return [TVDetailFocus.play] + (hasResume(playTarget) ? [TVDetailFocus.restart] : []) + [TVDetailFocus.watched, TVDetailFocus.favorite]
     }
 
     var body: some View {
         HStack(spacing: 22) {
-            if let playTarget, let title = TVDetailFormat.playTitle(target: playTarget, isShow: isShow) {
+            if playTarget != nil || isResolving {
+                let title = TVDetailFormat.playTitle(target: playTarget, isShow: isShow) ?? String(localized: "Play")
                 let hasResume = Self.hasResume(playTarget)
                 Button {
+                    guard let playTarget else { return }
                     play(PlaybackRequest(itemID: playTarget.id, mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: playTarget.id)))
                 } label: {
                     HStack(spacing: 16) {
                         Image(systemName: "play.fill").accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 6) {
                             Text(verbatim: title)
-                            if hasResume, let left = TVDetailFormat.timeLeft(runTimeTicks: playTarget.dto.runTimeTicks, resumeSeconds: playTarget.resumePositionSeconds) {
+                            if hasResume, let playTarget, let left = TVDetailFormat.timeLeft(runTimeTicks: playTarget.dto.runTimeTicks, resumeSeconds: playTarget.resumePositionSeconds) {
                                 HStack(spacing: 12) {
                                     ProgressView(value: playTarget.playedFraction ?? 0).tint(.dionysusHighlight).frame(width: 120)
                                     Text(verbatim: left).font(.caption.weight(.semibold))
@@ -59,7 +64,7 @@ struct TVDetailActions: View {
                 .focused(focus, equals: TVDetailFocus.play)
                 .accessibilityIdentifier(A11yID.TV.Detail.play)
 
-                if hasResume {
+                if hasResume, let playTarget {
                     Button {
                         play(PlaybackRequest(itemID: playTarget.id, startFromBeginning: true, mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: playTarget.id)))
                     } label: {

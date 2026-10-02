@@ -13,7 +13,11 @@ struct TVDetailBackdrop: View {
     var body: some View {
         ZStack {
             Self.ground
-            AsyncRemoteImage(url: item.backdropImageURL, placeholderSystemImage: item.kind.placeholderSystemImage, retryPatience: .extended)
+            // No placeholder (Benjamin, 2026-10-02): until the backdrop is
+            // there, and if it never arrives, the page is just its ground.
+            TVHeldImage(item.backdropImageURL, url: { $0 }) { url in
+                AsyncRemoteImage(url: url, retryPatience: .extended, showsPlaceholder: false)
+            }
                 .blur(radius: isBlurred ? 40 : 0)
                 .overlay { Self.ground.opacity(isBlurred ? 0.55 : 0) }
             LinearGradient(colors: [Self.ground.opacity(0.92), Self.ground.opacity(0)], startPoint: .leading, endPoint: UnitPoint(x: 0.7, y: 0.5))
@@ -33,6 +37,12 @@ struct TVDetailBackdrop: View {
 struct TVDetailHeader: View {
     let item: MediaItem
     var showsBadges = true
+    /// Whose logo shows, when not the item's own: on a show's page, the
+    /// episode's or season's the page is on.
+    var logoSource: MediaItem?
+    /// Whose format badges show, when not the item's own: a show has no
+    /// media source, so its page shows those of the episode Play starts.
+    var badgeSource: MediaItem?
     var titleIdentifier = A11yID.TV.Detail.title
     /// While the full item is still loading its badge row's space is held,
     /// so the rows above don't jump when the media source arrives: a tile
@@ -60,15 +70,17 @@ struct TVDetailHeader: View {
                 }
             }
             .font(.callout.weight(.semibold))
-            if showsBadges, isLoading || !item.metadataBadges.isEmpty {
+            let badges = (badgeSource ?? item).metadataBadges
+            if showsBadges, isLoading || !badges.isEmpty {
                 HStack(spacing: 12) {
                     // Holds the row's height while it's empty.
                     Text(verbatim: " ").font(.caption2.weight(.bold)).padding(.vertical, 5).accessibilityHidden(true)
-                    ForEach(item.metadataBadges, id: \.self) { badge in
+                    ForEach(badges, id: \.self) { badge in
                         Text(verbatim: badge)
                             .font(.caption2.weight(.bold))
                             .padding(.horizontal, 12).padding(.vertical, 5)
                             .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.5), lineWidth: 2))
+                            .accessibilityIdentifier(A11yID.TV.Detail.badge)
                     }
                 }
             }
@@ -78,10 +90,12 @@ struct TVDetailHeader: View {
     @ViewBuilder
     private var logo: some View {
         let title = Text(verbatim: item.name).font(.system(size: 76, weight: .bold)).lineLimit(2).minimumScaleFactor(0.5)
-        if let url = item.logoImageURL {
-            LogoImageView(url: url, fallback: title, retryPatience: .extended)
-        } else {
-            title
+        TVHeldImage((logoSource ?? item).logoImageURL, url: { $0 }) { url in
+            if let url {
+                LogoImageView(url: url, fallback: title, retryPatience: .extended)
+            } else {
+                title
+            }
         }
     }
 }

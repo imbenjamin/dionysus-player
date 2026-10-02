@@ -1,0 +1,76 @@
+import SwiftUI
+
+/// A box set: its name and overview, then its movies as a poster grid. Each
+/// opens its own detail page; the set itself has nothing to play.
+struct TVBoxSetDetailView: View {
+    let viewModel: AssetDetailViewModel
+    let item: MediaItem
+    @Binding var rememberedFocus: String?
+    @Binding var isBelowHeader: Bool
+    @Environment(\.tvOpenRoute) private var open
+    @FocusState private var focus: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 40) {
+                TVDetailHeader(item: item, showsBadges: false)
+                if let overview = item.overview, item.hasDescription {
+                    Text(verbatim: overview).lineLimit(3).frame(width: 900, alignment: .leading).foregroundStyle(.white.opacity(0.82))
+                }
+                if viewModel.collectionItems.isEmpty {
+                    if viewModel.loadState == .loaded {
+                        TVDetailEmptyMessage(text: String(localized: "This collection is empty."))
+                    }
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 250), spacing: 48, alignment: .topLeading)], alignment: .leading, spacing: 60) {
+                        ForEach(viewModel.collectionItems) { member in
+                            TVPosterTile(item: member, caption: .always, identifier: A11yID.TV.Detail.member(member.id)) {
+                                open(.assetDetail(itemID: member.id, preloadedItem: member))
+                            }
+                            .focused($focus, equals: member.id)
+                        }
+                    }
+                    .focusSection()
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 60)
+            .padding(.bottom, 160)
+            .padding(.trailing, 80)
+        }
+        .tvDetailDimsWhenScrolled($isBelowHeader)
+        .scrollClipDisabled()
+        .tvClaimsFocus($focus, ids: viewModel.collectionItems.map(\.id), remembered: $rememberedFocus)
+    }
+}
+
+/// Shown in place of an empty box set's or playlist's items. It takes focus,
+/// so the page has somewhere for focus to be and Menu still pops: with focus
+/// nowhere, tvOS delivers Menu to nothing.
+struct TVDetailEmptyMessage: View {
+    let text: String
+    @FocusState private var focused: String?
+    @State private var remembered: String?
+
+    var body: some View {
+        Text(verbatim: text)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 30).padding(.vertical, 16)
+            .background(.white.opacity(focused == nil ? 0 : 0.1), in: Capsule())
+            .focusable()
+            .focused($focused, equals: "empty")
+            .accessibilityIdentifier(A11yID.TV.Detail.emptyMessage)
+            .tvClaimsFocus($focused, ids: ["empty"], remembered: $remembered)
+    }
+}
+
+extension View {
+    /// For a page that is a grid beneath a short header (a box set, a
+    /// playlist): the backdrop blurs once the page has scrolled away from
+    /// its top, where the movie page goes by which row has focus.
+    func tvDetailDimsWhenScrolled(_ isBelowHeader: Binding<Bool>) -> some View {
+        onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 120 } action: { _, scrolled in
+            isBelowHeader.wrappedValue = scrolled
+        }
+    }
+}
