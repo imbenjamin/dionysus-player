@@ -275,6 +275,9 @@
     "Approve this device from another app already signed in to %@." : {
 
     },
+    "Artwork" : {
+
+    },
     "Artwork-first browsing, Continue Watching, collections and playlists." : {
 
     },
@@ -436,6 +439,9 @@
 
     },
     "Couldn't load this collection." : {
+
+    },
+    "Couldn't load this season's episodes." : {
 
     },
     "Couldn't Load This Title" : {
@@ -1472,6 +1478,9 @@
     "This code has expired." : {
 
     },
+    "This collection is empty." : {
+
+    },
     "This creates \"%@\" and adds \"%@\" to it." : {
       "localizations" : {
         "en" : {
@@ -1515,6 +1524,9 @@
 
     },
     "This item is no longer available on the server." : {
+
+    },
+    "This playlist is empty." : {
 
     },
     "This title's default subtitle track can't be included in offline downloads. The download will have no subtitles unless you choose one manually later." : {

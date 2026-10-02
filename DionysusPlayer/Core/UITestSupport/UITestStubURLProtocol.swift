@@ -493,7 +493,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
              .slowVideoDownload, .slowPlaybackInfo, .manyLibraries, .manyUsers:
             return nil
-        case .largeCast:
+        case .largeCast, .noBackdrop:
             return nil
         case .failingDetail:
             return path.hasSuffix("/Items/\(UITestFixtureIdentity.movieID(3))") ? 500 : nil
@@ -727,6 +727,10 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
                 resolved.people = (1...10).map { number in
                     BaseItemPerson(id: "person-extra-\(number)", name: "Person \(number)", role: "Character \(number)", type: "Actor", primaryImageTag: nil)
                 }
+            }
+            if UITestConfiguration.scenario == .noBackdrop {
+                resolved.backdropImageTags = nil
+                resolved.parentBackdropImageTags = nil
             }
             // The count `AssetDetailViewModel.resolveDeletionOutcome(for:)`
             // re-reads after a deletion. Computed live rather than baked into

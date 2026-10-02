@@ -128,6 +128,10 @@ enum UITestScenario: String {
     /// the Apple TV journey that presses Up from a person far along it.
     case largeCast
 
+    /// `.standard`, but an item fetched on its own has no backdrop, so its
+    /// Apple TV detail page shows its poster beside the title instead.
+    case noBackdrop
+
     /// `.standard`, but `/Views` lists seven libraries (the four standard ones,
     /// two more video libraries, and a Music one), so the Apple TV sidebar
     /// folds them into its "Libraries" entry. Six are shown after the Music one

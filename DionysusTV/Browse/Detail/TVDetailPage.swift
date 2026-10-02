@@ -11,6 +11,9 @@ struct TVDetailPage: View {
     @Binding var rememberedFocus: String?
     @Environment(\.tvPageIsOnShow) private var isOnShow
     @State private var isBelowHeader = false
+    /// Set by a show's page, whose imagery follows the episode or season it
+    /// is on; `nil` on every other page, which draws its own item's.
+    @State private var backdropItem: MediaItem?
 
     var body: some View {
         TVPageScaffold(background: { background }) {
@@ -26,7 +29,9 @@ struct TVDetailPage: View {
 
     @ViewBuilder
     private var background: some View {
-        if let item = viewModel.item { TVDetailBackdrop(item: item, isBlurred: isBelowHeader) }
+        // An item with no backdrop has no background of its own: the shell's
+        // glow shows, and the page puts its poster beside the title.
+        if let item = backdropItem ?? viewModel.item, item.backdropImageURL != nil { TVDetailBackdrop(item: item, isBlurred: isBelowHeader) }
     }
 
     /// A failed load wins over a preloaded item: the tile's own copy is too
@@ -40,6 +45,12 @@ struct TVDetailPage: View {
             ) { Task { await viewModel.load() } }
         } else if let item = viewModel.item {
             switch item.kind {
+            case .series, .season, .episode:
+                TVShowDetailView(viewModel: viewModel, loadedItem: item, client: client, userID: userID, rememberedFocus: $rememberedFocus, isBelowHeader: $isBelowHeader, backdropItem: $backdropItem)
+            case .boxSet:
+                TVBoxSetDetailView(viewModel: viewModel, item: item, rememberedFocus: $rememberedFocus, isBelowHeader: $isBelowHeader)
+            case .playlist:
+                TVPlaylistDetailView(viewModel: viewModel, item: item, client: client, userID: userID, rememberedFocus: $rememberedFocus, isBelowHeader: $isBelowHeader)
             default:
                 TVMovieDetailView(viewModel: viewModel, item: item, client: client, userID: userID, rememberedFocus: $rememberedFocus, isBelowHeader: $isBelowHeader)
             }

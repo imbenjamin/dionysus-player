@@ -452,6 +452,18 @@ enum A11yID {
             static func cast(_ memberID: String) -> String { "tv.detail.cast.\(memberID)" }
             static let details = "tv.detail.details"
             static let fullDetailsTitle = "tv.detail.fullDetails.title"
+            /// Which episode a show page's Details describe.
+            static let detailsSubject = "tv.detail.details.subject"
+            static func season(_ seasonID: String) -> String { "tv.detail.season.\(seasonID)" }
+            static func episode(_ episodeID: String) -> String { "tv.detail.episode.\(episodeID)" }
+            static let noEpisodes = "tv.detail.noEpisodes"
+            /// A box set's movie or a playlist's entry.
+            static func member(_ id: String) -> String { "tv.detail.member.\(id)" }
+            static let emptyMessage = "tv.detail.empty"
+            /// Each format badge in the header ("4K", "HDR10"…).
+            static let badge = "tv.detail.badge"
+            /// The poster or still beside the title, for a title with no backdrop.
+            static let headerArt = "tv.detail.headerArt"
         }
         enum Profile {
             static let name = "tv.profile.name"
