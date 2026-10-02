@@ -440,6 +440,19 @@ enum A11yID {
             static func title(_ libraryID: String) -> String { "tv.library.title.\(libraryID)" }
             static func tile(_ itemID: String) -> String { "tv.library.tile.\(itemID)" }
         }
+        enum Detail {
+            static let title = "tv.detail.title"
+            static let play = "tv.detail.play"
+            static let restart = "tv.detail.restart"
+            static let watched = "tv.detail.watched"
+            static let favorite = "tv.detail.favorite"
+            static let overview = "tv.detail.overview"
+            static let retry = "tv.detail.retry"
+            static func similar(_ itemID: String) -> String { "tv.detail.similar.\(itemID)" }
+            static func cast(_ memberID: String) -> String { "tv.detail.cast.\(memberID)" }
+            static let details = "tv.detail.details"
+            static let fullDetailsTitle = "tv.detail.fullDetails.title"
+        }
         enum Profile {
             static let name = "tv.profile.name"
             static let server = "tv.profile.server"

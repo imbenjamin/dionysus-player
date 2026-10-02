@@ -493,6 +493,10 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
              .slowVideoDownload, .slowPlaybackInfo, .manyLibraries, .manyUsers:
             return nil
+        case .largeCast:
+            return nil
+        case .failingDetail:
+            return path.hasSuffix("/Items/\(UITestFixtureIdentity.movieID(3))") ? 500 : nil
         case .librariesFailAtFirst:
             guard path.hasSuffix("/Views") else { return nil }
             lock.lock()
@@ -719,6 +723,11 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
                 throw UnroutedPath(path: path)
             }
             var resolved = applyDeletePermission(item)
+            if UITestConfiguration.scenario == .largeCast, resolved.type == .movie {
+                resolved.people = (1...10).map { number in
+                    BaseItemPerson(id: "person-extra-\(number)", name: "Person \(number)", role: "Character \(number)", type: "Actor", primaryImageTag: nil)
+                }
+            }
             // The count `AssetDetailViewModel.resolveDeletionOutcome(for:)`
             // re-reads after a deletion. Computed live rather than baked into
             // the fixture, so it falls as episodes are deleted.

@@ -118,6 +118,16 @@ enum UITestScenario: String {
     /// presses Menu before the item has loaded.
     case slowPlaybackInfo
 
+    /// `.standard`, but fetching one movie's own item (`movie-03`) answers
+    /// 500, so its detail page fails to load: the Apple TV journey that
+    /// checks the page offers Retry and Menu still pops it.
+    case failingDetail
+
+    /// `.standard`, but a movie's own item lists ten people, so its Cast &
+    /// Crew rail runs well past the right edge of the action row above it:
+    /// the Apple TV journey that presses Up from a person far along it.
+    case largeCast
+
     /// `.standard`, but `/Views` lists seven libraries (the four standard ones,
     /// two more video libraries, and a Music one), so the Apple TV sidebar
     /// folds them into its "Libraries" entry. Six are shown after the Music one

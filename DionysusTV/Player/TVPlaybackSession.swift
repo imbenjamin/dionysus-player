@@ -23,11 +23,18 @@ final class TVPlaybackSession {
         startTask = Task { [viewModel] in await viewModel.start() }
     }
 
-    /// Safe in any state, `.loading` included.
-    func end() {
-        guard !hasEnded else { return }
+    /// Safe in any state, `.loading` included. Returns where playback
+    /// stopped, the first time only: read before `stop()`, which reports the
+    /// same position to the server.
+    @discardableResult
+    func end() -> PlaybackSessionOutcome? {
+        guard !hasEnded else { return nil }
         hasEnded = true
         startTask?.cancel()
+        let outcome = PlaybackSessionOutcome(
+            itemID: viewModel.itemID, positionSeconds: viewModel.currentTime, durationSeconds: viewModel.duration
+        )
         Task { [viewModel] in await viewModel.stop() }
+        return outcome
     }
 }

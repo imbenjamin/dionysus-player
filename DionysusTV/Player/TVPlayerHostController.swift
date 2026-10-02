@@ -86,7 +86,7 @@ final class TVPlayerHostController: AVPlayerViewController {
         suppressAVKitGestures(in: view)
         hideAVKitChrome(in: view)
         // Menu pressed during the presentation: its dismiss was deferred to here.
-        guard !session.hasEnded else { return dismiss(animated: true) }
+        guard !session.hasEnded else { return dismissReportingOutcome() }
         // The transport is up already; its fade starts with playback
         // (`TVTransportChrome.playbackStateChanged`), not here.
         session.begin()
@@ -184,13 +184,28 @@ final class TVPlayerHostController: AVPlayerViewController {
         chrome.poke()
     }
 
+    /// Told where playback stopped, after the player has gone, so the page
+    /// beneath can show it at once instead of waiting on the server.
+    var onClose: (@MainActor (PlaybackSessionOutcome) -> Void)?
+    private var pendingOutcome: PlaybackSessionOutcome?
+
     /// Ends the session before dismissing, in any state, `.loading` included.
     /// UIKit ignores a dismiss while the presentation is still animating, so
     /// one pressed then is left to `viewDidAppear`.
     func close() {
-        session.end()
+        if let outcome = session.end() {
+            pendingOutcome = outcome
+            // As iOS's `PlayerView` does: Home has no other way to learn it.
+            RecentPlaybackBroadcaster.shared.record(outcome)
+        }
         guard !isBeingPresented else { return }
-        dismiss(animated: true)
+        dismissReportingOutcome()
+    }
+
+    private func dismissReportingOutcome() {
+        dismiss(animated: true) { [onClose, pendingOutcome] in
+            if let pendingOutcome { onClose?(pendingOutcome) }
+        }
     }
 
     private func addPress(_ type: UIPress.PressType, _ action: @escaping () -> Void) {

@@ -1,15 +1,11 @@
 import SwiftUI
 
-/// One library as a poster grid, on the shared `CollectionGridViewModel` with
-/// the query iOS's library rail uses. A top-level page of the shell, like
-/// Home, with the rail beside it. Movies and episodes play on Select; a
-/// series, season or collection needs a detail page, which is Milestone 3, so
-/// selecting one does nothing yet. Milestone 3 also brings the prototype's
-/// facets and alphabet jump bar.
+/// A library, or a See All query, as a poster grid on the shared
+/// `CollectionGridViewModel`. Every tile opens its detail page. The
+/// prototype's facets and alphabet jump bar replace this in M3's grid PR.
 struct TVLibraryGridView: View {
-    let client: JellyfinAPIClient
-    let userID: String
-    let library: MediaItem
+    let title: String
+    let titleIdentifier: String
     /// Owned by the shell, so the grid's items outlive its views, which are
     /// torn down whenever another page is chosen or the player covers them.
     let viewModel: CollectionGridViewModel
@@ -18,29 +14,20 @@ struct TVLibraryGridView: View {
     @Binding var rememberedItemID: String?
     @FocusState private var focusedItemID: String?
 
-    init(client: JellyfinAPIClient, userID: String, library: MediaItem, viewModel: CollectionGridViewModel, rememberedItemID: Binding<String?>) {
-        self.client = client
-        self.userID = userID
-        self.library = library
-        self.viewModel = viewModel
-        _rememberedItemID = rememberedItemID
-    }
-
-    private static let playableKinds: Set<BaseItemKind> = [.movie, .episode]
+    @Environment(\.tvOpenRoute) private var open
 
     var body: some View {
         TVPageScaffold {
             ScrollView {
                 VStack(alignment: .leading, spacing: 40) {
-                    Text(verbatim: library.name)
+                    Text(verbatim: title)
                         .font(.title2.bold())
-                        .accessibilityIdentifier(A11yID.TV.Library.title(library.id))
+                        .accessibilityIdentifier(titleIdentifier)
                     // As many 250pt columns as fit right of the rail.
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 250), spacing: 48, alignment: .leading)], alignment: .leading, spacing: 60) {
                         ForEach(viewModel.items) { item in
                             Button {
-                                guard Self.playableKinds.contains(item.kind) else { return }
-                                TVPlayerPresenter.present(item: item, client: client, userID: userID)
+                                open(.assetDetail(itemID: item.id, preloadedItem: item))
                             } label: {
                                 AsyncRemoteImage(url: item.primaryImageURL, placeholderSystemImage: item.kind.placeholderSystemImage)
                                     .frame(width: 250, height: 375)

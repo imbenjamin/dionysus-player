@@ -99,6 +99,9 @@
     "%lld Items" : {
 
     },
+    "%lld min left" : {
+
+    },
     "%lld/%lld" : {
       "localizations" : {
         "en" : {
@@ -315,6 +318,9 @@
         }
       }
     },
+    "Bitrate" : {
+
+    },
     "Build" : {
 
     },
@@ -325,6 +331,9 @@
 
     },
     "Cancel" : {
+
+    },
+    "Cast & Crew" : {
 
     },
     "Change Server" : {
@@ -399,6 +408,9 @@
     "Connects to this server" : {
 
     },
+    "Container" : {
+
+    },
     "Continue Watching" : {
 
     },
@@ -424,6 +436,9 @@
 
     },
     "Couldn't load this collection." : {
+
+    },
+    "Couldn't Load This Title" : {
 
     },
     "Couldn't load this title." : {
@@ -562,6 +577,9 @@
     "Deselect All" : {
 
     },
+    "Details" : {
+
+    },
     "Device Signed In" : {
 
     },
@@ -581,6 +599,9 @@
 
     },
     "Direct Play Always sends the original file untouched — best quality, but may fail if your device or network can't handle it." : {
+
+    },
+    "Directed by %@" : {
 
     },
     "Dismiss %@" : {
@@ -655,6 +676,9 @@
     "Duration: %@" : {
 
     },
+    "Dynamic Range" : {
+
+    },
     "Enter a port number between 1 and 65535." : {
 
     },
@@ -700,6 +724,9 @@
     "Favorites" : {
 
     },
+    "File Size" : {
+
+    },
     "Find movies, shows, and episodes on your server." : {
 
     },
@@ -719,6 +746,9 @@
 
     },
     "Formats: %@" : {
+
+    },
+    "Frame Rate" : {
 
     },
     "Free" : {
@@ -1049,6 +1079,9 @@
     "Rated: %@ stars" : {
 
     },
+    "Rating" : {
+
+    },
     "Recent Searches" : {
 
     },
@@ -1065,6 +1098,9 @@
 
     },
     "Release Date" : {
+
+    },
+    "Released" : {
 
     },
     "Released: %@" : {
@@ -1135,6 +1171,9 @@
 
     },
     "Rewind 15 Seconds" : {
+
+    },
+    "Runtime" : {
 
     },
     "Scan Again" : {
@@ -1226,6 +1265,9 @@
     "Shows account details and sign-out options." : {
 
     },
+    "Shows every detail and track" : {
+
+    },
     "Sign In" : {
 
     },
@@ -1284,6 +1326,9 @@
 
     },
     "Sort Options" : {
+
+    },
+    "Starring %@" : {
 
     },
     "Stereo" : {
@@ -1518,6 +1563,9 @@
 
     },
     "Video" : {
+
+    },
+    "Video Codec" : {
 
     },
     "Visible to Everyone" : {

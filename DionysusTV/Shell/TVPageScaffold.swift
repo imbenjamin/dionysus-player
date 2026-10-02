@@ -6,12 +6,16 @@ enum TVShellMetrics {
     /// The collapsed rail: 40pt in from the left, 104pt wide.
     static let railLeading: CGFloat = 40
     static let railWidth: CGFloat = 104
-    /// Where page content starts: the rail's right edge and a 40pt gap.
-    /// Content never runs under the rail (Benjamin, 2026-10-01).
-    static let contentInset: CGFloat = railLeading + railWidth + 40
+    /// Where page content starts: the rail's right edge and a 56pt gap.
+    /// Content never runs under the rail (Benjamin, 2026-10-01). The gap is
+    /// what a focused control's shape needs on its left: at 40pt the system's
+    /// focus platter around a plain button (the detail page's Details panel)
+    /// was sliced off at the clip (Benjamin, 2026-10-02).
+    static let contentInset: CGFloat = railLeading + railWidth + 56
     /// Room left of the content before it's clipped, for a focused first
-    /// column's lift and shadow.
-    static let clipSlack: CGFloat = 30
+    /// column's lift, platter and shadow. The clip stays 10pt clear of the
+    /// rail.
+    static let clipSlack: CGFloat = 46
     /// How far the open sidebar pushes the content right, and how much it
     /// dims the screen behind it.
     static let pushDistance: CGFloat = 440
