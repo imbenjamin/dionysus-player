@@ -179,13 +179,32 @@ libraries which failed at launch load once the rail is used again.
 turning Follow Apple TV Users either way merges into what the destination
 keychain holds and never overwrites it.
 
-`PlayerJourneyTests` opens the player from a browse tile. Under the harness
+`DetailJourneyTests` covers detail pages inside the shell: a tile opens one
+beside the rail and Menu pops it back to the tile; Menu on the root page still
+opens the rail; a More Like This chain six deep (past the keep-alive cap of
+four live pages) unwinds one page at a time to the tile it started from; and
+a detail page that fails to load (`failingDetail`, which answers 500 for
+`movie-03`'s own item) shows Retry with focus on it, where Menu still pops.
+It also pins the movie page's own behaviour: Down walks Cast & Crew, More Like
+This and Details in turn, Select on Details opens the full list and Menu
+closes it; and moving back up to the action row returns the page to where it
+landed, with Down pressed the moment the page opens. `largeCast` gives a movie
+ten people, so a journey can press Up from one far to the right of the action
+row, where nothing sits directly above.
+Two helpers in `TVShellJourney` are the way to a detail page and to the
+player: `openDetailFromFocusedTile` and `playFromFocusedTile`.
+`PlayerReturnJourneyTests` now pins the return from a detail page: to a tile
+that isn't the page's first, to one below the first screen of a lazy grid, and
+to Search with its query intact.
+
+`PlayerJourneyTests` opens the player from a detail page's Play. Under the harness
 the host gets the fake engine, so nothing is handed to AVKit; the journeys
 check that the remote reaches the host's own handlers (Right skips 10s) and
 that Menu dismisses, including while the item is still loading
 (`slowPlaybackInfo`). `SearchJourneyTests` opens the rail with Left from
 Home's first tile, types a query into the system search field
-(`typeText` works on tvOS once the field exists) and plays a result.
+(`typeText` works on tvOS once the field exists), opens the result's detail
+page and plays it.
 
 The transport journeys pin the player's own chrome: the title block sits
 top-left, the elapsed time and scrubber are on screen, and the format chip is

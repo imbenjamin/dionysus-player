@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// A plain vertical stack of `HomeViewModel`'s rails, enough to reach playback
-/// from the remote. Milestone 3 replaces it with the prototype's Home.
+/// A plain vertical stack of `HomeViewModel`'s rails; each tile opens its
+/// detail page. Milestone 3 replaces it with the prototype's Home.
 struct TVBrowseLauncher: View {
     let client: JellyfinAPIClient
     let userID: String
@@ -14,6 +14,7 @@ struct TVBrowseLauncher: View {
     /// Rail and item together: the same item can sit in two rails (a
     /// part-watched movie in Continue Watching and Recently Added).
     @FocusState private var focusedTileKey: String?
+    @Environment(\.tvOpenRoute) private var open
 
     init(client: JellyfinAPIClient, userID: String, viewModel: HomeViewModel, rememberedTileKey: Binding<String?>) {
         self.client = client
@@ -60,7 +61,7 @@ struct TVBrowseLauncher: View {
 
     private func tile(_ item: MediaItem, focusKey: String) -> some View {
         Button {
-            TVPlayerPresenter.present(item: item, client: client, userID: userID)
+            open(.assetDetail(itemID: item.id, preloadedItem: item))
         } label: {
             AsyncRemoteImage(url: item.primaryImageURL, placeholderSystemImage: item.kind.placeholderSystemImage)
                 .frame(width: 250, height: 375)

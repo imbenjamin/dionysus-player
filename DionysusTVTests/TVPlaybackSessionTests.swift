@@ -81,4 +81,27 @@ final class TVPlaybackSessionTests: XCTestCase {
         XCTAssertTrue(engine.loadedURLs.isEmpty)
         XCTAssertEqual(engine.playCallCount, 0)
     }
+
+    /// The presenter learns where playback stopped from the session, once:
+    /// Menu can call `end()` twice (during presentation, then again from
+    /// `viewDidAppear`), and the page beneath must not be told twice.
+    func test_end_reportsTheOutcomeOnce() async throws {
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let viewModel = PlayerViewModel(
+            client: JellyfinAPIClient(baseURL: URL(string: "https://jellyfin.example.com")!, accessToken: "tok", session: MockURLProtocol.makeSession()),
+            userID: "user-1", itemID: "item-1", engine: FakePlaybackEngine(),
+            trackPreferenceStore: TrackPreferenceStore(defaults: defaults),
+            nextUpPreferenceStore: NextUpPreferenceStore(defaults: defaults),
+            streamPreferenceStore: StreamPreferenceStore(defaults: defaults)
+        )
+        let session = TVPlaybackSession(viewModel: viewModel)
+
+        let first = session.end()
+        XCTAssertEqual(first?.itemID, "item-1")
+        XCTAssertNil(session.end(), "A second end reports nothing")
+        try await Task.sleep(for: .milliseconds(200))
+    }
 }

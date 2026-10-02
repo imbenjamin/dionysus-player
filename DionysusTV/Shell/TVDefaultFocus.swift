@@ -10,6 +10,8 @@ extension View {
     ///   first, unless the person has already moved or is in the sidebar.
     /// - On each handoff from the sidebar (`tvFocusHandoff`): the first item,
     ///   since choosing a page opens it at its start (Benjamin, 2026-10-01).
+    /// - When the page comes back on show after the page above it is popped
+    ///   (`tvPageIsOnShow`): the remembered item. A hidden page claims nothing.
     ///
     /// `ids` are the page's focusable items in order; the first is its
     /// default. Whatever has focus is written to `remembered`.
@@ -23,14 +25,18 @@ private struct TVDefaultFocus<ID: Hashable>: ViewModifier {
     let ids: [ID]
     @Binding var remembered: ID?
     @State private var userMoved = false
+    /// The item to put focus back on while the page is covered, and until
+    /// it has it again.
+    @State private var restoring: ID?
     @Environment(\.tvFocusHandoff) private var handoff
     @Environment(\.tvSidebarExpanded) private var sidebarExpanded
     @Environment(\.tvPageClaimedFocus) private var claimed
+    @Environment(\.tvPageIsOnShow) private var isOnShow
 
     func body(content: Content) -> some View {
         content
             .onChange(of: ids.first, initial: true) { _, first in
-                guard focus.wrappedValue == nil, let first else { return }
+                guard isOnShow, focus.wrappedValue == nil, let first else { return }
                 if let remembered, ids.contains(remembered) {
                     claim(remembered)
                 } else if !userMoved, !sidebarExpanded {
@@ -38,10 +44,38 @@ private struct TVDefaultFocus<ID: Hashable>: ViewModifier {
                 }
             }
             .onChange(of: handoff) {
-                if let first = ids.first { claim(first) }
+                guard isOnShow, let first = ids.first else { return }
+                claim(first)
+            }
+            // Back on show after the page above was popped: focus returns to
+            // where it was. The page was never torn down, so the item is
+            // built, lazy container or not. tvOS puts focus on the page's
+            // first item as the page is enabled again, and a claim made in
+            // the same pass is dropped, so the target is fixed when the page
+            // is covered and claimed until it holds.
+            .onChange(of: isOnShow) { _, onShow in
+                guard onShow else {
+                    restoring = remembered
+                    return
+                }
+                guard let target = restoring.flatMap({ ids.contains($0) ? $0 : nil }) ?? ids.first else {
+                    restoring = nil
+                    return
+                }
+                restoring = target
+                Task { @MainActor in
+                    for _ in 0..<10 {
+                        focus.wrappedValue = target
+                        try? await Task.sleep(for: .milliseconds(50))
+                        if focus.wrappedValue == target { break }
+                    }
+                    restoring = nil
+                    remembered = target
+                    claimed()
+                }
             }
             .onChange(of: focus.wrappedValue) { _, id in
-                if let id { remembered = id }
+                if let id, isOnShow, restoring == nil { remembered = id }
             }
             .onMoveCommand { _ in userMoved = true }
     }

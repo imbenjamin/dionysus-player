@@ -78,7 +78,9 @@ Every page sits in `TVPageScaffold`: the shell draws the plum glow once
 beneath every page (a page drawing its own faded in with it, showing the
 window's black for a frame), a page's own background fills the screen behind
 the rail, and its content starts right of the
-rail (`TVShellMetrics.contentInset`) and is clipped there. Four focus facts
+rail (`TVShellMetrics.contentInset`) and is clipped there. The gap beside the
+rail is 56pt, what a focused control's shape needs on its left: at 40pt the
+system's focus platter around a plain button was sliced off at the clip. Four focus facts
 cost a debugging session each:
 - **Collapsed, only the page's own row is enabled**
   (`TVShellNavigation.focusableRows`). The rail's focus section spans the
@@ -114,11 +116,67 @@ presents it over the page, which stays alive beneath, so leaving the player is
 immediate, with the scroll position and focus where they were. It used to tear
 the shell down (`TVPageStack`, removed): the rebuilt page then asked a lazy
 grid to focus a tile it hadn't built, and anything below the first screen came
-back at the top. M3's details page is a page *within* the shell, with the rail
-beside it: a per-page path where only the top is drawn and Menu pops before it
-opens the rail. After the player closes, XCUITest reports `hasFocus` false for
+back at the top. After the player closes, XCUITest reports `hasFocus` false for
 a library's tiles though focus is on the right one, so
 `PlayerReturnJourneyTests` reads the focused card's lifted frame there.
+
+**Detail pages and See All grids are pushed onto a path inside the shell**
+(`TVShellNavigation.path`), with the rail beside them; every tile opens a
+detail page, never playback. Menu pops the path before it opens the rail, and
+choosing a rail row drops it. The root page, the top page and the two beneath
+the top stay built (`TVPageKeepAlive`, Benjamin, 2026-10-01), hidden and
+disabled, so Menu returns to a page exactly as it was; anything deeper is torn
+down and rebuilt from its view model, which the shell keeps per path entry.
+Three things about it aren't guessable:
+- **Pushing and popping hold the rail** (`holdRail()`). The tile that had
+  focus is disabled as its page is covered, and tvOS otherwise hands focus to
+  the rail, the only thing left, and opens it.
+- **A page coming back on show must claim its item more than once.** As the
+  page is enabled again tvOS focuses its first item, and a claim made in the
+  same pass is dropped, so `tvClaimsFocus` fixes the target when the page is
+  covered and sets it until it holds (`tvPageIsOnShow`). Search does the same
+  by hand, since its default focus is the system keyboard.
+- **A hidden page claims nothing and remembers nothing** (the
+  `tvPageIsOnShow` guards), or a covered page would answer for the page above
+  it. A page refreshes its data when it comes back on show, without tearing
+  down its views.
+
+**On a detail page Down walks a row at a time** (Benjamin, 2026-10-02): the
+actions, Cast & Crew, More Like This, Details. Cast tiles take focus though
+Select does nothing (there is no person page). The action row's focus section
+spans the page's width (`TVDetailActions`): hugging its buttons, Up from a
+cast member right of Favorite found nothing above and did nothing. Details is a summary; Select
+opens the full list over the page (`TVFullDetailsView`): iOS's Details tab
+rows and every audio and subtitle track, per version, in focusable sections,
+since a tvOS scroll view moves only with focus. The backdrop blurs and dims
+once focus is below the header, so the rails read against it.
+
+**While focus is in a detail page's header, the page sits at its top**
+(Benjamin, 2026-10-02): back from the rails it returns there, and focusing the
+synopsis doesn't scroll it higher (`TVMovieDetailView.restoreLanding`). Three
+measured facts behind it:
+- **The header's height is what makes the top the landing position.** Too
+  tall and Play sits too low for tvOS, which nudges the page down as it takes
+  focus: 60pt at 860, 16pt at 800, 4pt at 784, none at 776 (measured from a
+  screen recording, frame by frame). With any nudge the page visibly settles
+  a second after opening, and "the start" is no longer the top. Measure
+  before changing `headerHeight`.
+- **The header holds space for what arrives late.** A tile hands the page a
+  lighter copy of the item; badges, credits and sometimes the overview come
+  with the full fetch, which from a cold server is seconds later. Those rows
+  keep their space while loading and the text rows always reserve their full
+  line count, so the logo doesn't jump when they land.
+- **tvOS's own focus scroll can start after ours and win**, at no fixed delay
+  (a timed second attempt worked from one row down and failed from three), so
+  the page is also sent back whenever a scroll comes to rest
+  (`onScrollPhaseChange`) while focus is in the header.
+- **`ScrollPosition` measures from the inset top**, the raw content offset
+  from the safe-area margin above it: `contentOffset.y + contentInsets.top` is
+  zero at the top, and scrolling to the raw offset sat 60pt high.
+
+The player reports where it stopped (`TVPlaybackSession.end()` returns the
+outcome once; `TVPlayerPresenter.present(_:queue:client:userID:onClose:)`), so
+the detail page beneath shows the new resume point at once, as iOS does.
 
 `.searchable` draws its field only inside a navigation container, which the
 `TabView` used to supply, so Search sits in a `NavigationStack`. Sign-in puts

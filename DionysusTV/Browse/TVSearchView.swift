@@ -1,9 +1,7 @@
 import SwiftUI
 
 /// The system search layout (keyboard across the top) over a poster grid, on
-/// the shared `SearchViewModel`. Lists only what plays directly (movies and
-/// episodes): a series or a
-/// collection needs a detail page to choose from, which is a later milestone.
+/// the shared `SearchViewModel`. Every result opens its detail page.
 struct TVSearchView: View {
     let client: JellyfinAPIClient
     let userID: String
@@ -14,6 +12,9 @@ struct TVSearchView: View {
     /// (back from the player) puts focus back on it.
     @Binding var rememberedResultID: String?
     @FocusState private var focusedResultID: String?
+    @Environment(\.tvOpenRoute) private var open
+    @Environment(\.tvPageIsOnShow) private var isOnShow
+    @State private var restoring = false
     @Environment(\.tvFocusHandoff) private var focusHandoff
     @Environment(\.tvPageClaimedFocus) private var claimedFocus
 
@@ -22,12 +23,6 @@ struct TVSearchView: View {
         self.userID = userID
         self.viewModel = viewModel
         _rememberedResultID = rememberedResultID
-    }
-
-    private static let playableKinds: Set<BaseItemKind> = [.movie, .episode]
-
-    private var playableResults: [SearchResult] {
-        viewModel.results.filter { $0.kind.map(Self.playableKinds.contains) ?? false }
     }
 
     var body: some View {
@@ -45,20 +40,37 @@ struct TVSearchView: View {
         // SwiftUI focus target reaches: with the rail held disabled, tvOS puts
         // focus there itself. Only a remembered result is claimed here.
         .onAppear {
-            if let rememberedResultID, playableResults.contains(where: { $0.id == rememberedResultID }) {
+            if let rememberedResultID, viewModel.results.contains(where: { $0.id == rememberedResultID }) {
                 focusedResultID = rememberedResultID
             }
             releaseRail()
         }
         .onChange(of: focusHandoff) { releaseRail() }
+        // Back on show after a detail page is popped: tvOS puts focus on the
+        // keyboard as the page is enabled again, so the result is claimed
+        // until it holds (as `tvClaimsFocus` does for other pages).
+        .onChange(of: isOnShow) { _, onShow in
+            guard onShow, let target = rememberedResultID, viewModel.results.contains(where: { $0.id == target }) else { return }
+            restoring = true
+            Task { @MainActor in
+                for _ in 0..<10 {
+                    focusedResultID = target
+                    try? await Task.sleep(for: .milliseconds(50))
+                    if focusedResultID == target { break }
+                }
+                restoring = false
+                claimedFocus()
+            }
+        }
         .onChange(of: focusedResultID) { _, id in
-            if let id { rememberedResultID = id }
+            if let id, isOnShow, !restoring { rememberedResultID = id }
         }
     }
 
     /// Lets the shell enable the rail once the keyboard has had its chance at
     /// focus, which it takes as soon as the page is laid out.
     private func releaseRail() {
+        guard isOnShow else { return }
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(300))
             claimedFocus()
@@ -68,11 +80,11 @@ struct TVSearchView: View {
     private var results: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 250), spacing: 48, alignment: .leading)], alignment: .leading, spacing: 60) {
-                ForEach(playableResults) { result in
+                ForEach(viewModel.results) { result in
                     VStack(spacing: 16) {
                         Button {
                             viewModel.recordSelection(result)
-                            TVPlayerPresenter.present(itemID: result.id, client: client, userID: userID)
+                            open(.assetDetail(itemID: result.id))
                         } label: {
                             AsyncRemoteImage(
                                 url: viewModel.imageURL(for: result),

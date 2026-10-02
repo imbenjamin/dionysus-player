@@ -1,5 +1,12 @@
 import Foundation
 
+/// One pushed page. The id tells two visits to the same route apart, and
+/// keys the page's view model and remembered focus in the shell.
+struct TVPathEntry: Identifiable, Equatable {
+    let id: UUID
+    let route: AppRoute
+}
+
 /// Where the signed-in shell is (Benjamin, 2026-10-01). Every sidebar row but
 /// the Libraries group is a top-level destination: Profile, Home, Search and
 /// each library. The rail is drawn on all of them, and focus entering it lands
@@ -15,6 +22,9 @@ struct TVShellNavigation: Equatable {
 
     /// Never `.librariesGroup`.
     private(set) var destination: Row = .home
+    /// Pages pushed on top of the destination: detail pages and See All
+    /// grids. Menu pops it before it opens the rail.
+    private(set) var path: [TVPathEntry] = []
     /// Open to start with (Benjamin, 2026-10-01): the fold groups the
     /// libraries under one row, it doesn't hide them.
     var librariesExpanded = true
@@ -25,7 +35,19 @@ struct TVShellNavigation: Equatable {
             return .toggledGroup
         }
         destination = row
+        path = []
         return .navigated
+    }
+
+    @discardableResult
+    mutating func push(_ route: AppRoute, id: UUID = UUID()) -> TVPathEntry {
+        let entry = TVPathEntry(id: id, route: route)
+        path.append(entry)
+        return entry
+    }
+
+    mutating func pop() -> TVPathEntry? {
+        path.popLast()
     }
 
     /// The one row the collapsed rail lets focus land on: the destination's,

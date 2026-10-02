@@ -27,6 +27,12 @@ struct TVMainView: View {
     @State private var rememberedHomeTile: String?
     @State private var rememberedSearchResult: String?
     @State private var rememberedLibraryItems: [String: String] = [:]
+    /// One view model per pushed page, keyed by its path entry, kept while
+    /// the entry is on the path: a page torn down by the keep-alive cap
+    /// rebuilds from it without a refetch.
+    @State private var detailModels: [UUID: AssetDetailViewModel] = [:]
+    @State private var pushedGrids: [UUID: CollectionGridViewModel] = [:]
+    @State private var rememberedPushedFocus: [UUID: String] = [:]
     @State private var nav = TVShellNavigation()
     /// Holds the whole sidebar disabled while focus is on its way to the page,
     /// until the page says it has claimed it (`tvPageClaimedFocus`): on a
@@ -61,10 +67,7 @@ struct TVMainView: View {
             TVPageBackground()
                 .ignoresSafeArea()
 
-            page
-                .id(nav.destination)
-                // Removed at once: a page fading out could still take focus.
-                .transition(.asymmetric(insertion: .opacity, removal: .identity))
+            pages
 
             Color(red: 8 / 255, green: 1 / 255, blue: 6 / 255)
                 .opacity(isExpanded ? TVShellMetrics.dimOpacity : 0)
@@ -91,6 +94,8 @@ struct TVMainView: View {
         .environment(\.tvSidebarExpanded, isExpanded)
         .environment(\.tvFocusHandoff, focusHandoff)
         .environment(\.tvPageClaimedFocus, releaseRail)
+        .environment(\.tvOpenRoute, open)
+        .environment(\.tvSelectLibrary) { id in select(.library(id)) }
         .animation(.easeOut(duration: 0.18), value: isExpanded)
         .animation(.easeOut(duration: 0.2), value: nav.librariesExpanded)
         .onExitCommand(perform: exitCommand)
@@ -121,7 +126,80 @@ struct TVMainView: View {
         }
     }
 
-    /// The page on show, built only while it's on show.
+    /// The root page and the pushed pages the cap keeps alive
+    /// (`TVPageKeepAlive`). Only the top one is on show; the rest are built
+    /// but hidden and disabled, so Menu returns to them as they were.
+    private var pages: some View {
+        let live = TVPageKeepAlive.liveLevels(depth: nav.path.count)
+        return ZStack {
+            level(0) { page }
+                .id(nav.destination)
+                // Removed at once: a page fading out could still take focus.
+                .transition(.asymmetric(insertion: .opacity, removal: .identity))
+            ForEach(Array(nav.path.enumerated()), id: \.element.id) { index, entry in
+                if live.contains(index + 1) {
+                    level(index + 1) { pushedPage(entry) }
+                }
+            }
+        }
+    }
+
+    private func level<Page: View>(_ level: Int, @ViewBuilder _ page: () -> Page) -> some View {
+        let onShow = level == nav.path.count
+        return page()
+            .environment(\.tvPageIsOnShow, onShow)
+            .opacity(onShow ? 1 : 0)
+            .disabled(!onShow)
+            .accessibilityHidden(!onShow)
+    }
+
+    @ViewBuilder
+    private func pushedPage(_ entry: TVPathEntry) -> some View {
+        let focus = Binding(
+            get: { rememberedPushedFocus[entry.id] },
+            set: { rememberedPushedFocus[entry.id] = $0 }
+        )
+        switch entry.route {
+        case .assetDetail:
+            if let model = detailModels[entry.id] {
+                TVDetailPage(viewModel: model, client: client, userID: userID, rememberedFocus: focus)
+            }
+        case .collection(let query):
+            if let grid = pushedGrids[entry.id] {
+                // Task 7 replaces this stopgap with `TVCollectionGridView`.
+                TVLibraryGridView(title: query.title, titleIdentifier: A11yID.TV.Library.title(query.title), viewModel: grid, rememberedItemID: focus)
+            }
+        default:
+            // The downloaded routes don't exist on tvOS.
+            EmptyView()
+        }
+    }
+
+    private func open(_ route: AppRoute) {
+        let entry = nav.push(route)
+        switch route {
+        case .assetDetail(let itemID, let preloadedItem):
+            detailModels[entry.id] = AssetDetailViewModel(client: client, userID: userID, itemID: itemID, preloadedItem: preloadedItem)
+        case .collection(let query):
+            pushedGrids[entry.id] = CollectionGridViewModel(client: client, userID: userID, query: query)
+        default:
+            break
+        }
+        // The tile that was focused is now disabled; without the hold, tvOS
+        // moves focus to the rail, the only thing left, and opens it.
+        holdRail()
+    }
+
+    private func pop() {
+        guard let entry = nav.pop() else { return }
+        detailModels[entry.id]?.cancelBackgroundWork()
+        detailModels[entry.id] = nil
+        pushedGrids[entry.id] = nil
+        rememberedPushedFocus[entry.id] = nil
+        holdRail()
+    }
+
+    /// The root page, built only while its row is the destination.
     @ViewBuilder
     private var page: some View {
         switch nav.destination {
@@ -132,9 +210,8 @@ struct TVMainView: View {
         case .library(let id):
             if let library = libraries.first(where: { $0.id == id }), let grid = libraryGrids[id] {
                 TVLibraryGridView(
-                    client: client,
-                    userID: userID,
-                    library: library,
+                    title: library.name,
+                    titleIdentifier: A11yID.TV.Library.title(library.id),
                     viewModel: grid,
                     rememberedItemID: Binding(
                         get: { rememberedLibraryItems[id] },
@@ -147,10 +224,11 @@ struct TVMainView: View {
         }
     }
 
-    /// Menu: on a page, opens the sidebar on that page's row; with the
-    /// sidebar open, nothing, so tvOS leaves the app.
+    /// Menu: pops a pushed page; on a root page, opens the sidebar on that
+    /// page's row; with the sidebar open, nothing, so tvOS leaves the app.
     private var exitCommand: (() -> Void)? {
         if isExpanded { return nil }
+        if !nav.path.isEmpty { return pop }
         return {
             railHeld = false
             Task { @MainActor in
@@ -193,6 +271,12 @@ struct TVMainView: View {
         if case .library(let id) = row, libraryGrids[id] == nil,
            let library = libraries.first(where: { $0.id == id }) {
             libraryGrids[id] = CollectionGridViewModel(client: client, userID: userID, query: TVSidebarLayout.query(for: library))
+        }
+        if row != .librariesGroup {
+            detailModels.values.forEach { $0.cancelBackgroundWork() }
+            detailModels = [:]
+            pushedGrids = [:]
+            rememberedPushedFocus = [:]
         }
         let selection = withAnimation(.easeOut(duration: 0.2)) { nav.select(row) }
         guard selection == .navigated else { return }

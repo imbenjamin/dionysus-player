@@ -5,22 +5,32 @@ import UIKit
 /// leaving the player is immediate and focus is still on the title played
 /// (Benjamin, 2026-10-01).
 enum TVPlayerPresenter {
+    /// `request.itemID` must be directly playable: a movie or an episode.
+    /// `queue` is the playlist being played through, empty otherwise.
     @MainActor
-    static func present(item: MediaItem, client: JellyfinAPIClient, userID: String) {
-        // Milestone 3: resolve a Series via PlaybackRequest. The launcher only
-        // shows movies and episodes, so the item's own id plays.
-        present(itemID: item.id, client: client, userID: userID)
-    }
-
-    /// `itemID` must be directly playable: a movie or an episode.
-    @MainActor
-    static func present(itemID: String, client: JellyfinAPIClient, userID: String) {
+    static func present(
+        _ request: PlaybackRequest,
+        queue: [MediaItem] = [],
+        client: JellyfinAPIClient,
+        userID: String,
+        onClose: (@MainActor (PlaybackSessionOutcome) -> Void)? = nil
+    ) {
         guard let engine = makeEngine() else { return }
-        let viewModel = PlayerViewModel(client: client, userID: userID, itemID: itemID, engine: engine)
+        let viewModel = PlayerViewModel(
+            client: client, userID: userID, itemID: request.itemID, engine: engine,
+            startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID,
+            playbackQueue: queue
+        )
         let host = TVPlayerHostController(viewModel: viewModel, engine: engine)
+        host.onClose = onClose
         host.modalPresentationStyle = .fullScreen
         guard let presenter = topViewController() else { return }
         presenter.present(host, animated: true)
+    }
+
+    @MainActor
+    static func present(itemID: String, client: JellyfinAPIClient, userID: String) {
+        present(PlaybackRequest(itemID: itemID), client: client, userID: userID)
     }
 
     /// Closes the player if it's up, as Menu does.

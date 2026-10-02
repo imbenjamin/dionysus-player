@@ -1,15 +1,16 @@
 import XCTest
 
 final class PlayerJourneyTests: TVUITestCase {
-    /// Select on a tile opens the player (fake engine under the harness), Right
-    /// reaches our handler and skips forward, and Menu dismisses back to the
-    /// tile. It plays the part-watched movie because that is the focused first
+    /// Play on a detail page opens the player (fake engine under the harness),
+    /// Right reaches our handler and skips forward, and Menu dismisses back to
+    /// the detail page. It plays the part-watched movie because that is the focused first
     /// tile; later rails are off screen in a lazy stack.
     func test_openPlayer_skipForward_menuDismisses() {
         let app = launch(seedSession: true, extraArguments: ["-UITestDisableControlAutoHide", "YES"])
         let tile = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
         XCTAssertTrue(tile.waitForExistence(timeout: 10))
         XCTAssertTrue(waitForFocus(tile))
+        let play = openDetailFromFocusedTile(app)
         press(.select)
 
         let elapsed = app.staticTexts[A11yID.TV.Player.elapsed]
@@ -28,7 +29,7 @@ final class PlayerJourneyTests: TVUITestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [skipped], timeout: 5), .completed, "Right should skip 10s on from \(before)s")
 
         press(.menu)
-        XCTAssertTrue(waitForFocus(tile))
+        XCTAssertTrue(waitForFocus(play), "Menu returns to the detail page the title was played from")
         XCTAssertFalse(elapsed.exists)
     }
 
@@ -40,11 +41,12 @@ final class PlayerJourneyTests: TVUITestCase {
         let tile = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
         XCTAssertTrue(tile.waitForExistence(timeout: 10))
         XCTAssertTrue(waitForFocus(tile))
+        let play = openDetailFromFocusedTile(app)
         press(.select)
         let elapsed = app.staticTexts[A11yID.TV.Player.elapsed]
         XCTAssertTrue(elapsed.waitForExistence(timeout: 10))
         press(.menu)
-        XCTAssertTrue(waitForFocus(tile))
+        XCTAssertTrue(waitForFocus(play), "Menu returns to the detail page the title was played from")
         XCTAssertFalse(elapsed.exists)
     }
 
@@ -91,12 +93,13 @@ final class PlayerJourneyTests: TVUITestCase {
         XCTAssertEqual(elapsed.label, pausedAt, "Nothing should play while paused")
     }
 
-    /// Launches signed in and selects the focused first tile.
+    /// Launches signed in, opens the focused first tile's detail page and plays it.
     private func openPlayer(scenario: String = "standard", extraArguments: [String]) -> XCUIApplication {
         let app = launch(scenario: scenario, seedSession: true, extraArguments: extraArguments)
         let tile = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
         XCTAssertTrue(tile.waitForExistence(timeout: 10))
         XCTAssertTrue(waitForFocus(tile))
+        openDetailFromFocusedTile(app)
         press(.select)
         return app
     }

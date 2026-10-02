@@ -94,4 +94,54 @@ final class TVShellNavigationTests: XCTestCase {
         XCTAssertFalse(nav.isHighlighted(.librariesGroup, isExpanded: true, libraries: six))
         XCTAssertFalse(nav.isHighlighted(.home, isExpanded: true, libraries: six))
     }
+
+    private let movie = AppRoute.assetDetail(itemID: "m1")
+    private let other = AppRoute.assetDetail(itemID: "m2")
+
+    func test_push_appendsToThePath_andKeepsTheDestination() {
+        var nav = TVShellNavigation()
+        _ = nav.select(.library("l1"))
+        let entry = nav.push(movie)
+        XCTAssertEqual(nav.path, [entry])
+        XCTAssertEqual(nav.destination, .library("l1"))
+        XCTAssertEqual(nav.railAnchor(libraries: four), .library("l1"), "The rail's anchor is the destination at any depth")
+    }
+
+    /// The same title can be on the path twice (A, then B from More Like This,
+    /// then A again), so entries are told apart by id, not route.
+    func test_theSameRouteTwice_makesTwoEntries() {
+        var nav = TVShellNavigation()
+        let first = nav.push(movie)
+        _ = nav.push(other)
+        let again = nav.push(movie)
+        XCTAssertNotEqual(first.id, again.id)
+        XCTAssertEqual(nav.path.count, 3)
+    }
+
+    func test_pop_removesTheTop_andReturnsIt() {
+        var nav = TVShellNavigation()
+        _ = nav.push(movie)
+        let top = nav.push(other)
+        XCTAssertEqual(nav.pop(), top)
+        XCTAssertEqual(nav.path.count, 1)
+    }
+
+    func test_pop_onAnEmptyPath_returnsNil() {
+        var nav = TVShellNavigation()
+        XCTAssertNil(nav.pop())
+    }
+
+    func test_choosingARow_dropsThePath() {
+        var nav = TVShellNavigation()
+        _ = nav.push(movie)
+        _ = nav.select(.search)
+        XCTAssertTrue(nav.path.isEmpty)
+    }
+
+    func test_togglingTheLibrariesGroup_keepsThePath() {
+        var nav = TVShellNavigation()
+        _ = nav.push(movie)
+        _ = nav.select(.librariesGroup)
+        XCTAssertEqual(nav.path.count, 1)
+    }
 }

@@ -73,4 +73,21 @@ extension TVUITestCase {
         }
         XCTAssertTrue(waitForFocus(element))
     }
+
+    /// A tile opens its detail page, with focus on Play (or Resume).
+    @discardableResult
+    func openDetailFromFocusedTile(_ app: XCUIApplication) -> XCUIElement {
+        press(.select)
+        let play = app.buttons[A11yID.TV.Detail.play]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(play), "A detail page opens with focus on Play")
+        return play
+    }
+
+    /// Tile, then Play on its detail page: the way to the player since M3.
+    func playFromFocusedTile(_ app: XCUIApplication) {
+        openDetailFromFocusedTile(app)
+        press(.select)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Player.elapsed].waitForExistence(timeout: 10))
+    }
 }
