@@ -21,6 +21,7 @@ struct TVPosterTile: View {
             .buttonStyle(.card)
             .focused($isFocused)
             .accessibilityLabel(item.accessibilityDescription)
+            .accessibilityValue(TVTileBadges.spokenValue(for: item))
             .accessibilityIdentifier(identifier)
 
             if caption != .none {

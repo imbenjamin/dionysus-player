@@ -116,9 +116,7 @@ presents it over the page, which stays alive beneath, so leaving the player is
 immediate, with the scroll position and focus where they were. It used to tear
 the shell down (`TVPageStack`, removed): the rebuilt page then asked a lazy
 grid to focus a tile it hadn't built, and anything below the first screen came
-back at the top. After the player closes, XCUITest reports `hasFocus` false for
-a library's tiles though focus is on the right one, so
-`PlayerReturnJourneyTests` reads the focused card's lifted frame there.
+back at the top.
 
 **Detail pages and See All grids are pushed onto a path inside the shell**
 (`TVShellNavigation.path`), with the rail beside them; every tile opens a
@@ -140,6 +138,70 @@ Three things about it aren't guessable:
   `tvPageIsOnShow` guards), or a covered page would answer for the page above
   it. A page refreshes its data when it comes back on show, without tearing
   down its views.
+
+**A library's page and a See All grid are `TVCollectionGridView`**, on the
+shared `CollectionGridViewModel`: a title and count, the five cascading filter
+pills on the left with iOS's symbols (filled or struck while a filter is on),
+Reset while any is set, the sort pill anchored at the right, and six columns
+of posters with their captions always shown (Benjamin, 2026-10-02). What isn't
+guessable:
+- **The posters are a UIKit collection view** (`TVPosterCollection`), for the
+  system's alphabet index: the column at the right edge while scrolling fast
+  (`indexTitles(for:)`, offered only while sorted by title, letters from
+  `TVAlphabetIndex`). SwiftUI has no way to ask for it on tvOS: its
+  `sectionIndexLabel` is for `List` only. A hand-drawn letter column came
+  first; Benjamin asked for the native one (2026-10-02).
+- **Each cell is the system's `TVPosterView`, not the app's SwiftUI tile.**
+  Hosted in a cell, the SwiftUI tile held focus where UIKit couldn't see or
+  move it: Up from the top row went nowhere, and releasing the index after
+  scrubbing left nothing focused with every button dead (Benjamin,
+  2026-10-03). The poster is a UIKit view, so the collection view, the index
+  and the SwiftUI header move focus between them the ordinary way. Badges and
+  the loading glyph are SwiftUI hosted in the artwork's `overlayContentView`,
+  so they lift with it. Its caption is the system's own labels restyled as
+  the app's (`TVCaptionedPosterView`, Benjamin, 2026-10-03): semibold caption
+  over a secondary caption2, one line each, laid along the leading edge by a
+  footer subclass (`TVLeadingCaptionFooter`), since the system centres each
+  label on its own text. The style is put back on every focus change.
+  **A cached image is set a pass later, as a fetched one is**
+  (`TVPosterCell.show`). Set while the cell was still being configured, the
+  poster kept its artwork at full size instead of inset for its lift, so the
+  focused poster ran over its caption, which stayed put: on every return to
+  a grid whose artwork was cached (Benjamin saw it about half the time).
+- **Focus is put on a poster through SwiftUI, not UIKit.** A focus update
+  requested of a cell while SwiftUI holds focus in the header was refused
+  every time (logged). So the grid is the page's default in its focus scope
+  (`prefersDefaultFocus`), `TVPosterCollectionView.preferredFocusEnvironments`
+  points at the target cell, and `resetFocus` is what asks, followed by a
+  focus update from the window's root as the shell does: on arrival, on a
+  handoff from the sidebar, and back on show, held until it sticks. The reset
+  alone left focus on the rail one opening in four (measured). Focus
+  inside the grid is remembered from the collection view's own updates.
+- **The header (title, pills, open list) is SwiftUI drawn over the grid**,
+  offset by the grid's scroll, not inside it: inside a cell its pills and
+  their list would be another SwiftUI hierarchy from the page's focus state.
+  A pill taking focus scrolls the grid back to its top.
+- **The pills aren't SwiftUI `Menu`s** (`TVDropdownPill`, `TVDropdownList`).
+  A tvOS `Menu` gives focus back to its button about 1.3 seconds after a
+  choice: measured from the focus system's own updates, nothing has focus in
+  between, and a request made sooner is ignored. Ours closes with focus on
+  the pill in the next frame (Benjamin, 2026-10-02). The open list is laid
+  over the page from the pill's bounds, not hung from the pill, since the
+  pill row is a focus section and a section confines movement to its own
+  frame (Down from the list's first row went nowhere); and focus is held on
+  the pill for a moment after a choice, because the grid reloads under it.
+  Menu closes an open list; so does focus leaving it. A pill's text is one line,
+  cut short with an ellipsis past 260pt (`TVDropdownPill.maxTitleWidth`): a
+  chosen studio wrapped to two lines (Benjamin, 2026-10-03).
+- **Reset appears only while a filter is set**, as on iOS, and clears them
+  all in one press; focus then goes to the first pill, since Reset removes
+  itself.
+- **The grid reloads when it comes back on show** (a detail page may have
+  changed a poster's badges) and keeps its place: the same titles redraw
+  where they are.
+
+Tiles speak their badges as an accessibility value ("Watched", "Favorite"),
+since the badges are drawn, not read.
 
 **On a detail page Down walks a row at a time** (Benjamin, 2026-10-02): the
 actions, Cast & Crew, More Like This, Details. Cast tiles take focus though

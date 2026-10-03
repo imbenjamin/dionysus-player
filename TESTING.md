@@ -166,9 +166,9 @@ and `AppStateTests`' job; the order of the lockups is `TVWhosWatchingLayoutTests
 page as it was, since the player is laid over it. Focus is on the tile played
 (Home's second, a library's second, so a return to the first can't pass for
 it), a tile two rows down a library is still on screen with the grid where it
-was left, and Search keeps its query. The two library journeys read focus from
-the tile's frame (a focused card is drawn larger): after the player closes,
-XCUITest reports `hasFocus` false for those tiles though focus is there.
+was left, and Search keeps its query. A library's posters are UIKit views and
+report `hasFocus` directly; the grid scrolls only as far as the focused row
+needs, so its position is compared before and after rather than assumed.
 
 `OnboardingJourneyTests`' `manyUsers` journey (six users) checks that Who's
 Watching?'s row scrolls above five lockups: the first isn't cut off, and Other
@@ -200,6 +200,21 @@ player: `openDetailFromFocusedTile` and `playFromFocusedTile`.
 `PlayerReturnJourneyTests` now pins the return from a detail page: to a tile
 that isn't the page's first, to one below the first screen of a lazy grid, and
 to Search with its query intact.
+
+`CollectionGridJourneyTests` covers a library's grid: its count, pills and six
+columns, with Up from the grid landing on the filters and Sort right of them;
+a tile opening its detail page and Menu returning to it; Sort reordering the
+grid with focus back on its pill at once; a genre filter narrowing the grid,
+focus back on the pill within a second (polled, since `waitForFocus` checks
+once a second), and Reset appearing, clearing it in one press and handing
+focus to the first pill; Menu closing an open list without opening the rail;
+a title marked watched on its detail page showing as watched on the tile
+beneath, with the grid where it was left; and a library that fails to load
+(`failingLibrary`: listing Movies answers 500) offering Retry with focus on
+it. The stub remembers a watched change for the session (`watchedOverrides`),
+so a list fetched afterwards reflects it. The system alphabet index can't be
+driven from XCUITest (it needs a held scroll), so it is checked by hand;
+`TVAlphabetIndexTests` pins the letter each title sits under and the index's titles and jump targets.
 
 `ShowDetailJourneyTests` covers a show's page: Play names the episode it
 starts and keeps focus while that episode is resolved; Down from the actions

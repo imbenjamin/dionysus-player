@@ -99,6 +99,28 @@
     "%lld Items" : {
 
     },
+    "%lld items" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld item"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld items"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld min left" : {
 
     },
@@ -436,6 +458,9 @@
 
     },
     "Couldn't get a Quick Connect code from the server." : {
+
+    },
+    "Couldn't Load %@" : {
 
     },
     "Couldn't load this collection." : {
@@ -821,6 +846,9 @@
     "Jellyfin servers on this network appear here as they're found." : {
 
     },
+    "Jump to letter" : {
+
+    },
     "Kbps" : {
 
     },
@@ -1143,6 +1171,9 @@
 
     },
     "Reset All to Defaults?" : {
+
+    },
+    "Reset Filters" : {
 
     },
     "Resolution" : {

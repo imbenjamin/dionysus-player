@@ -24,6 +24,15 @@ enum TVTileCaption {
 struct TVTileBadges: View {
     let badges: WatchBadges
 
+    /// What the badges say, for VoiceOver: they are drawn, not read.
+    static func spokenValue(for item: MediaItem) -> String {
+        let badges = WatchBadges(item: item)
+        return [
+            badges.showsWatched ? String(localized: "Watched") : nil,
+            badges.showsFavorite ? String(localized: "Favorite") : nil
+        ].compactMap { $0 }.joined(separator: ", ")
+    }
+
     var body: some View {
         ZStack {
             if badges.showsFavorite {

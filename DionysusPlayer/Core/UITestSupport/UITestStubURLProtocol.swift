@@ -139,6 +139,19 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
+        // Remembered, then answered as before by the routes below.
+        if path.contains("/PlayedItems/"), let itemID = path.split(separator: "/").last.map(String.init) {
+            if request.httpMethod == "POST" { Self.setWatched(true, itemID: itemID) }
+            if request.httpMethod == "DELETE" { Self.setWatched(false, itemID: itemID) }
+        }
+
+        if scenario == .failingLibrary, path.hasSuffix("/Items"),
+           URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+            .contains(where: { $0.name.caseInsensitiveCompare("ParentId") == .orderedSame && $0.value == UITestFixtureIdentity.moviesLibraryID }) == true {
+            finish(.success((500, Data("{}".utf8), "application/json")))
+            return
+        }
+
         if let failure = Self.scenarioFailure(scenario: scenario, path: path) {
             finish(.success((failure, Data("{}".utf8), "application/json")))
             return
@@ -298,6 +311,24 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     /// of the catalogue — and process-lifetime, so each test's fresh launch
     /// starts clean with no explicit reset.
     nonisolated(unsafe) private static var deletedItemIDs: Set<String> = []
+
+    /// Watched states changed during this app session, by item id: the same
+    /// minimal shape as `deletedItemIDs`. Without it a grid that reloads
+    /// after its detail page marked a title watched got the fixture's state
+    /// back, and the Apple TV journey for that had nothing to see.
+    nonisolated(unsafe) private static var watchedOverrides: [String: Bool] = [:]
+
+    private static func setWatched(_ watched: Bool, itemID: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        watchedOverrides[itemID] = watched
+    }
+
+    private static func watchedOverride(_ itemID: String) -> Bool? {
+        lock.lock()
+        defer { lock.unlock() }
+        return watchedOverrides[itemID]
+    }
 
     /// The item id in a `DELETE /Items/{id}`, or `nil` off that route. Matched
     /// precisely so `/Users/{id}/Items/{id}` can't be mistaken for it.
@@ -493,7 +524,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
              .slowVideoDownload, .slowPlaybackInfo, .manyLibraries, .manyUsers:
             return nil
-        case .largeCast, .noBackdrop:
+        case .largeCast, .noBackdrop, .failingLibrary:
             return nil
         case .failingDetail:
             return path.hasSuffix("/Items/\(UITestFixtureIdentity.movieID(3))") ? 500 : nil
@@ -889,8 +920,14 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     /// no-permission scenario, so both halves of the gate come from one
     /// catalogue.
     private static func applyDeletePermission(_ item: BaseItemDto) -> BaseItemDto {
-        guard UITestConfiguration.scenario == .noDeletePermission else { return item }
         var copy = item
+        // Every list and item route maps through here, so a watched change
+        // made this session shows wherever the item is next listed.
+        if let watched = watchedOverride(item.id) {
+            copy.userData?.played = watched
+            if watched { copy.userData?.playbackPositionTicks = 0 }
+        }
+        guard UITestConfiguration.scenario == .noDeletePermission else { return copy }
         copy.canDelete = false
         return copy
     }

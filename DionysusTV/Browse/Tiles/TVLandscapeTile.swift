@@ -24,6 +24,7 @@ struct TVLandscapeTile: View {
             }
             .buttonStyle(.card)
             .accessibilityLabel(item.accessibilityDescription)
+            .accessibilityValue(TVTileBadges.spokenValue(for: item))
             .accessibilityIdentifier(identifier)
 
             VStack(alignment: .leading, spacing: 2) {
