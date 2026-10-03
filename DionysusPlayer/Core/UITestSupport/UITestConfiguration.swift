@@ -132,6 +132,10 @@ enum UITestScenario: String {
     /// Apple TV detail page shows its poster beside the title instead.
     case noBackdrop
 
+    /// `.standard`, but listing the Movies library's items answers 500, so
+    /// its Apple TV page fails to load and offers Retry.
+    case failingLibrary
+
     /// `.standard`, but `/Views` lists seven libraries (the four standard ones,
     /// two more video libraries, and a Music one), so the Apple TV sidebar
     /// folds them into its "Libraries" entry. Six are shown after the Music one

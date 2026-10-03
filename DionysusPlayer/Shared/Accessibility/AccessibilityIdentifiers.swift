@@ -437,6 +437,13 @@ enum A11yID {
             static func result(_ itemID: String) -> String { "tv.search.result.\(itemID)" }
         }
         enum Library {
+            static let count = "tv.library.count"
+            static let sort = "tv.library.sort"
+            static func filter(_ facet: String) -> String { "tv.library.filter.\(facet)" }
+            static let resetFilters = "tv.library.resetFilters"
+            /// A choice in an open pill's list: "all", or the option's index.
+            static func option(_ pill: String, _ option: String) -> String { "tv.library.option.\(pill).\(option)" }
+            static let retry = "tv.library.retry"
             static func title(_ libraryID: String) -> String { "tv.library.title.\(libraryID)" }
             static func tile(_ itemID: String) -> String { "tv.library.tile.\(itemID)" }
         }

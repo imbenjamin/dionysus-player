@@ -166,8 +166,7 @@ struct TVMainView: View {
             }
         case .collection(let query):
             if let grid = pushedGrids[entry.id] {
-                // Task 7 replaces this stopgap with `TVCollectionGridView`.
-                TVLibraryGridView(title: query.title, titleIdentifier: A11yID.TV.Library.title(query.title), viewModel: grid, rememberedItemID: focus)
+                TVCollectionGridView(title: query.title, titleIdentifier: A11yID.TV.Library.title(query.title), viewModel: grid, rememberedItemID: focus)
             }
         default:
             // The downloaded routes don't exist on tvOS.
@@ -209,7 +208,7 @@ struct TVMainView: View {
             TVProfileView()
         case .library(let id):
             if let library = libraries.first(where: { $0.id == id }), let grid = libraryGrids[id] {
-                TVLibraryGridView(
+                TVCollectionGridView(
                     title: library.name,
                     titleIdentifier: A11yID.TV.Library.title(library.id),
                     viewModel: grid,

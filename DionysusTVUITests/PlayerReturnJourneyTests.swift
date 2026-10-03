@@ -32,8 +32,8 @@ final class PlayerReturnJourneyTests: TVUITestCase {
         XCTAssertNotEqual(focused.identifier, firstID)
         openDetailFromFocusedTile(app)
         press(.menu)
-        XCTAssertTrue(waitForLift(opened), "Focus is still on the tile that was opened")
-        XCTAssertFalse(app.buttons[firstID].frame.width > 260, "And not on the first tile")
+        XCTAssertTrue(waitForFocus(opened), "Focus is still on the tile that was opened")
+        XCTAssertFalse(app.buttons[firstID].hasFocus, "And not on the first tile")
         XCTAssertTrue(waitForCollapsed(movies), "The rail is collapsed, on the library's row")
     }
 
@@ -43,26 +43,22 @@ final class PlayerReturnJourneyTests: TVUITestCase {
         let app = launchAtHome()
         _ = openMovies(app)
         let firstID = firstLibraryTile(app).identifier
+        let startY = app.buttons[firstID].frame.minY
         press(.down, times: 2)
         let focused = app.buttons.matching(NSPredicate(format: "hasFocus == true AND identifier BEGINSWITH %@", "tv.library.tile.")).firstMatch
         XCTAssertTrue(focused.waitForExistence(timeout: 5))
         let openedID = focused.identifier
         XCTAssertNotEqual(openedID, firstID)
+        // The grid scrolls only as far as the focused row needs, so the
+        // first row may still be on screen: its position is what's compared.
         let first = app.buttons[firstID]
-        XCTAssertTrue(!first.exists || first.frame.minY < 0, "The grid has scrolled its first row off the top")
+        XCTAssertTrue(poll(timeout: 5) { !first.exists || first.frame.minY < startY - 20 }, "The grid has scrolled")
+        let scrolledY = first.exists ? first.frame.minY : nil
         openDetailFromFocusedTile(app)
         press(.menu)
-        XCTAssertTrue(waitForLift(app.buttons[openedID]), "Focus is still on the tile that was opened")
+        XCTAssertTrue(waitForFocus(app.buttons[openedID]), "Focus is still on the tile that was opened")
         let top = app.buttons[firstID]
-        XCTAssertTrue(!top.exists || top.frame.minY < 0, "The grid is where it was left, not back at the top")
-    }
-
-    /// Whether a library tile has focus, read from its frame: a focused card
-    /// is drawn larger. After the player closes over a page that was never
-    /// rebuilt, XCUITest reports `hasFocus` false for every tile, though the
-    /// focus is there (a press moves it on from the right tile).
-    private func waitForLift(_ tile: XCUIElement, timeout: TimeInterval = 5) -> Bool {
-        poll(timeout: timeout) { tile.exists && tile.frame.width > 260 }
+        XCTAssertTrue(poll(timeout: 5) { scrolledY.map { top.exists && abs(top.frame.minY - $0) < 4 } ?? !top.exists }, "The grid is where it was left, not back at the top")
     }
 
     func test_search_keepsItsQueryAndResults_acrossADetailPage() {
