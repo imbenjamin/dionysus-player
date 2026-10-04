@@ -262,10 +262,16 @@ fixture's Late Night) shows a message that takes focus, so Menu pops.
 the host gets the fake engine, so nothing is handed to AVKit; the journeys
 check that the remote reaches the host's own handlers (Right skips 10s) and
 that Menu dismisses, including while the item is still loading
-(`slowPlaybackInfo`). `SearchJourneyTests` opens the rail with Left from
-Home's first tile, types a query into the system search field
-(`typeText` works on tvOS once the field exists), opens the result's detail
-page and plays it.
+(`slowPlaybackInfo`). `SearchJourneyTests` opens Search from the rail and
+types into the system search field (`typeText` works on tvOS once the field
+exists, delete keys included): a result sits under its type's rail and opens
+its detail page with the query kept, a show is listed under Shows, an empty history shows iOS's
+"Search Your Library" placeholder, a query
+with no match says so, an opened result is listed under Recent Searches once
+the field is emptied and Clear removes it, Search starts fresh after another
+page is chosen, Search is full screen with the collapsed rail off the left edge, and
+Menu slides the open sidebar in while Right sends it away again. idb's arrow keys don't reach the system keyboard; measure
+it through XCUITest instead.
 
 The transport journeys pin the player's own chrome: the title block sits
 top-left, the elapsed time and scrubber are on screen, and the format chip is

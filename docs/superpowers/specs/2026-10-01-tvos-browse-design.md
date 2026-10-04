@@ -13,7 +13,7 @@ Replace M2's stopgap browse screens with the prototype's: Home, detail pages, th
 | Area | Decision |
 |---|---|
 | Tiles | Every tile on Home, a grid or Search opens a detail page, never playback. The exceptions are the hero's Play, a detail page's own Play/Resume/Restart, and an episode tile on a show page. |
-| Search input | The system `.searchable` keyboard, inset so its first key and hint stay on screen. Left stays in the keyboard; Menu opens the rail. Not the prototype's custom one-row keyboard. |
+| Search input | The system `.searchable` keyboard, full screen as the system lays it out (revised 2026-10-04: beside the rail no inset kept its first keys and hint on screen). On Search the collapsed rail slides off the left edge, with a chevron at the middle of the edge in its place; Menu slides the open sidebar in. Left stays in the keyboard. Not the prototype's custom one-row keyboard, which would lose dictation and Continuity Keyboard. |
 | Detail scope | Movie, show, box set and playlist pages. No Add to Playlist, no Remove from playlist, no Delete from server. With nothing to hold, the More button is left off. |
 | Hero paging | Auto-advance plus Right/Left. |
 | Settings | Profile shows the whole prototype list now, including the four settings whose player features arrive in M4. |
@@ -83,7 +83,7 @@ Replaces `TVLibraryGridView`, for library pages and See All, on the shared `Coll
 
 On the shared `SearchViewModel`.
 
-- System `.searchable` in a `NavigationStack`, inset so the first key does not clip when focused and the hint does not run off the right edge.
+- System `.searchable` in a `NavigationStack`, full screen (limitation: the system search UX only shows and works correctly full screen). The collapsed rail slides off the left edge here and a chevron marks the edge; Menu slides the open sidebar in, Right returns to the page.
 - Results are grouped into rails by type, and every kind is listed now that each has a page. Selecting one records it and opens its detail page.
 - **With the field empty: Recent Searches, as a rail of the results most recently opened, with Clear.** This is the history the shared view model already keeps and iOS shows. The prototype's typed-query pills would need a second history and are not built.
 - No results: a message naming the query.

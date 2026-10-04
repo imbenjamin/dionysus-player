@@ -19,6 +19,10 @@ enum TVShellMetrics {
     /// How far the open sidebar pushes the content right, and how much it
     /// dims the screen behind it.
     static let pushDistance: CGFloat = 440
+    /// How far left the collapsed rail slides to leave the screen
+    /// (`TVShellNavigation.hidesCollapsedRail`). Measured: at its frame's
+    /// width and a margin (204pt) about 18pt of its glass still showed.
+    static let railOffScreen: CGFloat = 400
     static let dimOpacity = 0.45
 }
 
@@ -29,16 +33,38 @@ enum TVShellMetrics {
 /// it. Without a background of its own, a page sits on the shell's plum glow
 /// (Benjamin, 2026-10-01); Home and the detail pages bring their own backdrop.
 struct TVPageScaffold<Background: View, Content: View>: View {
+    enum Layout {
+        /// Right of the rail, clipped there.
+        case besideRail
+        /// The whole screen within its safe area, for a page drawn on screens
+        /// where the shell hides the collapsed rail (Search).
+        case fullScreen
+    }
+
     @Environment(\.tvSidebarExpanded) private var sidebarExpanded
+    private let layout: Layout
     private let background: Background
     private let content: Content
 
-    init(@ViewBuilder background: () -> Background, @ViewBuilder content: () -> Content) {
+    init(layout: Layout = .besideRail, @ViewBuilder background: () -> Background, @ViewBuilder content: () -> Content) {
+        self.layout = layout
         self.background = background()
         self.content = content()
     }
 
     var body: some View {
+        switch layout {
+        case .besideRail: besideRail
+        case .fullScreen:
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .focusSection()
+                .offset(x: sidebarExpanded ? TVShellMetrics.pushDistance : 0)
+                .background { background.ignoresSafeArea() }
+        }
+    }
+
+    private var besideRail: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             // The whole content area, so Right from any sidebar row enters
@@ -65,8 +91,8 @@ extension TVPageScaffold where Background == EmptyView {
     /// shell draws once beneath every page rather than each page drawing its
     /// own: a page fades in when chosen, and its own copy fading in with it
     /// showed the window's plain black for a frame.
-    init(@ViewBuilder content: () -> Content) {
-        self.init(background: { EmptyView() }, content: content)
+    init(layout: Layout = .besideRail, @ViewBuilder content: () -> Content) {
+        self.init(layout: layout, background: { EmptyView() }, content: content)
     }
 }
 

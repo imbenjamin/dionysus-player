@@ -96,9 +96,6 @@
     "%lld episodes couldn't be downloaded." : {
 
     },
-    "%lld Items" : {
-
-    },
     "%lld items" : {
       "localizations" : {
         "en" : {
@@ -120,6 +117,9 @@
           }
         }
       }
+    },
+    "%lld Items" : {
+
     },
     "%lld min left" : {
 
@@ -394,6 +394,9 @@
     "Choose your server to continue." : {
 
     },
+    "Clear" : {
+
+    },
     "Clear All" : {
 
     },
@@ -407,6 +410,9 @@
 
     },
     "Collection" : {
+
+    },
+    "Collections" : {
 
     },
     "Commentary" : {
@@ -852,9 +858,6 @@
     "Jellyfin servers on this network appear here as they're found." : {
 
     },
-    "Jump to letter" : {
-
-    },
     "Kbps" : {
 
     },
@@ -952,6 +955,9 @@
 
     },
     "No local network access" : {
+
+    },
+    "No results for “%@”" : {
 
     },
     "No servers found" : {
@@ -1074,6 +1080,9 @@
     "Playlist Name" : {
 
     },
+    "Playlists" : {
+
+    },
     "Plays it as it was made" : {
 
     },
@@ -1180,9 +1189,6 @@
 
     },
     "Reset All to Defaults?" : {
-
-    },
-    "Reset Filters" : {
 
     },
     "Resolution" : {

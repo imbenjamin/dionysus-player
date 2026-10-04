@@ -84,6 +84,9 @@ struct TVMainView: View {
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
 
+            TVEdgeChevron()
+                .opacity(nav.showsEdgeChevron(isExpanded: isExpanded) ? 1 : 0)
+
             TVSidebar(
                 rows: TVSidebarLayout.rows(libraries: libraries, librariesExpanded: nav.librariesExpanded),
                 libraries: libraries,
@@ -100,6 +103,13 @@ struct TVMainView: View {
             )
             .disabled(railHeld)
             .ignoresSafeArea()
+            .offset(x: nav.hidesCollapsedRail && !isExpanded ? -TVShellMetrics.railOffScreen : 0)
+            // Search's keyboard is a UIKit control near the top, so tvOS finds
+            // nothing right of the open sidebar there: Right hands focus back
+            // to the page as choosing its row does, keeping what it had.
+            .onMoveCommand { direction in
+                if direction == .right, isExpanded, nav.hidesCollapsedRail { handFocusToPage() }
+            }
         }
         .environment(\.tvSidebarExpanded, isExpanded)
         .environment(\.tvFocusHandoff, focusHandoff)
@@ -109,6 +119,7 @@ struct TVMainView: View {
         .environment(\.tvOpenDetailBeneathPlayer, openDetailBeneathPlayer)
         .environment(\.tvSelectLibrary) { id in select(.library(id)) }
         .animation(.easeOut(duration: 0.18), value: isExpanded)
+        .animation(.easeOut(duration: 0.25), value: nav.hidesCollapsedRail)
         .animation(.easeOut(duration: 0.2), value: nav.librariesExpanded)
         .onExitCommand(perform: exitCommand)
         // Collapsed, focus can only enter on the anchor row; a folded
@@ -233,7 +244,7 @@ struct TVMainView: View {
     private var page: some View {
         switch nav.destination {
         case .search:
-            TVSearchView(client: client, userID: userID, viewModel: search, rememberedResultID: $rememberedSearchResult)
+            TVSearchView(viewModel: search, rememberedResultID: $rememberedSearchResult)
         case .profile:
             TVProfileView()
         case .library(let id):
@@ -301,6 +312,11 @@ struct TVMainView: View {
            let library = libraries.first(where: { $0.id == id }) {
             libraryGrids[id] = CollectionGridViewModel(client: client, userID: userID, query: TVSidebarLayout.query(for: library))
         }
+        if nav.selectionLeavesSearch(row) {
+            search.query = ""
+            search.queryChanged()
+            rememberedSearchResult = nil
+        }
         if row != .librariesGroup {
             detailModels.values.forEach { $0.cancelBackgroundWork() }
             detailModels = [:]
@@ -309,7 +325,13 @@ struct TVMainView: View {
         }
         let selection = withAnimation(.easeOut(duration: 0.2)) { nav.select(row) }
         guard selection == .navigated else { return }
-        isChoosingRow = true
+        handFocusToPage(choosingRow: true)
+    }
+
+    /// Holds the sidebar and asks the focus system for the page, which with
+    /// the sidebar held can only choose the page.
+    private func handFocusToPage(choosingRow: Bool = false) {
+        isChoosingRow = choosingRow
         Task { @MainActor in
             defer { isChoosingRow = false }
             // After the new page has laid out: Search's keyboard is a UIKit

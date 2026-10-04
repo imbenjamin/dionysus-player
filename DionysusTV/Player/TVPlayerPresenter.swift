@@ -30,11 +30,6 @@ enum TVPlayerPresenter {
         return true
     }
 
-    @MainActor
-    static func present(itemID: String, client: JellyfinAPIClient, userID: String) {
-        present(PlaybackRequest(itemID: itemID), client: client, userID: userID)
-    }
-
     /// Closes the player if it's up, as Menu does.
     @MainActor
     static func dismissPlayer() {
