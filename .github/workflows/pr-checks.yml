@@ -96,9 +96,10 @@ jobs:
 
   tvos-build:
     # Builds the Apple TV app and runs the shared unit tests on tvOS
-    # (TestPlans/TVUnitTests.xctestplan). Not a required check yet: it joins
-    # the branch rulesets once it has proven stable. Renaming it after that
-    # needs the rulesets updated first.
+    # (TestPlans/TVUnitTests.xctestplan).
+    #
+    # ⚠️ Both rulesets require this check by name, "tvOS build and unit
+    # tests". Renaming the job means updating both rulesets first.
     name: tvOS build and unit tests
     runs-on: macos-26
     timeout-minutes: 45
@@ -152,3 +153,26 @@ jobs:
       test-plan: UITests-Smoke
       latest-only: true
       timeout-minutes: 30
+
+  ui-full:
+    # The full UI suite on every environment, for PRs into `stable` only:
+    # the same plan and matrix release.yml runs before it signs anything.
+    # `develop` PRs keep the smoke plan above and get the full suite nightly.
+    #
+    # It exists because "Secure stable" requires the four "Full UI tests / …"
+    # checks, and before this job only nightly-ui-tests.yml reported them.
+    # That workflow runs on its schedule or by dispatch, never for a PR, so a
+    # promotion PR waited on them forever. Dispatching the nightly on the PR's
+    # branch did report them on the head commit, and GitHub still didn't count
+    # them towards the PR (v1.1.0's promotion, #290).
+    #
+    # ⚠️ The job name must stay "Full UI tests", the same as the nightly's:
+    # it is half of each required check's name, "Full UI tests / iPhone,
+    # iOS 18.6" and so on (see ui-tests.yml's job name for the other half).
+    # On a `develop` PR it is skipped and reports nothing under those names,
+    # which `develop protection` doesn't require.
+    name: Full UI tests
+    if: github.base_ref == 'stable'
+    uses: ./.github/workflows/ui-tests.yml
+    with:
+      test-plan: UITests-Full

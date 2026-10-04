@@ -904,7 +904,7 @@ Every UI-test run goes through one reusable workflow,
 `.github/workflows/ui-tests.yml`, which owns the device/OS matrix: an
 **iPhone 16** and an **iPad (A16)**, each on
 
-| iOS | Why | PR smoke | Nightly, release |
+| iOS | Why | PR smoke | Full plan: PR into `stable`, nightly, release |
 | --- | --- | --- | --- |
 | 26.5 | Latest runtime for the pinned Xcode (26.6) | ✓ | ✓ |
 | 18.6 | Previous major *and* the deployment floor | | ✓ |
@@ -942,13 +942,21 @@ passed. Because nightly and release call the same workflow, dispatching
 "Nightly UI tests" on a branch (`gh workflow run nightly-ui-tests.yml --ref
 <branch>`) is a dry run of a release's UI stage.
 
+A PR into `stable` runs the full plan too (`pr-checks.yml`'s `ui-full` job),
+because `stable`'s ruleset requires the four `Full UI tests / <device>, iOS
+<version>` checks. The job is named `Full UI tests`, like the nightly's, so
+the names match. A nightly dispatched on the PR's branch reports checks of
+those names on the head commit, but GitHub doesn't count them towards the PR
+(found promoting v1.1.0, #290), so don't rely on it to unblock one.
+
 When CI moves to a new Xcode, the Xcode version (`setup-ios-project`), the
 runner labels and `ui-tests.yml`'s version list change together.
 From Xcode 27, iOS 26 becomes the previous major and 18 stays as the floor,
 so the full matrix grows to three versions. Changing the latest version or a
 device also renames the two smoke checks (`UI smoke tests / iPhone, iOS
 26.5` and `UI smoke tests / iPad, iOS 26.5`), which both branch rulesets
-require by name — update them in the same change.
+require by name, and the four `Full UI tests / …` checks `stable`'s ruleset
+requires — update them in the same change.
 
 ### Selectors
 

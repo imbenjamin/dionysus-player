@@ -76,6 +76,35 @@ git tag -a v1.2.0 -m "Release summary for testers…"
 git push origin v1.2.0
 ```
 
+### ⚠️ A final release can't be tagged on its prerelease's commit
+
+The build number is the commit count at the tagged commit, so tagging the very
+commit a prerelease was cut from gives the final release that prerelease's
+build number. App Store Connect has already received it (same
+`MARKETING_VERSION`, same build), and the upload is refused:
+
+```
+409 ENTITY_ERROR.ATTRIBUTE.INVALID.DUPLICATE
+The bundle version must be higher than the previously uploaded version.
+```
+
+Tag `stable`'s merge commit instead. When the promotion PR merges with a
+merge commit, its tree is identical to the PR's head, so the final release is
+the same code with a build number one higher. v1.1.0 found this out: tagged on
+beta.2's commit (build 594) the upload failed, and re-tagged on `stable`'s
+merge of it (595) it shipped.
+
+**Promoting a specific prerelease when `develop` has moved on.**
+`promote-to-stable.yml` opens the PR from `develop`'s tip, which would ship
+everything merged since. To ship exactly what a prerelease tested, push a
+branch at that tag's commit and open the PR from it instead:
+
+```sh
+git push origin 'v1.2.0-beta.3^{commit}:refs/heads/release/v1.2.0'
+# open release/v1.2.0 -> stable, merge with a merge commit (squash or rebase
+# would rewrite the commits), then tag stable's merge commit as above
+```
+
 `release.yml` refuses a tag on the wrong branch — a prerelease tag not
 contained in `develop`, or a final tag not contained in `stable` — and says
 so within seconds, rather than after a ~40 minute archive and upload.
@@ -262,7 +291,7 @@ scratch, so signing flags can never reach the export.
 `apple-actions/download-provisioning-profiles` installs it on the runner
 before the export.
 
-Two ways this breaks, neither of which the pipeline warns about in advance:
+Three ways this breaks, none of which the pipeline warns about in advance:
 
 - **The profile is renamed or deleted.** The export fails with "doesn't
   include signing certificate" or a no-matching-profile error. Recreate it
@@ -270,6 +299,14 @@ Two ways this breaks, neither of which the pipeline warns about in advance:
 - **It expires** — profiles are tied to the signing certificate's lifetime,
   so this one expires with the cert (see below). Regenerate it, and make sure
   the new one keeps the name.
+- **The App ID's capabilities change.** Apple invalidates every profile for an
+  App ID when a capability is added to or removed from it, and the iOS and
+  tvOS apps share this one. The "Download provisioning profile" step then
+  fails with `Unable to find 'ACTIVE' profiles for bundleId
+  'com.imbenjamin.dionysusplayer'`. That's how v1.1.0's first run failed
+  (2026-10-04), after the tvOS work added an entitlement, and re-saving the
+  profile in the developer portal (Edit → Save, same name) fixed it. Re-save it
+  whenever a capability changes, rather than finding out at release time.
 
 Recreate it from the developer portal (Certificates, Identifiers & Profiles →
 Profiles → + → App Store Connect), or via the API:
@@ -339,7 +376,10 @@ string isn't user-visible anyway.
   GitHub keys required checks on the **job** name, not the workflow name or
   filename — renaming the job without updating both rulesets first makes every
   PR hang on a check that never reports. The same applies to the two UI smoke
-  checks (`UI smoke tests / iPhone, iOS 26.5` and `… / iPad, iOS 26.5`) —
+  checks (`UI smoke tests / iPhone, iOS 26.5` and `… / iPad, iOS 26.5`) and
+  `tvOS build and unit tests`, which both rulesets require, and to the four
+  `Full UI tests / …` checks, which `stable`'s requires. Those four come from
+  the `ui-full` job, which runs the full UI suite on PRs into `stable` only —
   see TESTING.md's "Where they run in CI".
 
 - **`.github/workflows/release.yml`** — runs on any `v*.*.*` tag push: sets up
