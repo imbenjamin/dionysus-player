@@ -77,6 +77,11 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
   original file untouched, no negotiation) is also available for anyone
   who'd rather force it.
 - **Downloads** — see below; this is the differentiator.
+- **Playlist editing** — add a movie, episode, season or whole show to a
+  playlist from its detail page (or start a new, private one there), and
+  remove an item with a long press in the playlist. The add list shows only
+  the playlists you own or were given edit rights to, since those are the
+  only ones the server lets you change.
 - **Library management** — delete a movie, episode, season or whole show
   from the server, behind a confirmation that spells out that the media
   file itself is removed and can't be recovered. Only ever offered when
@@ -134,7 +139,7 @@ yet.
 ## Status
 
 Navigation, screens, and the networking/playback plumbing are in place with
-placeholder content where noted. As of Xcode 26.5, the app builds clean end
+placeholder content where noted. With Xcode 26.6, the app builds clean end
 to end — package resolution (AetherEngine and its dependencies), compilation,
 and linking all succeed with no errors — and both the unit and UI test suites
 pass (see [Testing](#testing)). Real device testing (see `TESTING.md`) has confirmed
@@ -148,7 +153,11 @@ confirmed live: non-Dolby-Vision HDR formats on other devices, and some
 seeking/scrubbing edge cases.
 
 **v1.0.0**, the first final release, was tagged and submitted for Apple App
-Review on 2026-09-07.
+Review on 2026-09-07. **v1.1.0** followed on 2026-10-04 and is with App Review
+now. It adds styled ASS/SSA subtitles, the redesigned welcome and server setup
+with network discovery, Quick Connect, playlist editing, and design polish
+across the app, and it raises the minimum to iOS 18. Its code is exactly what
+`v1.1.0-beta.2` tested.
 
 ## Known limitations
 
@@ -162,10 +171,11 @@ Review on 2026-09-07.
   app's subtitle overlay isn't inside the layer AVKit captures — the track is
   handed to AVKit as a native rendition instead. In-app playback is
   unaffected, styled or not.
-- **tvOS/macOS are not built yet** — iOS/iPadOS only for now, per the
-  Status section above.
+- **No Apple TV or Mac release yet.** An Apple TV app is being built on
+  `develop` (see [Building](#building)) but isn't in any release; macOS
+  hasn't started. Every release so far is iOS/iPadOS only.
 - **Audio/music libraries aren't supported yet** — browsing/playing music is
-  future scope (see tvOS/macOS above), so a server's Music library and its
+  future scope (see Apple TV and Mac above), so a server's Music library and its
   contents (tracks, albums, artists) are suppressed throughout the app:
   hidden from Home's library rail and excluded server-side from Continue
   Watching/library grids, with a clear "not supported" state on the rare
@@ -255,8 +265,10 @@ DionysusPlayer/
 │   └── Downloads/       Offline downloads — SwiftData model, file store,
 │                        download/sync managers (see below)
 ├── Features/
-│   ├── ServerSetup/     One-time server setup — LAN discovery or address entry
-│   ├── Login/           Jellyfin sign-in, remembers & auto-logs in
+│   ├── Onboarding/      Splash, first-run welcome, and the flow that hosts
+│   │                    server setup and sign-in as one scene
+│   ├── ServerSetup/     Server setup stage — LAN discovery or address entry
+│   ├── Login/           Sign-in stage — user list, password, Quick Connect
 │   ├── Home/            Hero banner, library rail, and content rails
 │   ├── Collection/      Grid of a library/collection's items
 │   ├── AssetDetails/    Movie/Show detail — hero header, Play/Resume/Restart,
@@ -267,6 +279,9 @@ DionysusPlayer/
 │   │                    grouping, and a fully local detail page
 │   └── Profile/         Server/account settings, build version footer
 └── Shared/         Reusable components (poster cards, async images, nav)
+
+DionysusTV/         The Apple TV app (in progress) — its own UI over the
+                    iOS app's Core and view models
 ```
 
 The networking and playback layers are each behind a small protocol
