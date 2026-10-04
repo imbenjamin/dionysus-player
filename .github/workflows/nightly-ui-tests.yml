@@ -3,7 +3,8 @@ name: Nightly UI tests
 # The full UI suite, on an iPhone and an iPad, on every iOS version the app
 # supports — see ui-tests.yml for the matrix and why it's shaped that way.
 #
-# Separate from pr-checks.yml, which runs only the smoke plan. UI tests are
+# Separate from pr-checks.yml, which runs only the smoke plan on PRs into
+# `develop` (PRs into `stable` get the full plan too). UI tests are
 # slow and a shared macOS runner is variable, so the split trades "every
 # regression is caught before merge" for "PR feedback stays under ten
 # minutes" — a regression outside the smoke paths surfaces within a day
