@@ -26,17 +26,108 @@ import XCTest
 final class AccessibilityAuditTests: UITestCase {
     // MARK: - Auth
 
-    func testServerSetupHasNoAccessibilityIssues() throws {
-        launch(signedIn: false)
-        ServerSetupScreen(app: app).awaitLoaded()
+    func testWelcomeHasNoAccessibilityIssues() throws {
+        launch(signedIn: false, skipsWelcome: false)
+        WelcomeScreen(app: app).awaitLoaded()
 
         try auditCurrentScreen()
     }
 
+    /// With the arrival scan's results listed.
+    func testServerSetupScanResultsHaveNoAccessibilityIssues() throws {
+        launch(signedIn: false)
+        ServerSetupScreen(app: app).scanForStubServer()
+
+        try auditCurrentScreen()
+    }
+
+    /// A server listed while the scan still runs, under "Still searching…".
+    func testServerSetupMidScanHasNoAccessibilityIssues() throws {
+        launch(scenario: "slowScan", signedIn: false)
+        let serverSetup = ServerSetupScreen(app: app)
+        serverSetup.scanForStubServer()
+        serverSetup.scanningIndicator.awaitExistence("the still-searching indicator")
+
+        try auditCurrentScreen()
+    }
+
+    func testServerAddressSheetHasNoAccessibilityIssues() throws {
+        launch(signedIn: false)
+        ServerSetupScreen(app: app).openAddressSheet()
+
+        try auditCurrentScreen()
+    }
+
+    /// The HTTP-port prompt a discovered HTTPS server with an unverifiable
+    /// certificate raises when its default HTTP port is silent.
+    func testServerSetupHTTPPortPromptHasNoAccessibilityIssues() throws {
+        launch(scenario: "customHTTPPort", signedIn: false)
+        let serverSetup = ServerSetupScreen(app: app)
+        serverSetup.scanForStubServer()
+        serverSetup.discoveredServer(UITestFixtureIdentity.serverSystemID).tap()
+        serverSetup.httpPortField.awaitExistence("the HTTP port field")
+
+        try auditCurrentScreen(underModal: true)
+    }
+
+    /// The confirmation before connecting to that server unencrypted.
+    func testServerSetupInsecureFallbackPromptHasNoAccessibilityIssues() throws {
+        launch(signedIn: false)
+        let serverSetup = ServerSetupScreen(app: app)
+        serverSetup.scanForStubServer()
+        serverSetup.discoveredServer(UITestFixtureIdentity.serverSystemID).tap()
+        serverSetup.insecureFallbackConfirmButton.awaitExistence("the connect-over-HTTP button")
+
+        try auditCurrentScreen(underModal: true)
+    }
+
+    /// The user grid, with the server's disclaimer under it.
     func testLoginHasNoAccessibilityIssues() throws {
         launch(signedIn: false)
         ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
-        LoginScreen(app: app).awaitLoaded()
+        let login = LoginScreen(app: app)
+        login.awaitLoaded()
+        login.disclaimer.awaitExistence("the server's disclaimer")
+
+        try auditCurrentScreen()
+    }
+
+    /// A user with a password chosen: the password step under the grid.
+    func testLoginPasswordStepHasNoAccessibilityIssues() throws {
+        launch(signedIn: false)
+        ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
+        let login = LoginScreen(app: app)
+        login.awaitLoaded()
+        login.fixtureUserTile.tap()
+        login.passwordField.awaitExistence("the password field")
+
+        // On iPad the password step is a popover over the user grid.
+        try auditCurrentScreen(underModal: true)
+    }
+
+    func testOtherUserSheetHasNoAccessibilityIssues() throws {
+        launch(signedIn: false)
+        ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
+        LoginScreen(app: app).openOtherUser()
+
+        try auditCurrentScreen()
+    }
+
+    /// The form a server with every user hidden gets instead of the grid.
+    func testLoginFormHasNoAccessibilityIssues() throws {
+        launch(scenario: "hiddenUsers", signedIn: false)
+        ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
+        LoginScreen(app: app).usernameField.awaitExistence("the username field")
+
+        try auditCurrentScreen()
+    }
+
+    /// Held on its code by `.quickConnectPending`, which never approves it.
+    func testQuickConnectHasNoAccessibilityIssues() throws {
+        launch(scenario: "quickConnectPending", signedIn: false)
+        ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
+        LoginScreen(app: app).openQuickConnect()
+        QuickConnectScreen(app: app).awaitCode(UITestFixtureIdentity.quickConnectCode(1))
 
         try auditCurrentScreen()
     }
@@ -81,6 +172,45 @@ final class AccessibilityAuditTests: UITestCase {
         AssetDetailScreen(app: app).awaitLoaded()
 
         try auditCurrentScreen()
+    }
+
+    /// The "Add to Playlist" picker, audited as its own screen because it is
+    /// one — a presented sheet with its own navigation stack, toolbar and
+    /// list, none of which the detail-page audits above can see.
+    func testAddToPlaylistPickerHasNoAccessibilityIssues() throws {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.openAddToPlaylist()
+        AddToPlaylistScreen(app: app).awaitLoaded()
+
+        // On iPad the picker is a form sheet over the detail page.
+        try auditCurrentScreen(underModal: true)
+    }
+
+    /// The pushed "New Playlist" form, likewise: a text field, a toggle and
+    /// a toolbar action that exist on no other screen.
+    func testNewPlaylistFormHasNoAccessibilityIssues() throws {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.openAddToPlaylist()
+
+        let picker = AddToPlaylistScreen(app: app)
+        picker.awaitLoaded()
+        picker.newPlaylistButton.tap()
+        picker.nameField.awaitExistence("the playlist name field")
+
+        // On iPad the picker is a form sheet over the detail page.
+        try auditCurrentScreen(underModal: true)
     }
 
     func testSearchHasNoAccessibilityIssues() throws {
@@ -148,6 +278,26 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen()
     }
 
+    func testQuickConnectApprovalHasNoAccessibilityIssues() throws {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).openQuickConnect()
+
+        try auditCurrentScreen()
+    }
+
+    func testQuickConnectApprovalSuccessHasNoAccessibilityIssues() throws {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        let quickConnect = ProfileScreen(app: app).openQuickConnect()
+        quickConnect.authorize(code: UITestFixtureIdentity.quickConnectApprovableCode)
+        quickConnect.successMessage.awaitExistence("the signed-in confirmation")
+
+        try auditCurrentScreen()
+    }
+
     // MARK: - State screens
 
     /// The offline branch renders `OfflineStateView` in place of the normal
@@ -175,23 +325,34 @@ final class AccessibilityAuditTests: UITestCase {
 private extension AccessibilityAuditTests {
     /// Runs the full audit against whatever is currently on screen,
     /// suppressing only the documented exceptions below.
-    func auditCurrentScreen(file: StaticString = #filePath, line: UInt = #line) throws {
+    /// `underModal`: something modal is up that leaves the screen behind it
+    /// visible but dimmed — a system alert, or on iPad a popover or form
+    /// sheet, which don't cover the screen the way the iPhone's full-height
+    /// sheet does. The audit still sees that screen's text, but iOS rightly
+    /// takes it out of the accessibility tree while the modal is up. That
+    /// surfaces as one `.elementDetection` issue ("Potentially inaccessible
+    /// text") with no element attached, so only that exact shape is let
+    /// through, and only for audits taken under a modal; everything in the
+    /// modal itself is still checked.
+    ///
+    /// The iPad cases went unnoticed for weeks: the nightly job piped
+    /// `xcodebuild` into `xcbeautify` without `pipefail`, so the three iPad
+    /// audits using this failed every night while the run reported success
+    /// (fixed in PR #258).
+    func auditCurrentScreen(underModal: Bool = false, file: StaticString = #filePath, line: UInt = #line) throws {
         try app.performAccessibilityAudit(for: Self.auditedTypes) { issue in
-            Self.isKnownAcceptable(issue)
+            if underModal, issue.auditType == .elementDetection, issue.element == nil {
+                return true
+            }
+            return Self.isKnownAcceptable(issue)
         }
     }
 
-    /// `true` to ignore an issue.
-    ///
-    /// Kept as one function rather than per-test handlers so the full set of
-    /// suppressions is visible in one place — a suppression that silently
-    /// applies to a screen nobody intended it for is the main way an audit
-    /// suite rots.
     /// The audit types this suite gates on.
     ///
-    /// Deliberately **not** `.all`. Measured across all twelve screens
-    /// (2026-09-06), `.all` reports 154 issues, and they fall into two very
-    /// different groups:
+    /// Deliberately **not** `.all`. Measured across all twelve screens,
+    /// `.all` reports 154 issues, and they fall into two very different
+    /// groups:
     ///
     /// - **Structural problems, which this gates on and the app now passes
     ///   clean**: `.elementDetection`, `.hitRegion`,
@@ -230,8 +391,8 @@ private extension AccessibilityAuditTests {
     /// Kept as one function rather than per-test handlers so the full set of
     /// suppressions is visible in one place — a suppression that silently
     /// applies to a screen nobody intended it for is the main way an audit
-    /// suite rots. Both entries below are scoped to a specific element, not
-    /// to an audit type.
+    /// suite rots. Every entry below is scoped to a kind of element, never to
+    /// an audit type alone.
     static func isKnownAcceptable(_ issue: XCUIAccessibilityAuditIssue) -> Bool {
         guard let element = issue.element else { return false }
 
@@ -242,6 +403,42 @@ private extension AccessibilityAuditTests {
         // audit type so an app-owned control that is genuinely too small
         // still fails.
         if element.elementType == .button, element.label == "Clear text" {
+            return true
+        }
+
+        // Any key on the system keyboard, which is up whenever a screen
+        // autofocuses a text field (Login's username field does). From
+        // the iOS 27 runtime the URL keyboard's ".co.uk" key fails
+        // `.sufficientElementDescription` ("Label not human-readable") — the
+        // audit reads the literal key caption. OS chrome, not reachable from
+        // here, and only the system keyboard produces `.key` elements, so an
+        // app control can't be caught by this.
+        if element.elementType == .key {
+            return true
+        }
+
+        // The system keyboard's own QuickType predictive-text cell
+        // (`TUIPredictionViewCell`), which the audit reaches on the "New
+        // Playlist" form's autofocused, still-empty name field. It exists in
+        // the accessibility tree — with no label, since there is no
+        // suggestion yet to label — independent of the field's own
+        // `.autocorrectionDisabled()`; not this app's view, and not
+        // reachable to fix from here. Scoped to the issue's own description
+        // (the only place the class name shows up — `XCUIElement` doesn't
+        // expose it) rather than the element itself, so a real unlabeled
+        // element elsewhere still fails.
+        //
+        // iOS 18 reports the same cell with a generic description ("This
+        // element is missing useful accessibility information") and no class
+        // name, so there it's recognised by where it sits instead: its path
+        // runs through the keyboard's `SystemInputAssistantView`, which only
+        // the system keyboard draws. Same scoping idea: an unlabeled element
+        // of this app's own never has that ancestor.
+        if issue.detailedDescription.contains("TUIPredictionViewCell") {
+            return true
+        }
+        if issue.auditType == .sufficientElementDescription,
+           element.debugDescription.contains("identifier: 'SystemInputAssistantView'") {
             return true
         }
 

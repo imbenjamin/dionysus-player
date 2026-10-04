@@ -97,6 +97,25 @@ final class AssetDetailJourneyTests: UITestCase {
         XCTAssertTrue(detail.playButton.label.contains("Resume"), "Play should now offer to resume the selected episode.")
     }
 
+    /// A show whose seasons exist but hold no episodes: no Play button that
+    /// would do nothing, and the episode list says why it's empty.
+    func testShowWithNoEpisodesHidesPlayAndSaysSo() {
+        launch(scenario: "showWithoutEpisodes")
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.showsLibraryID)
+
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.seriesID)
+        collection.card(UITestFixtureIdentity.seriesID).tap()
+
+        let detail = AssetDetailScreen(app: app)
+        detail.noEpisodesMessage.awaitExistence("the no-episodes message")
+        // A disappearance wait, not `exists`: the page renders from the grid's
+        // preloaded item while `load()` is still resolving a play target.
+        detail.playButton.awaitDisappearance("the Play button on a show with no episodes")
+    }
+
     /// A box set has no play button of its own (it isn't playable), but
     /// still exposes favourite/watched — for the collection as a whole.
     func testBoxSetDetailHasNoPlayButtonButHasFavoriteAndWatched() {
@@ -129,12 +148,45 @@ final class AssetDetailJourneyTests: UITestCase {
         AssetDetailScreen(app: app).awaitLoaded()
     }
 
+    /// A playlist with a description gets the About panel; one without gets
+    /// no panel at all, rather than a pooled genre list over "No synopsis
+    /// available." (see `PlaylistDetailView`). The fixture's main playlist
+    /// has a description and `secondPlaylist` has none.
+    func testPlaylistAboutPanelShowsOnlyWithADescription() {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openLibrary(UITestFixtureIdentity.playlistsLibraryID)
+
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.playlistID)
+        collection.card(UITestFixtureIdentity.playlistID).tap()
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.synopsis.awaitExistence("the playlist's description")
+
+        app.navigationBackButton.tap()
+        collection.awaitLoaded(UITestFixtureIdentity.secondPlaylistID)
+        collection.card(UITestFixtureIdentity.secondPlaylistID).tap()
+
+        // An empty playlist has nothing to play, so wait on the favourite
+        // button instead of Play.
+        detail.favoriteButton.awaitExistence("the second playlist's favourite button")
+        XCTAssertFalse(detail.synopsis.exists, "A playlist without a description shouldn't show the About panel.")
+    }
+
     // MARK: - Deletion
 
     /// The permission gate. `.noDeletePermission` serves the same catalogue
     /// with `CanDelete: false` on every item, and the affordance must be
     /// absent entirely — not merely disabled, which would advertise a
     /// permission the user hasn't got.
+    ///
+    /// The overflow itself stays: `AssetActionsButton` always draws the
+    /// `ellipsis` menu, so its kind never changes once `CanDelete` arrives
+    /// (see its "Which control gets drawn"). So this asserts the gate one
+    /// level in — the menu opens, "Add to Playlist" is in it, "Delete" isn't.
     func testDeleteButtonIsHiddenWithoutServerPermission() {
         launch(scenario: "noDeletePermission")
         let home = HomeScreen(app: app)
@@ -143,13 +195,14 @@ final class AssetDetailJourneyTests: UITestCase {
 
         let detail = AssetDetailScreen(app: app)
         detail.awaitLoaded()
-        // `awaitLoaded` already waited for the page, so the button has had
-        // its chance to appear — no separate wait needed before asserting
-        // absence.
+        detail.moreButton.awaitExistence("the actions overflow")
+        detail.moreButton.tap()
+        detail.addToPlaylistButton.awaitExistence("the Add to Playlist action")
         XCTAssertFalse(detail.deleteButton.exists, "Delete must not be offered without server permission.")
     }
 
-    /// The same page, with permission, does offer it.
+    /// The same page, with permission, does offer it, below Add to Playlist
+    /// in the same overflow.
     func testDeleteButtonIsShownWithServerPermission() {
         launch()
         let home = HomeScreen(app: app)
@@ -158,7 +211,9 @@ final class AssetDetailJourneyTests: UITestCase {
 
         let detail = AssetDetailScreen(app: app)
         detail.awaitLoaded()
-        detail.deleteButton.awaitExistence("the delete button")
+        detail.moreButton.awaitExistence("the actions overflow")
+        detail.moreButton.tap()
+        detail.deleteButton.awaitExistence("the delete action")
     }
 
     /// Raising the dialog must not itself delete anything, and the warning
@@ -179,7 +234,7 @@ final class AssetDetailJourneyTests: UITestCase {
 
         let detail = AssetDetailScreen(app: app)
         detail.awaitLoaded()
-        detail.deleteButton.tap()
+        detail.openDelete()
         detail.deleteConfirmButton.awaitExistence("the delete confirmation")
 
         let warning = app.sheets.staticTexts.containing(
@@ -213,7 +268,7 @@ final class AssetDetailJourneyTests: UITestCase {
 
         let detail = AssetDetailScreen(app: app)
         detail.awaitLoaded()
-        detail.deleteButton.tap()
+        detail.openDelete()
         detail.confirmDelete()
 
         // Back on the grid, with the tile gone.
@@ -221,6 +276,69 @@ final class AssetDetailJourneyTests: UITestCase {
         XCTAssertFalse(
             app.otherElements[A11yID.Media.card(UITestFixtureIdentity.primaryMovieID)].exists,
             "The deleted movie should no longer have a tile."
+        )
+    }
+
+    // MARK: - Playlist item removal
+
+    /// The only removal path this feature has: long-press a row, tap
+    /// "Remove from Playlist" in the resulting context menu, and the row
+    /// is gone. `UITestFixtureLibrary.playlistMembers` stamps
+    /// `"playlist-entry-1"` on its first member — see that property's doc
+    /// comment. (A hand-rolled swipe gesture sat alongside this once —
+    /// see `PlaylistItemList.onRemove`'s doc comment for why it was
+    /// reverted.)
+    func testRemovingAPlaylistItemViaContextMenu() {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openLibrary(UITestFixtureIdentity.playlistsLibraryID)
+
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.playlistID)
+        collection.card(UITestFixtureIdentity.playlistID).tap()
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.playlistRow("playlist-entry-1").awaitExistence("the first playlist row")
+
+        detail.removePlaylistItem("playlist-entry-1")
+
+        XCTAssertFalse(
+            detail.playlistRow("playlist-entry-1").exists,
+            "The removed row should be gone from the playlist."
+        )
+        // A different row is untouched — this removed one entry, not the
+        // whole list.
+        XCTAssertTrue(
+            detail.playlistRow("playlist-entry-2").exists,
+            "Removing one row must not affect the others."
+        )
+    }
+
+    /// The permission gate. `.noPlaylistEditPermission` serves the same
+    /// catalogue but answers this playlist's own permission lookup with
+    /// "not permitted" — the remove action must be entirely absent from
+    /// the context menu, not merely disabled.
+    func testPlaylistRemoveMenuItemAbsentWithoutEditPermission() {
+        launch(scenario: "noPlaylistEditPermission")
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openLibrary(UITestFixtureIdentity.playlistsLibraryID)
+
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.playlistID)
+        collection.card(UITestFixtureIdentity.playlistID).tap()
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        let row = detail.playlistRow("playlist-entry-1")
+        row.awaitExistence("the first playlist row")
+        row.press(forDuration: 1.0)
+
+        XCTAssertFalse(
+            detail.playlistRemoveMenuItem("playlist-entry-1").waitForExistence(timeout: 2),
+            "Remove from Playlist must not be offered without edit permission on this playlist."
         )
     }
 }

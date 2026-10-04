@@ -1,20 +1,15 @@
 import Foundation
 
-/// App-facing model for a Jellyfin `MediaSegmentDto` (see
-/// `JellyfinAPIClient.mediaSegments(itemID:)`) — ticks converted to seconds
-/// once up front (same `/10_000_000` math `PlayerViewModel.stop()`/
-/// `MediaItem.resumePositionSeconds` already use) so `PlayerViewModel` and
-/// its overlays can compare directly against `currentTime`/`duration`
-/// without re-deriving that conversion at every call site.
+/// App-facing model for a `MediaSegmentDto`, with ticks converted to seconds
+/// once so `PlayerViewModel` and its overlays compare directly against
+/// `currentTime` without re-deriving that at each call site.
 struct PlaybackSegment: Identifiable, Equatable {
     enum Kind: Equatable {
         case intro, outro, recap, preview, commercial
 
-        /// The floating button's label for this segment type — matches the
-        /// "Skip X" convention Jellyfin's own web client uses, including
-        /// calling an `.outro` segment "Skip Credits" rather than "Skip
-        /// Outro". A model-layer string, so `String(localized:)` rather
-        /// than a `Text` literal — see CLAUDE.md's localization rules.
+        /// The floating button's label, following jellyfin-web's "Skip X"
+        /// convention, including "Skip Credits" for an `.outro` segment. A
+        /// model-layer string, hence `String(localized:)`.
         var skipButtonTitle: String {
             switch self {
             case .intro: return String(localized: "Skip Intro")
@@ -42,10 +37,9 @@ struct PlaybackSegment: Identifiable, Equatable {
     let startSeconds: TimeInterval
     let endSeconds: TimeInterval
 
-    /// `nil` for a `.unknown`-typed segment — nothing sensible to show a
-    /// skip button for — rather than failing the whole fetch;
-    /// `PlayerViewModel.loadMediaSegments(for:)` drops those with a
-    /// `compactMap` rather than propagating a per-segment failure.
+    /// `nil` for an `.unknown`-typed segment, which has no sensible skip button,
+    /// rather than failing the fetch; `loadMediaSegments(for:)` drops those with
+    /// a `compactMap`.
     init?(dto: MediaSegmentDto) {
         guard let kind = Kind(dtoType: dto.type) else { return nil }
         self.id = dto.id
@@ -54,15 +48,10 @@ struct PlaybackSegment: Identifiable, Equatable {
         self.endSeconds = Double(dto.endTicks) / 10_000_000
     }
 
-    /// Builds directly from a locally stored `DownloadedSegment` snapshot —
-    /// offline playback seeds `PlayerViewModel.mediaSegments` from this
-    /// instead of a live `mediaSegments(itemID:)` fetch (see the
-    /// offline-downloads plan's "Offline playback wiring" section), so
-    /// there's no server-assigned `id` to reuse; kind+start is stable and
-    /// unique enough per item to stand in for one. Always succeeds —
-    /// `DownloadedSegment.Kind` has no `.unknown` case to reject, unlike
-    /// the live DTO's `MediaSegmentType` — so this isn't failable the way
-    /// `init?(dto:)` is.
+    /// Builds from a stored `DownloadedSegment`, which offline playback seeds
+    /// `PlayerViewModel.mediaSegments` from instead of a live fetch. There is no
+    /// server-assigned `id` to reuse, so kind and start stand in. Not failable
+    /// like `init?(dto:)`: `DownloadedSegment.Kind` has no `.unknown` case.
     init(downloaded: DownloadedSegment) {
         self.id = "\(downloaded.kind.rawValue)-\(downloaded.startSeconds)"
         self.kind = Kind(downloadedKind: downloaded.kind)

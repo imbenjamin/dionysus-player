@@ -26,6 +26,17 @@ still treat other paths (transcoding, non-Dolby-Vision HDR formats, other
 devices, seeking/scrubbing edge cases) as unverified until separately
 checked.
 
+**v1.0.0** was tagged from `stable` and submitted for Apple App Review on
+2026-09-07 — the app's first final (non-alpha/beta) release. See
+`VERSIONING.md` for the tag/promotion mechanics.
+
+**The deployment floor is iOS 18**, raised from 17 on 2026-09-23 to move
+AetherEngine from 6.x to 7.x — 7.0.0 raised its own platform floor to iOS 18
+and renamed no public symbols, so the floor was the whole cost. v1.0.0 still
+supports iOS 17; iOS 17 devices keep that build and stop receiving updates.
+Read AetherEngine's floor from `Package.swift` at the tag, never from its
+release notes — 7.13.0's notes said "iOS 17" while its manifest said 18.
+
 ## Commands
 
 The Xcode project (`DionysusPlayer.xcodeproj`) is generated from `project.yml`
@@ -38,7 +49,7 @@ xcodegen generate
 ```
 
 To build/run, open the generated project and build the `DionysusPlayer`
-scheme (target iOS 17+):
+scheme (target iOS 18+):
 
 ```sh
 open DionysusPlayer.xcodeproj
@@ -48,7 +59,13 @@ Two test targets exist: `DionysusPlayerTests` (XCTest unit tests, host-app
 style) and `DionysusPlayerUITests` (XCUITest journeys). Three test plans live
 in `TestPlans/` — `UnitTests` (the scheme default), `UITests-Smoke` (the PR
 gate) and `UITests-Full`. See `TESTING.md` for the strategy and what's
-covered. Run it from Xcode with
+covered. CI runs the UI plans on an iPhone 16 and an iPad (A16), on iOS 26.5
+(the smoke gate) and also on iOS 18.6, the deployment floor, for nightly and
+release. `.github/workflows/ui-tests.yml` owns that matrix. CI pins Xcode
+26.6 on `macos-26`, except the iOS 18 leg: no image has both runtimes and
+Xcode won't download an iOS 18 one, so it runs on `macos-15` with Xcode 26.3. The two smoke checks' names embed the device and OS and are
+required by both rulesets. See TESTING.md's "Where they run in CI" before
+changing any of it. Run it from Xcode with
 the `DionysusPlayer` scheme (Cmd+U), or from the CLI once a Simulator runtime
 is available:
 
@@ -57,76 +74,37 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
   -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
-### Keeping the AetherEngine version display current
+### Pinning AetherEngine
 
-The player's "stats for nerds" overlay (`PlaybackStatsOverlay`) shows the
-pinned `AetherEngine` version, read from a checked-in generated constant
-(`DionysusPlayer/Core/Playback/AetherEngineVersion.swift`) rather than a
-hand-maintained literal or a build-time injection — the latter was tried and
-doesn't actually work reliably (see `Scripts/update-version.sh`'s comment,
-which hit and documents the same problem for the app's own version display).
-**Whenever `project.yml`'s `packages: AetherEngine:` pin changes** —
-regenerate it:
-
-```sh
-./Scripts/update-aetherengine-version.sh
-```
-
-**`project.yml` pins AetherEngine with `version: 6.71.0` (XcodeGen's
-spelling of SPM's `.exact` requirement), not a `from:`
-range.** This used to be `from: 6.5.5` (SPM's "up to next major" rule), which
-meant a cold resolve — every CI run, since `Package.resolved` is gitignored
-along with the rest of the generated `.xcodeproj` (see above) — could
-silently land on whatever the newest `6.x` release happened to be, with zero
-commit in this repo to review or even notice. Confirmed live more than once
-(PR #147, 2026-08-28: CI resolved `6.54.0` against a checked-in `6.52.0` pin
-with no other AetherEngine-related change on the branch at all). An exact
-pin makes that structurally impossible: a cold resolve always lands on this
-exact version, so there's nothing left to drift *by accident*.
+**`project.yml` pins AetherEngine with `version:` (XcodeGen's spelling of
+SPM's `.exact` requirement), not a `from:` range.** This used to be
+`from: 6.5.5` (SPM's "up to next major" rule), which meant a cold resolve —
+every CI run, since `Package.resolved` is gitignored along with the rest of
+the generated `.xcodeproj` (see above) — could silently land on whatever the
+newest `6.x` release happened to be, with zero commit in this repo to review
+or even notice. Confirmed live more than once (PR #147, 2026-08-28: CI
+resolved `6.54.0` against a checked-in `6.52.0` pin with no other
+AetherEngine-related change on the branch at all). An exact pin makes that
+structurally impossible: a cold resolve always lands on this exact version.
 
 **Bumping the pin is automated but still reviewed.** The "Bump AetherEngine"
-workflow (`.github/workflows/aetherengine-bump.yml`) runs weekly, discovers
-the newest release within the *current* major (by temporarily resolving
-with `from: <major>.0.0` — the same "up to next major" rule the old pin
-used, just scoped to this one scheduled job instead of every build), and if
-that's newer than the current pin, opens a PR bumping `project.yml` and the
-generated constant together. It never proposes a major bump (7.0.0) — that's
-exactly where AetherEngine's public API is allowed to break per semver, so
-project.yml's own comment on the `packages:` block treats it as a deliberate
-manual edit, and the workflow's `from: <major>.0.0` discovery step can't
-cross that boundary even if it tried. A bump PR goes through the same
-`pr-checks.yml` gate as any other PR before it can merge — nothing lands
-unbuilt/untested.
+workflow (`.github/workflows/aetherengine-bump.yml`) runs weekly, finds the
+newest release tag within the *current* major (what `from: <major>.0.0`
+would resolve, prereleases excluded), and if that's newer than the pin,
+opens a PR bumping `project.yml`'s one line. It never proposes a major bump
+(8.0.0) — that's exactly where AetherEngine's public API is allowed to break
+per semver, so project.yml's own comment on the `packages:` block treats it
+as a deliberate manual edit. A bump PR goes through the same `pr-checks.yml`
+gate as any other PR before it can merge — nothing lands unbuilt/untested.
 
-**Still worth checking before opening a PR that touches `project.yml` or
-the generated constant by hand**, since the two can still drift from each
-other via a manual edit (not from an uncached CI resolve moving on its own,
-the way the old `from:` range let it). To check:
-
-```sh
-./Scripts/update-aetherengine-version.sh
-```
-
-and commit the result if it produced a diff. That script clears *both*
-caches that can hide drift — SPM's global cache and, as of PR #152
-(2026-08-29), `xcodebuild`'s own per-project checkout under DerivedData's
-`SourcePackages` — and does a genuine from-scratch resolve, so its output
-now actually matches what CI sees. (Before that fix, this section
-documented clearing both by hand as a *separate* step from running the
-script, and the two had quietly diverged: the script only cleared the SPM
-cache. PR #152 passed the script with no diff on a machine that had
-already built the project locally — DerivedData's stale
-`SourcePackages/workspace-state.json` still had the old pin cached — and
-still failed CI, which resolved `6.56.3` from a clean checkout with
-nothing cached to fall back on. Don't reintroduce that split: any future
-fix to how this check works belongs in the script itself, not as prose
-here that the script can silently fall behind.)
-
-Note this matters at **PR** time only. `release.yml` *regenerates* this file
-rather than verifying it, so drift can no longer fail an already-pushed tag —
-a tagged build always displays the AetherEngine version it was actually linked
-against. `pr-checks.yml` is the only place the checked-in constant is enforced,
-which is why letting drift through there quietly rots it.
+**The version shown in "stats for nerds" comes from the engine itself.**
+`PlaybackStatsOverlay` reads `AetherEngine.version` (added upstream in 7.3.0)
+through the `AetherEngineVersion` shim in `Core/Playback/`, so nothing needs
+regenerating after a bump. This replaced a checked-in generated constant,
+its regeneration script, and a `pr-checks.yml` drift gate — all of which
+existed only because AetherEngine used to expose no version at all.
+Upstream rewrites the literal in each release's prep commit and holds it to
+the tag by test; it matched on every tag from 7.3.0 to 7.15.0.
 
 ### App version (SemVer)
 
@@ -167,11 +145,13 @@ Three things about it that aren't obvious from the workflow file:
   between releases. CI stamps the shipped build; the checked-in copies are a
   local-dev convenience and report honest off-tag metadata
   (`0.8.0-alpha.1+12.gabc1234`). Don't "fix" them to match.
-- **The archive signs automatically, the export signs manually.** That
-  asymmetry is deliberate — automatic export fails with a cloud-signing
-  permission error. It depends on a provisioning profile named *by string* in
-  `Config/ExportOptions.plist`, which, along with the distribution
-  certificate, expires 2027-08-30. See `VERSIONING.md`'s "Signing setup".
+- **The archive and the export both sign manually**, with the distribution
+  certificate and a provisioning profile named *by string* — on the app
+  target's Release config in `project.yml`, and in `Config/ExportOptions.plist`.
+  Automatic export fails with a cloud-signing permission error, and an
+  automatic archive created a new development certificate on every run until
+  the account hit its cap. The profile and certificate expire 2027-08-30.
+  See `VERSIONING.md`'s "Signing setup".
 
 ## UI verification
 
@@ -244,15 +224,73 @@ user is in the app, driven by a `Phase` enum: `.serverSetup` → `.login` →
 `.main`. It also owns the `JellyfinAPIClient` instance, since the client's
 base URL depends on which server was configured — there is one client per
 configured server, created in `completeServerSetup` and recreated on
-`start()`. `RootView` switches on `appState.phase`, but shows `SplashView`
-(`App/SplashView.swift`) instead whenever `appState.isRestoringSession` is
-true — a branded gradient/glass splash covering the brief window before the
-phase is known at all, rather than a phase of its own. Session persistence
+`start()`. `RootView` shows `MainTabView` once the user is in `.main` and
+the session has restored, and `OnboardingFlowView` otherwise — everything
+before the app, as one continuous scene (see "Welcome, server setup and
+sign-in" below). Session persistence
 (`ServerSessionStore`, `Core/Persistence/`) splits storage by sensitivity:
 server config in `UserDefaults`, credentials/access token in the Keychain
 (`KeychainStore`). On launch, `AppState.start()` restores the server, then
 attempts silent sign-in with stored credentials before falling back to the
 login screen.
+
+### Welcome, server setup and sign-in (`Features/Onboarding/`)
+
+`OnboardingFlowView` hosts four stages — the splash (`SplashView`, while
+`AppState.isRestoringSession`), the first-run welcome (`WelcomeView`), server
+setup and sign-in — and owns what they share, so nothing cuts between them:
+the brand background (`OnboardingBackground`), the glyph's matched-geometry
+namespace (the glyph *moves* from screen to screen), an always-dark
+appearance scoped to the flow rather than forced on the window, the
+composition, and the orientation lock. The shared pieces live in
+`Shared/Components/Onboarding/`. Five things about it aren't guessable:
+
+- **The composition is chosen from the window, never the device**
+  (`OnboardingLayout.resolve`): compact (one column, actions pinned to the
+  bottom edge) unless the size class is regular *and* the window is at least
+  600pt wide; then regular (one centred block, actions inline) or, for a
+  window wider than tall and at least 900pt, landscape (brand pane left, task
+  right). The size is the *whole* window, safe areas included — a foldable's
+  vertical status bar otherwise took enough off its 951pt inner screen to miss
+  the threshold. `OnboardingLayoutTests` pins every measured device size.
+- **Portrait-only on a phone-sized screen** — shorter side under 600pt
+  (`RotationLock.isPhoneSized`), keyed on the screen rather than the idiom
+  because a foldable iPhone is both a phone (outer, 466pt) and not (inner,
+  669pt, held in landscape). **Known gap, parked until that hardware ships**
+  (all tooling pre-release as of 2026-09-25): unfolding after folding releases
+  the lock but iOS leaves the interface sideways until the device is turned;
+  `requestGeometryUpdate(.all)` didn't move it, and `UIDevice.orientation`
+  reads `.portrait` on the inner screen, so it can't choose a target.
+- **The welcome shows once** (`ServerSessionStore.hasCompletedWelcome`):
+  "Get Started", or having *ever* configured a server — which covers everyone
+  who set the app up before the welcome existed. `clearAll()` leaves it set,
+  so changing server never replays it. UI tests skip it with
+  `-onboarding.welcomeCompleted YES` (`UITestCase.launch(skipsWelcome:)`).
+- **`HasPassword: true` doesn't mean a password is needed.** Sign-in is built
+  on `/Users/Public` (unauthenticated — what Jellyfin's own login page lists),
+  and the demo server reports `demo` as `HasPassword: true` while signing it in
+  with an empty password (checked 2026-09-25). So only `false` signs in on one
+  tap; anyone else is asked, and an empty password is still submitted rather
+  than blocked. An empty list — every user hidden by an admin — falls back to
+  a plain username/password form.
+- **Server branding comes with two traps.** `/Branding/Configuration`'s
+  `LoginDisclaimer` is HTML (the demo server's has `<br/>`), so it goes
+  through `LoginDisclaimer.plainText(from:)`. And `/Branding/Splashscreen` is
+  off by default (404) and ignores `maxWidth` — it serves the admin's
+  original, 4MB for the demo server — so it's only fetched when
+  `SplashscreenEnabled`, as JPEG, and downscaled before display.
+
+Also: the splash glyph used to tilt with the device, pivoting 150pt in front
+of itself — and SwiftUI's perspective projection scales a view by 1 / (1 +
+perspective × anchorZ / size) *even at zero tilt*, which is why its 179pt
+frame rendered at 134pt. The tilt is gone from the whole flow (the user found
+it pointless once the glyph was one piece of a composed screen; the detail
+pages' hero keeps its own). The splash is sized to that measured 134, and
+`LaunchScreen.storyboard`'s 157pt glyph frame matches it (its SVG's artwork
+fills 1068/1253 of its viewBox). Ambient motion (the drifting background and
+the scan radar) stops under Reduce Motion and under the UI-test harness
+(`UITestHarness.freezesAmbientMotion`), where a continuously redrawing view
+keeps the accessibility tree in motion.
 
 ### Networking (`Core/Networking/`)
 
@@ -278,6 +316,79 @@ token header this keys off. `AppState.signOut()` clears the remembered
 credentials on the client it reuses across a sign-out/sign-back-in, so a
 request still in flight around sign-out can't silently re-authenticate as
 the just-signed-out user.
+
+**Quick Connect sessions have no password, and that shapes three things.**
+Login offers "Sign In with Quick Connect" when `/QuickConnect/Enabled` says so
+(`QuickConnectView`/`QuickConnectViewModel`): the server issues a 6-digit code,
+the user approves it on another signed-in client, and the approved secret is
+exchanged via `/Users/AuthenticateWithQuickConnect` for an ordinary session.
+Behaviour read from `QuickConnectManager.cs` (10.11 and 12.z agree) and checked
+against the LAN test server: a code expires 10 minutes after it's issued, after
+which polling its secret answers **404**, which is how expiry is detected.
+Then, because there is no password:
+- **`StoredCredentials.authMethod` says which kind of session it is**, and launch
+  branches on it. A `.quickConnect` session validates its stored token with
+  `GET /Users/Me` instead of signing in again. It is explicit rather than
+  inferred from `password == nil` because passwordless accounts sign in by
+  password too and store `""`. It decodes as `.password` when absent, which is
+  every keychain entry written before it existed.
+- **A mid-session 401 can't recover.** `authenticateWithQuickConnect` clears
+  `reauthCredentials`, so `sendRaw` surfaces `.notAuthenticated` at once —
+  and never replays an earlier password sign-in on the same client, which would
+  silently swap users. Jellyfin tokens don't expire on their own, so this only
+  happens when the session is revoked server-side.
+- **The instruction text names no menu path** ("open Quick Connect"), because
+  where Quick Connect lives differs between Jellyfin clients.
+
+**The other direction — approving someone else's code — lives in the Account
+screen** (`QuickConnectApprovalView`, pushed from `AccountDetailsContent`,
+shown only when Quick Connect is enabled). `POST /QuickConnect/Authorize`
+answers, measured against 10.11.11: 200 `true`, **404** for an unknown or
+expired code, **500** for one already approved (an unhandled
+`InvalidOperationException`, indistinguishable from any other server error, so
+the message says both), and 401 with Quick Connect off. Two things about it:
+- **It sends no `userId`.** The server then approves for the caller; naming
+  another user needs admin rights and answers 403 otherwise.
+- **It runs with `maxReauthAttempts: 1`**, like `deleteItem`: its 401 is a
+  refusal, not an expired token. `QuickConnectApprovalViewModel` tells "turned
+  off" from "session expired" by asking `/QuickConnect/Enabled` again.
+
+There is no "approve this device?" step because there's nothing to show in
+one: only the requesting device can look up which device and app asked.
+
+**Server discovery** (`ServerDiscovery.swift`, run by Find Your Server as
+soon as it appears — `ServerSetupViewModel.startScanOnArrival`) speaks Jellyfin's UDP auto-discovery protocol — `who is
+JellyfinServer?` to port 7359, answered with `{Address, Id, Name}` — but
+**unicast to every host on the subnet, never broadcast.** Sending to a
+broadcast or multicast address on iOS needs the restricted
+`com.apple.developer.networking.multicast` entitlement, which Apple grants
+only on request; the server (`AutoDiscoveryHost.cs`) answers the phrase in any
+datagram, so a unicast sweep finds the same servers with only the Local
+Network permission. Don't "simplify" it to a broadcast without that
+entitlement — it fails silently. There is no API to ask for Local Network
+access or read its state, and **under the prompt, UDP probes are accepted and
+silently dropped** (seen on device) — so the one reliable signal is the app
+going inactive, which a system prompt causes. The scan keeps running while the
+app is inactive and starts over once it's active again (`ScanSchedule`); a scan
+in which every send is refused reads as denied. The first *HTTP* request to a
+LAN address has the same problem — typing an address skips the scan, so that
+request raises the prompt and fails behind it — hence
+`ServerSetupViewModel.probeAcrossLocalNetworkPrompt`, which waits for the
+answer and retries once. The device's own address stays in
+the sweep, which is what lets the Simulator find a server on its own Mac.
+
+**A discovered `https://` server whose certificate fails gets an opt-in HTTP
+fallback** (`ServerSetupViewModel.connect(to:)`). A server with HTTPS on and no
+published URL advertises `https://<LAN IP>:<HTTPS port>`, which a certificate
+issued for a domain name (or a self-signed one) can never validate. Both ports
+are configurable and **nothing a signed-out client can read reveals the HTTP
+port** — the discovery reply carries one address, and the ports live only in
+the admin-only network configuration — so 8096 is tried as a first guess and
+the user is asked for the port if it's silent. Whatever port answers must
+report the discovery reply's `SystemId` over `/System/Info/Public`, and nothing
+connects until the user confirms going unencrypted. Only certificate failures
+(`URLError.isCertificateFailure`) trigger any of it.
+
 `ImageURLBuilder` is deliberately *not* actor-isolated — it's a plain struct
 snapshotted via `client.makeImageURLBuilder()` so SwiftUI views can build
 image URLs synchronously without hopping through the actor on every render.
@@ -395,6 +506,223 @@ PiP rebuilds on), and `PlayerViewModel.start()` stages title/subtitle
 subtitle:artwork:)` immediately, with artwork following separately once
 fetched through `RemoteImageLoader`.
 
+### Subtitles
+
+Two renderers, split by codec. **ASS/SSA goes to libass**
+(`ASSSubtitleRenderSession`, on the `swift-ass-renderer` package); everything
+else — SubRip, WebVTT, teletext, PGS and other bitmap formats — keeps
+rendering through `SubtitleOverlayView`'s own SwiftUI path on the cues
+AetherEngine publishes. Four things about that split are load-bearing and none
+are guessable:
+
+- **`LoadOptions.preserveASSMarkup` is deliberately NOT set.** The app fetches
+  the complete `.ass` script itself instead, so AetherEngine's cue path stays
+  exactly as it was for every track. Jellyfin extracts any subtitle stream —
+  embedded ones included — via `JellyfinAPIClient.subtitleURL`, and
+  `DownloadManager` already stores every non-bitmap track as a sidecar, so the
+  script is always available without it. An earlier version of this bullet gave
+  a second reason — that turning the flag on would flip the session's embedded
+  SubRip tracks to raw event lines too, because it is codec-gated on the sidecar
+  path but not on the embedded one (AetherEngine#587). That was wrong, and the
+  issue was refuted upstream by measurement. The gate is in
+  `EmbeddedSubtitleDecoder.init`, which narrows the flag once into a stored
+  property *of the same name*, so the emit site downstream reads as though
+  nothing had been checked when it is reading an already-gated value. Don't
+  re-raise it from reading that line; upstream has since renamed the property to
+  `emitsRawASSLines`. The flag is unnecessary here, not dangerous.
+- **A whole script, loaded once — never `reloadTrack` per cue.**
+  `swift-ass-renderer` exposes only whole-script load/reload, and `reloadTrack`
+  frees the current track synchronously, so feeding it a growing script blinks
+  the subtitle off on every rebuild. Reloading only happens on a geometry
+  change, which is cheap (0.4–1.7ms for a 218KB script) and deliberately does
+  not clear the outgoing frame.
+- **Engine track ids match nothing on the server**, so a selected track is
+  mapped back by *ordinal*, two different ways. A track AetherEngine demuxed
+  out of the container pairs with its `MediaStream` among *embedded ASS*
+  entries (`jellyfinStream(forTrack:engineTracks:mediaStreams:)`); a sidecar
+  this app registered pairs with what it was built from, among *externals*
+  (`registeredSidecar(forTrack:engineTracks:registered:)`, shared by the
+  streaming and offline paths). Filtering both sides identically is what makes
+  either ordinal meaningful; counting the wrong tracks shifts it and silently
+  serves a different track's script, which reads as a bad file rather than a
+  mapping bug. `ASSSubtitleMappingTests` pins both.
+- **On a transcode the container's own text tracks must be registered as
+  sidecars.** The app plays the server's HLS through AVPlayer, and that
+  playlist carries no rendition for them, so nothing demuxes them — every
+  embedded SubRip and ASS track disappeared from the picker until
+  `externalSubtitleStreams(from:isRemoteHLS:)` started registering them.
+  Jellyfin says which: asked with this app's `DeviceProfile` it answers
+  `MediaStream.deliveryMethod == "External"` for exactly those streams (and
+  `"Encode"` for the bitmap ones it burns in). That field is **not**
+  `isExternal`, which says where the stream lives in the library rather than
+  how it reaches the player — an embedded ASS track on a transcode is
+  `isExternal: false` with `deliveryMethod: "External"`, and filtering on the
+  former is what dropped them. The route gate is equally load-bearing: direct
+  play reports the same `"External"` for the same streams, where the engine
+  has already listed them, so registering sidecars there shows every track
+  twice. Confirmed against 10.11.11, both routes. AetherEngine supports
+  sidecars on the `nativeRemoteHLS` bypass as of 6.14.0 (its #316), which
+  rewrites the master playlist to carry them.
+- **A cold fetch can take over a minute.** Jellyfin extracts an embedded track
+  on demand and caches it: 70s measured against a 4K remux, 0.03s after. The
+  request therefore carries its own 180s timeout (`URLSession`'s 60s default
+  cut it off just before it finished), and until the script lands the cue path
+  renders the same track unstyled, so there is never a dead screen.
+
+**On a transcode, libass is timed off AVPlayer's own subtitle timing, not the
+raw playhead.** There AVPlayer's item time runs *ahead of the picture* after a
+seek: Jellyfin restarts the transcode at the source keyframe before the
+requested segment, and AVPlayer anchors its timeline to the first segment it
+loads, so the gap is that segment's slot minus its keyframe — measured anywhere
+from 0.8s to 8.3s on one film. It keeps that anchor across later job restarts,
+so reading segment timestamps can't recover it (tried and disproven). What does
+know it is AVPlayer's timing of the WebVTT rendition AetherEngine injects for
+the same track. Since AetherEngine 7.15.2 (AetherEngine#616, which this app
+filed and verified on device) the engine measures the lead off that rendition
+itself and publishes `sourceTime` minus it, so libass renders at `sourceTime`
+unmodified. Don't reintroduce a host-side offset on top — it would subtract the
+lead twice and draw every line late. Three things remain the app's job:
+
+- **The rendition must stay selected**, or the engine has nothing to measure.
+  An app-owned `AVPlayerItemLegibleOutput` suppresses its drawing instead
+  (`setNativeSubtitleCapture`). Two traps, both found on device: an output
+  that starts suppressing while AVPlayer is drawing a line freezes that line on
+  screen for good — not even a deselect clears it afterwards — so the rendition
+  is deselected *before* the output attaches; and a (re)attached output
+  re-delivers the line on screen as though it had just started.
+- **The engine re-measures only when a line starts**, so between a seek landing
+  and that line `sourceTime` still carries the previous seek's lead (off by up
+  to 1.8s on device). `ASSSeekHold` paints nothing in that window, gated on the
+  engine's own `clock.sourceTimeFollowsPicture` (7.16.0, added upstream at this
+  app's request) rather than on seeks the app detects itself. The engine
+  re-assigns `false` at every time jump, so the sink must not deduplicate it.
+- **The hold gives up after 5s of playback**, because the flag only turns true
+  on a line the WebVTT rendition carries and libass can have things to draw
+  that it doesn't. That time is summed from small item-time steps, so a pause
+  never releases the hold and a seek never counts towards it.
+
+Direct play and offline never need any of this: there `sourceTime` is the
+source PTS.
+
+**The user can turn styling off** — Profile → Playback → Advanced → Subtitle
+Styling, on by default (`styledASSSubtitlesEnabledDefault`). It sits in
+Advanced because it is an escape hatch for a script whose typesetting fights
+the phone, not a taste preference. There is exactly one gate,
+`PlayerViewModel.handleSubtitleTrackChange`'s `isStyledASSEnabled()` check, and
+turning it off makes an ASS track behave like a SubRip one — it still renders,
+through `SubtitleOverlayView`'s own path, just unstyled. Read at each track
+selection rather than captured, which is as live as it can be observed to be:
+the player is a `fullScreenCover` and settings live in a tab behind it, so the
+two are never on screen together. Note `isStyledASSEnabled` reads
+`object(forKey:)` before `bool(forKey:)` — the latter reports `false` for a key
+that was never written, which would ship the feature off for everyone who never
+opened Settings.
+
+**Geometry.** libass gets a frame running from the picture's top edge to the
+bottom of the overlay, with `ass_set_margins` describing the bar below the
+picture and `ass_set_use_margins` on — the documented mechanism for subtitles
+in the letterbox bar. Regular dialogue moves into that bar while `\pos` signs,
+which are positioned rather than regular, stay anchored to the picture.
+
+**The drawable region is the picture intersected with the safe area**, with the
+bottom raised for the transport chrome. The overlay itself must ignore the safe
+area to sit over a full-bleed video, so nothing else keeps subtitles off the
+rounded corners and the sensor housing — and in landscape the picture fills the
+screen, so a corner-aligned sign drew *underneath* them and was physically cut
+off. That is invisible in a screenshot, because the framebuffer has no corners;
+it only shows on the device. Note the insets come from the window, not from a
+`GeometryReader`: one inside an `ignoresSafeArea` view reports zeroes (measured,
+not assumed).
+
+**The margins are signed, and in landscape the bottom one is negative.** libass
+documents a negative margin as "the frame is inside the video, i.e. the video
+has been cropped", which is exactly what landscape is: the picture fills the
+screen, so the frame — which stops short of the transport chrome — is shorter
+than the picture. Clamping that to zero tells libass the picture ends where the
+frame does and maps every `\pos` sign into a too-short rectangle (measured: a
+sign at y 20–34 against a correct 29–49, and 30% undersized). Portrait margins
+are positive, so the clamp never fired there and the defect was landscape-only.
+`ASSSubtitleGeometryTests` pins both orientations.
+
+**Regular events take their font scale from the frame, so landscape needs
+`ass_set_font_scale`.** libass scales a regular event to whichever of the frame
+and the video area is smaller, while a positioned one always scales to the
+video area. In portrait the frame is the taller of the two (it includes the bar
+below the picture), so the two agree. In landscape the picture fills the screen
+and the frame stops short of the chrome, so dialogue rendered about 7% small at
+rest and 28% small with the controls up — measured by rendered *width*, since
+glyph heights are quantised too coarsely to see a 7% difference.
+`Geometry.fontScale` (`max(1, pictureHeight / frameHeight)`) compensates,
+restoring all three of dialogue, `\pos` and `\an8` to the widths they render
+at against a full-height frame, and resolving to exactly 1 in portrait so the
+common case is untouched. Positioned events are unaffected by it — verified by
+measurement, not assumed. Note `ass_set_storage_size` is *not* the knob for
+this: it affects aspect ratio and blur, not scale.
+
+An earlier version of this section stated the opposite — that there was "no way
+in libass' model to confine regular events to a shorter frame while scaling
+them to the full picture". That was wrong; `ass_set_font_scale` is exactly that
+knob, and it was missed rather than ruled out.
+
+The frame starts at the picture rather than the overlay so there is **no top
+margin**. `use_margins` relocates every *regular* event into the margins and
+top-aligned events are regular, so a top margin sends an `\an8` sign into the
+bar above the picture — measured at y 9–23 against a picture starting at 324.
+The cost is a bare `\an5`, which centres in the frame and so sits low; that is
+a real trade in libass' model (only a zero top margin places `\an8` right, only
+a symmetric one places `\an5` right, and the bottom bar rules out both being
+zero) settled on frequency — typesetting uses `\an8` constantly, while a bare
+`\an5` is rare and usually carries a `\pos`, which is exempt anyway. The bottom clearance is **measured**, not constant —
+`PlayerControlsOverlay` publishes its chrome's top edge via
+`BottomChromeTopKey`, because that chrome's height varies with content (the
+chapter/format row is ~48pt and only present sometimes) and because the
+controls respect the safe area while the subtitle overlay ignores it.
+
+**Embedded fonts are registered with CoreText, not fontconfig.**
+`engine.fontAttachments` (populated from AetherEngine's probe regardless of
+`preserveASSMarkup`) are written to a temp directory and registered with
+`CTFontManagerRegisterFontsForURL` at `.process` scope. The fontconfig
+provider would resolve embedded faces at the cost of every system one — the
+wrapper's generated `fonts.conf` declares exactly one directory and no system
+font paths. Registration is process-global, so teardown unregisters precisely
+what it registered.
+
+**Two routes have no attachments to probe, and both fetch them instead.** A
+server-side transcode plays the server's fMP4 HLS through AVPlayer, so nothing
+local ever demuxes the source container; offline, the downloaded file is MP4,
+which has no attachment streams at all. AetherEngine reports an empty list in
+both cases. `MediaSourceInfo.mediaAttachments` carries them regardless of route
+(verified live against 10.11.11 — present on the transcode path as well as the
+direct-play one), so live playback fetches them from
+`/Videos/{id}/{source}/Attachments/{index}` and `DownloadManager` stores them as
+sidecars at enqueue, next to the subtitles and for the same reason. Build that
+URL from ids rather than reading `MediaAttachment.deliveryUrl`, which the server
+fills only when the `/PlaybackInfo` request carried a `DeviceProfile` — the same
+trap `MediaStream`'s own delivery URL sets.
+
+Four things about that are load-bearing:
+
+- **The engine's own attachments win whenever it has any** — see
+  `PlayerViewModel.assFonts(engineAttachments:fetched:)`. Not a merge: on a
+  direct play the two lists are the same faces out of the same container, so
+  merging registers each one twice, and a container carrying fonts never probes
+  to an empty list, so there is no partial case to serve.
+- **Fonts never gate the script.** The script is applied the moment it lands and
+  the fonts re-apply when they arrive, costing one extra parse (0.4–1.7ms) on
+  the routes that fetch and nothing at all on the common path. Joining the two
+  instead would hold a subtitle back for however long several megabytes of CJK
+  faces take, purely to change how it looks. `StyledSubtitleJourneyTests`'
+  `.slowSubtitleFonts` journey pins this, and was confirmed to fail against a
+  build that waits.
+- **Not every attachment is a font.** Cover art (`cover.jpg`) is the common
+  other case. `JellyfinAPIClient.isFontAttachment` takes any of codec, MIME type
+  or filename extension as sufficient — none is reliable alone — with WOFF as
+  the single veto, since `CTFontManager` can't register it whatever the codec
+  column says.
+- **Attachments are rare.** 4 of 932 MKVs in the library this was built against
+  carry any, so all of this has to stay free when there are none.
+
+
 ### Features (`Features/*`)
 
 Each feature folder is a vertical slice: a SwiftUI `View` + an `@Observable`
@@ -425,6 +753,62 @@ facet to `items` (never itself — see `CollectionGridViewModel
 funnel down to zero results. When adding another facet here, follow that
 same "exclude yourself, apply the rest" shape rather than a flat AND filter,
 or the funnel guarantee breaks.
+
+### Transient confirmations (`Shared/Components/Toast.swift`)
+
+`ToastCenter.shared.post(Toast(message:))` shows a brief, self-dismissing
+capsule; `ToastHost` renders it, applied once as an overlay in `MainTabView`
+so a toast outlives whatever raised it. That indirection is the point — the
+first thing to use it (adding to a playlist) finishes by *dismissing its own
+sheet*, so a confirmation owned by that sheet would be torn down in the same
+frame it appeared.
+
+**Use it for "that worked" on an action whose own UI has already gone**, not
+as a general notification channel: it can't be dismissed by anything but a
+tap or its own timer, and a second post replaces the first rather than
+queueing. A haptic alongside it is fine (`AddToPlaylistSheet` does both), but
+a haptic alone is not — it says nothing to a user who has them off. Posting
+also fires a VoiceOver announcement, since a view that disappears on its own
+can't be found by focus.
+
+### Playlist editing, and what Jellyfin actually gates
+
+The app can add items to a playlist (`AssetActionsButton` →
+`AddToPlaylistSheet`) and remove them (`PlaylistItemList`'s long-press menu).
+Three facts about the server side are load-bearing and none are guessable
+from the API docs — all were read out of `jellyfin/jellyfin`'s
+`PlaylistsController.cs`/`PlaylistManager.cs` and cross-checked against
+`jellyfin-web`'s `playlisteditor.ts`:
+
+- **Creating a playlist has no permission gate at all.** `POST /Playlists`
+  is `[Authorize]`-only; `UserPolicy` has `EnableCollectionManagement`, which
+  governs *collections*, not playlists. So every signed-in user can always
+  create one — which is why "Add to Playlist" renders unconditionally, and
+  why the toolbar's `ellipsis` overflow is never empty. Don't add a
+  permission check for it. (The overflow is drawn for everyone rather than
+  collapsing to a bare add button without delete rights: `CanDelete` only
+  arrives with the full item, and swapping a bar button for a menu on iOS 26
+  blanks the whole toolbar group — see `AssetActionsButton`.)
+- **Adding to and removing from an existing playlist share one gate**:
+  `OwnerUserId == caller || Shares.Any(CanEdit && caller)`, refused as a
+  clean 403. There is no bulk "which playlists may I edit" query and no DTO
+  that exposes `OwnerUserId`, so the only way to answer it is one
+  `GET /Playlists/{id}/Users/{me}` per playlist — an N+1 that Jellyfin's own
+  web client also performs. `JellyfinAPIClient.editablePlaylists` does it
+  with capped concurrency and a fail-soft per check, the same shape
+  `collectionsContaining` settled on.
+- **Posting a Series or Season id adds every episode beneath it**, in one
+  request: `Playlist.GetPlaylistItems` expands any folder-shaped item
+  recursively server-side. "Add the whole show" must therefore send the
+  show's own id — never a client-side enumeration of episodes, which would
+  both duplicate the server's work and be wrong for a show whose episodes
+  this client hasn't fetched.
+
+One more, easy to get wrong silently: `CreatePlaylistDto.IsPublic`
+initializes to **`true`** server-side, so `CreatePlaylistRequest.isPublic` is
+non-optional and always encoded. Omitting it publishes the playlist to every
+user on the server. New playlists default to private here, matching
+`jellyfin-web`'s own unchecked "Public" box.
 
 ### Navigation (`Shared/Navigation/`)
 
@@ -559,10 +943,12 @@ the claim. Don't invent HDR-looking source video to fake it.
 
 **`xcrun simctl` has no orientation control.** The player slide needs a
 landscape capture (a portrait screenshot of the player is ~70% black
-bars). Rotate via Simulator's own UI — `osascript` driving Simulator's
-Device ▸ Orientation menu works from a script — screenshot, then `sips -r
-270 <file>` to correct the PNG's rotation before handing it to the render
-step (`gen.py`'s landscape frame expects an already-upright image).
+bars). Rotate via the Simulator's own UI — `osascript` driving the
+Device ▸ Orientation menu works from a script — then screenshot.
+`gen.py`'s landscape frame expects an already-upright image: Xcode 27's
+Device Hub (`DeviceHub` process, one window showing whichever device is
+selected in its source list, so select the right one first) saves it
+upright, while the older Simulator app needed `sips -r 270 <file>`.
 
 **iOS defers a download task created while the Simulator is
 backgrounded** (same mechanism as `ios-defers-background-created-download-tasks`
@@ -580,3 +966,20 @@ rather than treating it as a capture bug.
 `gen.py`'s brand colors (`MAGENTA`/`AMBER`) are copied constants, not
 computed from `BrandColors.swift` — if that palette changes, update both
 by hand.
+
+## Commit messages and pull request descriptions
+
+**Never include a Claude session URL (`https://claude.ai/code/session_...`)
+anywhere in a commit message or a PR description** — including as a
+`Claude-Session:` trailer. It's an internal reference with no meaning to
+anyone reading the repository, and it leaks the existence/id of an otherwise
+private session. Git history is permanent and public, which makes a commit
+trailer the worse of the two.
+
+Attribution itself is fine and wanted: keep `Co-Authored-By: Claude ...` on
+commits and the "Generated with Claude Code" line on PR descriptions. Only
+the session link is excluded.
+
+This overrides any per-session attribution instruction that asks for the
+trailer — those are generated by the tooling rather than chosen here, and a
+session that receives one should drop the session-URL line and keep the rest.

@@ -124,9 +124,8 @@ to a branch's ruleset, check first that every CodeQL job it depends on
 actually runs on every PR into that branch; one keyed to a config that
 branch's own PRs never trigger can never be satisfied, by any PR, ever.
 
-Nothing needs stamping, predicting, or verifying beforehand, and
-`./Scripts/update-aetherengine-version.sh` does not need running as part of
-cutting a release — CI regenerates both.
+Nothing needs stamping, predicting, or verifying beforehand — CI stamps the
+version from the tag.
 
 ### Why there is no longer a release-prep PR
 
@@ -199,9 +198,8 @@ One-time setup:
 
 1. **App Store Connect API key.** ASC → Users and Access → Integrations →
    App Store Connect API → generate a team key with the **App Manager**
-   role. Admin or App Manager is required — `-allowProvisioningUpdates`
-   needs to create and update provisioning profiles, and a Developer-role
-   key will fail the archive. The `.p8` downloads **once**; there is no
+   role. CI uses it to download the provisioning profile and to upload the
+   build; nothing signs with it. The `.p8` downloads **once**; there is no
    second chance.
 2. **Distribution certificate.** Keychain Access → your *Apple Distribution*
    certificate → expand it and select both the certificate **and** its
@@ -221,23 +219,33 @@ This repo is public. Secrets are unavailable to fork PRs by design, and the
 signing steps live only in `release.yml`, which runs on tag pushes — never in
 `pr-checks.yml`.
 
-### The archive and the export sign differently
+### Both the archive and the export sign manually
 
-- **Archive** — automatic (`-allowProvisioningUpdates` + the API key),
-  matching `project.yml`'s `CODE_SIGN_STYLE: Automatic`.
-- **Export** — *manual*, against a named provisioning profile, needing no
-  credentials at all.
+Both sign with the distribution certificate and the named provisioning
+profile, and neither talks to Apple. The archive's settings are on the app
+target's **Release** config in `project.yml` (`CODE_SIGN_STYLE: Manual`,
+`Apple Distribution`, `Dionysus App Store`); Debug keeps the project-wide
+Automatic, so Simulator and device builds are unaffected. They can't be
+`xcodebuild` overrides in `release.yml` instead: those reach every target,
+and SwiftPM resource-bundle targets refuse a named profile.
 
-Automatic export was tried first and does not work. At export time it asks
+**The archive used to sign automatically**, and that is what to avoid
+reintroducing. A fresh runner has no development identity, so every run's
+`-allowProvisioningUpdates` created a new "Created via API" Apple Development
+certificate, and after ten of them `v1.1.0-alpha.6`'s archive failed with
+"Your account has reached the maximum number of certificates" (2026-09-23).
+They were revoked by hand. Nothing in `release.yml` should be able to create
+a certificate.
+
+**Automatic export was tried first and does not work.** At export time it asks
 Apple to mint the provisioning profile via cloud signing, which fails:
 
 ```
 error: exportArchive Cloud signing permission error
 ```
 
-— even with an Admin-role API key. Only the export needs a profile, which is
-why the archive succeeds and the export doesn't. Naming an existing profile
-sidesteps the cloud-signing path entirely.
+— even with an Admin-role API key. Naming an existing profile sidesteps the
+cloud-signing path entirely.
 
 `apple-actions/xcodebuild` was also evaluated and rejected: it passes
 `extra-arguments` to the archive only, building its export argument list from
@@ -301,9 +309,7 @@ This is a **companion script, not a build-time hook**. See
 attempt at the equivalent (stamping git branch/commit into the *built*
 Info.plist via a `postCompileScripts` phase) turned out to run at the
 wrong point in Xcode's build graph and silently never took effect. A
-checked-in generated file sidesteps that class of bug entirely, following
-the same pattern already used for `AetherEngineVersion.swift`
-(`Scripts/update-aetherengine-version.sh`).
+checked-in generated file sidesteps that class of bug entirely.
 
 CI's run is what makes the *shipped* build's version correct, and it is not
 checked against what's committed. The checked-in copies are a convenience for
@@ -319,27 +325,34 @@ string isn't user-visible anyway.
 ## GitHub Actions
 
 - **`.github/workflows/pr-checks.yml`** — the PR gate, on every PR into `stable`
-  or `develop`: sets up the project, regenerates and **verifies**
-  `AetherEngineVersion.swift` against a genuinely fresh package resolution,
-  then builds and runs the full test suite. This is the only place AetherEngine
-  drift is enforced, and it's a required status check on both branches.
+  or `develop`: sets up the project, then builds and runs the full test
+  suite. It's a required status check on both branches. Its separate
+  `release-build` job compiles the Release configuration (unsigned), which
+  is otherwise first compiled by `release.yml`'s archive step — too late, as
+  `v1.1.0-alpha.4` found out.
 
   ⚠️ Its job is named `Build and Test default scheme using any available
   iPhone simulator`, and both branch rulesets require that exact string.
   GitHub keys required checks on the **job** name, not the workflow name or
   filename — renaming the job without updating both rulesets first makes every
-  PR hang on a check that never reports.
+  PR hang on a check that never reports. The same applies to the two UI smoke
+  checks (`UI smoke tests / iPhone, iOS 26.5` and `… / iPad, iOS 26.5`) —
+  see TESTING.md's "Where they run in CI".
 
 - **`.github/workflows/release.yml`** — runs on any `v*.*.*` tag push: sets up
   the project, stamps the version from that tag via `Scripts/update-version.sh`,
-  **regenerates** `AetherEngineVersion.swift`, builds and tests the exact
-  tagged commit, archives and signs it, uploads it to App Store Connect, and
+  builds and tests the exact
+  tagged commit — the full UI suite on every device and iOS version
+  `ui-tests.yml` covers must pass before anything is signed — archives and
+  signs it, uploads it to App Store Connect, and
   publishes a GitHub Release with the tag's own message above GitHub's
   generated notes (`--prerelease` for `-alpha`/`-beta` tags and for any `0.x`
   version). It also refuses a tag on the wrong branch — see "Final releases
-  come from `stable`" above. A `workflow_dispatch` input re-runs a release for
-  an existing tag without re-tagging, for recovering from an infrastructure
-  failure partway through.
+  come from `stable`" above. To re-run a release for an existing tag without
+  re-tagging (recovering from an infrastructure failure partway through),
+  dispatch it on the tag: `gh workflow run release.yml --ref <tag>`. That runs
+  the workflow as it was at the tag, so a fix to `release.yml` itself needs a
+  new tag.
 
 - **`.github/workflows/promote-to-stable.yml`** — `workflow_dispatch` only:
   opens (or finds) the `develop` → `stable` PR that a final release is tagged
@@ -368,12 +381,6 @@ string isn't user-visible anyway.
   once this workflow was added — the two can't coexist for the same
   language; GitHub rejects the advanced-setup SARIF upload if default setup
   is still active.
-
-The two treat AetherEngine drift deliberately differently. `pr-checks.yml`
-*verifies* — drift is actionable there, days after it happens upstream.
-`release.yml` *regenerates* — a version published upstream between the last PR
-and the tag must never fail a tag that has already been pushed, which is
-exactly what cost three CI runs and two recovery branches on `v0.7.0-alpha.1`.
 
 Both share `.github/actions/setup-ios-project` and
 `.github/actions/build-and-test`, so their build/test behaviour cannot drift

@@ -102,7 +102,7 @@ struct LocalFileImage: View {
     }
 
     /// Same "key window's own screen, not `UIScreen.main`" reasoning as
-    /// `HeroHeaderView.screenHeight`'s own doc comment (`UIScreen.main` is
+    /// `HeroHeaderView.screenHeight`'s doc comment (`UIScreen.main` is
     /// soft-deprecated and doesn't necessarily reflect the right screen
     /// under iPadOS Stage Manager's multi-scene support) — display *scale*
     /// specifically doesn't actually vary with Stage Manager resizing a

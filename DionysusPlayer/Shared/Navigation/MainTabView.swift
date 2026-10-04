@@ -109,13 +109,14 @@ struct MainTabView: View {
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
             }
             .stableContentTint()
-            // Not "arrow.down.circle" — iOS's tab bar draws its own filled
-            // pill/circle behind the selected tab's icon, and a symbol
-            // with its own circular border merges visually with that into
-            // one solid disc rather than a distinct glyph inside a
-            // highlight. "square.and.arrow.down.on.square" is square, so
-            // it doesn't hit that issue.
-            .tabItem { Label("Downloads", systemImage: "square.and.arrow.down.on.square").accessibilityIdentifier(A11yID.Tabs.downloads) }
+            // "arrow.down.circle", the glyph the system's own media apps use
+            // for downloads, and the same arrow the app's download buttons
+            // draw. This used to be "square.and.arrow.down.on.square", chosen
+            // when the selected tab sat on a filled circular highlight that a
+            // circular symbol merged into; iOS 26's selection is a wide
+            // capsule behind icon and label together, and the square symbol
+            // read as "save" or "import" rather than as downloads.
+            .tabItem { Label("Downloads", systemImage: "arrow.down.circle").accessibilityIdentifier(A11yID.Tabs.downloads) }
             .tag(MainTab.downloads)
             // Small pending/downloading count — `0` hides the badge
             // entirely (SwiftUI's own behavior for `.badge(Int)`), so
@@ -163,6 +164,10 @@ struct MainTabView: View {
         // registers this view's Observation dependency on the model.
         // Without any tint at all, the tab bar inherits the app-wide
         // `AccentColor` asset, which is a static burgundy.
+        // Applied here, above every tab and every pushed screen, because a
+        // toast outlives the thing that raised it — adding to a playlist
+        // confirms *after* its own sheet has closed. See `ToastHost`.
+        .overlay { ToastHost() }
         .tint(TabBarTintModel.shared.tint)
         .task(id: appState.currentUser?.id) { await loadProfileTabIcon() }
         // Cold launch can reach `.main` with `currentUser` still `nil` —

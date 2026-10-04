@@ -19,12 +19,11 @@ import SwiftUI
 /// single-column list it replaced. So the split is gated on iPad only.
 ///
 /// There's no shared `isPad` environment value for this — each screen
-/// declares the two `@Environment` properties and ANDs them itself.
-/// A computed `EnvironmentValues` property reading two other
-/// environment keys would be tidier to call, but relies on SwiftUI
-/// registering a dependency on both underlying keys through the
-/// indirection; the explicit version is three lines and has no such
-/// question hanging over it.
+/// declares the two `@Environment` properties and ANDs them itself. A
+/// computed `EnvironmentValues` property would be tidier to call, but
+/// relies on SwiftUI registering a dependency on both underlying keys
+/// through the indirection; the explicit version has no such question
+/// hanging over it.
 enum SettingsLayout {
     /// Cap for explanatory footer paragraphs on iPad — see
     /// `readableSettingsFooter()`.
@@ -42,11 +41,8 @@ enum SettingsLayout {
 ///
 /// Unconstrained, these paragraphs run the full width of whatever
 /// contains them — 780pt in iPad portrait and 1140pt in landscape on an
-/// 11-inch device, which works out at roughly 120 and 175 characters per
-/// line respectively, against a 45-75 optimum. Apple's own guidance is
-/// that system layout guides exist partly to "restrict the width of text
-/// for optimal readability"; nothing in a plain `List` footer does that
-/// for you.
+/// 11-inch device, roughly 120 and 175 characters per line against a
+/// 45-75 optimum. A plain `List` footer does nothing to restrict that.
 ///
 /// Deliberately scoped to *footers only*, not to the rows above them.
 /// Settings.app lets its rows fill the detail pane, so leaving rows

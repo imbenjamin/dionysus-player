@@ -26,6 +26,9 @@
     "%@ bitrate, in kilobits per second" : {
 
     },
+    "%@ didn't answer over HTTP on port %@." : {
+
+    },
     "%@ megabits per second" : {
 
     },
@@ -71,6 +74,15 @@
           }
         }
       }
+    },
+    "%@'s security certificate can't be verified, but the server also answers over unencrypted HTTP at %@. Your password and everything you watch would be sent without encryption, readable by others on this network." : {
+
+    },
+    "%@'s security certificate can't be verified. If the server also accepts unencrypted HTTP connections, enter the port it uses for them." : {
+
+    },
+    "%@'s security certificate isn't valid for %@." : {
+
     },
     "%lld" : {
 
@@ -163,9 +175,6 @@
     "60s" : {
 
     },
-    "192.168.1.50:8096" : {
-
-    },
     "480p SD" : {
 
     },
@@ -184,7 +193,38 @@
     "Actual size depends on your server's transcoder and the video itself — often smaller." : {
 
     },
+    "Add" : {
+
+    },
+    "Add %lld Episodes" : {
+
+    },
+    "Add All Episodes" : {
+
+    },
+    "Add to \"%@\"" : {
+
+    },
     "Add to Favorites" : {
+
+    },
+    "Add to Playlist" : {
+
+    },
+    "Added %lld episodes to \"%@\"" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Added %1$lld episodes to \"%2$@\""
+          }
+        }
+      }
+    },
+    "Added all episodes to \"%@\"" : {
+
+    },
+    "Added to \"%@\"" : {
 
     },
     "Address" : {
@@ -220,10 +260,19 @@
     "Allow Transcoding asks the server to decide, transcoding when necessary — including to keep the stream under the Max Streaming Bitrate cap, even for a file that could otherwise play untouched." : {
 
     },
+    "Already added" : {
+
+    },
     "An estimate of this app's downloaded videos, artwork, and subtitles against total device storage." : {
 
     },
     "Appearance" : {
+
+    },
+    "Approve this device from another app already signed in to %@." : {
+
+    },
+    "Artwork-first browsing, Continue Watching, collections and playlists." : {
 
     },
     "Ascending" : {
@@ -239,6 +288,12 @@
 
     },
     "Audio and music playback aren't supported." : {
+
+    },
+    "Authorize" : {
+
+    },
+    "Authorizing" : {
 
     },
     "Auto Carousel on Home" : {
@@ -296,6 +351,9 @@
     "Choose an Audio Track" : {
 
     },
+    "Choose your server to continue." : {
+
+    },
     "Clear All" : {
 
     },
@@ -303,6 +361,9 @@
 
     },
     "Closed Captions" : {
+
+    },
+    "Code" : {
 
     },
     "Collection" : {
@@ -314,10 +375,28 @@
     "Connect" : {
 
     },
+    "Connect Over HTTP" : {
+
+    },
+    "Connect Over HTTP?" : {
+
+    },
+    "Connect to Wi-Fi to scan for servers on your network." : {
+
+    },
+    "Connect Without Encryption?" : {
+
+    },
     "Connecting" : {
 
     },
+    "Connects to this server" : {
+
+    },
     "Continue Watching" : {
+
+    },
+    "Couldn't add to playlist" : {
 
     },
     "Couldn't build a download URL for this item." : {
@@ -335,19 +414,34 @@
     "Couldn't fetch playback info for this item." : {
 
     },
+    "Couldn't get a Quick Connect code from the server." : {
+
+    },
     "Couldn't load this collection." : {
 
     },
     "Couldn't load this title." : {
 
     },
+    "Couldn't reach %@." : {
+
+    },
     "Couldn't reach a Jellyfin server at that address. Check it and try again." : {
+
+    },
+    "Couldn't remove item" : {
 
     },
     "Couldn't Retry Download" : {
 
     },
     "Couldn't retry this download." : {
+
+    },
+    "Couldn't sign in as %@. Try again." : {
+
+    },
+    "Couldn't sign in. Check the password and try again." : {
 
     },
     "Couldn't sign in. Check your username and password." : {
@@ -363,6 +457,15 @@
 
     },
     "Couldn't understand the server's response." : {
+
+    },
+    "Create" : {
+
+    },
+    "Create \"%@\"" : {
+
+    },
+    "Created \"%@\" and added this" : {
 
     },
     "Current position: %@" : {
@@ -453,7 +556,19 @@
     "Deselect All" : {
 
     },
-    "Dionysus needs the address of your Jellyfin server to get started." : {
+    "Device Signed In" : {
+
+    },
+    "Dionysus doesn't have access to your local network." : {
+
+    },
+    "Dionysus doesn't have access to your local network. Turn on Local Network for Dionysus in Settings, then scan again." : {
+
+    },
+    "Dionysus doesn't have access to your local network. Turn on Local Network for Dionysus in Settings, then try again." : {
+
+    },
+    "Dionysus plays from your own Jellyfin media server." : {
 
     },
     "Direct Play Always" : {
@@ -472,6 +587,9 @@
 
     },
     "Dolby Digital Plus" : {
+
+    },
+    "Dolby Vision, HDR10 and surround sound, straight from your server." : {
 
     },
     "Done" : {
@@ -493,6 +611,9 @@
 
     },
     "Download failed." : {
+
+    },
+    "Download movies and shows to watch offline, anywhere." : {
 
     },
     "Download Paused" : {
@@ -525,7 +646,16 @@
     "Duration: %@" : {
 
     },
+    "Enter a port number between 1 and 65535." : {
+
+    },
     "Enter a valid server address, like 192.168.1.50:8096." : {
+
+    },
+    "Enter Address Manually" : {
+
+    },
+    "Enter the password for %@" : {
 
     },
     "Enter your server's local IP and port, a domain name, or a full URL." : {
@@ -589,6 +719,12 @@
     "Genres" : {
 
     },
+    "Get New Code" : {
+
+    },
+    "Get Started" : {
+
+    },
     "gigabytes" : {
 
     },
@@ -605,6 +741,9 @@
 
     },
     "Home" : {
+
+    },
+    "HTTP Port" : {
 
     },
     "Image-based subtitle tracks can't be included in offline downloads." : {
@@ -634,6 +773,15 @@
     "Lock rotation" : {
 
     },
+    "Looking for Jellyfin servers on your Wi-Fi. If iOS asks, allow Local Network access so Dionysus can find yours." : {
+
+    },
+    "Lost contact with the server while waiting for approval." : {
+
+    },
+    "Make sure this device is on the same Wi-Fi as your server, or enter its address instead." : {
+
+    },
     "Mark as Unwatched" : {
 
     },
@@ -649,16 +797,25 @@
     "Mono" : {
 
     },
+    "More Actions" : {
+
+    },
     "More Like This" : {
 
     },
     "Movies" : {
 
     },
+    "Movies and episodes you download appear here, ready to watch without a connection." : {
+
+    },
     "Movies, shows, episodes…" : {
 
     },
     "Network" : {
+
+    },
+    "New Playlist" : {
 
     },
     "Next Episode Countdown" : {
@@ -679,10 +836,19 @@
     "No cast or crew information available." : {
 
     },
-    "No downloads yet. Start downloading and they'll appear here." : {
+    "No Downloads" : {
+
+    },
+    "No episodes available." : {
 
     },
     "No items match these filters." : {
+
+    },
+    "No local network access" : {
+
+    },
+    "No servers found" : {
 
     },
     "No synopsis available." : {
@@ -697,16 +863,31 @@
     "Normal" : {
 
     },
+    "Not on Wi-Fi" : {
+
+    },
     "Nothing here yet." : {
 
     },
     "Off" : {
 
     },
+    "Off keeps this playlist to yourself. On lets every user on your Jellyfin server see it." : {
+
+    },
     "OK" : {
 
     },
+    "On a device already signed in to %@, open Quick Connect and enter this code." : {
+
+    },
+    "On the device you're signing in on, choose Quick Connect to get a code, then enter it here." : {
+
+    },
     "Open Dionysus Player on GitHub" : {
+
+    },
+    "Open Settings" : {
 
     },
     "Order" : {
@@ -724,7 +905,16 @@
     "Overrides your default download settings for this item only." : {
 
     },
+    "Password" : {
+
+    },
     "Password (optional)" : {
+
+    },
+    "Password for %@" : {
+
+    },
+    "Password required" : {
 
     },
     "Pause" : {
@@ -772,6 +962,12 @@
     "Playing in Picture in Picture" : {
 
     },
+    "Playlist Name" : {
+
+    },
+    "Plays it as it was made" : {
+
+    },
     "Preparing Download" : {
 
     },
@@ -800,6 +996,15 @@
 
     },
     "Queued…" : {
+
+    },
+    "Quick Connect" : {
+
+    },
+    "Quick Connect code" : {
+
+    },
+    "Quick Connect has been turned off on this server." : {
 
     },
     "Random Item" : {
@@ -836,6 +1041,15 @@
 
     },
     "Remove from history" : {
+
+    },
+    "Remove from Playlist" : {
+
+    },
+    "Renders the fonts, colours and on-screen positioning authored into ASS and SSA subtitles. Turn this off to show them as plain text instead. Other subtitle formats are unaffected." : {
+
+    },
+    "Requesting a code" : {
 
     },
     "Reset" : {
@@ -887,6 +1101,9 @@
     "Rewind 15 Seconds" : {
 
     },
+    "Scan Again" : {
+
+    },
     "Search" : {
 
     },
@@ -894,6 +1111,9 @@
 
     },
     "Search Your Library" : {
+
+    },
+    "Searching for servers" : {
 
     },
     "Season" : {
@@ -918,16 +1138,13 @@
     "Section" : {
 
     },
-    "See All" : {
-
-    },
     "Seeking is taking longer than expected — playback may be stuck." : {
 
     },
-    "Select All" : {
+    "Select" : {
 
     },
-    "Select Downloads to Delete" : {
+    "Select All" : {
 
     },
     "Server" : {
@@ -945,6 +1162,9 @@
           }
         }
       }
+    },
+    "Servers found: %lld" : {
+
     },
     "Show" : {
 
@@ -970,13 +1190,28 @@
     "Sign In" : {
 
     },
+    "Sign In Another Way" : {
+
+    },
+    "Sign in on another device with a code, instead of typing your password." : {
+
+    },
+    "Sign In with Quick Connect" : {
+
+    },
     "Sign Out" : {
 
     },
     "Sign out of %@?" : {
 
     },
-    "Signing In" : {
+    "Signing in as %@" : {
+
+    },
+    "Signing in to **%@**" : {
+
+    },
+    "Signing In…" : {
 
     },
     "Simultaneous Downloads" : {
@@ -997,6 +1232,9 @@
     "Skip Recap" : {
 
     },
+    "Something went wrong authorizing this code. Try again." : {
+
+    },
     "Something went wrong loading your library." : {
 
     },
@@ -1007,6 +1245,9 @@
 
     },
     "Stereo" : {
+
+    },
+    "Still searching…" : {
 
     },
     "Storage" : {
@@ -1022,6 +1263,9 @@
 
     },
     "Studios" : {
+
+    },
+    "Subtitle Styling" : {
 
     },
     "Subtitle Track Unavailable Offline" : {
@@ -1042,10 +1286,19 @@
     "Tagline: %@" : {
 
     },
+    "Take it with you" : {
+
+    },
     "terabytes" : {
 
     },
+    "That code didn't work. Check it matches the one on the other device — codes expire after 10 minutes." : {
+
+    },
     "That doesn't look like a valid server address." : {
+
+    },
+    "The code was approved, but signing in failed. Try again." : {
 
     },
     "The connection to the server kept dropping and the download couldn't finish. Check your network and try again." : {
@@ -1067,6 +1320,12 @@
     "The downloaded video couldn't be verified. Try downloading again." : {
 
     },
+    "The other device is now signed in as %@. It can take a few seconds to finish." : {
+
+    },
+    "The server couldn't authorize this code. It may already have been used — try getting a new code on the other device." : {
+
+    },
     "The server returned an error (HTTP %lld) instead of the video." : {
 
     },
@@ -1079,6 +1338,32 @@
     "Theme" : {
 
     },
+    "This adds all %lld episodes of this season to \"%@\"." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "This adds all %1$lld episodes of this season to \"%2$@\"."
+          }
+        }
+      }
+    },
+    "This adds all %lld episodes of this show to \"%@\"." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "This adds all %1$lld episodes of this show to \"%2$@\"."
+          }
+        }
+      }
+    },
+    "This adds every episode of this season to \"%@\"." : {
+
+    },
+    "This adds every episode of this show to \"%@\"." : {
+
+    },
     "This App" : {
 
     },
@@ -1086,6 +1371,45 @@
 
     },
     "This clears every custom bitrate you've set above. It can't be undone." : {
+
+    },
+    "This code has expired." : {
+
+    },
+    "This creates \"%@\" and adds \"%@\" to it." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "This creates \"%1$@\" and adds \"%2$@\" to it."
+          }
+        }
+      }
+    },
+    "This creates \"%@\" and adds all %lld episodes of this season to it." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "This creates \"%1$@\" and adds all %2$lld episodes of this season to it."
+          }
+        }
+      }
+    },
+    "This creates \"%@\" and adds all %lld episodes of this show to it." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "This creates \"%1$@\" and adds all %2$lld episodes of this show to it."
+          }
+        }
+      }
+    },
+    "This creates \"%@\" and adds every episode of this season to it." : {
+
+    },
+    "This creates \"%@\" and adds every episode of this show to it." : {
 
     },
     "This download is no longer available." : {
@@ -1112,6 +1436,9 @@
     "Try Again" : {
 
     },
+    "Try Port" : {
+
+    },
     "Unlimited" : {
 
     },
@@ -1122,9 +1449,6 @@
 
     },
     "Up to %@" : {
-
-    },
-    "Use a Different Server" : {
 
     },
     "Use HTTPS" : {
@@ -1142,13 +1466,28 @@
     "Video" : {
 
     },
+    "Visible to Everyone" : {
+
+    },
+    "Waiting for approval…" : {
+
+    },
     "Watched" : {
 
     },
-    "Welcome Back" : {
+    "What's Jellyfin?" : {
+
+    },
+    "Who's Watching?" : {
 
     },
     "Wi-Fi Only" : {
+
+    },
+    "You can still connect by entering your server's address." : {
+
+    },
+    "You don't have edit access to any existing playlists. Create a new one instead." : {
 
     },
     "You don't have permission to do that on this server." : {
@@ -1163,7 +1502,22 @@
     "You're Offline" : {
 
     },
+    "Your Jellyfin library, in its best light." : {
+
+    },
+    "Your Playlists" : {
+
+    },
+    "your server" : {
+
+    },
     "Your Server" : {
+
+    },
+    "Your session has expired. Sign out and back in to use Quick Connect." : {
+
+    },
+    "Your whole library, beautifully" : {
 
     },
     "Zoom to Fill Screen" : {

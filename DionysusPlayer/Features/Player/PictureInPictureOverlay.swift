@@ -7,7 +7,7 @@ import SwiftUI
 /// it wraps has to keep rendering for PiP to keep working).
 ///
 /// Always mounted by `PlayerView`, with `isVisible` driving `.opacity` —
-/// same reasoning as `PlaybackStatsOverlay`'s own doc comment on why a
+/// same reasoning as `PlaybackStatsOverlay`'s doc comment on why a
 /// conditionally-inserted/removed sibling here would force a relayout of the
 /// whole `ZStack`, the video surface included. Sits above
 /// `PlayerControlsOverlay` in that stack: nothing under it is interactive

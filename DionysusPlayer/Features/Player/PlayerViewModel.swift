@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import OSLog
 import Observation
 import os
 
@@ -12,87 +13,139 @@ final class PlayerViewModel {
     private(set) var currentTime: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
     private(set) var item: MediaItem?
-    /// The offline path's own local-file logo image, set only by
-    /// `startOffline` — `item.logoImageURL` is structurally `nil` there (the
-    /// synthetic `BaseItemDto` it's built from carries no `imageTags`), so
-    /// this is a second source `PlayerControlsOverlay.titleRow` checks
-    /// first. `nil` on the live path, and for an offline item that was
-    /// never downloaded a Logo image for in the first place (falls back to
-    /// title text, same as a live item with no logo).
+    /// The offline path's local-file logo, set only by `startOffline`.
+    /// `item.logoImageURL` is structurally `nil` there — the synthetic
+    /// `BaseItemDto` carries no `imageTags` — so `PlayerControlsOverlay.titleRow`
+    /// checks this first. `nil` on the live path, and for an offline item with no
+    /// downloaded logo, which falls back to title text.
     private(set) var offlineLogoURL: URL?
     private(set) var errorMessage: String?
-    /// What kind of recovery `errorMessage` allows, when it's set — `nil`
-    /// exactly when `errorMessage` is. See `PlaybackFailure.Category` and
-    /// `PlayerView`'s Retry-vs-Close branch on this.
+    /// What recovery `errorMessage` allows; `nil` exactly when it is. Drives
+    /// `PlayerView`'s Retry-versus-Close branch.
     private(set) var failureCategory: PlaybackFailure.Category?
-    /// Decoded subtitle cues, unfiltered — covers a window ahead of the
-    /// playhead, not just what's active now. `SubtitleOverlayView` filters
-    /// this against `sourceTime` itself; see `SubtitleCueDisplay`'s doc
-    /// comment for why filtering happens downstream rather than here.
+    /// Decoded subtitle cues, unfiltered: a window ahead of the playhead, not
+    /// only what is active. `SubtitleOverlayView` filters against `sourceTime`.
     private(set) var subtitleCues: [SubtitleCueDisplay] = []
-    /// Source-PTS playhead, the axis `subtitleCues` is stamped in — kept
-    /// separate from `currentTime` (the item/AVPlayer clock `onTimeUpdate`
-    /// reports) since the two can diverge across producer restarts.
+    /// The source-PTS playhead `subtitleCues` are stamped against, separate from
+    /// `currentTime`'s AVPlayer clock, which diverges across producer restarts.
     private(set) var sourceTime: TimeInterval = 0
-    /// Drives the PiP button's enabled state — see
-    /// `PlaybackEngine.onPictureInPicturePossibleChange`'s doc comment.
+    /// Renders authored ASS/SSA styling. Owns its own frame state;
+    /// `SubtitleOverlayView` paints what it produces and suppresses its own text
+    /// rendering while `isRenderingStyledASS`.
+    let assRenderSession = ASSSubtitleRenderSession()
+    /// True while the selected subtitle track is ASS/SSA and libass owns the
+    /// paint for it.
+    private(set) var isRenderingStyledASS = false
+    /// Bumped whenever libass produces a new frame, so the overlay's body
+    /// re-runs (the session itself is deliberately not `@Observable`).
+    private(set) var assFrameGeneration = 0
+    /// The time libass renders at, and the one its accessibility text is read
+    /// at: `sourceTime`, whenever `assSeekHold` isn't holding it back.
+    private(set) var assRenderTime: TimeInterval = 0
+    /// True while a transcode's styled track doesn't yet know where the picture
+    /// is — just after a seek, until the first line starts. The overlay paints
+    /// nothing rather than a line at the wrong moment.
+    private(set) var isStyledASSTimingPending = false
+    /// Only on a server transcode, where the engine's playhead is briefly off
+    /// the picture after every seek. See `ASSSeekHold`.
+    private var assSeekHold: ASSSeekHold?
+    /// The engine's latest `sourceTimeFollowsPicture`, kept so a hold created
+    /// mid-session starts from it.
+    private var sourceTimeFollowsPicture = true
+    /// Whether this session plays a server transcode through AVPlayer, the one
+    /// route whose styled track needs `assSeekHold`.
+    private var isRemoteHLSSession = false
+    /// Guards against a slow script fetch landing after the user has moved on
+    /// to a different track.
+    private var assScriptTask: Task<Void, Never>?
+    /// The media streams this session is playing, kept so a subtitle track
+    /// selected later can be mapped back to its Jellyfin `MediaStream`.
+    private var mediaStreams: [MediaStream] = []
+    /// The Jellyfin streams this session handed the engine as external
+    /// sidecars, in the order they were handed over — which is what makes the
+    /// ordinal in `registeredSidecar(forTrack:engineTracks:registered:)`
+    /// meaningful. Empty on a direct play with no sidecar files.
+    private var externalSubtitleStreams: [MediaStream] = []
+    /// The attachments the active source declares, kept for the same reason
+    /// `mediaStreams` is: they are only needed once an authored-ASS track is
+    /// selected, which can be long after `start()`.
+    private var mediaAttachments: [MediaAttachment] = []
+    /// Fonts fetched from the server or read off a download, for the routes
+    /// where AetherEngine has none of its own. Never consulted when the engine
+    /// does — see `assFonts`.
+    private var fetchedASSFonts: [ASSFontAttachment] = []
+    /// Coalesces the font fetch: the engine re-announces a track selection
+    /// whenever it republishes the track list, and every announcement would
+    /// otherwise start its own download of the same faces. Same shape as
+    /// `JellyfinAPIClient`'s in-flight re-authentication task.
+    private var assFontTask: Task<[ASSFontAttachment], Never>?
+    /// The fetched script, held until the overlay reports its geometry.
+    private var assScript: String?
+    /// The track `assScript` belongs to, so a re-emitted selection for the same
+    /// track doesn't re-fetch.
+    private var loadedASSTrackID: Int?
+    /// The track a fetch is currently in flight for. Separate from
+    /// `loadedASSTrackID`, which is only set once the script has landed: the
+    /// engine re-announces the selection whenever it republishes the track
+    /// list, and a cold fetch can run for over a minute, so without this the
+    /// announcement would cancel and restart the request every time — a cold
+    /// track could never finish loading.
+    private var fetchingASSTrackID: Int?
+    private var assGeometry: ASSSubtitleRenderSession.Geometry?
+
+    /// Drives the PiP button's enabled state.
     private(set) var isPictureInPicturePossible = false
-    /// While `true`, `PlayerView` shows a placeholder over the video surface
-    /// instead of the live picture — see `PlaybackEngine
-    /// .onPictureInPictureActiveChange`'s doc comment.
+    /// While `true`, `PlayerView` shows a placeholder over the video surface.
     private(set) var isPictureInPictureActive = false
 
-    /// The item immediately following this one, for the in-player "Up Next"
-    /// prompt (`NextUpOverlay`) — `nil` while the fire-and-forget lookup in
-    /// `start()` hasn't resolved yet (or failed), or once there's genuinely
-    /// nothing left to play next. Two independent resolution modes, both in
-    /// `loadNextUpItem(for:images:)`: when `playbackQueue` is non-empty,
-    /// this is `playbackQueue[currentIndex + 1]` — a plain local lookup,
-    /// no network call, and not restricted to episodes (a Playlist's next
-    /// member can be a Movie). Otherwise, for Show content specifically
-    /// (`item.kind == .episode`), resolved via
-    /// `JellyfinAPIClient.nextEpisode(...)`, not `nextUp(...)` — see that
-    /// method's own doc comment for why the latter can't answer "what's
-    /// next" reliably mid-playback. `nil` for a bare Movie with no
-    /// `playbackQueue` — there's nothing to advance to.
+    /// The item following this one, for `NextUpOverlay`. `nil` until the
+    /// fire-and-forget lookup in `start()` resolves, and once there is nothing
+    /// left to play.
+    ///
+    /// `loadNextUpItem(for:images:)` resolves it two ways. With a non-empty
+    /// `playbackQueue` it is the next member — a local lookup, no network call,
+    /// and not restricted to episodes, since a Playlist's next member can be a
+    /// Movie. Otherwise, for an episode, `JellyfinAPIClient.nextEpisode(...)`
+    /// rather than `nextUp(...)`, which can't answer this reliably mid-playback.
     private(set) var nextEpisode: MediaItem?
-    /// Set by `dismissNextUp()` (the "Up Next" card's Cancel button) —
-    /// once true, `nextUpSecondsRemaining` stays `nil` for the rest of this
-    /// item's playback even if `currentTime` moves back inside the
-    /// countdown window (e.g. the user scrubs backward), matching "cancel
-    /// the whole automatic countdown" rather than just dismissing once.
+    /// Set by the Up Next card's Cancel button. Once true,
+    /// `nextUpSecondsRemaining` stays `nil` for the rest of this item's playback
+    /// even if a backward scrub re-enters the countdown window — cancelling the
+    /// countdown rather than dismissing once.
     private(set) var isNextUpDismissed = false
 
-    /// Skippable Intro/Outro/Recap/Preview/Commercial time ranges for this
-    /// item, fetched fire-and-forget in `start()` alongside `nextEpisode` —
-    /// see `loadMediaSegments(for:)`. Empty (not `nil`) both before that
-    /// resolves and once resolved with zero segments; nothing downstream
-    /// distinguishes the two. `endCreditsSegment` is derived from this at
-    /// the same point it's set, rather than recomputed from it on every
-    /// read — see that property's own doc comment.
+    /// Whether `PlayerView` should close itself once the engine reports
+    /// `.ended`, rather than leaving the last frame on screen. True whenever
+    /// Up Next won't take over: nothing to play next, the countdown turned off,
+    /// or the user cancelled it.
+    ///
+    /// Deliberately ignores `isPictureInPictureActive`, which suppresses the
+    /// countdown only until PiP ends — `nextUpSecondsRemaining` recomputes to
+    /// `0` then and advances, so closing here would pre-empt the next episode.
+    var closesWhenPlaybackEnds: Bool {
+        nextEpisode == nil || isNextUpDismissed || nextUpPreferenceStore.countdownSeconds == nil
+    }
+
+    /// Skippable time ranges, fetched fire-and-forget in `start()` alongside
+    /// `nextEpisode`. Empty rather than `nil` both before that resolves and when
+    /// there are none; nothing downstream distinguishes the two.
     private(set) var mediaSegments: [PlaybackSegment] = []
 
-    /// This item's chapter markers, driving `PlayerControlsOverlay`'s
-    /// segmented scrubber, magnetic snap, current-chapter button, and
-    /// chapter picker. Unlike `mediaSegments` (a separate endpoint, fetched
-    /// fire-and-forget), these ride along on the item DTO `start()` already
-    /// fetches — `Fields=Chapters` is part of `JellyfinAPIClient
-    /// .detailFields` — so they're set synchronously with `item` rather than
-    /// arriving later. Offline sessions get them from the download's own
-    /// snapshot instead (`startOffline`).
+    /// Chapter markers driving the segmented scrubber, magnetic snap,
+    /// current-chapter button and picker. Unlike `mediaSegments`, these ride
+    /// along on the item DTO `start()` already fetches, so they are set
+    /// synchronously with `item`. Offline sessions read them from the download's
+    /// snapshot.
     ///
-    /// Empty means "no chapter UI at all", which includes Jellyfin's
-    /// single-dummy-chapter case — that rule lives in `MediaItem.chapters`,
-    /// so nothing downstream re-applies it.
+    /// Empty means no chapter UI at all, including Jellyfin's
+    /// single-dummy-chapter case — a rule that lives in `MediaItem.chapters`.
     private(set) var chapters: [Chapter] = []
 
-    /// The chapter the playhead is currently inside — the last one starting
-    /// at or before `currentTime`. `nil` when this item has no chapters.
-    /// Computed rather than cached (unlike `endCreditsSegment`): it's read
-    /// only from view code that's already re-rendering on `currentTime`
-    /// anyway, and a chapter list is short enough that a `last(where:)` scan
-    /// per render is cheaper than the staleness risk of a second cached
-    /// value to keep in sync.
+    /// The chapter the playhead is inside: the last starting at or before
+    /// `currentTime`, `nil` with no chapters. Computed rather than cached, unlike
+    /// `endCreditsSegment`: it is read only from view code already re-rendering
+    /// on `currentTime`, and a `last(where:)` over a short list costs less than
+    /// keeping a second value in sync.
     var currentChapter: Chapter? {
         chapters.chapter(at: currentTime)
     }
@@ -100,67 +153,46 @@ final class PlayerViewModel {
     let engine: PlaybackEngine
     let itemID: String
     let startFromBeginning: Bool
-    /// A Playlist's full, already-ordered, already-audio-filtered member
-    /// list — `[]` (the default) for every ordinary presentation. See
-    /// `nextEpisode`'s own doc comment for how this changes "what's next"
-    /// resolution in `loadNextUpItem(for:images:)`: non-empty, it wins
-    /// outright over the per-series episode lookup, since Jellyfin has no
-    /// server-side "continue this playlist" mechanism to consult instead —
-    /// the whole ordered list is already sitting in memory, fetched once by
-    /// `PlaylistDetailView`.
+    /// A Playlist's ordered, audio-filtered members; empty for every ordinary
+    /// presentation. When non-empty it wins outright over the per-series lookup
+    /// in `loadNextUpItem(for:images:)`: Jellyfin has no server-side "continue
+    /// this playlist", and the whole list is already in memory.
     let playbackQueue: [MediaItem]
-    /// The version requested by the caller (`PlaybackRequest.mediaSourceID`
-    /// — either the version-choice prompt's answer, or a remembered
-    /// preference for a Resume). `nil` lets `start()` fall back to the
-    /// server's own default, same as before this existed.
+    /// The version the caller requested: the version prompt's answer, or a
+    /// remembered preference for a Resume. `nil` lets `start()` fall back to the
+    /// server's default.
     let requestedMediaSourceID: String?
 
-    /// Which version `start()` actually ended up playing — `source?.id`
-    /// resolved from `playbackInfo`, which is `requestedMediaSourceID` when
-    /// that matched one of the item's sources, otherwise the server's own
-    /// default. Reported alongside every progress/stop call so the active
-    /// session reflects the real file being streamed, not just what was
-    /// asked for.
+    /// The version `start()` actually played, resolved from `playbackInfo`:
+    /// `requestedMediaSourceID` when it matched a source, else the server's
+    /// default. Reported with every progress and stop call so the session
+    /// reflects the real file rather than what was asked for.
     private(set) var activeMediaSourceID: String?
 
-    /// The negotiated session id from `PlaybackInfoResponse.playSessionId`
-    /// — only meaningful in "Allow Transcoding" mode (`StreamDecisionMode
-    /// .allowTranscoding`), where the server actually allocates a session
-    /// worth tracking; `nil` in Direct Play Always mode, matching the
-    /// original no-negotiation request. Reported alongside every
-    /// start/progress/stop call, same as `activeMediaSourceID`, so the
-    /// server can track/kill the right transcode job.
+    /// The negotiated `PlaybackInfoResponse.playSessionId`, meaningful only in
+    /// "Allow Transcoding" mode where the server allocates a session; `nil` in
+    /// Direct Play Always. Reported with every start, progress and stop call so
+    /// the server can track and kill the right transcode job.
     private(set) var activePlaySessionID: String?
 
-    /// The video stream of whichever `MediaSourceInfo` `start()` resolved to
-    /// — Jellyfin's own server-side probe result for it (`MediaStream
-    /// .videoRangeType` in particular), used by `PlaybackStatsOverlay` to
-    /// show a Dolby Vision source's base/enhancement layer format alongside
-    /// AetherEngine's own `sourceColorFormat`. Set once in `start()`; `nil`
-    /// before that resolves or if the source genuinely has no video stream.
+    /// The resolved source's video stream — Jellyfin's server-side probe result,
+    /// `videoRangeType` in particular — which `PlaybackStatsOverlay` shows
+    /// alongside AetherEngine's own `sourceColorFormat`. Set once in `start()`.
     private(set) var sourceVideoStream: MediaStream?
-    /// The default audio stream of whichever `MediaSourceInfo` `start()`
-    /// resolved to — same Jellyfin-probe-result reasoning as
-    /// `sourceVideoStream`, and the same fallback role: on AetherEngine's
-    /// `nativeRemoteHLS` bypass route (a server-chosen "Allow Transcoding"
-    /// session with no direct play), AetherEngine does its own probing of
-    /// neither audio nor video — confirmed live, 2026-08-28 — so
-    /// `PlaybackStatsOverlay`'s "Source Channels" row would otherwise stay
-    /// blank on every such session. Falls back to the *first* stream when
-    /// none is marked default, same as `sourceVideoStream`'s own
-    /// `.first { $0.type == "Video" }` (a source with multiple audio
-    /// tracks and no explicit default is rare, and this is a diagnostics
-    /// display, not the actual track selection).
+    /// The resolved source's default audio stream, for the same reason
+    /// `sourceVideoStream` exists: on the `nativeRemoteHLS` bypass route
+    /// AetherEngine probes neither audio nor video, so
+    /// `PlaybackStatsOverlay`'s "Source Channels" row would stay blank.
+    ///
+    /// Falls back to the first stream when none is marked default — rare, and
+    /// this is a diagnostics display rather than the actual track selection.
     private(set) var sourceAudioStream: MediaStream?
-    /// The Jellyfin server's own version string (e.g. "10.9.7"). Fetched
-    /// lazily via `refreshServerVersion()` rather than in `start()` — it's
-    /// diagnostics-only (`PlaybackStatsOverlay`'s Streaming section), so
-    /// there's no reason to add a network round-trip to playback startup
-    /// for it.
+    /// The server's version string, fetched lazily by `refreshServerVersion()`
+    /// rather than in `start()`: diagnostics-only, and not worth a round trip at
+    /// playback startup.
     private(set) var serverVersion: String?
-    /// The live session Jellyfin's server is tracking for this device —
-    /// refreshed periodically by `PlaybackStatsOverlay` while visible via
-    /// `refreshStreamingSession()`. `nil` until the first successful fetch.
+    /// The live session the server tracks for this device, refreshed by
+    /// `PlaybackStatsOverlay` while visible. `nil` until the first fetch.
     private(set) var streamingSession: SessionInfoDto?
 
     private let client: JellyfinAPIClient
@@ -168,125 +200,111 @@ final class PlayerViewModel {
     private let trackPreferenceStore: TrackPreferenceStore
     private let nextUpPreferenceStore: NextUpPreferenceStore
     private let streamPreferenceStore: StreamPreferenceStore
-    /// Set only via `init`'s `downloadedItem:` parameter — when non-nil,
-    /// `start()`/`stop()`/progress reporting all route through the
-    /// local-only offline paths below instead of any network call. `itemID`
-    /// should still be `downloadedItem.itemID` in that case (the same
-    /// Jellyfin item id, just played from a local file); `client`/`userID`
-    /// are still required and valid to pass through even offline, so
-    /// callers don't need a separate offline-only initializer shape.
+    /// Set via `init`'s `downloadedItem:`. When non-nil, `start()`, `stop()` and
+    /// progress reporting route through the local-only offline paths rather than
+    /// the network. `itemID` should still be `downloadedItem.itemID` — the same
+    /// Jellyfin item, played from a local file — and `client`/`userID` remain
+    /// valid to pass through, so callers need no offline-only initializer.
     private let downloadedItem: DownloadedItem?
     private let downloadStore: DownloadStore?
-    /// `true` for a session playing an offline download rather than
-    /// streaming live — `PlaybackStatsOverlay`'s Streaming section reads
-    /// this to show "Download" as the play method and skip the
-    /// network-only rows (server version, live transcode parameters) that
-    /// have nothing to report for a file already sitting on disk.
+    /// `true` for a session playing an offline download.
+    /// `PlaybackStatsOverlay`'s Streaming section reads it to show "Download" as
+    /// the play method and skip the network-only rows.
     var isOfflinePlayback: Bool { downloadedItem != nil }
     private var progressReportTask: Task<Void, Never>?
-    /// Resolved in `start()`/`startOffline()` once `activeMediaSourceID` is
-    /// known — see `supportsScrubThumbnails`/`scrubThumbnail(atSeconds:)`.
-    /// `any ScrubThumbnailProviding`, not the concrete `TrickplayThumbnailProvider`
-    /// — `startOffline()` installs `OfflineTrickplayThumbnailProvider`
-    /// instead, and everything downstream of this property only ever needs
-    /// the shared `thumbnail(atSeconds:)` shape, not which conformer.
+    /// Resolved in `start()`/`startOffline()` once `activeMediaSourceID` is known.
+    /// Existential rather than concrete, since `startOffline()` installs
+    /// `OfflineTrickplayThumbnailProvider` and everything downstream needs only
+    /// `thumbnail(atSeconds:)`.
     private var trickplayProvider: (any ScrubThumbnailProviding)?
 
     var audioTracks: [PlaybackTrack] { engine.audioTracks }
     var subtitleTracks: [PlaybackTrack] { engine.subtitleTracks }
     var videoFormatDescription: String? { engine.videoFormatDescription }
-    var videoNaturalSize: CGSize? { engine.videoNaturalSize }
-    /// A fresh snapshot on every access — see `PlaybackStats`. Intentionally
-    /// not cached on the view model itself: `PlaybackStatsOverlay` polls
-    /// this on its own timer only while it's actually visible, so there's
-    /// nothing to keep in sync the rest of the time.
+    /// The picture's coded size, which `SubtitleOverlayView` needs to work out
+    /// where the picture actually is inside a full-bleed overlay.
+    ///
+    /// AetherEngine's own probe first, with Jellyfin's server-side one as the
+    /// fallback — for exactly the reason `sourceVideoStream` above exists: on
+    /// the `nativeRemoteHLS` bypass nothing local ever demuxes the source, so
+    /// the engine reports no natural size for the whole session.
+    ///
+    /// `videoRect(in:)` treats a `nil` as "the picture fills the overlay",
+    /// which was harmless while that route had no subtitles to place and badly
+    /// wrong the moment it did: libass scaled the script to the whole screen
+    /// instead of to the picture, and a transcode's dialogue came out roughly
+    /// three times too large. Only the ASPECT of this is used downstream, and a
+    /// Jellyfin transcode preserves it, so the source's own dimensions are the
+    /// right answer even when the delivered video has been scaled down.
+    var videoNaturalSize: CGSize? {
+        if let size = engine.videoNaturalSize { return size }
+        guard let width = sourceVideoStream?.width, let height = sourceVideoStream?.height,
+              width > 0, height > 0 else { return nil }
+        return CGSize(width: width, height: height)
+    }
+    /// A fresh snapshot per access, uncached: `PlaybackStatsOverlay` polls it on
+    /// its own timer only while visible, so there is nothing to keep in sync.
     var stats: PlaybackStats { engine.stats }
 
-    /// The configured countdown length itself, for `NextUpOverlay`'s ring
-    /// to compute a remaining-*fraction* from alongside
-    /// `nextUpSecondsRemaining` — a plain elapsing count has no notion of
-    /// its own starting point. A passthrough of `nextUpPreferenceStore
-    /// .countdownSeconds`, same shape as `stats`/`audioTracks` above.
-    /// The end-credits countdown's own total length right now (see
-    /// `endCreditsCountdownTotalSeconds`) once this item has an end-credits
-    /// segment, else the configured preference — `NextUpOverlay`'s ring
-    /// needs whichever total actually governs the countdown currently in
-    /// effect, not always the user's raw preference. Before
-    /// `nextUpCountdownAnchorTime` has a value yet (segment not entered),
-    /// falls back to the flat `endCreditsCountdownSeconds` cap as a
-    /// reasonable "what it'll most likely be" default — nothing shows the
-    /// ring at this point anyway, since `nextUpSecondsRemaining` is `nil`
-    /// until there's an anchor to compute it from.
+    /// The total `NextUpOverlay`'s ring computes a remaining fraction against,
+    /// since an elapsing count has no notion of its starting point.
+    ///
+    /// Whichever total governs the countdown in effect:
+    /// `endCreditsCountdownTotalSeconds` once this item has an end-credits
+    /// segment, else the configured preference. Before
+    /// `nextUpCountdownAnchorTime` has a value, falls back to the flat
+    /// `endCreditsCountdownSeconds` cap — nothing shows the ring then anyway,
+    /// `nextUpSecondsRemaining` being `nil` until there is an anchor.
     var nextUpTotalCountdownSeconds: Int? {
         guard endCreditsSegment != nil else { return nextUpPreferenceStore.countdownSeconds }
         guard let total = endCreditsCountdownTotalSeconds else { return Self.endCreditsCountdownSeconds }
         return Int(total.rounded())
     }
 
-    /// Cap on the end-credits countdown's length — see
-    /// `nextUpSecondsRemaining`'s doc comment for why this replaces the
-    /// user's configured preference entirely once an end-credits segment
-    /// exists, rather than combining with it.
+    /// Cap on the end-credits countdown, which replaces the configured
+    /// preference entirely once such a segment exists (see
+    /// `nextUpSecondsRemaining`).
     private static let endCreditsCountdownSeconds = 10
 
-    /// The `.outro`-typed segment nearest this item's end (the last one
-    /// chronologically, if there's more than one) — Jellyfin has no
-    /// separate "opening credits" vs. "closing credits" segment type, so an
-    /// item with, say, a mid-content credits roll *and* true end credits
-    /// reports two `.outro` segments; only the later one is "the end
-    /// credits" for `nextUpSecondsRemaining`'s override below. `nil` when
-    /// this item has no `.outro` segment at all (most content, and any
-    /// item `mediaSegments` hasn't resolved for yet).
+    /// The last `.outro` segment chronologically. Jellyfin has no separate
+    /// opening- versus closing-credits type, so an item with a mid-content
+    /// credits roll and true end credits reports two; only the later one counts
+    /// as the end credits. `nil` for most content, and before `mediaSegments`
+    /// resolves.
     ///
-    /// Cached by `loadMediaSegments(for:)` at the same moment it sets
-    /// `mediaSegments`, rather than a computed property re-deriving this
-    /// with a fresh `.filter{}.max{}` pass on every read — this is read
-    /// from `updateNextUpCountdownAnchor()` on *every* engine time-update
-    /// tick (~10x/sec, for the whole session, not just near the credits),
-    /// plus once or twice more per render from `nextUpSecondsRemaining`/
-    /// `nextUpTotalCountdownSeconds`/`currentSkipSegment`. `mediaSegments`
-    /// is set exactly once and never mutated afterward, so there's only
-    /// ever one moment this can actually change — computing it there and
-    /// reusing the cached value everywhere else is free of any staleness
-    /// risk.
+    /// Cached by `loadMediaSegments(for:)` rather than recomputed per read:
+    /// `updateNextUpCountdownAnchor()` reads it on every engine tick, ~10x a
+    /// second for the whole session, plus once or twice more per render.
+    /// `mediaSegments` is set once and never mutated, so there is exactly one
+    /// moment this can change and no staleness risk.
     private var endCreditsSegment: PlaybackSegment?
 
-    /// The playhead value the end-credits countdown is currently timed
-    /// from — distinct from `endCreditsSegment.startSeconds` itself
-    /// specifically to fix a live bug (2026-08-18, confirmed with the
-    /// user): scrubbing straight to a point already past where a
-    /// from-the-segment's-own-start countdown would have finished computed
-    /// an already-negative (clamped-to-`0`) `remaining` on landing, which
-    /// silently auto-advanced to the next episode with no countdown UI
-    /// ever shown. `updateNextUpCountdownAnchor()` sets this the moment
-    /// `currentTime` (re-)enters the segment — from natural playback *or*
-    /// a scrub/seek landing inside it — and `seek(to:)` clears it
-    /// unconditionally first, so any explicit jump (the scrubber, the
-    /// rewind/forward buttons, VoiceOver's adjustable action) always
-    /// re-anchors fresh at wherever it actually lands, rather than reusing
-    /// a stale anchor from before the jump. `nil` whenever `currentTime`
-    /// is outside the segment.
+    /// The playhead the end-credits countdown is timed from, distinct from
+    /// `endCreditsSegment.startSeconds`: scrubbing past where a
+    /// from-the-segment's-start countdown would have finished computed an
+    /// already-negative `remaining` on landing, silently auto-advancing with no
+    /// countdown UI shown.
+    ///
+    /// `updateNextUpCountdownAnchor()` sets this the moment `currentTime`
+    /// re-enters the segment, from playback or a seek landing inside it, and
+    /// `seek(to:)` clears it first, so any explicit jump re-anchors where it
+    /// lands rather than reusing a stale anchor. `nil` outside the segment.
     private var nextUpCountdownAnchorTime: TimeInterval?
 
-    /// `endCreditsCountdownSeconds` (10s), capped to however much of the
-    /// item's own duration remains from the anchor — so a segment (or a
-    /// scrub landing) within the final 10 seconds of the item counts down
-    /// to reach exactly `0` right at the asset's true end, rather than
-    /// implying a target past it. `nil` before there's an anchor to
-    /// compute from.
+    /// `endCreditsCountdownSeconds`, capped to the duration remaining from the
+    /// anchor, so a segment or scrub landing inside the final ten seconds reaches
+    /// `0` at the asset's true end rather than implying a target past it. `nil`
+    /// before there is an anchor.
     private var endCreditsCountdownTotalSeconds: Double? {
         guard let anchor = nextUpCountdownAnchorTime else { return nil }
         return max(0, min(Double(Self.endCreditsCountdownSeconds), duration - anchor))
     }
 
-    /// Called from `onTimeUpdate` on every engine time tick — see
-    /// `nextUpCountdownAnchorTime`'s doc comment. Purely a "rising edge"
-    /// detector: once set, the anchor is left alone as `currentTime`
-    /// progresses naturally forward through the segment (letting a live
-    /// countdown actually count down and complete), and only re-derived
-    /// when `currentTime` (re-)enters the segment from outside it — which
-    /// `seek(to:)` engineers to be true again immediately after any
-    /// explicit jump, by clearing the anchor first.
+    /// Called from `onTimeUpdate` on every engine tick. A rising-edge detector:
+    /// once set, the anchor is left alone as `currentTime` moves forward through
+    /// the segment, letting a countdown complete, and re-derived only when
+    /// `currentTime` re-enters from outside — which `seek(to:)` arranges after
+    /// any explicit jump by clearing the anchor first.
     private func updateNextUpCountdownAnchor() {
         guard let endCreditsSegment, currentTime >= endCreditsSegment.startSeconds else {
             nextUpCountdownAnchorTime = nil
@@ -297,76 +315,42 @@ final class PlayerViewModel {
         }
     }
 
-    /// Seconds remaining before this episode ends, while the "Up Next"
-    /// prompt should be showing — `nil` otherwise (no next episode
-    /// resolved yet, the feature's off, dismissed for this session, or
-    /// simply outside the countdown window). Derived purely from `duration`/
-    /// `currentTime`, with no separate `Timer`/countdown `Task` of its own:
-    /// `currentTime` already ticks ~10x/sec during playback via
-    /// `onTimeUpdate` and holds steady while paused, so this value updates
-    /// and freezes for free, the same way `sourceTime` does.
+    /// Seconds remaining while the Up Next prompt should show; `nil` otherwise —
+    /// no next episode, the feature off, dismissed this session, or outside the
+    /// countdown window. Derived from `duration` and `currentTime` with no
+    /// `Timer` of its own: `currentTime` already ticks ~10x a second and holds
+    /// steady while paused, so this updates and freezes for free.
     ///
-    /// Clamped to `0` rather than excluded once `remaining` reaches or
-    /// passes it — confirmed live (2026-08-17) that `currentTime` doesn't
-    /// reliably stop exactly at `duration`: the transport clock kept
-    /// advancing past the item's real end even once it had stopped
-    /// actually playing, which used to push `remaining` negative and fail
-    /// an earlier `remaining > 0` guard here. That guard's intent (clear
-    /// the prompt right at the real end rather than overlap with today's
-    /// unchanged end-of-playback behavior) was correct, but excluding `0`
-    /// meant this value could jump straight from `1` to `nil` and skip `0`
-    /// entirely — silently breaking `PlayerView`'s `.onChange(of:
-    /// nextUpSecondsRemaining)` auto-advance trigger, which only fires on
-    /// an exact `0`. Reaching `advanceToNextEpisode()` (Play Now, or that
-    /// auto-trigger) is itself what clears this prompt now, by tearing this
-    /// `PlayerView` instance's content down, so there's no longer a reason
-    /// to hide it early anyway.
+    /// Clamped to `0` rather than excluded once `remaining` reaches it.
+    /// `currentTime` doesn't reliably stop at `duration` — the transport clock
+    /// keeps advancing past the item's real end — so an earlier `remaining > 0`
+    /// guard let this jump from `1` straight to `nil`, skipping the exact `0`
+    /// that `PlayerView`'s auto-advance trigger fires on. Reaching
+    /// `advanceToNextEpisode()` is itself what clears the prompt now.
     ///
-    /// Also suppressed for as long as `isPictureInPictureActive` is true —
-    /// found live (2026-08-17): auto-advancing while in PiP tears down
-    /// `AetherPlaybackEngine` (and with it, the `AVPictureInPictureController`
-    /// it owns), closing the user's PiP window out from under them with no
-    /// guarantee it comes back (auto-PiP only re-triggers on a fresh
-    /// foreground→background transition, so a next episode that mounts
-    /// while already backgrounded just plays invisibly). `NextUpOverlay`
-    /// is already fully covered by `PictureInPictureOverlay`'s own
-    /// placeholder while PiP is active — see `PlayerView`'s ZStack — so
-    /// this just makes the underlying state match what's already true on
-    /// screen, rather than actually freezing/resuming anything: the moment
-    /// PiP ends, this recomputes fresh from wherever `duration`/`currentTime`
-    /// actually are, same as it would after being dismissed for any other
-    /// reason above.
+    /// Suppressed while `isPictureInPictureActive`: auto-advancing in PiP tears
+    /// down the engine and the `AVPictureInPictureController` it owns, closing
+    /// the PiP window with no guarantee it returns — auto-PiP only re-triggers on
+    /// a fresh foreground-to-background transition, so a next episode mounting
+    /// while backgrounded plays invisibly. `PictureInPictureOverlay` already
+    /// covers `NextUpOverlay` then, so this only makes the state match the
+    /// screen; it recomputes the moment PiP ends.
     ///
-    /// **End-credits override:** when this item has an `endCreditsSegment`,
-    /// that segment's start time fully replaces the duration-relative
-    /// trigger above — the configured `countdownSeconds` preference plays
-    /// no role in *when* this fires once such a segment exists, only in
-    /// *whether* Up Next is enabled at all. The card appears the instant
-    /// the segment starts and counts down `endCreditsCountdownTotalSeconds`
-    /// from there, regardless of how that compares to the preference
-    /// window: a segment starting later than the preference would have
-    /// fired stays hidden until the segment itself starts (no early
-    /// duration-relative fallback), and one starting earlier fires right
-    /// then rather than waiting for the preference's own window. Confirmed
-    /// with the user (2026-08-17) this is the intended behavior in both
-    /// directions, not just "whichever fires first."
+    /// **End-credits override:** an `endCreditsSegment`'s start time replaces the
+    /// duration-relative trigger entirely, leaving the `countdownSeconds`
+    /// preference to govern only whether Up Next is enabled. The card appears as
+    /// the segment starts and counts down `endCreditsCountdownTotalSeconds`,
+    /// however that compares to the preference window — a later segment stays
+    /// hidden until it starts, and an earlier one fires then. This is the
+    /// intended behaviour in both directions, not whichever fires first.
     ///
-    /// The countdown is timed from `nextUpCountdownAnchorTime`, not
-    /// `endCreditsSegment.startSeconds` directly — see that property's own
-    /// doc comment for the scrub-landing-past-the-trigger-point bug
-    /// (2026-08-18) this distinction fixes.
+    /// Timed from `nextUpCountdownAnchorTime` rather than the segment's start,
+    /// for the scrub-landing bug that property documents.
     ///
-    /// Truncates (`Int(remaining)`) rather than rounding up — confirmed
-    /// live (2026-08-18): rounding up made this consistently read one
-    /// *higher* than the scrubber's own "time remaining" label
-    /// (`PlayerControlsOverlay.endTimeText`/`formatTime`, which truncates),
-    /// since a fractional `remaining` almost never lands on an exact whole
-    /// second — e.g. landing a scrub where the scrubber itself reads "0:06"
-    /// remaining (truncating anything in `[6, 7)`) showed `7` here instead
-    /// of `6` whenever the true remaining time was, say, `6.4s`. Truncating
-    /// here instead matches that convention. `max(0, ...)` below still
-    /// covers the clamp-at-`0` case documented above unchanged — a negative
-    /// `remaining` truncates to a negative `Int` same as it rounded to one.
+    /// Truncates rather than rounds up, matching
+    /// `PlayerControlsOverlay.formatTime`: a fractional `remaining` rarely lands
+    /// on a whole second, so rounding up read one higher than the scrubber's own
+    /// remaining-time label.
     var nextUpSecondsRemaining: Int? {
         guard nextEpisode != nil, !isNextUpDismissed, !isPictureInPictureActive,
               let countdownSeconds = nextUpPreferenceStore.countdownSeconds,
@@ -421,8 +405,7 @@ final class PlayerViewModel {
         trackPreferenceStore: TrackPreferenceStore = TrackPreferenceStore(),
         nextUpPreferenceStore: NextUpPreferenceStore = NextUpPreferenceStore(),
         streamPreferenceStore: StreamPreferenceStore = StreamPreferenceStore(),
-        // Non-nil routes this whole session through the offline playback
-        // path — see the `downloadedItem` property's own doc comment.
+        // Non-nil routes this session through the offline playback path.
         downloadedItem: DownloadedItem? = nil,
         downloadStore: DownloadStore? = nil,
         playbackQueue: [MediaItem] = []
@@ -443,13 +426,10 @@ final class PlayerViewModel {
         engine.onStateChange = { [weak self] state in
             guard let self else { return }
             self.state = state
-            // A terminal engine failure used to be silent: `state` updated,
-            // but nothing derived `errorMessage` from it, so the video just
-            // froze on its last frame with no spinner and no message — the
-            // only place `.failed` was ever visible was the diagnostics-only
-            // "stats for nerds" overlay. `PlayerView`'s error overlay reads
-            // `errorMessage`, so it needs to actually be set here too, not
-            // just from `start()`'s own `catch`.
+            // `PlayerView`'s error overlay reads `errorMessage`, so a terminal
+            // engine failure must set it here as well as in `start()`'s catch.
+            // Otherwise the video freezes on its last frame with no spinner and
+            // no message, `.failed` being visible only in the stats overlay.
             if case .failed(let failure) = state {
                 self.progressReportTask?.cancel()
                 self.errorMessage = failure.message
@@ -457,21 +437,41 @@ final class PlayerViewModel {
             }
         }
         engine.onTimeUpdate = { [weak self] time, duration in
-            self?.currentTime = time
-            self?.duration = duration
-            self?.updateNextUpCountdownAnchor()
+            guard let self else { return }
+            self.currentTime = time
+            self.duration = duration
+            self.updateNextUpCountdownAnchor()
+            // Item time on a transcode, the axis `assSeekHold` counts playback on.
+            if self.assSeekHold != nil {
+                self.assSeekHold?.observeItemTime(time)
+                self.applyASSRenderTime()
+            }
         }
         engine.onSubtitleCuesChange = { [weak self] cues in self?.subtitleCues = cues }
-        engine.onSourceTimeUpdate = { [weak self] sourceTime in self?.sourceTime = sourceTime }
+        engine.onSourceTimeUpdate = { [weak self] sourceTime in
+            guard let self else { return }
+            self.sourceTime = sourceTime
+            self.applyASSRenderTime()
+        }
+        engine.onSourceTimeFollowsPictureChange = { [weak self] follows in
+            guard let self else { return }
+            self.sourceTimeFollowsPicture = follows
+            guard self.assSeekHold != nil else { return }
+            self.assSeekHold?.observeFollowsPicture(follows)
+            self.applyASSRenderTime()
+        }
         engine.onPictureInPicturePossibleChange = { [weak self] possible in self?.isPictureInPicturePossible = possible }
         engine.onPictureInPictureActiveChange = { [weak self] active in self?.isPictureInPictureActive = active }
+        engine.onSubtitleTrackChange = { [weak self] id in self?.handleSubtitleTrackChange(id) }
+        // The render session is a plain object, so it pokes the view model to
+        // re-run the overlay's body.
+        assRenderSession.onFrameChange = { [weak self] in self?.assFrameGeneration &+= 1 }
     }
 
-    /// - Parameter resumeSeconds: When provided, seeks here after loading
-    ///   instead of consulting `mediaItem.resumePositionSeconds` (the
-    ///   server's last-known position, which may be stale/unrelated) —
-    ///   used to resume in place after a connectivity-loss retry, where
-    ///   the caller already knows exactly where playback stopped.
+    /// - Parameter resumeSeconds: Seeks here after loading instead of consulting
+    ///   the server's possibly-stale `resumePositionSeconds`. Used to resume in
+    ///   place after a connectivity-loss retry, where the caller knows exactly
+    ///   where playback stopped.
     func start(resumeSeconds: TimeInterval? = nil) async {
         errorMessage = nil
         failureCategory = nil
@@ -481,42 +481,31 @@ final class PlayerViewModel {
         }
         do {
             let images = await client.makeImageURLBuilder()
-            // `detailFieldsWithTrickplay`, not the plain default — this is
-            // the one caller of `item(userID:itemID:)` that actually needs
-            // `Trickplay` (for `trickplayProvider` below); see that
-            // parameter's own doc comment for why the shared default
-            // doesn't carry it for every other caller too.
+            // The one caller of `item(userID:itemID:)` needing `Trickplay`, for
+            // `trickplayProvider` below.
             let dto = try await client.item(userID: userID, itemID: itemID, fields: JellyfinAPIClient.detailFieldsWithTrickplay)
-            // AUDIO SUPPRESSION: the other structurally-required safety net
-            // (see `AssetDetailView`'s matching guard) — `/Items/{itemId}`
-            // has no server-side type filter, so if a `PlaybackRequest` for
-            // an audio item ever reaches this far (a raw request bypassing
-            // the detail screen, a future bug), stop before handing an
-            // audio stream to a playback engine built for video. Once
-            // Dionysus Player supports audio/music playback, rewire this to
-            // route to an audio-capable engine instead of bailing.
+            // AUDIO SUPPRESSION: `/Items/{itemId}` has no server-side type
+            // filter, so stop here before handing an audio stream to an engine
+            // built for video, should a request bypass the detail screen. Route
+            // to an audio-capable engine once one exists.
             guard !dto.isAudioContent else {
                 errorMessage = String(localized: "Audio and music playback aren't supported.")
                 return
             }
             let mediaItem = MediaItem(dto: dto, images: images)
             item = mediaItem
-            // Straight off the DTO just fetched — no separate request, see
-            // `chapters`' own doc comment.
+            // Straight off the DTO just fetched; no separate request.
             chapters = mediaItem.chapters
-            // Title/subtitle land immediately so the lock screen/Control
-            // Center have *something* as soon as this resolves — artwork
-            // trails in separately once fetched (see
-            // `loadNowPlayingArtwork(for:)`), rather than blocking on it.
+            // Title and subtitle land immediately so the lock screen has
+            // something; artwork trails in via `loadNowPlayingArtwork(for:)`
+            // rather than blocking this.
             engine.setNowPlayingInfo(title: mediaItem.railTitle, subtitle: mediaItem.railSubtitle, artwork: nil)
             loadNowPlayingArtwork(for: mediaItem)
             loadNextUpItem(for: mediaItem, images: images)
             loadMediaSegments(for: mediaItem)
 
-            // A `DeviceProfile` is only built/sent in "Allow Transcoding"
-            // mode — `nil` here reproduces the app's original,
-            // non-negotiated request exactly, so Direct Play Always stays
-            // byte-for-byte unchanged.
+            // A `DeviceProfile` is built only in "Allow Transcoding" mode; `nil`
+            // leaves Direct Play Always sending a non-negotiated request.
             let deviceProfile: DeviceProfile?
             let maxStreamingBitrate: Int?
             if streamPreferenceStore.decisionMode == .allowTranscoding {
@@ -530,9 +519,8 @@ final class PlayerViewModel {
                 itemID: itemID, userID: userID, mediaSourceID: requestedMediaSourceID,
                 deviceProfile: deviceProfile, maxStreamingBitrate: maxStreamingBitrate
             )
-            // The requested id might not match anything (stale preference
-            // for a version since removed from the server, say) — fall back
-            // to the server's own default rather than failing outright.
+            // The requested id may match nothing — a stale preference for a
+            // removed version — so fall back to the server's default.
             let source = requestedMediaSourceID.flatMap { id in playbackInfo.mediaSources?.first { $0.id == id } }
                 ?? playbackInfo.mediaSources?.first
             activeMediaSourceID = source?.id
@@ -545,12 +533,10 @@ final class PlayerViewModel {
                 trickplayProvider = TrickplayThumbnailProvider(itemID: itemID, info: info, imageURLBuilder: images)
             }
 
-            // `transcodingUrl`'s presence/absence is the server's actual
-            // direct-play-vs-transcode verdict (only ever populated in
-            // "Allow Transcoding" mode) — see `MediaSourceInfo
-            // .transcodingUrl`'s doc comment. Falls back to the existing
-            // direct-play `streamURL` builder whenever it's absent, which
-            // is unconditionally true in Direct Play Always mode.
+            // `transcodingUrl`'s presence is the server's direct-play-versus-
+            // transcode verdict, and it is populated only in "Allow Transcoding"
+            // mode. Absent — always, in Direct Play Always — this falls back to
+            // the `streamURL` builder.
             let url: URL
             let isRemoteHLS: Bool
             if let transcodingPath = source?.transcodingUrl,
@@ -567,22 +553,38 @@ final class PlayerViewModel {
             }
 
             var externalSubtitles: [ExternalSubtitleSource] = []
+            let sidecarStreams = Self.externalSubtitleStreams(
+                from: source?.mediaStreams ?? [], isRemoteHLS: isRemoteHLS
+            )
             if let source, let mediaSourceID = source.id {
                 externalSubtitles = await Self.externalSubtitleSources(
-                    itemID: itemID, mediaSourceID: mediaSourceID, mediaStreams: source.mediaStreams ?? [], client: client
+                    itemID: itemID, mediaSourceID: mediaSourceID, streams: sidecarStreams, client: client
                 )
             }
+            // Kept in the order they were registered, so a track selected later
+            // can be mapped back to the stream it was built from.
+            self.externalSubtitleStreams = sidecarStreams
+            self.mediaStreams = source?.mediaStreams ?? []
+            self.mediaAttachments = source?.mediaAttachments ?? []
+            // `start()` runs again on a retry and on a resume-in-place (see
+            // `PlayerView`), so any cached font fetch belongs to the previous
+            // attempt. Clearing it matters most for the retry: whatever made
+            // playback fail plausibly failed the attachment fetch too, and
+            // keeping that empty result would leave the recovered session
+            // permanently unstyled.
+            self.assFontTask = nil
+            self.fetchedASSFonts = []
             let atmosAudioTrackIndices = Self.atmosAudioTrackIndices(from: source?.mediaStreams ?? [])
 
+            isRemoteHLSSession = isRemoteHLS
             try await engine.load(
                 url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: atmosAudioTrackIndices, isRemoteHLS: isRemoteHLS
             )
             applyStoredTrackSelection()
-            // An explicit `resumeSeconds` (connectivity-loss retry, resuming
-            // exactly where playback stopped) always wins over the server's
-            // last-known resume position and ignores `startFromBeginning` —
-            // this is recovering an already-started session, not honoring
-            // an intentional "play from the top" request.
+            // An explicit `resumeSeconds` wins over the server's last-known
+            // position and ignores `startFromBeginning`: this recovers an
+            // already-started session rather than honouring a play-from-the-top
+            // request.
             if let resumeSeconds, resumeSeconds > 0 {
                 await engine.seek(to: resumeSeconds)
             } else if !startFromBeginning, let resumeSeconds = mediaItem.resumePositionSeconds, resumeSeconds > 0 {
@@ -593,23 +595,15 @@ final class PlayerViewModel {
             try? await client.reportPlaybackStart(itemID: itemID, mediaSourceID: activeMediaSourceID, playSessionID: activePlaySessionID)
             startProgressReporting()
         } catch is CancellationError {
-            // A superseded load (rapid next-episode navigation, backing out
-            // mid-load) — not a playback failure, see `AetherPlaybackEngine
-            // .load(...)`'s own doc comment on why this is filtered here
-            // rather than at that throw site.
+            // A superseded load — rapid next-episode navigation, or backing out
+            // mid-load — not a playback failure.
         } catch let loadFailure as PlaybackLoadFailure {
-            // `state` must move to `.failed` here too, not just
-            // `errorMessage`/`failureCategory` — `AetherPlaybackEngine
-            // .load(...)` deliberately suppresses the matching `.error`
-            // phase it would otherwise also bridge through `onStateChange`
-            // for this same failure (AetherEngine's own docs: a
-            // source-open/probe/route failure both throws *and* publishes
-            // `.error`, "on purpose"), so `onStateChange` — the only other
-            // place `state` gets set to `.failed` — never fires for this
-            // path. Without this, `state` stays stuck on whatever it was
-            // mid-load (`.loading`/`.buffering`/`.seeking`), which left
-            // `PlayerControlsOverlay`'s buffering spinner rendered on top of
-            // the error overlay (confirmed live, 2026-08-24).
+            // `state` must reach `.failed` here, not just `errorMessage`:
+            // `AetherPlaybackEngine.load(...)` suppresses the matching `.error`
+            // phase it would otherwise bridge through `onStateChange`, the only
+            // other place `state` becomes `.failed`. Without this it stays stuck
+            // wherever the load left it, rendering
+            // `PlayerControlsOverlay`'s buffering spinner over the error overlay.
             state = .failed(loadFailure.failure)
             errorMessage = loadFailure.failure.message
             failureCategory = loadFailure.failure.category
@@ -619,29 +613,20 @@ final class PlayerViewModel {
         }
     }
 
-    /// Offline counterpart to the network path above — see `downloadedItem`'s
-    /// doc comment and the offline-downloads plan's "Offline playback
-    /// wiring" section. Builds a `file://` playback URL and local
-    /// `ExternalSubtitleSource`s from `DownloadFileStore` instead of
-    /// `client.streamURL`/`subtitleURL`, and skips every network call
-    /// `start()` makes (item fetch, `playbackInfo`, `reportPlaybackStart`,
-    /// next-episode lookup — none of which have anything to fetch offline;
-    /// `nextEpisode` simply stays `nil`, same as any item whose lookup
-    /// fails today) in favor of the download's own stored snapshot
-    /// (`mediaSegments`, resume position). Progress/stop route to
-    /// `writeOfflineProgress(_:)` instead of `reportPlaybackProgress`/
-    /// `reportPlaybackStopped`.
+    /// `start()`'s offline counterpart. Builds a `file://` URL and local
+    /// `ExternalSubtitleSource`s from `DownloadFileStore`, and skips every
+    /// network call `start()` makes — item fetch, `playbackInfo`,
+    /// `reportPlaybackStart`, next-episode lookup — in favour of the download's
+    /// stored snapshot. `nextEpisode` simply stays `nil`. Progress and stop route
+    /// to `writeOfflineProgress(_:)`.
     ///
-    /// `item` is still populated — with a synthetic `MediaItem` built from
-    /// an otherwise-empty `BaseItemDto` carrying just the stored title/
-    /// episode info — purely so `PlayerControlsOverlay`'s existing title
-    /// row keeps working unmodified: no `imageTags` means
-    /// `logoImageURL`/`primaryImageURL` all resolve to `nil` on `item`
-    /// itself, which is why the logo comes from `offlineLogoURL` (below)
-    /// instead — a real, already-downloaded local file, not a network fetch
-    /// against a placeholder URL. Without it, `titleRow` fell back to plain
-    /// title text for every downloaded item, even ones with a perfectly
-    /// good cached logo sitting on disk (confirmed live, 2026-08-27).
+    /// `item` is still populated, with a synthetic `MediaItem` built from an
+    /// otherwise-empty `BaseItemDto` carrying the stored title and episode info,
+    /// so `PlayerControlsOverlay`'s title row works unmodified. With no
+    /// `imageTags` its image URLs all resolve to `nil`, which is why the logo
+    /// comes from `offlineLogoURL` — a downloaded local file. Without that,
+    /// `titleRow` fell back to title text for every download, including ones with
+    /// a cached logo on disk.
     private func startOffline(_ downloadedItem: DownloadedItem, resumeSeconds: TimeInterval?) async {
         let dto = BaseItemDto(
             id: downloadedItem.itemID,
@@ -653,28 +638,23 @@ final class PlayerViewModel {
             indexNumber: downloadedItem.episodeNumber,
             parentIndexNumber: downloadedItem.seasonNumber
         )
-        // Any placeholder base URL works: with no `imageTags` on `dto`
-        // above, nothing this builder is capable of building ever actually
-        // gets requested — see this method's own doc comment.
+        // Any placeholder base URL works: with no `imageTags` on `dto`, nothing
+        // this builder can build is ever requested.
         let mediaItem = MediaItem(dto: dto, images: ImageURLBuilder(baseURL: URL(string: "https://offline.invalid")!))
         item = mediaItem
-        // Same `logoImagePath` → local-file-URL resolution
-        // `DownloadedAssetDetailView` uses for its own offline hero header —
-        // `nil` when this download predates logo caching or never had one.
+        // The same `logoImagePath` to file-URL resolution
+        // `DownloadedAssetDetailView` uses; `nil` when this download has no logo.
         offlineLogoURL = downloadedItem.logoImagePath.map(DownloadFileStore.url(forRelativePath:))
         engine.setNowPlayingInfo(title: mediaItem.railTitle, subtitle: mediaItem.railSubtitle, artwork: nil)
 
         activeMediaSourceID = downloadedItem.mediaSourceID
         mediaSegments = downloadedItem.segments.map(PlaybackSegment.init(downloaded:))
         endCreditsSegment = mediaSegments.filter { $0.kind == .outro }.max { $0.startSeconds < $1.startSeconds }
-        // Empty for a download taken before chapter support existed, or one
-        // whose item genuinely had no chapters — same "no chapter UI"
-        // outcome either way, see `chapters`' own doc comment.
+        // Empty for a download predating chapter support, or an item with no
+        // chapters — the same no-chapter-UI outcome either way.
         chapters = downloadedItem.chapters.map(Chapter.init(downloaded:))
-        // `nil` (no scrub thumbnails offline) when this download predates
-        // trickplay support, or its own best-effort fetch at enqueue time
-        // came up empty — see `DownloadedItem.trickplayInfo`'s own doc
-        // comment.
+        // `nil`, so no scrub thumbnails, when this download predates trickplay
+        // support or its best-effort fetch came up empty.
         if let trickplayInfo = downloadedItem.trickplayInfo {
             trickplayProvider = OfflineTrickplayThumbnailProvider(itemID: downloadedItem.itemID, info: trickplayInfo)
         }
@@ -692,6 +672,7 @@ final class PlayerViewModel {
         }
 
         do {
+            isRemoteHLSSession = false
             try await engine.load(url: videoURL, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: [])
             applyStoredTrackSelection()
             if let resumeSeconds, resumeSeconds > 0 {
@@ -702,21 +683,9 @@ final class PlayerViewModel {
             engine.play()
             startOfflineProgressReporting(downloadedItem)
         } catch is CancellationError {
-            // See `start()`'s matching catch — a superseded load, not a
-            // playback failure.
+            // A superseded load, not a playback failure; see `start()`.
         } catch let loadFailure as PlaybackLoadFailure {
-            // `state` must move to `.failed` here too, not just
-            // `errorMessage`/`failureCategory` — `AetherPlaybackEngine
-            // .load(...)` deliberately suppresses the matching `.error`
-            // phase it would otherwise also bridge through `onStateChange`
-            // for this same failure (AetherEngine's own docs: a
-            // source-open/probe/route failure both throws *and* publishes
-            // `.error`, "on purpose"), so `onStateChange` — the only other
-            // place `state` gets set to `.failed` — never fires for this
-            // path. Without this, `state` stays stuck on whatever it was
-            // mid-load (`.loading`/`.buffering`/`.seeking`), which left
-            // `PlayerControlsOverlay`'s buffering spinner rendered on top of
-            // the error overlay (confirmed live, 2026-08-24).
+            // `state` must reach `.failed` here too; see `start()`'s catch.
             state = .failed(loadFailure.failure)
             errorMessage = loadFailure.failure.message
             failureCategory = loadFailure.failure.category
@@ -726,12 +695,9 @@ final class PlayerViewModel {
         }
     }
 
-    /// Fraction of the item played at which offline playback considers it
-    /// "watched" — there's no server to make this judgement call the way
-    /// `reportPlaybackStopped` normally defers to (see that call's doc
-    /// comment elsewhere in this app), so this is a client-side stand-in.
-    /// 90% matches Jellyfin server's own common default resume/played
-    /// threshold.
+    /// Fraction played at which offline playback counts an item watched. There is
+    /// no server to defer that judgement to, so this stands in at Jellyfin's own
+    /// common default threshold.
     private static let offlineWatchedThreshold = 0.9
 
     private func startOfflineProgressReporting(_ downloadedItem: DownloadedItem) {
@@ -745,18 +711,14 @@ final class PlayerViewModel {
         }
     }
 
-    /// Writes local resume/watched state directly onto the `DownloadedItem`
-    /// row and marks it `pendingSync` — the offline counterpart to
-    /// `reportPlaybackProgress`/`reportPlaybackStopped`, which this path
-    /// must never depend on network for. `DownloadSyncManager` is what
-    /// eventually pushes this to the server, once reconnected.
+    /// Writes resume and watched state onto the `DownloadedItem` row and marks it
+    /// `pendingSync`: the offline counterpart to the `reportPlayback*` calls,
+    /// which this path must never need. `DownloadSyncManager` pushes it to the
+    /// server once reconnected.
     ///
-    /// `currentTime`/`duration` default to this view model's own live
-    /// properties (the periodic-reporting call site below wants exactly
-    /// that — the freshest value at the moment it's called, nothing has
-    /// stopped), but `stop()` passes pre-captured values explicitly instead
-    /// — see that call site's own comment for why relying on the implicit
-    /// read there specifically would be fragile.
+    /// `currentTime`/`duration` default to this view model's live properties,
+    /// which is what the periodic call site wants. `stop()` passes pre-captured
+    /// values instead, for the reason its own comment gives.
     private func writeOfflineProgress(_ downloadedItem: DownloadedItem, currentTime: TimeInterval? = nil, duration: TimeInterval? = nil) {
         let currentTime = currentTime ?? self.currentTime
         let duration = duration ?? self.duration
@@ -770,23 +732,18 @@ final class PlayerViewModel {
             downloadedItem.resumePositionTicks = Int64(currentTime * 10_000_000)
             downloadedItem.playedPercentage = fraction * 100
         }
-        // The real, on-device moment this actually happened — see
-        // `DownloadedItem.lastPlayedAt`'s doc comment for why this has to
-        // be captured here (while it's genuinely happening, possibly
-        // fully offline) rather than left for the server to infer once
-        // `DownloadSyncManager` eventually reaches it, which could be
-        // hours or days later.
+        // Captured here, while it is happening and possibly fully offline, rather
+        // than left for the server to infer when `DownloadSyncManager` reaches it
+        // days later.
         downloadedItem.lastPlayedAt = Date()
         downloadedItem.pendingSync = true
         downloadStore?.save()
     }
 
-    /// Fire-and-forget: fetches the item's poster (if it has one) via
-    /// `RemoteImageLoader` and re-stages the full Now Playing info with it
-    /// once it resolves — title/subtitle already went in synchronously in
-    /// `start()`, this only ever adds artwork on top. A failed/absent fetch
-    /// just leaves Now Playing without artwork, same as before this ran;
-    /// nothing here can fail `start()` itself.
+    /// Fire-and-forget: fetches the poster and re-stages Now Playing with it.
+    /// Title and subtitle already went in synchronously in `start()`, so this only
+    /// adds artwork. A failed fetch leaves Now Playing without it, and nothing
+    /// here can fail `start()`.
     private func loadNowPlayingArtwork(for item: MediaItem) {
         guard let artworkURL = item.primaryImageURL else { return }
         Task { [weak self] in
@@ -795,28 +752,19 @@ final class PlayerViewModel {
         }
     }
 
-    /// Resolves `nextEpisode` for the "Up Next" prompt — see that
-    /// property's own doc comment for the two modes this picks between.
+    /// Resolves `nextEpisode` for the Up Next prompt, in the two modes that
+    /// property documents.
     ///
-    /// Queue mode (`playbackQueue` non-empty) resolves synchronously: the
-    /// whole ordered, already-fetched-with-images array is already sitting
-    /// in memory, so there's nothing to await and no failure mode beyond
-    /// "not found" (falls straight through to leaving `nextEpisode` as
-    /// whatever it already was, same as the episode path's failed-fetch
-    /// case) or "already last" (`nextEpisode` stays `nil`). It wins
-    /// outright over the episode path below, even for an Episode reached
-    /// via a playlist — the playlist's explicit order is the whole point of
-    /// this mode, so it shouldn't silently fall back to that episode's own
-    /// series/season position instead.
+    /// Queue mode resolves synchronously — the ordered array is already in memory
+    /// — with no failure beyond not-found, leaving `nextEpisode` as it was, or
+    /// already-last, leaving it `nil`. It wins outright over episode mode, even
+    /// for an episode reached via a playlist: the playlist's explicit order is the
+    /// point, and it shouldn't fall back to that episode's series position.
     ///
-    /// Episode mode (fire-and-forget, same shape as
-    /// `loadNowPlayingArtwork(for:)`) resolves via `JellyfinAPIClient
-    /// .nextEpisode(...)` — see that method's doc comment for why this
-    /// can't use `nextUp(...)` instead. A no-op for non-episode content or
-    /// an episode DTO missing `seriesId`/`seasonId` (shouldn't happen in
-    /// practice, but there's nothing to look up without them); a failed
-    /// fetch just leaves `nextEpisode` `nil`, the same "bonus, not a
-    /// requirement" treatment `start()` already gives external subtitles.
+    /// Episode mode is fire-and-forget via `JellyfinAPIClient.nextEpisode(...)`,
+    /// which can answer this where `nextUp(...)` can't. A no-op for non-episode
+    /// content or an episode DTO missing `seriesId`/`seasonId`; a failed fetch
+    /// leaves `nextEpisode` `nil`.
     private func loadNextUpItem(for item: MediaItem, images: ImageURLBuilder) {
         if !playbackQueue.isEmpty {
             guard let index = playbackQueue.firstIndex(where: { $0.id == item.id }),
@@ -835,26 +783,18 @@ final class PlayerViewModel {
         }
     }
 
-    /// The "Up Next" prompt's Cancel button — see `isNextUpDismissed`'s doc
-    /// comment for why this sticks for the rest of this item's playback
-    /// rather than just hiding the card once.
+    /// The Up Next prompt's Cancel button; `isNextUpDismissed` covers why this
+    /// sticks for the rest of the item rather than hiding the card once.
     func dismissNextUp() {
         isNextUpDismissed = true
     }
 
-    /// Fire-and-forget, same shape as the episode-mode half of
-    /// `loadNextUpItem(for:images:)`: resolves `mediaSegments` via
-    /// `JellyfinAPIClient.mediaSegments(itemID:)`. Unlike that, this isn't
-    /// episode-only — movies get
-    /// Skip Intro/Recap/etc. too. A failed fetch (including an older server
-    /// that doesn't support the Media Segments feature at all) just leaves
-    /// `mediaSegments` empty, the same "bonus, not a requirement" treatment
-    /// external subtitles and `nextEpisode` already get.
+    /// Fire-and-forget, like `loadNextUpItem(for:images:)`'s episode mode, but
+    /// not episode-only: movies get Skip Intro too. A failed fetch, including an
+    /// older server without the Media Segments feature, leaves `mediaSegments`
+    /// empty — a bonus rather than a requirement, like external subtitles.
     ///
-    /// Also derives `endCreditsSegment` here, alongside `mediaSegments`
-    /// itself — see that property's own doc comment for why it's cached at
-    /// this single point rather than recomputed from `mediaSegments` on
-    /// every read.
+    /// Also derives `endCreditsSegment` here, which that property explains.
     private func loadMediaSegments(for item: MediaItem) {
         Task { [weak self] in
             guard let dtos = try? await self?.client.mediaSegments(itemID: item.id) else { return }
@@ -864,39 +804,496 @@ final class PlayerViewModel {
         }
     }
 
-    /// `SkipSegmentOverlay`'s button — records the segment as skipped (see
-    /// `skippedSegmentIDs`, which immediately hides its button via
-    /// `currentSkipSegment` rather than waiting for the seek below to
-    /// actually land) and jumps to the end of the segment, reusing
-    /// `seek(to:)` verbatim.
+    /// `SkipSegmentOverlay`'s button: records the segment as skipped, which hides
+    /// the button at once through `currentSkipSegment` rather than waiting for
+    /// the seek to land, then jumps to the segment's end via `seek(to:)`.
     func skipSegment(_ segment: PlaybackSegment) {
         skippedSegmentIDs.insert(segment.id)
         seek(to: segment.endSeconds)
     }
 
-    /// `SkipSegmentOverlay`'s swipe-to-dismiss gesture and its VoiceOver-only
-    /// close button — records the segment the same way `skipSegment(_:)`
-    /// does, so the button disappears for the rest of this segment's window
-    /// and `currentSkipSegment` never resurrects it, but deliberately does
-    /// **not** seek: dismissing just means "stop offering to skip this," not
-    /// "skip it anyway." Playback continues exactly where it already was.
+    /// `SkipSegmentOverlay`'s swipe-to-dismiss and its VoiceOver close button.
+    /// Records the segment as `skipSegment(_:)` does, so the button stays gone
+    /// for this segment's window, but does not seek: dismissing means stop
+    /// offering to skip, not skip anyway.
     func dismissSkipSegment(_ segment: PlaybackSegment) {
         skippedSegmentIDs.insert(segment.id)
     }
 
-    /// Maps the `isExternal == true` subtitle `MediaStream`s off a resolved
-    /// `MediaSourceInfo` into `ExternalSubtitleSource`s AetherEngine can
-    /// register alongside the load — see `ExternalSubtitleSource`'s doc
-    /// comment and `JellyfinAPIClient.subtitleURL`'s for why the URL is
-    /// built from `itemID`/`mediaSourceID`/`stream.index` rather than read
-    /// off the stream itself. A URL `subtitleURL` can't resolve is skipped
-    /// rather than failing the whole load; external subtitles are a bonus,
-    /// not a requirement to play.
+    /// Maps a resolved source's external subtitle streams into
+    // MARK: - Authored ASS styling
+
+    private static let assLog = Logger(subsystem: "com.dionysus.player", category: "ass-subtitles")
+
+    /// Resolve a newly selected subtitle track to a complete ASS script, or tear
+    /// the libass renderer down when the selection isn't an authored-ASS track.
+    ///
+    /// Only ASS/SSA goes to libass. Everything else — SubRip, WebVTT, teletext,
+    /// bitmap — keeps rendering through `SubtitleOverlayView`'s own path on
+    /// AetherEngine's cues, unchanged.
+    private func handleSubtitleTrackChange(_ id: Int?) {
+        guard let id else {
+            assScriptTask?.cancel()
+            fetchingASSTrackID = nil
+            clearStyledASS()
+            return
+        }
+        // Already serving, or already fetching, this track — the engine re-emits
+        // the selection on its own reloads and on every track-list republish.
+        guard id != loadedASSTrackID, id != fetchingASSTrackID else { return }
+
+        // The track list is republished separately from the selected index, so a
+        // selection can briefly name a track that isn't in the list yet. That is
+        // not "the selection isn't ASS" — leaving the current state alone lets
+        // the next emission resolve it.
+        guard let track = engine.subtitleTracks.first(where: { $0.id == id }) else { return }
+
+        Self.assLog.debug("subtitle track -> \(id) codec=\(track.codec ?? "nil") external=\(track.isExternal)")
+        assScriptTask?.cancel()
+        // Drop the outgoing renderer before anything else, including when the
+        // new track is itself ASS. Jellyfin extracts an embedded track on
+        // demand and the first request for a large file can take over a minute,
+        // so without this the PREVIOUS track's styled lines would stay on
+        // screen for the whole fetch — wrong subtitles, not merely unstyled
+        // ones. Cleared, `SubtitleOverlayView` falls back to its own path on
+        // AetherEngine's cues, which are already flowing for the newly selected
+        // track, and upgrades to styled when the script lands.
+        clearStyledASS()
+        // The single gate for the setting. Disabled, an ASS track is treated
+        // exactly like a SubRip one — `clearStyledASS()` above has already
+        // handed the screen back to `SubtitleOverlayView`'s own path on
+        // AetherEngine's cues, so the track still renders, just unstyled.
+        guard Self.isAuthoredASS(track.codec), Self.isStyledASSEnabled() else {
+            fetchingASSTrackID = nil
+            return
+        }
+        fetchingASSTrackID = id
+        assScriptTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if self.fetchingASSTrackID == id { self.fetchingASSTrackID = nil } }
+            let started = CFAbsoluteTimeGetCurrent()
+            let source = await self.assScriptSource(for: track)
+            guard let source, let script = await Self.loadScript(from: source) else {
+                Self.assLog.error("ass script unavailable for track \(id)")
+                if !Task.isCancelled { self.clearStyledASS() }
+                return
+            }
+            guard !Task.isCancelled,
+                  self.engine.subtitleTracks.first(where: \.isSelected)?.id == id else { return }
+            Self.assLog.debug("ass script loaded for track \(id): \(script.count)B, \(self.engine.fontAttachments.count) embedded fonts, fetch \(String(format: "%.1f", CFAbsoluteTimeGetCurrent() - started))s")
+            self.assScript = script
+            self.loadedASSTrackID = id
+            self.isRenderingStyledASS = true
+            self.applyPendingASSScript()
+            // libass now owns the paint, so AVKit must not also draw this
+            // track. It would be drawing it on a server transcode: the app's
+            // sidecars are declared as real HLS renditions there, so selecting
+            // one hands the drawing to AVPlayer, and the viewer got the system
+            // caption and the authored one at once.
+            //
+            // On that route the rendition stays selected with its drawing
+            // suppressed rather than deselected, because AVPlayer's timing of
+            // it is what AetherEngine measures the picture against (see
+            // `ASSSeekHold`).
+            //
+            // Deliberately only once the script has actually landed. Turning it
+            // off at selection would leave a failed or still-running fetch with
+            // nothing drawing at all — and on that route there is nothing to
+            // fall back to, since AetherEngine publishes no cues for a track
+            // AVPlayer is rendering.
+            //
+            // PiP is unaffected: AVKit draws the rendition itself there,
+            // because the app's overlay isn't inside the captured layer, and
+            // `AetherPlaybackEngine` hands it back on either route.
+            if self.isRemoteHLSSession {
+                self.assSeekHold = ASSSeekHold(followsPicture: self.sourceTimeFollowsPicture)
+                self.engine.setNativeSubtitleCapture(true)
+            } else {
+                self.engine.setNativeSubtitleRendering(false)
+            }
+            self.applyASSRenderTime()
+
+            // Fonts follow the script rather than gating it. On the common
+            // (direct-play) path the engine already has them and the load
+            // above already used them, so this returns without suspending and
+            // nothing is loaded twice. Only a route with no local demux
+            // reaches a fetch, and there a script whose faces are still
+            // downloading is better rendered now in a fallback face and
+            // re-rendered in its own when they land than withheld for as long
+            // as the fonts take — which, for a CJK release shipping several
+            // megabytes of faces over a slow link, is a long time to show
+            // nothing.
+            guard self.engine.fontAttachments.isEmpty else { return }
+            let fonts = await self.resolveFetchedASSFonts()
+            guard !fonts.isEmpty, !Task.isCancelled, self.loadedASSTrackID == id else { return }
+            Self.assLog.debug("ass fonts resolved for track \(id): \(fonts.count)")
+            self.fetchedASSFonts = fonts
+            self.applyPendingASSScript()
+        }
+    }
+
+    private func clearStyledASS() {
+        assScript = nil
+        loadedASSTrackID = nil
+        isRenderingStyledASS = false
+        assRenderSession.teardown()
+        if assSeekHold != nil {
+            assSeekHold = nil
+            engine.setNativeSubtitleCapture(false)
+        }
+        applyASSRenderTime()
+    }
+
+    /// Drives libass to the current playhead, through `assSeekHold` when
+    /// there is one. libass renders at a time rather than publishing a cue
+    /// list, so it runs on the same clock the overlay filters cues against.
+    private func applyASSRenderTime() {
+        let renderTime = assSeekHold.map { $0.renderTime(for: sourceTime) } ?? sourceTime
+        let isPending = renderTime == nil
+        // Guarded: this runs on every clock tick, and an `@Observable` write
+        // re-renders the overlay even when the value hasn't changed.
+        if isStyledASSTimingPending != isPending { isStyledASSTimingPending = isPending }
+        guard let renderTime else { return }
+        assRenderTime = renderTime
+        assRenderSession.setTime(renderTime)
+    }
+
+    /// Hands the script and the current overlay geometry to libass together.
+    /// Called from both sides, because either can arrive second: the script
+    /// lands from a fetch, the geometry from `SubtitleOverlayView`'s layout.
+    func setASSGeometry(_ geometry: ASSSubtitleRenderSession.Geometry) {
+        Self.assLog.debug("geometry frame=\(geometry.frame.debugDescription) video=\(geometry.video.debugDescription) safeArea=(t\(geometry.safeArea.top) l\(geometry.safeArea.left) b\(geometry.safeArea.bottom) r\(geometry.safeArea.right)) drawable=\(geometry.drawable.debugDescription)")
+        assGeometry = geometry
+        if assRenderSession.isActive {
+            assRenderSession.updateGeometry(geometry)
+        } else {
+            applyPendingASSScript()
+        }
+    }
+
+    private func applyPendingASSScript() {
+        guard let assScript, let assGeometry else { return }
+        assRenderSession.load(script: assScript, fonts: assFonts, geometry: assGeometry)
+    }
+
+    /// The fonts to render the current script in.
+    private var assFonts: [ASSFontAttachment] {
+        Self.assFonts(engineAttachments: engine.fontAttachments, fetched: fetchedASSFonts)
+    }
+
+    /// AetherEngine's own probe wins whenever it has anything, and `fetched`
+    /// is the fallback for the routes where it never will.
+    ///
+    /// Not a merge. On a direct play the two are the same faces read out of the
+    /// same container, so merging would register every one of them twice; and
+    /// the engine's copy is already in memory, where the fallback costs a
+    /// download or a disk read. The engine having *any* attachment is taken as
+    /// it having demuxed the container — a file with fonts never probes to an
+    /// empty list, so there is no case where it holds some of them and the
+    /// server holds the rest.
+    ///
+    /// Static and pure so the rule can be asserted directly; the instance
+    /// property `assFonts` is the only caller.
+    static func assFonts(
+        engineAttachments: [ASSFontAttachment], fetched: [ASSFontAttachment]
+    ) -> [ASSFontAttachment] {
+        engineAttachments.isEmpty ? fetched : engineAttachments
+    }
+
+    /// Where the selected track's script can be read from.
+    ///
+    /// A downloaded item already has every non-bitmap track on disk as a
+    /// sidecar. Streaming, Jellyfin will extract any subtitle stream — embedded
+    /// included — through `JellyfinAPIClient.subtitleURL`.
+    ///
+    /// Either way the selected track has to be mapped back to the right script,
+    /// and neither side can be matched by id — see
+    /// `downloadedSubtitleFile(forTrack:engineTracks:subtitleFiles:)` and
+    /// `jellyfinStream(forTrack:engineTracks:mediaStreams:)` for why each is an
+    /// ordinal instead.
+    ///
+    /// Non-private so tests can resolve a track without driving a real libass
+    /// load: offline this is fully deterministic and touches no network, and
+    /// the defect worth catching here (every track resolving to the same
+    /// script) lives in this wiring rather than in either mapping.
+    func assScriptSource(for track: PlaybackTrack) async -> ASSScriptSource? {
+        if let downloadedItem {
+            guard let file = Self.registeredSidecar(
+                forTrack: track, engineTracks: engine.subtitleTracks,
+                registered: downloadedItem.subtitleFiles
+            ), Self.isAuthoredASSPath(file.relativePath) else { return nil }
+            return .localFile(DownloadFileStore.url(forRelativePath: file.relativePath))
+        }
+        guard let mediaSourceID = activeMediaSourceID else { return nil }
+        // Two kinds of track reach here and they map differently. A track the
+        // engine demuxed out of the container is paired with its `MediaStream`
+        // by ordinal among embedded ASS entries; a sidecar THIS app registered
+        // is paired with the stream it was built from, by ordinal among
+        // externals. Before the transcode path registered anything, an external
+        // ASS track simply had no mapping and silently rendered unstyled.
+        let stream = track.isExternal
+            ? Self.registeredSidecar(
+                forTrack: track, engineTracks: engine.subtitleTracks, registered: externalSubtitleStreams
+            )
+            : Self.jellyfinStream(
+                forTrack: track, engineTracks: engine.subtitleTracks, mediaStreams: mediaStreams
+            )
+        guard let stream else { return nil }
+        return await client.subtitleURL(
+            itemID: itemID, mediaSourceID: mediaSourceID, streamIndex: stream.index, codec: stream.codec
+        ).map(ASSScriptSource.remote)
+    }
+
+    /// The fonts for this source, fetched at most once per session.
+    ///
+    /// Coalesced through a stored `Task` rather than a "did I already?" flag:
+    /// the engine re-announces the selected track on every track-list
+    /// republish, and `handleSubtitleTrackChange` cancels the previous fetch
+    /// without waiting for it to finish, so two of these can genuinely overlap.
+    /// A flag set before the first `await` would hand the second caller an
+    /// empty list; awaiting the same task hands it the same answer.
+    private func resolveFetchedASSFonts() async -> [ASSFontAttachment] {
+        if let assFontTask { return await assFontTask.value }
+        let task = Task<[ASSFontAttachment], Never> { [weak self] in
+            await self?.fetchASSFonts() ?? []
+        }
+        assFontTask = task
+        return await task.value
+    }
+
+    /// Where the fonts an authored script names come from when AetherEngine
+    /// has none — which is every route that never demuxes the original
+    /// container:
+    ///
+    /// - **A server-side transcode.** The app plays the server's fMP4 HLS
+    ///   through AVPlayer, so nothing local reads the source MKV; and MP4
+    ///   carries no attachments even if it did.
+    /// - **Offline.** The downloaded file is MP4 for the same reason, so
+    ///   `DownloadManager` stores the attachments as sidecars at enqueue and
+    ///   they are read back from disk here.
+    ///
+    /// Streaming, this is the `/Videos/{id}/{source}/Attachments/{index}`
+    /// route. A failure is dropped rather than propagated: a missing face
+    /// renders the script in a fallback one, which is how the app behaved
+    /// before any of this and is not worth failing a subtitle over.
+    private func fetchASSFonts() async -> [ASSFontAttachment] {
+        if let downloadedItem {
+            return Self.assFonts(fromDownloaded: downloadedItem.fontFiles)
+        }
+        guard let mediaSourceID = activeMediaSourceID else { return [] }
+        var fonts: [ASSFontAttachment] = []
+        // Serial rather than a task group: a container carries a handful of
+        // faces (1-4 across every attachment-bearing file in the library this
+        // was measured on), and each one the server has to extract is work it
+        // does one job at a time anyway.
+        for attachment in JellyfinAPIClient.fontAttachments(in: mediaAttachments) {
+            guard !Task.isCancelled,
+                  let url = await client.attachmentURL(
+                      itemID: itemID, mediaSourceID: mediaSourceID, index: attachment.index
+                  ) else { continue }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = Self.fontRequestTimeout
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 200,
+                  !data.isEmpty else { continue }
+            fonts.append(ASSFontAttachment(
+                // The container's own name for the face. Only ever written
+                // back out to a temp file for `CTFontManagerRegisterFontsForURL`
+                // — which reads the face name out of the font's own tables, not
+                // the path — so a container with no name for an attachment can
+                // take one derived from its index.
+                filename: attachment.fileName ?? "attachment-\(attachment.index)",
+                data: data
+            ))
+        }
+        return fonts
+    }
+
+    /// Reads a download's stored font sidecars back into memory.
+    ///
+    /// A file that has gone missing is skipped rather than failing the set: the
+    /// row and its files can diverge (a half-deleted download, a restore that
+    /// brought the database back without the sidecars), and one absent face
+    /// costs a fallback for that face alone.
+    static func assFonts(fromDownloaded files: [DownloadedFontFile]) -> [ASSFontAttachment] {
+        files.compactMap { file in
+            guard let data = try? Data(
+                contentsOf: DownloadFileStore.url(forRelativePath: file.relativePath)
+            ) else { return nil }
+            return ASSFontAttachment(filename: file.fileName, data: data)
+        }
+    }
+
+    /// Shorter than `scriptRequestTimeout`, deliberately. The same on-demand
+    /// extraction is behind both, but the script IS the subtitle while the
+    /// fonts are only how it looks — and since the fetch no longer gates the
+    /// script (see `handleSubtitleTrackChange`), a font the server is slow to
+    /// produce costs nothing but itself.
+    private static let fontRequestTimeout: TimeInterval = 60
+
+    /// What this app registered for an engine subtitle track, by ordinal.
+    ///
+    /// The one rule behind both sidecar paths — a download's stored files and a
+    /// transcode's fetched streams. Neither can be matched by id: AetherEngine
+    /// assigns its own ids to the sidecars a host registers, and they share no
+    /// arithmetic with `DownloadedSubtitleFile.index` or `MediaStream.index`,
+    /// which are Jellyfin's. What does hold is order — the engine reports the
+    /// sidecars in the order they were handed to `load(...)` — so the nth
+    /// external track is the nth registered thing.
+    ///
+    /// Embedded tracks are excluded from the count on purpose. A downloaded MP4
+    /// can carry its own, and a direct-played container certainly does;
+    /// counting them shifts the ordinal exactly as a bitmap stream shifts
+    /// `jellyfinStream`'s.
+    ///
+    /// `nil` when the track isn't one of ours, and when the two sides disagree
+    /// about how many sidecars exist — a registration that silently dropped one
+    /// would slide every ordinal after it, which is the difference between
+    /// showing no subtitle and confidently showing the wrong one.
+    static func registeredSidecar<Registered>(
+        forTrack track: PlaybackTrack,
+        engineTracks: [PlaybackTrack],
+        registered: [Registered]
+    ) -> Registered? {
+        guard track.isExternal else { return nil }
+        let externalTracks = engineTracks.filter(\.isExternal)
+        guard externalTracks.count == registered.count,
+              let ordinal = externalTracks.firstIndex(where: { $0.id == track.id }) else { return nil }
+        return registered[ordinal]
+    }
+
+    /// The Jellyfin `MediaStream` an engine subtitle track came from.
+    ///
+    /// By ordinal rather than by id: AetherEngine numbers an embedded track by
+    /// its `AVStream` index while Jellyfin numbers the same track by its own
+    /// `MediaStream.index`, and the two disagree — confirmed live on two files,
+    /// engine id 2 against Jellyfin index 3 on one and id 5 against index 6 on
+    /// another. Both lists preserve container order, so the nth embedded ASS
+    /// track on one side is the nth on the other.
+    ///
+    /// Both sides are filtered to embedded ASS/SSA before counting. Filtering
+    /// on BOTH properties matters: a file can carry external sidecars and
+    /// bitmap tracks interleaved with the ASS ones, and counting those would
+    /// shift the ordinal. External tracks need no mapping at all — this app
+    /// registered them from these very streams.
+    ///
+    /// `nil` when the track isn't an embedded ASS one, or when the two lists
+    /// disagree about how many there are, which is not a case to guess at.
+    static func jellyfinStream(
+        forTrack track: PlaybackTrack, engineTracks: [PlaybackTrack], mediaStreams: [MediaStream]
+    ) -> MediaStream? {
+        let embeddedTracks = engineTracks.filter { !$0.isExternal && isAuthoredASS($0.codec) }
+        guard let ordinal = embeddedTracks.firstIndex(where: { $0.id == track.id }) else { return nil }
+        let embeddedStreams = mediaStreams.filter {
+            $0.type == "Subtitle" && $0.isExternal != true && isAuthoredASS($0.codec)
+        }
+        guard ordinal < embeddedStreams.count else { return nil }
+        return embeddedStreams[ordinal]
+    }
+
+    /// Whether authored ASS/SSA tracks render through libass at all.
+    ///
+    /// Read at each track selection rather than captured once, so the setting
+    /// applies from the next selection onward without the player having to be
+    /// torn down. Settings are unreachable while the player is up — it is a
+    /// `fullScreenCover` and they live in a tab behind it — so that is as live
+    /// as this can be observed to be.
+    ///
+    /// Takes its `UserDefaults` so a test can pass its own rather than mutate
+    /// the shared domain, and so the UI suite's argument-domain override works
+    /// unchanged.
+    static func isStyledASSEnabled(_ defaults: UserDefaults = .standard) -> Bool {
+        // `object(forKey:)` rather than `bool(forKey:)`: the latter reports
+        // false for "never set", which would invert the default.
+        guard defaults.object(forKey: styledASSSubtitlesEnabledStorageKey) != nil else {
+            return styledASSSubtitlesEnabledDefault
+        }
+        return defaults.bool(forKey: styledASSSubtitlesEnabledStorageKey)
+    }
+
+    static func isAuthoredASS(_ codec: String?) -> Bool {
+        switch codec?.lowercased() {
+        case "ass", "ssa": return true
+        default: return false
+        }
+    }
+
+    /// `DownloadedSubtitleFile` records no codec, but its file was named by
+    /// `JellyfinAPIClient.subtitleFileExtension(forCodec:)`, so the extension is
+    /// the codec.
+    static func isAuthoredASSPath(_ relativePath: String) -> Bool {
+        isAuthoredASS((relativePath as NSString).pathExtension)
+    }
+
+    /// Scripts are small once they exist (tens to hundreds of KB) and are
+    /// fetched once per track selection, so this is a plain one-shot load
+    /// rather than anything cached.
+    ///
+    /// The timeout is the point. Jellyfin extracts an embedded subtitle stream
+    /// on demand and caches the result, so the FIRST request for a track in a
+    /// large file pays for the extraction: 70.6s measured against a 4K remux
+    /// here, versus 0.03s for every request after it. `URLSession`'s default
+    /// 60s request timeout cuts that off just before it finishes, which reads
+    /// as "this track has no styling" rather than as a timeout.
+    private static let scriptRequestTimeout: TimeInterval = 180
+
+    private static func loadScript(from source: ASSScriptSource) async -> String? {
+        do {
+            switch source {
+            case .localFile(let url):
+                return try String(contentsOf: url, encoding: .utf8)
+            case .remote(let url):
+                var request = URLRequest(url: url)
+                request.timeoutInterval = scriptRequestTimeout
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+                return String(data: data, encoding: .utf8)
+            }
+        } catch {
+            return nil
+        }
+    }
+
+    /// The subtitle streams this app has to hand the engine as sidecars.
+    ///
+    /// Always the genuinely external ones — a `.srt` sitting beside the video
+    /// in the library, which is nowhere inside the container.
+    ///
+    /// **Plus, on a server-side transcode, the container's own text tracks.**
+    /// The app plays the server's HLS through AVPlayer, and that playlist
+    /// carries no subtitle rendition for them, so nothing demuxes them and they
+    /// vanish from the picker entirely — every embedded SubRip and ASS track,
+    /// not just the styled ones. Jellyfin says so itself: asked with this app's
+    /// `DeviceProfile`, it answers `deliveryMethod: "External"` for exactly
+    /// those streams (and `"Encode"` for the bitmap ones it burns in), which is
+    /// the server telling the client to fetch them. Confirmed against 10.11.11.
+    ///
+    /// The route gate is load-bearing, not caution. Direct play reports the
+    /// same `"External"` for the same embedded streams, where AetherEngine has
+    /// demuxed them and lists them already — registering sidecars there would
+    /// show every track in the picker twice.
+    ///
+    /// Order is the stream list's, and is what
+    /// `registeredSidecar(forTrack:engineTracks:registered:)` maps back on.
+    static func externalSubtitleStreams(
+        from mediaStreams: [MediaStream], isRemoteHLS: Bool
+    ) -> [MediaStream] {
+        mediaStreams.filter { stream in
+            guard stream.type == "Subtitle" else { return false }
+            if stream.isExternal == true { return true }
+            return isRemoteHLS && stream.deliveryMethod == "External"
+        }
+    }
+
+    /// `ExternalSubtitleSource`s for the load. `JellyfinAPIClient.subtitleURL`
+    /// covers why the URL is built from ids rather than read off the stream. An
+    /// unresolvable URL is skipped rather than failing the load; external
+    /// subtitles are a bonus, not a requirement.
     static func externalSubtitleSources(
-        itemID: String, mediaSourceID: String, mediaStreams: [MediaStream], client: JellyfinAPIClient
+        itemID: String, mediaSourceID: String, streams: [MediaStream], client: JellyfinAPIClient
     ) async -> [ExternalSubtitleSource] {
         var sources: [ExternalSubtitleSource] = []
-        for stream in mediaStreams where stream.type == "Subtitle" && stream.isExternal == true {
+        for stream in streams {
             guard let url = await client.subtitleURL(
                 itemID: itemID, mediaSourceID: mediaSourceID, streamIndex: stream.index, codec: stream.codec
             ) else { continue }
@@ -913,27 +1310,19 @@ final class PlayerViewModel {
         return sources
     }
 
-    /// Audio track indices Jellyfin's own server-side probe flagged
-    /// `audioSpatialFormat == "DolbyAtmos"` — forwarded to the engine as
-    /// `knownAtmosAudioTrackIndices` so the picker can show an "Atmos" flag
-    /// for a track AetherEngine itself has no way to detect as such
-    /// (TrueHD's Atmos extension — see `PlaybackEngine.load(url:
-    /// externalSubtitles:knownAtmosAudioTrackIndices:)`'s doc comment).
-    /// Deliberately reads this field rather than text-matching the
-    /// stream's codec/title — `audioSpatialFormat`'s own doc comment
-    /// calls that out as the *less* reliable way to detect Atmos.
+    /// Audio track indices Jellyfin's probe flagged as Dolby Atmos, forwarded as
+    /// `knownAtmosAudioTrackIndices` so the picker can flag a track AetherEngine
+    /// can't detect itself — TrueHD's Atmos extension. Reads
+    /// `audioSpatialFormat` rather than text-matching the codec or title, which
+    /// that field documents as less reliable.
     ///
-    /// Returns *physical* indices (matching AetherEngine's `TrackInfo.id`/
-    /// `PlaybackTrack.id`), NOT `MediaStream.index` verbatim: confirmed
-    /// live (2026-08-14) that Jellyfin numbers external (`isExternal ==
-    /// true`) streams into the same index sequence as embedded ones even
-    /// though they carry no bytes in the physical container AetherEngine
-    /// actually demuxes — a Saving Private Ryan source with one external
-    /// subtitle at index 0 reported every embedded audio stream's index
-    /// one higher than AetherEngine's own numbering for the identical
-    /// tracks (2/3/4 vs. AetherEngine's 1/2/3). Subtracting, for each
-    /// stream, the count of external streams whose index precedes it
-    /// recovers the physical index.
+    /// Returns physical indices matching `PlaybackTrack.id`, not
+    /// `MediaStream.index` verbatim: Jellyfin numbers external streams into the
+    /// same sequence as embedded ones, though they carry no bytes in the
+    /// container AetherEngine demuxes, so a source with one external subtitle at
+    /// index 0 reports every embedded audio stream one higher than AetherEngine
+    /// numbers it. Subtracting the count of preceding external streams recovers
+    /// the physical index.
     static func atmosAudioTrackIndices(from mediaStreams: [MediaStream]) -> Set<Int> {
         let externalIndices = mediaStreams.filter { $0.isExternal == true }.map(\.index)
         func physicalIndex(_ index: Int) -> Int {
@@ -944,23 +1333,16 @@ final class PlayerViewModel {
             .map { physicalIndex($0.index) })
     }
 
-    /// Restores the audio/subtitle tracks the user last explicitly picked
-    /// for this item (`TrackPreferenceStore`), overriding whatever
-    /// `engine.load(...)` just defaulted to — including
-    /// `AetherPlaybackEngine`'s own forced-subtitle auto-select, which
-    /// documents itself as a one-time default a later explicit selection
-    /// (`selectSubtitleTrack(id:)`) is expected to override. Does nothing
-    /// when there's no stored preference at all (a fresh item, or one never
-    /// explicitly touched), leaving that default selection exactly as-is.
+    /// Restores the tracks last explicitly picked for this item, overriding what
+    /// `engine.load(...)` defaulted to — including
+    /// `AetherPlaybackEngine`'s forced-subtitle auto-select, documented as a
+    /// one-time default an explicit selection overrides. Does nothing with no
+    /// stored preference, leaving that default in place.
     ///
-    /// A stored track is only restored when a track with the *same id and
-    /// title* still exists in the freshly loaded list — id alone isn't
-    /// enough (see `TrackPreferenceStore.TrackChoice`'s doc comment: track
-    /// ids are physical container positions, so the same id can silently
-    /// point at a different track if the layout changed). Anything that
-    /// doesn't match is skipped rather than passed through: same "fall back
-    /// gracefully rather than fail" treatment as `requestedMediaSourceID`
-    /// above.
+    /// A stored track is restored only when one with the same id and title still
+    /// exists: ids are physical container positions, so the same id can point at
+    /// a different track after a layout change. A mismatch is skipped rather than
+    /// passed through.
     private func applyStoredTrackSelection() {
         guard let selection = trackPreferenceStore.selection(forItem: itemID, userID: userID) else { return }
         if let audioTrack = selection.audioTrack,
@@ -983,13 +1365,10 @@ final class PlayerViewModel {
         engine.togglePlayPause()
     }
 
-    /// Clears `nextUpCountdownAnchorTime` unconditionally before issuing
-    /// the seek — see that property's own doc comment for why every
-    /// explicit jump (this is the one choke point all of them go through:
-    /// the scrubber, the rewind/forward buttons, VoiceOver's adjustable
-    /// action) needs to force a fresh end-credits countdown anchor at
-    /// wherever it lands, rather than risk reusing a stale one from before
-    /// the jump.
+    /// Clears `nextUpCountdownAnchorTime` before seeking. This is the one choke
+    /// point every explicit jump goes through — scrubber, skip buttons,
+    /// VoiceOver's adjustable action — and each must re-anchor the end-credits
+    /// countdown where it lands rather than reuse a stale one.
     func seek(to time: TimeInterval) {
         nextUpCountdownAnchorTime = nil
         Task { await engine.seek(to: time) }
@@ -1023,41 +1402,32 @@ final class PlayerViewModel {
         engine.startPictureInPicture()
     }
 
-    /// `true` once `start()` has resolved a Jellyfin trickplay track for
-    /// the active media source — `PlayerControlsOverlay` gates the
-    /// scrub-preview bubble on this, same "self-disable, don't show
-    /// broken" treatment `onPictureInPicturePossibleChange` gives the PiP
-    /// button. `false` for content Jellyfin hasn't scanned for trickplay
-    /// yet, same as before `start()` has resolved anything at all.
+    /// `true` once `start()` has resolved a trickplay track for the active source.
+    /// `PlayerControlsOverlay` gates the scrub-preview bubble on this, the same
+    /// self-disabling treatment the PiP button gets. `false` for unscanned
+    /// content, and before `start()` resolves.
     var supportsScrubThumbnails: Bool { trickplayProvider != nil }
 
-    /// Thin passthrough to `trickplayProvider.thumbnail(atSeconds:)` — see
-    /// `TrickplayThumbnailProvider`'s doc comment for the nil/"keep showing
-    /// the last still" contract callers should follow (rare here — a miss
-    /// only happens on a request/decode failure, not a "not resident yet"
-    /// case the way AetherEngine's cache-backed version had).
+    /// Passthrough to `trickplayProvider.thumbnail(atSeconds:)`. A `nil` means
+    /// keep showing the last still, and is rare here: a miss needs a request or
+    /// decode failure, not the not-yet-resident case AetherEngine's cache had.
     func scrubThumbnail(atSeconds seconds: Double) async -> CGImage? {
         await trickplayProvider?.thumbnail(atSeconds: seconds)
     }
 
-    /// Fetches `serverVersion` once and caches it — safe to call on every
-    /// `PlaybackStatsOverlay` poll tick since it short-circuits once already
-    /// set, rather than re-fetching a value that can't change mid-session.
+    /// Fetches `serverVersion` once and caches it, short-circuiting on later
+    /// calls, so `PlaybackStatsOverlay` can call it on every poll tick.
     func refreshServerVersion() async {
-        // Offline playback has no live server to ask — `isOfflinePlayback`
-        // gates this before it ever dispatches a doomed request, same
-        // "route through local-only paths, no network call" contract every
-        // other offline-aware method here follows.
+        // Offline playback has no server to ask, so this never dispatches a
+        // doomed request.
         guard !isOfflinePlayback, serverVersion == nil else { return }
         serverVersion = try? await client.publicSystemInfo().version
     }
 
-    /// Refreshes `streamingSession` from the server's own live view of this
-    /// device's playback session — see that property's doc comment. Leaves
-    /// the last known value on screen on failure rather than blanking the
-    /// overlay's Streaming section over one dropped request. No-ops offline
-    /// for the same reason `refreshServerVersion()` does above — there's no
-    /// live session for the server to report on.
+    /// Refreshes `streamingSession` from the server's live view of this device's
+    /// session. Leaves the last known value on screen on failure rather than
+    /// blanking the Streaming section over one dropped request. A no-op offline,
+    /// where there is no live session to report on.
     func refreshStreamingSession() async {
         guard !isOfflinePlayback else { return }
         if let session = try? await client.currentSession(deviceID: DeviceIdentity.deviceID) {
@@ -1068,18 +1438,11 @@ final class PlayerViewModel {
     func stop() async {
         progressReportTask?.cancel()
         if let downloadedItem {
-            // Captured before `engine.stop()`, not left to
-            // `writeOfflineProgress`'s own implicit `self.currentTime`/
-            // `.duration` read afterward — matches the online path just
-            // below. `engine.stop()` synchronously zeroes AetherEngine's
-            // own internal clock/duration, and those changes only reach
-            // `self.currentTime`/`.duration` via `observeEngine()`'s
-            // Combine sinks, which defer to the next run-loop turn rather
-            // than firing synchronously. Reading them right after
-            // `engine.stop()` happens to still see the pre-stop values
-            // today, but only because of that scheduling detail — not
-            // something safe to rely on implicitly, hence capturing
-            // explicitly here instead.
+            // Captured before `engine.stop()`, which synchronously zeroes
+            // AetherEngine's clock and duration. Those reach
+            // `self.currentTime`/`.duration` through `observeEngine()`'s sinks,
+            // which defer to the next run-loop turn, so reading them afterwards
+            // sees pre-stop values only by that scheduling detail.
             let capturedTime = currentTime
             let capturedDuration = duration
             engine.stop()
@@ -1088,22 +1451,14 @@ final class PlayerViewModel {
         }
         let ticks = Int64(currentTime * 10_000_000)
         engine.stop()
-        // Skip the network call entirely while known-offline, rather than
-        // awaiting it anyway — `sendRaw`'s own 20s timeout race means a
-        // call that's guaranteed to fail (we already know there's no
-        // server to reach; that's the entire reason the offline screen is
-        // showing) would otherwise stall this method, and with it every
-        // caller of `stop()` including `PlayerView.tearDown()` — so tapping
-        // *any* close affordance (the top bar's X, or the offline screen's
-        // own new Close button) while offline used to just sit there doing
-        // nothing for up to 20 seconds before finally dismissing (confirmed
-        // live, 2026-08-24). Matches `refreshServerVersion()`/
-        // `refreshStreamingSession()`'s existing no-op-when-there's-no-live-
-        // server-to-ask reasoning, just keyed on live connectivity
-        // (`ConnectivityMonitor`) rather than `isOfflinePlayback` (a
-        // downloaded item has no server-reporting path here at all, see the
-        // branch above — this one only ever runs for a live session that
-        // might, mid-session, no longer have a reachable server).
+        // Skipped while known-offline rather than awaited: a guaranteed failure
+        // still costs `sendRaw`'s 20s timeout, stalling every caller of `stop()`
+        // including `PlayerView.tearDown()`, so any close affordance sat doing
+        // nothing for up to 20 seconds before dismissing.
+        //
+        // Keyed on live connectivity rather than `isOfflinePlayback`: a download
+        // takes the branch above, and this one only runs for a live session whose
+        // server became unreachable mid-session.
         if !ConnectivityMonitor.shared.isOffline {
             try? await client.reportPlaybackStopped(itemID: itemID, positionTicks: ticks, mediaSourceID: activeMediaSourceID, playSessionID: activePlaySessionID)
         }
@@ -1117,12 +1472,10 @@ final class PlayerViewModel {
                 guard !Task.isCancelled, let self else { return }
                 let ticks = Int64(self.currentTime * 10_000_000)
                 let isPaused = self.state == .paused
-                // Best-effort and silent to the user by design: a real
-                // connectivity loss already surfaces through
-                // `ConnectivityMonitor`/the offline path on the next load,
-                // and one missed heartbeat is self-healing (the next tick
-                // retries, `stop()` still attempts a final save). Logged
-                // only so a repeated failure leaves a diagnostic trail.
+                // Best-effort and silent: a real connectivity loss surfaces
+                // through `ConnectivityMonitor` on the next load, and one missed
+                // heartbeat self-heals — the next tick retries and `stop()` still
+                // attempts a final save. Logged for a diagnostic trail.
                 do {
                     try await self.client.reportPlaybackProgress(
                         itemID: self.itemID, positionTicks: ticks, isPaused: isPaused,

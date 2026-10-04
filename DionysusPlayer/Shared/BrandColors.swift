@@ -97,26 +97,39 @@ extension Color {
         return UIColor(highContrast ? Color.dionysusAmberHighContrast : Color.dionysusAmber)
     })
 
-    /// Favorite (star) icon colour — deliberately amber in *both*
-    /// appearances, breaking from `dionysusHighlight`'s "no amber in dark"
-    /// rule on purpose: confirmed live (2026-08-26) that a favorite star
-    /// reads better staying the same gold/amber a user already associates
-    /// with "favorited" everywhere else (Mail, Podcasts, Files, ...) than it
-    /// does swapping to magenta in dark mode along with every other accent.
-    /// Used for the star badge on rail items (`PosterCard
-    /// .watchStatusOverlay`) and the favorite toolbar button on asset detail
-    /// pages (`HeroActionButtons`) — anywhere else that wants an adaptive
-    /// (non-amber-in-dark) accent should keep using `dionysusHighlight`
-    /// instead. Still respects Increase Contrast via the same
-    /// `dionysusAmberHighContrast` swap `dionysusHighlight`'s light branch
-    /// uses.
+    /// Favorite (heart) icon colour: Jellyfin's own favourite red, the same in
+    /// both appearances, so a favourite looks the way it does in every other
+    /// Jellyfin client. `#D15353` is jellyfin-web's `$error-light`, which its
+    /// theme applies to a rated (favourited) heart,
+    /// `.ratingbutton-icon-withrating` in `src/themes/_base/_theme.scss`.
+    ///
+    /// Deliberately outside the brand palette, like `dionysusWatched`. It
+    /// replaced amber when favourite changed from a star to a heart: amber
+    /// suited a star, the Mail/Podcasts/Files convention, and a heart reads
+    /// as red.
+    ///
+    /// Measured contrast: 4.1:1 on white and on dark mode's `#1C1C1E`, above
+    /// the 3:1 minimum for a non-text glyph in both. Increase Contrast moves it
+    /// away from whichever background is current: jellyfin-web's own
+    /// `$error-main` (`#C62828`, 5.6:1 on white) in light mode, and a lighter
+    /// `#E57373` (7.0:1 on black) in dark mode, where `#C62828` would drop to
+    /// 3.0:1.
+    ///
+    /// Used for the heart badge on rail items (`PosterCard
+    /// .watchStatusOverlay`) and the favorite toolbar button and menu rows on
+    /// asset detail pages (`HeroActionButtons`).
     static let dionysusFavorite = Color(UIColor { traits in
-        UIColor(traits.accessibilityContrast == .high ? Color.dionysusAmberHighContrast : Color.dionysusAmber)
+        guard traits.accessibilityContrast == .high else {
+            return UIColor(red: 0xD1 / 255, green: 0x53 / 255, blue: 0x53 / 255, alpha: 1)
+        }
+        return traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0xE5 / 255, green: 0x73 / 255, blue: 0x73 / 255, alpha: 1)
+            : UIColor(red: 0xC6 / 255, green: 0x28 / 255, blue: 0x28 / 255, alpha: 1)
     })
 
     /// Watched (eye) icon colour — deliberately magenta in *both*
     /// appearances, the mirror-image deviation of `dionysusFavorite` above:
-    /// confirmed live (2026-08-26) on a physical device that the watched eye
+    /// confirmed live that the watched eye
     /// (toolbar button on `HeroActionButtons` and the badge on rail items,
     /// `PosterCard.watchStatusOverlay`) read as inconsistent between the two
     /// once `dionysusPrimary`'s usual light/dark swap put it at burgundy in
@@ -130,41 +143,4 @@ extension Color {
     static let dionysusWatched = Color(UIColor { traits in
         UIColor(traits.accessibilityContrast == .high ? Color.dionysusMagentaHighContrast : Color.dionysusMagenta)
     })
-
-    /// Lighter version of `dionysusPrimary` — primary mixed with white, used
-    /// as a tinted "badge" background for the secondary "Restart" button,
-    /// with a `dionysusPrimary`-coloured icon on top (see
-    /// `PlayResumeButtonRow`'s own comment on why white was rejected as that
-    /// icon's colour: poor contrast against this tint). That icon-on-tint
-    /// pairing is a decorative same-hue-family composition, not body text —
-    /// the numeric WCAG minimums above don't cleanly apply to it the way
-    /// they do to `dionysusPrimary`/`dionysusHighlight`'s plain-background
-    /// uses, so rather than chasing a specific ratio, Increase Contrast just
-    /// mixes in less white (0.5 instead of the default 0.7), giving the
-    /// badge a real, visible increase in separation from both its icon and
-    /// from plain white/near-white surrounding chrome.
-    static let dionysusPrimaryLight = Color(UIColor { traits in
-        let base = traits.userInterfaceStyle == .dark
-            ? UIColor(Color.dionysusMagenta)
-            : UIColor(Color.dionysusBurgundy)
-        let mixAmount: CGFloat = traits.accessibilityContrast == .high ? 0.5 : 0.7
-        return base.mixed(with: .white, amount: mixAmount)
-    })
-}
-
-private extension UIColor {
-    /// Linear interpolation between two colours in sRGB. `amount` is the
-    /// weight of `other` — 0 returns self, 1 returns other.
-    func mixed(with other: UIColor, amount: CGFloat) -> UIColor {
-        var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0
-        var r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
-        getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
-        other.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
-        return UIColor(
-            red:   r1 + (r2 - r1) * amount,
-            green: g1 + (g2 - g1) * amount,
-            blue:  b1 + (b2 - b1) * amount,
-            alpha: a1 + (a2 - a1) * amount
-        )
-    }
 }

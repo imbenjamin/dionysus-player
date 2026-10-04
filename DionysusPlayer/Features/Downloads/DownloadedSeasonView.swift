@@ -5,10 +5,8 @@ import SwiftUI
 /// than one season. Flat list, sorted by episode number; self-cleans back
 /// once its last episode is deleted, same as `DownloadedShowView`.
 ///
-/// Bulk delete: same Cancel-top-left/Select-All-top-right/trash-icon shape
-/// as `DownloadsView`'s own bulk delete (see that view's doc comment for
-/// why it's the top nav bar, not `.bottomBar`) — every row here is a single
-/// episode, so there's no group-vs-leaf distinction to make the way
+/// Bulk delete: the shared `DownloadsSelectionToolbar` — every row here is a
+/// single episode, so there's no group-vs-leaf distinction to make the way
 /// `DownloadedShowView` has to.
 struct DownloadedSeasonView: View {
     let seriesID: String
@@ -67,7 +65,11 @@ struct DownloadedSeasonView: View {
                     }
                 }
             }
+            .listSectionSeparator(.hidden)
         }
+        // See `DownloadsView`'s list for why plain, and for the hidden
+        // section separators.
+        .listStyle(.plain)
     }
 
     /// `.regular`-size-class counterpart to `listContent` — see
@@ -118,30 +120,15 @@ struct DownloadedSeasonView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         if !episodes.isEmpty {
-            if isSelecting {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { cancelSelecting() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(isAllSelected ? "Deselect All" : "Select All") { toggleSelectAll() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(role: .destructive) {
-                        showDeleteConfirmation = true
-                    } label: {
-                        Image(systemName: "trash").downloadsToolbarTapTarget()
-                    }
-                    .disabled(selectedEpisodeIDs.isEmpty)
-                }
-            } else {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        beginSelecting()
-                    } label: {
-                        Image(systemName: "trash").downloadsToolbarTapTarget()
-                    }
-                }
-            }
+            DownloadsSelectionToolbar(
+                isSelecting: isSelecting,
+                isAllSelected: isAllSelected,
+                hasSelection: !selectedEpisodeIDs.isEmpty,
+                onBeginSelecting: { beginSelecting() },
+                onCancel: { cancelSelecting() },
+                onToggleSelectAll: { toggleSelectAll() },
+                onDelete: { showDeleteConfirmation = true }
+            )
         }
     }
 

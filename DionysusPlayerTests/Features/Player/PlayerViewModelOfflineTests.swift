@@ -116,8 +116,8 @@ final class PlayerViewModelOfflineTests: XCTestCase {
     /// so `item.logoImageURL` alone can never resolve for offline playback
     /// — `offlineLogoURL` is the separate local-file path
     /// `PlayerControlsOverlay.titleRow` checks first. This was a real bug,
-    /// confirmed live (2026-08-27): before `offlineLogoURL` existed, every
-    /// downloaded item's Player screen fell back to plain title text, even
+    /// confirmed live: before `offlineLogoURL` existed, every downloaded
+    /// item's Player screen fell back to plain title text, even
     /// when a Logo image had been downloaded and cached at enqueue time.
     func test_startOffline_logoImagePathStored_setsOfflineLogoURLToLocalFile() async {
         let store = DownloadTestHelpers.makeInMemoryStore()
@@ -274,8 +274,8 @@ final class PlayerViewModelOfflineTests: XCTestCase {
     }
 
     /// `refreshServerVersion()`/`refreshStreamingSession()` back
-    /// `PlaybackStatsOverlay`'s Streaming section — a real bug this session
-    /// fixed: they used to dispatch a doomed network request every time the
+    /// `PlaybackStatsOverlay`'s Streaming section — a real bug: they used
+    /// to dispatch a doomed network request every time the
     /// overlay polled, even during offline playback, where there's no live
     /// server to ask. Both must now no-op entirely, leaving
     /// `serverVersion`/`streamingSession` `nil` rather than attempting
@@ -323,7 +323,7 @@ final class PlayerViewModelOfflineTests: XCTestCase {
     }
 
     /// No server to defer the "mark as watched" judgement call to, unlike
-    /// the live path — see `writeOfflineProgress`'s own doc comment for the
+    /// the live path — see `writeOfflineProgress`'s doc comment for the
     /// 90% client-side threshold this pins.
     func test_stop_pastWatchedThreshold_marksPlayedAndClearsResumePosition() async {
         let store = DownloadTestHelpers.makeInMemoryStore()
@@ -353,5 +353,122 @@ final class PlayerViewModelOfflineTests: XCTestCase {
 
         XCTAssertEqual(item.isPlayed, false)
         XCTAssertEqual(item.playedPercentage, 50, accuracy: 0.01)
+    }
+
+    // MARK: - Authored-ASS script resolution
+
+    private func assFile(index: Int, itemID: String) -> DownloadedSubtitleFile {
+        DownloadedSubtitleFile(
+            index: index, language: "eng", displayTitle: "Track \(index)",
+            isForced: false, isDefault: false, isHearingImpaired: false,
+            relativePath: "\(itemID)/subs/\(index)-eng.ass"
+        )
+    }
+
+    private func externalTrack(id: Int) -> PlaybackTrack {
+        PlaybackTrack(
+            id: id, kind: .subtitle, title: "Track \(id)", metadata: nil,
+            isSelected: false, codec: "ass", isExternal: true
+        )
+    }
+
+    /// Modelled on a real download: three ASS tracks (an SDH one and two
+    /// commentaries), which is what exposed this. Every track used to resolve
+    /// to whichever sidecar happened to be first on disk, so picking a
+    /// commentary played the SDH script — real subtitles for the wrong track,
+    /// which reads as a bad download rather than a mapping bug.
+    ///
+    /// Resolved through the view model rather than through the pure mapping
+    /// (`ASSSubtitleMappingTests` covers that separately) because the defect
+    /// was in this wiring, not in either mapping.
+    func test_offlineScriptSource_resolvesEachASSTrackToItsOwnSidecar() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        item.subtitleFiles = [assFile(index: 6, itemID: "item-1"), assFile(index: 7, itemID: "item-1"), assFile(index: 8, itemID: "item-1")]
+        store.insert(item)
+        let (viewModel, engine) = makeOfflineViewModel(downloadedItem: item, store: store)
+        await viewModel.start()
+        // The ids are AetherEngine's own and deliberately share no arithmetic
+        // with the files' Jellyfin indices.
+        engine.subtitleTracks = [externalTrack(id: 10), externalTrack(id: 11), externalTrack(id: 12)]
+
+        for (track, file) in zip(engine.subtitleTracks, item.subtitleFiles) {
+            let source = await viewModel.assScriptSource(for: track)
+            XCTAssertEqual(
+                source,
+                .localFile(DownloadFileStore.url(forRelativePath: file.relativePath)),
+                "track \(track.id) should resolve to \(file.relativePath)"
+            )
+        }
+    }
+
+    /// A download's plain-text sidecars keep rendering through the app's own
+    /// cue path, so resolving one to a script would be the reverse mistake:
+    /// handing libass a SubRip file it can only parse to zero events.
+    func test_offlineScriptSource_returnsNilForAPlainTextSidecar() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        item.subtitleFiles = [
+            DownloadedSubtitleFile(
+                index: 0, language: "eng", displayTitle: "English", isForced: false,
+                isDefault: true, isHearingImpaired: false, relativePath: "item-1/subs/0-eng.srt"
+            ),
+            assFile(index: 6, itemID: "item-1")
+        ]
+        store.insert(item)
+        let (viewModel, engine) = makeOfflineViewModel(downloadedItem: item, store: store)
+        await viewModel.start()
+        var subrip = externalTrack(id: 10)
+        subrip.codec = "subrip"
+        engine.subtitleTracks = [subrip, externalTrack(id: 11)]
+
+        let source = await viewModel.assScriptSource(for: engine.subtitleTracks[0])
+
+        XCTAssertNil(source, "A SubRip sidecar must not be handed to libass as a script.")
+    }
+
+    // MARK: - Authored-ASS fonts
+
+    /// A downloaded file is MP4 and so carries no attachments — the same reason
+    /// a server-side transcode leaves AetherEngine with none. The faces come
+    /// off disk instead, from the sidecars `DownloadManager` wrote at enqueue.
+    func test_offlineFonts_readTheStoredSidecarsBackUnderTheirContainerNames() throws {
+        let itemID = "font-read-\(UUID().uuidString)"
+        let path = DownloadFileStore.fontRelativePath(itemID: itemID, index: 9, fileName: "Sublime Regular.ttf")
+        try DownloadFileStore.write(Data("font-bytes".utf8), toRelativePath: path)
+        addTeardownBlock { DownloadFileStore.deleteItemFiles(itemID: itemID) }
+
+        let fonts = PlayerViewModel.assFonts(fromDownloaded: [
+            DownloadedFontFile(index: 9, fileName: "Sublime Regular.ttf", relativePath: path)
+        ])
+
+        XCTAssertEqual(fonts.count, 1)
+        // The container's own name, not the sanitised path's: it is what
+        // `ASSSubtitleRenderSession` writes the face back out as.
+        XCTAssertEqual(fonts.first?.filename, "Sublime Regular.ttf")
+        XCTAssertEqual(fonts.first?.data, Data("font-bytes".utf8))
+    }
+
+    /// The row and its files can diverge — a half-deleted download, or a
+    /// database restored without its sidecars. One missing face costs a
+    /// fallback for that face, not the whole set.
+    func test_offlineFonts_skipAMissingFileWithoutDroppingTheRest() throws {
+        let itemID = "font-partial-\(UUID().uuidString)"
+        let present = DownloadFileStore.fontRelativePath(itemID: itemID, index: 9, fileName: "A.ttf")
+        try DownloadFileStore.write(Data("a".utf8), toRelativePath: present)
+        addTeardownBlock { DownloadFileStore.deleteItemFiles(itemID: itemID) }
+
+        let fonts = PlayerViewModel.assFonts(fromDownloaded: [
+            DownloadedFontFile(index: 8, fileName: "Gone.ttf", relativePath: "\(itemID)/fonts/8-Gone_ttf"),
+            DownloadedFontFile(index: 9, fileName: "A.ttf", relativePath: present)
+        ])
+
+        XCTAssertEqual(fonts.map(\.filename), ["A.ttf"])
+    }
+
+    /// A download made before fonts were stored at all, and one whose
+    /// container simply had none, are the same `[]` — and neither is an error.
+    func test_offlineFonts_emptyForADownloadWithNoStoredFonts() {
+        XCTAssertTrue(PlayerViewModel.assFonts(fromDownloaded: []).isEmpty)
     }
 }

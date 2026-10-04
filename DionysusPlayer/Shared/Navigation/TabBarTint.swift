@@ -8,8 +8,8 @@ import UIKit
 /// takes its tone from whatever is behind it while the selected label is
 /// painted from `MainTabView`'s `.tint(_:)`, so the two move independently
 /// and a fixed tint is legible at only one end of the range. Measured live
-/// (2026-09-04, iPad A16) by sweeping the Home hero carousel and sampling
-/// the rendered label against its own pill, against a 4.5:1 minimum:
+/// by sweeping the Home hero carousel and sampling the rendered label
+/// against its own pill, against a 4.5:1 minimum:
 ///
 /// | tint | dark pills (58–82) | light pills (125–227) |
 /// | --- | --- | --- |
@@ -157,8 +157,8 @@ extension View {
     /// pushed onto each tab's `NavigationStack`, which have no hero behind
     /// them and never will.
     ///
-    /// Measured on `CollectionGridView` (iPad A16, 2026-09-04) while the
-    /// model had settled on the light tint after a dark Home hero — its
+    /// Measured on `CollectionGridView` while the model had settled on the
+    /// light tint after a dark Home hero — its
     /// Sort and Random glyphs render `dionysusMagentaOnGlass` over a white
     /// glass capsule at **2.46:1**, under the 3:1 minimum for a non-text
     /// control (and under 4.5:1 read as a small icon). `dionysusPrimary`
@@ -176,5 +176,59 @@ extension View {
     /// reads `TabBarTintModel`'s tint.
     func stableContentTint() -> some View {
         tint(Color.dionysusPrimary)
+    }
+}
+
+extension View {
+    /// Draws a toolbar control in the label colour rather than the stack's
+    /// brand tint (`stableContentTint()`).
+    ///
+    /// Toolbar glyphs are chrome, and iOS 26 draws chrome monochrome: the
+    /// system back button ignores the tint entirely. Before this, a plain
+    /// `Button` label happened to come out neutral while a `Menu` label or a
+    /// text button came out brand-coloured, so one toolbar could hold a black
+    /// back chevron beside a burgundy `…` (magenta in dark mode), and
+    /// Collections' sort and random glyphs were brand-coloured where the detail
+    /// page's heart and eye weren't. Colour in a toolbar now means something:
+    /// an active favourite or watched state, or a destructive action
+    /// (`destructiveToolbarItem()`).
+    ///
+    /// Apply it to the `Button` or `Menu` itself, not its label: the bar button
+    /// takes its colour from there, and a style set on the label image alone
+    /// left the Downloads trash burgundy. See `ToolbarItemColor` for the rest.
+    func neutralToolbarItem() -> some View {
+        modifier(ToolbarItemColor(enabledColor: .primary))
+    }
+
+    /// A toolbar control that deletes something: red, matching the detail
+    /// page's delete glyph (`AssetActionsButton`) and the red Delete button in
+    /// the confirmation it raises.
+    func destructiveToolbarItem() -> some View {
+        modifier(ToolbarItemColor(enabledColor: .red))
+    }
+}
+
+/// See `neutralToolbarItem()`.
+///
+/// Both `.tint` and `.foregroundStyle`, because a toolbar text button takes its
+/// colour from the tint and a glyph label from its foreground style. `.primary`
+/// is a hierarchical style rather than a fixed colour, so over Liquid Glass it
+/// still resolves to the vibrant label colour the back button gets.
+///
+/// An explicit style opts the control out of the toolbar's own disabled
+/// dimming (a Downloads delete button with nothing selected stayed full red,
+/// then full black), so the disabled look is set here too. `isEnabled` comes
+/// from the environment, which a `.disabled` applied at the call site —
+/// outside this modifier — still reaches.
+private struct ToolbarItemColor: ViewModifier {
+    let enabledColor: Color
+    @Environment(\.isEnabled) private var isEnabled
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.tint(enabledColor).foregroundStyle(enabledColor)
+        } else {
+            content.tint(.secondary).foregroundStyle(.tertiary)
+        }
     }
 }

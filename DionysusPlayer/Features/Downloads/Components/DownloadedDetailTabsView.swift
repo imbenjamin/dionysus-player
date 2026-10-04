@@ -1,11 +1,9 @@
 import SwiftUI
 
-/// The offline counterpart to `DetailTabsView` — same segmented About/
-/// Cast & Crew/Details structure, sourced from `DownloadedItem`/`.metadata`
-/// instead of a live `MediaItem`. Reuses `MetadataLine`/`SummaryRow`/
-/// `TrackListSection`/`CastCrewGridView` directly (all already
-/// model-agnostic, or made so for this) rather than duplicating their
-/// presentation.
+/// The offline counterpart to `DetailTabsView`: the same segmented About/Cast &
+/// Crew/Details structure, sourced from `DownloadedItem`/`.metadata` rather than a
+/// live `MediaItem`. Reuses
+/// `MetadataLine`/`SummaryRow`/`TrackListSection`/`CastCrewGridView` directly.
 struct DownloadedDetailTabsView: View {
     private enum Tab: String, CaseIterable, Identifiable {
         case about = "About"
@@ -15,32 +13,27 @@ struct DownloadedDetailTabsView: View {
     }
 
     let item: DownloadedItem
-    /// Computed once by the caller (`DownloadedAssetDetailView`) and
-    /// threaded down to `DownloadedTechnicalDetailsView` — see that call
-    /// site's own comment for why (`DownloadedInfoMetadataRow` needs the
-    /// exact same number).
+    /// Computed once by `DownloadedAssetDetailView` and threaded down to
+    /// `DownloadedTechnicalDetailsView`, since `DownloadedInfoMetadataRow` needs
+    /// the same number.
     let fileSizeBytes: Int64?
     @State private var selectedTab: Tab = .about
 
-    /// `DownloadedPerson` has no id/headshot of its own (name/role only, to
-    /// bound storage), and `imageURL` is always `nil`, which
-    /// `CastCrewGridView` renders as a generic person glyph. `id` is
-    /// synthesized from the person's name *and* position in the list, not
-    /// the name alone — same fix as `MediaItem.cast`'s own `id`: the same
-    /// person can appear as more than one credit (e.g. an actor who also
-    /// directed), and a plain name-as-id gives `ForEach` duplicate ids for
-    /// that case, causing intermittent gaps/repeated cells in the grid.
+    /// `DownloadedPerson` stores name and role only, to bound storage, so
+    /// `imageURL` is always `nil` and `CastCrewGridView` renders a generic person
+    /// glyph. `id` is synthesized from the name and the position in the list, not
+    /// the name alone — the same fix as `MediaItem.cast`'s `id`: one person can
+    /// hold several credits, and a name-as-id gives `ForEach` duplicate ids,
+    /// causing intermittent gaps and repeated cells.
     private var castMembers: [CastMember] {
         item.metadata.people.enumerated().map { index, person in
             CastMember(id: "\(person.name)-\(index)", name: person.name, role: person.role, imageURL: nil)
         }
     }
 
-    /// "About" always shows, same as the live page. "Cast & Crew" only
-    /// once there's actually someone credited. "Details" always shows —
-    /// unlike a live Show/Season/Collection, every `DownloadedItem` has its
-    /// own media file (that's the whole point of a download), so there's
-    /// no equivalent "nothing to show" case to hide it for.
+    /// "About" always shows, as on the live page; "Cast & Crew" only with someone
+    /// credited; "Details" always, since every `DownloadedItem` has a media file,
+    /// unlike a live Show/Season/Collection.
     private var availableTabs: [Tab] {
         Tab.allCases.filter { tab in
             switch tab {
@@ -75,8 +68,8 @@ struct DownloadedDetailTabsView: View {
     }
 }
 
-/// Genres, then studios, then tagline, then synopsis — same order/styling
-/// as `DetailTabsView`'s own `AboutTabContent`.
+/// Genres, studios, tagline, synopsis — the order and styling of
+/// `DetailTabsView`'s `AboutTabContent`.
 private struct DownloadedAboutTabContent: View {
     let item: DownloadedItem
 
@@ -111,18 +104,17 @@ private struct DownloadedAboutTabContent: View {
     }
 }
 
-/// The offline counterpart to `TechnicalDetailsView` — no version picker
-/// (a download only ever has the one version that was actually fetched).
-/// "Quality" is built from `item.bitrate` — the actually *achieved*
-/// bitrate — rather than `displayName(in: item.requestedResolution)`,
-/// which names the tier the user requested, not necessarily the one this
-/// item was actually encoded at; those two can differ for a source
-/// smaller than the requested tier (see `DownloadTranscodeCalculator
-/// .target`'s doc comment). The skipped-subtitle-tracks list sits
-/// alongside the rest of this item's technical specs, and — once there's
-/// actually something skipped to contrast against — is split from the
-/// downloaded list into its own "Downloaded"/"Not Available Offline" pair
-/// (see `subtitleSections`'s own doc comment).
+/// The offline counterpart to `TechnicalDetailsView`, with no version picker: a
+/// download has only the version that was fetched.
+///
+/// "Quality" comes from `item.bitrate`, the achieved bitrate, rather than
+/// `displayName(in: item.requestedResolution)`, which names the requested tier.
+/// The two differ for a source smaller than that tier — see
+/// `DownloadTranscodeCalculator.target`.
+///
+/// Skipped subtitle tracks sit alongside the rest of the technical specs, split
+/// from the downloaded list into a "Downloaded"/"Not Available Offline" pair once
+/// something was actually skipped (see `subtitleSections`).
 private struct DownloadedTechnicalDetailsView: View {
     let item: DownloadedItem
     let fileSizeBytes: Int64?
@@ -144,12 +136,10 @@ private struct DownloadedTechnicalDetailsView: View {
         }
     }
 
-    /// One plain "Subtitles" list when every subtitle track made it into
-    /// the download — the "Downloaded"/"Not Available Offline" split only
-    /// earns its keep once there's actually something to contrast against,
-    /// otherwise it's a redundant second header for the same list. Once
-    /// something *was* skipped, both halves get the same
-    /// `TrackListSection` list treatment for consistency.
+    /// One plain "Subtitles" list when every track made it into the download: the
+    /// "Downloaded"/"Not Available Offline" split is a redundant second header
+    /// with nothing to contrast against. Once something was skipped, both halves
+    /// get the same `TrackListSection` treatment.
     @ViewBuilder
     private var subtitleSections: some View {
         if item.skippedSubtitleTracks.isEmpty {
@@ -169,22 +159,19 @@ private struct DownloadedTechnicalDetailsView: View {
         }
     }
 
-    /// Same "dimensions (common name)" formatting as the live Details tab
-    /// (`TechnicalDetailsView`/`MediaItem.resolutionLabel`), e.g.
-    /// "1920×1080 (1080p)" — shared rather than reimplemented so the two
-    /// pages can't drift into describing the same resolution differently.
+    /// The live Details tab's "dimensions (common name)" formatting, e.g.
+    /// "1920×1080 (1080p)", shared from `MediaItem.resolutionLabel` so the two
+    /// pages can't describe the same resolution differently.
     private var resolutionText: String? {
         guard let width = item.width, let height = item.height else { return nil }
         return MediaItem.resolutionLabel(width: width, height: height)
     }
 
-    /// e.g. "Normal (1.2 Mbps)" — same whole-number-vs-fractional Mbps
-    /// formatting as `DownloadBitratePreset.displayName(in:)`, but from the
-    /// real `item.bitrate` rather than recomputing one from
-    /// `item.requestedResolution`; see this type's own doc comment for why
-    /// that distinction matters. Falls back to the bare preset name with no
-    /// parenthetical when `item.bitrate` is somehow missing (shouldn't
-    /// happen in practice — always set at enqueue time).
+    /// "Normal (1.2 Mbps)": the whole-number-versus-fractional Mbps formatting of
+    /// `DownloadBitratePreset.displayName(in:)`, but from the real `item.bitrate`
+    /// rather than recomputed from `item.requestedResolution` — see this type's doc
+    /// comment. Falls back to the bare preset name when `item.bitrate` is missing,
+    /// which shouldn't happen since it's set at enqueue time.
     private var qualityText: String {
         guard let bitrate = item.bitrate, bitrate > 0 else { return item.requestedPreset.displayName }
         let mbps = Double(bitrate) / 1_000_000
@@ -192,10 +179,8 @@ private struct DownloadedTechnicalDetailsView: View {
         return "\(item.requestedPreset.displayName) (\(mbpsText) Mbps)"
     }
 
-    /// `qualityText`'s VoiceOver counterpart — "Mbps" read letter by
-    /// letter ("M B P S") rather than as a word. Same
-    /// whole-number-vs-fractional formatting as `qualityText` itself, so
-    /// the two only ever differ in how the unit is spelled out.
+    /// `qualityText`'s VoiceOver counterpart, with "Mbps" read letter by letter.
+    /// Same number formatting, so the two differ only in the unit's spelling.
     private var qualityAccessibilityText: String {
         guard let bitrate = item.bitrate, bitrate > 0 else { return item.requestedPreset.displayName }
         let mbps = Double(bitrate) / 1_000_000
@@ -209,10 +194,9 @@ private struct DownloadedTechnicalDetailsView: View {
         }
     }
 
-    /// `fileSizeText`'s VoiceOver counterpart — see
-    /// `DownloadedInfoMetadataRow.spokenFileSize(_:)`'s identical copy for
-    /// the full reasoning (parses `ByteCountFormatter`'s own output rather
-    /// than reimplementing its unit-selection/rounding).
+    /// `fileSizeText`'s VoiceOver counterpart; see
+    /// `DownloadedInfoMetadataRow.spokenFileSize(_:)`, which parses
+    /// `ByteCountFormatter`'s output rather than reimplementing its rounding.
     private var fileSizeAccessibilityText: String? {
         guard let fileSizeText else { return nil }
         guard let spaceIndex = fileSizeText.lastIndex(of: " ") else { return fileSizeText }
@@ -232,16 +216,12 @@ private struct DownloadedTechnicalDetailsView: View {
         return "\(number) \(spokenUnit)"
     }
 
-    /// Always AAC stereo audio (a deliberate v1 simplification) — entirely
-    /// calculated from known facts about the transcode itself (channel
-    /// layout, codec, the requested preset's own fixed audio bitrate),
-    /// never from `item.selectedAudioTrackTitle`. That field is the
-    /// *source* track's server-computed `displayTitle`, which bakes the
-    /// source's original codec/channel layout into the string itself (e.g.
-    /// "English (TrueHD 7.1)") — showing any part of it next to what was
-    /// actually downloaded reads as a contradiction, so this drops the
-    /// source title from the summary entirely rather than salvaging part
-    /// of it.
+    /// Always AAC stereo, a v1 simplification, and derived entirely from known
+    /// facts about the transcode — channel layout, codec, the preset's fixed audio
+    /// bitrate — never from `item.selectedAudioTrackTitle`. That field is the
+    /// source track's server-computed `displayTitle`, which bakes the source's
+    /// codec and layout into the string ("English (TrueHD 7.1)"), and showing any
+    /// of it next to what was downloaded reads as a contradiction.
     private var audioTrackSummary: String {
         let codec = (item.audioCodec ?? "aac").uppercased()
         let kbps = item.requestedPreset.audioBitrate / 1000

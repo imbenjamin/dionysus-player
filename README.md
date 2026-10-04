@@ -2,16 +2,22 @@
   <img src=".github/dionysus-iOS-Default-512x512@1x.png" alt="Dionysus Player" width="180">
 </p>
 
+<h1 align="center">Dionysus Player</h1>
+
 <p align="center">
-  <a href="https://github.com/imbenjamin/dionysus-player/releases"><img src="https://img.shields.io/github/v/release/imbenjamin/dionysus-player?include_prereleases&logo=github" alt="GitHub Releases"></a>
+  <a href="https://github.com/imbenjamin/dionysus-player/releases"><img src="https://img.shields.io/github/v/release/imbenjamin/dionysus-player?display_name=release&logo=github&label=latest%20release" alt="Latest Release"></a>
+  <a href="https://github.com/imbenjamin/dionysus-player/actions?query=branch%3Astable"><img src="https://img.shields.io/github/check-suites/imbenjamin/dionysus-player/stable?logo=github&label=stable" alt="GitHub stable branch check suites"></a>
+</p>
+<p align="center">
+  <a href="https://github.com/imbenjamin/dionysus-player/releases"><img src="https://img.shields.io/github/v/release/imbenjamin/dionysus-player?include_prereleases&display_name=release&logo=github&label=latest%20prerelease" alt="Latest Prerelease"></a>
+  <a href="https://github.com/imbenjamin/dionysus-player/actions?query=branch%3Adevelop"><img src="https://img.shields.io/github/check-suites/imbenjamin/dionysus-player/develop?logo=github&label=develop" alt="GitHub branch check suites"></a>
+</p>
+<p align="center">
   <a href="https://testflight.apple.com/join/M6cu7Afs"><img src="https://img.shields.io/badge/TestFlight-Alpha%20Releases-blue?logo=appstore" alt="TestFlight Alpha Releases"></a>
   <a href="https://testflight.apple.com/join/sHQMQtjM"><img src="https://img.shields.io/badge/TestFlight-Beta%20Releases-blue?logo=appstore" alt="TestFlight Beta Releases"></a>
 </p>
-<p align="center">
-  <a href="https://github.com/imbenjamin/dionysus-player/actions?query=branch%3Adevelop"><img src="https://img.shields.io/github/check-suites/imbenjamin/dionysus-player/develop?logo=github&label=develop" alt="GitHub branch check suites"></a>
-</p>
 
-# Dionysus Player
+## About Dionysus
 
 A better and open Apple client for Jellyfin.
 
@@ -31,6 +37,15 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
 
 ## Features
 
+- **Welcome and sign-in** — a first-run welcome, then server setup that
+  scans for Jellyfin servers on the same Wi-Fi network as soon as you arrive
+  (Jellyfin's own UDP auto-discovery) and connects with one tap; typing an
+  address still works. A discovered HTTPS server whose certificate can't be
+  verified can fall back to plain HTTP, only after you confirm. Sign-in shows
+  the server's own user list — one tap for a user without a password — with
+  the server's login artwork and disclaimer when it has them. Laid out for
+  iPhone, iPad portrait and landscape, and a foldable's outer and inner
+  screens.
 - **Browse & search** — home rails, library grids (Movies/Shows/Collections/
   Playlists) with cascading genre/studio/decade/watched/favorite filters,
   search, cast & crew, "Up Next"/continue-watching.
@@ -43,6 +58,15 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
   sequential playlist playback (mixed movies/episodes, start-to-finish with
   its own client-driven "Up Next" — Jellyfin has no server-side equivalent
   for playlists).
+- **Subtitles** — authored ASS/SSA tracks render with their real typesetting
+  through libass: the script's own fonts, positioning and on-picture signs,
+  rather than just the dialogue text. Fonts the source container carries as
+  attachments are used where they're available, fetched from the server on
+  the routes that can't read them locally (a server-side transcode, and
+  offline playback of a downloaded MP4). Every other format —
+  SubRip, WebVTT, teletext, PGS and other bitmap tracks — renders through the
+  app's own overlay. Styling can be switched off in Profile → Playback →
+  Advanced, which renders an ASS track unstyled rather than dropping it.
 - **Streaming** — defaults to **Allow Transcoding** (Settings → Playback):
   negotiates with the server via a real `DeviceProfile`, falling back to a
   server-chosen AVC or HEVC transcode with a configurable max-bitrate cap
@@ -58,7 +82,9 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
   per-item `CanDelete`, which respects per-folder delete rights, not just
   the global permission), so it's invisible to accounts without the right.
   A local download of the same item can be removed at the same time.
-- **Accounts** — Jellyfin sign-in with silent session restore, per-server
+- **Accounts** — Jellyfin sign-in by password or Quick Connect (a code
+  approved from another signed-in client), approving other devices' Quick
+  Connect codes from the Account screen, silent session restore, per-server
   config, profile/settings screen.
 
 ### Downloads
@@ -119,6 +145,9 @@ unit tests. Areas still resting on unit-test coverage alone rather than
 confirmed live: non-Dolby-Vision HDR formats on other devices, and some
 seeking/scrubbing edge cases.
 
+**v1.0.0**, the first final release, was tagged and submitted for Apple App
+Review on 2026-09-07.
+
 ## Known limitations
 
 - **Downloads always come out HDR→SDR and AAC-LC stereo**, regardless of the
@@ -126,6 +155,11 @@ seeking/scrubbing edge cases.
   transcoder (no HDR-to-HDR tone-mapping); the audio downmix is a deliberate
   v1 simplification. Live/direct-play is unaffected either way. See
   [DOWNLOADS.md](DOWNLOADS.md#limitations) for the full detail.
+- **Subtitles are unstyled in Picture in Picture.** The PiP window shows the
+  system's own caption rendering of whichever track is selected, because the
+  app's subtitle overlay isn't inside the layer AVKit captures — the track is
+  handed to AVKit as a native rendition instead. In-app playback is
+  unaffected, styled or not.
 - **tvOS/macOS are not built yet** — iOS/iPadOS only for now, per the
   Status section above.
 - **Audio/music libraries aren't supported yet** — browsing/playing music is
@@ -148,7 +182,8 @@ seeking/scrubbing edge cases.
 
 ## Requirements
 
-- Xcode 16 or later
+- Xcode 26 or later (the Liquid Glass UI builds against the iOS 26 SDK)
+- iOS/iPadOS 18 or later to run it (AetherEngine 7.x's platform floor)
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
 - A Jellyfin server to point the app at
 
@@ -183,8 +218,8 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 `DionysusPlayerUITests` drives the real app in the Simulator with XCUITest,
 against an in-process stub server and a fake playback engine, so journeys
 like "sign in → open a title → play it" are deterministic and run in CI. A
-smoke subset gates every PR; the full suite runs nightly on an iPhone and an
-iPad, and on release tags.
+smoke subset gates every PR on an iPhone and an iPad; the full suite runs
+nightly and on release tags on both, on iOS 26 and on the iOS 18 floor.
 
 ```sh
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
@@ -209,7 +244,7 @@ DionysusPlayer/
 │   └── Downloads/       Offline downloads — SwiftData model, file store,
 │                        download/sync managers (see below)
 ├── Features/
-│   ├── ServerSetup/     One-time server address entry
+│   ├── ServerSetup/     One-time server setup — LAN discovery or address entry
 │   ├── Login/           Jellyfin sign-in, remembers & auto-logs in
 │   ├── Home/            Hero banner, library rail, and content rails
 │   ├── Collection/      Grid of a library/collection's items
@@ -278,8 +313,9 @@ Producing a set is two steps:
    --time "9:41" --batteryLevel 100 ...` for a clean status bar, sign in
    against the demo server, and capture Home, the Movies grid, an asset
    detail page, the player (landscape — `xcrun simctl` has no orientation
-   flag, so rotate via Simulator's Device ▸ Orientation menu, screenshot,
-   then `sips -r 270` the PNG back to landscape), Downloads with a mix of
+   flag, so rotate via the Device ▸ Orientation menu and screenshot; with
+   Xcode 27's Device Hub the PNG comes out upright, while the older
+   Simulator app needed `sips -r 270` to put it back), Downloads with a mix of
    complete/in-progress items, and Home again in the opposite appearance.
    Name them to match `Scripts/store-screenshots/gen.py`'s `SLIDES` list
    (`01-home.png` … `06-light.png`) into `<raw>/iphone/` and `<raw>/ipad/`.
@@ -305,6 +341,11 @@ similar platforms despite their code-signing and DRM restrictions —
 source obligations are otherwise unaffected. [AetherEngine](https://github.com/superuser404notfound/AetherEngine),
 the playback engine dependency, is separately licensed under
 LGPL-3.0 with its own equivalent App Store/DRM exception.
+[swift-ass-renderer](https://github.com/mihai8804858/swift-ass-renderer) and
+[swift-libass](https://github.com/mihai8804858/swift-libass), which render
+styled ASS/SSA subtitles, are MIT; the native libraries swift-libass vendors
+carry their own licences (libass ISC, HarfBuzz MIT, FreeType FTL, fontconfig
+MIT, libpng, and FriBidi LGPL-2.1+ — all GPLv3-compatible).
 
 See [PRIVACY.md](PRIVACY.md) for the app's privacy policy — also reachable
 in-app from Profile.

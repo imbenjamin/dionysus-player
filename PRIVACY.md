@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last updated: August 25, 2026**
+**Last updated: September 25, 2026**
 
 Dionysus Player is a client for [Jellyfin](https://jellyfin.org) media
 servers. It has no backend of its own: everything the app does happens
@@ -20,7 +20,8 @@ All of the following stays on your device, in Apple's Keychain or app
 storage, and is never sent anywhere except where noted:
 
 - **Account credentials** — your Jellyfin username, password (if your
-  account has one), and access token, stored in the iOS Keychain.
+  account has one and you signed in with it — signing in with Quick Connect
+  stores no password at all), and access token, stored in the iOS Keychain.
 - **Server address** — the URL of the Jellyfin server you configured.
 - **A random device identifier** — a UUID generated once on first launch,
   used only to identify this app installation to your Jellyfin server (the
@@ -30,9 +31,9 @@ storage, and is never sent anywhere except where noted:
 - **Playback preferences** — your chosen audio/subtitle tracks, media
   version selections, download settings, and recent search history, scoped
   to your Jellyfin account and never sent to the server.
-- **Downloaded content** — video, subtitles, and artwork you choose to
-  download for offline playback, stored in the app's local storage and
-  excluded from iCloud/iTunes backups.
+- **Downloaded content** — video, subtitles, subtitle fonts, and artwork you
+  choose to download for offline playback, stored in the app's local storage
+  and excluded from iCloud/iTunes backups.
 
 ### Data sent to your Jellyfin server
 
@@ -43,6 +44,30 @@ your credentials (to authenticate), the device identifier above (standard
 client identification), and playback progress (so "continue watching" and
 "next up" work). This is data flowing to a server *you* control, not to
 the Dionysus Player development team or contributors.
+
+### Finding a server on your network
+
+When you reach the **Find Your Server** step of setup (after tapping **Get
+Started**), and again whenever you tap **Scan Again**, the app sends a short
+discovery message ("who is JellyfinServer?", Jellyfin's standard discovery
+protocol) to each device on your current Wi-Fi network, and lists any Jellyfin
+server that replies with its name and address. To show which version of
+Jellyfin each of those servers runs, it then asks each server that replied for
+its public system information — the same unauthenticated request any Jellyfin
+app makes before signing in. None of this contains anything about you or your
+device, nothing is stored from devices that don't reply, and it only happens
+during setup, never once you're signed in. iOS asks for your permission to
+access the local network the first time the app scans; you can decline and
+enter your server's address instead.
+
+### Signing in
+
+Before you sign in, the app asks your server for the users it shows on its
+login screen (names and profile pictures — the same list Jellyfin's own web
+page shows, and one your server's administrator controls), and for the
+server's login-screen branding (its disclaimer text and background image, if
+it has them). These come from your server and are only displayed; nothing is
+sent in return, and none of it is stored.
 
 ## What We Don't Collect
 
@@ -64,8 +89,14 @@ directs (streaming or downloading from your configured server), but as
 with any third-party software, we can't audit their internals directly.
 The app also uses [SwiftUI-Shimmer](https://github.com/markiv/SwiftUI-Shimmer),
 a small open-source loading-animation effect with no network access of its
-own. See the in-app **License** screen (Profile → License) for the full
-set of licenses involved.
+own, and [swift-ass-renderer](https://github.com/mihai8804858/swift-ass-renderer)
+with [swift-libass](https://github.com/mihai8804858/swift-libass), which draw
+styled subtitles on-device using libass. These render subtitle text the app
+has already fetched from your server; they make no network connections and
+read no data beyond the subtitle track and the fonts that go with it —
+whether those are embedded in the file being played or fetched from your
+server alongside it. See the in-app **License** screen (Profile → License)
+for the full set of licenses involved.
 
 ## Data Retention & Deletion
 

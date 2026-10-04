@@ -45,6 +45,20 @@ final class DownloadedItemTests: XCTestCase {
         XCTAssertNil(item.estimatedTotalBytes)
     }
 
+    // MARK: numberedEpisodeTitle — Downloads list's second line for a completed episode
+
+    func test_numberedEpisodeTitle_leadsWithTheEpisodeLabel() {
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        item.episodeLabel = "S1:E4"
+        XCTAssertEqual(item.numberedEpisodeTitle, "S1:E4 \u{00B7} Test Movie item-1")
+    }
+
+    func test_numberedEpisodeTitle_withoutALabel_isTheTitle() {
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        item.episodeLabel = nil
+        XCTAssertEqual(item.numberedEpisodeTitle, "Test Movie item-1")
+    }
+
     // MARK: yearAndDurationText — Downloads list's second line for a completed movie
 
     func test_yearAndDurationText_bothPresent_joinedByMiddleDot() {

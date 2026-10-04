@@ -75,7 +75,7 @@ final class DynamicRailCandidateTests: XCTestCase {
 
     /// Actor/director rails span both movies and shows at once, which
     /// doesn't map onto a single-library `CollectionQuery` — see
-    /// `seeAllQuery`'s own doc comment.
+    /// `seeAllQuery`'s doc comment.
     func test_seeAllQuery_actorAndDirector_areNil() {
         XCTAssertNil(DynamicRailCandidate.actor(name: "Tom Hanks").seeAllQuery(moviesLibraryID: "lib-movies", showsLibraryID: "lib-shows"))
         XCTAssertNil(

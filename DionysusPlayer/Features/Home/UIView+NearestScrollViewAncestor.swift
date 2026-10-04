@@ -8,7 +8,7 @@ extension UIView {
     /// `.background` on a SwiftUI `ScrollView`'s content and need to find
     /// that scroll view's own backing `UIScrollView` from there, robust to
     /// SwiftUI changing exactly how many wrapper views it inserts between
-    /// them across versions. See either coordinator's own doc comment for
+    /// them across versions. See either coordinator's doc comment for
     /// why walking up from a content-side marker (rather than the
     /// `ScrollView` container itself) is what actually finds the right one.
     func nearestScrollViewAncestor() -> UIScrollView? {

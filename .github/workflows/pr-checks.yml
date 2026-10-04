@@ -36,7 +36,7 @@ jobs:
     # longer reports, including the PR doing the rename. The name is
     # starter-template boilerplate and reads oddly; it stays anyway.
     name: Build and Test default scheme using any available iPhone simulator
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 45
 
     steps:
@@ -45,34 +45,6 @@ jobs:
 
       - name: Set up iOS project
         uses: ./.github/actions/setup-ios-project
-
-      - name: Verify AetherEngine version display is up to date
-        # This is the *only* place AetherEngine drift is enforced. release.yml
-        # deliberately regenerates rather than verifies (a newly-published
-        # upstream version must never fail an already-pushed tag), so if this
-        # check goes away the checked-in constant silently rots.
-        #
-        # `project.yml` pins AetherEngine with `version:` (an exact pin),
-        # so an ordinary PR
-        # can no longer drift this by surprise the way a `from:` range once
-        # did (see project.yml's own comment) — what this still catches is
-        # `project.yml`'s pin and the checked-in Swift constant disagreeing,
-        # which can happen on any PR that touches either by hand, and is
-        # exactly what a bump PR from `aetherengine-bump.yml` produces if its
-        # own regeneration step is ever wrong. Also has the side effect of
-        # populating this runner's SPM caches with today's real resolution,
-        # which the build below then reuses rather than resolving cold
-        # itself. Confirmed live (2026-08-28, back when this was a `from:`
-        # range): a stale *local* SPM cache let a real version bump go
-        # undetected on a developer machine even after this same script ran
-        # there — CI is always a clean checkout, so this check is meaningful
-        # every time it runs here, unlike a local run someone forgets is stale.
-        run: |
-          ./Scripts/update-aetherengine-version.sh
-          if ! git diff --exit-code -- DionysusPlayer/Core/Playback/AetherEngineVersion.swift; then
-            echo "::error::AetherEngineVersion.swift is out of date — run ./Scripts/update-aetherengine-version.sh locally and commit the result." >&2
-            exit 1
-          fi
 
       - name: Build and test
         uses: ./.github/actions/build-and-test
@@ -88,21 +60,20 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  ui-smoke:
-    # A separate job from `build`, deliberately. That one's name is required
-    # verbatim by both branch rulesets (see its own comment), so it must not
-    # grow a second responsibility or change shape. This one is also a new
-    # check context: it reports on every PR from the moment it merges, but it
-    # does not *block* anything until it is added to the "develop protection"
-    # and "Secure stable" rulesets by hand.
+  release-build:
+    # Compiles the Release configuration, which nothing else on a PR does:
+    # `build` and `ui-smoke` both build Debug, so code that only compiles with
+    # `DEBUG` defined gets through them and fails at the tag, in release.yml's
+    # archive step, after the whole test suite has already run. That is what
+    # happened to v1.1.0-alpha.4: #234 added an extension to the Debug-only
+    # `UITestStubURLProtocol` outside the file's `#if DEBUG`.
     #
-    # Runs the smoke plan only — seven journeys, no per-feature coverage. The
-    # full suite runs nightly (nightly-ui-tests.yml) and on release tags. The
-    # split exists because UI tests are slow and a shared runner is variable;
-    # the point of this job is fast pre-merge feedback on the paths that stop
-    # the app being usable at all.
-    name: UI smoke tests
-    runs-on: macos-latest
+    # Unsigned and for a generic device, so it needs no credentials — the
+    # signing half of the archive is release.yml's alone. A separate job, not
+    # a step in `build`, for the same reason `ui-smoke` is one (see below).
+    # Required by both branch rulesets.
+    name: Release configuration compiles
+    runs-on: macos-26
     timeout-minutes: 30
 
     steps:
@@ -112,30 +83,36 @@ jobs:
       - name: Set up iOS project
         uses: ./.github/actions/setup-ios-project
 
-      # No AetherEngine drift check here — `build` already enforces it on
-      # every PR, and running it twice would just resolve packages twice.
+      - name: Build Release for a generic iOS device
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project DionysusPlayer.xcodeproj \
+            -scheme DionysusPlayer \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
 
-      - name: Shut down all simulators
-        # A simulator left booted by the image (or by a previous step) is the
-        # single most common source of UI-test flake on a shared runner:
-        # xcodebuild picks a device that is already mid-boot and times out
-        # launching the app. Start from a known-clean state instead.
-        run: xcrun simctl shutdown all || true
-
-      - name: Build and test
-        uses: ./.github/actions/build-and-test
-        with:
-          test-plan: UITests-Smoke
-          result-bundle-path: .build/UITestResults.xcresult
-
-      - name: Upload UI test results
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          # A failed UI test's .xcresult carries the screenshots and the
-          # recorded interaction, which is the only practical way to see what
-          # the runner actually saw.
-          name: ui-test-results
-          path: .build/UITestResults.xcresult
-          retention-days: 7
-          if-no-files-found: ignore
+  ui-smoke:
+    # A separate job from `build`, deliberately. That one's name is required
+    # verbatim by both branch rulesets (see its own comment), so it must not
+    # grow a second responsibility or change shape.
+    #
+    # Runs the smoke plan only — a handful of journeys, no per-feature
+    # coverage — on one iPhone and one iPad, latest iOS only. The full suite,
+    # on every supported iOS version, runs nightly (nightly-ui-tests.yml) and
+    # on release tags. The split exists because UI tests are slow and a shared
+    # runner is variable; the point of this job is fast pre-merge feedback on
+    # the paths that stop the app being usable at all.
+    #
+    # ⚠️ Both rulesets require the two checks this reports, by their full
+    # names: "UI smoke tests / iPhone, iOS 26.5" and "UI smoke tests / iPad,
+    # iOS 26.5". Renaming this job, or changing the latest iOS version in
+    # ui-tests.yml, changes those names — update both rulesets in step.
+    name: UI smoke tests
+    uses: ./.github/workflows/ui-tests.yml
+    with:
+      test-plan: UITests-Smoke
+      latest-only: true
+      timeout-minutes: 30

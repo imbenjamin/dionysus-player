@@ -2,70 +2,61 @@ import SwiftUI
 
 /// Paints `PlayerViewModel.subtitleCues` over the video surface.
 ///
-/// AetherEngine decodes and publishes subtitle cues but draws nothing
-/// itself ("the engine emits `SubtitleCue`; your UI paints them" — see its
-/// README) — this view is that UI. Mounted once in `PlayerView.body`,
-/// between the video surface and the rest of the player chrome, and always
-/// non-interactive so it never competes with taps meant for the controls
-/// or the surface underneath.
+/// AetherEngine decodes and publishes subtitle cues but draws nothing itself;
+/// this view is that UI. Mounted once in `PlayerView.body` between the video
+/// surface and the rest of the player chrome, always non-interactive so it never
+/// competes for taps.
 struct SubtitleOverlayView: View {
     let viewModel: PlayerViewModel
-    /// Matches whatever the video surface itself is doing — needed to work
-    /// out the actual on-screen picture rect (as opposed to this view's own,
-    /// possibly letterboxed, container) so image cues and `\pos`-anchored
-    /// text cues land where the source authored them.
+    /// Matches what the video surface is doing, so the actual picture rect — as
+    /// opposed to this view's possibly letterboxed container — can be derived and
+    /// image and `\pos`-anchored cues land where the source authored them.
     let zoomMode: VideoZoomMode
-    /// Whether `PlayerControlsOverlay`'s bottom transport row is currently
-    /// on screen — default-positioned cues (the overwhelming majority: no
-    /// explicit `\an`/`\pos`) sit just above it while showing, and settle
-    /// back down near the screen edge once it fades.
+    /// Whether `PlayerControlsOverlay`'s bottom transport row is on screen.
+    /// Default-positioned cues — the majority, with no explicit `\an`/`\pos` —
+    /// sit above it while showing and settle near the screen edge once it fades.
     let controlsVisible: Bool
+    /// Global y of the top edge of that chrome, from `BottomChromeTopKey`.
+    /// `.infinity` until a layout pass reports it, which resolves to
+    /// `restingBottomInset`.
+    let controlsTop: CGFloat
 
-    /// `.compact` is iPhone's landscape signal — same check/caveat as
-    /// `PlayerView.isLandscape` (stays `.regular` in both orientations on
-    /// iPad). `PlayerControlsOverlay`'s transport row sits vertically
-    /// *centered* between two `Spacer()`s in both orientations, not
-    /// anchored to the bottom; portrait's tall screen leaves it well clear
-    /// of a bottom-anchored subtitle regardless, but landscape's short
-    /// screen puts that centered row much closer to the bottom edge, so
-    /// clearing the scrubber bar (the actual bottom row) needs a smaller
-    /// push there rather than portrait's — pushing a full 132pt up in a
-    /// ~430pt-tall landscape screen lands squarely on the transport row
-    /// instead of clearing it.
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-    private var isLandscape: Bool { verticalSizeClass == .compact }
+    @Environment(\.displayScale) private var displayScale
 
-    /// Bottom clearance while the transport row is showing, in portrait —
-    /// enough to clear its gradient + scrubber + button row.
-    private static let controlsClearance: CGFloat = 132
-    /// Bottom clearance while showing in landscape — sized to clear just
-    /// `PlayerControlsOverlay.scrubberBar` itself (its `.frame(height: 44)`
-    /// track row plus its own `.padding()`, roughly 76pt) with a little
-    /// margin, not measured — see `isLandscape`'s doc comment for why
-    /// portrait's larger value overshoots here.
-    private static let landscapeControlsClearance: CGFloat = 96
+    /// Breathing room between a subtitle and the chrome it clears.
+    private static let controlsGap: CGFloat = 8
     /// Bottom clearance once controls have faded, just enough to clear the
     /// home indicator / safe area.
     private static let restingBottomInset: CGFloat = 28
     private static let horizontalInset: CGFloat = 24
-    /// Matches `PlayerView.fadeOutAnimation`'s duration — the clearance
-    /// change reads as part of the same controls fade rather than a
-    /// separate, out-of-step motion.
+    /// Matches `PlayerView.fadeOutAnimation`'s duration, so the clearance change
+    /// reads as part of the controls fade rather than separate motion.
     private static let clearanceAnimation: Animation = .easeInOut(duration: 0.3)
 
     var body: some View {
         GeometryReader { proxy in
             let video = videoRect(in: proxy.size)
+            let bottomInset = bottomInset(overlayMaxY: proxy.frame(in: .global).maxY)
             let cues = activeCues
             let defaultCues = cues.filter(isDefaultPositioned)
             let placedCues = cues.filter { !isDefaultPositioned($0) }
 
             ZStack {
-                ForEach(placedCues) { cue in
-                    placedCueView(cue, video: video)
+                // libass owns the whole paint for an authored-ASS track — it
+                // composites every line of the frame into one image, so the
+                // app's own text rendering must not also run.
+                if viewModel.isRenderingStyledASS {
+                    assFrameView(
+                        frame: proxy.size, video: video,
+                        safeArea: Self.windowSafeAreaInsets, bottomInset: bottomInset
+                    )
+                } else {
+                    ForEach(placedCues) { cue in
+                        placedCueView(cue, video: video)
+                    }
                 }
 
-                if !defaultCues.isEmpty {
+                if !defaultCues.isEmpty, !viewModel.isRenderingStyledASS {
                     Color.clear
                         .frame(width: video.width, height: video.height)
                         .position(x: video.midX, y: video.midY)
@@ -86,24 +77,35 @@ struct SubtitleOverlayView: View {
         .allowsHitTesting(false)
     }
 
-    private var bottomInset: CGFloat {
-        guard controlsVisible else { return Self.restingBottomInset }
-        return isLandscape ? Self.landscapeControlsClearance : Self.controlsClearance
+    /// Clearance at the bottom of the overlay, given where this overlay's own
+    /// bottom edge sits globally.
+    ///
+    /// While the transport row is up this is derived from the chrome's MEASURED
+    /// position (`BottomChromeTopKey`) rather than a constant. It used to be two
+    /// constants, 132 portrait and 96 landscape, and the landscape one was
+    /// calibrated against a scrubber row with nothing under it — 16 + 44 + 16,
+    /// the "roughly 76pt" its own comment cited. The chapter/format row beneath
+    /// the scrubber adds ~48pt whenever the content has chapters or a video
+    /// format to name, which put the chrome at ~124pt and left a subtitle drawn
+    /// straight through the scrubber in landscape. Content-dependent, so no
+    /// constant can be right for both cases in either orientation.
+    private func bottomInset(overlayMaxY: CGFloat) -> CGFloat {
+        guard controlsVisible, controlsTop.isFinite else { return Self.restingBottomInset }
+        return max(overlayMaxY - controlsTop + Self.controlsGap, Self.restingBottomInset)
     }
 
-    /// Cues active at `viewModel.sourceTime` — the cue list itself covers a
-    /// window ahead of the playhead (for a host ADVANCE sync offset), so
-    /// this is where "currently showing" actually gets decided. More than
-    /// one cue can be active at once (a forced sign alongside dialogue),
-    /// and all of them render, per AetherEngine's own docs.
+    /// Cues active at `viewModel.sourceTime`. The cue list covers a window ahead
+    /// of the playhead for a host ADVANCE sync offset, so "currently showing" is
+    /// decided here. More than one cue can be active at once — a forced sign
+    /// alongside dialogue — and all render, per AetherEngine's docs.
     private var activeCues: [SubtitleCueDisplay] {
         let time = viewModel.sourceTime
         return viewModel.subtitleCues.filter { $0.startTime <= time && time < $0.endTime }
     }
 
-    /// True for a text/rich-text cue with no explicit `\an`/`\pos` — the
-    /// common case, stacked bottom-center as a group. Image cues always
-    /// carry their own geometry, so they're never "default".
+    /// True for a text cue with no explicit `\an`/`\pos` — the common case,
+    /// stacked bottom-center as a group. Image cues always carry geometry, so
+    /// they're never default.
     private func isDefaultPositioned(_ cue: SubtitleCueDisplay) -> Bool {
         if case .image = cue.body { return false }
         return cue.placement == nil
@@ -144,12 +146,12 @@ struct SubtitleOverlayView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .accessibilityIdentifier(A11yID.Player.plainSubtitle)
     }
 
-    /// `SubtitleTextRun`s concatenate into one styled `Text` via `+`,
-    /// mirroring how AetherEngine itself flattens rich-text cues (`cue.text`)
-    /// for consumers that don't care about styling — this is the consumer
-    /// that does.
+    /// `SubtitleTextRun`s concatenate into one styled `Text` via `+`, mirroring how
+    /// AetherEngine flattens rich-text cues into `cue.text` for consumers that
+    /// don't care about styling. This one does.
     private func richText(_ runs: [SubtitleCueDisplay.Run]) -> Text {
         runs.reduce(Text("")) { accumulated, run in
             var segment = Text(run.text)
@@ -162,10 +164,9 @@ struct SubtitleOverlayView: View {
         }
     }
 
-    /// ASS `\pos` wins when present (already normalized against the video
-    /// frame, same as image geometry); otherwise falls back to the numpad
-    /// `\an` alignment, defaulting to bottom-center (2) for a placement that
-    /// somehow carries neither.
+    /// ASS `\pos` wins when present, already normalized against the video frame
+    /// like image geometry; otherwise the numpad `\an` alignment, defaulting to
+    /// bottom-center (2) for a placement carrying neither.
     private func placementPoint(_ placement: SubtitleCueDisplay.Placement, video: CGRect) -> CGPoint {
         if let position = placement.position {
             return CGPoint(x: video.minX + position.x * video.width, y: video.minY + position.y * video.height)
@@ -173,9 +174,8 @@ struct SubtitleOverlayView: View {
         return alignmentPoint(placement.alignment ?? 2, video: video)
     }
 
-    /// ASS numpad layout: 1–3 bottom row, 4–6 middle row, 7–9 top row, left
-    /// to right within each — matches `SubtitleTextPlacement.alignment`'s
-    /// own doc comment ("1 bottom-left through 9 top-right, 5 centred").
+    /// ASS numpad layout: 1–3 bottom, 4–6 middle, 7–9 top, left to right within
+    /// each, matching `SubtitleTextPlacement.alignment`.
     private func alignmentPoint(_ alignment: Int, video: CGRect) -> CGPoint {
         let clamped = min(max(alignment, 1), 9)
         let column = (clamped - 1) % 3 // 0 left, 1 center, 2 right
@@ -185,15 +185,95 @@ struct SubtitleOverlayView: View {
         return CGPoint(x: video.minX + xFractions[column] * video.width, y: video.minY + yFractions[row] * video.height)
     }
 
+    // MARK: - Authored ASS
+
+    /// Paints the frame libass composited for `viewModel.assRenderTime`.
+    ///
+    /// `imageRect` comes back in the coordinate space of libass' frame, which
+    /// is the drawable region rather than the whole overlay (see
+    /// `ASSSubtitleRenderSession.Geometry.drawable`), so its origin puts the
+    /// image back where it belongs.
+    @ViewBuilder
+    private func assFrameView(
+        frame: CGSize, video: CGRect, safeArea: UIEdgeInsets, bottomInset: CGFloat
+    ) -> some View {
+        let _ = viewModel.assFrameGeneration
+        let drawable = ASSSubtitleRenderSession.Geometry(
+            frame: frame, video: video, safeArea: safeArea,
+            bottomInset: bottomInset, scale: displayScale
+        ).drawable
+        // Held back while a transcode's timing is unknown, which is the same
+        // frame libass last drew at a now-stale time.
+        if let rendered = viewModel.assRenderSession.frame, !viewModel.isStyledASSTimingPending {
+            Image(decorative: rendered.image, scale: 1)
+                .resizable()
+                .frame(width: rendered.imageRect.width, height: rendered.imageRect.height)
+                .position(
+                    x: drawable.minX + rendered.imageRect.midX,
+                    y: drawable.minY + rendered.imageRect.midY
+                )
+                .accessibilityElement()
+                .accessibilityLabel(viewModel.assRenderSession.dialogues(at: viewModel.assRenderTime).joined(separator: " "))
+                .accessibilityIdentifier(A11yID.Player.styledSubtitle)
+        }
+        // The geometry is only knowable here, and either it or the script can
+        // arrive second — the view model holds whichever comes first.
+        let report = { reportASSGeometry(frame: frame, video: video, safeArea: safeArea, bottomInset: bottomInset) }
+        Color.clear
+            .onAppear { report() }
+            .onChange(of: frame) { report() }
+            .onChange(of: video) { report() }
+            .onChange(of: safeArea) { report() }
+            // Same clearance the hand-rolled path above applies as bottom
+            // padding, so both kinds of subtitle clear the transport row by the
+            // same amount and settle back to the same resting position.
+            .onChange(of: bottomInset) { report() }
+    }
+
+    /// The window's insets, not the overlay's.
+    ///
+    /// A `GeometryReader` inside a view that `ignoresSafeArea()` reports zero
+    /// insets — measured, not assumed — and this overlay must ignore the safe
+    /// area to sit over a full-bleed video. The window is the only place the
+    /// real values survive.
+    private static var windowSafeAreaInsets: UIEdgeInsets {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first { $0.isKeyWindow }?
+            .safeAreaInsets ?? .zero
+    }
+
+    private func reportASSGeometry(
+        frame: CGSize, video: CGRect, safeArea: UIEdgeInsets, bottomInset: CGFloat
+    ) {
+        viewModel.setASSGeometry(
+            ASSSubtitleRenderSession.Geometry(
+                frame: frame,
+                video: video,
+                safeArea: safeArea,
+                // The same live clearance the hand-rolled path uses, so a
+                // styled cue sits exactly where an unstyled one would.
+                //
+                // This re-lays-out libass rather than shifting the composited
+                // image, which is the point: the picture keeps its place
+                // inside the frame, so only the bottom-aligned band moves and
+                // `\pos` / `\an` signs stay on the anchors they were authored
+                // against. Shifting the image would have dragged them along.
+                bottomInset: bottomInset,
+                scale: displayScale
+            )
+        )
+    }
+
     // MARK: - Image
 
-    /// `position`/`canvasSize` are normalized `[0, 1]` against the
-    /// composition canvas, same contract as `SubtitleImage` — see
-    /// `SubtitleCueDisplay.Body.image`'s doc comment. The canvas maps onto
-    /// `video` width-aligned and center-anchored (a cropped-video rip can
-    /// author a canvas taller than the coded video), and `canvasSize ==
-    /// .zero` collapses to canvas == video, which is exactly what falls out
-    /// of this math when the canvas/video heights are equal.
+    /// `position`/`canvasSize` are normalized `[0, 1]` against the composition
+    /// canvas, the same contract as `SubtitleImage` (see
+    /// `SubtitleCueDisplay.Body.image`). The canvas maps onto `video`
+    /// width-aligned and center-anchored, since a cropped-video rip can author a
+    /// taller canvas than the coded video. `canvasSize == .zero` collapses to
+    /// canvas == video, which falls out of this math when their heights are equal.
     private func imageCueView(_ cgImage: CGImage, position: CGRect, canvasSize: CGSize, video: CGRect) -> some View {
         let canvasHeightOnScreen = canvasSize == .zero ? video.height : video.width * (canvasSize.height / canvasSize.width)
         let canvasOriginY = video.midY - canvasHeightOnScreen / 2
@@ -211,12 +291,11 @@ struct SubtitleOverlayView: View {
 
     // MARK: - Geometry
 
-    /// Replicates the `resizeAspect`/`resizeAspectFill` math the video
-    /// layer itself uses (`AetherPlaybackEngine.zoomMode`'s doc comment) so
-    /// this view can place cues against the actual picture rect without
-    /// needing access to AetherEngine's internal `AVPlayerLayer`/
-    /// `videoRect`. Falls back to the full container before the natural
-    /// size is known — nothing has cues to place before then anyway.
+    /// Replicates the `resizeAspect`/`resizeAspectFill` math the video layer uses
+    /// (see `AetherPlaybackEngine.zoomMode`), so cues can be placed against the
+    /// real picture rect without access to AetherEngine's internal
+    /// `AVPlayerLayer`. Falls back to the full container before the natural size
+    /// is known, when there are no cues to place anyway.
     private func videoRect(in containerSize: CGSize) -> CGRect {
         guard let natural = viewModel.videoNaturalSize, natural.width > 0, natural.height > 0,
               containerSize.width > 0, containerSize.height > 0 else {

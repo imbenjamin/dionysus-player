@@ -76,7 +76,7 @@ final class MediaItemTests: XCTestCase {
         XCTAssertNil(makeMovie(runTimeTicks: 0).durationText)
     }
 
-    // MARK: durationAccessibilityText — see its own doc comment: "1h 30m"
+    // MARK: durationAccessibilityText — see its doc comment: "1h 30m"
     // gets misheard by VoiceOver as "one h thirty meters" (confirmed live),
     // so this spells the units out instead.
 
@@ -120,6 +120,23 @@ final class MediaItemTests: XCTestCase {
 
     func test_episodeLabel_nilForNonEpisodeTypes() {
         XCTAssertNil(makeMovie().episodeLabel)
+    }
+
+    // MARK: numberedEpisodeName
+
+    func test_numberedEpisodeName_joinsLabelAndNameWithOneDot() {
+        let item = makeEpisode(indexNumber: 1, parentIndexNumber: 1, name: "Pilot")
+        XCTAssertEqual(item.numberedEpisodeName, "S1:E1 \u{00B7} Pilot")
+    }
+
+    func test_numberedEpisodeName_isJustTheNameWithoutNumbering() {
+        XCTAssertEqual(makeEpisode(indexNumber: nil, name: "Pilot").numberedEpisodeName, "Pilot")
+        XCTAssertEqual(makeEpisode(parentIndexNumber: nil, name: "Pilot").numberedEpisodeName, "Pilot")
+    }
+
+    func test_numberedEpisodeName_isJustTheNameForNonEpisodes() {
+        let movie = makeMovie()
+        XCTAssertEqual(movie.numberedEpisodeName, movie.name)
     }
 
     // MARK: railTitle
@@ -240,7 +257,7 @@ final class MediaItemTests: XCTestCase {
 
     // MARK: playbackProgressIdentity
 
-    /// The whole reason this exists — see its own doc comment — is to
+    /// The whole reason this exists — see its doc comment — is to
     /// change value whenever `resumePositionSeconds`/`playedFraction`/
     /// `isPlayed` would, so it can drive a `.id()` at `PlayResumeButtonRow`'s
     /// call sites. Pin that it actually does.
@@ -286,7 +303,7 @@ final class MediaItemTests: XCTestCase {
     /// `MediaItem.==` must be structural, not id-only — SwiftUI relies on
     /// it to decide whether a view changed (see its doc comment). Each of
     /// these four `userData` fields drives something visible on a card
-    /// (progress bar, watched eye, favorite star), so each must break
+    /// (progress bar, watched eye, favorite heart), so each must break
     /// equality.
     func test_equality_differsWhenPlaybackPositionDiffers() {
         let original = makeMovie(userData: UserItemDataDto(playbackPositionTicks: 10 * 10_000_000))
@@ -400,7 +417,7 @@ final class MediaItemTests: XCTestCase {
         XCTAssertEqual(updated.playedFraction, 0.25)
     }
 
-    /// Deliberately untouched — see that method's own doc comment for why
+    /// Deliberately untouched — see that method's doc comment for why
     /// (a server-side threshold judgement this isn't trying to replicate).
     func test_withOptimisticPlaybackPosition_leavesIsPlayedAlone() {
         let original = makeMovie(userData: UserItemDataDto(played: true))

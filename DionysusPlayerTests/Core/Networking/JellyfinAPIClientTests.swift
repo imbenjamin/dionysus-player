@@ -66,10 +66,251 @@ final class JellyfinAPIClientTests: XCTestCase {
         }
     }
 
+    // MARK: Sign-in screen
+
+    /// Jellyfin's real `/Users/Public` shape, trimmed. `HasPassword` decodes
+    /// as given — `true` here even though this account signs in with an empty
+    /// password on the demo server, which is why the app doesn't gate on it.
+    func test_publicUsers_decodesTheListWithoutAToken() async throws {
+        let client = makeClient(accessToken: "previous-session")
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, body: Data(#"""
+            [{"Name":"demo","ServerId":"s","Id":"u1","PrimaryImageTag":"tag1","HasPassword":true,"HasConfiguredPassword":true},
+             {"Name":"Ben","ServerId":"s","Id":"u2","HasPassword":false}]
+            """#.utf8))
+        }
+
+        let users = try await client.publicUsers()
+
+        XCTAssertEqual(users.map(\.name), ["demo", "Ben"])
+        XCTAssertEqual(users.map(\.hasPassword), [true, false])
+        XCTAssertEqual(users.first?.primaryImageTag, "tag1")
+        let request = try XCTUnwrap(MockURLProtocol.lastRequest)
+        XCTAssertEqual(request.url?.path, "/Users/Public")
+        XCTAssertFalse((request.value(forHTTPHeaderField: "Authorization") ?? "").contains("Token="))
+    }
+
+    func test_brandingConfiguration_decodesDisclaimerAndSplashscreenSwitch() async throws {
+        let client = makeClient()
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, body: Data(#"""
+            {"LoginDisclaimer":"Reset daily.<br/>Enjoy.","CustomCss":"","SplashscreenEnabled":true}
+            """#.utf8))
+        }
+
+        let branding = try await client.brandingConfiguration()
+
+        XCTAssertEqual(branding.loginDisclaimer, "Reset daily.<br/>Enjoy.")
+        XCTAssertEqual(branding.splashscreenEnabled, true)
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.path, "/Branding/Configuration")
+    }
+
+    // MARK: Quick Connect
+
+    func test_quickConnectEnabled_decodesBareBooleanWithoutAToken() async throws {
+        // A leftover token from before a sign-out must not ride along.
+        let client = makeClient(accessToken: "previous-session")
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, body: Data("true".utf8))
+        }
+
+        let enabled = try await client.quickConnectEnabled()
+
+        XCTAssertTrue(enabled)
+        let request = try XCTUnwrap(MockURLProtocol.lastRequest)
+        XCTAssertEqual(request.url?.path, "/QuickConnect/Enabled")
+        XCTAssertFalse((request.value(forHTTPHeaderField: "Authorization") ?? "").contains("Token="))
+    }
+
+    /// The server builds the eventual session from the device fields in the
+    /// header and throws without any of them, so they must be there even
+    /// though no token is.
+    func test_initiateQuickConnect_postsWithDeviceIdentityAndDecodesCode() async throws {
+        let client = makeClient()
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, body: Data(#"""
+                {"Authenticated":false,"Secret":"abc123","Code":"482913","DeviceId":"d","DeviceName":"n",
+                 "AppName":"a","AppVersion":"1","DateAdded":"2026-09-25T09:00:00.0000000Z"}
+                """#.utf8))
+        }
+
+        let result = try await client.initiateQuickConnect()
+
+        XCTAssertEqual(result, QuickConnectResult(secret: "abc123", code: "482913", authenticated: false))
+        let request = try XCTUnwrap(MockURLProtocol.lastRequest)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/QuickConnect/Initiate")
+        let header = request.value(forHTTPHeaderField: "Authorization") ?? ""
+        for field in ["Client=", "Device=", "DeviceId=", "Version="] {
+            XCTAssertTrue(header.contains(field), "Missing \(field) in \(header)")
+        }
+        XCTAssertFalse(header.contains("Token="))
+    }
+
+    func test_quickConnectState_sendsSecretAsQuery() async throws {
+        let client = makeClient()
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request,
+                value: QuickConnectResult(secret: "abc123", code: "482913", authenticated: true)
+            )
+        }
+
+        let result = try await client.quickConnectState(secret: "abc123")
+
+        XCTAssertTrue(result.authenticated)
+        let request = try XCTUnwrap(MockURLProtocol.lastRequest)
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertEqual(request.url?.path, "/QuickConnect/Connect")
+        XCTAssertEqual(request.url?.query, "secret=abc123")
+    }
+
+    /// Jellyfin forgets a code 10 minutes after issuing it and answers 404,
+    /// which `QuickConnectViewModel` reads as "expired". It must stay a raw
+    /// `.http(404)` for that to work.
+    func test_quickConnectState_unknownSecret_throwsHTTP404() async {
+        let client = makeClient()
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 404, body: Data(#""Unknown secret""#.utf8))
+        }
+
+        do {
+            _ = try await client.quickConnectState(secret: "gone")
+            XCTFail("Expected a 404")
+        } catch JellyfinAPIError.http(status: 404, message: _) {
+            // expected
+        } catch {
+            XCTFail("Expected .http(404), got \(error)")
+        }
+    }
+
+    func test_authenticateWithQuickConnect_postsSecretAndStoresToken() async throws {
+        let client = makeClient()
+        MockURLProtocol.requestHandler = { request in
+            let body = try JSONDecoder().decode([String: String].self, from: request.capturedHTTPBody ?? Data())
+            XCTAssertEqual(body, ["Secret": "abc123"])
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request,
+                value: AuthenticationResult(user: UserDto(id: "user-1", name: "ben"), accessToken: "qc-token", serverId: nil)
+            )
+        }
+
+        let result = try await client.authenticateWithQuickConnect(secret: "abc123")
+
+        XCTAssertEqual(result.user.id, "user-1")
+        let token = await client.accessToken
+        XCTAssertEqual(token, "qc-token")
+        let request = try XCTUnwrap(MockURLProtocol.lastRequest)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/Users/AuthenticateWithQuickConnect")
+    }
+
+    /// A Quick Connect session has no password, so a 401 must not
+    /// re-authenticate — least of all with a password sign-in this same client
+    /// made earlier, which would silently swap users.
+    func test_401_afterQuickConnect_doesNotReauthenticateWithEarlierPassword() async throws {
+        let client = makeClient()
+        var passwordSignIns = 0
+        var quickConnectDone = false
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/AuthenticateByName":
+                passwordSignIns += 1
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: AuthenticationResult(user: UserDto(id: "someone-else", name: "other"), accessToken: "pw-token", serverId: nil)
+                )
+            case "/Users/AuthenticateWithQuickConnect":
+                quickConnectDone = true
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: AuthenticationResult(user: UserDto(id: "user-1", name: "ben"), accessToken: "qc-token", serverId: nil)
+                )
+            default:
+                XCTAssertTrue(quickConnectDone)
+                return MockURLProtocol.jsonResponse(for: request, status: 401, body: Self.jellyfinHTML401Body)
+            }
+        }
+
+        try await client.authenticate(username: "other", password: "pw")
+        try await client.authenticateWithQuickConnect(secret: "abc123")
+
+        do {
+            _ = try await client.userViews(userID: "user-1")
+            XCTFail("Expected .notAuthenticated")
+        } catch JellyfinAPIError.notAuthenticated {
+            // expected
+        } catch {
+            XCTFail("Expected .notAuthenticated, got \(error)")
+        }
+        XCTAssertEqual(passwordSignIns, 1, "Only the explicit sign-in; the 401 must not replay it.")
+    }
+
+    /// No `userId`: naming one needs admin rights unless it's the caller,
+    /// and leaving it out approves for whoever the token belongs to.
+    func test_authorizeQuickConnect_postsCodeWithTokenAndNoUserID() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, body: Data("true".utf8))
+        }
+
+        let approved = try await client.authorizeQuickConnect(code: "482913")
+
+        XCTAssertTrue(approved)
+        let request = try XCTUnwrap(MockURLProtocol.lastRequest)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/QuickConnect/Authorize")
+        XCTAssertEqual(request.url?.query, "code=482913")
+        XCTAssertTrue((request.value(forHTTPHeaderField: "Authorization") ?? "").contains(#"Token="tok""#))
+    }
+
+    /// With Quick Connect off, the server answers 401 — a refusal, not an
+    /// expired token. One re-authentication at most, then `.notPermitted`,
+    /// rather than the full ~7.5s backoff.
+    func test_authorizeQuickConnect_persistent401_reauthenticatesOnceOnly() async throws {
+        let client = makeClient()
+        var signIns = 0
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path == "/Users/AuthenticateByName" {
+                signIns += 1
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: AuthenticationResult(user: UserDto(id: "user-1", name: "ben"), accessToken: "tok-\(signIns)", serverId: nil)
+                )
+            }
+            return MockURLProtocol.jsonResponse(for: request, status: 401, body: Data(#""Quick connect is disabled""#.utf8))
+        }
+        try await client.authenticate(username: "ben", password: "pw")
+
+        do {
+            _ = try await client.authorizeQuickConnect(code: "482913")
+            XCTFail("Expected .notPermitted")
+        } catch JellyfinAPIError.notPermitted {
+            // expected
+        } catch {
+            XCTFail("Expected .notPermitted, got \(error)")
+        }
+        XCTAssertEqual(signIns, 2, "The explicit sign-in plus exactly one re-authentication.")
+    }
+
+    func test_currentUser_getsUsersMe() async throws {
+        let client = makeClient(accessToken: "qc-token")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: UserDto(id: "user-1", name: "ben"))
+        }
+
+        let user = try await client.currentUser()
+
+        XCTAssertEqual(user.id, "user-1")
+        let request = try XCTUnwrap(MockURLProtocol.lastRequest)
+        XCTAssertEqual(request.url?.path, "/Users/Me")
+        XCTAssertTrue((request.value(forHTTPHeaderField: "Authorization") ?? "").contains(#"Token="qc-token""#))
+    }
+
     // MARK: 401 auto re-authentication
     //
-    // Confirmed live (2026-08-22) against a heavily-shared public demo
-    // server: a session token this client was issued can be invalidated
+    // Confirmed live against a heavily-shared public demo server: a
+    // session token this client was issued can be invalidated
     // server-side with no action by this app at all. `sendRaw`'s 401
     // handling tries to recover from that transparently — see its own doc
     // comment for the full reasoning; these tests pin the observable
@@ -514,8 +755,8 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(URLRequest(url: url!).queryDictionary["PlaySessionId"], "sess-1")
     }
 
-    /// Confirmed live (2026-08-28) against a server reverse-proxied under a
-    /// subpath: `transcodingUrl` always comes back server-root-relative
+    /// Confirmed live against a server reverse-proxied under a subpath:
+    /// `transcodingUrl` always comes back server-root-relative
     /// (Jellyfin has no awareness of a reverse proxy's own subpath), so a
     /// naive `URL(string:relativeTo:)` resolution — which treats a
     /// leading-`/` path as replacing the base URL's entire path per RFC
@@ -558,6 +799,153 @@ final class JellyfinAPIClientTests: XCTestCase {
             let url = await client.subtitleURL(itemID: "item-1", mediaSourceID: "src-1", streamIndex: 0, codec: codec)
             XCTAssertEqual(url?.path, "/Videos/item-1/src-1/Subtitles/0/Stream.\(expectedExtension)", "codec \(codec ?? "nil")")
         }
+    }
+
+    // MARK: MediaStream delivery method
+
+    /// A verbatim `/PlaybackInfo` fragment from Jellyfin 10.11.11 on the
+    /// transcode path. The two fields answer different questions and the app
+    /// depends on both: `IsExternal` says where the stream lives in the library,
+    /// `DeliveryMethod` how it reaches the player for the route just
+    /// negotiated. An embedded ASS track on a transcode is `false`/`"External"`
+    /// — not in a sidecar file, but the client has to fetch it anyway because
+    /// the HLS carries no rendition for it.
+    func test_mediaStream_decodesDeliveryMethodSeparatelyFromIsExternal() throws {
+        let json = """
+        {"MediaStreams":[\
+        {"Index":0,"Type":"Subtitle","Codec":"subrip","IsExternal":true,"DeliveryMethod":"External"},\
+        {"Index":6,"Type":"Subtitle","Codec":"ass","IsExternal":false,"DeliveryMethod":"External"},\
+        {"Index":9,"Type":"Subtitle","Codec":"PGSSUB","IsExternal":false,"DeliveryMethod":"Encode"}]}
+        """.data(using: .utf8)!
+
+        let source = try JellyfinJSON.decoder.decode(MediaSourceInfo.self, from: json)
+        let streams = try XCTUnwrap(source.mediaStreams)
+        XCTAssertEqual(streams.map(\.deliveryMethod), ["External", "External", "Encode"])
+        XCTAssertEqual(streams.map(\.isExternal), [true, false, false])
+    }
+
+    /// Direct Play Always sends no `DeviceProfile`, so the server has no route
+    /// to describe and omits the field entirely.
+    func test_mediaStream_decodesWithoutADeliveryMethod() throws {
+        let json = #"{"MediaStreams":[{"Index":6,"Type":"Subtitle","Codec":"ass","IsExternal":false}]}"#.data(using: .utf8)!
+        let source = try JellyfinJSON.decoder.decode(MediaSourceInfo.self, from: json)
+        XCTAssertNil(source.mediaStreams?.first?.deliveryMethod)
+    }
+
+    // MARK: MediaAttachment decoding
+
+    /// The payload is a verbatim `/PlaybackInfo` response body from Jellyfin
+    /// 10.11.11, trimmed to the source's attachment list. `MediaAttachments`
+    /// arrives on the transcode path as well as the direct-play one, which is
+    /// what makes it usable for the routes where AetherEngine reports no fonts
+    /// of its own.
+    func test_mediaSourceInfo_decodesMediaAttachments() throws {
+        let json = """
+        {"Id":"src-1","MediaAttachments":[{"Codec":"ttf","CodecTag":"[0][0][0][0]","Index":9,        "FileName":"Sublime Regular.ttf","MimeType":"application/x-truetype-font",        "DeliveryUrl":"/Videos/src-1/src-1/Attachments/9"}]}
+        """.data(using: .utf8)!
+
+        let source = try JellyfinJSON.decoder.decode(MediaSourceInfo.self, from: json)
+        XCTAssertEqual(source.mediaAttachments?.count, 1)
+        let attachment = try XCTUnwrap(source.mediaAttachments?.first)
+        XCTAssertEqual(attachment.index, 9)
+        XCTAssertEqual(attachment.codec, "ttf")
+        XCTAssertEqual(attachment.fileName, "Sublime Regular.ttf")
+        XCTAssertEqual(attachment.mimeType, "application/x-truetype-font")
+        XCTAssertTrue(JellyfinAPIClient.isFontAttachment(
+            codec: attachment.codec, mimeType: attachment.mimeType, fileName: attachment.fileName
+        ))
+    }
+
+    /// A source with no attachments at all is the overwhelmingly common case
+    /// (4 of 932 MKVs in the library this was measured against carried any),
+    /// and the field is simply absent on an older server.
+    func test_mediaSourceInfo_decodesWithoutMediaAttachments() throws {
+        let json = #"{"Id":"src-1"}"#.data(using: .utf8)!
+        let source = try JellyfinJSON.decoder.decode(MediaSourceInfo.self, from: json)
+        XCTAssertNil(source.mediaAttachments)
+    }
+
+    // MARK: attachmentURL (pure, no network)
+
+    func test_attachmentURL_buildsWellKnownRouteWithNoApiKeyWhenSignedOut() async {
+        let client = makeClient()
+        let url = await client.attachmentURL(itemID: "item-1", mediaSourceID: "src-1", index: 9)
+        XCTAssertEqual(url?.path, "/Videos/item-1/src-1/Attachments/9")
+        XCTAssertNil(URLRequest(url: url!).queryDictionary["ApiKey"])
+    }
+
+    func test_attachmentURL_includesApiKeyWhenSignedIn() async {
+        let client = makeClient(accessToken: "tok")
+        let url = await client.attachmentURL(itemID: "item-1", mediaSourceID: "src-1", index: 9)
+        XCTAssertEqual(URLRequest(url: url!).queryDictionary["ApiKey"], "tok")
+    }
+
+    // MARK: isFontAttachment (pure, no network)
+
+    /// The three signals, each on its own: a container that reports only one of
+    /// them still has to be recognised, since a face the app skips renders the
+    /// script in a fallback one — the exact defect this route exists to fix.
+    func test_isFontAttachment_acceptsAnySingleFontSignal() {
+        // Codec alone. FFmpeg reports "ttf" for some OpenType faces too.
+        for codec in ["ttf", "otf", "ttc", "otc", "TTF"] {
+            XCTAssertTrue(
+                JellyfinAPIClient.isFontAttachment(codec: codec, mimeType: nil, fileName: nil),
+                "expected codec \(codec) to be a font"
+            )
+        }
+        // MIME alone, across both the legacy `application/x-...` spellings and
+        // the registered `font/` tree.
+        for mime in [
+            "application/x-truetype-font", "application/x-font-ttf", "application/x-font-truetype",
+            "application/x-font-otf", "application/x-font-opentype", "application/vnd.ms-opentype",
+            "application/font-sfnt", "application/x-font-sfnt", "font/ttf", "font/otf", "font/collection",
+            "APPLICATION/X-TRUETYPE-FONT"
+        ] {
+            XCTAssertTrue(
+                JellyfinAPIClient.isFontAttachment(codec: nil, mimeType: mime, fileName: nil),
+                "expected MIME \(mime) to be a font"
+            )
+        }
+        // Filename alone, which is all a hand-muxed file reliably carries.
+        for name in ["Sublime Regular.ttf", "FZSEJW.TTF", "方正行黑简体.TTF", "face.otf", "pack.ttc"] {
+            XCTAssertTrue(
+                JellyfinAPIClient.isFontAttachment(codec: nil, mimeType: nil, fileName: name),
+                "expected filename \(name) to be a font"
+            )
+        }
+    }
+
+    /// Cover art is the common non-font attachment, and the one that would
+    /// otherwise cost a download for bytes `CTFontManager` can only refuse.
+    /// WOFF is excluded for the same reason: it is a font, but not one
+    /// `CTFontManagerRegisterFontsForURL` can register.
+    func test_isFontAttachment_rejectsNonFontAttachments() {
+        let cases: [(String?, String?, String?)] = [
+            ("mjpeg", "image/jpeg", "cover.jpg"),
+            ("png", "image/png", "cover.png"),
+            (nil, "application/octet-stream", "readme.txt"),
+            (nil, "font/woff2", "face.woff2"),
+            (nil, nil, "face.woff"),
+            (nil, nil, nil),
+            (nil, nil, "no-extension")
+        ]
+        for (codec, mime, name) in cases {
+            XCTAssertFalse(
+                JellyfinAPIClient.isFontAttachment(codec: codec, mimeType: mime, fileName: name),
+                "expected \(name ?? "nil") to not be a font"
+            )
+        }
+    }
+
+    /// Order is the container's, so the filter can't reshuffle what a script's
+    /// own fallback chain depends on.
+    func test_fontAttachments_keepsOnlyFontsInContainerOrder() {
+        let attachments = [
+            MediaAttachment(index: 0, codec: "mjpeg", fileName: "cover.jpg", mimeType: "image/jpeg"),
+            MediaAttachment(index: 1, codec: "ttf", fileName: "A.ttf", mimeType: "application/x-truetype-font"),
+            MediaAttachment(index: 2, codec: nil, fileName: "B.otf", mimeType: nil)
+        ]
+        XCTAssertEqual(JellyfinAPIClient.fontAttachments(in: attachments).map(\.index), [1, 2])
     }
 
     // MARK: isImageBasedSubtitleCodec (pure, no network)
@@ -979,7 +1367,7 @@ final class JellyfinAPIClientTests: XCTestCase {
     }
 
     func test_currentSession_populatesTranscodingInfoCompletionPercentage() async throws {
-        // Confirmed live (2026-08-27) that `TranscodingInfo.CompletionPercentage`
+        // Confirmed live that `TranscodingInfo.CompletionPercentage`
         // populates for a plain download transcode stream, not just real
         // playback — this just pins the decode of that field so a schema
         // regression doesn't silently break `DownloadManager`'s polling.
@@ -1226,6 +1614,406 @@ final class JellyfinAPIClientTests: XCTestCase {
         let fields = components?.queryItems?.first { $0.name == "Fields" }?.value ?? ""
         XCTAssertTrue(fields.contains("CanDelete"), "Fields was \(fields)")
         XCTAssertTrue(fields.contains("RecursiveItemCount"), "Fields was \(fields)")
+    }
+
+    // MARK: - Playlists
+
+    func test_playlistUserPermissions_ownerGetsCanEditTrue() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.url?.path, "/Playlists/playlist-1/Users/user-1")
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: true)
+            )
+        }
+
+        let permissions = try await client.playlistUserPermissions(playlistID: "playlist-1", userID: "user-1")
+        XCTAssertEqual(permissions?.canEdit, true)
+    }
+
+    /// A 404 ("permissions not found") means "no permission", not a
+    /// request failure — Jellyfin returns this for a user who is neither
+    /// the owner nor shared on the playlist at all (see
+    /// `PlaylistsController.GetPlaylistUser`), and this app's own web
+    /// counterpart (`itemHelper.js`'s `canEditPlaylist`) treats it the
+    /// same way.
+    func test_playlistUserPermissions_404_returnsNilRatherThanThrowing() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 404, body: Data())
+        }
+
+        let permissions = try await client.playlistUserPermissions(playlistID: "playlist-1", userID: "user-1")
+        XCTAssertNil(permissions)
+    }
+
+    func test_removePlaylistItems_sendsDeleteWithCommaJoinedEntryIds() async throws {
+        let client = makeClient(accessToken: "tok")
+        var capturedRequest: URLRequest?
+        MockURLProtocol.requestHandler = { request in
+            capturedRequest = request
+            return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+
+        try await client.removePlaylistItems(playlistID: "playlist-1", entryIDs: ["entry-1", "entry-2"])
+
+        XCTAssertEqual(capturedRequest?.httpMethod, "DELETE")
+        XCTAssertEqual(capturedRequest?.url?.path, "/Playlists/playlist-1/Items")
+        let components = capturedRequest?.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        XCTAssertEqual(components?.queryItems?.first { $0.name == "entryIds" }?.value, "entry-1,entry-2")
+    }
+
+    /// Unlike `deleteItem`'s ambiguous 401, Jellyfin reports a playlist
+    /// permission refusal as a clean 403 — remapped to `.notPermitted`
+    /// directly here, with no reauth-budget dance needed the way
+    /// `deleteItem` needs for its own ambiguous 401.
+    func test_removePlaylistItems_403_throwsNotPermitted() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 403, body: Data())
+        }
+
+        do {
+            try await client.removePlaylistItems(playlistID: "playlist-1", entryIDs: ["entry-1"])
+            XCTFail("Expected .notPermitted")
+        } catch JellyfinAPIError.notPermitted {
+            // expected
+        } catch {
+            XCTFail("Expected .notPermitted, got \(error)")
+        }
+    }
+
+    // MARK: Playlists — the "Add to Playlist" picker's data
+
+    /// Builds a `Playlist`-typed DTO for the `editablePlaylists` tests.
+    private func playlistDTO(_ id: String, mediaType: String = "Video") -> BaseItemDto {
+        var dto = BaseItemDto(id: id, name: id.capitalized, type: .playlist)
+        dto.mediaType = mediaType
+        return dto
+    }
+
+    /// Routes the three request shapes `editablePlaylists` makes: one
+    /// browse, then — per playlist — a permission lookup and a membership
+    /// lookup. `canEditByPlaylistID` decides each permission answer (a
+    /// missing entry becomes Jellyfin's own 404 "permissions not found");
+    /// `memberIDsByPlaylistID` decides what each playlist reports holding.
+    ///
+    /// The handler is installed once and never reassigned, and captures
+    /// nothing mutable: the fan-out calls it from several threads at once,
+    /// and mutating a captured local from an `@MainActor` test here is the
+    /// documented way to hang the whole run with no crash message. Every
+    /// assertion below is therefore made on the returned value.
+    private func installEditablePlaylistsHandler(
+        browse: [BaseItemDto],
+        canEditByPlaylistID: [String: Bool],
+        memberIDsByPlaylistID: [String: [String]] = [:]
+    ) {
+        MockURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            if path.hasSuffix("/Items") {
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: BaseItemDtoQueryResult(items: browse, totalRecordCount: browse.count)
+                )
+            }
+            // `GET /Playlists/{id}` — membership, no "/Users/" segment.
+            guard path.contains("/Users/") else {
+                let playlistID = String(path.dropFirst("/Playlists/".count))
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: PlaylistDto(itemIds: memberIDsByPlaylistID[playlistID])
+                )
+            }
+            let playlistID = path
+                .replacingOccurrences(of: "/Playlists/", with: "")
+                .components(separatedBy: "/Users/").first ?? ""
+            guard let canEdit = canEditByPlaylistID[playlistID] else {
+                return MockURLProtocol.jsonResponse(for: request, status: 404, body: Data())
+            }
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: canEdit)
+            )
+        }
+    }
+
+    /// The picker's whole permission gate: a playlist the user can see is
+    /// not necessarily one they can add to. Also pins the *order* — the
+    /// concurrent fan-out yields in completion order, so the result has to
+    /// be re-derived from the browse order or the picker's rows would
+    /// shuffle between openings.
+    func test_editablePlaylists_keepsOnlyEditableOnesInBrowseOrder() async throws {
+        let client = makeClient(accessToken: "tok")
+        let browse = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"].map { playlistDTO($0) }
+        installEditablePlaylistsHandler(
+            browse: browse,
+            canEditByPlaylistID: [
+                "alpha": true,
+                // "bravo" has no record at all — a 404.
+                "charlie": false,
+                "delta": true,
+                "echo": false,
+                "foxtrot": true
+            ]
+        )
+
+        let editable = try await client.editablePlaylists(userID: "user-1")
+
+        XCTAssertEqual(editable.map(\.item.id), ["alpha", "delta", "foxtrot"])
+    }
+
+    /// Audio playlists are dropped before the permission fan-out even runs.
+    /// Asserted on the result rather than by counting requests: this handler
+    /// would happily answer `canEdit: true` for the audio one, so its
+    /// absence can only be the filter.
+    func test_editablePlaylists_dropsAudioPlaylistsEvenWhenEditable() async throws {
+        let client = makeClient(accessToken: "tok")
+        let browse = [playlistDTO("video-list"), playlistDTO("music-list", mediaType: "Audio")]
+        installEditablePlaylistsHandler(
+            browse: browse,
+            canEditByPlaylistID: ["video-list": true, "music-list": true]
+        )
+
+        let editable = try await client.editablePlaylists(userID: "user-1")
+
+        XCTAssertEqual(editable.map(\.item.id), ["video-list"])
+    }
+
+    /// One flaky permission check must not take down the whole picker — it
+    /// reads as "not editable", the same fail-soft rule
+    /// `collectionsContaining` settled on after a single bad response there
+    /// failed an entire detail page's rail.
+    func test_editablePlaylists_permissionCheckFailure_treatsThatPlaylistAsNotEditable() async throws {
+        let client = makeClient(accessToken: "tok")
+        let browse = [playlistDTO("good"), playlistDTO("flaky")]
+        MockURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            if path.hasSuffix("/Items") {
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: BaseItemDtoQueryResult(items: browse, totalRecordCount: browse.count)
+                )
+            }
+            if path.contains("flaky") {
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: true)
+            )
+        }
+
+        let editable = try await client.editablePlaylists(userID: "user-1")
+
+        XCTAssertEqual(editable.map(\.item.id), ["good"])
+    }
+
+    /// The initial browse is the one request that *can* fail the call —
+    /// there's nothing to fail soft to when there's no list at all.
+    func test_editablePlaylists_browseFailure_throws() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+        }
+
+        do {
+            _ = try await client.editablePlaylists(userID: "user-1")
+            XCTFail("Expected the browse failure to propagate")
+        } catch {
+            // expected
+        }
+    }
+
+    func test_editablePlaylists_requestsOnlyPlaylistTypedItems() async throws {
+        let client = makeClient(accessToken: "tok")
+        installEditablePlaylistsHandler(browse: [], canEditByPlaylistID: [:])
+
+        _ = try await client.editablePlaylists(userID: "user-1")
+
+        let request = MockURLProtocol.lastRequest
+        XCTAssertEqual(request?.url?.path, "/Users/user-1/Items")
+        XCTAssertEqual(request?.queryDictionary["IncludeItemTypes"], "Playlist")
+        XCTAssertEqual(request?.queryDictionary["SortBy"], "SortName")
+    }
+
+    /// Each editable playlist comes back paired with what it already holds,
+    /// which is what lets the picker grey out a destination the target is
+    /// already in.
+    func test_editablePlaylists_reportsWhatEachPlaylistAlreadyHolds() async throws {
+        let client = makeClient(accessToken: "tok")
+        installEditablePlaylistsHandler(
+            browse: [playlistDTO("alpha"), playlistDTO("bravo")],
+            canEditByPlaylistID: ["alpha": true, "bravo": true],
+            memberIDsByPlaylistID: ["alpha": ["movie-1", "movie-2"]]
+        )
+
+        let editable = try await client.editablePlaylists(userID: "user-1")
+
+        XCTAssertEqual(editable.first { $0.item.id == "alpha" }?.memberItemIDs, ["movie-1", "movie-2"])
+        // A playlist with no members at all omits the key entirely.
+        XCTAssertEqual(editable.first { $0.item.id == "bravo" }?.memberItemIDs, [])
+    }
+
+    /// Membership fails **open** — the opposite direction to the permission
+    /// check beside it. A lost membership request should cost the user a
+    /// possible duplicate, never the ability to add at all, so the playlist
+    /// stays in the list with an empty member set rather than dropping out.
+    func test_editablePlaylists_membershipFailure_keepsThePlaylistWithNoKnownMembers() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            if path.hasSuffix("/Items") {
+                let browse = [BaseItemDto(id: "alpha", name: "Alpha", type: .playlist)]
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: BaseItemDtoQueryResult(items: browse, totalRecordCount: browse.count)
+                )
+            }
+            guard path.contains("/Users/") else {
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: true)
+            )
+        }
+
+        let editable = try await client.editablePlaylists(userID: "user-1")
+
+        XCTAssertEqual(editable.map(\.item.id), ["alpha"])
+        XCTAssertEqual(editable.first?.memberItemIDs, [])
+    }
+
+    func test_playlistMemberIDs_readsThePlaylistDtoRatherThanItsFullItemList() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request, value: PlaylistDto(itemIds: ["a", "b"])
+            )
+        }
+
+        let ids = try await client.playlistMemberIDs(playlistID: "playlist-1")
+
+        XCTAssertEqual(ids, ["a", "b"])
+        // The lightweight `PlaylistDto` endpoint, not `/Items` — see that
+        // method's doc comment for why the distinction matters.
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.path, "/Playlists/playlist-1")
+    }
+
+    /// Omitting `seasonID` widens the request to the whole series, which is
+    /// how `AddToPlaylistViewModel` learns what "add the whole show" covers.
+    func test_episodes_withoutASeasonID_omitsTheSeasonQueryItem() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0)
+            )
+        }
+
+        _ = try await client.episodes(seriesID: "series-1", userID: "user-1", fields: "")
+
+        let request = MockURLProtocol.lastRequest
+        XCTAssertEqual(request?.url?.path, "/Shows/series-1/Episodes")
+        XCTAssertNil(request?.queryDictionary["seasonId"])
+    }
+
+    func test_addItemsToPlaylist_sendsPostWithCommaJoinedIdsAndUserId() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+
+        try await client.addItemsToPlaylist(
+            playlistID: "playlist-1", itemIDs: ["item-1", "item-2"], userID: "user-1"
+        )
+
+        let request = MockURLProtocol.lastRequest
+        XCTAssertEqual(request?.httpMethod, "POST")
+        XCTAssertEqual(request?.url?.path, "/Playlists/playlist-1/Items")
+        XCTAssertEqual(request?.queryDictionary["ids"], "item-1,item-2")
+        XCTAssertEqual(request?.queryDictionary["userId"], "user-1")
+    }
+
+    /// Same clean 403 as `removePlaylistItems`, remapped the same way.
+    func test_addItemsToPlaylist_403_throwsNotPermitted() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 403, body: Data())
+        }
+
+        do {
+            try await client.addItemsToPlaylist(
+                playlistID: "playlist-1", itemIDs: ["item-1"], userID: "user-1"
+            )
+            XCTFail("Expected .notPermitted")
+        } catch JellyfinAPIError.notPermitted {
+            // expected
+        } catch {
+            XCTFail("Expected .notPermitted, got \(error)")
+        }
+    }
+
+    func test_createPlaylist_postsNameIdsAndUserIdAndDecodesTheNewID() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request, value: PlaylistCreationResult(id: "playlist-new")
+            )
+        }
+
+        let result = try await client.createPlaylist(
+            name: "Weeknights", itemIDs: ["item-1"], userID: "user-1", isPublic: false
+        )
+
+        XCTAssertEqual(result.id, "playlist-new")
+        let request = MockURLProtocol.lastRequest
+        XCTAssertEqual(request?.httpMethod, "POST")
+        XCTAssertEqual(request?.url?.path, "/Playlists")
+        let body = try XCTUnwrap(request?.capturedHTTPBody)
+        let decoded = try JellyfinJSON.decoder.decode(CreatePlaylistRequest.self, from: body)
+        XCTAssertEqual(decoded.name, "Weeknights")
+        XCTAssertEqual(decoded.ids, ["item-1"])
+        XCTAssertEqual(decoded.userId, "user-1")
+    }
+
+    /// The one field that must never be omitted: Jellyfin's
+    /// `CreatePlaylistDto.IsPublic` initializes to `true` server-side, so a
+    /// body missing it publishes the playlist to every user on the server.
+    /// Asserted against the raw JSON, not the round-tripped struct, since a
+    /// decode would happily supply a default for an absent key.
+    func test_createPlaylist_alwaysSendsIsPublicEvenWhenFalse() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request, value: PlaylistCreationResult(id: "playlist-new")
+            )
+        }
+
+        _ = try await client.createPlaylist(
+            name: "Private", itemIDs: ["item-1"], userID: "user-1", isPublic: false
+        )
+
+        let body = try XCTUnwrap(MockURLProtocol.lastRequest?.capturedHTTPBody)
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        XCTAssertEqual(json["IsPublic"] as? Bool, false, "IsPublic was \(json["IsPublic"] ?? "absent")")
+    }
+
+    func test_createPlaylist_sendsIsPublicTrueWhenAsked() async throws {
+        let client = makeClient(accessToken: "tok")
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request, value: PlaylistCreationResult(id: "playlist-new")
+            )
+        }
+
+        _ = try await client.createPlaylist(
+            name: "Shared", itemIDs: ["item-1"], userID: "user-1", isPublic: true
+        )
+
+        let body = try XCTUnwrap(MockURLProtocol.lastRequest?.capturedHTTPBody)
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        XCTAssertEqual(json["IsPublic"] as? Bool, true)
     }
 
     // MARK: Genres & Studios (Home's dynamic rail discovery)

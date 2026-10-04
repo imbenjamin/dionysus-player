@@ -177,7 +177,7 @@ final class AssetDetailViewModelTests: XCTestCase {
             case "/Users/user-1/Items/ep-5":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: episodeDto)
             case "/Users/user-1/Items/series-1":
-                // `seriesItem` — see its own doc comment — needs its own
+                // `seriesItem` — see its doc comment — needs its own
                 // fetch for the Episode case, unlike Season/Series where
                 // `item` is already the Show's own item.
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: seriesDto)
@@ -349,6 +349,8 @@ final class AssetDetailViewModelTests: XCTestCase {
                 return try MockURLProtocol.encodedJSONResponse(
                     for: request, value: BaseItemDtoQueryResult(items: [movieDto, trackDto, episodeDto], totalRecordCount: 3)
                 )
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: false))
             default:
                 XCTFail("unexpected request to \(request.url?.path ?? "?")")
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
@@ -378,6 +380,8 @@ final class AssetDetailViewModelTests: XCTestCase {
                 return try MockURLProtocol.encodedJSONResponse(
                     for: request, value: BaseItemDtoQueryResult(items: [watched, unwatched], totalRecordCount: 2)
                 )
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: false))
             default:
                 XCTFail("unexpected request to \(request.url?.path ?? "?")")
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
@@ -404,6 +408,8 @@ final class AssetDetailViewModelTests: XCTestCase {
                 return try MockURLProtocol.encodedJSONResponse(
                     for: request, value: BaseItemDtoQueryResult(items: [first, second], totalRecordCount: 2)
                 )
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: false))
             default:
                 XCTFail("unexpected request to \(request.url?.path ?? "?")")
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
@@ -611,8 +617,8 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.item?.id, "series-1", "the Series itself (a different id) should be untouched")
     }
 
-    /// The live bug this exists to fix (2026-08-16): confirmed against a
-    /// real server that a favorite/watched write can return success
+    /// The live bug this exists to fix: confirmed against a real server
+    /// that a favorite/watched write can return success
     /// immediately but not actually commit server-side for several
     /// *minutes* — an order of magnitude past `userDataCommitPollSchedule`'s
     /// ~13s budget. Before `applyOptimisticFavoriteWatched` existed, the
@@ -661,7 +667,7 @@ final class AssetDetailViewModelTests: XCTestCase {
 
     /// `HeroActionButtons` calls this right when a toggle fires rather than
     /// trusting its own button/menu-row closure's captured `MediaItem` — see
-    /// this method's own doc comment for the real, confirmed toolbar
+    /// this method's doc comment for the real, confirmed toolbar
     /// staleness bug that motivated it. Pins that it actually finds the
     /// right value across all four possible targets, and `nil` for anything
     /// that doesn't match one.
@@ -735,7 +741,7 @@ final class AssetDetailViewModelTests: XCTestCase {
     /// Does update `preselectedSeasonID` to the tapped episode's own season
     /// — a same-value reassignment for this caller specifically (the tapped
     /// episode is always within whichever season is already selected), but
-    /// see `selectEpisode`'s own doc comment for why that's not true of
+    /// see `selectEpisode`'s doc comment for why that's not true of
     /// every caller.
     func test_selectEpisode_swapsItemToTheEpisodeWithoutTouchingSeriesOrSeasons() async {
         let viewModel = await loadedSeriesViewModel(nextUpItems: [], episodesItems: [])
@@ -927,6 +933,8 @@ final class AssetDetailViewModelTests: XCTestCase {
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             case "/Playlists/playlist-1/Items":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [movieDto], totalRecordCount: 1))
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: false))
             default:
                 XCTFail("unexpected request to \(request.url?.path ?? "?")")
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
@@ -944,6 +952,8 @@ final class AssetDetailViewModelTests: XCTestCase {
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: refreshedPlaylistDto)
             case "/Playlists/playlist-1/Items":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [updatedMovieDto], totalRecordCount: 1))
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: true))
             default:
                 XCTFail("unexpected request to \(request.url?.path ?? "?")")
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
@@ -956,8 +966,145 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.orderedPlaylistItems.first?.isPlayed, true)
     }
 
-    /// Regression test for a live bug report (2026-08-13): resuming a
-    /// movie, scrubbing to a different position, and exiting within a few
+    // MARK: canEditPlaylist / removeFromPlaylist
+
+    func test_load_playlist_fetchesCanEditPlaylist() async {
+        let playlistDto = BaseItemDto(id: "playlist-1", name: "Movie Night", type: .playlist, mediaType: "Video")
+        let viewModel = makeViewModel(itemID: "playlist-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/playlist-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: playlistDto)
+            case "/Items/playlist-1/Similar", "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Playlists/playlist-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: true))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertTrue(viewModel.canEditPlaylist)
+    }
+
+    /// A 404 ("no permission record") should read as "not permitted" —
+    /// the same fail-closed direction `MediaItem.canDelete` defaults to
+    /// when its own field is absent.
+    func test_load_playlist_noPermissionRecord_canEditPlaylistIsFalse() async {
+        let playlistDto = BaseItemDto(id: "playlist-1", name: "Movie Night", type: .playlist, mediaType: "Video")
+        let viewModel = makeViewModel(itemID: "playlist-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/playlist-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: playlistDto)
+            case "/Items/playlist-1/Similar", "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Playlists/playlist-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Playlists/playlist-1/Users/user-1":
+                return MockURLProtocol.jsonResponse(for: request, status: 404, body: Data())
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertFalse(viewModel.canEditPlaylist)
+    }
+
+    /// Removes the row keyed to `playlistItemID`, not the shared
+    /// underlying item `id` — the same item appearing in the playlist
+    /// twice must let one copy be removed independently of the other.
+    func test_removeFromPlaylist_success_removesOnlyTheTargetedEntry() async throws {
+        let playlistDto = BaseItemDto(id: "playlist-1", name: "Movie Night", type: .playlist, mediaType: "Video")
+        let first = BaseItemDto(id: "movie-1", name: "Toy Story", type: .movie, playlistItemId: "entry-1")
+        let second = BaseItemDto(id: "movie-1", name: "Toy Story", type: .movie, playlistItemId: "entry-2")
+        let viewModel = makeViewModel(itemID: "playlist-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/playlist-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: playlistDto)
+            case "/Items/playlist-1/Similar", "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Playlists/playlist-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [first, second], totalRecordCount: 2))
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: true))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        await viewModel.load()
+        XCTAssertEqual(viewModel.orderedPlaylistItems.count, 2, "sanity check — same item, two distinct playlist rows")
+
+        // Asserted afterwards via `MockURLProtocol.lastRequest`, not a
+        // local var captured by this closure — the closure runs off the
+        // main actor (see that type's doc comment), and capturing a
+        // local from this `@MainActor` test function here hangs the test
+        // (confirmed live: the closure never returns, and the run times
+        // out with no crash message at all).
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+
+        try await viewModel.removeFromPlaylist(viewModel.orderedPlaylistItems[1])
+
+        XCTAssertEqual(MockURLProtocol.lastRequest?.queryDictionary["entryIds"], "entry-2")
+        XCTAssertEqual(viewModel.orderedPlaylistItems.map(\.playlistItemID), ["entry-1"], "only the removed row is gone; the duplicate survives")
+    }
+
+    /// The "optimistic update that can never regress" shape: a failed
+    /// removal reinserts the item rather than leaving the row gone with
+    /// nothing to show for it.
+    func test_removeFromPlaylist_serverFailure_reinsertsAndRethrows() async throws {
+        let playlistDto = BaseItemDto(id: "playlist-1", name: "Movie Night", type: .playlist, mediaType: "Video")
+        let first = BaseItemDto(id: "movie-1", name: "Toy Story", type: .movie, playlistItemId: "entry-1")
+        let second = BaseItemDto(id: "movie-2", name: "Cars", type: .movie, playlistItemId: "entry-2")
+        let viewModel = makeViewModel(itemID: "playlist-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/playlist-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: playlistDto)
+            case "/Items/playlist-1/Similar", "/Users/user-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Playlists/playlist-1/Items":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [first, second], totalRecordCount: 2))
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: true))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        await viewModel.load()
+
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 403, body: Data())
+        }
+
+        let target = viewModel.orderedPlaylistItems[0]
+        do {
+            try await viewModel.removeFromPlaylist(target)
+            XCTFail("Expected .notPermitted")
+        } catch JellyfinAPIError.notPermitted {
+            // expected
+        } catch {
+            XCTFail("Expected .notPermitted, got \(error)")
+        }
+
+        XCTAssertEqual(viewModel.orderedPlaylistItems.map(\.playlistItemID), ["entry-1", "entry-2"], "the removed row is put back")
+    }
+
+    /// Regression test for a live bug report: resuming a movie, scrubbing
+    /// to a different position, and exiting within a few
     /// seconds left the detail page's progress bar showing the pre-scrub
     /// position, even though the server had actually committed the new one
     /// correctly (confirmed by Resume itself picking up the right spot).
@@ -1000,9 +1147,9 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.item?.dto.userData?.playbackPositionTicks, updatedTicks)
     }
 
-    /// Regression test for the actual live bug (2026-08-13, found *after*
-    /// the two tests above shipped and the reported symptom persisted
-    /// unchanged): those tests only exercised `refreshItem()` on its own —
+    /// Regression test for the actual live bug, found after the two tests
+    /// above shipped and the reported symptom persisted unchanged: those
+    /// tests only exercised `refreshItem()` on its own —
     /// in real usage it always runs immediately after
     /// `applyOptimisticPlaybackPosition(_:)`, from the same close-and-return
     /// flow, and *that* combination had a real bug neither test caught.
@@ -1083,7 +1230,7 @@ final class AssetDetailViewModelTests: XCTestCase {
     /// `SeasonEpisodeList` folds `episodeListRefreshToken` into its own
     /// episode-list fetch so a just-finished episode's row (progress bar/
     /// watched state) doesn't sit stale after returning from the player —
-    /// see that property's own doc comment. Pinning that it actually
+    /// see that property's doc comment. Pinning that it actually
     /// changes on every `refreshItem()` call is what that wiring depends on.
     func test_refreshItem_changesEpisodeListRefreshToken() async {
         let viewModel = await loadedSeriesViewModel(nextUpItems: [], episodesItems: [])
@@ -1156,6 +1303,8 @@ final class AssetDetailViewModelTests: XCTestCase {
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             case "/Playlists/playlist-1/Items":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [movieDto], totalRecordCount: 1))
+            case "/Playlists/playlist-1/Users/user-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: false))
             default:
                 XCTFail("unexpected request to \(request.url?.path ?? "?")")
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
@@ -1256,6 +1405,77 @@ final class AssetDetailViewModelTests: XCTestCase {
         let viewModel = await loadedSeriesViewModel(nextUpItems: [], episodesItems: [firstEpisode])
 
         XCTAssertEqual(viewModel.showPlaybackEpisode?.id, "ep-1")
+    }
+
+    /// An empty first season must not hide the episodes after it: with no
+    /// NextUp, the target is the first episode of the first season that has any.
+    func test_load_seriesDirect_showPlaybackEpisode_skipsAnEmptyFirstSeason() async {
+        let itemDto = BaseItemDto(id: "series-1", name: "The Wire", type: .series)
+        let seasons = [
+            BaseItemDto(id: "season-1", name: "Season 1", type: .season),
+            BaseItemDto(id: "season-2", name: "Season 2", type: .season),
+        ]
+        let secondSeasonEpisode = BaseItemDto(id: "ep-2-1", name: "Ep 1", type: .episode, seriesId: "series-1", seasonId: "season-2")
+        let viewModel = makeViewModel(itemID: "series-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/series-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: itemDto)
+            case "/Shows/series-1/Seasons":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: seasons, totalRecordCount: 2))
+            case "/Shows/series-1/Episodes":
+                // A plain substring check, not a `first(where:)` over query
+                // items — see the Season-tap test below for why a closure
+                // can't run in here.
+                let episodes = (request.url?.query ?? "").contains("seasonId=season-2") ? [secondSeasonEpisode] : []
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: episodes, totalRecordCount: episodes.count))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.showPlaybackEpisode?.id, "ep-2-1")
+        XCTAssertFalse(viewModel.isShowWithoutPlayableEpisode)
+        // The episode list opens where Play points, not on the empty season.
+        XCTAssertEqual(viewModel.initialSeasonID, "season-2")
+    }
+
+    /// A Series whose seasons exist but hold no episodes — seen live on a show
+    /// the server had listed ahead of any episode arriving.
+    func test_load_seriesWithNoEpisodes_isShowWithoutPlayableEpisode() async {
+        let viewModel = await loadedSeriesViewModel(nextUpItems: [], episodesItems: [])
+
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertNil(viewModel.showPlaybackEpisode)
+        XCTAssertTrue(viewModel.isShowWithoutPlayableEpisode)
+        // Nothing to point at, so the first season once loading is done.
+        XCTAssertEqual(viewModel.initialSeasonID, "season-1")
+    }
+
+    /// NextUp's pick further into a show opens the list on its season too.
+    func test_load_seriesDirect_initialSeasonID_followsNextUpsSeason() async {
+        let nextUpEpisode = BaseItemDto(id: "ep-5", name: "Ep 5", type: .episode, seriesId: "series-1", seasonId: "season-3")
+        let viewModel = await loadedSeriesViewModel(nextUpItems: [nextUpEpisode], episodesItems: [])
+
+        XCTAssertEqual(viewModel.initialSeasonID, "season-3")
+    }
+
+    func test_load_seriesWithEpisodes_isNotShowWithoutPlayableEpisode() async {
+        let firstEpisode = BaseItemDto(id: "ep-1", name: "Ep 1", type: .episode)
+        let viewModel = await loadedSeriesViewModel(nextUpItems: [], episodesItems: [firstEpisode])
+
+        XCTAssertFalse(viewModel.isShowWithoutPlayableEpisode)
+    }
+
+    /// Episode content plays `item` itself, so a `nil` `showPlaybackEpisode`
+    /// there says nothing about playability.
+    func test_load_episode_isNotShowWithoutPlayableEpisode() async {
+        let viewModel = await loadedEpisodeViewModel()
+
+        XCTAssertNil(viewModel.showPlaybackEpisode)
+        XCTAssertFalse(viewModel.isShowWithoutPlayableEpisode)
     }
 
     /// The crux of the "clearer Play/Resume CTA" feature: NextUp returning
@@ -1363,8 +1583,8 @@ final class AssetDetailViewModelTests: XCTestCase {
 
     // MARK: advanceToNextEpisodeIfCompleted() (refreshItem()'s next-episode advance)
 
-    /// The user-facing feature this all exists for (2026-08-13): once the
-    /// server confirms a just-played episode is fully watched, and
+    /// The user-facing feature this all exists for: once the server
+    /// confirms a just-played episode is fully watched, and
     /// Jellyfin's own NextUp resolves to a *different* episode, the detail
     /// page should advance to show it — instead of sitting on the
     /// just-finished episode until the user manually picks the next one.

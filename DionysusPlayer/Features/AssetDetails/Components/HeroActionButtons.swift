@@ -1,113 +1,77 @@
 import SwiftUI
 
-/// The Show/Season/Episode entities `HeroActionButtons`' favorite/watched
-/// buttons offer independently when they're on a Show-content page (Series
-/// tapped directly, a Season, or an Episode — all three render via
-/// `ShowDetailView`) — see that view's call site for how each is resolved.
-/// `nil` (`HeroActionButtons.favoriteWatchedShowScope` when
-/// `viewModel.seriesItem` is `nil`) means a Movie or standalone item
-/// instead, where there's only ever one thing to favorite/mark watched:
-/// `viewModel.item` itself.
+/// The Show/Season/Episode entities `HeroActionButtons`' favorite and watched
+/// buttons offer independently on a Show-content page — a Series, Season or
+/// Episode, all rendered via `ShowDetailView`, whose call site resolves each.
+/// `nil` means a Movie or standalone item, where `viewModel.item` is the only
+/// thing to favorite or mark watched.
 struct FavoriteWatchedShowScope {
     let show: MediaItem
-    /// The currently-selected season in `ShowDetailView`'s picker, or `nil`
-    /// while it's still resolving — omitted from the menu until then.
+    /// The selected season in `ShowDetailView`'s picker, `nil` while resolving,
+    /// and omitted from the menu until then.
     let season: MediaItem?
-    /// The episode currently in focus — that specific episode on an
-    /// Episode-content page, or `AssetDetailViewModel.showPlaybackEpisode`
-    /// on a Series/Season-content page (`nil` until that resolves, same as
-    /// `season`). Omitted from the menu when `nil`.
+    /// The episode in focus: that episode on an Episode-content page, or
+    /// `AssetDetailViewModel.showPlaybackEpisode` on a Series/Season page. `nil`
+    /// until resolved, and omitted from the menu then.
     let episode: MediaItem?
 }
 
-/// Favorite (star) and watched (eye) buttons, placed as a trailing
-/// `ToolbarItem` — the mirror image of the system back button, which is a
-/// *leading* nav bar item. Tried first as a labeled third/fourth control
-/// alongside Play/Resume/Restart (`PlayResumeButtonRow`), in one row and then
-/// two — both read as too busy, with metadata actions (what this page's
-/// content *is*) competing for attention with playback actions (what happens
-/// when you tap Play). Tried next as a manual `.overlay` on the hero image's
-/// top-trailing corner, positioned to visually line up with the back
-/// button — closer, but an `.overlay` on the hero scrolls away with it,
-/// while the back button (real nav bar chrome) stays pinned in place as the
-/// page scrolls underneath; the two drifting apart as soon as you scrolled
-/// read as broken. A real `ToolbarItem` is what actually gets that pinned,
-/// floats-over-the-hero-at-rest/gains-a-background-once-scrolled behavior
-/// for free, with no manual position math needed — see this view's call
-/// sites (`ShowDetailView`, `MovieDetailView`) for how it's wired in.
+/// Favorite (heart) and watched (eye) buttons as a trailing `ToolbarItem`,
+/// mirroring the leading system back button. A real `ToolbarItem` gets the
+/// pinned, floats-over-the-hero-at-rest behavior for free. Two rejected
+/// alternatives: extra labeled controls alongside Play/Resume/Restart read as
+/// too busy, with metadata actions competing with playback ones; and an
+/// `.overlay` on the hero's top-trailing corner scrolled away with the hero
+/// while the back button stayed pinned, the two visibly drifting apart.
 ///
-/// Holds `viewModel` directly and reads `item`/`favoriteWatchedShowScope`
-/// from it as computed properties, rather than receiving pre-resolved
-/// `MediaItem` values from the caller — this is what lets `body` pick up
-/// `AssetDetailViewModel.toggleFavorite`/`toggleWatched`'s eventual result
-/// without the caller having to thread anything through manually.
+/// Holds `viewModel` directly and reads `item`/`favoriteWatchedShowScope` as
+/// computed properties rather than taking pre-resolved `MediaItem`s, so `body`
+/// picks up `toggleFavorite`/`toggleWatched`'s eventual result without the
+/// caller threading anything through.
 ///
-/// The icon briefly becomes a spinner (`isPending` below) while a toggle for
-/// that specific item is in flight — necessary, not just nice-to-have:
-/// tracked down a real bug live where tapping Favorite looked like it did
-/// nothing at all. The write itself (`setFavorite`/`setWatched`) always
-/// succeeded immediately (confirmed with direct-to-server requests), but
-/// Jellyfin commits that userData change asynchronously afterward with
-/// variable latency (same issue `AssetDetailViewModel.refreshItem()` already
-/// works around for the Play/Resume button after a playback session) — a
-/// refetch straight after the write can race that commit and read back the
-/// *old* value. `AssetDetailViewModel.toggleFavorite`/`toggleWatched` now
-/// poll until the server actually confirms the new value, which fixes
-/// correctness but means the round trip can genuinely take a couple of
-/// seconds — the spinner is what keeps that from reading as a broken tap
-/// in the meantime.
+/// The icon becomes a spinner (`isPending`) while a toggle for that item is in
+/// flight. Without it, tapping Favorite looked like it did nothing: the write
+/// succeeds immediately, but Jellyfin commits the userData change asynchronously
+/// with variable latency — the same problem
+/// `AssetDetailViewModel.refreshItem()` works around after playback — so a
+/// refetch can race the commit and read back the old value.
+/// `toggleFavorite`/`toggleWatched` poll until the server confirms, which can
+/// take a couple of seconds.
 ///
-/// The collapsed button itself uses plain `star`/`star.fill` and
-/// `eye.slash`/`eye.fill` — not the `.circle` variants `PosterCard
-/// .watchStatusOverlay`'s badges use — deliberately: this button already
-/// draws its own circular chrome (`icon(_:tint:isPending:)` below), and
-/// stacking the SF Symbol's *own* built-in circle inside that would draw two
-/// concentric circles, with the glyph's own circle getting clipped by the
-/// 44pt frame rather than reading as an intentional layered look (confirmed
-/// live — visibly cut off). The expanded `Menu`'s list rows
-/// (`favoriteMenuRow`/`watchedMenuRow` below) don't have that problem —
-/// they're plain `Label`s in a system list, not squeezed into a fixed-size
-/// circular container — so those keep the `.circle` variants, matching
-/// `watchStatusOverlay`'s badges the way the collapsed button used to.
+/// The collapsed button uses plain `heart`/`heart.fill` and `eye.slash`/`eye.fill`
+/// rather than the `.circle` variants `PosterCard.watchStatusOverlay` uses: the
+/// nav bar already draws a capsule behind these controls, and the symbol's
+/// built-in circle reads as a second enclosing shape inside it — the same
+/// doubling-up `HeroToolbarGlyph` documents for glass. The expanded `Menu`'s
+/// rows are plain `Label`s in a system list, so they keep the `.circle`
+/// variants.
 ///
-/// The unwatched state uses `eye.slash` rather than a plain `eye` — the
-/// bare outline eye read as too close to the watched `eye.fill` glyph at a
-/// glance (confirmed via direct feedback), where the slash reliably reads
-/// as "off" the way it does for `CollectionGridView`'s own Unwatched filter
-/// pill (`watchStatusSystemImage`), which this matches on purpose. State is
-/// primarily communicated by the glyph itself (outline vs. filled/slashed),
-/// with colour as a second signal once a state is actually active — the
-/// filled star and the (non-slashed) eye pick up the same brand colours
-/// `PosterCard.watchStatusOverlay` badges rail items with
-/// (`.dionysusFavorite`/`.dionysusWatched` — both deliberately pinned to one
-/// hue across light/dark rather than deferring to `dionysusHighlight`/
-/// `dionysusPrimary`'s usual swap; see those two constants' doc comments for
-/// why each direction was picked), rather than each screen having its own
-/// idea of what "favorited"/"watched" looks like; the *inactive*
-/// glyph (`star`, `eye.slash`) stays uncoloured either way, so colour never
-/// appears without the glyph shape also agreeing. On a Movie/Episode-content
-/// page (`favoriteWatchedShowScope` `nil`) each is a plain toggle on `item`
-/// itself; on a Show-content page each becomes a `Menu` offering the
-/// Show/Season/Episode independently, each row showing its own current
-/// status — see `FavoriteWatchedShowScope`.
+/// Unwatched uses `eye.slash` rather than a plain `eye`, which read too close to
+/// `eye.fill` at a glance; the slash reads as "off" as it does for
+/// `CollectionGridView`'s Unwatched filter pill. The glyph shape carries the
+/// state, with colour as a second signal once active: the filled heart and
+/// non-slashed eye take the same `.dionysusFavorite`/`.dionysusWatched` brand
+/// colours `PosterCard.watchStatusOverlay` uses, while the inactive glyphs stay
+/// uncoloured, so colour never appears without the shape agreeing.
+///
+/// On a Movie page each is a plain toggle on `item`; on a Show-content page
+/// (`isShowContent(_:)`) each is a `Menu` offering Show/Season/Episode
+/// independently with each row's own status — see `FavoriteWatchedShowScope`.
 struct HeroActionButtons: View {
     let viewModel: AssetDetailViewModel
-    /// `ShowDetailView`'s season-picker selection — only meaningful there;
-    /// left at its default `nil` on `MovieDetailView`'s call site, where
-    /// `viewModel.seasons` is always empty anyway so it wouldn't match
-    /// anything. Needed here (rather than resolved by the caller) because
-    /// `favoriteWatchedShowScope` below has to be a computed property reading
-    /// `viewModel` directly for the same reactivity reason as `item` — see
-    /// this type's doc comment.
+    /// `ShowDetailView`'s season-picker selection, left `nil` by
+    /// `MovieDetailView` where `viewModel.seasons` is empty anyway. Taken here
+    /// rather than resolved by the caller because `favoriteWatchedShowScope` must
+    /// be a computed property reading `viewModel` directly, for the same
+    /// reactivity reason as `item`.
     var selectedSeasonID: String? = nil
 
     private var item: MediaItem? { viewModel.item }
     private var isEpisodeContent: Bool { viewModel.item?.kind == .episode }
 
-    /// See `FavoriteWatchedShowScope`'s doc comment — `nil` whenever
-    /// `viewModel.seriesItem` is (a Movie, or a Show-content page that
-    /// hasn't resolved it yet); `season`/`episode` inside it are
-    /// independently `nil` until *their* own resolution catches up.
+    /// See `FavoriteWatchedShowScope`. `nil` whenever `viewModel.seriesItem` is —
+    /// a Movie, or a Show page that hasn't resolved it yet — and its
+    /// `season`/`episode` are independently `nil` until each resolves.
     private var favoriteWatchedShowScope: FavoriteWatchedShowScope? {
         viewModel.seriesItem.map {
             FavoriteWatchedShowScope(
@@ -118,38 +82,43 @@ struct HeroActionButtons: View {
         }
     }
 
+    /// Whether this page's toggles are Show/Season/Episode menus rather than
+    /// plain buttons. Decided from the item's own kind as well as
+    /// `favoriteWatchedShowScope`, because the kind is known from the first
+    /// frame — the item preloaded from a rail or grid carries it — while the
+    /// scope waits on `viewModel.seriesItem`. Keyed on the scope alone, a
+    /// pushed episode drew plain buttons and swapped them for menus a moment
+    /// later, and on iOS 26 swapping a bar button for a menu rebuilds the
+    /// toolbar group, blanking every glyph in it (see `AssetActionsButton`).
+    private func isShowContent(_ item: MediaItem) -> Bool {
+        viewModel.seriesItem != nil || [.series, .season, .episode].contains(item.kind)
+    }
+
+    /// The rows a Show-content menu offers: the resolved scope, or until it
+    /// resolves, just the page's own item, so the menu is never empty.
+    private func menuTargets(fallback item: MediaItem) -> [MediaItem] {
+        guard let scope = favoriteWatchedShowScope else { return [item] }
+        return [scope.show, scope.season, scope.episode].compactMap { $0 }
+    }
+
+    private func menuRowLabel(for target: MediaItem) -> String {
+        target.numberedEpisodeName
+    }
+
     var body: some View {
         if let item {
-            // `GlassEffectContainer` — same reasoning as
-            // `CollectionGridView.filterRow`'s own use of one for its
-            // adjacent pills — is the documented way to make multiple
-            // nearby `.glassEffect` shapes (`icon(_:isPending:)` below,
-            // applied to each button independently) share one blended
-            // material pass instead of two independent, potentially-
-            // overlapping ones, so it stays here on principle even though
-            // it turned out not to be the fix for one specific visual
-            // question: at rest, these two buttons still automatically
-            // merge into one continuous pill *with each one's own circular
-            // boundary faintly visible inside it* — confirmed live that
-            // this is unrelated to the container (identical either way),
-            // and unrelated to this being one `ToolbarItem` vs. two
-            // separate ones (also identical either way) — it's iOS 26's
-            // own standard rendering for multiple adjacent circular glass
-            // toolbar controls, the same way a merged pair of nav bar
-            // buttons elsewhere in iOS 26 shows each control's own subtle
-            // division within the shared capsule. Not a bug in this view.
-            if #available(iOS 26.0, *) {
-                GlassEffectContainer(spacing: 12) {
-                    HStack(spacing: 12) {
-                        favoriteButton(item: item)
-                        watchedButton(item: item)
-                    }
-                }
-            } else {
-                HStack(spacing: 12) {
-                    favoriteButton(item: item)
-                    watchedButton(item: item)
-                }
+            // One plain `HStack` on every OS version. This used to wrap the iOS
+            // 26 path in a `GlassEffectContainer`, to blend the per-button
+            // `.glassEffect` shapes `HeroToolbarGlyph` drew — but those shapes
+            // were themselves the bug (a second glass circle nested inside the
+            // nav bar's own capsule, visible as an outline around each control;
+            // see `HeroToolbarGlyph`). With the buttons drawing no glass of
+            // their own there is nothing left for a container to blend, and the
+            // pair reads as one system capsule the way every other toolbar in
+            // the app and in system apps does.
+            HStack(spacing: 12) {
+                favoriteButton(item: item)
+                watchedButton(item: item)
             }
         }
     }
@@ -157,23 +126,20 @@ struct HeroActionButtons: View {
     @ViewBuilder
     private func favoriteButton(item: MediaItem) -> some View {
         let isPending = viewModel.pendingFavoriteIDs.contains(item.id)
-        if let scope = favoriteWatchedShowScope {
+        if isShowContent(item) {
             Menu {
-                favoriteMenuRow(for: scope.show, label: scope.show.name)
-                if let season = scope.season {
-                    favoriteMenuRow(for: season, label: season.name)
-                }
-                if let episode = scope.episode {
-                    favoriteMenuRow(for: episode, label: episode.episodeLabel.map { "\($0)  \(episode.name)" } ?? episode.name)
+                ForEach(menuTargets(fallback: item), id: \.id) { target in
+                    favoriteMenuRow(for: target, label: menuRowLabel(for: target))
                 }
             } label: {
-                icon(item.isFavorite ? "star.fill" : "star", tint: item.isFavorite ? .dionysusFavorite : nil, isPending: isPending)
+                icon(item.isFavorite ? "heart.fill" : "heart", tint: item.isFavorite ? .dionysusFavorite : nil, isPending: isPending)
             }
+            .neutralToolbarItem()
             .accessibilityLabel(String(localized: "Favorite"))
             .accessibilityIdentifier(A11yID.AssetDetail.favoriteButton)
         } else {
             Button(action: { toggleFavorite(item) }) {
-                icon(item.isFavorite ? "star.fill" : "star", tint: item.isFavorite ? .dionysusFavorite : nil, isPending: isPending)
+                icon(item.isFavorite ? "heart.fill" : "heart", tint: item.isFavorite ? .dionysusFavorite : nil, isPending: isPending)
             }
             .buttonStyle(.plain)
             .disabled(isPending)
@@ -185,18 +151,15 @@ struct HeroActionButtons: View {
     @ViewBuilder
     private func watchedButton(item: MediaItem) -> some View {
         let isPending = viewModel.pendingWatchedIDs.contains(item.id)
-        if let scope = favoriteWatchedShowScope {
+        if isShowContent(item) {
             Menu {
-                watchedMenuRow(for: scope.show, label: scope.show.name)
-                if let season = scope.season {
-                    watchedMenuRow(for: season, label: season.name)
-                }
-                if let episode = scope.episode {
-                    watchedMenuRow(for: episode, label: episode.episodeLabel.map { "\($0)  \(episode.name)" } ?? episode.name)
+                ForEach(menuTargets(fallback: item), id: \.id) { target in
+                    watchedMenuRow(for: target, label: menuRowLabel(for: target))
                 }
             } label: {
                 icon(item.isPlayed ? "eye.fill" : "eye.slash", tint: item.isPlayed ? .dionysusWatched : nil, isPending: isPending)
             }
+            .neutralToolbarItem()
             .accessibilityLabel(String(localized: "Watched"))
             .accessibilityIdentifier(A11yID.AssetDetail.watchedButton)
         } else {
@@ -217,14 +180,13 @@ struct HeroActionButtons: View {
             Label {
                 Text(label)
             } icon: {
-                Image(systemName: target.isFavorite ? "star.circle.fill" : "star.circle")
+                Image(systemName: target.isFavorite ? "heart.circle.fill" : "heart.circle")
                     .foregroundStyle(target.isFavorite ? Color.dionysusFavorite : Color.primary)
             }
         }
-        // Same guard as the collapsed (non-Menu) button's `.disabled(isPending)`
-        // — without it, re-opening the menu and tapping the same row again
-        // while its own toggle is still in flight fires a second, redundant
-        // write concurrently with the first rather than being a no-op.
+        // Same guard as the collapsed button's `.disabled(isPending)`: without
+        // it, re-opening the menu and tapping the same row while its toggle is
+        // in flight fires a second, concurrent write.
         .disabled(viewModel.pendingFavoriteIDs.contains(target.id))
     }
 
@@ -232,8 +194,8 @@ struct HeroActionButtons: View {
         Button {
             toggleWatched(target)
         } label: {
-            // `eye.slash.circle`, not plain `eye.circle` — see this file's
-            // top-level doc comment on why unwatched uses the slashed glyph.
+            // `eye.slash.circle`, not `eye.circle` — see this file's top-level
+            // doc comment on the slashed glyph.
             Label {
                 Text(label)
             } icon: {
@@ -246,18 +208,16 @@ struct HeroActionButtons: View {
     }
 
     private func toggleFavorite(_ target: MediaItem) {
-        // `target.isFavorite` is deliberately NOT what gets sent below — see
-        // `AssetDetailViewModel.currentFavoriteWatchedStatus(forItemID:)`'s
-        // doc comment for why trusting this closure's own captured `target`
-        // is unreliable here (a real, confirmed toolbar staleness bug), and
-        // why reading through `viewModel` instead fixes it. `target.id` is
-        // still used to identify *which* item — safe, since an item's id
-        // never changes across renders the way its `isFavorite` does.
+        // `target.isFavorite` is not what gets sent below: this closure's
+        // captured `target` goes stale, a confirmed toolbar bug, so the value is
+        // read through `viewModel` instead — see
+        // `AssetDetailViewModel.currentFavoriteWatchedStatus(forItemID:)`.
+        // `target.id` is still used to identify which item, since an id doesn't
+        // change across renders the way `isFavorite` does.
         let currentlyFavorite = viewModel.currentFavoriteWatchedStatus(forItemID: target.id)?.favorite ?? target.isFavorite
-        // Registered via `viewModel.track(_:)` — see its doc comment — so
-        // `AssetDetailView`'s `.onDisappear` can cancel this toggle's
-        // confirmation poll if the user backs out mid-flight, rather than
-        // it running to completion regardless.
+        // Registered via `viewModel.track(_:)` so `AssetDetailView`'s
+        // `.onDisappear` can cancel this toggle's confirmation poll if the user
+        // backs out mid-flight.
         viewModel.track(Task { await viewModel.toggleFavorite(itemID: target.id, currentlyFavorite: currentlyFavorite) })
     }
 
@@ -267,20 +227,16 @@ struct HeroActionButtons: View {
         viewModel.track(Task { await viewModel.toggleWatched(itemID: target.id, currentlyWatched: currentlyWatched) })
     }
 
-    /// The circular glyph chrome, shared with `DeleteAssetButton` via
-    /// `HeroToolbarGlyph` — see that type's doc comment for the reasoning
-    /// behind every value in it (glyph weight, the deliberate absence of an
-    /// explicit color on iOS 26, and the fixed 44pt tap target).
+    /// The circular glyph chrome, shared with `AssetActionsButton` via
+    /// `HeroToolbarGlyph`, which documents its glyph weight, the absence of an
+    /// explicit color on iOS 26, and the fixed 44pt tap target.
     ///
-    /// `tint`, when non-`nil`, is the one case a glyph here sets an explicit
-    /// color — see the call sites (`favoriteButton`/`watchedButton`) for
-    /// when that is: only once the glyph itself is already in its
-    /// active/filled shape (`star.fill`, watched `eye.fill`), mirroring the
-    /// same brand colours `PosterCard.watchStatusOverlay` badges rail items
-    /// with. `nil` (the inactive glyph) leaves it unset.
+    /// A non-`nil` `tint` is the one case a glyph here sets an explicit color,
+    /// and only once the glyph is already in its filled shape — see
+    /// `favoriteButton`/`watchedButton`.
     ///
-    /// `isPending` swaps the glyph for a spinner, same size, without
-    /// changing the surrounding chrome — see this type's doc comment for why.
+    /// `isPending` swaps the glyph for a same-size spinner without changing the
+    /// surrounding chrome; see this type's doc comment.
     private func icon(_ systemName: String, tint: Color? = nil, isPending: Bool) -> some View {
         HeroToolbarGlyph(systemName: systemName, tint: tint, isPending: isPending)
     }

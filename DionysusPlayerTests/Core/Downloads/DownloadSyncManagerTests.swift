@@ -158,8 +158,8 @@ final class DownloadSyncManagerTests: XCTestCase {
         await DownloadSyncManager.syncIfNeeded(client: makeClient(), store: store)
     }
 
-    // MARK: overlapping-call guard (2026-08-20 branch review) — rapid
-    // foreground/background cycling used to fire overlapping calls, each
+    // MARK: overlapping-call guard — rapid foreground/background cycling
+    // used to fire overlapping calls, each
     // independently re-sending the same pending row's `updateUserData`
     // POST before an earlier in-flight call had a chance to clear it.
 

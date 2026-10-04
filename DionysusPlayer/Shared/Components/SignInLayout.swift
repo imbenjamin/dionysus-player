@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Layout constants shared by the two pre-authentication screens,
-/// `ServerSetupView` and `LoginView`.
+/// The readable column the pre-authentication screens' forms sit in — the
+/// compact composition of `OnboardingScreen`, and the Quick Connect sheets.
 enum SignInLayout {
     /// Cap for the credentials column — see `signInColumn()`.
     ///

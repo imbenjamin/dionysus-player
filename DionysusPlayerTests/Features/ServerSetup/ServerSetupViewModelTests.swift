@@ -142,4 +142,472 @@ final class ServerSetupViewModelTests: XCTestCase {
         viewModel.syncHTTPSToggle(withAddress: "jellyfin.example.com")
         XCTAssertFalse(viewModel.useHTTPS)
     }
+
+    // MARK: Discovery
+
+    private let flix = DiscoveredServer(id: "flix", name: "Flix", address: URL(string: "http://192.168.0.222:8096/flix")!)
+    private let secure = DiscoveredServer(id: "secure", name: "Secure", address: URL(string: "https://media.local:8920")!)
+
+    /// For scans whose servers' versions aren't the point: without it each
+    /// discovered server starts a real `/System/Info/Public` lookup that can
+    /// outlive the test and land in a later one's `MockURLProtocol` handler.
+    private static let noVersion: @Sendable (URL) async -> String? = { _ in nil }
+
+    // MARK: Scanning on arrival
+
+    func test_startScanOnArrival_scansOnceAndLeavesResultsAloneAfterwards() async throws {
+        let discovery = StubServerDiscovery(servers: [flix])
+        let viewModel = ServerSetupViewModel(discovery: discovery, versionLookup: Self.noVersion)
+
+        viewModel.startScanOnArrival()
+        try await waitUntil { viewModel.scanState == .finished }
+        XCTAssertEqual(viewModel.discoveredServers, [flix])
+
+        // Coming back to the screen (or `.task` running again) must not
+        // throw the list away and scan over it.
+        discovery.servers = []
+        viewModel.startScanOnArrival()
+        XCTAssertEqual(viewModel.scanState, .finished)
+        XCTAssertEqual(viewModel.discoveredServers, [flix])
+    }
+
+    // MARK: Versions
+
+    func test_scan_looksUpEachDiscoveredServersVersionInTheBackground() async throws {
+        let viewModel = ServerSetupViewModel(
+            discovery: StubServerDiscovery(servers: [flix, secure]),
+            versionLookup: { address in address.scheme == "http" ? "10.11.11" : nil }
+        )
+
+        await viewModel.scanForServers()
+        try await waitUntil { viewModel.serverVersions[self.flix.id] != nil }
+
+        XCTAssertEqual(viewModel.serverVersions[flix.id], "10.11.11")
+        // The HTTPS one couldn't be asked: no version, and no error either.
+        XCTAssertNil(viewModel.serverVersions[secure.id])
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    func test_scan_looksUpAServersVersionOnlyOnceAcrossRescans() async throws {
+        let lookups = LookupCounter()
+        let viewModel = ServerSetupViewModel(
+            discovery: StubServerDiscovery(servers: [flix]),
+            versionLookup: { _ in
+                await lookups.increment()
+                return "10.11.11"
+            }
+        )
+
+        await viewModel.scanForServers()
+        try await waitUntil { viewModel.serverVersions[self.flix.id] != nil }
+        await viewModel.scanForServers()
+        try await Task.sleep(for: .milliseconds(100))
+
+        let count = await lookups.value
+        XCTAssertEqual(count, 1)
+    }
+
+    func test_scanForServers_publishesServersInAnswerOrderAndFinishes() async {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: [flix, secure]), versionLookup: Self.noVersion)
+
+        await viewModel.scanForServers()
+
+        XCTAssertEqual(viewModel.discoveredServers, [flix, secure])
+        XCTAssertEqual(viewModel.scanState, .finished)
+    }
+
+    func test_scanForServers_nothingAnswers_finishesEmpty() async {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []))
+
+        await viewModel.scanForServers()
+
+        XCTAssertTrue(viewModel.discoveredServers.isEmpty)
+        XCTAssertEqual(viewModel.scanState, .finished)
+    }
+
+    func test_scanForServers_accessDenied_reportsItAndKeepsWhateverAnswered() async {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: [flix], error: .localNetworkAccessDenied), versionLookup: Self.noVersion)
+
+        await viewModel.scanForServers()
+
+        XCTAssertEqual(viewModel.scanState, .failed(.localNetworkAccessDenied))
+        XCTAssertEqual(viewModel.discoveredServers, [flix])
+    }
+
+    /// A rescan replaces the list rather than appending to it — a server that
+    /// has gone away shouldn't linger.
+    func test_scanForServers_rescan_replacesPreviousResults() async {
+        let discovery = StubServerDiscovery(servers: [flix, secure])
+        let viewModel = ServerSetupViewModel(discovery: discovery, versionLookup: Self.noVersion)
+        await viewModel.scanForServers()
+
+        discovery.servers = [secure]
+        await viewModel.scanForServers()
+
+        XCTAssertEqual(viewModel.discoveredServers, [secure])
+    }
+
+    func test_connectToDiscoveredServer_fillsAddressAndConnectsWithBasePath() async {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []))
+        viewModel.useHTTPS = true
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: PublicSystemInfo(serverName: "Flix"))
+        }
+
+        let result = await viewModel.connect(to: flix)
+
+        XCTAssertEqual(result?.baseURL.absoluteString, "http://192.168.0.222:8096/flix")
+        XCTAssertEqual(viewModel.address, "http://192.168.0.222:8096/flix")
+        XCTAssertFalse(viewModel.useHTTPS, "The toggle should follow the discovered address's scheme.")
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.path, "/flix/System/Info/Public")
+        XCTAssertNil(viewModel.connectingServerID)
+    }
+
+    /// Answered the UDP probe but not HTTP: the address stays in the field so
+    /// the user can see what was tried and correct it.
+    func test_connectToDiscoveredServer_unreachable_leavesAddressAndShowsError() async {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []))
+        MockURLProtocol.requestHandler = { request in MockURLProtocol.jsonResponse(for: request, status: 500, body: Data()) }
+
+        let result = await viewModel.connect(to: secure)
+
+        XCTAssertNil(result)
+        XCTAssertNotNil(viewModel.errorMessage)
+        XCTAssertEqual(viewModel.address, "https://media.local:8920")
+        XCTAssertTrue(viewModel.useHTTPS)
+    }
+
+    // MARK: Insecure fallback
+
+    /// HTTPS on, advertised by LAN IP, certificate issued for a domain name —
+    /// so the HTTPS address fails validation while HTTP on 8096 still answers.
+    private let lanHTTPS = DiscoveredServer(id: "system-1", name: "Den", address: URL(string: "https://192.168.0.40:8920/jf")!)
+
+    /// Fails HTTPS with `httpsError`; answers HTTP only on `httpPort`, with
+    /// `/System/Info/Public` reporting `systemID`, and refuses every other port.
+    private func scriptServer(httpsError: URLError.Code = .serverCertificateUntrusted, systemID: String? = "system-1", httpPort: Int? = 8096) {
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.scheme == "https" { throw URLError(httpsError) }
+            guard let httpPort, request.url?.port == httpPort else { throw URLError(.cannotConnectToHost) }
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: PublicSystemInfo(serverName: "Den", id: systemID))
+        }
+    }
+
+    func test_connect_httpsCertificateFails_httpAnswersAsSameServer_offersFallbackWithoutConnecting() async throws {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []))
+        scriptServer()
+
+        let result = await viewModel.connect(to: lanHTTPS)
+
+        XCTAssertNil(result, "Nothing should connect until the user accepts.")
+        let offer = try XCTUnwrap(viewModel.insecureFallbackOffer)
+        XCTAssertEqual(offer.configuration.baseURL.absoluteString, "http://192.168.0.40:8096/jf", "Same host and base path, default HTTP port.")
+        XCTAssertEqual(offer.configuration.name, "Den")
+        XCTAssertEqual(offer.httpDisplayAddress, "192.168.0.40:8096/jf")
+        XCTAssertNotNil(viewModel.errorMessage, "The certificate problem should be explained behind the alert.")
+        XCTAssertFalse(viewModel.isTesting)
+    }
+
+    func test_acceptInsecureFallback_returnsTheTestedHTTPConfigurationAndFillsTheField() async throws {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []))
+        scriptServer()
+        _ = await viewModel.connect(to: lanHTTPS)
+
+        let configuration = try XCTUnwrap(viewModel.acceptInsecureFallback())
+
+        XCTAssertEqual(configuration.baseURL.absoluteString, "http://192.168.0.40:8096/jf")
+        XCTAssertEqual(viewModel.address, "http://192.168.0.40:8096/jf")
+        XCTAssertFalse(viewModel.useHTTPS)
+        XCTAssertNil(viewModel.insecureFallbackOffer)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    func test_declineInsecureFallback_clearsTheOfferButKeepsTheExplanation() async {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []))
+        scriptServer()
+        _ = await viewModel.connect(to: lanHTTPS)
+
+        viewModel.declineInsecureFallback()
+
+        XCTAssertNil(viewModel.insecureFallbackOffer)
+        XCTAssertNotNil(viewModel.errorMessage)
+        XCTAssertEqual(viewModel.address, "https://192.168.0.40:8920/jf")
+    }
+
+    /// Something answering HTTP on 8096 that isn't the server discovered —
+    /// never offered as though it were.
+    func test_connect_httpAnswersWithADifferentSystemID_offersNothingAndAsksForThePort() async {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []))
+        scriptServer(systemID: "someone-else")
+
+        let result = await viewModel.connect(to: lanHTTPS)
+
+        XCTAssertNil(result)
+        XCTAssertNil(viewModel.insecureFallbackOffer)
+        XCTAssertNotNil(viewModel.httpPortRequest)
+        XCTAssertNotNil(viewModel.errorMessage)
+    }
+
+    /// Ports are configurable, so 8096 is only a first guess: when it doesn't
+    /// answer, the user is asked which port instead.
+    func test_connect_defaultHTTPPortDoesNotAnswer_asksForThePort() async throws {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []))
+        scriptServer(httpPort: 8097)
+
+        let result = await viewModel.connect(to: lanHTTPS)
+
+        XCTAssertNil(result)
+        XCTAssertNil(viewModel.insecureFallbackOffer)
+        let request = try XCTUnwrap(viewModel.httpPortRequest)
+        XCTAssertEqual(request.server, lanHTTPS)
+        XCTAssertNil(request.problem)
+        XCTAssertNotNil(viewModel.errorMessage)
+    }
+
+    func test_tryHTTPPort_answeringPort_offersTheFallbackOnThatPort() async throws {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []))
+        scriptServer(httpPort: 8097)
+        _ = await viewModel.connect(to: lanHTTPS)
+        let request = try XCTUnwrap(viewModel.httpPortRequest)
+
+        await viewModel.tryHTTPPort(" 8097 ", for: request)
+
+        XCTAssertNil(viewModel.httpPortRequest)
+        XCTAssertEqual(viewModel.insecureFallbackOffer?.configuration.baseURL.absoluteString, "http://192.168.0.40:8097/jf")
+        XCTAssertFalse(viewModel.isTesting)
+        XCTAssertNil(viewModel.connectingServerID)
+    }
+
+    func test_tryHTTPPort_silentPort_asksAgainSayingSo() async throws {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []))
+        scriptServer(httpPort: 8097)
+        _ = await viewModel.connect(to: lanHTTPS)
+        let request = try XCTUnwrap(viewModel.httpPortRequest)
+
+        await viewModel.tryHTTPPort("9000", for: request)
+
+        XCTAssertNil(viewModel.insecureFallbackOffer)
+        let again = try XCTUnwrap(viewModel.httpPortRequest)
+        XCTAssertEqual(again.server, lanHTTPS)
+        XCTAssertNotNil(again.problem)
+    }
+
+    func test_tryHTTPPort_notAPort_asksAgainWithoutARequest() async throws {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []))
+        scriptServer(httpPort: nil)
+        _ = await viewModel.connect(to: lanHTTPS)
+        let request = try XCTUnwrap(viewModel.httpPortRequest)
+        MockURLProtocol.lastRequest = nil
+
+        await viewModel.tryHTTPPort("70000", for: request)
+
+        XCTAssertNotNil(viewModel.httpPortRequest?.problem)
+        XCTAssertNil(MockURLProtocol.lastRequest, "An invalid port shouldn't be probed.")
+    }
+
+    func test_parsePort() {
+        XCTAssertEqual(ServerSetupViewModel.parsePort("8096"), 8096)
+        XCTAssertEqual(ServerSetupViewModel.parsePort(" 1 "), 1)
+        XCTAssertEqual(ServerSetupViewModel.parsePort("65535"), 65535)
+        XCTAssertNil(ServerSetupViewModel.parsePort("0"))
+        XCTAssertNil(ServerSetupViewModel.parsePort("65536"))
+        XCTAssertNil(ServerSetupViewModel.parsePort("80a"))
+        XCTAssertNil(ServerSetupViewModel.parsePort(""))
+    }
+
+    /// Only a certificate failure earns the HTTP probe: an HTTPS server that
+    /// simply isn't there has no reason to be tried unencrypted.
+    func test_connect_httpsUnreachableForAnotherReason_neverTriesHTTP() async {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []))
+        scriptServer(httpsError: .cannotConnectToHost)
+
+        let result = await viewModel.connect(to: lanHTTPS)
+
+        XCTAssertNil(result)
+        XCTAssertNil(viewModel.insecureFallbackOffer)
+        XCTAssertNil(viewModel.httpPortRequest)
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.scheme, "https", "The only request should have been the HTTPS one.")
+    }
+
+    // MARK: Local Network prompt
+
+    /// Fails the first request as iOS does under the Local Network prompt —
+    /// the app going inactive as it appears, and active again `answerDelay`
+    /// later — then answers every later request with `laterResult`.
+    private func scriptPrompt(on activity: FakeAppActivity, counter: RequestCounter, laterFails: Bool = false) {
+        MockURLProtocol.requestHandler = { request in
+            guard counter.counts(request) else { throw URLError(.cannotConnectToHost) }
+            if counter.next() == 1 {
+                activity.deactivate()
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { activity.activate() }
+                throw URLError(.notConnectedToInternet)
+            }
+            if laterFails { throw URLError(.notConnectedToInternet) }
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: PublicSystemInfo(serverName: "Flix"))
+        }
+    }
+
+    func test_testConnection_failsBehindThePrompt_waitsForAllowAndRetries() async {
+        let activity = FakeAppActivity()
+        let counter = RequestCounter()
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), activity: activity, isLocalNetworkDenied: { _ in true })
+        viewModel.address = "192.168.0.222:8096/flix"
+        scriptPrompt(on: activity, counter: counter)
+
+        let result = await viewModel.testConnection()
+
+        XCTAssertEqual(result?.baseURL.absoluteString, "http://192.168.0.222:8096/flix")
+        XCTAssertEqual(counter.count, 2)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    /// The error's denied reason is undocumented, so the app going inactive
+    /// alone is enough to wait and retry.
+    func test_testConnection_promptWithoutADeniedReason_stillRetries() async {
+        let activity = FakeAppActivity()
+        let counter = RequestCounter()
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), activity: activity, isLocalNetworkDenied: { _ in false })
+        viewModel.address = "192.168.0.222:8096"
+        scriptPrompt(on: activity, counter: counter)
+
+        let result = await viewModel.testConnection()
+
+        XCTAssertNotNil(result)
+        XCTAssertEqual(counter.count, 2)
+    }
+
+    func test_testConnection_promptAnsweredDontAllow_saysLocalNetworkIsOff() async {
+        let activity = FakeAppActivity()
+        let counter = RequestCounter()
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), activity: activity, isLocalNetworkDenied: { _ in true })
+        viewModel.address = "192.168.0.222:8096"
+        scriptPrompt(on: activity, counter: counter, laterFails: true)
+
+        let result = await viewModel.testConnection()
+
+        XCTAssertNil(result)
+        XCTAssertEqual(counter.count, 2)
+        XCTAssertEqual(viewModel.errorMessage, ServerSetupViewModel.localNetworkDeniedMessage)
+    }
+
+    /// Turned off earlier: iOS doesn't ask again, the app never goes inactive.
+    func test_testConnection_deniedWithNoPrompt_saysLocalNetworkIsOffWithoutRetrying() async {
+        let counter = RequestCounter()
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), activity: FakeAppActivity(), isLocalNetworkDenied: { _ in true })
+        viewModel.address = "192.168.0.222:8096"
+        MockURLProtocol.requestHandler = { request in
+            if counter.counts(request) { _ = counter.next() }
+            throw URLError(.notConnectedToInternet)
+        }
+
+        let result = await viewModel.testConnection()
+
+        XCTAssertNil(result)
+        XCTAssertEqual(counter.count, 1)
+        XCTAssertEqual(viewModel.errorMessage, ServerSetupViewModel.localNetworkDeniedMessage)
+    }
+
+    /// Nothing to do with the prompt: fails at once, as before.
+    func test_testConnection_ordinaryFailure_neitherWaitsNorRetries() async {
+        let counter = RequestCounter()
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), activity: FakeAppActivity(), isLocalNetworkDenied: { _ in false })
+        viewModel.address = "192.168.0.222:8096"
+        MockURLProtocol.requestHandler = { request in
+            if counter.counts(request) { _ = counter.next() }
+            throw URLError(.cannotConnectToHost)
+        }
+        let clock = ContinuousClock()
+        let started = clock.now
+
+        let result = await viewModel.testConnection()
+
+        XCTAssertNil(result)
+        XCTAssertEqual(counter.count, 1)
+        XCTAssertNotEqual(viewModel.errorMessage, ServerSetupViewModel.localNetworkDeniedMessage)
+        XCTAssertLessThan(clock.now - started, .milliseconds(500))
+    }
+
+    func test_connectToDiscoveredServer_failsBehindThePrompt_waitsAndRetries() async {
+        let activity = FakeAppActivity()
+        let counter = RequestCounter()
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), activity: activity, isLocalNetworkDenied: { _ in true })
+        scriptPrompt(on: activity, counter: counter)
+
+        let result = await viewModel.connect(to: flix)
+
+        XCTAssertEqual(result?.baseURL.absoluteString, "http://192.168.0.222:8096/flix")
+        XCTAssertEqual(counter.count, 2)
+    }
+}
+
+/// Stands in for `AppActivityMonitor`, flipped by the test.
+private final class FakeAppActivity: AppActivityObserving, @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = AppActivityState()
+
+    var state: AppActivityState { lock.withLock { current } }
+
+    func deactivate() {
+        lock.withLock {
+            current.isActive = false
+            current.deactivations += 1
+        }
+    }
+
+    func activate() {
+        lock.withLock {
+            current.isActive = true
+            current.activations += 1
+        }
+    }
+}
+
+/// Counts requests from inside a `MockURLProtocol` handler, which runs off
+/// the main actor — a reference type rather than a captured local, which
+/// `MockURLProtocol` handlers are known to hang on.
+private final class RequestCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    /// Only requests to the server under test. `MockURLProtocol` is registered
+    /// process-wide, and the host app's own launch traffic (a session left on
+    /// the simulator signs itself back in) reaches it too.
+    func counts(_ request: URLRequest) -> Bool {
+        request.url?.host == "192.168.0.222" && request.url?.path.hasSuffix("/System/Info/Public") == true
+    }
+
+    var count: Int { lock.withLock { value } }
+
+    /// Records a request; its 1-based number.
+    func next() -> Int {
+        lock.withLock {
+            value += 1
+            return value
+        }
+    }
+}
+
+private actor LookupCounter {
+    private(set) var value = 0
+    func increment() { value += 1 }
+}
+
+/// Yields `servers`, then finishes — or fails with `error` if one is set.
+private final class StubServerDiscovery: ServerDiscovering, @unchecked Sendable {
+    var servers: [DiscoveredServer]
+    let error: ServerDiscoveryError?
+
+    init(servers: [DiscoveredServer], error: ServerDiscoveryError? = nil) {
+        self.servers = servers
+        self.error = error
+    }
+
+    func discoverServers() -> AsyncThrowingStream<DiscoveredServer, Error> {
+        let servers = servers
+        let error = error
+        return AsyncThrowingStream { continuation in
+            servers.forEach { continuation.yield($0) }
+            continuation.finish(throwing: error)
+        }
+    }
 }

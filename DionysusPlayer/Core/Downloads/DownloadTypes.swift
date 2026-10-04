@@ -1,12 +1,11 @@
 import Foundation
 
-/// Resolution tier for an offline download's transcode target — caps
-/// `MaxWidth`/`MaxHeight` sent to Jellyfin's transcoder
-/// (`JellyfinAPIClient.downloadStreamURL`). Never allowed to exceed the
-/// source's own resolution — see `DownloadTranscodeCalculator.target`.
+/// Resolution tier for a download's transcode target, capping the
+/// `MaxWidth`/`MaxHeight` sent to Jellyfin's transcoder and never exceeding the
+/// source's own resolution (see `DownloadTranscodeCalculator.target`).
 ///
-/// See `DOWNLOADS.md` for why the ladder is shaped the way it is; the short
-/// version is in `videoBitrate(preset:)` below.
+/// `DOWNLOADS.md` covers the ladder's shape; `videoBitrate(preset:)` has the
+/// short version.
 enum DownloadResolution: String, Codable, CaseIterable, Identifiable {
     case uhd4K
     case hd1080p
@@ -44,28 +43,22 @@ enum DownloadResolution: String, Codable, CaseIterable, Identifiable {
 
     /// Video bitrate in bits/sec for this tier at the given preset.
     ///
-    /// The ladder is **constant bits-per-pixel-per-frame**, not a set of
-    /// round numbers: each preset has a bpp target (High 0.095, Normal
-    /// 0.062, Data Saver 0.032, measured at 24fps) applied across every
-    /// tier, so a rung's quality means the same thing regardless of which
-    /// resolution it's paired with. That property is the whole point of the
-    /// table — **if you change a number here, check it still lands on its
-    /// preset's bpp**, or the tiers stop being comparable.
+    /// The ladder is constant bits-per-pixel-per-frame rather than a set of
+    /// round numbers: each preset has a bpp target (High 0.095, Normal 0.062,
+    /// Data Saver 0.032, at 24fps) applied across every tier, so a rung's
+    /// quality means the same thing at any resolution. **Changing a number here
+    /// means re-checking it against its preset's bpp**, or the tiers stop being
+    /// comparable.
     ///
-    /// Smaller resolutions carry a slightly higher bpp target (480p ×1.15,
-    /// 720p ×1.08, 4K ×0.85): there's less spatial redundancy per pixel to
-    /// exploit at low resolutions, which is why real-world encoding ladders
-    /// aren't linear in pixel count. That factor is what puts 480p Normal at
-    /// 700 Kbps rather than the 600 a linear ladder would give.
+    /// Smaller resolutions carry a higher bpp target (480p ×1.15, 720p ×1.08,
+    /// 4K ×0.85): there is less spatial redundancy per pixel to exploit at low
+    /// resolutions, which is why real encoding ladders aren't linear in pixel
+    /// count. That factor puts 480p Normal at 700 Kbps rather than 600.
     ///
-    /// Numbers are sized for **HEVC**, which is what `downloadStreamURL`
-    /// always requests. They were retuned on 2026-08-27 from an earlier
-    /// H.264-shaped ladder whose High rungs sat at ~0.12 bpp — well past
-    /// HEVC's quality knee, and the reason a default download ran roughly
-    /// double the size of the equivalent tier on a commercial streaming app.
-    /// The 720p tier was added in the same pass; without it the ladder
-    /// jumped straight from 1080p to 480p, and 720p is precisely where
-    /// Disney+ "Medium" and Prime Video "Better" both sit.
+    /// Sized for HEVC, which `downloadStreamURL` always requests. An
+    /// H.264-shaped ladder would sit near 0.12 bpp at High, past HEVC's quality
+    /// knee and roughly double the size of a commercial streaming app's
+    /// equivalent tier.
     func videoBitrate(preset: DownloadBitratePreset) -> Int {
         switch (self, preset) {
         case (.uhd4K, .high):      return 16_000_000
@@ -83,25 +76,22 @@ enum DownloadResolution: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// The default tier for this device class — **720p on iPhone, 1080p on
-    /// iPad**, rather than one number for everything.
+    /// The default tier for this device class: 720p on iPhone, 1080p on iPad.
     ///
-    /// Grounded in angular resolution rather than taste. Human visual acuity
-    /// tops out around 60 pixels per degree; at the video area and viewing
-    /// distance each device class is actually used at, 720p resolves to
-    /// ~62 ppd on an iPhone (i.e. already at the limit — 1080p there is spent
-    /// on detail the eye cannot separate) but only ~39 ppd on a 13" iPad,
-    /// where 1080p lands at ~58 ppd and is the right rung. Even the smallest
-    /// iPad only reaches ~45 ppd at 720p.
+    /// Grounded in angular resolution. Visual acuity tops out near 60 pixels
+    /// per degree; at each class's real video area and viewing distance, 720p
+    /// resolves to ~62 ppd on iPhone — already at the limit, so 1080p buys
+    /// detail the eye cannot separate — but only ~39 ppd on a 13" iPad, where
+    /// 1080p lands at ~58 ppd. Even the smallest iPad reaches only ~45 ppd at
+    /// 720p.
     ///
-    /// The consequence is deliberate and worth stating plainly: **iPad
-    /// downloads barely shrink.** They get their savings from stream-copy
-    /// passthrough and the source-bitrate cap instead of from the ladder.
+    /// The consequence is intended: iPad downloads barely shrink, taking their
+    /// savings from stream-copy passthrough and the source-bitrate cap rather
+    /// than from the ladder.
     ///
-    /// Branches on idiom rather than hardcoding a phone assumption because
-    /// the tvOS/macOS ports will both want 1080p or higher. Preferences are
-    /// device-wide and never synced (see `DownloadPreferencesStore`), so a
-    /// per-device default can't produce a cross-device conflict.
+    /// Branches on idiom rather than assuming a phone, since the tvOS and macOS
+    /// ports will want 1080p or higher. Preferences are device-wide and never
+    /// synced, so a per-device default can't conflict across devices.
     static var deviceClassDefault: DownloadResolution {
         #if os(iOS)
         return DeviceIdentity.isPad ? .hd1080p : .hd720p
@@ -110,30 +100,23 @@ enum DownloadResolution: String, Codable, CaseIterable, Identifiable {
         #endif
     }
 
-    /// `displayName`, with "(Default)" appended when this tier is
-    /// `deviceClassDefault` — shared by every Resolution *picker*
-    /// (`DownloadsSettingsView`'s device-wide picker and
-    /// `AdvancedDownloadOptionsView`'s per-download override sheet), so the
-    /// two stay visually consistent rather than drifting into separately
-    /// hand-written label logic. Marks whichever tier the app would choose,
-    /// not whatever is currently selected — pick a different tier in either
-    /// picker and "(Default)" stays put on 720p/1080p.
+    /// `displayName` with "(Default)" appended for `deviceClassDefault`, shared
+    /// by every Resolution picker so they can't drift apart. Marks the tier the
+    /// app would choose, not the one currently selected, so "(Default)" stays
+    /// put when a different tier is picked.
     ///
-    /// Deliberately not folded into `displayName` itself — that same label
-    /// also appears on a downloaded item's own detail page, where
-    /// "(Default)" would be meaningless, or, for an item downloaded at some
-    /// other tier, actively misleading.
+    /// Not folded into `displayName`, which also appears on a downloaded item's
+    /// detail page where "(Default)" would be meaningless, or misleading for an
+    /// item downloaded at another tier.
     var pickerDisplayName: String {
         guard self == Self.deviceClassDefault else { return displayName }
         return String(localized: "\(displayName) (Default)")
     }
 }
 
-/// Quality preset within a `DownloadResolution` tier. Audio is always
-/// AAC-LC stereo for v1 (deliberate simplification — surround passthrough
-/// is a later follow-up), so only its bitrate varies by preset, and does so
-/// independently of resolution — unlike video bitrate, which is a function
-/// of both (see `DownloadResolution.videoBitrate(preset:)`).
+/// Quality preset within a `DownloadResolution` tier. Audio is always AAC-LC
+/// stereo, so only its bitrate varies by preset, independently of resolution —
+/// unlike video bitrate, which is a function of both.
 enum DownloadBitratePreset: String, Codable, CaseIterable, Identifiable {
     case high
     case normal
@@ -149,11 +132,9 @@ enum DownloadBitratePreset: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// Audio bitrate in bits/sec — 160/128/96 Kbps for High/Normal/Data
-    /// Saver. Lowered from 192/160/96 on 2026-08-27: AAC-LC stereo is
-    /// already transparent well below 192 Kbps, so the top rung was paying
-    /// for nothing. Worth roughly 1% of a download's total size — kept for
-    /// tidiness rather than because it moves the needle.
+    /// 160/128/96 Kbps for High/Normal/Data Saver. AAC-LC stereo is transparent
+    /// well below 192 Kbps, so a higher top rung would pay for nothing. Worth
+    /// about 1% of a download's size.
     var audioBitrate: Int {
         switch self {
         case .high: return 160_000
@@ -162,13 +143,11 @@ enum DownloadBitratePreset: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// Frame-rate ceiling sent as Jellyfin's `MaxFramerate`, or `nil` for no
-    /// cap. Only Data Saver caps, at 30fps: a no-op for the 23.976/24/25fps
-    /// that essentially all film and TV content actually is, but a large
-    /// saving on genuinely 50/60fps sources, which is exactly the trade
-    /// someone picking "Data Saver" is asking for. Deliberately *not*
-    /// applied to Normal/High, where halving the frame rate of a 60fps
-    /// source would be a visible change nobody asked for.
+    /// Jellyfin's `MaxFramerate`, or `nil` for no cap. Only Data Saver caps, at
+    /// 30fps: a no-op for the 23.976/24/25fps nearly all film and TV content
+    /// runs at, and a large saving on genuine 50/60fps sources. Not applied to
+    /// Normal or High, where halving a 60fps source would be a visible change
+    /// nobody asked for.
     var maxFramerate: Int? {
         switch self {
         case .high, .normal: return nil
@@ -176,53 +155,40 @@ enum DownloadBitratePreset: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// e.g. "High (4.5 Mbps)" — the actual video bitrate for this preset
-    /// depends on which `DownloadResolution` tier it's paired with (see the
-    /// bitrate ladder table), so this takes that tier as a parameter rather
-    /// than being a fixed label like `displayName`. Used by the downloads
-    /// settings quality picker so each row shows the real number, not just a
-    /// vague "High"/"Normal"/"Data Saver" label.
+    /// "High (4.5 Mbps)". The bitrate depends on the `DownloadResolution` tier
+    /// this preset is paired with, so that tier is a parameter rather than
+    /// `displayName`'s fixed label, letting a quality picker show real numbers.
     ///
-    /// Always reflects the **shipped default** ladder — a fixed function of
-    /// `resolution` alone, with no way to see a user's own
-    /// `DownloadQualityLadderStore` override. Any picker that should reflect
-    /// a customized ladder (every real one in the app today) must resolve
-    /// the effective bitrate itself and call `displayName(bitrate:)`
-    /// instead; this overload only remains for call sites that
-    /// deliberately want the stock number regardless of overrides.
+    /// Reflects the shipped ladder only, with no visibility into a
+    /// `DownloadQualityLadderStore` override. A picker that should honour one —
+    /// every picker in the app today — resolves the effective bitrate itself and
+    /// calls `displayName(bitrate:)`. This overload remains for call sites that
+    /// want the stock number regardless.
     func displayName(in resolution: DownloadResolution) -> String {
         displayName(bitrate: resolution.videoBitrate(preset: self))
     }
 
-    /// `displayName(in:)`'s VoiceOver counterpart — "Mbps" read letter by
-    /// letter ("M B P S") rather than as a word. Same
-    /// whole-number-vs-fractional formatting as `displayName(in:)` itself,
-    /// so the two only ever differ in how the unit is spelled out. Same
-    /// "shipped default only" caveat as `displayName(in:)` applies here too.
+    /// `displayName(in:)`'s VoiceOver counterpart, spelling out "Mbps" and
+    /// otherwise formatting identically. Shipped-ladder-only, as that one is.
     func accessibilityDisplayName(in resolution: DownloadResolution) -> String {
         accessibilityDisplayName(bitrate: resolution.videoBitrate(preset: self))
     }
 
-    /// Same rendering as `displayName(in:)`, but takes the video bitrate
-    /// (bits/sec) directly rather than deriving it from the shipped ladder —
-    /// what a picker that needs to reflect a `DownloadQualityLadderStore`
-    /// override calls, passing that store's own
-    /// `videoBitrate(resolution:preset:)` result in place of
-    /// `resolution.videoBitrate(preset:)`.
+    /// `displayName(in:)`'s rendering from a bitrate passed directly rather than
+    /// derived from the shipped ladder, for a picker honouring a
+    /// `DownloadQualityLadderStore` override.
     func displayName(bitrate: Int) -> String {
         "\(displayName) (\(Self.mbpsText(bitrate)) Mbps)"
     }
 
-    /// `displayName(bitrate:)`'s VoiceOver counterpart, same relationship as
-    /// `accessibilityDisplayName(in:)` has to `displayName(in:)`.
+    /// `displayName(bitrate:)`'s VoiceOver counterpart.
     func accessibilityDisplayName(bitrate: Int) -> String {
         "\(displayName) (\(Self.mbpsText(bitrate)) megabits per second)"
     }
 
-    /// Whole numbers render without a decimal ("3"), fractional ones to two
-    /// places with trailing zeros trimmed ("4.5", "0.75") — the ladder has
-    /// rungs at both 2.25 and 1.5 Mbps, so one decimal place isn't enough to
-    /// tell every pair of rungs apart.
+    /// Whole numbers render bare ("3"), fractional ones to two places with
+    /// trailing zeros trimmed ("4.5", "0.75"). The ladder has rungs at both
+    /// 2.25 and 1.5 Mbps, so one decimal place can't separate every pair.
     private static func mbpsText(_ bitsPerSecond: Int) -> String {
         let mbps = Double(bitsPerSecond) / 1_000_000
         if mbps == mbps.rounded() { return String(format: "%.0f", mbps) }
@@ -231,86 +197,59 @@ enum DownloadBitratePreset: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-/// The concrete transcode parameters `JellyfinAPIClient.downloadStreamURL`
-/// sends to Jellyfin for one download, after applying the "never upscale/
-/// never inflate past the source" capping rule — see
-/// `DownloadTranscodeCalculator.target`.
+/// The transcode parameters `downloadStreamURL` sends for one download, after
+/// applying `DownloadTranscodeCalculator.target`'s never-exceed-the-source rule.
 struct DownloadTranscodeTarget: Equatable {
     var maxWidth: Int
     var maxHeight: Int
     /// Bits/sec.
     var videoBitrate: Int
-    /// Jellyfin's `VideoProfile` param — always `"main10"`, previously
-    /// `"main"` for SDR sources and `"main10"` only for HDR ones. In theory
-    /// 10-bit HEVC encodes a few percent more efficiently than 8-bit even
-    /// for SDR input (more headroom in the encoder's internal precision,
-    /// less banding to spend bits correcting), and every iOS device that can
-    /// hardware-decode HEVC can decode Main10.
+    /// Jellyfin's `VideoProfile`, always `"main10"`. In theory 10-bit HEVC
+    /// encodes a few percent more efficiently than 8-bit even for SDR input,
+    /// and every iOS device that hardware-decodes HEVC decodes Main10.
     ///
-    /// **In practice this is currently a no-op**, confirmed by probing the
-    /// reference server (Apple Silicon, VideoToolbox hardware encoding):
-    /// output comes back `Main`/`yuv420p` 8-bit whether the param is sent or
-    /// not. Kept because it costs nothing, is the correct thing to ask for,
-    /// and a server using software `libx265` would honour it — but don't
-    /// count the efficiency gain as something this app is actually getting.
+    /// In practice a no-op on a VideoToolbox-encoding server, which returns
+    /// `Main`/`yuv420p` 8-bit whether or not the param is sent. Kept because it
+    /// costs nothing and a `libx265` server would honour it — but the
+    /// efficiency gain isn't something this app currently gets.
     var videoProfile: String
     /// Jellyfin's `MaxFramerate`, or `nil` to omit the param entirely.
     var maxFramerate: Int?
     /// Whether the source's video track can be copied into the output MP4
-    /// untouched instead of re-encoded — see
-    /// `DownloadTranscodeCalculator.target` for the conditions.
+    /// untouched. `DownloadTranscodeCalculator.target` has the conditions.
     var videoStreamCopyEligible: Bool
-    /// What to send as Jellyfin's `VideoCodec`, comma-joined. Normally just
-    /// `["hevc"]`; on the stream-copy path the source's own codec is
-    /// appended, because Jellyfin refuses to copy a stream whose codec isn't
-    /// among the ones the client asked for (see
-    /// `JellyfinAPIClient.downloadStreamURL`).
+    /// Jellyfin's `VideoCodec`, comma-joined. Normally `["hevc"]`; the
+    /// stream-copy path appends the source's codec, which Jellyfin requires
+    /// before it will copy that stream.
     var requestedVideoCodecs: [String]
 }
 
-/// Pure resolution/bitrate-capping logic, split out from
-/// `JellyfinAPIClient.downloadStreamURL` so it's unit-testable without a
-/// mock network layer (see the offline-downloads plan's Testing section).
+/// Resolution and bitrate capping, split out from
+/// `JellyfinAPIClient.downloadStreamURL` so it is testable with no mock network.
 enum DownloadTranscodeCalculator {
-    /// Resolution tiers cap `MaxWidth`/`MaxHeight` and are never allowed to
-    /// exceed the source's own resolution (`effective = min(tierMax,
-    /// sourceDimension)`); video bitrate is likewise capped to the source's
-    /// own bitrate when that's lower than the tier target, so a low-bitrate
-    /// source is never artificially inflated. `sourceWidth`/`sourceHeight`/
-    /// `sourceBitrate` of `nil` (metadata Jellyfin didn't report) skips that
-    /// particular cap rather than failing — the tier's own max is used as-is.
+    /// Tiers cap `MaxWidth`/`MaxHeight` at `min(tierMax, sourceDimension)`, and
+    /// video bitrate at the source's own when that is lower, so a low-bitrate
+    /// source is never inflated. A `nil` source dimension or bitrate — metadata
+    /// Jellyfin didn't report — skips that cap and uses the tier's max.
     ///
-    /// `sourceBitrate` must be the **video stream's own** bitrate, not the
-    /// media source's container bitrate: the latter includes audio and
-    /// subtitle tracks, so comparing it against a video-only target caps
-    /// less aggressively than intended. `DownloadManager` reads it off the
-    /// video `MediaStream` and only falls back to the container figure when
-    /// the server didn't report a per-stream one.
+    /// `sourceBitrate` must be the video stream's own bitrate, not the media
+    /// source's container bitrate, which includes audio and subtitle tracks and
+    /// so caps a video-only target less aggressively than intended.
     ///
-    /// The bitrate itself is looked up from `effectiveTier`, not `resolution`
-    /// (the tier the user actually requested) directly — a real bug, found
-    /// live (2026-08-19): a source only available in 480p, with a 1080p tier
-    /// requested, correctly capped `maxWidth`/`maxHeight` down to the
-    /// source's own SD dimensions, but still looked its bitrate up from the
-    /// *requested* 1080p tier's own ladder rung (3 Mbps at "Normal") rather
-    /// than 480p's (1.2 Mbps) — needlessly inflating the download for video
-    /// that was only ever going to render at 480p regardless. `min(...,
-    /// sourceBitrate)` alone doesn't catch this: a source can easily have
-    /// its own bitrate well above even the *requested* tier's ladder rung
-    /// (an old high-bitrate SD encode, say), so that cap alone never pulls
-    /// the number back down to match the achieved resolution the way
-    /// `effectiveTier` does.
-    /// `videoBitrateLadder` is what actually looks up a rung's bitrate —
-    /// defaults to the shipped `DownloadResolution.videoBitrate(preset:)`
-    /// table, which is what every existing caller (and every test in
-    /// `DownloadTypesTests`) gets without changes. Real download call sites
-    /// (`JellyfinAPIClient.downloadStreamURL`, `DownloadManager.enqueue`)
-    /// pass `DownloadQualityLadderStore().videoBitrate(resolution:preset:)`
-    /// instead, so a user's own override actually reaches the transcode
-    /// request rather than only the settings screen that edits it. Kept as
-    /// an injectable closure rather than a stored property on this `enum`
-    /// (which has none) so the pure-function/no-mock-network-layer
-    /// unit-testability this type was split out for isn't lost.
+    /// The bitrate is looked up from `effectiveTier` rather than the requested
+    /// `resolution`. Otherwise a 480p-only source with 1080p requested caps
+    /// `maxWidth`/`maxHeight` to SD correctly but still takes 1080p's ladder
+    /// rung, inflating a download that will only ever render at 480p.
+    /// `min(..., sourceBitrate)` doesn't catch this: a source's own bitrate can
+    /// exceed even the requested tier's rung — an old high-bitrate SD encode,
+    /// say — so that cap never steps down to the achieved resolution.
+    ///
+    /// `videoBitrateLadder` looks up the rung, defaulting to the shipped
+    /// `DownloadResolution.videoBitrate(preset:)` table. Real download call
+    /// sites pass `DownloadQualityLadderStore().videoBitrate(resolution:preset:)`
+    /// so a user's override reaches the transcode request and not only the
+    /// settings screen. An injectable closure rather than stored state, keeping
+    /// this type a pure function.
     static func target(
         resolution: DownloadResolution,
         preset: DownloadBitratePreset,
@@ -348,44 +287,37 @@ enum DownloadTranscodeCalculator {
         )
     }
 
-    /// `["hevc"]` normally — the codec every download is transcoded to. On
-    /// the stream-copy path the source's own codec is appended, since
-    /// Jellyfin will only copy a stream whose codec the client actually
-    /// asked for. `"h265"` is normalised to `"hevc"` (both spellings occur
-    /// in the wild) so the list can't end up with a redundant duplicate.
+    /// `["hevc"]`, the codec every download transcodes to. The stream-copy path
+    /// appends the source's own codec, since Jellyfin copies only a stream whose
+    /// codec the client asked for. `"h265"` normalises to `"hevc"` — both
+    /// spellings occur — so the list can't carry a duplicate.
     private static func requestedVideoCodecs(streamCopyEligible: Bool, sourceVideoCodec: String?) -> [String] {
         guard streamCopyEligible, let source = sourceVideoCodec?.lowercased() else { return ["hevc"] }
         let normalized = source == "h265" ? "hevc" : source
         return normalized == "hevc" ? ["hevc"] : ["hevc", normalized]
     }
 
-    /// Whether the source's video track already satisfies everything the
-    /// requested tier asks for, so Jellyfin can mux it into the output MP4
-    /// untouched (`AllowVideoStreamCopy=true`) rather than re-encoding it.
+    /// Whether the source's video track already satisfies the requested tier, so
+    /// Jellyfin can mux it into the output MP4 untouched
+    /// (`AllowVideoStreamCopy=true`) instead of re-encoding.
     ///
-    /// Worth doing because re-encoding a file that's already inside the tier
-    /// buys nothing and costs twice: a second generation of lossy encoding,
-    /// and minutes of server CPU per download. The audio track is still
-    /// transcoded to AAC-LC stereo either way, so the output stays the
-    /// MP4/AAC shape the rest of the offline path assumes.
+    /// Re-encoding a file already inside the tier buys nothing and costs a
+    /// second generation of lossy encoding plus minutes of server CPU. Audio is
+    /// still transcoded to AAC-LC stereo, so the output keeps the MP4/AAC shape
+    /// the offline path assumes.
     ///
-    /// Every condition has to hold, and each one is load-bearing:
-    /// - **Codec is H.264 or HEVC** — anything else (VP9, AV1, MPEG-2,
-    ///   VC-1) either can't be muxed into MP4 or can't be decoded on the
-    ///   devices this app targets.
-    /// - **Resolution and bitrate already fit** the tier, or copying would
-    ///   silently hand back a bigger file than the user asked for.
-    /// - **Source is SDR.** A stream copy would faithfully preserve HDR,
-    ///   which is genuinely desirable — but `DownloadedItem.isHDR` is
-    ///   hardcoded `false` on the assumption that every download is
-    ///   tone-mapped (see `DownloadManager.enqueue`), and quietly breaking
-    ///   that invariant would make the offline UI lie about what it holds.
-    ///   Lifting this is the natural next step, not a rider on this one.
+    /// Every condition is load-bearing:
+    /// - Codec is H.264 or HEVC. Anything else — VP9, AV1, MPEG-2, VC-1 —
+    ///   either can't be muxed into MP4 or can't be decoded on target devices.
+    /// - Resolution and bitrate already fit the tier, or the copy hands back a
+    ///   bigger file than was asked for.
+    /// - Source is SDR. A copy would preserve HDR, which is desirable, but
+    ///   `DownloadedItem.isHDR` is hardcoded `false` on the assumption that
+    ///   downloads are tone-mapped, and breaking that would make the offline UI
+    ///   misreport what it holds. Lifting this is its own change.
     ///
-    /// Unknown metadata (a `nil` codec, dimension, or bitrate) is treated as
-    /// ineligible rather than assumed-fine: guessing wrong here means
-    /// shipping the user an uncapped original, which is the exact failure
-    /// this whole path exists to prevent.
+    /// Unknown metadata counts as ineligible rather than fine: guessing wrong
+    /// ships an uncapped original, the failure this path exists to prevent.
     private static func streamCopyEligible(
         resolution: DownloadResolution,
         tierBitrate: Int,
@@ -405,19 +337,16 @@ enum DownloadTranscodeCalculator {
         return true
     }
 
-    /// The predicted download size in bytes for a not-yet-started
-    /// download — same `(videoBitrate + audioBitrate) * durationSeconds / 8`
-    /// formula `DownloadedItem.estimatedTotalBytes` uses once a download
-    /// already exists, computed here ahead of time from a source's own
-    /// metadata instead. Routing both through `target(...)` for the video
-    /// bitrate keeps the two in lockstep — the number
-    /// `AdvancedDownloadOptionsView` shows before tapping Download can never
-    /// drift from what the real enqueued row settles on afterward, because
-    /// there's only one place the capping logic lives.
+    /// The predicted size of a not-yet-started download, from the same
+    /// `(videoBitrate + audioBitrate) * durationSeconds / 8` formula
+    /// `DownloadedItem.estimatedTotalBytes` uses afterwards. Both route their
+    /// video bitrate through `target(...)`, so the number
+    /// `AdvancedDownloadOptionsView` shows can't drift from what the enqueued
+    /// row settles on.
     ///
-    /// `nil` when there's no runtime to estimate from — happens for a live
-    /// item whose `BaseItemDto.runTimeTicks` hasn't loaded, and the caller
-    /// should simply omit the estimate rather than show a nonsensical `0 B`.
+    /// `nil` with no runtime to estimate from, as for a live item whose
+    /// `runTimeTicks` hasn't loaded; callers should omit the estimate rather
+    /// than show `0 B`.
     static func estimatedTotalBytes(
         resolution: DownloadResolution,
         preset: DownloadBitratePreset,
@@ -440,25 +369,16 @@ enum DownloadTranscodeCalculator {
         return Int64((totalBitsPerSecond * durationSeconds) / 8)
     }
 
-    /// The four resolution tiers, smallest-to-largest by `maxHeight` — the
-    /// order `effectiveTier(forAchievedHeight:notExceeding:)` scans in to
-    /// find the ladder rung that actually matches an achieved resolution,
-    /// rather than relying on `DownloadResolution`'s own (descending)
-    /// `CaseIterable` order.
+    /// The tiers ascending by `maxHeight`, the order
+    /// `effectiveTier(forAchievedHeight:notExceeding:)` scans — not
+    /// `DownloadResolution`'s own descending `CaseIterable` order.
     private static let tiersByAscendingHeight: [DownloadResolution] = [.sd480p, .hd720p, .hd1080p, .uhd4K]
 
-    /// The smallest tier whose own `maxHeight` still covers `achievedHeight`
-    /// — i.e. the bitrate ladder rung that actually matches this download's
-    /// real output resolution — without ever exceeding `requested` (the
-    /// tier the user actually chose in settings). `achievedHeight` is
-    /// always already clamped to `requested.maxHeight` by the caller, so
-    /// `requested` itself is always a valid — and the largest possible —
-    /// candidate; this only ever steps *down* from it, never up.
-    ///
-    /// Adding the 720p tier changed this function's behaviour for every
-    /// existing user, not just those who pick 720p: a 720p source with a
-    /// higher tier requested used to round up to 1080p's rung and download
-    /// at 3 Mbps, and now correctly gets 720p's 1.5.
+    /// The smallest tier covering `achievedHeight` without exceeding
+    /// `requested`: the ladder rung matching this download's real output
+    /// resolution. The caller has already clamped `achievedHeight` to
+    /// `requested.maxHeight`, so `requested` is always a valid and maximal
+    /// candidate and this only ever steps down.
     private static func effectiveTier(forAchievedHeight achievedHeight: Int, notExceeding requested: DownloadResolution) -> DownloadResolution {
         tiersByAscendingHeight.first { $0.maxHeight >= achievedHeight } ?? requested
     }

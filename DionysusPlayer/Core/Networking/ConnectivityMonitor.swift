@@ -1,18 +1,14 @@
 import Foundation
 import Observation
 
-/// App-wide signal for "can we currently reach the configured Jellyfin
-/// server at all" — distinct from a valid server response that happens to
-/// carry an HTTP error status. The only writer is `JellyfinAPIClient
-/// .sendRaw(_:)`, the single choke point every endpoint call funnels
-/// through: a transport-level failure (no response at all) reports
-/// failure, and reaching any real `HTTPURLResponse` (success or an HTTP
-/// error status) reports success.
+/// Whether the configured Jellyfin server is reachable at all, as distinct from
+/// a valid response carrying an HTTP error status. Written only by
+/// `JellyfinAPIClient.sendRaw(_:)`, the choke point every call funnels through:
+/// a transport-level failure reports failure, and any real `HTTPURLResponse`
+/// reports success.
 ///
-/// Follows the same plain-singleton convention as `DeviceTiltObserver
-/// .shared`/`RemoteImageLoader.shared` — referenced directly in view
-/// bodies rather than routed through SwiftUI's `Environment`, which
-/// Observation still tracks correctly.
+/// A plain singleton, referenced directly in view bodies rather than through
+/// `Environment`; Observation still tracks it.
 @MainActor
 @Observable
 final class ConnectivityMonitor {
@@ -23,38 +19,32 @@ final class ConnectivityMonitor {
     private init() {}
 
     func reportFailure() {
-        // `@Observable`'s change tracking fires on every assignment
-        // regardless of whether the value actually changes — since this
-        // runs on every single failed request app-wide, an unconditional
-        // write would re-invalidate (and recompute the `body` of) every
-        // screen that reads `isOffline` directly, for no observable change.
+        // `@Observable` fires on every assignment, equal or not. This runs on
+        // every failed request app-wide, so an unconditional write would
+        // recompute the body of every screen reading `isOffline`, for nothing.
         guard !isOffline else { return }
         isOffline = true
     }
 
     func reportSuccess() {
-        // Same reasoning as `reportFailure()` above, mirrored for the
-        // (far more common) success path — this runs on every successful
-        // request app-wide, including the playback-progress heartbeat that
-        // fires every 10s during video playback.
+        // As `reportFailure()`, for the far commoner success path: this runs on
+        // every successful request, including the 10s playback heartbeat.
         guard isOffline else { return }
         isOffline = false
     }
 
-    /// Test-only reset — `private(set)` blocks direct assignment even from
-    /// a `@testable import`, so tests need this instead.
+    /// Test-only reset; `private(set)` blocks assignment even under
+    /// `@testable import`.
     func reset() {
         isOffline = false
     }
 }
 
 extension URLError {
-    /// True for transport-level failures that mean "couldn't reach the
-    /// server at all" — deliberately excludes `.cancelled` (the request
-    /// was abandoned, e.g. the user navigated away, not an outage) and
-    /// anything implying a response was actually received (those surface
-    /// as `JellyfinAPIError.http`/`.decoding` instead, which per spec
-    /// should NOT be treated as offline).
+    /// Transport-level failures meaning the server wasn't reached. Excludes
+    /// `.cancelled`, which is an abandoned request rather than an outage, and
+    /// anything implying a response arrived — those surface as
+    /// `JellyfinAPIError.http`/`.decoding` and are not offline.
     var indicatesOffline: Bool {
         switch code {
         case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost,

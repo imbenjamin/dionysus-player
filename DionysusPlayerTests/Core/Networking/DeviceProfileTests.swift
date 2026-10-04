@@ -23,7 +23,7 @@ final class DeviceProfileTests: XCTestCase {
     }
 
     /// `nil` (Unlimited) must NOT stay absent from the wire — confirmed
-    /// live (2026-08-28) that Jellyfin's own `DeviceProfile
+    /// live that Jellyfin's own `DeviceProfile
     /// .MaxStreamingBitrate` model defaults an absent value to a hardcoded
     /// 8 Mbps server-side, which is the field that actually governs
     /// direct-play/stream eligibility. `MaxStaticBitrate`'s "always
@@ -38,7 +38,7 @@ final class DeviceProfileTests: XCTestCase {
 
     // MARK: DeviceProfileBuilder
 
-    /// No HEVC `VideoCodecTag` gate — deliberately removed (2026-08-28).
+    /// No HEVC `VideoCodecTag` gate — deliberately removed.
     /// Reference clients (Swiftfin) require `hvc1`/`dvh1` because AVPlayer
     /// mishandles the common `hev1` tag's B-frame reordering, but
     /// AetherEngine's direct-play route never touches AVPlayer (its own
@@ -69,7 +69,7 @@ final class DeviceProfileTests: XCTestCase {
         XCTAssertEqual(profile.maxStreamingBitrate, 10_000_000)
     }
 
-    /// Confirmed live (2026-08-28, server-side debug log): a `nil`
+    /// Confirmed live (server-side debug log): a `nil`
     /// `maxStreamingBitrate` must NOT leave `DeviceProfile.maxStreamingBitrate`
     /// absent from the wire — Jellyfin's own model defaults an absent
     /// value to a hardcoded 8 Mbps server-side, and this is the field that
@@ -82,7 +82,7 @@ final class DeviceProfileTests: XCTestCase {
         XCTAssertEqual(profile.maxStreamingBitrate, 120_000_000)
     }
 
-    /// Confirmed live (2026-08-28): a `nil`/absent `MaxStaticBitrate` did
+    /// Confirmed live: a `nil`/absent `MaxStaticBitrate` did
     /// NOT behave as unlimited on a real server — a real 4K/34.2 Mbps
     /// source was rejected for direct play/stream
     /// (`ContainerBitrateExceedsLimit`) even with no server-side bitrate

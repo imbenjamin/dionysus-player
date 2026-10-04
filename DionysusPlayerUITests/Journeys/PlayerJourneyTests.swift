@@ -6,14 +6,17 @@ import XCTest
 /// All three run against `PreviewPlaybackEngine` (see `PlaybackEngineFactory`),
 /// not real media — its canned, hardcoded audio/subtitle tracks (ids 0/1
 /// either way) are what these tests select against, not anything from
-/// `UITestFixtureLibrary`'s own `MediaSourceInfo`. And its
-/// `selectAudioTrack(id:)`/`selectSubtitleTrack(id:)` are no-ops that never
-/// flip a track's own `isSelected` back — real, deliberate limits of the
-/// fake (`PlaybackEngineFactory`'s own doc comment), not something a real
-/// AetherEngine session would do. So these tests assert what the fake
-/// *can* prove — a leaf's row list is reachable and tapping one dismisses
-/// the picker, exactly like a real selection would — not that the
-/// selection is retained afterwards.
+/// `UITestFixtureLibrary`'s own `MediaSourceInfo`. So these tests assert what
+/// the fake can prove — a leaf's row list is reachable and tapping one
+/// dismisses the picker, exactly like a real selection would.
+///
+/// The fake's `selectAudioTrack(id:)`/`selectSubtitleTrack(id:)` were once
+/// no-ops that never flipped `isSelected`; they now track the selection,
+/// because the authored-ASS path hangs off the subtitle one and would
+/// otherwise be unreachable from a UI test (see
+/// `StyledSubtitleJourneyTests`). What the fake still gives up is decode,
+/// HDR, transcode and seek behaviour — `PlaybackEngineFactory`'s doc
+/// comment has the full list.
 final class PlayerJourneyTests: UITestCase {
     private func openPlayer() -> PlayerScreen {
         launch()
@@ -45,7 +48,7 @@ final class PlayerJourneyTests: UITestCase {
     /// Opens the track picker, drills into each leaf, and taps a row —
     /// proving the panel is drivable at all (root → leaf → dismiss) rather
     /// than the actual audio/subtitle decision, which `PreviewPlaybackEngine`
-    /// doesn't track (see this file's own doc comment).
+    /// doesn't track (see this file's doc comment).
     func testTrackPickerNavigatesBothLeavesAndDismissesOnSelection() {
         let player = openPlayer()
 
@@ -79,5 +82,16 @@ final class PlayerJourneyTests: UITestCase {
         secondChapter.tap()
 
         player.chapterPicker.awaitDisappearance("the chapter picker after selecting a chapter")
+    }
+
+    /// A movie has nothing queued after it, so reaching the end closes the
+    /// player back to its detail page rather than holding on the last frame.
+    func testReachingTheEndWithNothingQueuedReturnsToDetail() {
+        let player = openPlayer()
+
+        player.scrubToEnd()
+
+        player.closeButton.awaitDisappearance("the player once playback ended")
+        AssetDetailScreen(app: app).awaitLoaded()
     }
 }

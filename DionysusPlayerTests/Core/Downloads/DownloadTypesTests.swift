@@ -129,8 +129,8 @@ final class DownloadTypesTests: XCTestCase {
         XCTAssertEqual(target.videoBitrate, 2_000_000)
     }
 
-    /// The real bug this pins (confirmed live, 2026-08-19, "Pokemon" — a
-    /// 480p-only source with a 1080p tier requested): dimensions correctly
+    /// The real bug this pins (confirmed live against a 480p-only source
+    /// with a 1080p tier requested): dimensions correctly
     /// capped down to the source's own 480p, but the bitrate was still
     /// looked up from the *requested* 1080p tier's own "Normal" rung
     /// (3 Mbps) rather than 480p's own Normal rung — a real quality-setting

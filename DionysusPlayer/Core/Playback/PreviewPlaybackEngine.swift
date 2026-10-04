@@ -5,45 +5,52 @@ import UIKit
 /// Fake `PlaybackEngine` for SwiftUI previews and UI tests, so `PlayerView`
 /// can run without a real AetherEngine instance or network access.
 ///
-/// Shared between the two on purpose. A UI test needs exactly what a preview
-/// needs — canned tracks, canned stats, no decode — plus a clock, so this
-/// grew `advancesTime` rather than the app gaining a third fake alongside
-/// this one and `DionysusPlayerTests`' `FakePlaybackEngine`. See
-/// `PlaybackEngineFactory`, which is what hands this to `PlayerView`.
+/// Shared between the two: a UI test needs what a preview needs — canned tracks
+/// and stats, no decode — plus a clock, so this grew `advancesTime` rather than
+/// the app gaining a third fake. `PlaybackEngineFactory` hands it to
+/// `PlayerView`.
 @MainActor
 final class PreviewPlaybackEngine: PlaybackEngine {
     var onStateChange: ((PlaybackState) -> Void)?
     var onTimeUpdate: ((TimeInterval, TimeInterval) -> Void)?
     var onSubtitleCuesChange: (([SubtitleCueDisplay]) -> Void)?
     var onSourceTimeUpdate: ((TimeInterval) -> Void)?
+    var onSubtitleTrackChange: ((Int?) -> Void)?
+    var fontAttachments: [ASSFontAttachment] = []
     var onPictureInPicturePossibleChange: ((Bool) -> Void)?
     var onPictureInPictureActiveChange: ((Bool) -> Void)?
+    var onSourceTimeFollowsPictureChange: ((Bool) -> Void)?
 
     var audioTracks: [PlaybackTrack] = [
         PlaybackTrack(id: 0, kind: .audio, title: "Dolby Digital Plus Atmos 7.1", metadata: "DD+ · Atmos · 7.1 · Default", isSelected: true),
         PlaybackTrack(id: 1, kind: .audio, title: "Director's Commentary", metadata: "English · AAC · Stereo · Commentary", isSelected: false)
     ]
     var subtitleTracks: [PlaybackTrack] = [
-        PlaybackTrack(id: 0, kind: .subtitle, title: "English", metadata: "Default", isSelected: false),
-        PlaybackTrack(id: 1, kind: .subtitle, title: "English", metadata: "Hearing Impaired", isSelected: false)
+        PlaybackTrack(id: 0, kind: .subtitle, title: "English", metadata: "Default",
+                      isSelected: false, codec: "subrip"),
+        PlaybackTrack(id: 1, kind: .subtitle, title: "English", metadata: "Hearing Impaired",
+                      isSelected: false, codec: "subrip"),
+        // An authored-ASS track, so the styled path has something to select.
+        // Embedded and last, matching the fixture's own stream order — the
+        // track/stream pairing is by ordinal among embedded ASS entries (see
+        // `PlayerViewModel.jellyfinStream(forTrack:engineTracks:mediaStreams:)`).
+        PlaybackTrack(id: 2, kind: .subtitle, title: "English", metadata: "Styled",
+                      isSelected: false, codec: "ass")
     ]
     var videoFormatDescription: String? = "Dolby Vision P8.1"
     var videoNaturalSize: CGSize? = CGSize(width: 3840, height: 1600)
     var zoomMode: VideoZoomMode = .fit
-    /// Set before triggering a preview's `load(...)` to preview the error
-    /// UI (`ErrorStateView`'s Retry-vs-Close branch in `PlayerView`)
-    /// instead of the default always-succeeds behavior below.
+    /// Set before a preview's `load(...)` to render the error UI —
+    /// `ErrorStateView`'s Retry-versus-Close branch — instead of succeeding.
     var simulatedFailure: PlaybackFailure?
 
-    /// Drives a real clock while playing, so `PlayerViewModel` receives the
-    /// time updates the scrubber and the elapsed/remaining labels render
-    /// from. Off by default: a preview wants a still frame, and a repeating
-    /// timer in a preview canvas is just churn.
+    /// Drives a real clock while playing, so `PlayerViewModel` gets the time
+    /// updates the scrubber and labels render from. Off by default: a preview
+    /// wants a still frame, not a repeating timer in the canvas.
     var advancesTime = false
 
-    /// Wall-clock seconds between ticks. Matches roughly what AetherEngine's
-    /// own clock publisher emits, so a test that waits on the label changing
-    /// waits about as long as it would against the real engine.
+    /// Wall-clock seconds between ticks, roughly AetherEngine's own cadence, so
+    /// a test waiting on a label change waits about as long as it would live.
     private static let tickInterval: TimeInterval = 0.25
 
     private var currentTime: TimeInterval = 0
@@ -100,8 +107,49 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         stopTicking()
         onStateChange?(.ended)
     }
-    func selectAudioTrack(id: Int) {}
-    func selectSubtitleTrack(id: Int?) {}
+    func selectAudioTrack(id: Int) {
+        audioTracks = audioTracks.map { $0.selected($0.id == id) }
+    }
+
+    /// Unlike the audio counterpart this has to announce itself: the styled-ASS
+    /// path hangs off `onSubtitleTrackChange`, so a no-op here would leave a UI
+    /// test unable to reach it at all.
+    ///
+    /// It also publishes a cue, which is what `SubtitleOverlayView`'s own
+    /// (non-libass) path renders — every SubRip and WebVTT track in the app,
+    /// and an ASS track when Subtitle Styling is off. Without it that path
+    /// paints nothing under the harness, so a test could only ever assert the
+    /// *absence* of a styled frame — which passes just as happily on a bug that
+    /// drops the track altogether.
+    /// Recorded rather than acted on: there is no AVPlayer here to hand
+    /// drawing to.
+    private(set) var nativeSubtitleRenderingRequests: [Bool] = []
+    private(set) var nativeSubtitleCaptureRequests: [Bool] = []
+
+    func setNativeSubtitleRendering(_ active: Bool) {
+        nativeSubtitleRenderingRequests.append(active)
+    }
+
+    func setNativeSubtitleCapture(_ active: Bool) {
+        nativeSubtitleCaptureRequests.append(active)
+    }
+
+    func selectSubtitleTrack(id: Int?) {
+        subtitleTracks = subtitleTracks.map { $0.selected($0.id == id) }
+        onSubtitleTrackChange?(id)
+        onSubtitleCuesChange?(id == nil ? [] : Self.previewCues)
+    }
+
+    /// One cue spanning the whole runtime, so it is active whatever the clock
+    /// says and a test never has to wait for a window to open. No `placement`:
+    /// the bottom-centre default is the common case and the one the overlay's
+    /// clearance behaviour is about.
+    private static let previewCues = [
+        SubtitleCueDisplay(
+            id: 0, startTime: 0, endTime: .greatestFiniteMagnitude,
+            body: .text(UITestFixtureIdentity.plainSubtitleCueText)
+        )
+    ]
     func startPictureInPicture() {}
     func stopPictureInPicture() {}
     func setNowPlayingInfo(title: String, subtitle: String?, artwork: UIImage?) {}
@@ -112,9 +160,9 @@ final class PreviewPlaybackEngine: PlaybackEngine {
 
     // MARK: - Clock
 
-    /// The fixed runtime this fake reports. Long enough that a scrub test
-    /// has somewhere to scrub to, and unrelated to whatever item the app
-    /// thinks it loaded — nothing here reads the URL.
+    /// The fixed runtime this fake reports: long enough for a scrub test to have
+    /// somewhere to scrub to, and unrelated to the loaded item — nothing here
+    /// reads the URL.
     private var duration: TimeInterval { 5400 }
 
     private func startTickingIfNeeded() {

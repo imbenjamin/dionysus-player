@@ -45,6 +45,26 @@ final class ServerSessionStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.credentials, credentials)
     }
 
+    func test_saveCredentials_quickConnectMethodPersists() {
+        let credentials = StoredCredentials(
+            username: "ben", password: nil, accessToken: "tok", userID: "user-1", authMethod: .quickConnect
+        )
+        ServerSessionStore(defaults: defaults).saveCredentials(credentials)
+
+        XCTAssertEqual(ServerSessionStore(defaults: defaults).credentials?.authMethod, .quickConnect)
+    }
+
+    /// Every install before Quick Connect saved credentials without an
+    /// `authMethod`; they must keep signing in by password, not fail to
+    /// decode (which would sign everyone out on update).
+    func test_credentialsSavedBeforeQuickConnect_decodeAsPassword() throws {
+        let legacy = Data(#"{"username":"ben","password":"hunter2","accessToken":"tok","userID":"user-1"}"#.utf8)
+        let decoded = try JSONDecoder().decode(StoredCredentials.self, from: legacy)
+
+        XCTAssertEqual(decoded.authMethod, .password)
+        XCTAssertEqual(decoded.password, "hunter2")
+    }
+
     func test_clearCredentials_removesCredentialsButKeepsServer() {
         let config = ServerConfiguration(name: "Home Server", baseURL: URL(string: "https://jellyfin.example.com")!)
         let credentials = StoredCredentials(username: "ben", password: nil, accessToken: "tok", userID: "user-1")
@@ -73,5 +93,41 @@ final class ServerSessionStoreTests: XCTestCase {
         let reloaded = ServerSessionStore(defaults: defaults)
         XCTAssertNil(reloaded.serverConfiguration)
         XCTAssertNil(reloaded.credentials)
+    }
+
+    // MARK: Welcome
+
+    func test_welcome_startsIncompleteAndPersistsOnceCompleted() {
+        XCTAssertFalse(ServerSessionStore(defaults: defaults).hasCompletedWelcome)
+
+        ServerSessionStore(defaults: defaults).markWelcomeCompleted()
+
+        XCTAssertTrue(ServerSessionStore(defaults: defaults).hasCompletedWelcome)
+    }
+
+    /// Someone who set the app up before the welcome existed has a server but
+    /// never tapped "Get Started" — and mustn't meet the first-run welcome the
+    /// next time they change server.
+    func test_welcome_countsAsCompletedForAnExistingServerConfiguration() {
+        let config = ServerConfiguration(name: "Home", baseURL: URL(string: "https://jellyfin.example.com")!)
+        let data = try! JSONEncoder().encode(config)
+        defaults.set(data, forKey: "server.configuration")
+
+        let store = ServerSessionStore(defaults: defaults)
+        XCTAssertTrue(store.hasCompletedWelcome)
+
+        store.clearAll()
+        XCTAssertTrue(ServerSessionStore(defaults: defaults).hasCompletedWelcome)
+    }
+
+    /// Changing server or signing out shouldn't replay the introduction.
+    func test_clearAll_keepsTheWelcomeCompleted() {
+        let store = ServerSessionStore(defaults: defaults)
+        store.markWelcomeCompleted()
+
+        store.clearAll()
+
+        XCTAssertTrue(store.hasCompletedWelcome)
+        XCTAssertTrue(ServerSessionStore(defaults: defaults).hasCompletedWelcome)
     }
 }

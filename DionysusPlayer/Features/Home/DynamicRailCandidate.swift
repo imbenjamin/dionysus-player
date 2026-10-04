@@ -43,10 +43,10 @@ enum DynamicRailCandidate: Hashable {
 
     /// This candidate's rail's "See All" link — the Movies/Shows grid,
     /// scoped to this candidate's `kind`, with the matching genre/studio
-    /// filter preset (see `CollectionQuery`'s own doc comment on why a
+    /// filter preset (see `CollectionQuery`'s doc comment on why a
     /// preset filter, not just a preset parent/type). `nil` for
     /// `.actor`/`.director`: those rails span both movies and shows at once
-    /// (see this type's own doc comment on why they have no `kind`), which
+    /// (see this type's doc comment on why they have no `kind`), which
     /// doesn't map onto a single-library `CollectionQuery` the way
     /// `.genre`/`.studio` (each pinned to one `kind`) do — and `Person`/
     /// `PersonTypes` isn't a `CollectionGridViewModel` filter facet at all,

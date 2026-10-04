@@ -1,26 +1,23 @@
 import SwiftUI
 
-/// Switches between first-run setup, sign-in, and the main app based on
-/// `AppState.phase`.
+/// The signed-in app, or everything before it — splash, welcome, server setup
+/// and sign-in, which `OnboardingFlowView` presents as one continuous scene.
 struct RootView: View {
     @Environment(AppState.self) private var appState
 
+    private var isInMainApp: Bool {
+        !appState.isRestoringSession && appState.phase == .main
+    }
+
     var body: some View {
         Group {
-            if appState.isRestoringSession {
-                SplashView()
+            if isInMainApp {
+                MainTabView()
             } else {
-                switch appState.phase {
-                case .serverSetup:
-                    ServerSetupView()
-                case .login:
-                    LoginView()
-                case .main:
-                    MainTabView()
-                }
+                OnboardingFlowView()
             }
         }
-        .animation(.default, value: appState.isRestoringSession)
+        .animation(.default, value: isInMainApp)
     }
 }
 

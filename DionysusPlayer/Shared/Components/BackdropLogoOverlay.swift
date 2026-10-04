@@ -17,11 +17,10 @@ import SwiftUI
 /// wall of a diorama) and the logo is pulled *in front* of it (rotates
 /// around a pivot closer to the viewer, plus a shadow it casts onto the
 /// backdrop below), so tilting the device reads as looking into a recessed
-/// scene with the logo genuinely hovering above its surface. An earlier
-/// version instead offset the two layers sideways by different amounts
-/// (classic 2D parallax) — it read as flat and arbitrary rather than
-/// physically grounded, per direct feedback trying it on a real device;
-/// this 3D-rotation approach replaced it entirely.
+/// scene with the logo genuinely hovering above its surface. A 2D parallax
+/// approach (offsetting the two layers sideways by different amounts) was
+/// tried first — it read as flat and arbitrary rather than physically
+/// grounded on a real device — and this 3D-rotation approach replaced it.
 ///
 /// All default to off/`0` (identical to this view's pre-effect rendering)
 /// — only `HeroHeaderView` opts in; `HeroRailCard`'s auto-advancing
@@ -84,6 +83,17 @@ struct BackdropLogoOverlay: View {
     /// `statusBarInset` instead.
     var accessibilityTopInset: CGFloat = 0
 
+    #if DEBUG
+    /// Mirrors `LogoImageView`'s otherwise-invisible `showFallback` state,
+    /// purely so `body` can expose it to `DionysusPlayerUITests` — see
+    /// `A11yID.Media.heroLogoFallbackVisible`'s doc comment for why nothing
+    /// inside `visualContent` (accessibility-hidden) can be queried
+    /// directly. Compiled out of Release entirely, alongside the rest of
+    /// the UI test harness (`UITestConfiguration`, `UITestStubURLProtocol`,
+    /// …).
+    @State private var isLogoFallbackVisible = false
+    #endif
+
     /// The backdrop's rotation at full tilt, and how far behind the screen
     /// plane it pivots (`anchorZ`, in points — negative pushes it away from
     /// the viewer). Together with `perspective` these are what make tilting
@@ -143,8 +153,8 @@ struct BackdropLogoOverlay: View {
     /// to the physical top edge (see `HeroHeaderView`'s doc comment on
     /// `.ignoresSafeArea(edges: .top)`), which is purely a rendering choice
     /// for the full-bleed look — but an *accessibility* element sharing that
-    /// same frame turned out to matter too: confirmed live (VoiceOver, real
-    /// device) that whenever this element's frame overlapped the status
+    /// same frame turned out to matter too: confirmed live that whenever
+    /// this element's frame overlapped the status
     /// bar's own screen region, VoiceOver's reading of it pulled in
     /// unrelated content alongside the real label — a clock-shaped number
     /// and a varying system-icon-shaped word, framed by an iOS "content
@@ -178,6 +188,18 @@ struct BackdropLogoOverlay: View {
                 .padding(.top, accessibilityTopInset)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(accessibilityLabelText)
+
+            #if DEBUG
+            // Test-only — see `isLogoFallbackVisible`'s doc comment.
+            // `UITestConfiguration.isActive` is never true outside a UI
+            // test launch, so this never renders (or gets found by
+            // VoiceOver) in any real session.
+            if UITestConfiguration.isActive, isLogoFallbackVisible {
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityIdentifier(A11yID.Media.heroLogoFallbackVisible)
+            }
+            #endif
         }
     }
 
@@ -193,12 +215,12 @@ struct BackdropLogoOverlay: View {
         // actual image as its `.background` — backgrounds size themselves to
         // match their container, not the other way around, so the image
         // ends up correctly constrained without needing to read a proxy
-        // size at all. Deliberately not `GeometryReader` (an earlier version
-        // of this used one) — simpler, and avoids an extra layout pass.
-        // This also used to be `.containerRelativeFrame(.horizontal)`,
-        // which resolves the width problem in principle but in practice got
-        // stuck reporting a stale (too-wide) size after rotating portrait →
-        // landscape → portrait, overflowing the screen on the way back.
+        // size at all. Deliberately not `GeometryReader` — simpler, and
+        // avoids an extra layout pass. Also deliberately not
+        // `.containerRelativeFrame(.horizontal)`, which resolves the width
+        // problem in principle but in practice got stuck reporting a stale
+        // (too-wide) size after rotating portrait → landscape → portrait,
+        // overflowing the screen on the way back.
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
@@ -236,8 +258,16 @@ struct BackdropLogoOverlay: View {
                                 LocalFileImage(url: logoURL, contentMode: .fit)
                                     .frame(maxWidth: 240, maxHeight: 80, alignment: Alignment(horizontal: alignment, vertical: .center))
                             } else {
+                                #if DEBUG
+                                LogoImageView(
+                                    url: logoURL, fallback: titleText, retryPatience: .extended,
+                                    onFallbackVisibilityChange: { isLogoFallbackVisible = $0 }
+                                )
+                                .frame(maxWidth: 240, maxHeight: 80, alignment: Alignment(horizontal: alignment, vertical: .center))
+                                #else
                                 LogoImageView(url: logoURL, fallback: titleText, retryPatience: .extended)
                                     .frame(maxWidth: 240, maxHeight: 80, alignment: Alignment(horizontal: alignment, vertical: .center))
+                                #endif
                             }
                         } else {
                             titleText
@@ -261,7 +291,7 @@ struct BackdropLogoOverlay: View {
                     x: -tiltX * Self.logoShadowRange, y: -tiltY * Self.logoShadowRange * 0.5 + 4
                 )
             }
-            // Root-causes a live-reproduced bug (2026-08-18): "the hero rail
+            // Root-causes a live-reproduced bug: "the hero rail
             // item is hard to tap; right-hand taps register as the *next*
             // item instead." `AsyncRemoteImage`'s backdrop is `.resizable()
             // .aspectRatio(contentMode: .fill)`, which — by definition of
@@ -292,7 +322,7 @@ struct BackdropLogoOverlay: View {
 
     /// `title`, plus `episodeNumberAccessibilityText` and `episodeTitle`
     /// when present — e.g. "Top Gear, season 19 episode 6, Africa Special"
-    /// — see `body`'s own doc comment for why this view needs an explicit
+    /// — see `body`'s doc comment for why this view needs an explicit
     /// label on a dedicated accessibility layer, rather than leaning on its
     /// (image-heavy) visual content's own auto-derived accessibility
     /// content.

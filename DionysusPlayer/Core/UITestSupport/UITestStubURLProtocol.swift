@@ -4,27 +4,28 @@ import UIKit
 
 /// Serves `UITestFixtureLibrary` in place of a real Jellyfin server.
 ///
-/// Installed process-wide via `URLProtocol.registerClass`, which is enough to
-/// cover `JellyfinAPIClient`: it is an `actor` whose only session seam is
-/// `init(baseURL:accessToken:session: = .shared)`, and `AppState` never
-/// passes a session, so every API call runs on `URLSession.shared`. The
-/// sessions that *aren't* `.shared` — `RemoteImageLoader`'s and
-/// `DownloadManager`'s — insert this class into their own
-/// `configuration.protocolClasses` instead; see
-/// `UITestHarness.decorate(_:)`.
+/// Installed process-wide via `URLProtocol.registerClass`, which covers
+/// `JellyfinAPIClient`: `AppState` never passes it a session, so every API call
+/// runs on `URLSession.shared`. The sessions that aren't shared —
+/// `RemoteImageLoader`'s and `DownloadManager`'s — insert this class into their
+/// own `protocolClasses` via `UITestHarness.decorate(_:)`.
 ///
-/// Unlike the unit suite's `MockURLProtocol`, this router is declarative
-/// rather than closure-driven. It has to be: XCUITest runs the assertions in
-/// a separate process from the app, so there is no way to hand a
-/// `requestHandler` closure across the boundary. Behaviour varies only by
-/// the launch-time `UITestScenario`.
-final class UITestStubURLProtocol: URLProtocol {
+/// Declarative rather than closure-driven like the unit suite's
+/// `MockURLProtocol`, because XCUITest runs assertions in a separate process
+/// and no `requestHandler` can cross that boundary. Behaviour varies only by the
+/// launch-time `UITestScenario`.
+///
+/// `@unchecked Sendable` so `.slowLogoImage`'s delayed delivery can hop to
+/// a background queue (see `startLoading()`). `URLProtocol` isn't `Sendable`
+/// and this subclass adds no mutable state of its own — the closure only
+/// reads immutable request data and calls `client`, which `URLSession`
+/// already expects from an arbitrary thread.
+final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     // MARK: - URLProtocol
 
     override class func canInit(with request: URLRequest) -> Bool {
-        // Intercept everything while the harness is active. A UI test that
-        // reaches the real network is a bug, not a fallback, so there is
-        // deliberately no passthrough.
+        // Everything is intercepted: a UI test reaching the real network is a
+        // bug, not a fallback, so there is no passthrough.
         UITestConfiguration.isActive
     }
 
@@ -45,11 +46,81 @@ final class UITestStubURLProtocol: URLProtocol {
             return
         }
 
-        // Images resolve before any scenario gating: an error scenario is
-        // about the *data* endpoints, and failing artwork too would just
-        // park every assertion on a placeholder.
-        if path.contains("/Images/") {
+        // No fixture is served over HTTPS: every `https://` request fails the
+        // way a certificate issued for another name does, which is what
+        // `ServerSetupViewModel.connect(to:)`'s plain-HTTP fallback reacts to.
+        if url.scheme?.lowercased() == "https" {
+            finish(.failure(URLError(.serverCertificateUntrusted)))
+            return
+        }
+
+        if scenario == .customHTTPPort, url.port == ServerSetupViewModel.defaultHTTPPort {
+            finish(.failure(URLError(.cannotConnectToHost)))
+            return
+        }
+
+        // Images resolve before scenario gating: an error scenario is about the
+        // data endpoints, and failing artwork too would park every assertion on
+        // a placeholder. `.slowLogoImage` is the one exception.
+        if path.contains("/Images/") || path.hasSuffix("/Branding/Splashscreen") {
+            if scenario == .slowLogoImage, path.hasSuffix("/Images/Logo") {
+                // Scheduled on a background queue, *never* `Thread.sleep`ed
+                // here. `startLoading()` runs on one serial queue per
+                // `URLSession`, so sleeping in it delays every other request
+                // on that session too, not just this one — measured
+                // directly: twelve concurrent 4s requests finished 4s apart,
+                // 48s in total, rather than all together at 4s. Every
+                // logo-bearing item on Home asks `RemoteImageLoader`'s
+                // session for a `/Images/Logo` of its own, so the blocking
+                // version pushed the single logo `HeroLogoFallbackUITests`
+                // watches tens of seconds out and left its fallback text up
+                // past the assertion's budget — the cause of that suite's
+                // intermittent failures in `UITests-Full`.
+                DispatchQueue.global().asyncAfter(deadline: .now() + Self.slowLogoImageDelay) {
+                    self.finish(.success((200, Self.placeholderPNG, "image/png")))
+                }
+                return
+            }
             finish(.success((200, Self.placeholderPNG, "image/png")))
+            return
+        }
+
+        // Font attachments, answered before the scenario gate for the same
+        // reason images are: they are a decoration on the subtitle, and failing
+        // them under `.serverError` would only obscure whatever that scenario
+        // is really about.
+        //
+        // Handled here rather than in `data(forPath:)` because `.slowSubtitleFonts`
+        // needs a delayed delivery, which that synchronous switch can't express.
+        if path.contains("/Attachments/") {
+            if scenario == .slowSubtitleFonts {
+                // Background queue, never `Thread.sleep` — see the
+                // `.slowLogoImage` branch above for what blocking here costs.
+                DispatchQueue.global().asyncAfter(deadline: .now() + Self.slowFontAttachmentDelay) {
+                    self.finish(.success((200, Self.fontAttachmentBytes, "application/x-truetype-font")))
+                }
+                return
+            }
+            finish(.success((200, Self.fontAttachmentBytes, "application/x-truetype-font")))
+            return
+        }
+
+        // A download's stream (`JellyfinAPIClient.downloadStreamURL`), held
+        // back under `.slowVideoDownload`; answered below as usual otherwise.
+        if scenario == .slowVideoDownload, path.hasSuffix("/stream.mp4") {
+            // Background queue, never `Thread.sleep` — see the
+            // `.slowLogoImage` branch above for what blocking here costs.
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.slowVideoDownloadDelay) {
+                let video = Self.syntheticMP4(durationSeconds: Self.runtimeSeconds(forVideoPath: path))
+                // Same content type as the instant path below, so the timing is
+                // the only thing this scenario changes.
+                self.finish(.success((200, video, "application/json")))
+            }
+            return
+        }
+
+        if path.contains("/QuickConnect/") {
+            finish(.success(Self.quickConnectResponse(scenario: scenario, path: path, query: query)))
             return
         }
 
@@ -58,30 +129,102 @@ final class UITestStubURLProtocol: URLProtocol {
             return
         }
 
-        // Independent of scenario — a login journey testing a mistyped
-        // password shouldn't need a whole error scenario switched on to get
-        // there. Checked here rather than folded into `scenarioFailure`,
-        // which gates *paths*, not *bodies*: this is the one request the
-        // stub actually has to look inside to answer correctly.
+        // Scenario-independent: a mistyped-password journey shouldn't need an
+        // error scenario switched on. Kept out of `scenarioFailure`, which gates
+        // paths rather than bodies — this is the one request the stub must look
+        // inside to answer.
         if path.hasSuffix("/Users/AuthenticateByName"), !Self.suppliesTheFixturePassword(request) {
             finish(.success((401, Data("{}".utf8), "application/json")))
             return
         }
 
-        // Deletion is the one route that has to be matched on *method* as
-        // well as path — `DELETE /Items/{id}` would otherwise fall through
-        // to the `/Users/.../Items/{id}` item lookup below and answer a
-        // deletion with a JSON item body.
+        // Matched on method as well as path: `DELETE /Items/{id}` would
+        // otherwise fall through to the item lookup below and answer a deletion
+        // with a JSON item body.
         if request.httpMethod == "DELETE", let itemID = Self.deletedItemID(forPath: path) {
-            // Mirrors the real server: refuse when this user has no delete
-            // rights, with Jellyfin's own (surprising) 401 rather than a
-            // 403 — see `JellyfinAPIClient.deleteItem`.
+            // Refuses with Jellyfin's own 401 rather than a 403, as the real
+            // server does (see `JellyfinAPIClient.deleteItem`).
             guard scenario != .noDeletePermission else {
                 finish(.success((401, Data("{}".utf8), "application/json")))
                 return
             }
             Self.recordDeletion(of: itemID)
             finish(.success((204, Data(), "application/json")))
+            return
+        }
+
+        // Also method-sensitive: `body(forPath:)` ignores the method, so
+        // `DELETE /Playlists/{id}/Items` would fall into the GET case and answer
+        // a removal with the unmodified member list.
+        if request.httpMethod == "DELETE", path.contains("/Playlists/"), path.hasSuffix("/Items") {
+            // Jellyfin reports a playlist-edit refusal as a clean 403, unlike
+            // whole-item deletion's 401 above.
+            guard scenario != .noPlaylistEditPermission else {
+                finish(.success((403, Data("{}".utf8), "application/json")))
+                return
+            }
+            let entryIDs = (query.first { $0.name == "entryIds" }?.value ?? "")
+                .split(separator: ",").map(String.init)
+            Self.recordPlaylistRemoval(of: entryIDs)
+            finish(.success((204, Data(), "application/json")))
+            return
+        }
+
+        // Method-sensitive for the same reason as removal:
+        // `POST /Playlists/{id}/Items` shares its path with the listing GET.
+        if request.httpMethod == "POST", path.contains("/Playlists/"), path.hasSuffix("/Items") {
+            guard scenario != .noPlaylistEditPermission else {
+                finish(.success((403, Data("{}".utf8), "application/json")))
+                return
+            }
+            let playlistID = path
+                .replacingOccurrences(of: "/Playlists/", with: "")
+                .replacingOccurrences(of: "/Items", with: "")
+            let itemIDs = (query.first { $0.name == "ids" }?.value ?? "")
+                .split(separator: ",").map(String.init)
+            Self.recordPlaylistAddition(of: itemIDs, to: playlistID)
+            finish(.success((204, Data(), "application/json")))
+            return
+        }
+
+        // `POST /Playlists`. Handled here rather than in `body(forPath:)`, whose
+        // `default:` arm answers an unmatched POST with empty `Data()` the app
+        // can't decode as a `PlaylistCreationResult`, and which has no access to
+        // the request body this needs.
+        //
+        // Not gated on `.noPlaylistEditPermission`: creating a playlist needs no
+        // permission on a real server either, which is what that scenario
+        // asserts.
+        if request.httpMethod == "POST", path == "/Playlists" {
+            do {
+                let created = Self.recordPlaylistCreation(from: request)
+                finish(.success((200, try Self.encode(PlaylistCreationResult(id: created.id)), "application/json")))
+            } catch {
+                finish(.failure(error))
+            }
+            return
+        }
+
+        // Needs Jellyfin's 404 "permissions not found" for a refusal, which
+        // `body(forPath:)` can't express — every route there answers 200.
+        if path.contains("/Playlists/"), path.contains("/Users/") {
+            let playlistID = path
+                .replacingOccurrences(of: "/Playlists/", with: "")
+                .components(separatedBy: "/Users/").first ?? ""
+            // Refused even in `.standard`: the one playlist this user neither
+            // owns nor is shared on, so the picker filtering it out is a real
+            // assertion about `editablePlaylists` rather than a no-op.
+            let isReadOnly = playlistID == UITestFixtureIdentity.readOnlyPlaylistID
+            guard scenario != .noPlaylistEditPermission, !isReadOnly else {
+                finish(.success((404, Data("{}".utf8), "application/json")))
+                return
+            }
+            do {
+                let permissions = PlaylistUserPermissions(userId: UITestConfiguration.stubUserID, canEdit: true)
+                finish(.success((200, try Self.encode(permissions), "application/json")))
+            } catch {
+                finish(.failure(error))
+            }
             return
         }
 
@@ -97,42 +240,39 @@ final class UITestStubURLProtocol: URLProtocol {
 
     // MARK: - Scenario gating
 
-    /// Endpoints that must keep working in an error scenario, so a test
-    /// still reaches a signed-in error state instead of being stranded on
-    /// the login screen.
+    /// Endpoints that keep working in an error scenario, so a test reaches a
+    /// signed-in error state instead of being stranded on the login screen.
     private static func isInfrastructurePath(_ path: String) -> Bool {
         path.hasSuffix("/System/Info/Public")
             || path.hasSuffix("/health")
             || path.hasSuffix("/Users/AuthenticateByName")
+            || path.hasSuffix("/Users/AuthenticateWithQuickConnect")
+            || path.hasSuffix("/Users/Me")
+            || path.hasSuffix("/Users/Public")
+            || path.hasSuffix("/Branding/Configuration")
     }
 
-    /// Paths already served a 401 in this process, so `.unauthorized` fails
-    /// each endpoint exactly once and then succeeds — which is what
-    /// `JellyfinAPIClient.sendRaw`'s silent re-authentication is supposed to
-    /// recover from. Failing forever would test a permanent outage instead.
+    /// Paths already served a 401 this process, so `.unauthorized` fails each
+    /// endpoint once and then succeeds — what
+    /// `JellyfinAPIClient.sendRaw`'s silent re-authentication recovers from.
+    /// Failing forever would test a permanent outage instead.
     ///
     /// `nonisolated(unsafe)`: `URLProtocol` instances load on URLSession's
-    /// own queues, so this is guarded by `lock` rather than by isolation.
+    /// queues, so `lock` guards this rather than isolation.
     nonisolated(unsafe) private static var challengedPaths: Set<String> = []
     private static let lock = NSLock()
 
     /// Items deleted during this app session.
     ///
-    /// The fixture library is otherwise immutable, which is fine for every
-    /// read-only journey — but a deletion test's whole point is that the
-    /// item is *gone* afterwards, so the stub has to carry that much state.
-    /// Deliberately the minimum: a set of ids filtered out of every
-    /// subsequent response (`scoped`), rather than a mutable copy of the
-    /// catalogue. Process-lifetime, so each test's fresh app launch starts
-    /// clean without needing an explicit reset.
-    ///
-    /// `nonisolated(unsafe)` + `lock` for the same reason as
-    /// `challengedPaths` above.
+    /// The fixture library is otherwise immutable, which suits every read-only
+    /// journey, but a deletion test needs the item gone afterwards. Kept minimal
+    /// — a set of ids filtered out of every later response, not a mutable copy
+    /// of the catalogue — and process-lifetime, so each test's fresh launch
+    /// starts clean with no explicit reset.
     nonisolated(unsafe) private static var deletedItemIDs: Set<String> = []
 
-    /// The item id in a `DELETE /Items/{id}`, or `nil` if this isn't that
-    /// route. Matched precisely rather than with `contains("/Items/")` so a
-    /// path like `/Users/{id}/Items/{id}` can't be mistaken for it.
+    /// The item id in a `DELETE /Items/{id}`, or `nil` off that route. Matched
+    /// precisely so `/Users/{id}/Items/{id}` can't be mistaken for it.
     private static func deletedItemID(forPath path: String) -> String? {
         let components = path.split(separator: "/", omittingEmptySubsequences: true)
         guard components.count == 2, components[0] == "Items" else { return nil }
@@ -143,9 +283,8 @@ final class UITestStubURLProtocol: URLProtocol {
         lock.lock()
         defer { lock.unlock() }
         deletedItemIDs.insert(itemID)
-        // Deleting a season or show takes its episodes with it, exactly as
-        // the real server does — otherwise a "the show is now empty" journey
-        // would still see every episode.
+        // Deleting a season or show takes its episodes with it, as the real
+        // server does; otherwise a "show is now empty" journey still sees them.
         for episode in UITestFixtureLibrary.episodes
         where episode.seasonId == itemID || episode.seriesId == itemID {
             deletedItemIDs.insert(episode.id)
@@ -161,33 +300,145 @@ final class UITestStubURLProtocol: URLProtocol {
         return deletedItemIDs.contains(itemID)
     }
 
-    /// Episodes still present under a series — what the app's own
-    /// "did that leave the show empty?" check reads back as
-    /// `RecursiveItemCount`.
+    /// Playlist entries — `playlistItemId`, not the underlying item's `id` —
+    /// removed this session. Same shape as `deletedItemIDs`, kept separate
+    /// because removing a playlist entry must not make that item disappear from
+    /// a library grid or another playlist it belongs to.
+    nonisolated(unsafe) private static var removedPlaylistEntryIDs: Set<String> = []
+
+    private static func recordPlaylistRemoval(of entryIDs: [String]) {
+        lock.lock()
+        defer { lock.unlock() }
+        removedPlaylistEntryIDs.formUnion(entryIDs)
+    }
+
+    private static func isPlaylistEntryRemoved(_ entryID: String?) -> Bool {
+        guard let entryID else { return false }
+        lock.lock()
+        defer { lock.unlock() }
+        return removedPlaylistEntryIDs.contains(entryID)
+    }
+
+    /// Items added to a playlist this session, keyed by playlist id. Read back
+    /// at the same `/Playlists/{id}/Items` GET route as
+    /// `removedPlaylistEntryIDs`, so a journey can add a movie and then open the
+    /// playlist and see it.
+    nonisolated(unsafe) private static var playlistAdditions: [String: [String]] = [:]
+
+    private static func recordPlaylistAddition(of itemIDs: [String], to playlistID: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        playlistAdditions[playlistID, default: []].append(contentsOf: itemIDs)
+    }
+
+    /// The extra members a playlist has picked up, resolved back into real
+    /// fixture items and stamped with a `playlistItemId` of their own —
+    /// without which `PlaylistItemList`'s `ForEach(items, id: \.playlistItemID)`
+    /// would key every added row on `nil`.
+    ///
+    /// A Series or Season id expands into its episodes here, mirroring what
+    /// the real server does with a folder-shaped item (see
+    /// `JellyfinAPIClient.addItemsToPlaylist`) — otherwise "add the whole
+    /// show" would show up as a single un-openable series row.
+    private static func addedMembers(forPlaylist playlistID: String) -> [BaseItemDto] {
+        lock.lock()
+        let addedIDs = playlistAdditions[playlistID] ?? []
+        lock.unlock()
+
+        var members: [BaseItemDto] = []
+        for itemID in addedIDs {
+            guard let item = UITestFixtureLibrary.allItems[itemID] else { continue }
+            switch item.type {
+            case .series:
+                members.append(contentsOf: UITestFixtureLibrary.episodes.filter { $0.seriesId == itemID })
+            case .season:
+                members.append(contentsOf: UITestFixtureLibrary.episodes.filter { $0.seasonId == itemID })
+            default:
+                members.append(item)
+            }
+        }
+        for index in members.indices {
+            members[index].playlistItemId = UITestFixtureIdentity.addedPlaylistEntryID(
+                playlistID: playlistID, index: index + 1
+            )
+        }
+        return members
+    }
+
+    /// Playlists created this session, appended to every `Playlist`-typed browse
+    /// afterwards so re-opening the picker shows what a create journey made —
+    /// the only observable evidence the create reached the server.
+    nonisolated(unsafe) private static var createdPlaylists: [BaseItemDto] = []
+
+    @discardableResult
+    private static func recordPlaylistCreation(from request: URLRequest) -> BaseItemDto {
+        let decoded = requestBody(of: request).flatMap {
+            try? JellyfinJSON.decoder.decode(CreatePlaylistRequest.self, from: $0)
+        }
+        lock.lock()
+        let ordinal = createdPlaylists.count + 1
+        lock.unlock()
+
+        var playlist = UITestFixtureLibrary.createdPlaylist(
+            id: UITestFixtureIdentity.createdPlaylistID(index: ordinal),
+            name: decoded?.name ?? "Untitled"
+        )
+        playlist.childCount = decoded?.ids.count ?? 0
+
+        lock.lock()
+        defer { lock.unlock() }
+        createdPlaylists.append(playlist)
+        // Recorded directly rather than through `recordPlaylistAddition`: the
+        // lock is already held, and re-entering it would deadlock.
+        playlistAdditions[playlist.id, default: []].append(contentsOf: decoded?.ids ?? [])
+        return playlist
+    }
+
+    /// The item ids a playlist holds, as `GET /Playlists/{id}` reports them.
+    /// Not `addedMembers`' `playlistItemId` entry ids: this is membership, those
+    /// are per-row identity within one playlist.
+    private static func currentMemberIDs(forPlaylist playlistID: String) -> [String] {
+        let seeded = playlistID == UITestFixtureIdentity.playlistID
+            ? UITestFixtureLibrary.playlistMembers
+            : []
+        let members = seeded.filter { !isPlaylistEntryRemoved($0.playlistItemId) }
+            + addedMembers(forPlaylist: playlistID)
+        return members.map(\.id)
+    }
+
+    private static func createdPlaylistsOnly() -> [BaseItemDto] {
+        lock.lock()
+        defer { lock.unlock() }
+        return createdPlaylists
+    }
+
+    /// Episodes still under a series, which the app's "did that leave the show
+    /// empty" check reads back as `RecursiveItemCount`.
     private static func remainingEpisodeCount(seriesID: String) -> Int {
         UITestFixtureLibrary.episodes
             .filter { $0.seriesId == seriesID && !isDeleted($0.id) }
             .count
     }
 
-    /// Whether the posted body's password matches the fixture credential —
-    /// the whole check a "bad credentials" login journey needs. Any body
-    /// this can't decode (a malformed request, or none at all) counts as
-    /// not matching rather than crashing the stub.
+    /// Whether the posted password matches the fixture credential, which is all
+    /// a bad-credentials journey needs — or is the empty one the passwordless
+    /// public user signs in with. An undecodable or absent body counts as not
+    /// matching rather than crashing the stub.
     private static func suppliesTheFixturePassword(_ request: URLRequest) -> Bool {
         guard let body = requestBody(of: request),
               let decoded = try? JellyfinJSON.decoder.decode(AuthenticateByNameRequest.self, from: body) else {
             return false
         }
+        if decoded.username == UITestFixtureIdentity.passwordlessUsername {
+            return decoded.pw.isEmpty
+        }
         return decoded.pw == UITestFixtureIdentity.password
     }
 
     /// `URLRequest.httpBody` is `nil` by the time a request reaches
-    /// `URLProtocol` — measured live: `URLSession` converts even a small,
-    /// directly-set body into `httpBodyStream` before handing the request to
-    /// a registered protocol, for every request this app sends through
-    /// `post(_:body:)`. This reads that stream instead, which is the only
-    /// place the bytes still exist.
+    /// `URLProtocol`: `URLSession` converts even a small directly-set body into
+    /// `httpBodyStream` first. This reads that stream, the only place the bytes
+    /// still exist.
     private static func requestBody(of request: URLRequest) -> Data? {
         guard let stream = request.httpBodyStream else { return nil }
         stream.open()
@@ -206,10 +457,13 @@ final class UITestStubURLProtocol: URLProtocol {
     private static func scenarioFailure(scenario: UITestScenario, path: String) -> Int? {
         guard !isInfrastructurePath(path) else { return nil }
         switch scenario {
-        // `.noDeletePermission` fails nothing wholesale — it's the standard
-        // catalogue with `canDelete` cleared, and only `DELETE` itself
-        // refused (handled in `startLoading`, which needs the method).
-        case .standard, .emptyLibrary, .offline, .noDeletePermission:
+        // `.noDeletePermission` fails nothing wholesale: the standard catalogue
+        // with `canDelete` cleared, and only `DELETE` refused in `startLoading`,
+        // which has the method.
+        case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission,
+             .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort,
+             .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
+             .slowVideoDownload:
             return nil
         case .serverError:
             return 500
@@ -219,6 +473,74 @@ final class UITestStubURLProtocol: URLProtocol {
             guard !challengedPaths.contains(path) else { return nil }
             challengedPaths.insert(path)
             return 401
+        }
+    }
+
+    // MARK: - Quick Connect
+
+    /// Codes issued this process, so `.quickConnectExpiring` can expire only
+    /// the first one. Guarded by `lock`, like `challengedPaths`.
+    nonisolated(unsafe) private static var quickConnectCodesIssued = 0
+
+    /// Every code is approved by its first poll — as if the user typed it on
+    /// another device during the app's 5s poll interval — except the first
+    /// code under `.quickConnectExpiring`, which is already gone, and every
+    /// code under `.quickConnectPending`, which never is.
+    private static func quickConnectResponse(
+        scenario: UITestScenario,
+        path: String,
+        query: [URLQueryItem]
+    ) -> (Int, Data, String) {
+        func json(_ value: some Encodable) -> (Int, Data, String) {
+            ((try? encode(value)).map { (200, $0, "application/json") }) ?? (500, Data(), "application/json")
+        }
+
+        switch true {
+        case path.hasSuffix("/QuickConnect/Enabled"):
+            return json(scenario != .quickConnectDisabled)
+
+        case path.hasSuffix("/QuickConnect/Initiate"):
+            lock.lock()
+            quickConnectCodesIssued += 1
+            let number = quickConnectCodesIssued
+            lock.unlock()
+            return json(QuickConnectResult(
+                secret: "uitest-quick-connect-secret-\(number)",
+                code: UITestFixtureIdentity.quickConnectCode(number),
+                authenticated: false
+            ))
+
+        case path.hasSuffix("/QuickConnect/Connect"):
+            guard let secret = query.first(where: { $0.name == "secret" })?.value,
+                  let number = Int(secret.split(separator: "-").last ?? "") else {
+                return (404, Data("\"Unknown secret\"".utf8), "application/json")
+            }
+            if scenario == .quickConnectExpiring, number == 1 {
+                return (404, Data("\"Unknown secret\"".utf8), "application/json")
+            }
+            return json(QuickConnectResult(
+                secret: secret,
+                code: UITestFixtureIdentity.quickConnectCode(number),
+                authenticated: scenario != .quickConnectPending
+            ))
+
+        case path.hasSuffix("/QuickConnect/Authorize"):
+            // With Quick Connect off, Jellyfin refuses with 401 before it
+            // looks at the code.
+            guard scenario != .quickConnectDisabled else {
+                return (401, Data("\"Quick connect is disabled\"".utf8), "application/json")
+            }
+            switch query.first(where: { $0.name == "code" })?.value {
+            case UITestFixtureIdentity.quickConnectApprovableCode:
+                return json(true)
+            case UITestFixtureIdentity.quickConnectUsedCode:
+                return (500, Data("Error processing request.".utf8), "text/plain")
+            default:
+                return (404, Data("Error processing request.".utf8), "text/plain")
+            }
+
+        default:
+            return (404, Data(), "application/json")
         }
     }
 
@@ -236,15 +558,24 @@ final class UITestStubURLProtocol: URLProtocol {
         case path.hasSuffix("/health"):
             return Data("Healthy".utf8)
 
-        case path.hasSuffix("/Users/AuthenticateByName"):
+        case path.hasSuffix("/Users/AuthenticateByName"),
+             path.hasSuffix("/Users/AuthenticateWithQuickConnect"):
             return try encode(library.authenticationResult)
+
+        case path.hasSuffix("/Users/Me"):
+            return try encode(library.user)
+
+        case path.hasSuffix("/Users/Public"):
+            return try encode(UITestConfiguration.scenario == .hiddenUsers ? [UserDto]() : library.publicUsers)
+
+        case path.hasSuffix("/Branding/Configuration"):
+            return try encode(library.brandingConfiguration)
 
         case path.hasSuffix("/Views"):
             return try encode(result(scoped(library.libraries)))
 
         case path.hasSuffix("/Items/Latest"):
-            // The one endpoint that returns a bare array rather than a
-            // `BaseItemDtoQueryResult`.
+            // The one endpoint returning a bare array, not a query result.
             return try encode(scoped(Array(library.movies.prefix(8))))
 
         case path.hasSuffix("/Items/Resume"):
@@ -253,12 +584,14 @@ final class UITestStubURLProtocol: URLProtocol {
             return try encode(result(scoped(resumable)))
 
         case path.hasSuffix("/Shows/NextUp"):
+            guard UITestConfiguration.scenario != .showWithoutEpisodes else { return try encode(result([])) }
             return try encode(result(scoped([library.episodes[1]])))
 
         case path.hasSuffix("/Seasons"):
             return try encode(result(scoped(library.seasons)))
 
         case path.hasSuffix("/Episodes"):
+            guard UITestConfiguration.scenario != .showWithoutEpisodes else { return try encode(result([])) }
             let seasonID = query.first(where: { $0.name.caseInsensitiveCompare("SeasonId") == .orderedSame })?.value
             let episodes = seasonID.map { id in library.episodes.filter { $0.seasonId == id } } ?? library.episodes
             return try encode(result(scoped(episodes)))
@@ -280,41 +613,65 @@ final class UITestStubURLProtocol: URLProtocol {
             let term = query.first(where: { $0.name.caseInsensitiveCompare("SearchTerm") == .orderedSame })?.value ?? ""
             return try encode(searchHints(term: term))
 
+        // `GET /Playlists/{id}`, which the picker reads to grey out playlists
+        // already holding the target. Matched before the `/Items` case below to
+        // keep the two visibly distinct rather than relying on its suffix check.
+        case path.hasPrefix("/Playlists/") && !path.contains("/Items") && !path.contains("/Users"):
+            let playlistID = String(path.dropFirst("/Playlists/".count))
+            return try encode(PlaylistDto(itemIds: currentMemberIDs(forPlaylist: playlistID)))
+
         case path.contains("/Playlists/") && path.hasSuffix("/Items"):
-            return try encode(result(scoped(library.playlistMembers)))
+            let playlistID = path
+                .replacingOccurrences(of: "/Playlists/", with: "")
+                .replacingOccurrences(of: "/Items", with: "")
+            // Only one fixture playlist ships with members; every other starts
+            // empty and gains whatever an add journey put in it.
+            let seeded = playlistID == UITestFixtureIdentity.playlistID ? library.playlistMembers : []
+            let members = (seeded + addedMembers(forPlaylist: playlistID))
+                .filter { !isPlaylistEntryRemoved($0.playlistItemId) }
+            return try encode(result(scoped(members)))
 
         case path.contains("/MediaSegments"):
-            // Decoded as a query result, not a bare array — see
-            // `JellyfinAPIClient.mediaSegments(itemID:)`.
+            // Decoded as a query result, not a bare array.
             return try encode(MediaSegmentDtoQueryResult(items: [], totalRecordCount: 0))
 
         case path.hasSuffix("/Sessions"):
             return try encode([SessionInfoDto]())
 
-        // Media bytes: the stream a download pulls, and the subtitle files
-        // the player side-loads. Playback itself never reaches here — the
-        // fake engine is handed a URL it never opens — but `DownloadManager`
-        // really does write these bytes to disk.
+        // Media bytes: a download's stream and the player's side-loaded
+        // subtitles.
         //
-        // Video specifically has to be a *parseable* MP4, not arbitrary
-        // bytes: `DownloadManager.validationFailureReason` opens every
-        // finished download with `AVURLAsset` and rejects it as unverifiable
-        // if the duration won't load (see that method's doc comment — it
-        // exists because a crashed transcode still closes as a clean HTTP
-        // 200). Arbitrary bytes fail that check, and the download lands in
-        // `.failed` — correct app behaviour, but it makes a completed
-        // download untestable. See `syntheticMP4(durationSeconds:)`.
-        case path.contains("/Videos/"):
-            return syntheticMP4(durationSeconds: runtimeSeconds(forVideoPath: path))
+        // Subtitles are matched FIRST. Their URL is a `/Videos/...` one too
+        // (`JellyfinAPIClient.subtitleURL` builds
+        // `/Videos/{item}/{source}/Subtitles/{index}/Stream.{ext}`), so a
+        // `/Videos/` case ahead of these would answer every subtitle request
+        // with a synthetic MP4 — which a download happily writes to disk, and
+        // which the styled-ASS path can only read as "this track has no
+        // script".
+        //
+        // An authored-ASS request gets a real script: `ASSSubtitleRenderSession`
+        // hands it straight to libass, and arbitrary bytes parse to zero events
+        // — indistinguishable from the feature being broken.
+        case path.contains("/Subtitles/") && (path.hasSuffix(".ass") || path.hasSuffix(".ssa")):
+            return Data(Self.assScript.utf8)
 
         case path.contains("/Subtitles/"):
             return Data(repeating: 0, count: 4096)
 
+        // Video must be a parseable MP4:
+        // `DownloadManager.validationFailureReason` opens every finished
+        // download with `AVURLAsset` and rejects one whose duration won't load.
+        // Arbitrary bytes fail that and land in `.failed` — correct behaviour,
+        // but it makes a completed download untestable. Playback never reaches
+        // here, since the fake engine never opens its URL.
+        case path.contains("/Videos/"):
+            return syntheticMP4(durationSeconds: runtimeSeconds(forVideoPath: path))
+
         case path.hasSuffix("/PlaybackInfo"):
             return try encode(playbackInfo(forPath: path))
 
-        // `/Users/{userID}/Items/{itemID}` — a single item. Checked before
-        // the collection route below, which shares its prefix.
+        // A single item. Checked before the collection route, which shares its
+        // prefix.
         case path.contains("/Users/") && path.contains("/Items/") && !path.hasSuffix("/Items"):
             let itemID = path.components(separatedBy: "/Items/").last?
                 .components(separatedBy: "/").first ?? ""
@@ -322,11 +679,9 @@ final class UITestStubURLProtocol: URLProtocol {
                 throw UnroutedPath(path: path)
             }
             var resolved = applyDeletePermission(item)
-            // The count the app re-reads after a deletion to decide whether
-            // the show still has anything in it — see
-            // `AssetDetailViewModel.resolveDeletionOutcome(for:)`. Computed
-            // live rather than baked into the fixture, so it actually falls
-            // as episodes are deleted.
+            // The count `AssetDetailViewModel.resolveDeletionOutcome(for:)`
+            // re-reads after a deletion. Computed live rather than baked into
+            // the fixture, so it falls as episodes are deleted.
             if resolved.type == .series {
                 resolved.recursiveItemCount = remainingEpisodeCount(seriesID: itemID)
             }
@@ -336,16 +691,13 @@ final class UITestStubURLProtocol: URLProtocol {
             return try encode(result(items(matching: query)))
 
         default:
-            // Writes: favourite, watched, progress reporting, playback
-            // session lifecycle. The app sends these and never decodes a
-            // body back, so an empty 200 is the whole contract.
+            // Writes: favourite, watched, progress, session lifecycle. The app
+            // decodes no body back, so an empty 200 is the whole contract.
             //
-            // Deliberately *after* the routing above, not before it. An
-            // earlier version short-circuited every POST here, which
-            // silently swallowed `/Users/AuthenticateByName` — a POST whose
-            // response the app very much does decode — and every test failed
-            // far downstream, at "Home has no content", with sign-in
-            // appearing to have worked.
+            // Must stay after the routing above. Short-circuiting every POST
+            // here swallows `/Users/AuthenticateByName`, whose response the app
+            // does decode, and every test then fails far downstream at "Home has
+            // no content" with sign-in appearing to have worked.
             if request.httpMethod == "POST" || request.httpMethod == "DELETE" {
                 return Data()
             }
@@ -355,10 +707,10 @@ final class UITestStubURLProtocol: URLProtocol {
 
     // MARK: - `/Users/{id}/Items` query engine
 
-    /// Applies the subset of Jellyfin's `/Items` query the app actually
-    /// sends. Filtering here rather than always returning the full catalogue
-    /// is what makes `CollectionGridView`'s server-side sort and its
-    /// library-scoped grids assert anything real.
+    /// Applies the subset of Jellyfin's `/Items` query the app sends. Filtering
+    /// here rather than returning the full catalogue is what makes
+    /// `CollectionGridView`'s server-side sort and library-scoped grids assert
+    /// anything real.
     private static func items(matching query: [URLQueryItem]) -> [BaseItemDto] {
         func value(_ name: String) -> String? {
             query.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
@@ -367,7 +719,9 @@ final class UITestStubURLProtocol: URLProtocol {
             value(name)?.split(separator: separator).map(String.init) ?? []
         }
 
-        var items = UITestFixtureLibrary.browsableItems
+        // A created playlist is browsable immediately, as on a real server,
+        // which is what lets a journey re-open the picker and see it.
+        var items = UITestFixtureLibrary.browsableItems + createdPlaylistsOnly()
 
         if let parentID = value("ParentId") {
             items = items.filter { belongs($0, toLibrary: parentID) }
@@ -434,9 +788,9 @@ final class UITestStubURLProtocol: URLProtocol {
         case UITestFixtureLibrary.seriesID:
             return item.seriesId == UITestFixtureLibrary.seriesID
         default:
-            // An unrecognised parent is a season, a playlist, or something
-            // the app invented — match on parentage rather than dropping
-            // everything, which would read as an empty library.
+            // An unrecognised parent is a season, a playlist, or something the
+            // app invented. Match on parentage rather than dropping everything,
+            // which would read as an empty library.
             return item.seasonId == parentID
         }
     }
@@ -445,9 +799,8 @@ final class UITestStubURLProtocol: URLProtocol {
         let ordered: [BaseItemDto]
         switch field {
         case "Random":
-            // Seeded, not random: a UI test asserting on "a random item"
-            // needs the same item every run, and the *routing* is what the
-            // dice button's test is checking, not the entropy.
+            // Seeded, not random: the dice button's test checks the routing, and
+            // needs the same item every run.
             ordered = items.sorted { $0.id > $1.id }
         case "ProductionYear", "PremiereDate":
             ordered = items.sorted { ($0.productionYear ?? 0, $0.name) < ($1.productionYear ?? 0, $1.name) }
@@ -465,14 +818,13 @@ final class UITestStubURLProtocol: URLProtocol {
 
     // MARK: - Response shaping
 
-    /// `.emptyLibrary` empties every collection at the last possible moment,
-    /// so each route keeps its real shape and only the contents change.
+    /// `.emptyLibrary` empties every collection at the last moment, so each
+    /// route keeps its real shape and only the contents change.
     ///
-    /// Anything deleted this session drops out here too, for the same
-    /// reason — one choke point every list route already passes through, so
-    /// a deleted item can't reappear in a rail, grid, season list or search
-    /// result. `.noDeletePermission` additionally clears `canDelete`, which
-    /// is what makes the affordance vanish app-wide for that scenario.
+    /// Anything deleted this session drops out here too: one choke point every
+    /// list route passes through, so a deleted item can't reappear in a rail,
+    /// grid, season list or search result. `.noDeletePermission` also clears
+    /// `canDelete`, making the affordance vanish app-wide.
     private static func scoped(_ items: [BaseItemDto]) -> [BaseItemDto] {
         guard UITestConfiguration.scenario != .emptyLibrary else { return [] }
         return items
@@ -480,9 +832,9 @@ final class UITestStubURLProtocol: URLProtocol {
             .map(applyDeletePermission)
     }
 
-    /// The fixtures are built deletable (see `UITestFixtureLibrary.base`);
-    /// this is what takes that away for the no-permission scenario, so both
-    /// halves of the gate are exercised from one catalogue rather than two.
+    /// The fixtures are built deletable, and this takes that away for the
+    /// no-permission scenario, so both halves of the gate come from one
+    /// catalogue.
     private static func applyDeletePermission(_ item: BaseItemDto) -> BaseItemDto {
         guard UITestConfiguration.scenario == .noDeletePermission else { return item }
         var copy = item
@@ -494,8 +846,8 @@ final class UITestStubURLProtocol: URLProtocol {
         BaseItemDtoQueryResult(items: items, totalRecordCount: items.count)
     }
 
-    /// Jellyfin returns `/Genres`, `/Studios` and `/Persons` as `BaseItemDto`
-    /// values whose only meaningful field is the name.
+    /// `/Genres`, `/Studios` and `/Persons` return `BaseItemDto` values whose
+    /// only meaningful field is the name.
     private static func named(_ names: Set<String>) -> [BaseItemDto] {
         names.sorted().map { name in
             BaseItemDto(id: "name-" + name.lowercased().replacingOccurrences(of: " ", with: "-"), name: name, type: .unknown)
@@ -537,12 +889,10 @@ final class UITestStubURLProtocol: URLProtocol {
 
     // MARK: - Synthetic video
 
-    /// The runtime `syntheticMP4(durationSeconds:)` should claim for the
-    /// item a `/Videos/{itemID}/stream.mp4` request names, so the file
-    /// `DownloadManager` validates matches the runtime it recorded at
-    /// enqueue time. Falls back to an hour for anything unrecognised —
-    /// long enough that no fixture's own runtime check could fail against
-    /// it by accident.
+    /// The runtime `syntheticMP4(durationSeconds:)` claims for the item a
+    /// stream request names, so the file `DownloadManager` validates matches the
+    /// runtime recorded at enqueue. Falls back to an hour, long enough that no
+    /// fixture's runtime check fails against it by accident.
     private static func runtimeSeconds(forVideoPath path: String) -> Double {
         let itemID = path.components(separatedBy: "/Videos/").last?
             .components(separatedBy: "/").first ?? ""
@@ -550,21 +900,17 @@ final class UITestStubURLProtocol: URLProtocol {
         return Double(ticks) / 10_000_000
     }
 
-    /// A structurally valid, ~600-byte MP4 that declares `durationSeconds`
-    /// of video and contains one byte of media data.
+    /// A structurally valid ~600-byte MP4 declaring `durationSeconds` of video
+    /// and holding one byte of media data.
     ///
-    /// Hand-assembled rather than produced by `AVAssetWriter`: the point is
-    /// a file whose *declared* duration is a feature-length runtime while
-    /// its actual size stays negligible, and a writer would have to encode
-    /// the real thing to claim it.
+    /// Hand-assembled rather than written by `AVAssetWriter`, which would have
+    /// to encode a real feature-length file to claim that duration.
     ///
-    /// The duration has to come from the sample table, not from `mvhd`.
-    /// Measured live: an otherwise-identical file with the runtime only in
-    /// `mvhd`/`tkhd`/`mdhd` and empty `stts`/`stsz`/`stco` boxes loads
-    /// fine but reports `duration == 0`, because `AVAsset` derives its
-    /// duration from the longest *track*, and a track with no samples is
-    /// zero-length however long its header claims to be. So the single
-    /// sample below is given a `stts` delta spanning the whole runtime.
+    /// The duration must come from the sample table, not `mvhd`: `AVAsset`
+    /// derives duration from the longest track, and a track with no samples is
+    /// zero-length however long its header claims — a file with the runtime only
+    /// in `mvhd`/`tkhd`/`mdhd` loads but reports `duration == 0`. Hence the
+    /// single sample with a `stts` delta spanning the whole runtime.
     private static func syntheticMP4(durationSeconds: Double) -> Data {
         let timescale: UInt32 = 600
         let duration = UInt32(durationSeconds * Double(timescale))
@@ -620,10 +966,9 @@ final class UITestStubURLProtocol: URLProtocol {
         avc1 += Data(repeating: 0, count: 32)           // compressor name
         avc1 += u16(0x0018) + u16(0xFFFF)               // depth, predefined
 
-        /// The chunk offset in `stco` is an *absolute file* offset, so it
-        /// can't be known until `moov`'s own size is. Built twice: the
-        /// offset is a fixed-width `UInt32` either way, so the second pass
-        /// is byte-identical in size to the first and no third is needed.
+        /// `stco`'s chunk offset is absolute within the file, so it isn't known
+        /// until `moov`'s size is. Built twice: the offset is a fixed-width
+        /// `UInt32`, so the second pass matches the first in size exactly.
         func moov(sampleOffset: UInt32) -> Data {
             let stbl = box("stbl",
                 box("stsd", u32(0) + u32(1) + box("avc1", avc1))
@@ -659,9 +1004,63 @@ final class UITestStubURLProtocol: URLProtocol {
 
     // MARK: - Artwork
 
-    /// A single flat-colour PNG standing in for every poster, backdrop, logo
-    /// and cast photo. Generated once rather than bundled, so nothing about
-    /// the harness ships as a Release resource.
+    /// How long `.slowLogoImage` holds a `Logo` response: past
+    /// `LogoImageView.fallbackRevealDelay` so the reveal is deterministically
+    /// observable, but inside `HeroLogoFallbackUITests`' disappearance budget.
+    ///
+    /// The window this has to land in is bounded on *both* sides, and by
+    /// events that happen at different times in the run, which is why it is
+    /// this much larger than the 1s reveal delay it only has to beat on
+    /// paper:
+    ///
+    /// - **Too short** and the logo is already resolved (or cached) by the
+    ///   time the view being watched mounts, so its fallback never reveals
+    ///   at all and the `awaitExistence` half fails. The clock does *not*
+    ///   start at that view: `RemoteImageLoader` de-duplicates in-flight
+    ///   requests and caches the result, and Home's hero rail asks for the
+    ///   same item's logo before either journey has navigated anywhere. So
+    ///   this must outlast Home → detail (→ player) navigation plus the 1s
+    ///   reveal delay, not just the reveal delay.
+    /// - **Too long** and the logo hasn't arrived within the
+    ///   `awaitDisappearance` that follows, so the other half fails.
+    ///
+    /// - **Not 20s or more**, which is `RemoteImageLoader`'s request timeout:
+    ///   a held response past it times out and retries instead of arriving.
+    ///
+    /// 18s, up from 10s. 10s assumed the navigation takes ~2-4s, as it does
+    /// locally, but a loaded release runner took ~10s to get from launch to the
+    /// player (v1.1.0-alpha.5, twice in a row), so the logo was cached before
+    /// the title row mounted. 18s allows ~17s for it while staying under the
+    /// timeout. It widens the window rather than removing the dependency on
+    /// navigation speed; anchoring the hold on navigation instead runs into
+    /// that same timeout, since Home's hero asks at launch.
+    static let slowLogoImageDelay: TimeInterval = 18
+
+    /// How long `.slowSubtitleFonts` holds an attachment response. Far past any
+    /// assertion's budget on purpose: the test it exists for asserts that the
+    /// styled subtitle is already on screen while this is still outstanding, so
+    /// the delay has to be long enough that a build which waited for the fonts
+    /// could not pass by happening to finish early.
+    static let slowFontAttachmentDelay: TimeInterval = 120
+
+    /// How long `.slowVideoDownload` holds a download's stream: enough to get
+    /// from the detail page's Download button to the Downloads tab, short
+    /// enough that the row finishing is well inside an assertion's budget.
+    static let slowVideoDownloadDelay: TimeInterval = 10
+
+    /// Stand-in bytes for a font attachment.
+    ///
+    /// Deliberately not a real face. `CTFontManagerRegisterFontsForURL` refuses
+    /// these, which is the same outcome as a container whose fonts the device
+    /// can't use — and what the journeys here assert is that the *fetch*
+    /// neither blocks nor breaks the subtitle, which a valid font would prove no
+    /// better. Registration itself is covered where it can be: on a real device
+    /// against a retail MKV (see `CLAUDE.md`'s Subtitles section).
+    static let fontAttachmentBytes = Data("uitest-font-attachment".utf8)
+
+    /// One flat-colour PNG standing in for every poster, backdrop, logo and cast
+    /// photo. Generated rather than bundled, so no harness resource ships in
+    /// Release.
     private static let placeholderPNG: Data = {
         let size = CGSize(width: 8, height: 12)
         let renderer = UIGraphicsImageRenderer(size: size)
@@ -686,10 +1085,9 @@ final class UITestStubURLProtocol: URLProtocol {
                     statusCode: status,
                     httpVersion: "HTTP/1.1",
                     // `ServerSetupViewModel.testConnection()` rewrites the
-                    // persisted scheme from `client.lastResponseURL`, so the
-                    // response URL has to be the request URL exactly —
-                    // anything else silently changes the server config the
-                    // test just entered.
+                    // persisted scheme from `client.lastResponseURL`, so this
+                    // must be the request URL exactly — anything else silently
+                    // changes the server config the test just entered.
                     headerFields: ["Content-Type": contentType]
                   ) else {
                 client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
@@ -701,6 +1099,43 @@ final class UITestStubURLProtocol: URLProtocol {
         case let .failure(error):
             client?.urlProtocol(self, didFailWithError: error)
         }
+    }
+}
+
+// MARK: - Authored ASS
+
+extension UITestStubURLProtocol {
+    /// A minimal but real ASS script, for the styled-subtitle path.
+    ///
+    /// Real because `ASSSubtitleRenderSession` hands it straight to libass:
+    /// arbitrary bytes parse to zero events and render nothing, which is
+    /// indistinguishable from the feature being broken. The single cue runs
+    /// from the first second to well past any journey's runtime, so a test can
+    /// never be flaky for having looked between cues.
+    static var assScript: String {
+        [
+            "[Script Info]",
+            "ScriptType: v4.00+",
+            "PlayResX: 1920",
+            "PlayResY: 1080",
+            "",
+            "[V4+ Styles]",
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,"
+                + " BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing,"
+                + " Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+            "Style: Default,Helvetica,64,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,"
+                + "0,0,0,0,100,100,0,0,1,2,1,2,20,20,40,0",
+            "",
+            "[Events]",
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+            "Dialogue: 0,0:00:01.00,9:59:59.00,Default,,0,0,0,,\(UITestFixtureIdentity.styledSubtitleCueText)",
+            // Top-aligned, running the same span so both are always on screen.
+            // `ass_set_use_margins` relocates regular events into the margins
+            // and a top-aligned event is regular, so this lands ABOVE the
+            // picture unless libass' frame starts at the picture's top edge —
+            // see `ASSSubtitleRenderSession.Geometry.renderOriginY`.
+            "Dialogue: 0,0:00:01.00,9:59:59.00,Default,,0,0,0,,{\\an8}\(UITestFixtureIdentity.styledSubtitleTopCueText)"
+        ].joined(separator: "\n")
     }
 }
 #endif

@@ -58,6 +58,9 @@ class UITestCase: XCTestCase {
     ///     something surviving a relaunch — search history, say — and needs
     ///     a second `launch()` in the same test that doesn't undo the
     ///     first's state on the way in.
+    ///   - skipsWelcome: Starts a signed-out launch on server setup, as for
+    ///     anyone who has already been through the first-run welcome. `false`
+    ///     only for journeys about the welcome itself.
     ///   - extraArguments: Appended verbatim, for a test that needs to force
     ///     one of the app's own `@AppStorage` keys.
     @discardableResult
@@ -65,6 +68,7 @@ class UITestCase: XCTestCase {
         scenario: String = "standard",
         signedIn: Bool = true,
         resetsState: Bool = true,
+        skipsWelcome: Bool = true,
         extraArguments: [String] = []
     ) -> XCUIApplication {
         let app = XCUIApplication()
@@ -85,6 +89,12 @@ class UITestCase: XCTestCase {
         ]
         if signedIn {
             app.launchArguments += ["-UITestSeedSession", "YES"]
+        }
+        // Straight to server setup, as for anyone who has seen the first-run
+        // welcome — every journey but the welcome's own. The app's own key,
+        // through the argument domain like the two settings above.
+        if skipsWelcome {
+            app.launchArguments += ["-onboarding.welcomeCompleted", "YES"]
         }
         app.launchArguments += extraArguments
         app.launch()
@@ -113,6 +123,40 @@ extension XCUIElement {
         return self
     }
 
+    /// Taps an element whose job is to navigate away, tapping again if the
+    /// tap was swallowed.
+    ///
+    /// Only for an element that leaves the tree once it has done its job, as
+    /// a Home tile does when the page it pushes covers Home: that is what
+    /// makes "still here and still hittable" proof the tap did nothing,
+    /// rather than a reason to tap whatever is now at that point.
+    ///
+    /// Exists for a tile below the fold, which `tap()` scrolls into view
+    /// first. Once, on a loaded CI runner, that tap did nothing
+    /// (`SmokeJourneyTests.testPlayingAndClosingAnItem`): the synthesized
+    /// touch was on the right poster, the recording shows a page that had
+    /// stopped moving, and there was no press and no push. The likeliest
+    /// cause is UIKit still counting the scroll view as decelerating, which
+    /// spends a touch on stopping the scroll rather than on the button — but
+    /// that is inferred, not observed, and it never reproduced in 50 local
+    /// runs. So this checks the outcome instead of guessing a delay.
+    ///
+    /// Gives up quietly after `attempts`, leaving the caller's next wait to
+    /// report what never appeared.
+    func tapToLeave(attempts: Int = 3, settle: TimeInterval = 5) {
+        for _ in 1...attempts {
+            tap()
+            let gone = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "exists == false"),
+                object: self
+            )
+            if XCTWaiter().wait(for: [gone], timeout: settle) == .completed { return }
+            // Covered by something that isn't a push (an alert, say): not a
+            // swallowed tap, and tapping again would hit whatever covers it.
+            guard isHittable else { return }
+        }
+    }
+
     /// Waits for the element to go away — the dismissal counterpart to
     /// `awaitExistence`, for asserting a screen actually closed rather than
     /// just that something else appeared on top of it.
@@ -132,5 +176,30 @@ extension XCUIElement {
             "Timed out after \(timeout)s waiting for \(description) to disappear.",
             file: file, line: line
         )
+    }
+}
+
+@MainActor
+extension XCUIApplication {
+    /// The navigation bar's system back button, or a non-existent element
+    /// when the stack is at its root.
+    ///
+    /// iOS 26 identifies it `BackButton`. iOS 18 gives it no identifier at
+    /// all, only a label, which is localized and so off-limits here (see
+    /// `A11yID`). There it's the bar's leading button with no identifier,
+    /// found by position: every toolbar item this app adds carries an
+    /// identifier, and none sits at the leading edge.
+    var navigationBackButton: XCUIElement {
+        let identified = navigationBars.buttons["BackButton"]
+        if identified.exists { return identified }
+
+        let unidentified = navigationBars.buttons.matching(NSPredicate(format: "identifier == ''"))
+        for index in 0..<unidentified.count {
+            let candidate = unidentified.element(boundBy: index)
+            if candidate.frame.minX < 20 {
+                return candidate
+            }
+        }
+        return identified
     }
 }

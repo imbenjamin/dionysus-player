@@ -44,19 +44,60 @@ import Foundation
 ///   "Downloads" is simultaneously a tab, a Profile section, a settings
 ///   screen and a settings row.
 enum A11yID {
+    enum Welcome {
+        static let getStartedButton = "welcome.getStartedButton"
+        static let jellyfinLink = "welcome.jellyfinLink"
+    }
+
     enum ServerSetup {
+        /// Opens the address sheet, which holds `addressField`,
+        /// `httpsToggle` and `connectButton`.
+        static let manualEntryButton = "serverSetup.manualEntryButton"
+        static let addressSheetCancelButton = "serverSetup.addressSheet.cancel"
         static let addressField = "serverSetup.addressField"
         static let httpsToggle = "serverSetup.httpsToggle"
         static let connectButton = "serverSetup.connectButton"
         static let errorMessage = "serverSetup.errorMessage"
+        /// "Scan Again", or "Try Again" after a scan found nothing. There is
+        /// no button while a scan runs: one starts on arrival.
+        static let scanButton = "serverSetup.scanButton"
+        static let scanStatus = "serverSetup.scanStatus"
+        /// Under the servers found so far, while the scan is still running.
+        static let scanningIndicator = "serverSetup.scanningIndicator"
+        static func discoveredServer(_ id: String) -> String { "serverSetup.discoveredServer.\(id)" }
+        static let insecureFallbackConfirmButton = "serverSetup.insecureFallback.confirm"
+        static let insecureFallbackCancelButton = "serverSetup.insecureFallback.cancel"
+        static let httpPortConfirmButton = "serverSetup.httpPort.confirm"
+        static let httpPortCancelButton = "serverSetup.httpPort.cancel"
     }
 
     enum Login {
+        /// A user from the server's public list, keyed by user id.
+        static func userTile(_ userID: String) -> String { "login.userTile.\(userID)" }
+        /// The last tile: manual sign-in and Quick Connect, in a sheet.
+        static let otherUserButton = "login.otherUserButton"
+        static let otherUserCancelButton = "login.otherUser.cancel"
+        /// In the "Other" sheet, or on the screen itself when the server lists
+        /// no users.
         static let usernameField = "login.usernameField"
+        /// Wherever a password is asked for: under a chosen user (a panel on a
+        /// phone, a popover on iPad), in the "Other" sheet, or the fallback form.
         static let passwordField = "login.passwordField"
         static let signInButton = "login.signInButton"
+        /// The server's own login disclaimer, when it has one.
+        static let disclaimer = "login.disclaimer"
         static let changeServerButton = "login.changeServerButton"
         static let errorMessage = "login.errorMessage"
+        /// Present only when the server reports Quick Connect enabled; in the
+        /// "Other" sheet, or on the fallback form.
+        static let quickConnectButton = "login.quickConnectButton"
+    }
+
+    enum QuickConnect {
+        static let code = "quickConnect.code"
+        static let cancelButton = "quickConnect.cancelButton"
+        static let newCodeButton = "quickConnect.newCodeButton"
+        static let errorMessage = "quickConnect.errorMessage"
     }
 
     /// iPad only, in practice. SwiftUI's floating tab bar keeps an
@@ -75,7 +116,9 @@ enum A11yID {
         static let refreshButton = "home.refreshButton"
         static let libraryRail = "home.libraryRail"
 
-        /// A rail header's "See All", keyed by where it goes —
+        /// A rail header's link to its full collection (the title and its
+        /// chevron, once a separate "See All"; the name is kept so existing
+        /// tests still address it), keyed by where it goes —
         /// `CollectionQuery.identifierKey`.
         ///
         /// Not keyed by the rail itself: `MediaCollectionRail.id` is a fresh
@@ -121,6 +164,13 @@ enum A11yID {
         static let favoriteButton = "assetDetail.favoriteButton"
         static let watchedButton = "assetDetail.watchedButton"
         static let unsupportedAudioMessage = "assetDetail.unsupportedAudioMessage"
+        /// The About panel's synopsis line: the synopsis, or "No synopsis
+        /// available." without one. The line is always there when the panel
+        /// is, so its absence on a playlist without a description proves the
+        /// whole panel was left out (see `PlaylistDetailView`).
+        static let synopsis = "assetDetail.synopsis"
+        /// `SeasonEpisodeList`'s empty state, for a season holding no episodes.
+        static let noEpisodesMessage = "assetDetail.noEpisodesMessage"
 
         /// A show's episode list row — its title/overview half (`onSelect`,
         /// which switches the page's own content to that episode in place,
@@ -135,12 +185,12 @@ enum A11yID {
         /// `playButton` above already uses for Play/Resume.
         static let downloadButton = "assetDetail.downloadButton"
 
-        /// `DeleteAssetButton`'s tap target — present only when the server
-        /// says this user may delete this item (`MediaItem.canDelete`), so a
-        /// UI test asserting its *absence* is asserting the permission gate,
-        /// not just a missing view. One identifier covers both its forms:
-        /// the plain button on a movie, and the Show/Season/Episode menu on
-        /// a show page.
+        /// `AssetActionsButton`'s delete affordance — present only when the
+        /// server says this user may delete this item (`MediaItem.canDelete`),
+        /// so a UI test asserting its *absence* is asserting the permission
+        /// gate, not just a missing view. It is always inside `moreButton`'s
+        /// overflow: a flat row on a movie, a Show/Season/Episode submenu on a
+        /// show page.
         static let deleteButton = "assetDetail.deleteButton"
 
         /// The destructive confirm action inside the deletion dialog. Needed
@@ -155,9 +205,96 @@ enum A11yID {
         /// only when a local download of the target actually exists.
         static let deleteWithDownloadButton = "assetDetail.deleteWithDownloadButton"
 
+        /// `AssetActionsButton`'s overflow — always drawn, so the control never
+        /// changes kind once the server's delete verdict arrives (see that
+        /// type's "Which control gets drawn"). Holds Add to Playlist, and
+        /// Delete when permitted.
+        static let moreButton = "assetDetail.moreButton"
+
+        /// The "Add to Playlist" affordance inside `moreButton`'s overflow: a
+        /// flat row on a movie, a Show/Season/Episode submenu on a show page.
+        /// One identifier covers both, the same rule `deleteButton` above
+        /// follows.
+        static let addToPlaylistButton = "assetDetail.addToPlaylistButton"
+    }
+
+    /// `AddToPlaylistSheet` — the destination picker, and its pushed
+    /// "New Playlist" form.
+    enum AddToPlaylist {
+        /// One existing, editable playlist's row, keyed by the playlist's own
+        /// item id. Rows are named by server-supplied playlist names, which a
+        /// test can't select on.
+        static func playlistRow(_ playlistID: String) -> String { "addToPlaylist.row.\(playlistID)" }
+
+        /// Always present, including when the user can edit no existing
+        /// playlist at all — creating one needs no server permission.
+        static let newPlaylistButton = "addToPlaylist.newPlaylistButton"
+
+        /// The footer shown in place of the playlist list when this user can
+        /// edit none of them. Its presence is how a test asserts the
+        /// `canEdit` filter actually filtered.
+        static let emptyState = "addToPlaylist.emptyState"
+
+        /// The confirmation dialog's destructive-free "Add" action, raised
+        /// only for a show/season target (see `AddToPlaylistViewModel
+        /// .requiresConfirmation`). Needed separately from `playlistRow(_:)`
+        /// because an `app.buttons[...]` subscript matches labels as well as
+        /// identifiers — see `Screens.swift`.
+        static let addConfirmButton = "addToPlaylist.addConfirmButton"
+
+        /// Both confirmations' Cancel actions carry identifiers, unlike the
+        /// deletion dialog's — that one is toolbar-anchored, so iOS renders
+        /// it as a popover and drops Cancel entirely. These are `.alert`s
+        /// raised from inside a sheet precisely *because* the dialog form
+        /// dropped Cancel there too, so their Cancel is a real element worth
+        /// asserting on.
+        static let addCancelButton = "addToPlaylist.addCancelButton"
+        static let createCancelButton = "addToPlaylist.createCancelButton"
+
+        static let nameField = "addToPlaylist.nameField"
+        static let visibilityToggle = "addToPlaylist.visibilityToggle"
+        /// The create form's toolbar action, which raises the confirmation.
+        static let createButton = "addToPlaylist.createButton"
+        /// The confirmation dialog's own action, distinct from
+        /// `createButton` for the same label-collision reason as
+        /// `addConfirmButton`.
+        static let createConfirmButton = "addToPlaylist.createConfirmButton"
+    }
+
+    enum Playlist {
+        /// A playlist member row itself — what a UI test long-presses to
+        /// reveal `removeMenuItem(_:)`'s context menu, since there's no
+        /// reliable way to select one specific row among several by
+        /// accessibility label (localized, and shared across rows of the
+        /// same kind of content). Keyed the same way as
+        /// `removeMenuItem(_:)`.
+        static func row(_ playlistItemID: String) -> String { "playlist.row.\(playlistItemID)" }
+
+        /// A playlist member row's `.contextMenu` "Remove from Playlist"
+        /// action — the *only* removal path (see `PlaylistItemList
+        /// .onRemove`'s doc comment for why a hand-rolled swipe gesture
+        /// was tried and reverted), present only when the server says this
+        /// user may edit this playlist (`AssetDetailViewModel
+        /// .canEditPlaylist`), same "absence gates the permission check"
+        /// shape `AssetDetail.deleteButton` uses. Keyed by
+        /// `MediaItem.playlistItemID`, not the item's own `id` — the same
+        /// item can appear in a playlist more than once.
+        static func removeMenuItem(_ playlistItemID: String) -> String { "playlist.removeMenuItem.\(playlistItemID)" }
     }
 
     enum Player {
+        /// The composited libass bitmap, present only while an authored
+        /// ASS/SSA track is being rendered by it. Its accessibility LABEL
+        /// carries the cue text, which is the only way a test — or VoiceOver —
+        /// can read a subtitle that is a picture rather than a `Text`.
+        static let styledSubtitle = "player.styledSubtitle"
+
+        /// A cue rendered by the app's OWN overlay rather than libass — every
+        /// SubRip/WebVTT track, and an ASS one with Subtitle Styling off.
+        /// Several can be on screen at once (a sign alongside dialogue), so a
+        /// query for this resolves to more than one element by design; match
+        /// the first.
+        static let plainSubtitle = "player.plainSubtitle"
         static let closeButton = "player.closeButton"
         static let playPauseButton = "player.playPauseButton"
         static let skipForwardButton = "player.skipForwardButton"
@@ -198,7 +335,13 @@ enum A11yID {
     enum Downloads {
         static let list = "downloads.list"
         static let emptyState = "downloads.emptyState"
+        /// One row of the landing list or grid, keyed by `DownloadsRow.id`
+        /// (`standalone-<itemID>` or `show-<seriesID>`).
+        static func row(_ rowID: String) -> String { "downloads.row.\(rowID)" }
+        /// The shared `DownloadsSelectionToolbar`'s controls, the same on the
+        /// Downloads tab and the downloaded show and season pages.
         static let selectButton = "downloads.selectButton"
+        static let cancelSelectionButton = "downloads.cancelSelectionButton"
         static let deleteSelectedButton = "downloads.deleteSelectedButton"
         static let selectAllButton = "downloads.selectAllButton"
     }
@@ -208,7 +351,10 @@ enum A11yID {
         static let accountSheet = "profile.accountSheet"
         static let signOutButton = "profile.signOutButton"
         static let changeServerButton = "profile.changeServerButton"
+        /// Present only when the server reports Quick Connect enabled.
+        static let quickConnectRow = "profile.quickConnectRow"
         static let advancedPlaybackLink = "profile.advancedPlaybackLink"
+        static let styledSubtitlesToggle = "profile.styledSubtitlesToggle"
         static let downloadsSettingsLink = "profile.downloadsSettingsLink"
         static let qualityLadderLink = "profile.qualityLadderLink"
         static let licenseLink = "profile.licenseLink"
@@ -217,8 +363,34 @@ enum A11yID {
 
     /// Shared across every surface that renders a media tile, so a test can
     /// address one specific item wherever it appears.
+    /// Approving another device's code, pushed from the Account screen.
+    enum QuickConnectApproval {
+        static let codeField = "quickConnectApproval.codeField"
+        static let authorizeButton = "quickConnectApproval.authorizeButton"
+        static let errorMessage = "quickConnectApproval.errorMessage"
+        static let successMessage = "quickConnectApproval.successMessage"
+        static let doneButton = "quickConnectApproval.doneButton"
+    }
+
     enum Media {
         static func card(_ itemID: String) -> String { "media.card.\(itemID)" }
+
+        /// A test-only marker (see `LogoImageView.onFallbackVisibilityChange`)
+        /// present in the tree exactly while a hero logo's text fallback is
+        /// showing — `BackdropLogoOverlay` and `PlayerControlsOverlay`'s
+        /// title row both wrap their real logo/fallback content in an
+        /// accessibility-hidden or `.ignore`-collapsed layer (VoiceOver
+        /// fixes documented on those types), so this is the only element a
+        /// UI test can actually query to observe that timing.
+        static let heroLogoFallbackVisible = "media.heroLogoFallbackVisible"
+    }
+
+    /// `ToastHost`'s transient confirmation. One identifier for the whole
+    /// capsule, which collapses to a single accessibility element by design
+    /// — a test reads its *label* for the message, since the message itself
+    /// is localized copy.
+    enum Toast {
+        static let message = "toast.message"
     }
 
     /// Loading / error / offline placeholders, which several screens share.

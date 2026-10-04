@@ -54,6 +54,35 @@ extension Screen {
         }
         return matches.firstMatch
     }
+
+    /// `LogoImageView`'s otherwise accessibility-hidden/`.ignore`-collapsed
+    /// fallback-text reveal, surfaced only under the UI test harness — see
+    /// `A11yID.Media.heroLogoFallbackVisible`'s doc comment. Shared across
+    /// screens rather than duplicated per screen object since the same
+    /// identifier means the same thing wherever `LogoImageView` renders a
+    /// text fallback (`AssetDetailScreen`'s hero header,
+    /// `PlayerScreen`'s title row).
+    var heroLogoFallbackVisible: XCUIElement {
+        app.descendants(matching: .any)[A11yID.Media.heroLogoFallbackVisible]
+    }
+}
+
+// MARK: - Welcome
+
+struct WelcomeScreen: Screen {
+    let app: XCUIApplication
+
+    var getStartedButton: XCUIElement { app.buttons[A11yID.Welcome.getStartedButton] }
+    var jellyfinLink: XCUIElement { app.descendants(matching: .any)[A11yID.Welcome.jellyfinLink] }
+
+    func awaitLoaded(file: StaticString = #filePath, line: UInt = #line) {
+        getStartedButton.awaitExistence("the Get Started button", file: file, line: line)
+    }
+
+    func getStarted(file: StaticString = #filePath, line: UInt = #line) {
+        awaitLoaded(file: file, line: line)
+        getStartedButton.tap()
+    }
 }
 
 // MARK: - Server setup
@@ -61,16 +90,64 @@ extension Screen {
 struct ServerSetupScreen: Screen {
     let app: XCUIApplication
 
+    var manualEntryButton: XCUIElement { app.buttons[A11yID.ServerSetup.manualEntryButton] }
     var addressField: XCUIElement { app.textFields[A11yID.ServerSetup.addressField] }
     var connectButton: XCUIElement { app.buttons[A11yID.ServerSetup.connectButton] }
+    var addressSheetCancelButton: XCUIElement { app.buttons[A11yID.ServerSetup.addressSheetCancelButton] }
     var errorMessage: XCUIElement { app.descendants(matching: .any)[A11yID.ServerSetup.errorMessage] }
+    /// "Scan Again", or "Try Again" after an empty scan. A scan starts by
+    /// itself on arrival, so there is none while that runs.
+    var scanButton: XCUIElement { app.buttons[A11yID.ServerSetup.scanButton] }
+    var scanStatus: XCUIElement { app.descendants(matching: .any)[A11yID.ServerSetup.scanStatus] }
+    var scanningIndicator: XCUIElement { app.descendants(matching: .any)[A11yID.ServerSetup.scanningIndicator] }
+    var httpsToggle: XCUIElement { app.switches[A11yID.ServerSetup.httpsToggle] }
+
+    func discoveredServer(_ id: String) -> XCUIElement {
+        app.buttons[A11yID.ServerSetup.discoveredServer(id)]
+    }
+
+    var insecureFallbackConfirmButton: XCUIElement {
+        app.alerts.buttons.matching(identifier: A11yID.ServerSetup.insecureFallbackConfirmButton).firstMatch
+    }
+
+    var insecureFallbackCancelButton: XCUIElement {
+        app.alerts.buttons.matching(identifier: A11yID.ServerSetup.insecureFallbackCancelButton).firstMatch
+    }
+
+    /// The alert's only text field. Not by identifier: SwiftUI doesn't carry
+    /// `.accessibilityIdentifier` through to a `TextField` inside an alert
+    /// (its buttons keep theirs), so there is none to match.
+    var httpPortField: XCUIElement {
+        app.alerts.textFields.firstMatch
+    }
+
+    var httpPortConfirmButton: XCUIElement {
+        app.alerts.buttons.matching(identifier: A11yID.ServerSetup.httpPortConfirmButton).firstMatch
+    }
 
     func awaitLoaded(file: StaticString = #filePath, line: UInt = #line) {
+        manualEntryButton.awaitExistence("the Enter Address Manually button", file: file, line: line)
+    }
+
+    /// Waits for the stub server `UITestServerDiscovery` reports, from the
+    /// scan that starts on arrival.
+    @discardableResult
+    func scanForStubServer(file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        awaitLoaded(file: file, line: line)
+        let row = discoveredServer(UITestFixtureIdentity.discoveredServerID)
+        row.awaitExistence("the discovered stub server", file: file, line: line)
+        return row
+    }
+
+    /// Opens the address sheet with its field focused.
+    func openAddressSheet(file: StaticString = #filePath, line: UInt = #line) {
+        awaitLoaded(file: file, line: line)
+        manualEntryButton.tap()
         addressField.awaitExistence("the server address field", file: file, line: line)
     }
 
     func connect(to address: String, file: StaticString = #filePath, line: UInt = #line) {
-        awaitLoaded(file: file, line: line)
+        openAddressSheet(file: file, line: line)
         addressField.tap()
         addressField.typeText(address)
         connectButton.tap()
@@ -82,23 +159,92 @@ struct ServerSetupScreen: Screen {
 struct LoginScreen: Screen {
     let app: XCUIApplication
 
+    /// A user from the server's public list. The fixture user
+    /// (`UITestFixtureIdentity.userID`) has a password; the passwordless one
+    /// is `UITestFixtureIdentity.passwordlessUserID`.
+    func userTile(_ userID: String) -> XCUIElement {
+        app.buttons[A11yID.Login.userTile(userID)]
+    }
+
+    var fixtureUserTile: XCUIElement { userTile(UITestFixtureIdentity.userID) }
+    var otherUserButton: XCUIElement { app.buttons[A11yID.Login.otherUserButton] }
+    var otherUserCancelButton: XCUIElement { app.buttons[A11yID.Login.otherUserCancelButton] }
     var usernameField: XCUIElement { app.textFields[A11yID.Login.usernameField] }
     var passwordField: XCUIElement { app.secureTextFields[A11yID.Login.passwordField] }
     var signInButton: XCUIElement { app.buttons[A11yID.Login.signInButton] }
     var changeServerButton: XCUIElement { app.buttons[A11yID.Login.changeServerButton] }
     var errorMessage: XCUIElement { app.descendants(matching: .any)[A11yID.Login.errorMessage] }
+    var quickConnectButton: XCUIElement { app.buttons[A11yID.Login.quickConnectButton] }
+    var disclaimer: XCUIElement { app.staticTexts[A11yID.Login.disclaimer] }
 
+    /// The user grid, which every scenario but `.hiddenUsers` shows.
     func awaitLoaded(file: StaticString = #filePath, line: UInt = #line) {
+        fixtureUserTile.awaitExistence("the fixture user's tile", file: file, line: line)
+    }
+
+    /// Signs in as the fixture user from their tile, typing `password` where
+    /// the screen asks for it.
+    func signIn(password: String, file: StaticString = #filePath, line: UInt = #line) {
+        awaitLoaded(file: file, line: line)
+        fixtureUserTile.tap()
+        passwordField.awaitExistence("the password field", file: file, line: line)
+        passwordField.tap()
+        passwordField.typeText(password)
+        signInButton.tap()
+    }
+
+    /// "Other" → the manual sheet, for a user the server doesn't list.
+    func openOtherUser(file: StaticString = #filePath, line: UInt = #line) {
+        awaitLoaded(file: file, line: line)
+        otherUserButton.tap()
         usernameField.awaitExistence("the username field", file: file, line: line)
     }
 
-    func signIn(username: String, password: String, file: StaticString = #filePath, line: UInt = #line) {
-        awaitLoaded(file: file, line: line)
+    /// "Other" → Quick Connect, which closes that sheet for its own.
+    func openQuickConnect(file: StaticString = #filePath, line: UInt = #line) {
+        openOtherUser(file: file, line: line)
+        quickConnectButton.awaitExistence("the Quick Connect button", file: file, line: line)
+        quickConnectButton.tap()
+    }
+
+    /// Fills whichever username and password fields are on screen — the
+    /// "Other" sheet's, or the fallback form's — and submits.
+    func signInManually(username: String, password: String, file: StaticString = #filePath, line: UInt = #line) {
+        usernameField.awaitExistence("the username field", file: file, line: line)
         usernameField.tap()
         usernameField.typeText(username)
         passwordField.tap()
         passwordField.typeText(password)
         signInButton.tap()
+    }
+}
+
+struct QuickConnectScreen: Screen {
+    let app: XCUIApplication
+
+    /// The `Text` showing the code. Its label is the digits spelled out for
+    /// VoiceOver, so a journey matches a code with `code(_:)`, not by label.
+    var code: XCUIElement { app.staticTexts[A11yID.QuickConnect.code] }
+    var cancelButton: XCUIElement { app.buttons[A11yID.QuickConnect.cancelButton] }
+    var newCodeButton: XCUIElement { app.buttons[A11yID.QuickConnect.newCodeButton] }
+    var errorMessage: XCUIElement { app.descendants(matching: .any)[A11yID.QuickConnect.errorMessage] }
+
+    /// Whether the code on screen is `expected`. Digits aren't localized, so
+    /// comparing the spoken label is safe here, unlike a word label.
+    func isShowing(code expected: String) -> Bool {
+        code.exists && code.label.replacingOccurrences(of: " ", with: "") == expected
+    }
+
+    func awaitCode(_ expected: String, file: StaticString = #filePath, line: UInt = #line) {
+        let shown = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in isShowing(code: expected) },
+            object: nil
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [shown], timeout: UITestCase.defaultTimeout), .completed,
+            "Quick Connect should show code \(expected); showing \"\(code.exists ? code.label : "nothing")\".",
+            file: file, line: line
+        )
     }
 }
 
@@ -145,12 +291,12 @@ struct HomeScreen: Screen {
 
     var heroCarousel: XCUIElement { app.descendants(matching: .any)[A11yID.Home.heroCarousel] }
 
-    /// The "Recently Added Movies" rail's "See All" link, pushing the
+    /// The "Recently Added Movies" rail's header link (title and chevron), pushing the
     /// Movies library's collection grid. The identifier key mirrors
     /// `CollectionQuery.identifierKey`'s format
     /// (`\(parentID ?? "all").\(includeItemTypes)`) rather than being built
     /// from a real `CollectionQuery` — that extension lives in the app
-    /// module, which this target doesn't link (see its own doc comment) —
+    /// module, which this target doesn't link (see its doc comment) —
     /// so this has to be kept in sync by hand if `HomeViewModel`'s rail
     /// construction changes what this rail's `seeAllQuery` looks like.
     ///
@@ -195,7 +341,23 @@ struct HomeScreen: Screen {
     func openItem(_ itemID: String, file: StaticString = #filePath, line: UInt = #line) {
         let tile = card(itemID)
         tile.awaitExistence("the tile for \(itemID)", file: file, line: line)
-        tile.tap()
+        // Often below the fold, so `tap()` scrolls first — see `tapToLeave`.
+        tile.tapToLeave()
+    }
+
+    /// Performs `.refreshable`'s pull gesture on Home's vertical scroll view,
+    /// triggering `HomeViewModel.hardRefresh()`.
+    ///
+    /// A coordinate drag on the app window rather than `swipeDown()` on an
+    /// element: a swipe is a flick, which scrolls rather than holding the
+    /// pull past the refresh threshold. The hold at the end is what commits
+    /// it. Starts mid-screen, below the hero, so the drag begins on content
+    /// the outer scroll view owns.
+    func pullToRefresh() {
+        let window = app.windows.firstMatch
+        let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
+        let end = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
+        start.press(forDuration: 0.2, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 1.0)
     }
 
     /// Opens a library card that may sit past the initial viewport on a
@@ -232,6 +394,29 @@ struct CollectionScreen: Screen {
     /// a label. Opens the pill's `Menu`.
     func filterPill(_ facet: String) -> XCUIElement {
         app.buttons[A11yID.Collection.filterPill(facet)]
+    }
+
+    /// Opens one filter pill's `Menu`, scrolling the pill row to it first.
+    ///
+    /// On iPhone the pills don't fit, so they sit in a horizontal
+    /// `ScrollView` and the later ones start off-screen. iOS 26's XCUITest
+    /// scrolls to them by itself on `tap()`; iOS 18's doesn't, and fails
+    /// with "Activation point invalid" for a pill at x=420 on a 393pt
+    /// screen. So swipe the row, on whichever pill is on screen, until this
+    /// one is. On-screen is judged by frame, not `isHittable`, which on
+    /// iOS 18 throws for an off-screen pill rather than answering false.
+    func openFilter(_ facet: String) {
+        let pill = filterPill(facet)
+        let facets = ["genre", "studio", "decade", "watched", "favorites"]
+        let screenWidth = app.frame.width
+        func isOnScreen(_ element: XCUIElement) -> Bool {
+            element.exists && element.frame.minX >= 0 && element.frame.maxX <= screenWidth
+        }
+        for _ in 0..<4 where !isOnScreen(pill) {
+            guard let visible = facets.map(filterPill).first(where: isOnScreen) else { break }
+            visible.swipeLeft()
+        }
+        pill.tap()
     }
 
     /// Picks one option out of an already-open filter `Menu` — the options
@@ -277,11 +462,55 @@ struct AssetDetailScreen: Screen {
     var restartButton: XCUIElement { app.buttons[A11yID.AssetDetail.restartButton] }
     var favoriteButton: XCUIElement { app.buttons[A11yID.AssetDetail.favoriteButton] }
     var watchedButton: XCUIElement { app.buttons[A11yID.AssetDetail.watchedButton] }
+    /// The About panel's synopsis text; see `A11yID.AssetDetail.synopsis`.
+    var synopsis: XCUIElement { app.staticTexts[A11yID.AssetDetail.synopsis] }
+
+    /// `AssetActionsButton`'s `ellipsis` overflow — always present on a
+    /// movie/show/episode page, holding Add to Playlist and, with permission,
+    /// Delete.
+    var moreButton: XCUIElement { app.buttons[A11yID.AssetDetail.moreButton] }
 
     /// Present only when the server says this user may delete this item, so
-    /// asserting its *absence* is asserting the permission gate — see
-    /// `A11yID.AssetDetail.deleteButton`.
+    /// asserting its *absence* (with the overflow open) is asserting the
+    /// permission gate — see `A11yID.AssetDetail.deleteButton`. It lives inside
+    /// `moreButton`'s menu, not in the toolbar — use `openDelete()` rather
+    /// than tapping this straight off the page.
     var deleteButton: XCUIElement { app.buttons[A11yID.AssetDetail.deleteButton] }
+
+    /// Always inside `moreButton`'s menu on a movie/show/episode page — adding
+    /// to a playlist needs no server permission, since a user with no editable
+    /// playlist can still create one.
+    var addToPlaylistButton: XCUIElement { app.buttons[A11yID.AssetDetail.addToPlaylistButton] }
+
+    /// Opens the toolbar overflow, so the caller can then tap
+    /// `deleteButton`/`addToPlaylistButton` inside it.
+    func openActionsOverflow(file: StaticString = #filePath, line: UInt = #line) {
+        moreButton.awaitExistence("the actions overflow", file: file, line: line)
+        moreButton.tap()
+    }
+
+    /// Reaches the delete affordance inside the overflow and taps it.
+    func openDelete(file: StaticString = #filePath, line: UInt = #line) {
+        openActionsOverflow(file: file, line: line)
+        deleteButton.awaitExistence("the delete action", file: file, line: line)
+        deleteButton.tap()
+    }
+
+    /// Reaches "Add to Playlist" and taps it, opening `AddToPlaylistSheet`.
+    /// On a show/episode page this instead opens the Show/Season/Episode
+    /// submenu — see `addToPlaylistScope(_:)`.
+    func openAddToPlaylist(file: StaticString = #filePath, line: UInt = #line) {
+        openActionsOverflow(file: file, line: line)
+        addToPlaylistButton.awaitExistence("the Add to Playlist action", file: file, line: line)
+        addToPlaylistButton.tap()
+    }
+
+    /// One row of the Add to Playlist submenu on a show/episode page, keyed
+    /// by the entity's display name (the submenu names entities, not types —
+    /// see `AssetActionsButton.menuRowLabel(for:)`).
+    func addToPlaylistScope(_ entityName: String) -> XCUIElement {
+        app.buttons[entityName]
+    }
 
     /// The confirmation dialog's own destructive action. Scoped to
     /// `app.sheets` because a bare `app.buttons[...]` subscript matches
@@ -307,6 +536,9 @@ struct AssetDetailScreen: Screen {
     /// A show's episode row — its title/overview half, which switches this
     /// page's own content to that episode in place rather than pushing a
     /// new screen. See `A11yID.AssetDetail.episodeRow(_:)`'s doc comment.
+    /// `SeasonEpisodeList`'s empty state for a season holding no episodes.
+    var noEpisodesMessage: XCUIElement { app.descendants(matching: .any)[A11yID.AssetDetail.noEpisodesMessage] }
+
     func episodeRow(_ episodeID: String) -> XCUIElement {
         app.buttons[A11yID.AssetDetail.episodeRow(episodeID)]
     }
@@ -318,6 +550,130 @@ struct AssetDetailScreen: Screen {
     func play(file: StaticString = #filePath, line: UInt = #line) {
         awaitLoaded(file: file, line: line)
         playButton.tap()
+    }
+
+    /// One playlist member row — see `A11yID.Playlist.row(_:)`'s doc
+    /// comment for why this needs its own identifier rather than being
+    /// found by label.
+    func playlistRow(_ playlistItemID: String) -> XCUIElement {
+        app.buttons[A11yID.Playlist.row(playlistItemID)]
+    }
+
+    /// The row's `.contextMenu` "Remove from Playlist" action — the only
+    /// removal path (see `PlaylistItemList.onRemove`'s doc comment), so
+    /// this needs a long-press to reveal it, same as on a real device.
+    func playlistRemoveMenuItem(_ playlistItemID: String) -> XCUIElement {
+        app.buttons[A11yID.Playlist.removeMenuItem(playlistItemID)]
+    }
+
+    /// Long-presses `playlistItemID`'s row to reveal its context menu, then
+    /// taps "Remove from Playlist" — the only removal path this feature
+    /// has (see `PlaylistItemList.onRemove`'s doc comment for why).
+    func removePlaylistItem(_ playlistItemID: String, file: StaticString = #filePath, line: UInt = #line) {
+        let row = playlistRow(playlistItemID)
+        row.awaitExistence("playlist row \(playlistItemID)", file: file, line: line)
+        row.press(forDuration: 1.0)
+        let removeItem = playlistRemoveMenuItem(playlistItemID)
+        removeItem.awaitExistence("the Remove from Playlist context menu item", file: file, line: line)
+        removeItem.tap()
+    }
+}
+
+/// `ToastHost`'s transient confirmation, which lives above every tab and
+/// every pushed screen — so it is its own screen object rather than a
+/// property of whichever one raised it.
+struct ToastScreen: Screen {
+    let app: XCUIApplication
+
+    /// The whole capsule, collapsed to one accessibility element. Read its
+    /// `label` for the message.
+    var message: XCUIElement {
+        app.descendants(matching: .any)[A11yID.Toast.message]
+    }
+
+    /// Waits for a toast and returns what it said. Toasts self-dismiss after
+    /// `ToastCenter.visibleDuration`, so a test that wants to read one has
+    /// to look promptly — hence a short, explicit wait rather than the
+    /// suite's default 15s.
+    @discardableResult
+    func awaitMessage(file: StaticString = #filePath, line: UInt = #line) -> String {
+        message.awaitExistence("a confirmation toast", timeout: 5, file: file, line: line)
+        return message.label
+    }
+}
+
+/// `AddToPlaylistSheet` — the destination picker presented from
+/// `AssetDetailScreen.openAddToPlaylist()`, plus its pushed "New Playlist"
+/// form.
+struct AddToPlaylistScreen: Screen {
+    let app: XCUIApplication
+
+    /// Always present, which is why it's what `awaitLoaded` waits on: the
+    /// playlist rows below are absent whenever this user can edit none.
+    var newPlaylistButton: XCUIElement { app.buttons[A11yID.AddToPlaylist.newPlaylistButton] }
+    var emptyState: XCUIElement { app.staticTexts[A11yID.AddToPlaylist.emptyState] }
+    var nameField: XCUIElement { app.textFields[A11yID.AddToPlaylist.nameField] }
+    var visibilityToggle: XCUIElement { app.switches[A11yID.AddToPlaylist.visibilityToggle] }
+    var createButton: XCUIElement { app.buttons[A11yID.AddToPlaylist.createButton] }
+
+    /// Both confirmations are `.alert`s, not `confirmationDialog`s — the
+    /// dialog form dropped its Cancel action inside this sheet, so
+    /// `AddToPlaylistSheet` uses alerts to guarantee both buttons. Hence
+    /// `app.alerts` rather than the `app.sheets` scoping
+    /// `AssetDetailScreen.deleteConfirmButton` needs. The scoping itself is
+    /// for the same reason either way: a bare `app.buttons[...]` subscript
+    /// matches labels too, so an unscoped "Add" or "Create" lookup collides
+    /// with the control that raised the dialog.
+    var addConfirmButton: XCUIElement {
+        app.alerts.buttons.matching(identifier: A11yID.AddToPlaylist.addConfirmButton).firstMatch
+    }
+    var addCancelButton: XCUIElement {
+        app.alerts.buttons.matching(identifier: A11yID.AddToPlaylist.addCancelButton).firstMatch
+    }
+    var createConfirmButton: XCUIElement {
+        app.alerts.buttons.matching(identifier: A11yID.AddToPlaylist.createConfirmButton).firstMatch
+    }
+    var createCancelButton: XCUIElement {
+        app.alerts.buttons.matching(identifier: A11yID.AddToPlaylist.createCancelButton).firstMatch
+    }
+
+    func playlistRow(_ playlistID: String) -> XCUIElement {
+        app.buttons[A11yID.AddToPlaylist.playlistRow(playlistID)]
+    }
+
+    func awaitLoaded(file: StaticString = #filePath, line: UInt = #line) {
+        newPlaylistButton.awaitExistence("the Add to Playlist picker", file: file, line: line)
+    }
+
+    /// Picks an existing playlist, confirming if the sheet stops to ask.
+    /// A single movie or episode is added straight away; a show or season
+    /// raises a confirmation first (see
+    /// `AddToPlaylistViewModel.requiresConfirmation`), so this handles both
+    /// rather than making every caller know which it is.
+    func choose(_ playlistID: String, file: StaticString = #filePath, line: UInt = #line) {
+        let row = playlistRow(playlistID)
+        row.awaitExistence("playlist row \(playlistID)", file: file, line: line)
+        row.tap()
+        if addConfirmButton.waitForExistence(timeout: 2) {
+            addConfirmButton.tap()
+        }
+    }
+
+    /// Walks the whole create flow: open the form, type a name, tap Create,
+    /// then confirm. Creating always confirms, whatever the target.
+    func createPlaylist(named name: String, file: StaticString = #filePath, line: UInt = #line) {
+        newPlaylistButton.awaitExistence("the New Playlist row", file: file, line: line)
+        newPlaylistButton.tap()
+
+        nameField.awaitExistence("the playlist name field", file: file, line: line)
+        nameField.tap()
+        nameField.typeText(name)
+
+        createButton.awaitExistence("the Create button", file: file, line: line)
+        createButton.tap()
+
+        createConfirmButton.awaitExistence("the create confirmation", file: file, line: line)
+        createConfirmButton.tap()
     }
 }
 
@@ -377,6 +733,15 @@ struct PlayerScreen: Screen {
         closeButton.tap()
     }
 
+    /// Drags the scrubber to its trailing edge, seeking to the very end. The
+    /// fake engine then reports `.ended` on its next tick, as a real item
+    /// playing out would.
+    func scrubToEnd(file: StaticString = #filePath, line: UInt = #line) {
+        scrubber.awaitExistence("the scrubber", file: file, line: line)
+        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.1, thenDragTo: scrubber.coordinate(withNormalizedOffset: CGVector(dx: 1.0, dy: 0.5)))
+    }
+
     /// One of the track picker's two root-page rows — "audio" or
     /// "subtitle" — which drills into that kind's leaf page.
     ///
@@ -393,7 +758,7 @@ struct PlayerScreen: Screen {
 
     /// A leaf page's own selectable row, addressed by `PlaybackTrack.id` —
     /// see `A11yID.Player.trackOption(_:_:)`'s doc comment for the id
-    /// scheme, and `trackNavigationRow(_:)`'s own doc comment just above
+    /// scheme, and `trackNavigationRow(_:)`'s doc comment just above
     /// for why this is `.descendants(matching: .any)` rather than
     /// `.buttons` — `selectionRow` has the identical `Other`-not-`Button`
     /// quirk. Both leaves use `PreviewPlaybackEngine`'s fixed, canned
@@ -406,6 +771,17 @@ struct PlayerScreen: Screen {
 
     var subtitleOffOption: XCUIElement { app.descendants(matching: .any)[A11yID.Player.subtitleOffOption] }
 
+    /// The composited libass bitmap. Present only while an authored ASS
+    /// track is selected AND libass has produced a frame, so its mere
+    /// existence is the assertion; its `label` carries the cue text.
+    var styledSubtitle: XCUIElement { app.descendants(matching: .any)[A11yID.Player.styledSubtitle] }
+
+    /// `.firstMatch` because more than one plain cue can be on screen at once
+    /// — a subscript that resolves to several raises rather than picking one.
+    var plainSubtitle: XCUIElement {
+        app.descendants(matching: .any).matching(identifier: A11yID.Player.plainSubtitle).firstMatch
+    }
+
     /// A chapter picker row, addressed by `Chapter.index` (0-based).
     func chapterOption(_ index: Int) -> XCUIElement {
         app.buttons[A11yID.Player.chapterOption(index)]
@@ -416,7 +792,7 @@ struct PlayerScreen: Screen {
 
 extension AssetDetailScreen {
     /// `DownloadButton`'s one identifier, shared across every state
-    /// (idle/resolving/downloading/downloaded) — see its own doc comment.
+    /// (idle/resolving/downloading/downloaded) — see its doc comment.
     var downloadButton: XCUIElement { app.buttons[A11yID.AssetDetail.downloadButton] }
 
     /// Waits for the download button to reach its "Downloaded" state.
@@ -452,8 +828,14 @@ struct DownloadsScreen: Screen {
     var emptyState: XCUIElement { app.descendants(matching: .any)[A11yID.Downloads.emptyState] }
     var list: XCUIElement { app.descendants(matching: .any)[A11yID.Downloads.list] }
     var selectButton: XCUIElement { app.buttons[A11yID.Downloads.selectButton] }
+    var cancelSelectionButton: XCUIElement { app.buttons[A11yID.Downloads.cancelSelectionButton] }
     var selectAllButton: XCUIElement { app.buttons[A11yID.Downloads.selectAllButton] }
     var deleteSelectedButton: XCUIElement { app.buttons[A11yID.Downloads.deleteSelectedButton] }
+
+    /// A movie's (or lone episode's) row, in whichever layout rendered.
+    func standaloneRow(itemID: String) -> XCUIElement {
+        app.descendants(matching: .any)[A11yID.Downloads.row("standalone-\(itemID)")]
+    }
 
     /// Selects every row and deletes them, confirming the dialog.
     ///
@@ -462,7 +844,7 @@ struct DownloadsScreen: Screen {
     /// of its own, and nothing else on screen at that moment is labeled
     /// bare "Delete": `deleteSelectedButton`'s own accessibility *label* is
     /// "Delete Selected Downloads" (an icon-only button, see
-    /// `DownloadsView.toolbarContent`), and the per-row swipe action that
+    /// `DownloadsSelectionToolbar`), and the per-row swipe action that
     /// also says "Delete" only exists outside selection mode, which this
     /// method never leaves.
     func deleteAllRows(file: StaticString = #filePath, line: UInt = #line) {
@@ -478,6 +860,30 @@ struct DownloadsScreen: Screen {
 }
 
 // MARK: - Profile
+
+/// Approving another device's code (`QuickConnectApprovalView`), pushed from
+/// the account details.
+struct QuickConnectApprovalScreen: Screen {
+    let app: XCUIApplication
+
+    var codeField: XCUIElement { app.textFields[A11yID.QuickConnectApproval.codeField] }
+    var authorizeButton: XCUIElement { app.buttons[A11yID.QuickConnectApproval.authorizeButton] }
+    var errorMessage: XCUIElement { app.descendants(matching: .any)[A11yID.QuickConnectApproval.errorMessage] }
+    var successMessage: XCUIElement { app.descendants(matching: .any)[A11yID.QuickConnectApproval.successMessage] }
+    var doneButton: XCUIElement { app.buttons[A11yID.QuickConnectApproval.doneButton] }
+
+    /// Replaces whatever is in the field, then taps Authorize. The field
+    /// takes focus on appear, but is tapped anyway so a retry after an error
+    /// doesn't depend on that.
+    func authorize(code: String, file: StaticString = #filePath, line: UInt = #line) {
+        codeField.tap()
+        if let current = codeField.value as? String, !current.isEmpty, current != codeField.placeholderValue {
+            codeField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
+        }
+        codeField.typeText(code)
+        authorizeButton.tap()
+    }
+}
 
 /// Covers only what's reachable through the account card — sign out and
 /// change server. Every other Profile row (`advancedPlaybackLink`,
@@ -526,6 +932,19 @@ struct ProfileScreen: Screen {
         let confirm = app.sheets.buttons["Sign Out"]
         confirm.awaitExistence("the sign-out confirmation dialog", file: file, line: line)
         confirm.tap()
+    }
+
+    var quickConnectRow: XCUIElement { app.buttons[A11yID.Profile.quickConnectRow] }
+
+    /// Opens the account details and pushes Quick Connect from them.
+    @discardableResult
+    func openQuickConnect(file: StaticString = #filePath, line: UInt = #line) -> QuickConnectApprovalScreen {
+        openAccountDetails(file: file, line: line)
+        quickConnectRow.awaitExistence("the Quick Connect row", file: file, line: line)
+        quickConnectRow.tap()
+        let screen = QuickConnectApprovalScreen(app: app)
+        screen.codeField.awaitExistence("the Quick Connect code field", file: file, line: line)
+        return screen
     }
 
     /// Taps Change Server, then the confirmation dialog's own Change Server
