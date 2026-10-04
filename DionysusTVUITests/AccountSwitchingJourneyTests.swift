@@ -16,9 +16,9 @@ final class AccountSwitchingJourneyTests: TVUITestCase {
             "A remembered account is listed once"
         )
         press(.select)
-        let firstTile = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
-        XCTAssertTrue(firstTile.waitForExistence(timeout: 10), "No code and no password: straight to Home")
-        XCTAssertTrue(waitForFocus(firstTile))
+        let play = app.buttons[A11yID.TV.Main.heroPlay]
+        XCTAssertTrue(play.waitForExistence(timeout: 10), "No code and no password: straight to Home")
+        XCTAssertTrue(waitForFocus(play))
     }
 
     /// Holding Select offers to forget the account. It then goes back among
@@ -55,8 +55,7 @@ final class AccountSwitchingJourneyTests: TVUITestCase {
 
         app.terminate()
         let relaunched = launch(resetsState: false)
-        let firstTile = relaunched.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
-        XCTAssertTrue(firstTile.waitForExistence(timeout: 10), "Still signed in, from the shared keychain")
+        XCTAssertTrue(relaunched.buttons[A11yID.TV.Main.heroPlay].waitForExistence(timeout: 10), "Still signed in, from the shared keychain")
         let relaunchedToggle = openProfile(relaunched).descendants(matching: .any)[A11yID.TV.Profile.followsAppleTVUsers]
         XCTAssertTrue(relaunchedToggle.waitForExistence(timeout: 10))
         XCTAssertEqual(relaunchedToggle.value as? String, "0", "The setting is kept too")
@@ -91,12 +90,12 @@ final class AccountSwitchingJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(lastUsed), "The account last used takes focus")
         XCTAssertTrue(remembered.exists)
         press(.select)
-        XCTAssertTrue(relaunched.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)].waitForExistence(timeout: 10))
+        XCTAssertTrue(relaunched.buttons[A11yID.TV.Main.heroPlay].waitForExistence(timeout: 10))
     }
 
     /// From Home to Profile, with Switch User focused.
     private func openProfile(_ app: XCUIApplication) -> XCUIApplication {
-        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)], timeout: 10))
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.heroPlay], timeout: 10))
         openRailFromHome(app)
         press(.up)
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Sidebar.profile]))

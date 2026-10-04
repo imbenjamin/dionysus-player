@@ -111,7 +111,13 @@ struct TVPosterCollection: UIViewRepresentable {
             }
 
             if old.items.map(\.id) != new.items.map(\.id) || old.showsIndex != new.showsIndex {
+                // Done now, not left for UIKit's next pass: deferred, the
+                // reload ran inside a focus update (asked whether a cell
+                // could take focus), reused the cell that had focus, and
+                // UIKit's focus system aborted the app (seen opening See All
+                // from Home and coming back).
                 view.reloadData()
+                view.layoutIfNeeded()
                 // A new list (a filter, a sort) starts at its top.
                 if hasClaimed, old.items.map(\.id) != new.items.map(\.id) {
                     view.setContentOffset(CGPoint(x: 0, y: -new.topInset), animated: false)
@@ -302,6 +308,14 @@ final class TVPosterCell: UICollectionViewCell {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override var preferredFocusEnvironments: [UIFocusEnvironment] { [poster] }
+
+    /// The poster takes focus, never the cell, so the cell says so itself.
+    /// Left to UIKit the answer comes from the collection view, which can
+    /// reload its data to find the cell's index path; asked while the grid
+    /// was being removed with a poster focused (popping a See All grid), that
+    /// reload reused the focused cell and UIKit's focus system aborted the
+    /// app.
+    override var canBecomeFocused: Bool { false }
 
     override func prepareForReuse() {
         super.prepareForReuse()

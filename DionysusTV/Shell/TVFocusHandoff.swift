@@ -8,6 +8,13 @@ extension EnvironmentValues {
     /// request, which under load could land elsewhere.
     @Entry var tvFocusHandoff = 0
 
+    /// Bumped when Right takes focus out of the open sidebar back into the
+    /// page, without choosing a row. The page puts focus back on the item it
+    /// last had: tvOS by itself picks whatever sits nearest the row, and on
+    /// Home that's the hero's Play, level with Home's row, however far down
+    /// the rails focus had been.
+    @Entry var tvRailReturn = 0
+
     /// Whether the sidebar is open, which is whenever one of its rows has
     /// focus. `TVPageScaffold` pushes the content right while it is, and a
     /// page doesn't pull focus out of it when its items arrive.

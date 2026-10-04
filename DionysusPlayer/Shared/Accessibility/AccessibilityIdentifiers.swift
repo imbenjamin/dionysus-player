@@ -430,8 +430,14 @@ enum A11yID {
             static let changeServer = "tv.onboarding.whosWatching.changeServer"
         }
         enum Main {
-            static let root = "tv.main.firstRail"
             static func tile(_ itemID: String) -> String { "tv.main.tile.\(itemID)" }
+            static let heroPlay = "tv.main.hero.play"
+            static let heroInfo = "tv.main.hero.info"
+            static let heroTitle = "tv.main.hero.title"
+            static let heroDots = "tv.main.hero.dots"
+            static func seeAll(_ title: String) -> String { "tv.main.seeAll.\(title)" }
+            static func library(_ libraryID: String) -> String { "tv.main.library.\(libraryID)" }
+            static let retry = "tv.main.retry"
         }
         enum Search {
             static func result(_ itemID: String) -> String { "tv.search.result.\(itemID)" }

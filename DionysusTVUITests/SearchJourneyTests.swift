@@ -6,9 +6,9 @@ final class SearchJourneyTests: TVUITestCase {
     /// detail page, which plays it.
     func test_searchFromSidebar_findsTitle_andOpensItsDetailPage() {
         let app = launch(seedSession: true)
-        let firstTile = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
-        XCTAssertTrue(firstTile.waitForExistence(timeout: 10))
-        XCTAssertTrue(waitForFocus(firstTile))
+        let play = app.buttons[A11yID.TV.Main.heroPlay]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(play))
 
         // The sidebar opens on Home's row; Search is the row below it.
         press(.left)

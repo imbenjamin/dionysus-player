@@ -7,15 +7,16 @@ import UIKit
 enum TVPlayerPresenter {
     /// `request.itemID` must be directly playable: a movie or an episode.
     /// `queue` is the playlist being played through, empty otherwise.
-    @MainActor
+    /// Returns whether the player was presented.
+    @MainActor @discardableResult
     static func present(
         _ request: PlaybackRequest,
         queue: [MediaItem] = [],
         client: JellyfinAPIClient,
         userID: String,
         onClose: (@MainActor (PlaybackSessionOutcome) -> Void)? = nil
-    ) {
-        guard let engine = makeEngine() else { return }
+    ) -> Bool {
+        guard let engine = makeEngine() else { return false }
         let viewModel = PlayerViewModel(
             client: client, userID: userID, itemID: request.itemID, engine: engine,
             startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID,
@@ -24,8 +25,9 @@ enum TVPlayerPresenter {
         let host = TVPlayerHostController(viewModel: viewModel, engine: engine)
         host.onClose = onClose
         host.modalPresentationStyle = .fullScreen
-        guard let presenter = topViewController() else { return }
+        guard let presenter = topViewController() else { return false }
         presenter.present(host, animated: true)
+        return true
     }
 
     @MainActor

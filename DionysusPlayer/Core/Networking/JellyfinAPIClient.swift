@@ -264,6 +264,9 @@ actor JellyfinAPIClient {
         /// Comma-delimited, unlike `genres`/`studios` above.
         personTypes: [String] = [],
         searchTerm: String? = nil,
+        /// Jellyfin's `ImageType` values the item must have, e.g. `"Backdrop"`.
+        /// Matched on the item's own images, not an ancestor's.
+        imageTypes: [String] = [],
         limit: Int? = nil,
         /// Overridable so a caller needing only `id`/`name`/`type` can pass
         /// `""` and skip `defaultFields`' heavier payload; Jellyfin returns
@@ -292,6 +295,7 @@ actor JellyfinAPIClient {
         if let person, !person.isEmpty { query.append(.init(name: "Person", value: person)) }
         if !personTypes.isEmpty { query.append(.init(name: "PersonTypes", value: personTypes.joined(separator: ","))) }
         if let searchTerm, !searchTerm.isEmpty { query.append(.init(name: "SearchTerm", value: searchTerm)) }
+        if !imageTypes.isEmpty { query.append(.init(name: "ImageTypes", value: imageTypes.joined(separator: ","))) }
         if let limit { query.append(.init(name: "Limit", value: String(limit))) }
         return try await get("/Users/\(userID)/Items", query: query)
     }

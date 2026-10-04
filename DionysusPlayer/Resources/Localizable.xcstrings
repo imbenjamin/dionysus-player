@@ -463,6 +463,9 @@
     "Couldn't Load %@" : {
 
     },
+    "Couldn't Load Home" : {
+
+    },
     "Couldn't load this collection." : {
 
     },
@@ -843,6 +846,9 @@
     "iOS interrupted this download several times and it couldn't be completed. Try downloading again." : {
 
     },
+    "Item %lld of %lld" : {
+
+    },
     "Jellyfin servers on this network appear here as they're found." : {
 
     },
@@ -895,6 +901,9 @@
 
     },
     "More Actions" : {
+
+    },
+    "More Info" : {
 
     },
     "More Like This" : {
@@ -1248,6 +1257,9 @@
 
     },
     "Section" : {
+
+    },
+    "See All" : {
 
     },
     "Seeking is taking longer than expected — playback may be stuck." : {

@@ -102,6 +102,12 @@ cost a debugging session each:
   the page's row, since Menu reaches nothing while nothing has focus. The
   same goes for focus left elsewhere in the rail: holding it sometimes pushes
   focus off the chosen row onto Profile's.
+- **Right out of the sidebar returns to the item the page last had**
+  (`tvRailReturn`). tvOS by itself picks whatever sits nearest the row it
+  leaves, and on Home that is the hero's Play, level with Home's row, however
+  far down the rails focus had been. The shell bumps it when focus leaves the
+  rail without a row being chosen; the page takes what it had when the rail
+  opened, since tvOS's own move lands, and is remembered, first.
 - **Each page's content is a focus section**, so Right from any row enters
   it; Profile's buttons are mid-screen, level with no row. Left from
   Search's keyboard stays in the keyboard (it keeps the press at its edge);
@@ -117,6 +123,53 @@ immediate, with the scroll position and focus where they were. It used to tear
 the shell down (`TVPageStack`, removed): the rebuilt page then asked a lazy
 grid to focus a tile it hadn't built, and anything below the first screen came
 back at the top.
+
+**Home is `TVHomeView` on the shared `HomeViewModel`**: the hero over a
+full-bleed backdrop, then the rails in iOS's order with See All tiles, then a
+Libraries rail. What isn't guessable:
+- **The hero's timer runs only when everything allows it**
+  (`TVHeroPager.timerRuns`): more than one item, Auto Carousel on, no Reduce
+  Motion, not under the UI-test harness, the hero focused, Home on show, and
+  no page turned by hand this visit. It waits ten seconds (Benjamin,
+  2026-10-04; iOS's hero uses five).
+- **Paging by hand is forward only, and wraps** (Benjamin, 2026-10-04): an
+  invisible focus guard right of More Info turns the page when it takes focus
+  and hands focus back; after the last item it goes to the first, as the
+  timer does. There is no guard left of Play, so Left there always opens the
+  rail.
+- **The current page dot fills over the interval while the timer runs**, as
+  iOS's does, and is solid white while it's stopped (Benjamin, 2026-10-04).
+  Each start fills from empty, as the timer counts a full interval.
+- **The hero holds only titles with a backdrop of their own**: the random
+  fetch asks the server for `ImageTypes=Backdrop` (Benjamin, 2026-10-04),
+  on iOS too, since `HomeViewModel` is shared. A title without one made an
+  empty-looking hero. The logo crossfades between items with the backdrop
+  (`TVHeldImage` keys each picture's view, so old and new overlap; redrawn
+  in place, a cached logo swapped at once).
+- **Play on a series plays an episode** (`TVHeroPlayTarget`): its Next Up,
+  or its first episode for a show never started. A series id itself doesn't
+  play.
+- **Leaving the player started from the hero lands on the title's detail
+  page** (Benjamin, 2026-10-04), pushed over Home so Menu goes back to the
+  hero (`tvOpenDetailBeneathPlayer`). It's pushed beneath the player once
+  that is up, and counts as not on show until the player closes: tvOS puts
+  focus where it likes as the player goes (the synopsis), so the page claims
+  Play the way one coming back on show does. Full-screen presentation takes
+  the page out of the window, which cancels its `.task`; that's why
+  `AssetDetailViewModel.loadIfNeeded()` runs its load in a task of its own,
+  as `HomeViewModel`'s does. Cancelled, a show's episode lookups failed
+  quietly and it loaded with no Play.
+- **A Libraries tile selects that library's page**; it doesn't push one, so
+  Menu there opens the rail on the library's row.
+- **Rails are keyed by title, in focus ids and in `ForEach`.** A rail's id is
+  new with every refresh, and Home refreshes when it comes back on show:
+  keyed by id the rails were rebuilt, each scrolled back to its start, and
+  focus couldn't return to a See All at a rail's end.
+- The hero's height is the detail pages' (`TVDetailMetrics.headerHeight`), so
+  Play lands without a nudge, and the page returns to its top when focus goes
+  back up (`tvDetailLanding`). The backdrop fades out once focus is below the
+  hero, leaving the shell's plum glow behind the rails, and fades back in when
+  focus returns (Benjamin, 2026-10-04).
 
 **Detail pages and See All grids are pushed onto a path inside the shell**
 (`TVShellNavigation.path`), with the rail beside them; every tile opens a
@@ -196,6 +249,12 @@ guessable:
 - **Reset appears only while a filter is set**, as on iOS, and clears them
   all in one press; focus then goes to the first pill, since Reset removes
   itself.
+- **A cell answers `canBecomeFocused` itself (false).** Left to UIKit, the
+  answer came from the collection view, which can reload its data to find the
+  cell; asked while a See All grid was being popped with a poster focused,
+  that reload reused the focused cell and UIKit's focus system aborted the
+  app. A list change is reloaded at once (`reloadData` then
+  `layoutIfNeeded`), never left for UIKit's next pass.
 - **The grid reloads when it comes back on show** (a detail page may have
   changed a poster's badges) and keeps its place: the same titles redraw
   where they are.

@@ -7,9 +7,7 @@ final class PlayerJourneyTests: TVUITestCase {
     /// tile; later rails are off screen in a lazy stack.
     func test_openPlayer_skipForward_menuDismisses() {
         let app = launch(seedSession: true, extraArguments: ["-UITestDisableControlAutoHide", "YES"])
-        let tile = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
-        XCTAssertTrue(tile.waitForExistence(timeout: 10))
-        XCTAssertTrue(waitForFocus(tile))
+        waitForHomeThenFirstTile(app)
         let play = openDetailFromFocusedTile(app)
         press(.select)
 
@@ -38,9 +36,7 @@ final class PlayerJourneyTests: TVUITestCase {
     /// pins that nothing plays afterwards.
     func test_menuDuringLoading_dismisses() {
         let app = launch(scenario: "slowPlaybackInfo", seedSession: true)
-        let tile = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
-        XCTAssertTrue(tile.waitForExistence(timeout: 10))
-        XCTAssertTrue(waitForFocus(tile))
+        waitForHomeThenFirstTile(app)
         let play = openDetailFromFocusedTile(app)
         press(.select)
         let elapsed = app.staticTexts[A11yID.TV.Player.elapsed]
@@ -96,9 +92,7 @@ final class PlayerJourneyTests: TVUITestCase {
     /// Launches signed in, opens the focused first tile's detail page and plays it.
     private func openPlayer(scenario: String = "standard", extraArguments: [String]) -> XCUIApplication {
         let app = launch(scenario: scenario, seedSession: true, extraArguments: extraArguments)
-        let tile = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
-        XCTAssertTrue(tile.waitForExistence(timeout: 10))
-        XCTAssertTrue(waitForFocus(tile))
+        waitForHomeThenFirstTile(app)
         openDetailFromFocusedTile(app)
         press(.select)
         return app

@@ -33,6 +33,11 @@ struct TVMainView: View {
     @State private var detailModels: [UUID: AssetDetailViewModel] = [:]
     @State private var pushedGrids: [UUID: CollectionGridViewModel] = [:]
     @State private var rememberedPushedFocus: [UUID: String] = [:]
+    /// The path entry pushed beneath a player that's still up
+    /// (`openDetailBeneathPlayer`). It counts as covered until the player
+    /// closes: as it closes tvOS puts focus where it likes (Watched, not
+    /// Play), so the page claims its item as one coming back on show does.
+    @State private var entryBeneathPlayer: UUID?
     @State private var nav = TVShellNavigation()
     /// Holds the whole sidebar disabled while focus is on its way to the page,
     /// until the page says it has claimed it (`tvPageClaimedFocus`): on a
@@ -43,6 +48,11 @@ struct TVMainView: View {
     @State private var holdGeneration = 0
     /// See `EnvironmentValues.tvFocusHandoff`.
     @State private var focusHandoff = 0
+    /// See `EnvironmentValues.tvRailReturn`.
+    @State private var railReturn = 0
+    /// Set while a chosen row hands focus to its page, so focus leaving the
+    /// rail then isn't taken for a return to the page beneath.
+    @State private var isChoosingRow = false
     @FocusState private var focusedRow: TVSidebarLayout.Row?
 
     init(client: JellyfinAPIClient, userID: String) {
@@ -93,8 +103,10 @@ struct TVMainView: View {
         }
         .environment(\.tvSidebarExpanded, isExpanded)
         .environment(\.tvFocusHandoff, focusHandoff)
+        .environment(\.tvRailReturn, railReturn)
         .environment(\.tvPageClaimedFocus, releaseRail)
         .environment(\.tvOpenRoute, open)
+        .environment(\.tvOpenDetailBeneathPlayer, openDetailBeneathPlayer)
         .environment(\.tvSelectLibrary) { id in select(.library(id)) }
         .animation(.easeOut(duration: 0.18), value: isExpanded)
         .animation(.easeOut(duration: 0.2), value: nav.librariesExpanded)
@@ -102,6 +114,11 @@ struct TVMainView: View {
         // Collapsed, focus can only enter on the anchor row; a folded
         // library's anchor is the Libraries row, so it moves on to the
         // library's own row once that's drawn.
+        // Focus left the rail without a row being chosen (Right, back into
+        // the page): the page goes back to where it was (`tvRailReturn`).
+        .onChange(of: focusedRow) { old, new in
+            if old != nil, new == nil, !isChoosingRow { railReturn += 1 }
+        }
         .onChange(of: focusedRow) { old, new in
             guard old == nil, let new else { return }
             let target = nav.enterRail(libraries: libraries)
@@ -146,8 +163,10 @@ struct TVMainView: View {
 
     private func level<Page: View>(_ level: Int, @ViewBuilder _ page: () -> Page) -> some View {
         let onShow = level == nav.path.count
+        // Drawn while the player closes over it, but not yet on show.
+        let beneathPlayer = level > 0 && nav.path[level - 1].id == entryBeneathPlayer
         return page()
-            .environment(\.tvPageIsOnShow, onShow)
+            .environment(\.tvPageIsOnShow, onShow && !beneathPlayer)
             .opacity(onShow ? 1 : 0)
             .disabled(!onShow)
             .accessibilityHidden(!onShow)
@@ -189,6 +208,17 @@ struct TVMainView: View {
         holdRail()
     }
 
+    private func openDetailBeneathPlayer(_ item: MediaItem) -> @MainActor (PlaybackSessionOutcome) -> Void {
+        open(.assetDetail(itemID: item.id, preloadedItem: item))
+        guard let entry = nav.path.last, let model = detailModels[entry.id] else { return { _ in } }
+        entryBeneathPlayer = entry.id
+        return { [weak model] outcome in
+            model?.applyOptimisticPlaybackPosition(outcome)
+            if entryBeneathPlayer == entry.id { entryBeneathPlayer = nil }
+            // Back on show, the page refreshes its item itself.
+        }
+    }
+
     private func pop() {
         guard let entry = nav.pop() else { return }
         detailModels[entry.id]?.cancelBackgroundWork()
@@ -219,7 +249,7 @@ struct TVMainView: View {
                 )
             }
         default:
-            TVBrowseLauncher(client: client, userID: userID, viewModel: home, rememberedTileKey: $rememberedHomeTile)
+            TVHomeView(client: client, userID: userID, viewModel: home, rememberedFocus: $rememberedHomeTile)
         }
     }
 
@@ -279,7 +309,9 @@ struct TVMainView: View {
         }
         let selection = withAnimation(.easeOut(duration: 0.2)) { nav.select(row) }
         guard selection == .navigated else { return }
+        isChoosingRow = true
         Task { @MainActor in
+            defer { isChoosingRow = false }
             // After the new page has laid out: Search's keyboard is a UIKit
             // control that isn't in the window until then, and holding the
             // sidebar sooner left focus nowhere to go.

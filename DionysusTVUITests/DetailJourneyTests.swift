@@ -5,7 +5,7 @@ import XCTest
 /// unwinds one page at a time.
 final class DetailJourneyTests: TVUITestCase {
     func test_tile_opensItsDetailPage_besideTheRail_andMenuReturnsToTheTile() {
-        let app = launchAtHome()
+        let app = launchAtHomeTile()
         let tile = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
         openDetailFromFocusedTile(app)
         XCTAssertTrue(isCollapsed(app.buttons[A11yID.TV.Sidebar.home]), "The rail stays beside a detail page")
@@ -18,7 +18,7 @@ final class DetailJourneyTests: TVUITestCase {
     }
 
     func test_menuOnTheRootPage_stillOpensTheRail() {
-        let app = launchAtHome()
+        let app = launchAtHomeTile()
         openDetailFromFocusedTile(app)
         press(.menu)
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]))
@@ -27,7 +27,7 @@ final class DetailJourneyTests: TVUITestCase {
     }
 
     func test_play_thenMenu_returnsToTheDetailPage() {
-        let app = launchAtHome()
+        let app = launchAtHomeTile()
         let play = openDetailFromFocusedTile(app)
         press(.select)
         XCTAssertTrue(app.staticTexts[A11yID.TV.Player.elapsed].waitForExistence(timeout: 10))
@@ -39,7 +39,7 @@ final class DetailJourneyTests: TVUITestCase {
     }
 
     func test_watched_andFavorite_toggle() {
-        let app = launchAtHome()
+        let app = launchAtHomeTile()
         openDetailFromFocusedTile(app)
         let watched = app.buttons[A11yID.TV.Detail.watched]
         let before = watched.label
@@ -53,7 +53,7 @@ final class DetailJourneyTests: TVUITestCase {
     /// Review Focus 2. Six pages deep is past the cap (four live pages), so
     /// the first detail pages are torn down and rebuilt on the way back.
     func test_moreLikeThisChain_pastTheCap_unwindsToTheRootTile() {
-        let app = launchAtHome()
+        let app = launchAtHomeTile()
         let tile = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
         openDetailFromFocusedTile(app)
         let similar = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tv.detail.similar."))
@@ -78,7 +78,7 @@ final class DetailJourneyTests: TVUITestCase {
 
     /// Review Focus 5.
     func test_failedDetail_showsRetry_andMenuPops() {
-        let app = launchAtHome(scenario: "failingDetail")
+        let app = launchAtHomeTile(scenario: "failingDetail")
         _ = openMovies(app)
         let failing = app.buttons[A11yID.TV.Library.tile(UITestFixtureIdentity.movieID(3))]
         for _ in 0..<12 where !failing.hasFocus { press(.right) }
@@ -95,7 +95,7 @@ final class DetailJourneyTests: TVUITestCase {
     /// 2026-10-02): Cast & Crew, which can be walked; More Like This; then
     /// Details, which opens the full list.
     func test_down_walksCast_thenMoreLikeThis_thenDetails() {
-        let app = launchAtHome()
+        let app = launchAtHomeTile()
         openDetailFromFocusedTile(app)
         func focused(_ prefix: String) -> XCUIElement {
             app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true AND identifier BEGINSWITH %@", prefix)).firstMatch
@@ -133,7 +133,7 @@ final class DetailJourneyTests: TVUITestCase {
     /// Down is pressed the moment the page opens: the start position is the
     /// page's top, not something recorded after a pause.
     func test_upToTheActions_scrollsBackToTheTop() {
-        let app = launchAtHome()
+        let app = launchAtHomeTile()
         openDetailFromFocusedTile(app)
         let title = app.descendants(matching: .any)[A11yID.TV.Detail.title]
         let startY = title.frame.minY
@@ -152,7 +152,7 @@ final class DetailJourneyTests: TVUITestCase {
     /// Up from a cast member far to the right of the action row still
     /// reaches it (Benjamin, 2026-10-02): nothing sits directly above.
     func test_upFromAFarCastMember_reachesTheActions() {
-        let app = launchAtHome(scenario: "largeCast")
+        let app = launchAtHomeTile(scenario: "largeCast")
         openDetailFromFocusedTile(app)
         press(.down)
         let cast = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true AND identifier BEGINSWITH %@", "tv.detail.cast.")).firstMatch
@@ -170,7 +170,7 @@ final class DetailJourneyTests: TVUITestCase {
     /// A title with no backdrop shows its poster beside the title instead,
     /// and no placeholder glyph mid-screen; one with a backdrop shows neither.
     func test_noBackdrop_showsThePosterBesideTheTitle() {
-        let app = launchAtHome(scenario: "noBackdrop")
+        let app = launchAtHomeTile(scenario: "noBackdrop")
         openDetailFromFocusedTile(app)
         let art = app.descendants(matching: .any)[A11yID.TV.Detail.headerArt]
         XCTAssertTrue(art.waitForExistence(timeout: 10))
@@ -183,7 +183,7 @@ final class DetailJourneyTests: TVUITestCase {
     }
 
     func test_withABackdrop_thereIsNoHeaderArt() {
-        let app = launchAtHome()
+        let app = launchAtHomeTile()
         openDetailFromFocusedTile(app)
         XCTAssertTrue(app.buttons[A11yID.TV.Detail.watched].waitForExistence(timeout: 10))
         XCTAssertFalse(app.descendants(matching: .any)[A11yID.TV.Detail.headerArt].exists)

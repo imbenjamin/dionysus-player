@@ -19,7 +19,7 @@ final class SidebarJourneyTests: TVUITestCase {
     /// Left from the leftmost tile opens the rail on Home's row, whichever
     /// row is nearest; Right goes back to the page and closes it.
     func test_left_opensTheRailOnTheCurrentPage_andRightReturns() {
-        let app = launchAtHome()
+        let app = launchAtHomeTile()
         let home = app.buttons[A11yID.TV.Sidebar.home]
         press(.left)
         XCTAssertTrue(waitForFocus(home))
@@ -31,7 +31,7 @@ final class SidebarJourneyTests: TVUITestCase {
 
     /// Left from a lower row lands on Home's row too, not on the row beside it.
     func test_leftFromALowerRow_stillLandsOnTheCurrentPagesRow() {
-        let app = launchAtHome()
+        let app = launchAtHomeTile()
         press(.down)
         let focusedTile = app.buttons.matching(NSPredicate(format: "hasFocus == true AND identifier BEGINSWITH %@", "tv.main.tile.")).firstMatch
         XCTAssertTrue(focusedTile.waitForExistence(timeout: 5))
@@ -82,8 +82,8 @@ final class SidebarJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(movies))
     }
 
-    /// Home again from a library: Home's first tile takes focus.
-    func test_choosingHome_fromALibrary_focusesItsFirstTile() {
+    /// Home again from a library: the hero's Play takes focus.
+    func test_choosingHome_fromALibrary_focusesTheHero() {
         let app = launchAtHome()
         let movies = openMovies(app)
         press(.menu)
@@ -94,7 +94,7 @@ final class SidebarJourneyTests: TVUITestCase {
         press(.up)
         XCTAssertTrue(waitForFocus(home))
         press(.select)
-        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]))
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.heroPlay]))
         XCTAssertTrue(waitForCollapsed(home))
     }
 

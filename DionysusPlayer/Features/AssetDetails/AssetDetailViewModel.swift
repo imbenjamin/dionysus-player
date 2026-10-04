@@ -172,10 +172,29 @@ final class AssetDetailViewModel {
     /// Guards on `loadState`, not `item`: a preloaded item makes `item` non-nil
     /// before `load()` has run, which would read as nothing to reload and skip
     /// fetching cast, technical details and the rails entirely.
+    ///
+    /// The load runs in a task of its own, as `HomeViewModel.loadIfNeeded()`'s
+    /// does, so the caller's cancellation doesn't reach it. On the Apple TV a
+    /// page pushed beneath the player is taken out of the window as the player
+    /// is presented, which cancels its `.task`: the show's episode lookups then
+    /// failed quietly, leaving a loaded show with no Play. A caller arriving
+    /// mid-load joins it.
     func loadIfNeeded() async {
+        if let inFlightLoad {
+            await inFlightLoad.value
+            return
+        }
         guard loadState == .idle else { return }
-        await load()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.load()
+        }
+        inFlightLoad = task
+        await task.value
+        inFlightLoad = nil
     }
+
+    private var inFlightLoad: Task<Void, Never>?
 
     func load() async {
         loadState = .loading
