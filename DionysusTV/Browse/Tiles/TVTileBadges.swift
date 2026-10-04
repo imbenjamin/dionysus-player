@@ -8,6 +8,40 @@ enum TVTileMetrics {
     static let gridPoster = CGSize(width: 240, height: 360)
     static let landscape = CGSize(width: 500, height: 281)
     static let episode = CGSize(width: 440, height: 248)
+
+    /// How much `.card` grows a focused tile's artwork (measured on the
+    /// Simulator: a 375pt poster's bottom edge drops 19pt).
+    static let cardLiftScale: CGFloat = 1.1
+
+    /// How far a caption moves down while its tile has focus, so it stays
+    /// clear of the lifted artwork: half the growth, the bottom edge's share
+    /// (the prototype's `.capt` moves 18pt under a poster).
+    static func captionLift(for size: CGSize) -> CGFloat {
+        size.height * (cardLiftScale - 1) / 2
+    }
+}
+
+/// A tile's caption: semibold title over a secondary subtitle, one line
+/// each, moving down with the artwork's lift while the tile has focus
+/// (Benjamin, 2026-10-04: left where it was, the lifted poster ran over it).
+struct TVTileCaptionText: View {
+    let title: String
+    let subtitle: String?
+    let artSize: CGSize
+    let isFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(verbatim: title).font(.caption.weight(.semibold)).lineLimit(1)
+            if let subtitle {
+                Text(verbatim: subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .frame(width: artSize.width, alignment: .leading)
+        .offset(y: isFocused ? TVTileMetrics.captionLift(for: artSize) : 0)
+        .animation(.easeOut(duration: 0.2), value: isFocused)
+        .accessibilityHidden(true)
+    }
 }
 
 enum TVTileCaption {

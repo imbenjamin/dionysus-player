@@ -65,9 +65,9 @@ final class SearchViewModel {
     /// `.regular`-grid counterpart — `preferLandscape` is the grid's own
     /// one shape decision for every tile, not necessarily `result`'s own
     /// kind. See `SearchResult.imageURL(images:preferLandscape:)`.
-    func imageURL(for result: SearchResult, preferLandscape: Bool) -> URL? {
+    func imageURL(for result: SearchResult, preferLandscape: Bool, maxWidth: Int = 200) -> URL? {
         guard let imageURLBuilder else { return nil }
-        return result.imageURL(images: imageURLBuilder, preferLandscape: preferLandscape)
+        return result.imageURL(images: imageURLBuilder, preferLandscape: preferLandscape, maxWidth: maxWidth)
     }
 
     /// Call when the user taps through a result (live or from history) —

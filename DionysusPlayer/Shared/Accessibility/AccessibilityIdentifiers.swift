@@ -441,6 +441,12 @@ enum A11yID {
         }
         enum Search {
             static func result(_ itemID: String) -> String { "tv.search.result.\(itemID)" }
+            static func section(_ id: String) -> String { "tv.search.section.\(id)" }
+            static func recent(_ itemID: String) -> String { "tv.search.recent.\(itemID)" }
+            static func recentSection(_ id: String) -> String { "tv.search.recentSection.\(id)" }
+            static let clearRecent = "tv.search.recent.clear"
+            static let noResults = "tv.search.noResults"
+            static let emptyHistory = "tv.search.emptyHistory"
         }
         enum Library {
             static let count = "tv.library.count"

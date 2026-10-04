@@ -144,4 +144,50 @@ final class TVShellNavigationTests: XCTestCase {
         _ = nav.select(.librariesGroup)
         XCTAssertEqual(nav.path.count, 1)
     }
+
+    /// Search is the system's full-screen layout (Benjamin, 2026-10-04), so
+    /// the collapsed rail slides off screen there. Open, it shows as ever.
+    func test_onSearch_theCollapsedRailIsHidden() {
+        var nav = TVShellNavigation()
+        XCTAssertFalse(nav.hidesCollapsedRail)
+        _ = nav.select(.search)
+        XCTAssertTrue(nav.hidesCollapsedRail)
+        _ = nav.select(.profile)
+        XCTAssertFalse(nav.hidesCollapsedRail)
+    }
+
+    /// A detail page opened from Search sits beside the rail like any other.
+    func test_aPageOpenedFromSearch_bringsTheRailBack() {
+        var nav = TVShellNavigation()
+        _ = nav.select(.search)
+        _ = nav.push(.assetDetail(itemID: "m"))
+        XCTAssertFalse(nav.hidesCollapsedRail)
+        _ = nav.pop()
+        XCTAssertTrue(nav.hidesCollapsedRail)
+    }
+
+    /// While the rail is off screen a chevron at the left edge says where it
+    /// went (Benjamin, 2026-10-04); open, the sidebar itself is there.
+    func test_theEdgeChevron_showsOnlyWhileTheRailIsOffScreen() {
+        var nav = TVShellNavigation()
+        XCTAssertFalse(nav.showsEdgeChevron(isExpanded: false))
+        _ = nav.select(.search)
+        XCTAssertTrue(nav.showsEdgeChevron(isExpanded: false))
+        XCTAssertFalse(nav.showsEdgeChevron(isExpanded: true))
+        _ = nav.push(.assetDetail(itemID: "m"))
+        XCTAssertFalse(nav.showsEdgeChevron(isExpanded: false))
+    }
+
+    /// Choosing another page leaves Search, which then starts fresh when
+    /// chosen again (Benjamin, 2026-10-04). Folding the Libraries group or
+    /// choosing Search again stays on it; a pushed page isn't a choice at all.
+    func test_choosingAnotherPage_leavesSearch() {
+        var nav = TVShellNavigation()
+        XCTAssertFalse(nav.selectionLeavesSearch(.profile), "Not on Search")
+        _ = nav.select(.search)
+        XCTAssertTrue(nav.selectionLeavesSearch(.home))
+        XCTAssertTrue(nav.selectionLeavesSearch(.library("l1")))
+        XCTAssertFalse(nav.selectionLeavesSearch(.search))
+        XCTAssertFalse(nav.selectionLeavesSearch(.librariesGroup))
+    }
 }

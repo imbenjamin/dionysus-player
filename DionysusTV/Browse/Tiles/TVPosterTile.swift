@@ -25,15 +25,8 @@ struct TVPosterTile: View {
             .accessibilityIdentifier(identifier)
 
             if caption != .none {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: item.railTitle).font(.caption.weight(.semibold)).lineLimit(1)
-                    if let subtitle = item.railSubtitle {
-                        Text(verbatim: subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                }
-                .frame(width: size.width, alignment: .leading)
-                .opacity(caption == .always || isFocused ? 1 : 0)
-                .accessibilityHidden(true)
+                TVTileCaptionText(title: item.railTitle, subtitle: item.railSubtitle, artSize: size, isFocused: isFocused)
+                    .opacity(caption == .always || isFocused ? 1 : 0)
             }
         }
     }

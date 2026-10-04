@@ -50,6 +50,25 @@ struct TVShellNavigation: Equatable {
         path.popLast()
     }
 
+    /// Search is the system's own full-screen layout (Benjamin, 2026-10-04):
+    /// its keyboard and field are laid out for the whole width, and beside
+    /// the rail the field's hint ran off the screen. So there the collapsed
+    /// rail slides off the left edge, and Menu slides the open sidebar in.
+    /// A page pushed from Search sits beside the rail as any other does.
+    var hidesCollapsedRail: Bool { destination == .search && path.isEmpty }
+
+    /// Whether choosing `row` leaves Search for another page, after which
+    /// Search starts fresh (Benjamin, 2026-10-04): empty field, no results.
+    /// Folding the Libraries group and choosing Search again stay on it; a
+    /// detail page pushed from Search keeps the query, as Menu returns to it.
+    func selectionLeavesSearch(_ row: Row) -> Bool {
+        destination == .search && row != .search && row != .librariesGroup
+    }
+
+    /// A chevron at the middle of the left edge says where the rail went
+    /// (Benjamin, 2026-10-04): shown while it's off screen, gone once open.
+    func showsEdgeChevron(isExpanded: Bool) -> Bool { hidesCollapsedRail && !isExpanded }
+
     /// The one row the collapsed rail lets focus land on: the destination's,
     /// or the Libraries row standing in for a folded library, which has no
     /// row of its own in the collapsed rail.

@@ -11,6 +11,7 @@ struct TVLandscapeTile: View {
     let subtitle: String?
     let identifier: String
     let action: () -> Void
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -23,18 +24,12 @@ struct TVLandscapeTile: View {
                 .overlay { TVTileBadges(badges: WatchBadges(item: item)) }
             }
             .buttonStyle(.card)
+            .focused($isFocused)
             .accessibilityLabel(item.accessibilityDescription)
             .accessibilityValue(TVTileBadges.spokenValue(for: item))
             .accessibilityIdentifier(identifier)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: title).font(.caption.weight(.semibold)).lineLimit(1)
-                if let subtitle {
-                    Text(verbatim: subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-            .frame(width: size.width, alignment: .leading)
-            .accessibilityHidden(true)
+            TVTileCaptionText(title: title, subtitle: subtitle, artSize: size, isFocused: isFocused)
         }
     }
 }

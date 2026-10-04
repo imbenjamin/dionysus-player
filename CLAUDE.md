@@ -59,7 +59,8 @@ milestones: `docs/superpowers/specs/2026-09-29-tvos-app-design.md`.
 **The shell is a custom sidebar, not tvOS's `TabView` one** (`TVMainView`,
 `TVSidebar`), because the system sidebar looks nothing like the prototype
 (screens 5, 6 and 6b). Collapsed, it's a glass icon rail on the left of
-**every signed-in page** (not onboarding, not the player). Open (whenever one
+**every signed-in page** (not onboarding, not the player), except Search,
+where it slides off the left edge (below). Open (whenever one
 of its rows has focus), it's a 520pt glass panel of pill rows, with the page
 pushed right and the screen dimmed. Profile is pinned at the top (avatar,
 name, server; VoiceOver reads "Profile & Settings"), then Home, Search and
@@ -356,7 +357,55 @@ outcome once; `TVPlayerPresenter.present(_:queue:client:userID:onClose:)`), so
 the detail page beneath shows the new resume point at once, as iOS does.
 
 `.searchable` draws its field only inside a navigation container, which the
-`TabView` used to supply, so Search sits in a `NavigationStack`. Sign-in puts
+`TabView` used to supply, so Search sits in a `NavigationStack`. Search lists
+every kind the server returns, as rails by type in a fixed order with Other
+last (`TVSearchGrouping`), and while the field is empty shows Recent Searches:
+the results last opened, the history `SearchViewModel` shares with iOS,
+grouped into the same rails by type under one heading with Clear beside it
+(Benjamin, 2026-10-04). With none yet it shows iOS's "Search Your Library"
+placeholder, in iOS's words. **The recent rails are keyed apart from the results'
+rails** (`recentKey`): sharing their ids ("movies"), the lazy stack kept the
+results' rail on screen when the field was emptied. Its tiles have no badges,
+since search hints carry no user data. **Choosing another page from the
+sidebar leaves Search, which starts fresh when chosen again** (Benjamin,
+2026-10-04; `TVShellNavigation.selectionLeavesSearch`): the field emptied,
+the results and the remembered tile dropped. A detail page pushed from
+Search keeps the query, since Menu returns to it.
+
+**A tile's caption moves down with its artwork's lift while the tile has
+focus** (`TVTileCaptionText`, `TVTileMetrics.captionLift`; Benjamin,
+2026-10-04), on every SwiftUI poster and landscape tile. `.card` grows the
+focused artwork about 10% (a 375pt poster's bottom edge drops 19pt,
+measured), and a caption left in place had the poster run over it. The
+collection grid's system posters do this themselves.
+
+**Limitation: the system Search UX must be full screen to show and work
+correctly** (Benjamin, 2026-10-04). `.searchable`'s field, keyboard and hint
+are laid out for the window's width, not their container's: the keyboard is
+one fixed-width row and the field a fixed width with the system's hint
+("Hold … to dictate", "Press … to change keyboard") drawn after it, both
+clipped to the search container. Measured on tvOS 27 beside the rail, every
+inset, width and scale tried lost something: the first keys scrolled out of
+sight, the hint ran off the right of the screen, or a scaled container cut
+the hint at its own edge. Our own field and keyboard would fix the layout
+but lose dictation, Continuity Keyboard and the system's suggestions. So
+Search is the system's own full-screen layout (`TVPageScaffold(layout:
+.fullScreen)`), and on it the shell slides the collapsed rail off the left
+edge (`TVShellNavigation.hidesCollapsedRail`; 400pt, since at its frame's
+width part of its glass still showed). A chevron at the middle of the left
+edge says where it went (`TVEdgeChevron`, `showsEdgeChevron`). Menu, or Left
+from a result in a rail's first column, slides the open sidebar in on
+Search's row. Right from it hands focus back to the page as choosing the row
+does (`handFocusToPage`), since the keyboard is UIKit near the top and tvOS
+finds nothing right of the row by itself. A page pushed from Search has the
+rail as usual. Left on the keyboard stays in the keyboard.
+
+The Simulator's on-screen remote sends Select as a keyboard Return, which
+the system keyboard takes as a typed Return, not a key press, so Select
+types nothing there (on `develop` too). A Siri Remote press does type, as
+XCUITest's remote does.
+
+Sign-in puts
 Quick Connect first (`TVSignInRoute`): a user with a password goes to a code,
 with "Use Password Instead" one press away, and only a user the server reports
 as passwordless signs in on Select.
