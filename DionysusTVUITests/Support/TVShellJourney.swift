@@ -4,13 +4,40 @@ import XCTest
 /// width tells whether it's open (72pt icon circles collapsed, full-width
 /// pill rows open).
 extension TVUITestCase {
-    /// Signed in, on Home, with focus on its first tile.
+    /// Signed in, on Home, with focus on the hero's Play.
     func launchAtHome(scenario: String = "standard") -> XCUIApplication {
         let app = launch(scenario: scenario, seedSession: true)
-        let firstTile = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
-        XCTAssertTrue(firstTile.waitForExistence(timeout: 10))
-        XCTAssertTrue(waitForFocus(firstTile))
+        let play = app.buttons[A11yID.TV.Main.heroPlay]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(play))
         return app
+    }
+
+    /// Signed in, on Home, with focus moved down from the hero to Continue
+    /// Watching's first tile: where journeys that open a tile start.
+    @discardableResult
+    func launchAtHomeTile(scenario: String = "standard") -> XCUIApplication {
+        let app = launchAtHome(scenario: scenario)
+        focusFirstRailTile(app)
+        return app
+    }
+
+    /// Whatever launch was used, waits for Home's hero to take focus, then
+    /// moves down to the first tile.
+    func waitForHomeThenFirstTile(_ app: XCUIApplication) {
+        let play = app.buttons[A11yID.TV.Main.heroPlay]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(play))
+        focusFirstRailTile(app)
+    }
+
+    /// From the hero, Down to Continue Watching's first tile.
+    @discardableResult
+    func focusFirstRailTile(_ app: XCUIApplication) -> XCUIElement {
+        let tile = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
+        press(.down)
+        XCTAssertTrue(waitForFocus(tile))
+        return tile
     }
 
     func isCollapsed(_ row: XCUIElement) -> Bool { row.exists && row.frame.width < 100 }
@@ -37,7 +64,7 @@ extension TVUITestCase {
         return false
     }
 
-    /// Left from the page opens the rail on Home's row.
+    /// Left from the hero's first item opens the rail on Home's row.
     func openRailFromHome(_ app: XCUIApplication) {
         press(.left)
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Sidebar.home]))

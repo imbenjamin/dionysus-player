@@ -225,6 +225,9 @@ final class HomeViewModel {
                 includeItemTypes: ["Movie", "Series"],
                 sortBy: "Random",
                 filters: ["IsUnplayed"],
+                // Only titles with a backdrop of their own, so no hero looks
+                // empty (Benjamin, 2026-10-04).
+                imageTypes: ["Backdrop"],
                 limit: 10
             )
             async let curated = fetchCuratedRails(

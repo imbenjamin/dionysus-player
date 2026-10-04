@@ -145,6 +145,13 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             if request.httpMethod == "DELETE" { Self.setWatched(false, itemID: itemID) }
         }
 
+        if scenario == .failingHome, path.hasSuffix("/Items"),
+           URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+            .contains(where: { $0.name.caseInsensitiveCompare("SortBy") == .orderedSame && $0.value == "Random" }) == true {
+            finish(.success((500, Data("{}".utf8), "application/json")))
+            return
+        }
+
         if scenario == .failingLibrary, path.hasSuffix("/Items"),
            URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
             .contains(where: { $0.name.caseInsensitiveCompare("ParentId") == .orderedSame && $0.value == UITestFixtureIdentity.moviesLibraryID }) == true {
@@ -524,7 +531,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
              .slowVideoDownload, .slowPlaybackInfo, .manyLibraries, .manyUsers:
             return nil
-        case .largeCast, .noBackdrop, .failingLibrary:
+        case .largeCast, .noBackdrop, .failingLibrary, .failingHome:
             return nil
         case .failingDetail:
             return path.hasSuffix("/Items/\(UITestFixtureIdentity.movieID(3))") ? 500 : nil

@@ -14,7 +14,7 @@ final class OnboardingJourneyTests: TVUITestCase {
         press(.right)
         XCTAssertTrue(waitForFocus(user))
         press(.select)
-        let main = app.descendants(matching: .any)[A11yID.TV.Main.root].waitForExistence(timeout: 10)
+        let main = app.buttons[A11yID.TV.Main.heroPlay].waitForExistence(timeout: 10)
         if !main { attachTree() }
         XCTAssertTrue(main)
         XCTAssertTrue(waitForCollapsed(app.buttons[A11yID.TV.Sidebar.home]), "Signed in, the rail is there, collapsed")
@@ -60,7 +60,7 @@ final class OnboardingJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(user))
         press(.select)
         XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.quickConnectCode].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Main.root].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons[A11yID.TV.Main.heroPlay].waitForExistence(timeout: 15))
     }
 
     /// "Use Password Instead" is one press from the code, and opens a password

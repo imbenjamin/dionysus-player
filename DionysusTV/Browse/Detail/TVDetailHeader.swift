@@ -89,13 +89,22 @@ struct TVDetailHeader: View {
 
     @ViewBuilder
     private var logo: some View {
-        let title = Text(verbatim: item.name).font(.system(size: 76, weight: .bold)).lineLimit(2).minimumScaleFactor(0.5)
-        TVHeldImage((logoSource ?? item).logoImageURL, url: { $0 }) { url in
-            if let url {
+        // The title is held with the logo, so a hero turning between two
+        // titles with no logo fades its text as well.
+        TVHeldImage(TVLogoFace(url: (logoSource ?? item).logoImageURL, title: item.name), url: \.url, fadeID: { $0 }) { face in
+            let title = Text(verbatim: face.title).font(.system(size: 76, weight: .bold)).lineLimit(2).minimumScaleFactor(0.5)
+            if let url = face.url {
                 LogoImageView(url: url, fallback: title, retryPatience: .extended)
             } else {
                 title
             }
         }
     }
+}
+
+/// What the logo's space shows: the logo, or the title until it loads or
+/// when there is none.
+private struct TVLogoFace: Hashable {
+    let url: URL?
+    let title: String
 }

@@ -951,10 +951,6 @@ private final class PassthroughTouchRecognizer: UIGestureRecognizer {
     }
 }
 
-/// `UserDefaults` key for `ProfileView`'s "Auto Carousel on Home" toggle, shared
-/// so `HeroRailView`'s `@AppStorage` reads what `ProfileView` writes.
-let heroAutoCarouselEnabledStorageKey = "heroAutoCarouselEnabled"
-
 #Preview {
     HeroRailView(items: [], isTabActive: true)
 }

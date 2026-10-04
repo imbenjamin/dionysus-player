@@ -27,7 +27,7 @@ enum TVShellMetrics {
 /// there, so a scrolled row never slides under it. While the sidebar is open
 /// the content (not the background) is pushed right, as the prototype draws
 /// it. Without a background of its own, a page sits on the shell's plum glow
-/// (Benjamin, 2026-10-01); M3's Home brings its own hero.
+/// (Benjamin, 2026-10-01); Home and the detail pages bring their own backdrop.
 struct TVPageScaffold<Background: View, Content: View>: View {
     @Environment(\.tvSidebarExpanded) private var sidebarExpanded
     private let background: Background

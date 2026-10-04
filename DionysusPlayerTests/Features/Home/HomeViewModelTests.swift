@@ -91,6 +91,8 @@ final class HomeViewModelTests: XCTestCase {
                 XCTAssertEqual(query["IncludeItemTypes"], "Movie,Series")
                 XCTAssertEqual(query["SortBy"], "Random")
                 XCTAssertEqual(query["Filters"], "IsUnplayed")
+                // Only titles with a backdrop, so no hero looks empty.
+                XCTAssertEqual(query["ImageTypes"], "Backdrop")
                 return try MockURLProtocol.encodedJSONResponse(
                     for: request, value: BaseItemDtoQueryResult(items: [heroItem], totalRecordCount: 1)
                 )

@@ -1359,6 +1359,38 @@ final class AssetDetailViewModelTests: XCTestCase {
         return viewModel
     }
 
+    /// The Apple TV's player is presented full screen, which takes the page
+    /// beneath out of the window and cancels its `.task`. A page pushed under
+    /// the player (Home's hero, Benjamin, 2026-10-04) lost its load that way:
+    /// the show's episode lookups failed quietly and Play never appeared.
+    func test_loadIfNeeded_finishesWhenTheCallerIsCancelled() async {
+        let itemDto = BaseItemDto(id: "series-1", name: "The Wire", type: .series)
+        let seasonDto = BaseItemDto(id: "season-1", name: "Season 1", type: .season)
+        let nextUpDto = BaseItemDto(id: "episode-1", name: "Pilot", type: .episode)
+        let viewModel = makeViewModel(itemID: "series-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/series-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: itemDto)
+            case "/Shows/series-1/Seasons":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [seasonDto], totalRecordCount: 1))
+            case "/Shows/NextUp":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [nextUpDto], totalRecordCount: 1))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        let caller = Task { await viewModel.loadIfNeeded() }
+        caller.cancel()
+        await caller.value
+        // A caller arriving later joins the load still in flight.
+        await viewModel.loadIfNeeded()
+
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(viewModel.showPlaybackEpisode?.id, "episode-1")
+    }
+
     /// Episode-content counterpart to `loadedSeriesViewModel` above — `item`
     /// is the episode itself (`itemID`'s own `.episode` DTO), not the Show.
     private func loadedEpisodeViewModel(itemID: String = "ep-5", seasonId: String = "season-1") async -> AssetDetailViewModel {

@@ -195,6 +195,21 @@ row, where nothing sits directly above.
 can check the poster shows beside the title, right of it and scrolling with
 the header, and that a title with a backdrop shows none.
 `TVDetailHeaderArtTests` pins which image is chosen for each kind.
+Home opens on its hero, so `launchAtHome` waits for the hero's Play to take
+focus; `launchAtHomeTile` (or `focusFirstRailTile` after any launch) moves down
+to Continue Watching's first tile, where journeys that open a tile start.
+`HomeJourneyTests` covers the hero (Play starts playback, Menu leaves the
+player on the title's detail page with focus on Play, and Menu again returns
+to the hero; More Info opens the detail page; Right from More Info turns the page and
+wraps to the first item after the last, and Left from Play opens the rail; it doesn't move by
+itself under the harness, which freezes ambient motion), See All (it opens a
+grid and Menu returns to the See All tile, found by walking to the third
+rail, since a lazy row builds its end only when reached), the Libraries rail
+(a tile switches to the library's own page, so Menu opens the rail on that
+library's row), and a Home that fails to load (`failingHome`: the hero's
+random query answers 500) offering Retry. `TVHeroPagerTests` pins when the
+hero's timer runs and how it pages; `TVHeroPlayTargetTests` pins that a series
+in the hero plays its next episode.
 Two helpers in `TVShellJourney` are the way to a detail page and to the
 player: `openDetailFromFocusedTile` and `playFromFocusedTile`.
 `PlayerReturnJourneyTests` now pins the return from a detail page: to a tile
@@ -229,8 +244,7 @@ position: the header gains the episode's name, which moves the title); a
 Continue Watching episode on Home opens
 its show on that episode; and a show with no episodes (`showWithoutEpisodes`)
 has no Play button, a message for the rail, and focus on Watched, where Menu
-still pops. That last one doesn't use `launchAtHome`: with nothing in Next Up,
-Home's first tile is a different one. `TVSeasonEpisodesModelTests` pins the
+still pops. `TVSeasonEpisodesModelTests` pins the
 model behind the rail: a season is fetched once, an empty one isn't a failure,
 and a refresh that fails keeps what was on screen.
 

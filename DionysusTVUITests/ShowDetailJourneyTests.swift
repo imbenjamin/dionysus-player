@@ -110,7 +110,7 @@ final class ShowDetailJourneyTests: TVUITestCase {
     /// A Continue Watching episode tile opens its show's page on that
     /// episode, as iOS does.
     func test_episodeTileOnHome_opensItsShowPage_onThatEpisode() {
-        let app = launchAtHome()
+        let app = launchAtHomeTile()
         let episodeTile = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.episodeID(season: 1, episode: 1))]
         press(.right)
         XCTAssertTrue(waitForFocus(episodeTile))
@@ -124,11 +124,7 @@ final class ShowDetailJourneyTests: TVUITestCase {
     /// A show whose seasons hold no episodes: no Play button, a message in
     /// place of the rail, and focus somewhere Menu can pop from.
     func test_showWithoutEpisodes_hasNoPlay_andMenuPops() {
-        // Home's first tile differs here (nothing is in Next Up), so this
-        // waits for whichever tile takes focus.
-        let app = launch(scenario: "showWithoutEpisodes", seedSession: true)
-        let focusedTile = app.buttons.matching(NSPredicate(format: "hasFocus == true AND identifier BEGINSWITH %@", "tv.main.tile.")).firstMatch
-        XCTAssertTrue(focusedTile.waitForExistence(timeout: 15))
+        let app = launchAtHome(scenario: "showWithoutEpisodes")
         openSeries(app, waitsForPlay: false)
         XCTAssertTrue(app.staticTexts[A11yID.TV.Detail.noEpisodes].waitForExistence(timeout: 10))
         XCTAssertTrue(poll(timeout: 5) { !app.buttons[A11yID.TV.Detail.play].exists }, "Nothing to play, so no Play button")

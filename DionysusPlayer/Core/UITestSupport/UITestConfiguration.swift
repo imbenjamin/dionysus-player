@@ -136,6 +136,11 @@ enum UITestScenario: String {
     /// its Apple TV page fails to load and offers Retry.
     case failingLibrary
 
+    /// `.standard`, but Home's hero query (`/Users/{id}/Items` sorted at
+    /// random) answers 500, which fails Home's whole first load, so its Apple
+    /// TV page offers Retry. The libraries still load, so the sidebar works.
+    case failingHome
+
     /// `.standard`, but `/Views` lists seven libraries (the four standard ones,
     /// two more video libraries, and a Music one), so the Apple TV sidebar
     /// folds them into its "Libraries" entry. Six are shown after the Music one

@@ -28,7 +28,12 @@ private struct TVDefaultFocus<ID: Hashable>: ViewModifier {
     /// The item to put focus back on while the page is covered, and until
     /// it has it again.
     @State private var restoring: ID?
+    /// What had focus when the sidebar opened. `remembered` can't be used on
+    /// the way back: tvOS's own move into the page lands first and is
+    /// remembered before the return is handled.
+    @State private var beforeRail: ID?
     @Environment(\.tvFocusHandoff) private var handoff
+    @Environment(\.tvRailReturn) private var railReturn
     @Environment(\.tvSidebarExpanded) private var sidebarExpanded
     @Environment(\.tvPageClaimedFocus) private var claimed
     @Environment(\.tvPageIsOnShow) private var isOnShow
@@ -41,6 +46,21 @@ private struct TVDefaultFocus<ID: Hashable>: ViewModifier {
                     claim(remembered)
                 } else if !userMoved, !sidebarExpanded {
                     claim(first)
+                }
+            }
+            // Right out of the sidebar: back to the item the page last had,
+            // set until it holds, since tvOS's own move lands first.
+            .onChange(of: sidebarExpanded) { _, expanded in
+                if expanded { beforeRail = remembered }
+            }
+            .onChange(of: railReturn) {
+                guard isOnShow, let target = beforeRail, ids.contains(target) else { return }
+                Task { @MainActor in
+                    for _ in 0..<10 {
+                        if focus.wrappedValue == target { return }
+                        focus.wrappedValue = target
+                        try? await Task.sleep(for: .milliseconds(40))
+                    }
                 }
             }
             .onChange(of: handoff) {

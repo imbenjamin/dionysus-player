@@ -9,7 +9,7 @@ final class PlayerReturnJourneyTests: TVUITestCase {
     private let secondTileID = UITestFixtureIdentity.episodeID(season: 1, episode: 1)
 
     func test_detail_overHome_returnsToTheTile() {
-        let app = launchAtHome()
+        let app = launchAtHomeTile()
         let second = app.buttons[A11yID.TV.Main.tile(secondTileID)]
         press(.right)
         XCTAssertTrue(waitForFocus(second))
