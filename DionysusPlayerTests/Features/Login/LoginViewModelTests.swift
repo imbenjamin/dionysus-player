@@ -14,7 +14,7 @@ final class LoginViewModelTests: XCTestCase {
         URLProtocol.registerClass(MockURLProtocol.self)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         URLProtocol.unregisterClass(MockURLProtocol.self)
         MockURLProtocol.reset()
         UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
@@ -22,7 +22,7 @@ final class LoginViewModelTests: XCTestCase {
         KeychainStore.delete(forKey: "server.configuration", scope: .allUsers)
         KeychainStore.delete(forKey: "server.rememberedAccounts")
         ConnectivityMonitor.shared.reset()
-        super.tearDown()
+        try await super.tearDown()
     }
 
     private func makeSignedOutAppState() -> AppState {
