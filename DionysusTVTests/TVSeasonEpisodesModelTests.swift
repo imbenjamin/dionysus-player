@@ -66,6 +66,20 @@ final class TVSeasonEpisodesModelTests: XCTestCase {
         XCTAssertEqual(model.episodes["s1"]?.count, 1)
     }
 
+    /// Tabs follow focus, so passing a season on the way to another cancels
+    /// its fetch: that's not a failure, and coming back to the season must
+    /// not say it couldn't load (M3 review).
+    func test_cancelledLoad_isNotAFailure() async throws {
+        MockURLProtocol.requestHandler = { request in try Self.episodesResponse(request, ["e1"]) }
+        let model = makeModel()
+        let load = Task { await model.load(seasonID: "s1") }
+        load.cancel()
+        await load.value
+        XCTAssertFalse(model.failedSeasons.contains("s1"))
+        await model.load(seasonID: "s1")
+        XCTAssertEqual(model.episodes["s1"]?.map(\.id), ["e1"], "and it loads when shown again")
+    }
+
     /// A refresh that fails keeps the episodes already on screen.
     func test_failedRefresh_keepsWhatWasLoaded() async throws {
         MockURLProtocol.requestHandler = { request in try Self.episodesResponse(request, ["e1"]) }

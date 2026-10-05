@@ -480,6 +480,7 @@ enum A11yID {
             /// A box set's movie or a playlist's entry.
             static func member(_ id: String) -> String { "tv.detail.member.\(id)" }
             static let emptyMessage = "tv.detail.empty"
+            static let loading = "tv.detail.loading"
             /// Each format badge in the header ("4K", "HDR10"…).
             static let badge = "tv.detail.badge"
             /// The poster or still beside the title, for a title with no backdrop.
@@ -491,6 +492,7 @@ enum A11yID {
             static let switchUser = "tv.profile.switchUser"
             static let changeServer = "tv.profile.changeServer"
             static let changeServerConfirm = "tv.profile.changeServer.confirm"
+            static let signOutConfirm = "tv.profile.signOut.confirm"
             static let followsAppleTVUsers = "tv.profile.followsAppleTVUsers"
             static let selectsUserEveryRelaunch = "tv.profile.selectsUserEveryRelaunch"
             static let approveQuickConnect = "tv.profile.approveQuickConnect"

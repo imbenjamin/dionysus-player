@@ -55,7 +55,7 @@ struct TVDetailPage: View {
                 TVMovieDetailView(viewModel: viewModel, item: item, client: client, userID: userID, rememberedFocus: $rememberedFocus, isBelowHeader: $isBelowHeader)
             }
         } else {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            TVDetailLoading().frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

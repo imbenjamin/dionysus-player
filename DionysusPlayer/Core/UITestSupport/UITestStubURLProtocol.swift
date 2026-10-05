@@ -134,6 +134,19 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
+        // Held back under `.slowBoxSet`, the same way.
+        if scenario == .slowBoxSet, url.absoluteString.contains(UITestFixtureIdentity.boxSetID) {
+            let request = request
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.slowBoxSetDelay) {
+                do {
+                    self.finish(.success((200, try Self.body(forPath: path, query: query, request: request), "application/json")))
+                } catch {
+                    self.finish(.failure(error))
+                }
+            }
+            return
+        }
+
         if path.contains("/QuickConnect/") {
             finish(.success(Self.quickConnectResponse(scenario: scenario, path: path, query: query)))
             return
@@ -529,7 +542,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission,
              .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort,
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
-             .slowVideoDownload, .slowPlaybackInfo, .manyLibraries, .manyUsers:
+             .slowVideoDownload, .slowPlaybackInfo, .slowBoxSet, .manyLibraries, .manyUsers:
             return nil
         case .largeCast, .noBackdrop, .failingLibrary, .failingHome, .thinDynamicRails:
             return nil
@@ -1158,6 +1171,11 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     /// How long `.slowPlaybackInfo` holds `/PlaybackInfo`: far past the Menu
     /// press its journey makes, so the player is certainly still loading.
     static let slowPlaybackInfoDelay: TimeInterval = 30
+
+    /// How long `.slowBoxSet` holds the box set's requests: well past the
+    /// shell's three-second hold on the sidebar, which is what used to open
+    /// it over a page with nothing to focus.
+    static let slowBoxSetDelay: TimeInterval = 8
 
     /// Stand-in bytes for a font attachment.
     ///

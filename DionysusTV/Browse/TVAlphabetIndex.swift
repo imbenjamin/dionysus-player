@@ -38,12 +38,14 @@ enum TVAlphabetIndex {
     }
 
     /// The system index's titles: the letters that have a title under them,
-    /// in the bar's order. `nil` with fewer than two, where there's nothing
-    /// to jump between.
-    static func indexTitles(_ names: [String]) -> [String]? {
+    /// in the grid's order, so Z→A with "#" last when it's sorted descending
+    /// (Benjamin, 2026-10-05), as Jellyfin puts digits and punctuation.
+    /// `nil` with fewer than two, where there's nothing to jump between.
+    static func indexTitles(_ names: [String], descending: Bool = false) -> [String]? {
         let present = Set(names.map(letter(for:)))
         let titles = letters.filter(present.contains).map(String.init)
-        return titles.count > 1 ? titles : nil
+        guard titles.count > 1 else { return nil }
+        return descending ? titles.reversed() : titles
     }
 
     /// Where the first title under an index title sits in the list.

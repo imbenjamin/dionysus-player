@@ -32,6 +32,10 @@ final class TVSeasonEpisodesModel {
             episodes[seasonID] = result.items.map { MediaItem(dto: $0, images: images) }
             failedSeasons.remove(seasonID)
         } catch {
+            // Cancelled isn't failed: the tabs follow focus, so passing a
+            // season on the way to another cancels its fetch, and coming back
+            // said it couldn't load until the refetch landed (M3 review).
+            guard !Task.isCancelled else { return }
             if episodes[seasonID] == nil { failedSeasons.insert(seasonID) }
         }
     }

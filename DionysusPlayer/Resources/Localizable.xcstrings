@@ -882,6 +882,9 @@
     "Light" : {
 
     },
+    "Loading" : {
+
+    },
     "Lock rotation" : {
 
     },
@@ -1534,6 +1537,9 @@
 
     },
     "This code has expired." : {
+
+    },
+    "This Apple TV will forget the account, so signing in again needs its password or a new Quick Connect code." : {
 
     },
     "This collection is empty." : {

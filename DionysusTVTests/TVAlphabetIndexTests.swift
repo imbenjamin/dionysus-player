@@ -55,11 +55,23 @@ final class TVAlphabetIndexTests: XCTestCase {
         XCTAssertEqual(TVAlphabetIndex.firstItemIDs(items)["A"], "3")
     }
 
-    func test_everyTitleIsReachable() {
-        let names = ["", "7", "Élite", "The", "the matrix", "zebra", "千"]
-        for name in names {
-            XCTAssertTrue(TVAlphabetIndex.letters.contains(TVAlphabetIndex.letter(for: name)), "\"\(name)\" has no letter on the bar")
+    /// The bar runs the way the grid does, so each letter on it jumps
+    /// further down the grid than the one before, sorted A→Z or Z→A
+    /// (Benjamin, 2026-10-05). Lists are in Jellyfin's order: digits and
+    /// punctuation first ascending, last descending.
+    func test_theBarFollowsTheGridsOrder_bothWays() {
+        let ascending = ["12 Angry Men", "Ägypten", "The Abyss", "Brazil", "Élite", "Zodiac"]
+        for (names, descending) in [(ascending, false), (Array(ascending.reversed()), true)] {
+            let titles = try! XCTUnwrap(TVAlphabetIndex.indexTitles(names, descending: descending))
+            let targets = titles.map { TVAlphabetIndex.firstIndex(under: $0, in: names) }
+            XCTAssertFalse(targets.contains(nil), "Every letter on the bar jumps somewhere: \(titles)")
+            XCTAssertEqual(targets.compactMap { $0 }, targets.compactMap { $0 }.sorted(), "\(descending ? "Z→A" : "A→Z"): \(titles)")
+            XCTAssertEqual(Set(names.map { String(TVAlphabetIndex.letter(for: $0)) }), Set(titles), "Every title's letter is on the bar")
         }
+    }
+
+    func test_descendingIndexTitles_runZToA_withHashLast() {
+        XCTAssertEqual(TVAlphabetIndex.indexTitles(["Zodiac", "Arrival", "12 Angry Men"], descending: true), ["Z", "A", "#"])
     }
 
     func test_indexTitles_areOnlyTheLettersWithTitles_inBarOrder() {

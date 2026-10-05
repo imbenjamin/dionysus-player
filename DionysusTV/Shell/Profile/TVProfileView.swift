@@ -19,7 +19,7 @@ struct TVProfileView: View {
     /// accessibility identifiers on tvOS, nor a push, which would put the
     /// sidebar beside a page that belongs to Profile.
     private enum Cover: String, Identifiable {
-        case changeServer, quickConnect, nextUpCountdown, advanced, license, privacyPolicy
+        case changeServer, signOut, quickConnect, nextUpCountdown, advanced, license, privacyPolicy
         var id: String { rawValue }
     }
 
@@ -68,7 +68,20 @@ struct TVProfileView: View {
         .fullScreenCover(item: $cover) { cover in
             switch cover {
             case .changeServer:
-                TVChangeServerConfirmation { appState.changeServer() }
+                TVConfirmation(
+                    title: "Change Server?",
+                    message: "Everyone on this Apple TV will need to find a server and sign in again.",
+                    action: "Change Server",
+                    actionIdentifier: A11yID.TV.Profile.changeServerConfirm
+                ) { appState.changeServer() }
+            case .signOut:
+                // iOS's title: you sign out *of* a server.
+                TVConfirmation(
+                    title: "Sign out of \(appState.sessionStore.serverConfiguration?.name ?? String(localized: "your server"))?",
+                    message: "This Apple TV will forget the account, so signing in again needs its password or a new Quick Connect code.",
+                    action: "Sign Out",
+                    actionIdentifier: A11yID.TV.Profile.signOutConfirm
+                ) { appState.signOutForgettingAccount() }
             case .quickConnect:
                 if let client = appState.apiClient {
                     TVQuickConnectApprovalView(viewModel: QuickConnectApprovalViewModel(
@@ -139,8 +152,8 @@ struct TVProfileView: View {
                 if quickConnectAvailable {
                     row("Approve Quick Connect Code", opensPage: true, id: A11yID.TV.Profile.approveQuickConnect) { cover = .quickConnect }
                 }
-                row("Change Server", id: A11yID.TV.Profile.changeServer) { cover = .changeServer }
-                row("Sign Out", role: .destructive, id: A11yID.TV.Profile.signOut) { appState.signOutForgettingAccount() }
+                row("Change Server", role: .destructive, id: A11yID.TV.Profile.changeServer) { cover = .changeServer }
+                row("Sign Out", role: .destructive, id: A11yID.TV.Profile.signOut) { cover = .signOut }
 
                 TVSettingsHeader(title: "Apple TV Users")
                 row("Follow Apple TV Users", value: onOff(followsAppleTVUsers), id: A11yID.TV.Profile.followsAppleTVUsers) {
@@ -185,18 +198,24 @@ struct TVProfileView: View {
     }
 }
 
-/// Asks before Change Server, which forgets the server for every Apple TV
-/// user: their stored sign-ins then fail the server check at launch, so they
-/// all start again. Cancel takes focus, so a stray Select changes nothing.
-private struct TVChangeServerConfirmation: View {
+/// Asks before a destructive account action. Change Server forgets the
+/// server for every Apple TV user: their stored sign-ins then fail the server
+/// check at launch, so they all start again. Sign Out forgets the account on
+/// this Apple TV (Benjamin, 2026-10-05). Cancel takes focus, so a stray
+/// Select changes nothing.
+private struct TVConfirmation: View {
     @Environment(\.dismiss) private var dismiss
+    let title: LocalizedStringKey
+    let message: LocalizedStringKey
+    let action: LocalizedStringKey
+    let actionIdentifier: String
     let onConfirm: () -> Void
     @FocusState private var cancelFocused: Bool
 
     var body: some View {
         VStack(spacing: 40) {
-            Text("Change Server?").font(.title2.bold())
-            Text("Everyone on this Apple TV will need to find a server and sign in again.")
+            Text(title).font(.title2.bold())
+            Text(message)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 900)
@@ -205,9 +224,9 @@ private struct TVChangeServerConfirmation: View {
                     dismiss()
                     onConfirm()
                 } label: {
-                    Text("Change Server").frame(width: 500)
+                    Text(action).frame(width: 500)
                 }
-                .accessibilityIdentifier(A11yID.TV.Profile.changeServerConfirm)
+                .accessibilityIdentifier(actionIdentifier)
                 Button(role: .cancel) { dismiss() } label: {
                     Text("Cancel").frame(width: 500)
                 }

@@ -123,6 +123,12 @@ enum UITestScenario: String {
     /// checks the page offers Retry and Menu still pops it.
     case failingDetail
 
+    /// `.standard`, but every request naming the box set (its own item, its
+    /// members) is held for `UITestStubURLProtocol.slowBoxSetDelay`, so its
+    /// Apple TV detail page stays loading: the journey that presses Menu
+    /// before anything on the page could take focus.
+    case slowBoxSet
+
     /// `.standard`, but a movie's own item lists ten people, so its Cast &
     /// Crew rail runs well past the right edge of the action row above it:
     /// the Apple TV journey that presses Up from a person far along it.
