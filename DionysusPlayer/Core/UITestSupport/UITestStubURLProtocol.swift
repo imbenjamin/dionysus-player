@@ -531,7 +531,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
              .slowVideoDownload, .slowPlaybackInfo, .manyLibraries, .manyUsers:
             return nil
-        case .largeCast, .noBackdrop, .failingLibrary, .failingHome:
+        case .largeCast, .noBackdrop, .failingLibrary, .failingHome, .thinDynamicRails:
             return nil
         case .failingDetail:
             return path.hasSuffix("/Items/\(UITestFixtureIdentity.movieID(3))") ? 500 : nil
@@ -677,6 +677,16 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             let seasonID = query.first(where: { $0.name.caseInsensitiveCompare("SeasonId") == .orderedSame })?.value
             let episodes = seasonID.map { id in library.episodes.filter { $0.seasonId == id } } ?? library.episodes
             return try encode(result(scoped(episodes)))
+
+        case path.hasSuffix("/Genres") && UITestConfiguration.scenario == .thinDynamicRails:
+            let forMovies = query.contains { $0.name == "IncludeItemTypes" && ($0.value ?? "").contains("Movie") }
+            return try encode(result(forMovies ? named(["Drama"]) : []))
+
+        case path.hasSuffix("/Studios") && UITestConfiguration.scenario == .thinDynamicRails:
+            return try encode(result([]))
+
+        case path.hasSuffix("/Persons") && UITestConfiguration.scenario == .thinDynamicRails:
+            return try encode(result(named(Set((1...100).map { "Nobody \($0)" }))))
 
         case path.hasSuffix("/Genres"):
             return try encode(result(scoped(named(Set(library.movies.compactMap { $0.genres?.first })))))

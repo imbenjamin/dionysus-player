@@ -89,20 +89,33 @@ final class HomeJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(seeAll))
     }
 
-    /// A Libraries tile switches to the library's own page; it doesn't push.
-    func test_librariesRail_switchesToTheLibrarysPage() {
+    /// No Libraries rail: the sidebar already lists every library
+    /// (Benjamin, 2026-10-05).
+    func test_home_hasNoLibrariesRail() {
         let app = launchAtHome()
         let library = app.buttons[A11yID.TV.Main.library(UITestFixtureIdentity.moviesLibraryID)]
-        // Last, below every rail Home discovers as it scrolls.
-        for _ in 0..<40 where !library.exists { press(.down) }
-        XCTAssertTrue(library.waitForExistence(timeout: 5))
-        for _ in 0..<4 where !library.hasFocus { press(.down) }
-        XCTAssertTrue(waitForFocus(library))
-        press(.select)
-        XCTAssertTrue(waitForFocus(firstLibraryTile(app)))
-        press(.menu)
-        XCTAssertTrue(waitForExpanded(app.buttons[A11yID.TV.Sidebar.library(UITestFixtureIdentity.moviesLibraryID)]),
-                      "Menu opens the rail on the library's row: it's a top-level page, not a pushed one")
+        // Down to the bottom of Home, a rail at a time, past every rail it
+        // discovers: where the Libraries rail used to be built last.
+        for _ in 0..<15 where !library.exists {
+            press(.down)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        }
+        XCTAssertFalse(library.exists, "Home lists no libraries")
+    }
+
+    /// Rails keep arriving while the spinner at the bottom is on screen,
+    /// however many candidates come up too thin: here every one but Drama's.
+    /// The spinner used to load one batch when it appeared and never again,
+    /// so an empty batch left it spinning for good.
+    func test_moreRails_keepLoading_pastBatchesThatFindNothing() {
+        let app = launchAtHome(scenario: "thinDynamicRails")
+        let drama = app.descendants(matching: .any)[A11yID.TV.Main.rail("Drama Movies")]
+        let deadline = Date().addingTimeInterval(40)
+        while !drama.exists, Date() < deadline {
+            press(.down)
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+        }
+        XCTAssertTrue(drama.exists, "The one rail with enough titles arrives")
     }
 
     func test_failedHome_showsRetry() {

@@ -6,6 +6,9 @@ enum TVTileMetrics {
     static let poster = CGSize(width: 250, height: 375)
     /// Six to a row in a collection grid.
     static let gridPoster = CGSize(width: 240, height: 360)
+    /// Four to a row in a grid of landscape thumbs, across the six posters'
+    /// width: (6 × 240 + 5 × 44 − 3 × 44) / 4, at 16:9.
+    static let gridLandscape = CGSize(width: 382, height: 215)
     static let landscape = CGSize(width: 500, height: 281)
     static let episode = CGSize(width: 440, height: 248)
 
@@ -45,10 +48,9 @@ struct TVTileCaptionText: View {
 }
 
 enum TVTileCaption {
+    /// Always shown, Home's posters included (Benjamin, 2026-10-05: the
+    /// prototype's focus-only `hide-cap` left Home's movie tiles unnamed).
     case always
-    /// Posters on Home and in grids: the caption appears under the focused
-    /// tile only, as the prototype's `hide-cap`.
-    case onFocus
     case none
 }
 

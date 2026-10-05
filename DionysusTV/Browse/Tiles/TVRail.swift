@@ -5,6 +5,12 @@ import SwiftUI
 struct TVRail<Content: View>: View {
     let title: String
     var titleIdentifier: String?
+    /// Every tile built at once, for a rail that scrolls under the sidebar
+    /// (Home): lazily, a tile scrolled past the row's leading edge, under the
+    /// sidebar, was torn down once scrolling stopped. The row itself keeps
+    /// its bounds, so tvOS still keeps the focused tile clear of the
+    /// sidebar: widened to the screen's edge, focus scrolled under it.
+    var buildsEveryTile = false
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -14,9 +20,15 @@ struct TVRail<Content: View>: View {
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier(titleIdentifier ?? "")
             ScrollView(.horizontal) {
-                LazyHStack(alignment: .top, spacing: 48) { content }
-                    .padding(.vertical, 30)
-                    .padding(.trailing, 80)
+                Group {
+                    if buildsEveryTile {
+                        HStack(alignment: .top, spacing: 48) { content }
+                    } else {
+                        LazyHStack(alignment: .top, spacing: 48) { content }
+                    }
+                }
+                .padding(.vertical, 30)
+                .padding(.trailing, 80)
             }
             .scrollClipDisabled()
             .focusSection()

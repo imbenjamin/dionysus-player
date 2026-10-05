@@ -68,7 +68,9 @@ struct TVCollectionGridView: View {
     private var grid: some View {
         ZStack(alignment: .topLeading) {
             TVPosterCollection(
-                items: items, showsIndex: viewModel.sortField == .title,
+                // From every item, not the filtered ones, so a filter never
+                // changes the grid's shape under the person.
+                items: items, shape: TVTileShape(items: viewModel.items), showsIndex: viewModel.sortField == .title,
                 topInset: headerHeight, isLocked: openPill != nil, scrollToTopToken: scrollToTopToken,
                 rememberedItemID: $rememberedItemID,
                 onScroll: { scrollOffset = $0 },

@@ -22,9 +22,10 @@ struct TVBoxSetDetailView: View {
                         TVDetailEmptyMessage(text: String(localized: "This collection is empty."))
                     }
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 250), spacing: 48, alignment: .topLeading)], alignment: .leading, spacing: 60) {
+                    let shape = TVTileShape(items: viewModel.collectionItems)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: shape.railSize.width, maximum: shape.railSize.width), spacing: 48, alignment: .topLeading)], alignment: .leading, spacing: 60) {
                         ForEach(viewModel.collectionItems) { member in
-                            TVPosterTile(item: member, caption: .always, identifier: A11yID.TV.Detail.member(member.id)) {
+                            TVShapedTile(item: member, shape: shape, identifier: A11yID.TV.Detail.member(member.id)) {
                                 open(.assetDetail(itemID: member.id, preloadedItem: member))
                             }
                             .focused($focus, equals: member.id)

@@ -6,7 +6,7 @@ import SwiftUI
 struct TVPosterTile: View {
     let item: MediaItem
     var size: CGSize = TVTileMetrics.poster
-    var caption: TVTileCaption = .onFocus
+    var caption: TVTileCaption = .always
     let identifier: String
     let action: () -> Void
     @FocusState private var isFocused: Bool
@@ -26,7 +26,6 @@ struct TVPosterTile: View {
 
             if caption != .none {
                 TVTileCaptionText(title: item.railTitle, subtitle: item.railSubtitle, artSize: size, isFocused: isFocused)
-                    .opacity(caption == .always || isFocused ? 1 : 0)
             }
         }
     }

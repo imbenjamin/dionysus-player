@@ -436,6 +436,7 @@ enum A11yID {
             static let heroTitle = "tv.main.hero.title"
             static let heroDots = "tv.main.hero.dots"
             static func seeAll(_ title: String) -> String { "tv.main.seeAll.\(title)" }
+            static func rail(_ title: String) -> String { "tv.main.rail.\(title)" }
             static func library(_ libraryID: String) -> String { "tv.main.library.\(libraryID)" }
             static let retry = "tv.main.retry"
         }

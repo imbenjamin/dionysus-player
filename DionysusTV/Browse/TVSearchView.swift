@@ -103,7 +103,7 @@ struct TVSearchView: View {
                     ForEach(sections) { section in
                         TVRail(title: section.title, titleIdentifier: A11yID.TV.Search.section(section.id)) {
                             ForEach(section.results) { result in
-                                tile(result, focusID: result.id, identifier: A11yID.TV.Search.result(result.id))
+                                tile(result, shape: TVTileShape(results: section.results), focusID: result.id, identifier: A11yID.TV.Search.result(result.id))
                             }
                         }
                     }
@@ -152,7 +152,7 @@ struct TVSearchView: View {
             ForEach(TVSearchGrouping.sections(viewModel.history), id: \.recentKey) { section in
                 TVRail(title: section.title, titleIdentifier: A11yID.TV.Search.recentSection(section.id)) {
                     ForEach(section.results) { result in
-                        tile(result, focusID: Self.recentFocusID(result.id), identifier: A11yID.TV.Search.recent(result.id))
+                        tile(result, shape: TVTileShape(results: section.results), focusID: Self.recentFocusID(result.id), identifier: A11yID.TV.Search.recent(result.id))
                     }
                 }
             }
@@ -161,17 +161,20 @@ struct TVSearchView: View {
 
     /// Search hints carry no watched or favourite state, so these tiles have
     /// no badges; the detail page shows both.
-    private func tile(_ result: SearchResult, focusID: String, identifier: String) -> some View {
+    /// In its rail's shape (`TVTileShape`): a poster, or for shows and
+    /// episodes a landscape thumb, which the hint names by the episode's own
+    /// still or its show's thumb.
+    private func tile(_ result: SearchResult, shape: TVTileShape, focusID: String, identifier: String) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             Button {
                 viewModel.recordSelection(result)
                 open(.assetDetail(itemID: result.id))
             } label: {
                 AsyncRemoteImage(
-                    url: viewModel.imageURL(for: result, preferLandscape: false, maxWidth: 500),
+                    url: viewModel.imageURL(for: result, preferLandscape: shape == .landscape, maxWidth: shape == .landscape ? 1000 : 500),
                     placeholderSystemImage: result.kind?.placeholderSystemImage ?? "film"
                 )
-                .frame(width: TVTileMetrics.poster.width, height: TVTileMetrics.poster.height)
+                .frame(width: shape.railSize.width, height: shape.railSize.height)
             }
             .buttonStyle(.card)
             .focused($focusedResultID, equals: focusID)
@@ -181,7 +184,7 @@ struct TVSearchView: View {
             TVTileCaptionText(
                 title: result.name,
                 subtitle: result.subtitle,
-                artSize: TVTileMetrics.poster,
+                artSize: shape.railSize,
                 isFocused: focusedResultID == focusID
             )
         }
