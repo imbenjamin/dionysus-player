@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/dionysus-iOS-Default-512x512@1x.png" alt="Dionysus Player" width="180">
+  <img src=".github/dionysus-iOS-Default-512@1x.png" alt="Dionysus Player" width="180">
 </p>
 
 <h1 align="center">Dionysus Player</h1>
