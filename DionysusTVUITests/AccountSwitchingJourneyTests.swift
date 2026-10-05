@@ -45,20 +45,23 @@ final class AccountSwitchingJourneyTests: TVUITestCase {
     /// shares, and whoever is signed in stays signed in across a relaunch.
     func test_followAppleTVUsersOff_keepsTheSignedInAccountAcrossRelaunch() {
         let app = openProfile(launchAtHome())
-        let toggle = app.descendants(matching: .any)[A11yID.TV.Profile.followsAppleTVUsers]
-        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
-        XCTAssertEqual(toggle.value as? String, "1", "On by default")
-        press(.down, times: 2)
-        XCTAssertTrue(waitForFocus(toggle))
+        // The values read "On"/"Off", which are localized: the setting is
+        // read from Select a User Every Relaunch, there only while it's off.
+        let follows = app.buttons[A11yID.TV.Profile.followsAppleTVUsers]
+        let selects = app.buttons[A11yID.TV.Profile.selectsUserEveryRelaunch]
+        XCTAssertTrue(follows.waitForExistence(timeout: 10))
+        XCTAssertFalse(selects.exists, "On by default")
+        let before = follows.value as? String
+        pressDown(until: follows)
         press(.select)
-        XCTAssertTrue(poll(timeout: 5) { toggle.value as? String == "0" })
+        XCTAssertTrue(poll(timeout: 5) { (follows.value as? String) != before })
+        XCTAssertTrue(selects.waitForExistence(timeout: 5))
 
         app.terminate()
         let relaunched = launch(resetsState: false)
         XCTAssertTrue(relaunched.buttons[A11yID.TV.Main.heroPlay].waitForExistence(timeout: 10), "Still signed in, from the shared keychain")
-        let relaunchedToggle = openProfile(relaunched).descendants(matching: .any)[A11yID.TV.Profile.followsAppleTVUsers]
-        XCTAssertTrue(relaunchedToggle.waitForExistence(timeout: 10))
-        XCTAssertEqual(relaunchedToggle.value as? String, "0", "The setting is kept too")
+        let relaunchedSelects = openProfile(relaunched).buttons[A11yID.TV.Profile.selectsUserEveryRelaunch]
+        XCTAssertTrue(relaunchedSelects.waitForExistence(timeout: 10), "The setting is kept too")
     }
 
     /// Sharing one session with two accounts remembered: a relaunch starts at
@@ -73,15 +76,15 @@ final class AccountSwitchingJourneyTests: TVUITestCase {
         press(.select)
 
         app = openProfile(app)
-        let follows = app.descendants(matching: .any)[A11yID.TV.Profile.followsAppleTVUsers]
-        let selects = app.descendants(matching: .any)[A11yID.TV.Profile.selectsUserEveryRelaunch]
+        let follows = app.buttons[A11yID.TV.Profile.followsAppleTVUsers]
+        let selects = app.buttons[A11yID.TV.Profile.selectsUserEveryRelaunch]
         XCTAssertTrue(follows.waitForExistence(timeout: 10))
         XCTAssertFalse(selects.exists, "Nothing to choose while each Apple TV user has their own session")
-        press(.down, times: 2)
-        XCTAssertTrue(waitForFocus(follows))
+        pressDown(until: follows)
         press(.select)
         XCTAssertTrue(selects.waitForExistence(timeout: 5))
-        XCTAssertEqual(selects.value as? String, "1", "On by default")
+        // Values are localized: with Follow now off, an equal value is On.
+        XCTAssertTrue(poll(timeout: 5) { (selects.value as? String) != (follows.value as? String) }, "On by default")
 
         app.terminate()
         let relaunched = launch(scenario: "quickConnectPending", resetsState: false)

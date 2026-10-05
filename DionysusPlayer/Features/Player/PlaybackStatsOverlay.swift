@@ -515,15 +515,3 @@ struct PlaybackStatsOverlay: View {
         return String(format: "%d:%02d", minutes, seconds)
     }
 }
-
-let showPlaybackStatsButtonEnabledStorageKey = "showPlaybackStatsButtonEnabled"
-
-/// On in debug builds, off in release. `PlayerControlsOverlay`'s `@AppStorage`
-/// read of this key and `AdvancedPlaybackSettingsView`'s Toggle must declare
-/// the same default to agree before the setting is ever visited — same
-/// reasoning as `hero3DDepthEnabledStorageKey` in `HeroHeaderView.swift`.
-#if DEBUG
-let showPlaybackStatsButtonEnabledDefault = true
-#else
-let showPlaybackStatsButtonEnabledDefault = false
-#endif

@@ -1,14 +1,6 @@
 import CoreGraphics
 import SwiftUI
 
-/// This default and `ProfileView`'s `@AppStorage` default are declared by hand
-/// in both places, with nothing enforcing they stay in sync.
-let chaptersInScrubberEnabledStorageKey = "chaptersInScrubberEnabled"
-/// Chapters in the scrubber are opt-out, matching every other chapter surface —
-/// the rail, the current-chapter button, the picker — being on whenever chapters
-/// exist. This one is escapable for anyone who finds the snap distracting.
-let chaptersInScrubberEnabledDefault = true
-
 struct PlayerControlsOverlay: View {
     let viewModel: PlayerViewModel
     @Binding var isScrubbing: Bool

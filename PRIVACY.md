@@ -115,9 +115,10 @@ Dionysus Player account — your account belongs to your Jellyfin server.
 Within the app:
 
 - **Sign Out** removes your stored credentials from the Keychain. On Apple
-  TV, **Switch User** signs you out but keeps the account on "Who's
-  Watching?"; hold Select on it there and choose **Forget This Account** to
-  remove its stored credentials.
+  TV, Profile's **Sign Out** also forgets the account, removing its stored
+  credentials from "Who's Watching?". **Switch User** signs you out but
+  keeps the account there; hold Select on it and choose **Forget This
+  Account** to remove its stored credentials.
 - **Change Server** does that and also forgets the configured server
   address. On Apple TV it removes the accounts remembered for the current
   Apple TV user (or the shared ones, with Follow Apple TV Users off);

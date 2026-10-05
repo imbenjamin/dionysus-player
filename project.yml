@@ -275,6 +275,12 @@ targets:
           - "Downloads/**"
       - path: DionysusPlayer/Resources/Assets.xcassets
       - path: DionysusPlayer/Resources/Localizable.xcstrings
+      # Profile's License and Privacy Policy pages; LICENSE is extensionless,
+      # so forced into Copy Bundle Resources as on iOS.
+      - path: DionysusPlayer/Resources/LICENSE
+        buildPhase: resources
+      - path: DionysusPlayer/Resources/PRIVACY.md
+        buildPhase: resources
     dependencies:
       - package: AetherEngine
         product: AetherEngine

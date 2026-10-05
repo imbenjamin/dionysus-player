@@ -442,6 +442,46 @@ the system keyboard takes as a typed Return, not a key press, so Select
 types nothing there (on `develop` too). A Siri Remote press does type, as
 XCUITest's remote does.
 
+**Profile is the only way to settings** (`TVProfileView`, prototype screen
+11): the user's avatar, name, server and address and both versions on the
+left, and the settings as rows on the right (`TVSettingsRow`), in iOS's
+sections minus Downloads, Theme and 3D Depth Effects: Account (Switch User,
+Approve Quick Connect Code while the server has it on, Change Server, Sign
+Out), Apple TV Users, Appearance (Auto Carousel on Home), Playback (Next
+Episode Countdown, Chapters in Scrubber, Advanced) and About (License, Privacy
+Policy), with iOS's footers. What isn't guessable:
+- **Select on an on/off row flips it; a setting with more choices opens a
+  page listing them all** (`TVSettingsPicker`, Benjamin, 2026-10-05): Next
+  Episode Countdown, Streaming and Max Streaming Bitrate. The current choice
+  is ticked and takes focus; Select picks and closes, Menu closes without
+  changing anything. Not a SwiftUI `Menu`, for its late focus return. A row's
+  value is its accessibility value, which is localized, so journeys compare
+  it before and after, never to "On".
+- **A row that opens a page shows a chevron** (Benjamin, 2026-10-05), beside
+  its value when it has one. Advanced has none: it holds more than the
+  streaming mode, so it doesn't preview it.
+- **Sign Out forgets the account on this Apple TV**
+  (`AppState.signOutForgettingAccount()`); Switch User keeps it remembered,
+  one press away on Who's Watching? (Benjamin, 2026-10-01).
+- **Each sub-screen is a full-screen cover** (Advanced, Quick Connect
+  approval, the two text pages, Change Server's question), so Menu closes it
+  onto its row; not a push, which would put the sidebar beside it.
+- **The License and Privacy Policy pages are cut into focusable paragraphs**
+  (`TVTextPageView`), because a tvOS scroll view moves only with focus. Both
+  files are bundled into `DionysusTV` as on iOS (`project.yml`).
+- **Next Episode Countdown, Chapters in Scrubber, Subtitle Styling and Show
+  Playback Stats Button are stored but change nothing on tvOS until M4**
+  brings their player features; Streaming and Max Streaming Bitrate work now.
+  The chapters and stats keys moved to `PlayerPreferenceKeys.swift` with the
+  carousel's, since tvOS doesn't compile the iOS player views.
+
+**A page's `.accessibilityHidden(false)` overrides every
+`.accessibilityHidden(true)` inside it.** `TVMainView` once set
+`.accessibilityHidden(!onShow)` on each page, which on the page on show put
+the avatar and every backdrop in the tree (found by the tvOS accessibility
+audit). Hidden pages stay out of the tree without it (checked with a movie
+page over Home); set a hidden modifier only where it is always `true`.
+
 Sign-in puts
 Quick Connect first (`TVSignInRoute`): a user with a password goes to a code,
 with "Use Password Instead" one press away, and only a user the server reports
