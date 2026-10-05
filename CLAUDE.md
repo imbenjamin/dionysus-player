@@ -79,7 +79,18 @@ Every page sits in `TVPageScaffold`: the shell draws the plum glow once
 beneath every page (a page drawing its own faded in with it, showing the
 window's black for a frame), a page's own background fills the screen behind
 the rail, and its content starts right of the
-rail (`TVShellMetrics.contentInset`) and is clipped there. The gap beside the
+rail (`TVShellMetrics.contentInset`) and is clipped there, except on Home
+(`layout: .besideRailScrollingUnder`, Benjamin, 2026-10-05): its rails,
+scrolled right, keep drawing under the glass rail instead of vanishing at its
+edge, while each rail's first tile still starts at the inset. Lifting the
+clip alone wasn't enough: a rail's row ended at the inset, so the lazy stack
+tore down a tile scrolled past it once scrolling stopped. Widening the row to
+the screen's edge kept tiles built but let tvOS scroll the focused tile under
+the sidebar (a content margin and safe-area padding both tried, measured). So
+Home's rows keep their bounds and build every tile at once
+(`TVRail.buildsEveryTile`, an `HStack`): a rail's ~16 tiles load their
+artwork together rather than as they come into view. The clip is visual
+only, so no journey can see it; check it by screenshot. The gap beside the
 rail is 56pt, what a focused control's shape needs on its left: at 40pt the
 system's focus platter around a plain button was sliced off at the clip. Four focus facts
 cost a debugging session each:
@@ -126,8 +137,9 @@ grid to focus a tile it hadn't built, and anything below the first screen came
 back at the top.
 
 **Home is `TVHomeView` on the shared `HomeViewModel`**: the hero over a
-full-bleed backdrop, then the rails in iOS's order with See All tiles, then a
-Libraries rail. What isn't guessable:
+full-bleed backdrop, then the rails in iOS's order with See All tiles. There
+is no Libraries rail (Benjamin, 2026-10-05): the sidebar lists every library.
+Every tile's caption is always shown. What isn't guessable:
 - **The hero's timer runs only when everything allows it**
   (`TVHeroPager.timerRuns`): more than one item, Auto Carousel on, no Reduce
   Motion, not under the UI-test harness, the hero focused, Home on show, and
@@ -160,8 +172,15 @@ Libraries rail. What isn't guessable:
   `AssetDetailViewModel.loadIfNeeded()` runs its load in a task of its own,
   as `HomeViewModel`'s does. Cancelled, a show's episode lookups failed
   quietly and it loaded with no Play.
-- **A Libraries tile selects that library's page**; it doesn't push one, so
-  Menu there opens the rail on the library's row.
+- **More rails load for as long as the spinner below them is built**, in a
+  loop, not once when it appears (Benjamin saw it spin for good,
+  2026-10-05). A batch whose candidates were all too thin to make a rail, or
+  one that added rails without moving the spinner out of the lazy stack, or
+  an appearance mid-load, left nothing to ask for the next batch: logged on
+  the LAN server, one batch, then nothing through 20 presses. Each batch runs
+  in a task of its own, since cancelled with the spinner its requests failed
+  and its candidates were dropped as too thin. iOS's `ScrollBottomObserver`
+  exists because a row's appearance isn't a reliable trigger there either.
 - **Rails are keyed by title, in focus ids and in `ForEach`.** A rail's id is
   new with every refresh, and Home refreshes when it comes back on show:
   keyed by id the rails were rebuilt, each scrolled back to its start, and
@@ -371,6 +390,24 @@ sidebar leaves Search, which starts fresh when chosen again** (Benjamin,
 2026-10-04; `TVShellNavigation.selectionLeavesSearch`): the field emptied,
 the results and the remembered tile dropped. A detail page pushed from
 Search keeps the query, since Menu returns to it.
+
+**Every rail and grid chooses one tile shape, as iOS's rails do**
+(`TVTileShape`, Benjamin, 2026-10-05): posters when every item is
+movie-like, landscape thumbs when any is a show or an episode
+(`MediaItem.usesLandscapeRailTile`, the check behind iOS's
+`MediaCollectionRail.usesLandscapeTiles`), so a mix is landscape. That
+covers Home, More Like This, box set members, playlist rows, each Search and
+Recent Searches rail, and the library and See All grids, where landscape is
+four 16:9 columns (`TVTileMetrics.gridLandscape`) in the six posters' width.
+iOS's own library grid is always posters; tvOS's follows the rule. A grid
+takes its shape from every item, not the filtered ones, so a filter never
+changes it.
+
+**An episode tile carries its show's logo bottom-left**, as iOS's
+`episodeLogoOverlay` does (`TVEpisodeLogoOverlay`, Benjamin, 2026-10-05): a
+bottom gradient with the logo over it, raised clear of the progress bar while
+part-watched. Only episodes, and only when Jellyfin names a logo up the chain
+(`TVEpisodeLogo`); no text stands in, since the caption names the show.
 
 **A tile's caption moves down with its artwork's lift while the tile has
 focus** (`TVTileCaptionText`, `TVTileMetrics.captionLift`; Benjamin,

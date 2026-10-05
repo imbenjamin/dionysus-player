@@ -117,7 +117,6 @@ struct TVMainView: View {
         .environment(\.tvPageClaimedFocus, releaseRail)
         .environment(\.tvOpenRoute, open)
         .environment(\.tvOpenDetailBeneathPlayer, openDetailBeneathPlayer)
-        .environment(\.tvSelectLibrary) { id in select(.library(id)) }
         .animation(.easeOut(duration: 0.18), value: isExpanded)
         .animation(.easeOut(duration: 0.25), value: nav.hidesCollapsedRail)
         .animation(.easeOut(duration: 0.2), value: nav.librariesExpanded)

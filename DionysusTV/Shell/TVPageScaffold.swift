@@ -36,6 +36,11 @@ struct TVPageScaffold<Background: View, Content: View>: View {
     enum Layout {
         /// Right of the rail, clipped there.
         case besideRail
+        /// Right of the rail but not clipped, so a rail scrolled right keeps
+        /// drawing under the glass sidebar instead of vanishing at its edge
+        /// (Home; Benjamin, 2026-10-05). A rail's first tile still starts at
+        /// the content inset.
+        case besideRailScrollingUnder
         /// The whole screen within its safe area, for a page drawn on screens
         /// where the shell hides the collapsed rail (Search).
         case fullScreen
@@ -54,7 +59,8 @@ struct TVPageScaffold<Background: View, Content: View>: View {
 
     var body: some View {
         switch layout {
-        case .besideRail: besideRail
+        case .besideRail: besideRail(clipped: true)
+        case .besideRailScrollingUnder: besideRail(clipped: false)
         case .fullScreen:
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -64,7 +70,7 @@ struct TVPageScaffold<Background: View, Content: View>: View {
         }
     }
 
-    private var besideRail: some View {
+    private func besideRail(clipped: Bool) -> some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             // The whole content area, so Right from any sidebar row enters
@@ -78,6 +84,7 @@ struct TVPageScaffold<Background: View, Content: View>: View {
                 Rectangle()
                     .padding(.vertical, -400)
                     .padding(.trailing, -400)
+                    .padding(.leading, clipped ? 0 : -TVShellMetrics.contentInset)
             }
             .padding(.leading, TVShellMetrics.contentInset - TVShellMetrics.clipSlack)
             .ignoresSafeArea(edges: .leading)

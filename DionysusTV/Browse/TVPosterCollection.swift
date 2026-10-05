@@ -22,6 +22,8 @@ import UIKit
 /// written to `rememberedItemID`.
 struct TVPosterCollection: UIViewRepresentable {
     let items: [MediaItem]
+    /// Posters or landscape thumbs (`TVTileShape`), for the whole grid.
+    let shape: TVTileShape
     /// Whether the alphabet index is offered: only while sorted by title.
     let showsIndex: Bool
     /// Room at the top for the page's header, which is drawn over the
@@ -48,26 +50,33 @@ struct TVPosterCollection: UIViewRepresentable {
     @Environment(\.tvPageClaimedFocus) private var claimed
     @Environment(\.isEnabled) private var isEnabled
 
-    static let columns = 6
     static let columnSpacing: CGFloat = 44
-    /// A poster and its two-line caption.
-    static let cellSize = CGSize(width: TVTileMetrics.gridPoster.width, height: TVTileMetrics.gridPoster.height + 90)
     static let rowSpacing: CGFloat = 60
-    static var width: CGFloat { CGFloat(columns) * cellSize.width + CGFloat(columns - 1) * columnSpacing }
+
+    /// A tile and its two-line caption.
+    static func cellSize(_ shape: TVTileShape) -> CGSize {
+        CGSize(width: shape.gridSize.width, height: shape.gridSize.height + 90)
+    }
+
+    /// Six posters or four thumbs to a row, the same width either way.
+    static func layout(_ shape: TVTileShape) -> UICollectionViewCompositionalLayout {
+        let cell = cellSize(shape)
+        let columns = CGFloat(shape.gridColumns)
+        let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .absolute(cell.width), heightDimension: .absolute(cell.height)))
+        let group = NSCollectionLayoutGroup.horizontal(
+            layoutSize: .init(widthDimension: .absolute(columns * cell.width + (columns - 1) * columnSpacing), heightDimension: .absolute(cell.height)),
+            subitems: [item]
+        )
+        group.interItemSpacing = .fixed(columnSpacing)
+        let section = NSCollectionLayoutSection(group: group)
+        section.interGroupSpacing = rowSpacing
+        return UICollectionViewCompositionalLayout(section: section)
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> UICollectionView {
-        let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .absolute(Self.cellSize.width), heightDimension: .absolute(Self.cellSize.height)))
-        let group = NSCollectionLayoutGroup.horizontal(
-            layoutSize: .init(widthDimension: .absolute(Self.width), heightDimension: .absolute(Self.cellSize.height)),
-            subitems: [item]
-        )
-        group.interItemSpacing = .fixed(Self.columnSpacing)
-        let section = NSCollectionLayoutSection(group: group)
-        section.interGroupSpacing = Self.rowSpacing
-
-        let view = TVPosterCollectionView(frame: .zero, collectionViewLayout: UICollectionViewCompositionalLayout(section: section))
+        let view = TVPosterCollectionView(frame: .zero, collectionViewLayout: Self.layout(shape))
         view.backgroundColor = .clear
         // A focused tile lifts past the collection view's edges.
         view.clipsToBounds = false
@@ -110,7 +119,10 @@ struct TVPosterCollection: UIViewRepresentable {
                 if atTop { view.contentOffset.y = -new.topInset }
             }
 
-            if old.items.map(\.id) != new.items.map(\.id) || old.showsIndex != new.showsIndex {
+            if old.shape != new.shape {
+                view.setCollectionViewLayout(TVPosterCollection.layout(new.shape), animated: false)
+            }
+            if old.items.map(\.id) != new.items.map(\.id) || old.showsIndex != new.showsIndex || old.shape != new.shape {
                 // Done now, not left for UIKit's next pass: deferred, the
                 // reload ran inside a focus update (asked whether a cell
                 // could take focus), reused the cell that had focus, and
@@ -224,7 +236,7 @@ struct TVPosterCollection: UIViewRepresentable {
             guard let cell = cell as? TVPosterCell, parent.items.indices.contains(indexPath.item) else { return }
             let item = parent.items[indexPath.item]
             let open = parent.open
-            cell.show(item) { open(item) }
+            cell.show(item, shape: parent.shape) { open(item) }
         }
 
         func indexTitles(for collectionView: UICollectionView) -> [String]? {
@@ -273,6 +285,8 @@ final class TVPosterCell: UICollectionViewCell {
     private let poster = TVCaptionedPosterView(frame: .zero)
     private let badges = UIHostingController(rootView: TVPosterOverlay(item: nil, isLoaded: false))
     private var itemID: String?
+    private var shape: TVTileShape = .poster
+    private lazy var posterWidth = poster.widthAnchor.constraint(equalToConstant: TVTileMetrics.gridPoster.width)
     private var imageTask: Task<Void, Never>?
     private var action: () -> Void = {}
 
@@ -289,7 +303,7 @@ final class TVPosterCell: UICollectionViewCell {
         NSLayoutConstraint.activate([
             poster.topAnchor.constraint(equalTo: contentView.topAnchor),
             poster.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            poster.widthAnchor.constraint(equalToConstant: TVTileMetrics.gridPoster.width)
+            posterWidth
         ])
         // Over the artwork, so the badges lift with it.
         let overlay = poster.imageView.overlayContentView
@@ -323,10 +337,15 @@ final class TVPosterCell: UICollectionViewCell {
         poster.image = nil
     }
 
-    func show(_ item: MediaItem, action: @escaping () -> Void) {
+    func show(_ item: MediaItem, shape: TVTileShape, action: @escaping () -> Void) {
         self.action = action
-        let isNewItem = itemID != item.id
+        let isNewItem = itemID != item.id || self.shape != shape
         itemID = item.id
+        if self.shape != shape {
+            self.shape = shape
+            posterWidth.constant = shape.gridSize.width
+            poster.contentSize = shape.gridSize
+        }
         poster.title = item.railTitle
         poster.subtitle = item.railSubtitle
         poster.styleCaption()
@@ -340,7 +359,9 @@ final class TVPosterCell: UICollectionViewCell {
             return
         }
         imageTask?.cancel()
-        guard let url = item.primaryImageURL else {
+        // A thumb for a landscape grid, as `TVLandscapeTile` draws it.
+        let artwork = shape == .landscape ? (item.thumbImageURL ?? item.primaryImageURL) : item.primaryImageURL
+        guard let url = artwork else {
             poster.image = nil
             badges.rootView = TVPosterOverlay(item: item, isLoaded: false, isSettled: true)
             return
@@ -374,7 +395,7 @@ final class TVPosterCell: UICollectionViewCell {
     /// (Benjamin, 2026-10-03). The size is set again with every image.
     private func setImage(_ image: UIImage?) {
         poster.image = image
-        poster.contentSize = TVTileMetrics.gridPoster
+        poster.contentSize = shape.gridSize
         poster.setNeedsLayout()
     }
 

@@ -204,9 +204,10 @@ to the hero; More Info opens the detail page; Right from More Info turns the pag
 wraps to the first item after the last, and Left from Play opens the rail; it doesn't move by
 itself under the harness, which freezes ambient motion), See All (it opens a
 grid and Menu returns to the See All tile, found by walking to the third
-rail, since a lazy row builds its end only when reached), the Libraries rail
-(a tile switches to the library's own page, so Menu opens the rail on that
-library's row), and a Home that fails to load (`failingHome`: the hero's
+rail, since a lazy row builds its end only when reached), that Home has no
+Libraries rail (the sidebar lists them), that rails keep arriving past
+batches that find nothing (`thinDynamicRails`: a hundred people with no
+titles and one genre with enough), and a Home that fails to load (`failingHome`: the hero's
 random query answers 500) offering Retry. `TVHeroPagerTests` pins when the
 hero's timer runs and how it pages; `TVHeroPlayTargetTests` pins that a series
 in the hero plays its next episode.
@@ -262,7 +263,9 @@ fixture's Late Night) shows a message that takes focus, so Menu pops.
 the host gets the fake engine, so nothing is handed to AVKit; the journeys
 check that the remote reaches the host's own handlers (Right skips 10s) and
 that Menu dismisses, including while the item is still loading
-(`slowPlaybackInfo`). `SearchJourneyTests` opens Search from the rail and
+(`slowPlaybackInfo`). `TileShapeJourneyTests` reads a tile's shape from its
+frame: a shows library's grid and Search's Shows rail are landscape, a movies
+library's grid stays posters. `SearchJourneyTests` opens Search from the rail and
 types into the system search field (`typeText` works on tvOS once the field
 exists, delete keys included): a result sits under its type's rail and opens
 its detail page with the query kept, a show is listed under Shows, an empty history shows iOS's

@@ -37,11 +37,12 @@ struct TVPlaylistDetailView: View {
                 } else if viewModel.loadState == .loaded {
                     TVDetailEmptyMessage(text: String(localized: "This playlist is empty."))
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 440, maximum: 440), spacing: 44, alignment: .topLeading)], alignment: .leading, spacing: 50) {
+                let shape = TVTileShape(items: items)
+                let tileWidth = shape == .landscape ? TVTileMetrics.episode.width : TVTileMetrics.poster.width
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: tileWidth, maximum: tileWidth), spacing: 44, alignment: .topLeading)], alignment: .leading, spacing: 50) {
                     ForEach(items, id: \.playlistItemID) { member in
-                        TVLandscapeTile(
-                            item: member, size: TVTileMetrics.episode,
-                            title: member.railTitle, subtitle: member.railSubtitle,
+                        TVShapedTile(
+                            item: member, shape: shape, landscapeSize: TVTileMetrics.episode,
                             identifier: A11yID.TV.Detail.member(member.playlistItemID ?? member.id)
                         ) { play(member) }
                         .focused($focus, equals: Self.key(member))

@@ -21,6 +21,7 @@ struct TVLandscapeTile: View {
                     placeholderSystemImage: item.kind.placeholderSystemImage
                 )
                 .frame(width: size.width, height: size.height)
+                .overlay { TVEpisodeLogoOverlay(item: item, tileSize: size) }
                 .overlay { TVTileBadges(badges: WatchBadges(item: item)) }
             }
             .buttonStyle(.card)

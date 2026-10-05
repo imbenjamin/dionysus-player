@@ -155,6 +155,13 @@ enum UITestScenario: String {
     /// first asked, as a server still starting up does: whatever loads the
     /// libraries at launch fails, and a later retry succeeds.
     case librariesFailAtFirst
+
+    /// `.standard`, but Home's dynamic rails are almost all too thin to show:
+    /// `/Persons` names a hundred people with no titles, `/Studios` names
+    /// none, and `/Genres` names one, Drama, whose five movies make the one
+    /// rail ("Drama Movies"). The first batches come up empty, so Home has to
+    /// keep loading while its spinner is on screen.
+    case thinDynamicRails
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a

@@ -144,8 +144,9 @@ struct TVShowDetailView: View {
                 }
                 if !viewModel.similar.isEmpty {
                     TVRail(title: String(localized: "More Like This")) {
+                        let shape = TVTileShape(items: viewModel.similar)
                         ForEach(viewModel.similar) { similar in
-                            TVPosterTile(item: similar, caption: .always, identifier: A11yID.TV.Detail.similar(similar.id)) {
+                            TVShapedTile(item: similar, shape: shape, identifier: A11yID.TV.Detail.similar(similar.id)) {
                                 open(.assetDetail(itemID: similar.id, preloadedItem: similar))
                             }
                             .focused($focus, equals: "similar.\(similar.id)")

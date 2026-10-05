@@ -10,7 +10,6 @@ struct TVHomeView: View {
     @Binding var rememberedFocus: String?
     @Environment(\.tvOpenRoute) private var open
     @Environment(\.tvOpenDetailBeneathPlayer) private var openDetailBeneathPlayer
-    @Environment(\.tvSelectLibrary) private var selectLibrary
     @Environment(\.tvPageIsOnShow) private var isOnShow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(heroAutoCarouselEnabledStorageKey) private var autoCarousel = true
@@ -24,7 +23,6 @@ struct TVHomeView: View {
         viewModel.heroItems.indices.contains(pager.index) ? viewModel.heroItems[pager.index] : viewModel.heroItems.first
     }
 
-    private var libraries: [MediaItem] { viewModel.libraries.filter { !$0.isAudioLibrary } }
     private var heroHasFocus: Bool { focus?.hasPrefix("hero.") ?? false }
 
     private var timerRuns: Bool {
@@ -49,11 +47,10 @@ struct TVHomeView: View {
             + viewModel.rails.flatMap { rail in
                 rail.items.map { Self.tileFocus(rail: rail, item: $0.id) } + (rail.seeAllQuery == nil ? [] : [Self.seeAllFocus(rail)])
             }
-            + libraries.map { "library.\($0.id)" }
     }
 
     var body: some View {
-        TVPageScaffold(background: { background }) {
+        TVPageScaffold(layout: .besideRailScrollingUnder, background: { background }) {
             if heroItem != nil || !viewModel.rails.isEmpty {
                 content
             } else if case .failed(let message) = viewModel.loadState {
@@ -122,12 +119,26 @@ struct TVHomeView: View {
                     railView(rail)
                 }
                 if viewModel.hasMoreDynamicRails {
+                    // Keeps loading batches for as long as the spinner is
+                    // built (on screen, or near it in the lazy stack), not one
+                    // when it appears: a batch whose candidates were all too
+                    // thin, or one that added rails without moving the spinner
+                    // out of the stack, or an appearance mid-load, left it
+                    // spinning for good. iOS's `ScrollBottomObserver` exists
+                    // for the same reason. Each batch runs in a task of its
+                    // own: cancelled with the spinner, its requests failed and
+                    // its candidates were dropped as too thin.
                     ProgressView()
                         .frame(maxWidth: .infinity)
-                        .task { await viewModel.loadMoreDynamicRails() }
-                }
-                if !libraries.isEmpty {
-                    librariesRail
+                        .task {
+                            while !Task.isCancelled, viewModel.hasMoreDynamicRails {
+                                if viewModel.isLoadingMoreDynamicRails {
+                                    try? await Task.sleep(for: .milliseconds(250))
+                                    continue
+                                }
+                                await Task { await viewModel.loadMoreDynamicRails() }.value
+                            }
+                        }
                 }
             }
             .padding(.top, 60)
@@ -140,18 +151,11 @@ struct TVHomeView: View {
     }
 
     private func railView(_ rail: MediaCollectionRail) -> some View {
-        TVRail(title: rail.title) {
+        let shape = TVTileShape(items: rail.items)
+        return TVRail(title: rail.title, titleIdentifier: A11yID.TV.Main.rail(rail.title), buildsEveryTile: true) {
             ForEach(rail.items) { item in
-                Group {
-                    if rail.usesLandscapeTiles {
-                        TVLandscapeTile(item: item, title: item.railTitle, subtitle: item.railSubtitle, identifier: A11yID.TV.Main.tile(item.id)) {
-                            open(.assetDetail(itemID: item.id, preloadedItem: item))
-                        }
-                    } else {
-                        TVPosterTile(item: item, identifier: A11yID.TV.Main.tile(item.id)) {
-                            open(.assetDetail(itemID: item.id, preloadedItem: item))
-                        }
-                    }
+                TVShapedTile(item: item, shape: shape, identifier: A11yID.TV.Main.tile(item.id)) {
+                    open(.assetDetail(itemID: item.id, preloadedItem: item))
                 }
                 .focused($focus, equals: Self.tileFocus(rail: rail, item: item.id))
             }
@@ -161,34 +165,12 @@ struct TVHomeView: View {
                         Image(systemName: "arrow.right").font(.system(size: 64)).accessibilityHidden(true)
                         Text("See All").font(.callout.weight(.semibold))
                     }
-                    .frame(width: TVTileMetrics.poster.width, height: rail.usesLandscapeTiles ? TVTileMetrics.landscape.height : TVTileMetrics.poster.height)
+                    .frame(width: TVTileMetrics.poster.width, height: shape.railSize.height)
                     .background(.white.opacity(0.1))
                 }
                 .buttonStyle(.card)
                 .focused($focus, equals: Self.seeAllFocus(rail))
                 .accessibilityIdentifier(A11yID.TV.Main.seeAll(rail.title))
-            }
-        }
-    }
-
-    /// Each tile switches to the library's own page.
-    private var librariesRail: some View {
-        TVRail(title: String(localized: "Libraries")) {
-            ForEach(libraries) { library in
-                Button { selectLibrary(library.id) } label: {
-                    AsyncRemoteImage(url: library.primaryImageURL, placeholderSystemImage: TVSidebarLayout.systemImage(forCollectionType: library.collectionType))
-                        .frame(width: TVTileMetrics.episode.width, height: TVTileMetrics.episode.height)
-                        .overlay {
-                            Text(verbatim: library.name)
-                                .font(.system(size: 44, weight: .bold))
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(Color(red: 20 / 255, green: 4 / 255, blue: 14 / 255).opacity(0.55))
-                        }
-                }
-                .buttonStyle(.card)
-                .focused($focus, equals: "library.\(library.id)")
-                .accessibilityLabel(library.name)
-                .accessibilityIdentifier(A11yID.TV.Main.library(library.id))
             }
         }
     }

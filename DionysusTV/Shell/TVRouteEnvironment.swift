@@ -10,10 +10,6 @@ extension EnvironmentValues {
     /// shows at once, as its own Play does.
     @Entry var tvOpenDetailBeneathPlayer: @MainActor (MediaItem) -> (@MainActor (PlaybackSessionOutcome) -> Void) = { _ in { _ in } }
 
-    /// Switches the shell to a library's own page (Home's Libraries rail).
-    /// It doesn't push: a library is a top-level page with its own rail row.
-    @Entry var tvSelectLibrary: @MainActor (String) -> Void = { _ in }
-
     /// False for a page kept alive beneath the top one. A hidden page claims
     /// no focus and runs no timer; when it turns true again the page takes
     /// focus back and refreshes what may have changed above it.
