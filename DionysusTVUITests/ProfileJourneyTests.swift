@@ -193,6 +193,21 @@ final class ProfileJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(privacy))
     }
 
+    /// Sign Out asks first (Benjamin, 2026-10-05), with Cancel focused, so a
+    /// stray Select keeps the account; Cancel returns to the row.
+    func test_signOut_asksFirst_andCancelKeepsYouSignedIn() {
+        let app = launchAtHome()
+        openProfile(app)
+        let signOut = app.buttons[A11yID.TV.Profile.signOut]
+        pressDownThroughProfile(until: signOut)
+        press(.select)
+        let confirm = app.buttons[A11yID.TV.Profile.signOutConfirm]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        XCTAssertFalse(confirm.hasFocus, "Cancel, not the destructive action, takes focus")
+        press(.select)
+        XCTAssertTrue(waitForFocus(signOut), "Cancel returns to the row, still signed in")
+    }
+
     /// Sign Out forgets the account: Who's Watching? lists it as an ordinary
     /// server user again, not as a remembered one.
     func test_signOut_forgetsTheAccount() {
@@ -200,6 +215,11 @@ final class ProfileJourneyTests: TVUITestCase {
         openProfile(app)
         let signOut = app.buttons[A11yID.TV.Profile.signOut]
         pressDownThroughProfile(until: signOut)
+        press(.select)
+        let confirm = app.buttons[A11yID.TV.Profile.signOutConfirm]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        press(.up)
+        XCTAssertTrue(waitForFocus(confirm))
         press(.select)
         XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.whosWatchingTitle].waitForExistence(timeout: 10))
         XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Onboarding.user(UITestFixtureIdentity.userID)].waitForExistence(timeout: 5))

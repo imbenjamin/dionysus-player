@@ -16,7 +16,7 @@ import UIKit
 /// Under the UI-test harness the engine is a fake with no `AVPlayer` and no
 /// Aether view, so nothing is bound to AVKit and its SwiftUI surface is shown
 /// instead.
-final class TVPlayerHostController: AVPlayerViewController {
+final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation {
     private let session: TVPlaybackSession
     private let engine: PlaybackEngine
     private let chrome = TVTransportChrome()

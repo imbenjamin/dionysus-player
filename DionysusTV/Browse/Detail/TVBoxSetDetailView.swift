@@ -20,6 +20,8 @@ struct TVBoxSetDetailView: View {
                 if viewModel.collectionItems.isEmpty {
                     if viewModel.loadState == .loaded {
                         TVDetailEmptyMessage(text: String(localized: "This collection is empty."))
+                    } else {
+                        TVDetailLoading()
                     }
                 } else {
                     let shape = TVTileShape(items: viewModel.collectionItems)
@@ -62,6 +64,26 @@ struct TVDetailEmptyMessage: View {
             .focused($focused, equals: "empty")
             .accessibilityIdentifier(A11yID.TV.Detail.emptyMessage)
             .tvClaimsFocus($focused, ids: ["empty"], remembered: $remembered)
+    }
+}
+
+/// Shown while a page's content is still on its way. It takes focus for the
+/// same reason as `TVDetailEmptyMessage`, and because the shell, finding
+/// focus nowhere three seconds after a push, opens the sidebar over the page,
+/// where Menu then leaves the app instead of popping (M3 review). The page's
+/// own claim takes focus from it once the content lands.
+struct TVDetailLoading: View {
+    @FocusState private var focused: String?
+    @State private var remembered: String?
+
+    var body: some View {
+        ProgressView()
+            .padding(24)
+            .focusable()
+            .focused($focused, equals: "loading")
+            .accessibilityLabel(Text("Loading"))
+            .accessibilityIdentifier(A11yID.TV.Detail.loading)
+            .tvClaimsFocus($focused, ids: ["loading"], remembered: $remembered)
     }
 }
 

@@ -26,6 +26,8 @@ struct TVPosterCollection: UIViewRepresentable {
     let shape: TVTileShape
     /// Whether the alphabet index is offered: only while sorted by title.
     let showsIndex: Bool
+    /// The title sort runs Z→A, so the index does too.
+    var indexDescending = false
     /// Room at the top for the page's header, which is drawn over the
     /// collection view and moved with its scrolling (`onScroll`).
     let topInset: CGFloat
@@ -122,7 +124,12 @@ struct TVPosterCollection: UIViewRepresentable {
             if old.shape != new.shape {
                 view.setCollectionViewLayout(TVPosterCollection.layout(new.shape), animated: false)
             }
-            if old.items.map(\.id) != new.items.map(\.id) || old.showsIndex != new.showsIndex || old.shape != new.shape {
+            if old.items.map(\.id) != new.items.map(\.id) || old.showsIndex != new.showsIndex || old.indexDescending != new.indexDescending || old.shape != new.shape {
+                // A list that changes under a focused tile is a refresh (back
+                // on show, a title gone from a filter), not a new filter or
+                // sort, which is chosen from the header.
+                let focusedIndex = focusedIndexPath(in: view)?.item
+                let focusedID = focusedIndex.flatMap { old.items.indices.contains($0) ? old.items[$0].id : nil }
                 // Done now, not left for UIKit's next pass: deferred, the
                 // reload ran inside a focus update (asked whether a cell
                 // could take focus), reused the cell that had focus, and
@@ -130,9 +137,17 @@ struct TVPosterCollection: UIViewRepresentable {
                 // from Home and coming back).
                 view.reloadData()
                 view.layoutIfNeeded()
-                // A new list (a filter, a sort) starts at its top.
                 if hasClaimed, old.items.map(\.id) != new.items.map(\.id) {
-                    view.setContentOffset(CGPoint(x: 0, y: -new.topInset), animated: false)
+                    if isPlacingFocus {
+                        // A restore under way looks its target up again.
+                    } else if let focusedIndex, !new.items.isEmpty, new.isOnShow {
+                        // Keep the place: the same title, or the one that
+                        // took its place (M3 review).
+                        focus(itemID: focusedID, fallbackIndex: focusedIndex, in: view)
+                    } else {
+                        // A new list (a filter, a sort) starts at its top.
+                        view.setContentOffset(CGPoint(x: 0, y: -new.topInset), animated: false)
+                    }
                 }
             } else if old.items != new.items {
                 // The same titles with something changed (a badge): redraw
@@ -160,19 +175,24 @@ struct TVPosterCollection: UIViewRepresentable {
                 // Chosen from the sidebar: a page opens at its start.
                 focus(itemID: nil, in: view)
             } else if !old.isOnShow {
-                // Back on show after the page above was popped.
-                focus(itemID: new.rememberedItemID, in: view)
+                // Back on show after the page above was popped. Should the
+                // title leave the list as it refreshes, its neighbour.
+                let index = new.rememberedItemID.flatMap { id in new.items.firstIndex { $0.id == id } } ?? 0
+                focus(itemID: new.rememberedItemID, fallbackIndex: index, in: view)
             }
         }
 
-        /// Puts focus on a tile, the first when `itemID` is `nil` or no
-        /// longer listed. The cell has to be on screen to take focus, and a
+        /// Puts focus on a tile: `itemID`'s, or when it's `nil` or no longer
+        /// listed, the one at `fallbackIndex` (the first by default, the last
+        /// past the end). The cell has to be on screen to take focus, and a
         /// request made while the page is still being enabled is dropped, so
         /// it is made until it holds.
-        private func focus(itemID: String?, in view: UICollectionView) {
-            let index = itemID.flatMap { id in parent.items.firstIndex { $0.id == id } } ?? 0
-            let target = IndexPath(item: index, section: 0)
-            let id = parent.items[index].id
+        ///
+        /// The target is looked up again on every attempt: the page reloads
+        /// its list as it comes back on show, and an index path kept from
+        /// before a title dropped out of a filtered grid was past the end,
+        /// which `scrollToItem` raises on (the M3 review; it aborted the app).
+        private func focus(itemID: String?, fallbackIndex: Int = 0, in view: UICollectionView) {
             isPlacingFocus = true
             restoreTask?.cancel()
             restoreTask = Task { @MainActor [weak self, weak view] in
@@ -181,8 +201,14 @@ struct TVPosterCollection: UIViewRepresentable {
                 // come after the first requests, taking focus to the
                 // header's first pill.
                 var held = 0
+                var id: String?
                 for _ in 0..<30 {
                     guard let self, let view, !Task.isCancelled else { return }
+                    let items = self.parent.items
+                    guard !items.isEmpty else { break }
+                    let index = itemID.flatMap { id in items.firstIndex { $0.id == id } } ?? min(fallbackIndex, items.count - 1)
+                    let target = IndexPath(item: index, section: 0)
+                    id = items[index].id
                     view.layoutIfNeeded()
                     if view.cellForItem(at: target) == nil {
                         view.scrollToItem(at: target, at: .centeredVertically, animated: false)
@@ -199,15 +225,15 @@ struct TVPosterCollection: UIViewRepresentable {
                     }
                     // Held for a few passes in a row, so a later request
                     // from the shell can't take it straight back.
-                        let ok = self.focusedIndexPath(in: view) == target
-                held = ok ? held + 1 : 0
+                    let ok = self.focusedIndexPath(in: view) == target
+                    held = ok ? held + 1 : 0
                     if held >= 4 { break }
                     try? await Task.sleep(for: .milliseconds(50))
                 }
                 guard let self else { return }
                 (self.collectionView as? TVPosterCollectionView)?.focusTarget = nil
                 self.isPlacingFocus = false
-                if self.parent.rememberedItemID != id { self.parent.rememberedItemID = id }
+                if let id, self.parent.rememberedItemID != id { self.parent.rememberedItemID = id }
                 self.parent.claimed()
             }
         }
@@ -241,7 +267,7 @@ struct TVPosterCollection: UIViewRepresentable {
 
         func indexTitles(for collectionView: UICollectionView) -> [String]? {
             guard parent.showsIndex else { return nil }
-            return TVAlphabetIndex.indexTitles(parent.items.map(\.name))
+            return TVAlphabetIndex.indexTitles(parent.items.map(\.name), descending: parent.indexDescending)
         }
 
         func collectionView(_ collectionView: UICollectionView, indexPathForIndexTitle title: String, at index: Int) -> IndexPath {

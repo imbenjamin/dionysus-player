@@ -36,6 +36,8 @@ struct TVPlaylistDetailView: View {
                     .focusSection()
                 } else if viewModel.loadState == .loaded {
                     TVDetailEmptyMessage(text: String(localized: "This playlist is empty."))
+                } else {
+                    TVDetailLoading()
                 }
                 let shape = TVTileShape(items: items)
                 let tileWidth = shape == .landscape ? TVTileMetrics.episode.width : TVTileMetrics.poster.width

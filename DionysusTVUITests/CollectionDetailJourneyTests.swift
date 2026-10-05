@@ -38,6 +38,31 @@ final class CollectionDetailJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(tile))
     }
 
+    /// Menu while a page is still loading pops it (the M3 review's Review
+    /// Focus 5): the page keeps focus on its loading indicator, so the
+    /// sidebar's three-second fallback never opens over it and Menu, which
+    /// reaches nothing while nothing has focus, still has somewhere to go.
+    func test_menuWhileABoxSetLoads_popsBackToItsTile() {
+        let app = launchAtHome(scenario: "slowBoxSet")
+        let tile = open(UITestFixtureIdentity.boxSetID, inLibrary: UITestFixtureIdentity.boxSetsLibraryID, app)
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Detail.loading].waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 4)
+        XCTAssertFalse(app.buttons[A11yID.TV.Sidebar.home].hasFocus || app.buttons[A11yID.TV.Sidebar.library(UITestFixtureIdentity.boxSetsLibraryID)].hasFocus,
+                       "The sidebar stays shut over a loading page")
+        press(.menu)
+        XCTAssertTrue(waitForFocus(tile), "Menu pops the loading page")
+    }
+
+    /// Once the members land, focus moves from the loading indicator to
+    /// the first of them.
+    func test_aBoxSetThatLoadsSlowly_focusesItsFirstMovieOnceLoaded() {
+        let app = launchAtHome(scenario: "slowBoxSet")
+        _ = open(UITestFixtureIdentity.boxSetID, inLibrary: UITestFixtureIdentity.boxSetsLibraryID, app)
+        XCTAssertTrue(waitForFocus(app.descendants(matching: .any)[A11yID.TV.Detail.loading]))
+        XCTAssertTrue(members(app).firstMatch.waitForExistence(timeout: 30), "The members land")
+        XCTAssertTrue(waitForFocus(members(app).firstMatch), "and the first takes focus")
+    }
+
     /// A playlist plays from its Play button and from any row.
     func test_playlist_playsFromPlay_andFromARow() {
         let app = launchAtHome()

@@ -1,5 +1,9 @@
 import UIKit
 
+/// The player's host, as `TVPlayerPresenter` recognises it in the presented
+/// chain.
+protocol TVPlayerPresentation: UIViewController {}
+
 /// Presents the player with UIKit, never `fullScreenCover`, which takes the
 /// Menu press away from the controller. The page beneath stays as it is, so
 /// leaving the player is immediate and focus is still on the title played
@@ -7,7 +11,8 @@ import UIKit
 enum TVPlayerPresenter {
     /// `request.itemID` must be directly playable: a movie or an episode.
     /// `queue` is the playlist being played through, empty otherwise.
-    /// Returns whether the player was presented.
+    /// Returns whether the player was presented: not while one is already up
+    /// or still coming up (`canPresent(over:)`).
     @MainActor @discardableResult
     static func present(
         _ request: PlaybackRequest,
@@ -16,7 +21,7 @@ enum TVPlayerPresenter {
         userID: String,
         onClose: (@MainActor (PlaybackSessionOutcome) -> Void)? = nil
     ) -> Bool {
-        guard let engine = makeEngine() else { return false }
+        guard canPresent(over: presentedChain()), let engine = makeEngine() else { return false }
         let viewModel = PlayerViewModel(
             client: client, userID: userID, itemID: request.itemID, engine: engine,
             startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID,
@@ -25,7 +30,7 @@ enum TVPlayerPresenter {
         let host = TVPlayerHostController(viewModel: viewModel, engine: engine)
         host.onClose = onClose
         host.modalPresentationStyle = .fullScreen
-        guard let presenter = topViewController() else { return false }
+        guard let presenter = presentedChain().last else { return false }
         presenter.present(host, animated: true)
         return true
     }
@@ -46,11 +51,30 @@ enum TVPlayerPresenter {
         return try? AetherPlaybackEngine(ownsNowPlayingSession: false)
     }
 
+    /// `chain` runs from the window's root to the top presented controller.
+    /// A second Play while a player is in it is refused (M3 review): an
+    /// impatient second Select on the hero, landing after its Next Up lookup,
+    /// stacked a second player, or pushed a second detail page whose player
+    /// never closed. UIKit sets `presentedViewController` as soon as
+    /// `present` is called, so a player still animating in counts.
+    static func canPresent(over chain: [UIViewController]) -> Bool {
+        !chain.isEmpty && !chain.contains { $0 is TVPlayerPresentation }
+    }
+
     @MainActor
     private static func topViewController() -> UIViewController? {
+        presentedChain().last
+    }
+
+    @MainActor
+    private static func presentedChain() -> [UIViewController] {
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-        var top = scene?.windows.first(where: \.isKeyWindow)?.rootViewController
-        while let presented = top?.presentedViewController { top = presented }
-        return top
+        var chain: [UIViewController] = []
+        var next = scene?.windows.first(where: \.isKeyWindow)?.rootViewController
+        while let controller = next {
+            chain.append(controller)
+            next = controller.presentedViewController
+        }
+        return chain
     }
 }

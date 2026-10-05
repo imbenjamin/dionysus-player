@@ -70,7 +70,7 @@ struct TVCollectionGridView: View {
             TVPosterCollection(
                 // From every item, not the filtered ones, so a filter never
                 // changes the grid's shape under the person.
-                items: items, shape: TVTileShape(items: viewModel.items), showsIndex: viewModel.sortField == .title,
+                items: items, shape: TVTileShape(items: viewModel.items), showsIndex: viewModel.sortField == .title, indexDescending: viewModel.sortOrder == .descending,
                 topInset: headerHeight, isLocked: openPill != nil, scrollToTopToken: scrollToTopToken,
                 rememberedItemID: $rememberedItemID,
                 onScroll: { scrollOffset = $0 },

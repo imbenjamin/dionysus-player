@@ -228,12 +228,14 @@ focus back on the pill within a second (polled, since `waitForFocus` checks
 once a second), and Reset appearing, clearing it in one press and handing
 focus to the first pill; Menu closing an open list without opening the rail;
 a title marked watched on its detail page showing as watched on the tile
-beneath, with the grid where it was left; and a library that fails to load
+beneath, with the grid where it was left; a title that leaves a grid filtered
+by Watched once marked the other way, which hands focus to its neighbour (it
+used to abort the app on a stale index path); and a library that fails to load
 (`failingLibrary`: listing Movies answers 500) offering Retry with focus on
 it. The stub remembers a watched change for the session (`watchedOverrides`),
 so a list fetched afterwards reflects it. The system alphabet index can't be
 driven from XCUITest (it needs a held scroll), so it is checked by hand;
-`TVAlphabetIndexTests` pins the letter each title sits under and the index's titles and jump targets.
+`TVAlphabetIndexTests` pins the letter each title sits under and the index's titles and jump targets, and that the bar runs the grid's way, A→Z or Z→A, each letter jumping further down than the last.
 
 `ShowDetailJourneyTests` covers a show's page: Play names the episode it
 starts and keeps focus while that episode is resolved; Down from the actions
@@ -250,7 +252,8 @@ its show on that episode; and a show with no episodes (`showWithoutEpisodes`)
 has no Play button, a message for the rail, and focus on Watched, where Menu
 still pops. `TVSeasonEpisodesModelTests` pins the
 model behind the rail: a season is fetched once, an empty one isn't a failure,
-and a refresh that fails keeps what was on screen.
+a refresh that fails keeps what was on screen, and a fetch cancelled by
+focus passing over its tab isn't a failure.
 
 `TVShowArtTests` pins whose imagery a show's page draws (the episode, then the
 season chosen, then the show) and that an item with none of its own uses the
@@ -260,7 +263,12 @@ accessibility, and the stub's images are all the same placeholder.
 `CollectionDetailJourneyTests` covers box sets and playlists: a box set opens
 with focus on its first movie, each opens its own detail page and Menu unwinds
 both; a playlist plays from Play and from a row; and an empty playlist (the
-fixture's Late Night) shows a message that takes focus, so Menu pops.
+fixture's Late Night) shows a message that takes focus, so Menu pops. Under
+`slowBoxSet` (every request naming the box set held for 8s) the page's
+loading indicator takes focus, so the sidebar stays shut and Menu pops
+before anything has loaded, and focus moves to the first movie once it has.
+`TVPlayerPresenterTests` pins that no second player is presented while one
+is in the presented chain.
 
 `PlayerJourneyTests` opens the player from a detail page's Play. Under the harness
 the host gets the fake engine, so nothing is handed to AVKit; the journeys
@@ -287,8 +295,9 @@ current one ticked and focused, where Select picks and returns to the row and
 Menu leaves it unchanged; Advanced, Quick Connect approval and the License and
 Privacy Policy pages open as covers that Menu closes back onto their row;
 Streaming set to Direct Play Always drops the bitrate row; Quick Connect's row
-is absent when the server has it off; and Sign Out lands on Who's Watching?
-with the account listed as an ordinary user, not a remembered one.
+is absent when the server has it off; and Sign Out asks first with Cancel
+focused (Cancel returns to the row), then lands on Who's Watching? with the
+account listed as an ordinary user, not a remembered one.
 
 The tvOS `AccessibilityAuditTests` runs the iOS suite's structural audit types
 over Home, a movie page, a show page, a library grid, Search with results,
@@ -728,7 +737,8 @@ finds one server, then keeps scanning for two minutes — Find Your Server's
 "Still searching…" state), `slowVideoDownload` (a download's stream held
 for 10s, so the Downloads tab can be opened while it is in flight) and
 `slowPlaybackInfo` (`/PlaybackInfo` held for 30s, so the Apple TV player can
-be closed while it is still loading).
+be closed while it is still loading) and `slowBoxSet` (the box set's requests
+held for 8s, so its Apple TV page can be left while it is still loading).
 
 Sign-in is built on `/Users/Public`, which the stub answers with two users:
 the fixture user (`UITestFixtureIdentity.userID`, password

@@ -131,7 +131,10 @@ tears the old one down; the shell owns Home's, Search's and each library's
 view model, and each page remembers which item had focus, so a page chosen
 again comes back as it was. The player is the exception: `TVPlayerPresenter`
 presents it over the page, which stays alive beneath, so leaving the player is
-immediate, with the scroll position and focus where they were. It used to tear
+immediate, with the scroll position and focus where they were. It refuses a
+second player while one is anywhere in the presented chain
+(`TVPlayerPresenter.canPresent(over:)`): a second Select on the hero's Play,
+landing after its Next Up lookup, stacked two (M3 review). It used to tear
 the shell down (`TVPageStack`, removed): the rebuilt page then asked a lazy
 grid to focus a tile it hadn't built, and anything below the first screen came
 back at the top.
@@ -221,7 +224,8 @@ guessable:
 - **The posters are a UIKit collection view** (`TVPosterCollection`), for the
   system's alphabet index: the column at the right edge while scrolling fast
   (`indexTitles(for:)`, offered only while sorted by title, letters from
-  `TVAlphabetIndex`). SwiftUI has no way to ask for it on tvOS: its
+  `TVAlphabetIndex`, Z→A with "#" last when the sort is descending, so the
+  bar runs the way the grid does; Benjamin, 2026-10-05). SwiftUI has no way to ask for it on tvOS: its
   `sectionIndexLabel` is for `List` only. A hand-drawn letter column came
   first; Benjamin asked for the native one (2026-10-02).
 - **Each cell is the system's `TVPosterView`, not the app's SwiftUI tile.**
@@ -277,7 +281,13 @@ guessable:
   `layoutIfNeeded`), never left for UIKit's next pass.
 - **The grid reloads when it comes back on show** (a detail page may have
   changed a poster's badges) and keeps its place: the same titles redraw
-  where they are.
+  where they are. A title that drops out (marked watched in a grid filtered
+  to Unwatched) hands focus to the tile that took its place. Focus placement
+  looks its target up by id on every attempt: an index path kept across that
+  reload was past the end, and `scrollToItem` raised on it, aborting the app
+  (M3 review). A list changing under a focused tile is a refresh and keeps
+  the scroll position; one changed from the header (a filter, a sort) starts
+  at the top.
 
 Tiles speak their badges as an accessibility value ("Watched", "Favorite"),
 since the badges are drawn, not read.
@@ -360,7 +370,10 @@ guessable:
   as the queue. Neither has the tall header, so their backdrop blurs by scroll
   offset (`tvDetailDimsWhenScrolled`), not by focus. An empty one shows a
   message that takes focus (`TVDetailEmptyMessage`): with focus nowhere, Menu
-  reaches nothing.
+  reaches nothing. **A page still loading does the same with its spinner**
+  (`TVDetailLoading`, on every detail page, box set and playlist): with
+  nothing focused, the shell's three-second fallback opened the sidebar over
+  the page, where Menu left the app instead of popping (M3 review).
 
 **A title with no backdrop shows its poster or thumb beside the title**
 (Benjamin, 2026-10-02; `TVDetailHeaderArt`): a movie's poster; a show's or an
@@ -462,9 +475,11 @@ Policy), with iOS's footers. What isn't guessable:
   streaming mode, so it doesn't preview it.
 - **Sign Out forgets the account on this Apple TV**
   (`AppState.signOutForgettingAccount()`); Switch User keeps it remembered,
-  one press away on Who's Watching? (Benjamin, 2026-10-01).
+  one press away on Who's Watching? (Benjamin, 2026-10-01). So Sign Out asks
+  first, as Change Server does (`TVConfirmation`, Cancel focused; Benjamin,
+  2026-10-05), and both rows are tinted red as destructive.
 - **Each sub-screen is a full-screen cover** (Advanced, Quick Connect
-  approval, the two text pages, Change Server's question), so Menu closes it
+  approval, the two text pages, Change Server's and Sign Out's questions), so Menu closes it
   onto its row; not a push, which would put the sidebar beside it.
 - **The License and Privacy Policy pages are cut into focusable paragraphs**
   (`TVTextPageView`), because a tvOS scroll view moves only with focus. Both
