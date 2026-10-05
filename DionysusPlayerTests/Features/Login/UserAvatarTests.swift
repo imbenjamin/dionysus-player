@@ -4,6 +4,7 @@ import XCTest
 /// `UserAvatar` is the sign-in avatar on both iOS and Apple TV: the user's
 /// Jellyfin profile picture over a monogram. The picture is fetched only when
 /// the server says one exists, from the public user-image route.
+@MainActor
 final class UserAvatarTests: XCTestCase {
     private let server = URL(string: "https://jellyfin.example.com")!
 

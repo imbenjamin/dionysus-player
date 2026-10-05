@@ -4,6 +4,7 @@ import XCTest
 /// The cross-fade rule behind `HeroScrollEdgeScrim`: "over the hero" (0) while
 /// the hero is under the bars, "hero gone" (1) once it has scrolled away, and 1
 /// throughout without a hero. The same value decides the status bar's colour.
+@MainActor
 final class HeroScrollEdgeScrimTests: XCTestCase {
     /// An iPhone 17-sized page: bars end 116pt down, hero 470pt tall.
     private let barBottom: CGFloat = 116
