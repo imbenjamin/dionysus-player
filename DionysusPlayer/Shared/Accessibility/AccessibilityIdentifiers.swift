@@ -493,6 +493,26 @@ enum A11yID {
             static let changeServerConfirm = "tv.profile.changeServer.confirm"
             static let followsAppleTVUsers = "tv.profile.followsAppleTVUsers"
             static let selectsUserEveryRelaunch = "tv.profile.selectsUserEveryRelaunch"
+            static let approveQuickConnect = "tv.profile.approveQuickConnect"
+            static let signOut = "tv.profile.signOut"
+            static let autoCarousel = "tv.profile.autoCarousel"
+            static let nextUpCountdown = "tv.profile.nextUpCountdown"
+            static let chaptersInScrubber = "tv.profile.chaptersInScrubber"
+            static let advanced = "tv.profile.advanced"
+            static let license = "tv.profile.license"
+            static let privacyPolicy = "tv.profile.privacyPolicy"
+            static let version = "tv.profile.version"
+            static let streamingMode = "tv.profile.advanced.streamingMode"
+            static let maxBitrate = "tv.profile.advanced.maxBitrate"
+            static let subtitleStyling = "tv.profile.advanced.subtitleStyling"
+            static let statsButton = "tv.profile.advanced.statsButton"
+            static let quickConnectCode = "tv.profile.quickConnect.code"
+            static let quickConnectAuthorize = "tv.profile.quickConnect.authorize"
+            static let quickConnectMessage = "tv.profile.quickConnect.message"
+            static let textPage = "tv.profile.textPage"
+            /// A choice on a setting's picker page, by the option's id
+            /// (`StreamDecisionMode.rawValue`, a countdown's seconds…).
+            static func option(_ id: String) -> String { "tv.profile.option.\(id)" }
         }
         /// The custom sidebar's rows (collapsed rail and open panel alike).
         enum Sidebar {
