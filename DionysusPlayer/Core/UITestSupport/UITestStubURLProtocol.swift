@@ -134,8 +134,9 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
-        // Held back under `.slowBoxSet`, the same way.
-        if scenario == .slowBoxSet, url.absoluteString.contains(UITestFixtureIdentity.boxSetID) {
+        // Held back under `.slowBoxSet` and `.slowItems`, the same way.
+        if (scenario == .slowBoxSet && url.absoluteString.contains(UITestFixtureIdentity.boxSetID))
+            || (scenario == .slowItems && (path.contains("/Items") || path.contains("/Shows/"))) {
             let request = request
             DispatchQueue.global().asyncAfter(deadline: .now() + Self.slowBoxSetDelay) {
                 do {
@@ -542,7 +543,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission,
              .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort,
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
-             .slowVideoDownload, .slowPlaybackInfo, .slowBoxSet, .manyLibraries, .manyUsers:
+             .slowVideoDownload, .slowPlaybackInfo, .slowBoxSet, .emptyBoxSet, .slowItems, .manyLibraries, .manyUsers:
             return nil
         case .largeCast, .noBackdrop, .failingLibrary, .failingHome, .thinDynamicRails:
             return nil
@@ -898,7 +899,9 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         case UITestFixtureLibrary.playlistsLibraryID:
             return item.type == .playlist
         case UITestFixtureLibrary.boxSetID:
-            return UITestFixtureLibrary.boxSetMembers.contains { $0.id == item.id }
+            // `.emptyBoxSet`: the set lists nothing.
+            return UITestConfiguration.scenario != .emptyBoxSet
+                && UITestFixtureLibrary.boxSetMembers.contains { $0.id == item.id }
         case UITestFixtureLibrary.seriesID:
             return item.seriesId == UITestFixtureLibrary.seriesID
         default:
@@ -1172,7 +1175,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     /// press its journey makes, so the player is certainly still loading.
     static let slowPlaybackInfoDelay: TimeInterval = 30
 
-    /// How long `.slowBoxSet` holds the box set's requests: well past the
+    /// How long `.slowBoxSet` and `.slowItems` hold their requests: well past the
     /// shell's three-second hold on the sidebar, which is what used to open
     /// it over a page with nothing to focus.
     static let slowBoxSetDelay: TimeInterval = 8

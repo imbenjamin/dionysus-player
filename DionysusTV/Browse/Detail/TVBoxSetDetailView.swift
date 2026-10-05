@@ -13,10 +13,13 @@ struct TVBoxSetDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 40) {
-                TVDetailHeader(item: item, showsBadges: false)
-                if let overview = item.overview, item.hasDescription {
-                    Text(verbatim: overview).lineLimit(3).frame(width: 900, alignment: .leading).foregroundStyle(.white.opacity(0.82))
+                VStack(alignment: .leading, spacing: 40) {
+                    TVDetailHeader(item: item, showsBadges: false)
+                    if let overview = item.overview, item.hasDescription {
+                        Text(verbatim: overview).lineLimit(3).frame(width: 900, alignment: .leading).foregroundStyle(.white.opacity(0.82))
+                    }
                 }
+                .tvDetailHeaderFrameWhenNoBackdrop(art: item)
                 if viewModel.collectionItems.isEmpty {
                     if viewModel.loadState == .loaded {
                         TVDetailEmptyMessage(text: String(localized: "This collection is empty."))
@@ -67,11 +70,14 @@ struct TVDetailEmptyMessage: View {
     }
 }
 
-/// Shown while a page's content is still on its way. It takes focus for the
-/// same reason as `TVDetailEmptyMessage`, and because the shell, finding
-/// focus nowhere three seconds after a push, opens the sidebar over the page,
-/// where Menu then leaves the app instead of popping (M3 review). The page's
-/// own claim takes focus from it once the content lands.
+/// Shown while a page's content is still on its way: a detail page, a box
+/// set, a playlist, a library and Home. It takes focus for the same reason
+/// as `TVDetailEmptyMessage`, and because the shell, finding focus nowhere
+/// three seconds after a push or a choice from the sidebar, opens the
+/// sidebar over the page, where Menu then leaves the app instead of popping
+/// or returning to the page (M3 review; Home and a library seen on a slow
+/// server, Benjamin, 2026-10-05). The page's own claim takes focus from it
+/// once the content lands.
 struct TVDetailLoading: View {
     @FocusState private var focused: String?
     @State private var remembered: String?

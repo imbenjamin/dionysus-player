@@ -110,7 +110,8 @@ rail by pressing down to it rather than querying for it.
 `TVUITestCase.launch` skips the Welcome by default, as the iOS suite does;
 `LaunchJourneyTests` passes `skipsWelcome: false` for the one journey that
 checks it. `OnboardingJourneyTests` covers Find Your Server (a discovered
-server, and Enter Server Address revealing the field) and Who's Watching?:
+server; Enter Server Address revealing the field and becoming its heading;
+Rescan after the scan listing the same servers once each) and Who's Watching?:
 a passwordless user, Quick Connect (the stub approves on the first poll),
 Use Password Instead (`quickConnectPending`) and a server with Quick Connect
 off (`quickConnectDisabled`). They stop at the password field rather than
@@ -256,7 +257,7 @@ a refresh that fails keeps what was on screen, and a fetch cancelled by
 focus passing over its tab isn't a failure.
 
 `TVShowArtTests` pins whose imagery a show's page draws (the episode, then the
-season chosen, then the show) and that an item with none of its own uses the
+season chosen, then the episode Play starts, then the show) and that an item with none of its own uses the
 ancestor the server names. No journey checks it: the backdrop is hidden from
 accessibility, and the stub's images are all the same placeholder.
 
@@ -264,9 +265,17 @@ accessibility, and the stub's images are all the same placeholder.
 with focus on its first movie, each opens its own detail page and Menu unwinds
 both; a playlist plays from Play and from a row; and an empty playlist (the
 fixture's Late Night) shows a message that takes focus, so Menu pops. Under
-`slowBoxSet` (every request naming the box set held for 8s) the page's
+`emptyBoxSet` an empty box set shows its message with focus on it, so Menu
+pops. With `noBackdrop`, a box set and a playlist show their poster beside
+the title. Under `slowBoxSet` (every request naming the box set held for 8s) the page's
 loading indicator takes focus, so the sidebar stays shut and Menu pops
 before anything has loaded, and focus moves to the first movie once it has.
+`LoadingJourneyTests` does the same for Home and a library under `slowItems`
+(every list of items held for 8s): the indicator holds focus past the
+shell's three seconds, then the page's first item takes it.
+`TVPosterCellTests` pins that a grid poster still loading, or without
+artwork, is inset as loaded artwork is, and `MediaPlaceholderGlyphTests` the
+tvOS placeholder glyph's scale.
 `TVPlayerPresenterTests` pins that no second player is presented while one
 is in the presented chain.
 
@@ -735,10 +744,12 @@ DTO change is a compile error instead of a silent rot. Scenarios
 `quickConnectPending`, `hiddenUsers`, `slowScan` (the stub discovery
 finds one server, then keeps scanning for two minutes — Find Your Server's
 "Still searching…" state), `slowVideoDownload` (a download's stream held
-for 10s, so the Downloads tab can be opened while it is in flight) and
+for 10s, so the Downloads tab can be opened while it is in flight),
 `slowPlaybackInfo` (`/PlaybackInfo` held for 30s, so the Apple TV player can
-be closed while it is still loading) and `slowBoxSet` (the box set's requests
-held for 8s, so its Apple TV page can be left while it is still loading).
+be closed while it is still loading), `slowBoxSet` (the box set's requests
+held for 8s, so its Apple TV page can be left while it is still loading) and
+`emptyBoxSet` (the box set lists no movies) and `slowItems` (every list of
+items held for 8s, for Home and a library loading slowly on the Apple TV).
 
 Sign-in is built on `/Users/Public`, which the stub answers with two users:
 the fixture user (`UITestFixtureIdentity.userID`, password

@@ -43,7 +43,9 @@ struct TVCollectionGridView: View {
                 }
                 .padding(.top, 60)
             } else {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Takes focus, so the sidebar doesn't open over it (see
+                // `TVDetailLoading`).
+                TVDetailLoading().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .task { await viewModel.loadIfNeeded() }

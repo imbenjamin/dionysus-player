@@ -48,6 +48,25 @@ final class OnboardingJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(enter))
         press(.select)
         XCTAssertTrue(app.textFields[A11yID.TV.Onboarding.addressField].waitForExistence(timeout: 5))
+        // With the field shown, Enter Server Address heads it rather than
+        // being a button again (Benjamin, 2026-10-05).
+        XCTAssertTrue(poll(timeout: 5) { !enter.exists }, "No longer a button")
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.enterAddress].exists, "It stays as the field's heading")
+    }
+
+    /// Once the scan is over, Rescan scans again from an empty list
+    /// (Benjamin, 2026-10-05); the servers are listed again once they answer.
+    func test_rescan_afterTheScan_listsTheServersAgain() {
+        let app = launch()
+        let rescan = app.buttons[A11yID.TV.Onboarding.rescan]
+        XCTAssertTrue(rescan.waitForExistence(timeout: 10), "Rescan once the scan is over")
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tv.onboarding.server."))
+        let found = rows.count
+        XCTAssertGreaterThan(found, 0)
+        for _ in 0..<6 where !rescan.hasFocus { press(.down) }
+        XCTAssertTrue(waitForFocus(rescan))
+        press(.select)
+        XCTAssertTrue(poll(timeout: 10) { rows.count == found && rescan.exists }, "The same servers, listed once each")
     }
 
     /// A user with a password goes to Quick Connect, not a keyboard; the stub

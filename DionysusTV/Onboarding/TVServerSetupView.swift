@@ -4,7 +4,8 @@ import SwiftUI
 /// layout: a scanning radar on the left, the servers found on the right.
 /// Scanning starts on arrival; the first server found takes default focus, so
 /// one Select connects. Typing an address is the secondary route, behind
-/// Enter Server Address.
+/// Enter Server Address, which heads the field once it's open. Once a scan
+/// is over, Rescan scans again from an empty list.
 struct TVServerSetupView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel = ServerSetupViewModel()
@@ -39,16 +40,40 @@ struct TVServerSetupView: View {
                         guard !userMovedFocus, focusedServer == nil, !showsAddressEntry, let firstID else { return }
                         focusedServer = firstID
                     }
-                    HStack(spacing: 30) {
+                    // Rescan, or how the scan is going, on a line of its
+                    // own above Enter Server Address (Benjamin, 2026-10-05).
+                    if canRescan || statusText != nil {
+                        HStack(spacing: 30) {
+                            // Once the scan is over: scan again from an
+                            // empty list.
+                            if canRescan {
+                                Button {
+                                    userMovedFocus = false
+                                    viewModel.rescan()
+                                } label: {
+                                    Label("Rescan", systemImage: "arrow.clockwise")
+                                }
+                                .accessibilityIdentifier(A11yID.TV.Onboarding.rescan)
+                            }
+                            if let statusText {
+                                Text(statusText).font(.callout).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    if showsAddressEntry {
+                        // Heads the field once it's shown, in the button's
+                        // own type, rather than offering what's already open
+                        // (Benjamin, 2026-10-05).
+                        Label("Enter Server Address", systemImage: "keyboard")
+                            .accessibilityAddTraits(.isHeader)
+                            .accessibilityIdentifier(A11yID.TV.Onboarding.enterAddress)
+                    } else {
                         Button {
                             showsAddressEntry = true
                         } label: {
                             Label("Enter Server Address", systemImage: "keyboard")
                         }
                         .accessibilityIdentifier(A11yID.TV.Onboarding.enterAddress)
-                        if let statusText {
-                            Text(statusText).font(.callout).foregroundStyle(.secondary)
-                        }
                     }
                     if showsAddressEntry {
                         addressRow
@@ -130,7 +155,9 @@ struct TVServerSetupView: View {
         }
     }
 
-    /// Beside Enter Server Address: nothing once servers are listed and the
+    private var canRescan: Bool { viewModel.scanState != .scanning && viewModel.scanState != .idle }
+
+    /// Above Enter Server Address: nothing once servers are listed and the
     /// scan is over.
     private var statusText: String? {
         switch viewModel.scanState {

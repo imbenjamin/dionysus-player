@@ -247,6 +247,20 @@ final class ServerSetupViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.discoveredServers, [secure])
     }
 
+    /// The Apple TV's Rescan clears the list as it starts (Benjamin,
+    /// 2026-10-05), so what's listed is only what answered this time.
+    func test_rescan_clearsTheListAtOnce_thenScans() async throws {
+        let discovery = StubServerDiscovery(servers: [flix, secure])
+        let viewModel = ServerSetupViewModel(discovery: discovery, versionLookup: Self.noVersion)
+        await viewModel.scanForServers()
+
+        discovery.servers = [secure]
+        viewModel.rescan()
+        XCTAssertEqual(viewModel.discoveredServers, [], "Cleared before anything answers")
+        try await waitUntil { viewModel.scanState == .finished && !viewModel.discoveredServers.isEmpty }
+        XCTAssertEqual(viewModel.discoveredServers, [secure])
+    }
+
     func test_connectToDiscoveredServer_fillsAddressAndConnectsWithBasePath() async {
         let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []))
         viewModel.useHTTPS = true

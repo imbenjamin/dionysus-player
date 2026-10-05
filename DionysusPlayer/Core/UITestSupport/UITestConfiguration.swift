@@ -129,6 +129,16 @@ enum UITestScenario: String {
     /// before anything on the page could take focus.
     case slowBoxSet
 
+    /// `.standard`, but the box set lists no movies: the Apple TV journey that
+    /// checks an empty box set says so and Menu still pops it.
+    case emptyBoxSet
+
+    /// `.standard`, but every list of items (Home's rails, a library's
+    /// titles) is held for `UITestStubURLProtocol.slowBoxSetDelay`: the
+    /// Apple TV journeys that check Home and a library keep focus on their
+    /// loading indicator, so the sidebar doesn't open over them.
+    case slowItems
+
     /// `.standard`, but a movie's own item lists ten people, so its Cast &
     /// Crew rail runs well past the right edge of the action row above it:
     /// the Apple TV journey that presses Up from a person far along it.

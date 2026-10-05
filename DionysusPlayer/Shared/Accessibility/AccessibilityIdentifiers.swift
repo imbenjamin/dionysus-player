@@ -417,6 +417,7 @@ enum A11yID {
             static let getStarted = "tv.onboarding.welcome.getStarted"
             static let enterAddress = "tv.onboarding.findServer.enterAddress"
             static let addressField = "tv.onboarding.findServer.addressField"
+            static let rescan = "tv.onboarding.findServer.rescan"
             static func serverRow(_ id: String) -> String { "tv.onboarding.server.\(id)" }
             static let whosWatchingTitle = "tv.onboarding.whosWatching.title"
             static func user(_ id: String) -> String { "tv.onboarding.user.\(id)" }

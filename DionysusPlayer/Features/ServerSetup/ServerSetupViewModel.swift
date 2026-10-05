@@ -104,6 +104,15 @@ final class ServerSetupViewModel {
         startScan()
     }
 
+    /// Scans again from an empty list, for the Apple TV's Rescan (Benjamin,
+    /// 2026-10-05): what's listed is then only what answers this time. iOS's
+    /// Scan Again keeps the old list until the first answer instead.
+    func rescan() {
+        guard scanState != .scanning else { return }
+        discoveredServers = []
+        startScan()
+    }
+
     func cancelScan() {
         scanTask?.cancel()
         scanTask = nil

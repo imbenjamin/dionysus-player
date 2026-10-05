@@ -38,6 +38,36 @@ final class CollectionDetailJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(tile))
     }
 
+    /// With no backdrop, a box set and a playlist show their poster beside
+    /// the title, as a movie's page does (Benjamin, 2026-10-05).
+    func test_noBackdrop_boxSetAndPlaylist_showTheirPosterBesideTheTitle() {
+        let app = launchAtHome(scenario: "noBackdrop")
+        _ = open(UITestFixtureIdentity.boxSetID, inLibrary: UITestFixtureIdentity.boxSetsLibraryID, app)
+        let art = app.descendants(matching: .any)[A11yID.TV.Detail.headerArt]
+        XCTAssertTrue(art.waitForExistence(timeout: 10), "A box set's poster")
+        let title = app.descendants(matching: .any)[A11yID.TV.Detail.title]
+        XCTAssertGreaterThan(art.frame.minX, title.frame.maxX, "Opposite the title, on the right")
+        XCTAssertTrue(waitForFocus(members(app).firstMatch), "Focus still starts on the first movie")
+
+        let again = launchAtHome(scenario: "noBackdrop")
+        _ = open(UITestFixtureIdentity.playlistID, inLibrary: UITestFixtureIdentity.playlistsLibraryID, again)
+        XCTAssertTrue(waitForFocus(again.buttons[A11yID.TV.Detail.play]), "Focus still starts on Play")
+        XCTAssertTrue(again.descendants(matching: .any)[A11yID.TV.Detail.headerArt].waitForExistence(timeout: 10), "A playlist's poster")
+    }
+
+    /// An empty box set says so with a message that takes focus, so Menu
+    /// still pops it (the plan's Review Focus 4).
+    func test_emptyBoxSet_showsAMessage_andMenuPops() {
+        let app = launchAtHome(scenario: "emptyBoxSet")
+        let tile = open(UITestFixtureIdentity.boxSetID, inLibrary: UITestFixtureIdentity.boxSetsLibraryID, app)
+        let message = app.descendants(matching: .any)[A11yID.TV.Detail.emptyMessage]
+        XCTAssertTrue(message.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(message), "The message takes focus, so Menu has somewhere to go from")
+        XCTAssertEqual(members(app).count, 0)
+        press(.menu)
+        XCTAssertTrue(waitForFocus(tile))
+    }
+
     /// Menu while a page is still loading pops it (the M3 review's Review
     /// Focus 5): the page keeps focus on its loading indicator, so the
     /// sidebar's three-second fallback never opens over it and Menu, which
