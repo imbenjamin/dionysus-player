@@ -64,6 +64,18 @@ struct TVDetailHeaderArtView: View {
 }
 
 extension View {
+    /// A box set's or a playlist's header: short over a backdrop, and the
+    /// full first screen with the poster beside the title when there's none,
+    /// as on a movie's page (Benjamin, 2026-10-05).
+    @ViewBuilder
+    func tvDetailHeaderFrameWhenNoBackdrop(art item: MediaItem) -> some View {
+        if TVDetailHeaderArt(item: item) != nil {
+            tvDetailHeaderFrame(art: item)
+        } else {
+            self
+        }
+    }
+
     /// Sizes a detail page's header to the first screen, with the item's
     /// poster or thumb at its right when it has no backdrop.
     func tvDetailHeaderFrame(art item: MediaItem) -> some View {

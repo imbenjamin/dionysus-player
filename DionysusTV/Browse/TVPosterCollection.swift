@@ -308,7 +308,8 @@ final class TVPosterCollectionView: UICollectionView {
 /// A grid cell: the system poster, with the app's badges over its artwork
 /// and the artwork loaded through `RemoteImageLoader` like every other image.
 final class TVPosterCell: UICollectionViewCell {
-    private let poster = TVCaptionedPosterView(frame: .zero)
+    /// Internal for `TVPosterCellTests`.
+    let poster = TVCaptionedPosterView(frame: .zero)
     private let badges = UIHostingController(rootView: TVPosterOverlay(item: nil, isLoaded: false))
     private var itemID: String?
     private var shape: TVTileShape = .poster
@@ -360,7 +361,43 @@ final class TVPosterCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         imageTask?.cancel()
+        standInTask?.cancel()
+        hasArtwork = false
+    }
+
+    /// Whether the poster shows its artwork rather than `standIn`.
+    private var hasArtwork = false
+
+    /// A clear image the artwork's size, shown while the artwork loads or
+    /// when there is none (Benjamin, 2026-10-05). The poster insets its
+    /// artwork for the focus lift, working the inset out from its image;
+    /// with no image the placeholder filled the whole frame and drew larger
+    /// than the posters around it.
+    ///
+    /// Set a pass later, as a cached image is (`show`): set while the cell
+    /// is still being configured, the poster kept it uninset (measured).
+    private func showStandIn() {
+        hasArtwork = false
         poster.image = nil
+        let id = itemID
+        standInTask?.cancel()
+        standInTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled, !self.hasArtwork, self.itemID == id else { return }
+            self.poster.image = Self.standIn(self.shape.gridSize)
+            self.poster.contentSize = self.shape.gridSize
+            self.poster.setNeedsLayout()
+        }
+    }
+
+    private var standInTask: Task<Void, Never>?
+
+    private static var standIns: [CGSize: UIImage] = [:]
+
+    private static func standIn(_ size: CGSize) -> UIImage {
+        if let image = standIns[size] { return image }
+        let image = UIGraphicsImageRenderer(size: size).image { _ in }
+        standIns[size] = image
+        return image
     }
 
     func show(_ item: MediaItem, shape: TVTileShape, action: @escaping () -> Void) {
@@ -380,7 +417,7 @@ final class TVPosterCell: UICollectionViewCell {
         poster.accessibilityValue = TVTileBadges.spokenValue(for: item)
         poster.accessibilityTraits = .button
 
-        guard isNewItem || poster.image == nil else {
+        guard isNewItem || !hasArtwork else {
             badges.rootView = TVPosterOverlay(item: item, isLoaded: true)
             return
         }
@@ -388,7 +425,7 @@ final class TVPosterCell: UICollectionViewCell {
         // A thumb for a landscape grid, as `TVLandscapeTile` draws it.
         let artwork = shape == .landscape ? (item.thumbImageURL ?? item.primaryImageURL) : item.primaryImageURL
         guard let url = artwork else {
-            poster.image = nil
+            showStandIn()
             badges.rootView = TVPosterOverlay(item: item, isLoaded: false, isSettled: true)
             return
         }
@@ -403,7 +440,7 @@ final class TVPosterCell: UICollectionViewCell {
             badges.rootView = TVPosterOverlay(item: item, isLoaded: true)
             return
         }
-        poster.image = nil
+        showStandIn()
         badges.rootView = TVPosterOverlay(item: item, isLoaded: false)
         imageTask = Task { @MainActor [weak self] in
             let image = try? await RemoteImageLoader.shared.image(for: url)
@@ -420,6 +457,9 @@ final class TVPosterCell: UICollectionViewCell {
     /// over the caption, which stayed put: about half the times a grid opened
     /// (Benjamin, 2026-10-03). The size is set again with every image.
     private func setImage(_ image: UIImage?) {
+        guard let image else { return showStandIn() }
+        standInTask?.cancel()
+        hasArtwork = true
         poster.image = image
         poster.contentSize = shape.gridSize
         poster.setNeedsLayout()

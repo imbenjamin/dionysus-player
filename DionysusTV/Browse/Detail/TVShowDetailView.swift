@@ -40,19 +40,23 @@ struct TVShowDetailView: View {
     private var isEpisode: Bool { item.kind == .episode }
 
     /// Whose imagery shows (Benjamin, 2026-10-02): the episode the page is
-    /// on; otherwise the season chosen from the tabs; otherwise the show.
-    /// Each falls back by itself to its season's, then its show's, where it
-    /// has none of its own: the server names the nearest ancestor that has a
-    /// backdrop or a logo on every item (`MediaItem.backdropImageURL`), which
-    /// is what iOS relies on too.
-    static func artItem(episode: MediaItem?, chosenSeason: MediaItem?, loaded: MediaItem) -> MediaItem {
-        episode ?? chosenSeason ?? loaded
+    /// on; otherwise the season chosen from the tabs; otherwise, on the
+    /// series, the episode Play starts (Benjamin, 2026-10-05); otherwise the
+    /// show. Each episode falls back by itself to its season's, then its
+    /// show's, where it has none of its own: the server names the nearest
+    /// ancestor that has a backdrop or a logo on every item
+    /// (`MediaItem.backdropImageURL`; checked on the LAN server, an American
+    /// Horror Story episode names its season), which is what iOS relies on
+    /// too. So a show with art per season shows the right season's on landing.
+    static func artItem(episode: MediaItem?, chosenSeason: MediaItem?, playTarget: MediaItem?, loaded: MediaItem) -> MediaItem {
+        episode ?? chosenSeason ?? playTarget ?? loaded
     }
 
     private var artItem: MediaItem {
         Self.artItem(
             episode: isEpisode ? item : nil,
             chosenSeason: selectedSeasonID.flatMap { id in viewModel.seasons.first { $0.id == id } },
+            playTarget: badgeSource,
             loaded: loadedItem
         )
     }

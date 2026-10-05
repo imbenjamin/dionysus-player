@@ -21,24 +21,28 @@ struct TVPlaylistDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 40) {
-                TVDetailHeader(item: item, showsBadges: false)
-                if let overview = item.overview, item.hasDescription {
-                    Text(verbatim: overview).lineLimit(3).frame(width: 900, alignment: .leading).foregroundStyle(.white.opacity(0.82))
-                }
-                if let target = viewModel.playlistResumeTarget {
-                    Button { play(target) } label: {
-                        Label(TVDetailFormat.playTitle(target: target, isShow: false) ?? String(localized: "Play"), systemImage: "play.fill")
-                            .frame(minWidth: 320, alignment: .leading)
+                // Play sits at the header's foot, as on a movie's page.
+                VStack(alignment: .leading, spacing: 40) {
+                    TVDetailHeader(item: item, showsBadges: false)
+                    if let overview = item.overview, item.hasDescription {
+                        Text(verbatim: overview).lineLimit(3).frame(width: 900, alignment: .leading).foregroundStyle(.white.opacity(0.82))
                     }
-                    .focused($focus, equals: TVDetailFocus.play)
-                    .accessibilityIdentifier(A11yID.TV.Detail.play)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .focusSection()
-                } else if viewModel.loadState == .loaded {
-                    TVDetailEmptyMessage(text: String(localized: "This playlist is empty."))
-                } else {
-                    TVDetailLoading()
+                    if let target = viewModel.playlistResumeTarget {
+                        Button { play(target) } label: {
+                            Label(TVDetailFormat.playTitle(target: target, isShow: false) ?? String(localized: "Play"), systemImage: "play.fill")
+                                .frame(minWidth: 320, alignment: .leading)
+                        }
+                        .focused($focus, equals: TVDetailFocus.play)
+                        .accessibilityIdentifier(A11yID.TV.Detail.play)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .focusSection()
+                    } else if viewModel.loadState == .loaded {
+                        TVDetailEmptyMessage(text: String(localized: "This playlist is empty."))
+                    } else {
+                        TVDetailLoading()
+                    }
                 }
+                .tvDetailHeaderFrameWhenNoBackdrop(art: item)
                 let shape = TVTileShape(items: items)
                 let tileWidth = shape == .landscape ? TVTileMetrics.episode.width : TVTileMetrics.poster.width
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: tileWidth, maximum: tileWidth), spacing: 44, alignment: .topLeading)], alignment: .leading, spacing: 50) {

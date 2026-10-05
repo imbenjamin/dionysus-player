@@ -245,6 +245,10 @@ guessable:
   poster kept its artwork at full size instead of inset for its lift, so the
   focused poster ran over its caption, which stayed put: on every return to
   a grid whose artwork was cached (Benjamin saw it about half the time).
+  **Until its artwork arrives, or when it has none, a poster shows a clear
+  stand-in image**, set a pass later the same way (`showStandIn`): with no
+  image the system draws the artwork uninset, so the placeholder drew larger
+  than the posters around it (Benjamin, 2026-10-05).
 - **Focus is put on a poster through SwiftUI, not UIKit.** A focus update
   requested of a cell while SwiftUI holds focus in the header was refused
   every time (logged). So the grid is the page's default in its focus scope
@@ -358,26 +362,35 @@ guessable:
   Favorite act on the show, as on iOS. It isn't a push: Menu leaves the show.
 - **A show page's imagery follows what it is on** (Benjamin, 2026-10-02;
   `TVShowDetailView.artItem`): the episode; otherwise the season chosen from
-  the tabs; otherwise the show. That covers the backdrop (handed up to
+  the tabs; otherwise, on the series, the episode Play starts (Benjamin,
+  2026-10-05), so a show with art per season lands on the right season's;
+  otherwise the show. That covers the backdrop (handed up to
   `TVDetailPage`), the logo and the no-backdrop side image. The fallback from
   episode to season to show isn't the app's: Jellyfin names the nearest
   ancestor with a backdrop or logo on every item, which
-  `MediaItem.backdropImageURL` and `logoImageURL` read, as iOS does.
+  `MediaItem.backdropImageURL` and `logoImageURL` read, as iOS does
+  (checked on the LAN server: an American Horror Story episode names its
+  season, which has its own backdrop).
   What's on screen is held until the next image has loaded, then faded
   (`TVHeldImage`): swapped at once, an uncached image left its space empty
   until it arrived, a flash between two pictures.
 - **Box set tiles open detail pages; playlist rows play**, with the playlist
-  as the queue. Neither has the tall header, so their backdrop blurs by scroll
-  offset (`tvDetailDimsWhenScrolled`), not by focus. An empty one shows a
+  as the queue. Over a backdrop neither has the tall header, so their
+  backdrop blurs by scroll offset (`tvDetailDimsWhenScrolled`), not by focus.
+  Without one, the header takes the first screen with the poster beside the
+  title, as on a movie's page (`tvDetailHeaderFrameWhenNoBackdrop`, Benjamin,
+  2026-10-05); a playlist's Play sits at its foot. An empty one shows a
   message that takes focus (`TVDetailEmptyMessage`): with focus nowhere, Menu
   reaches nothing. **A page still loading does the same with its spinner**
-  (`TVDetailLoading`, on every detail page, box set and playlist): with
+  (`TVDetailLoading`, on every detail page, box set and playlist, and on
+  Home and a library, seen on a slow server): with
   nothing focused, the shell's three-second fallback opened the sidebar over
   the page, where Menu left the app instead of popping (M3 review).
 
 **A title with no backdrop shows its poster or thumb beside the title**
-(Benjamin, 2026-10-02; `TVDetailHeaderArt`): a movie's poster; a show's or an
-episode's thumb, failing that an episode's still or a show's poster. It sits
+(Benjamin, 2026-10-02; `TVDetailHeaderArt`): a movie's, a box set's or a
+playlist's poster; a show's or an episode's thumb, failing that an episode's
+still or a show's poster. It sits
 in the header, so it scrolls away with it, and the page draws no backdrop at
 all, leaving the shell's glow. A backdrop that is loading or fails draws
 nothing either (`AsyncRemoteImage.showsPlaceholder`): a glyph mid-screen read
@@ -496,6 +509,12 @@ Policy), with iOS's footers. What isn't guessable:
 the avatar and every backdrop in the tree (found by the tvOS accessibility
 audit). Hidden pages stay out of the tree without it (checked with a movie
 page over Home); set a hidden modifier only where it is always `true`.
+
+**Find Your Server's Rescan** appears once a scan is over and scans again
+from an empty list (`ServerSetupViewModel.rescan()`, Benjamin, 2026-10-05);
+iOS's Scan Again keeps the old list until the first answer. Once the address
+field is open, Enter Server Address heads it as text rather than staying a
+button.
 
 Sign-in puts
 Quick Connect first (`TVSignInRoute`): a user with a password goes to a code,
@@ -1037,7 +1056,11 @@ higher-opacity glyph once it's failed or known not to exist at all (`isSettled`
 — gated on Reduce Motion, matching every other animated effect in this
 part of the app). When adding a new image display site, pass a
 `placeholderSystemImage` that matches the content type rather than leaving
-the generic default.
+the generic default. On tvOS the glyph scales with its tile
+(`MediaPlaceholderBox.tvGlyphSize`, about a fifth of the shorter side, never
+below 28pt; Benjamin, 2026-10-05): iOS's fixed 28pt was about 7% of a TV
+poster's width, too small to read from across the room. The Apple TV's
+library grid draws the same box over its UIKit posters (`TVPosterOverlay`).
 
 `LogoImageView`'s `fallback` view (usually title text, via
 `BackdropLogoOverlay`) renders immediately while the logo is loading, not

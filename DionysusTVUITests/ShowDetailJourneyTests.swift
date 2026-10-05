@@ -28,7 +28,7 @@ final class ShowDetailJourneyTests: TVUITestCase {
         XCTAssertTrue(episode(app, season: 1, 1).waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts.matching(identifier: A11yID.TV.Detail.badge).firstMatch.waitForExistence(timeout: 10), "The episode's format badges show, as on a movie's page")
         let subject = app.staticTexts[A11yID.TV.Detail.detailsSubject]
-        XCTAssertTrue(poll(timeout: 10) { subject.exists && subject.label.contains("S1:E2") }, "Until an episode is focused, Details describes the one Play starts")
+        XCTAssertTrue(poll(timeout: 10) { subject.exists && subject.label.contains("S1:E2") }, "Details describes the episode Play starts")
     }
 
     func test_seasonTab_switchesTheEpisodeRail() {
