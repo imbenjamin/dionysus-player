@@ -179,7 +179,10 @@ struct TVMainView: View {
             .environment(\.tvPageIsOnShow, onShow && !beneathPlayer)
             .opacity(onShow ? 1 : 0)
             .disabled(!onShow)
-            .accessibilityHidden(!onShow)
+            // No `.accessibilityHidden(!onShow)`: hidden pages stay out of
+            // the tree without it, and on the page on show its `false` overrode
+            // every `.accessibilityHidden(true)` inside it, exposing the
+            // avatar and backdrops (the accessibility audit).
     }
 
     @ViewBuilder

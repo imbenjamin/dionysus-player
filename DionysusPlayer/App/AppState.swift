@@ -249,6 +249,16 @@ final class AppState {
     }
 
     #if os(tvOS)
+    /// Profile's Sign Out: forgets this account on this Apple TV, then signs
+    /// out. Switch User (`signOut()`) keeps it remembered, one press away on
+    /// Who's Watching?; this is for someone who is leaving for good.
+    func signOutForgettingAccount() {
+        if let userID = sessionStore.credentials?.userID {
+            sessionStore.forgetAccount(userID: userID)
+        }
+        signOut()
+    }
+
     /// The "Follow Apple TV Users" setting. The session moves with it, so
     /// whoever is signed in stays signed in (`ServerSessionStore.moveSession`).
     func setFollowsAppleTVUsers(_ follows: Bool) {

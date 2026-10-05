@@ -85,6 +85,9 @@ fallback to the stored account. `TVShellNavigationTests` pins where the shell
 is: choosing a row, the Libraries row toggling in place, and which row focus
 may land on (only the page's own while collapsed, the Libraries row standing
 in for a folded library).
+`TVSignOutTests` pins Profile's two ways out: Sign Out forgets the account in
+use on this Apple TV and leaves the others remembered, while Switch User keeps
+it.
 
 ```sh
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
@@ -275,6 +278,26 @@ the field is emptied and Clear removes it, Search starts fresh after another
 page is chosen, Search is full screen with the collapsed rail off the left edge, and
 Menu slides the open sidebar in while Right sends it away again. idb's arrow keys don't reach the system keyboard; measure
 it through XCUITest instead.
+
+`ProfileJourneyTests` opens Profile from the rail: the brand pane names the
+user, the server and both versions; every row is reachable with Down; Select
+on an on/off row flips it (compared before and after, since "On" and "Off"
+are localized); a setting with more choices opens a list of them with the
+current one ticked and focused, where Select picks and returns to the row and
+Menu leaves it unchanged; Advanced, Quick Connect approval and the License and
+Privacy Policy pages open as covers that Menu closes back onto their row;
+Streaming set to Direct Play Always drops the bitrate row; Quick Connect's row
+is absent when the server has it off; and Sign Out lands on Who's Watching?
+with the account listed as an ordinary user, not a remembered one.
+
+The tvOS `AccessibilityAuditTests` runs the iOS suite's structural audit types
+over Home, a movie page, a show page, a library grid, Search with results,
+Profile, Advanced, a settings picker, Quick Connect approval and a text page. Its suppressions
+are the system keyboard's keys and the hit region of static text, since
+nothing on tvOS is pointed at. It found that a page's
+`.accessibilityHidden(false)` overrides every `.accessibilityHidden(true)`
+inside it: `TVMainView` set it on the page on show, exposing the avatar and
+the backdrops.
 
 The transport journeys pin the player's own chrome: the title block sits
 top-left, the elapsed time and scrubber are on screen, and the format chip is

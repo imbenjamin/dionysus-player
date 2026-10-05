@@ -158,8 +158,7 @@ final class SidebarJourneyTests: TVUITestCase {
         openProfile(app)
         let change = app.buttons[A11yID.TV.Profile.changeServer]
         XCTAssertTrue(change.waitForExistence(timeout: 10))
-        press(.down)
-        XCTAssertTrue(waitForFocus(change))
+        pressDown(until: change)
         press(.select)
         let confirm = app.buttons[A11yID.TV.Profile.changeServerConfirm]
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))

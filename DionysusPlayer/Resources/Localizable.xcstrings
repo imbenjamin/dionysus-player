@@ -294,6 +294,12 @@
     "Appearance" : {
 
     },
+    "Apple TV Users" : {
+
+    },
+    "Approve Quick Connect Code" : {
+
+    },
     "Approve this device from another app already signed in to %@." : {
 
     },
@@ -993,6 +999,9 @@
     "OK" : {
 
     },
+    "On" : {
+
+    },
     "On a device already signed in to %@, open Quick Connect and enter this code." : {
 
     },
@@ -1576,6 +1585,9 @@
 
     },
     "This playlist is empty." : {
+
+    },
+    "This text is unavailable." : {
 
     },
     "This title's default subtitle track can't be included in offline downloads. The download will have no subtitles unless you choose one manually later." : {

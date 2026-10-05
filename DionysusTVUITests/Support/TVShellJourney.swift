@@ -89,11 +89,12 @@ extension TVUITestCase {
         app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tv.library.tile.")).firstMatch
     }
 
-    /// Presses Down until `element` has focus, up to a sidebar's worth,
-    /// letting focus settle after each press: read straight after one, focus
-    /// still sits on the row before and the loop overshoots.
-    func pressDown(until element: XCUIElement) {
-        for _ in 0..<10 {
+    /// Presses Down until `element` has focus, up to `presses` (a sidebar's
+    /// worth by default; Profile's rows need more), letting focus settle
+    /// after each press: read straight after one, focus still sits on the
+    /// row before and the loop overshoots.
+    func pressDown(until element: XCUIElement, presses: Int = 10) {
+        for _ in 0..<presses {
             if element.hasFocus { break }
             press(.down)
             _ = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasFocus == true"), object: element)], timeout: 1)
