@@ -618,7 +618,10 @@ HDR10, so the engine only corrects `$videoFormat` from `.sdr` once AVPlayer
 accepts the master, and a session that falls back would still read SDR. Trust
 the TV's own info banner, not `displayColorFormat` or EDR headroom, when
 checking HDR here. The player's format chip therefore shows only while the
-engine reports HDR, and says nothing rather than SDR.
+engine reports HDR, and says nothing rather than SDR. When the master is
+taken it reads right: Deadpool (Dolby Vision Profile 8 on an HDR10 base
+layer) went to the Bedroom's HDR10-only panel as HDR10, and the chip said
+HDR10 (Benjamin, 2026-10-06).
 `DisplayContext` passes the real Match Content setting, and deliberately
 asserts nothing about the panel's HDR state, since EDR headroom is the only
 thing it could read and the engine reads that itself.
@@ -632,7 +635,11 @@ software route has no AVPlayer at all (`TVPlayerSurfacePolicy`). And the
 engine is made with `ownsNowPlayingSession: false`, since the
 `AVPlayerViewController` already runs Now Playing and a second session
 conflicts with it. AVKit's chrome is hidden and the transport is ours (`TVTransportOverlay`),
-inset by the safe area alone. **The player doesn't use the focus engine**
+inset by the safe area alone. The host also keeps the remote's Select and
+Play/Pause away from `AVPlayerViewController`'s own press handling (its
+`pressesBegan` and friends): passed up, AVKit toggled playback before our
+recognizer fired, so a pause flashed Play (Benjamin, on device).
+**The player doesn't use the focus engine**
 (Benjamin, 2026-10-06, as Sodalite does): the host's recognizers take every
 press and touch-surface swipe and hand them to `TVPlayerInputModel`, a pure
 reducer over `TVPlayerInputState` that returns commands for
@@ -670,6 +677,22 @@ What isn't guessable:
   `BottomChromeTopKey`, which it reports while it shows. AVKit draws no copy
   of its own under the `AVPlayerViewController` (checked on the native route
   with a forced SubRip track), so the host leaves native rendering alone.
+- **The swipe-down panel** (Info, Chapters, Audio, Subtitles; no Stats tab,
+  and Chapters only when the title has them) opens with Down or a chapters,
+  audio or subtitles icon, and lifts the scrubber to mid-screen. Its tabs
+  follow focus. Restart and a chapter play from there and close it; a track
+  switch keeps it open so the change shows. It closes on Menu, Up from the
+  tabs, or 10s without a press. Info's art is a movie's poster, else an
+  episode's thumb or still, else the nearest ancestor's Thumb
+  (`MediaItem.parentThumbImageURL`): Jellyfin 10.11 sends
+  `ParentThumbItemId`/`ParentThumbImageTag` on an episode, never
+  `SeriesThumbImageTag` (measured). **The panel is laid out in screen
+  coordinates** (the prototype's: title at 60, scrubber at 440, tabs at
+  560), in an overlay of a screen-sized view: inside the safe area that
+  layer started at the screen's top edge, and the chrome's gradients must
+  never total more than 1080pt, or the layer outgrows the screen and is
+  re-centred, pushing the title off the top (both measured in the
+  Simulator).
 The space bar is Play/Pause too (`TVKeyboardCommand`): a keyboard, and the
 Simulator's on-screen remote, send it as a keyboard press (type 2044, HID
 usage 0x2C), never `.playPause`, so a `.playPause` recognizer alone leaves

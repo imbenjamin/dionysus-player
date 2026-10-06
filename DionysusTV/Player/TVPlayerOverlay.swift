@@ -22,9 +22,15 @@ struct TVPlayerOverlay: View {
             .ignoresSafeArea()
 
             TVTransportOverlay(viewModel: viewModel, input: input)
-            if let flash = input.state.flash {
-                TVActionFlash(flash: flash)
-            }
+            // Centred on the whole screen, whatever else is drawn: inside the
+            // safe area it sat higher than centre (Benjamin, 2026-10-06).
+            Color.clear
+                .overlay {
+                    if let flash = input.state.flash {
+                        TVActionFlash(flash: flash)
+                    }
+                }
+                .ignoresSafeArea()
             #if DEBUG
             if UITestConfiguration.isActive {
                 Color.clear

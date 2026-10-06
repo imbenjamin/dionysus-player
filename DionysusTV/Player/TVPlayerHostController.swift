@@ -76,9 +76,35 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         ourRecognizers.append(pan)
     }
 
+    /// Remote presses our recognizers already turn into input. Passed up,
+    /// `AVPlayerViewController` acts on them itself: it toggled playback on
+    /// Play/Pause before our recognizer fired, so the model read the player
+    /// as paused already, flashed Play for a pause and sent a toggle the
+    /// engine ignored (Benjamin, on the Bedroom Apple TV, 2026-10-06).
+    private static let swallowedPressTypes: Set<UIPress.PressType> = [.select, .playPause]
+
+    private func forwardable(_ presses: Set<UIPress>) -> Set<UIPress> {
+        presses.filter { !Self.swallowedPressTypes.contains($0.type) }
+    }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = forwardable(presses)
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+
+    override func pressesChanged(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = forwardable(presses)
+        if !rest.isEmpty { super.pressesChanged(rest, with: event) }
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = forwardable(presses)
+        if !rest.isEmpty { super.pressesCancelled(rest, with: event) }
+    }
+
     /// Keyboard keys with no remote press of their own (`TVKeyboardCommand`).
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        var unhandled = presses
+        var unhandled = forwardable(presses)
         for press in presses {
             guard let keyCode = press.key?.keyCode, let command = TVKeyboardCommand(keyCode: keyCode) else { continue }
             switch command {

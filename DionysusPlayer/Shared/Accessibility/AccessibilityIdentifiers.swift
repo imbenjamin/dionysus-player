@@ -540,6 +540,11 @@ enum A11yID {
             /// engine XCUITest's `hasFocus` reads.
             static let focus = "tv.player.focus"
             static func icon(_ id: String) -> String { "tv.player.icon.\(id)" }
+            static let panel = "tv.player.panel"
+            static let restart = "tv.player.restart"
+            static let infoArt = "tv.player.infoArt"
+            static func panelTab(_ id: String) -> String { "tv.player.tab.\(id)" }
+            static func panelRow(_ tab: String, _ index: Int) -> String { "tv.player.row.\(tab).\(index)" }
         }
     }
 }

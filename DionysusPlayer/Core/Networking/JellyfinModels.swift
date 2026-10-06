@@ -179,6 +179,12 @@ struct BaseItemDto: Codable, Identifiable, Equatable {
     /// — resolved server-side, as `parentBackdropItemId` is.
     var parentLogoItemId: String?
     var parentLogoImageTag: String?
+    /// The nearest ancestor with a Thumb, resolved server-side the same way,
+    /// and sent only when the item has no Thumb of its own. Jellyfin 10.11
+    /// sends this on an episode, not `SeriesThumbImageTag` (measured on the
+    /// LAN server). The Apple TV player's Info tab falls back to it.
+    var parentThumbItemId: String?
+    var parentThumbImageTag: String?
 
     var userData: UserItemDataDto?
 
