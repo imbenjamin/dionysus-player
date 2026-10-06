@@ -27,7 +27,7 @@ enum TVPlayerPresenter {
             startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID,
             playbackQueue: queue
         )
-        let host = TVPlayerHostController(viewModel: viewModel, engine: engine)
+        let host = TVPlayerHostController(viewModel: viewModel)
         host.onClose = onClose
         host.modalPresentationStyle = .fullScreen
         guard let presenter = presentedChain().last else { return false }

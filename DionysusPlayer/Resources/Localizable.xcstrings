@@ -352,6 +352,9 @@
     "Bitrate" : {
 
     },
+    "Buffered" : {
+
+    },
     "Build" : {
 
     },
@@ -1399,6 +1402,9 @@
 
     },
     "Starring %@" : {
+
+    },
+    "Stats for Nerds" : {
 
     },
     "Stereo" : {

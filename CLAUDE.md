@@ -616,8 +616,8 @@ trusted on its own: `currentEDRHeadroom` reads a flat 1.00 while the TV shows
 HDR10, so the engine only corrects `$videoFormat` from `.sdr` once AVPlayer
 accepts the master, and a session that falls back would still read SDR. Trust
 the TV's own info banner, not `displayColorFormat` or EDR headroom, when
-checking HDR here. For the same reason the player's format chip stays hidden on
-tvOS (`TVTransportOverlay.showsFormatChip`).
+checking HDR here. The player's format chip therefore shows only while the
+engine reports HDR, and says nothing rather than SDR.
 `DisplayContext` passes the real Match Content setting, and deliberately
 asserts nothing about the panel's HDR state, since EDR headroom is the only
 thing it could read and the engine reads that itself.
@@ -630,11 +630,38 @@ itself. The engine's own `AetherPlayerView` is hidden whenever
 software route has no AVPlayer at all (`TVPlayerSurfacePolicy`). And the
 engine is made with `ownsNowPlayingSession: false`, since the
 `AVPlayerViewController` already runs Now Playing and a second session
-conflicts with it. AVKit's chrome is hidden and the transport is ours
-(`TVTransportOverlay`), inset by the safe area alone. It fades four seconds
-after playback starts or the last press, never while loading or paused
-(`TVTransportChrome`); timing the first fade from the player appearing let a
-slow load use up the title's time on screen.
+conflicts with it. AVKit's chrome is hidden and the transport is ours (`TVTransportOverlay`),
+inset by the safe area alone. **The player doesn't use the focus engine**
+(Benjamin, 2026-10-06, as Sodalite does): the host's recognizers take every
+press and touch-surface swipe and hand them to `TVPlayerInputModel`, a pure
+reducer over `TVPlayerInputState` that returns commands for
+`TVPlayerCommandRunner`, the only code that acts on `PlayerViewModel`. The
+overlay takes no interaction and draws focus from the state, so XCUITest
+reads it from a test-only marker (`A11yID.TV.Player.focus`), not `hasFocus`.
+What isn't guessable:
+- **Left/Right report down and up** (a long-press recognizer with no
+  minimum), so the model tells a press (a 10s skip, acted on release) from a
+  hold past 0.4s. `TVSwipeGate` turns a pan into a free scrub (paused only,
+  once it has seen 40pt at 200pt/s, so a resting thumb does nothing), one
+  step per swipe elsewhere, or Up/Down.
+- **Scanning mimics the native player** (Benjamin, 2026-10-06): playing, a
+  hold or a swipe pauses and scans at level 1; each further press or swipe
+  steps the level, -3/-2/-1/stop/+1/+2/+3 (8×, 32×, 64×), the opposite way
+  slowing through a stop, and releasing a hold keeps scanning. Paused, a
+  swipe scrubs freely and a press steps 10s. Either way **the picture stays
+  paused and only the trickplay preview moves**: AetherEngine's `setRate`
+  caps video at 2× forward with no reverse (AetherEngine#39), and Benjamin
+  chose a paused picture over a partial fast-forward. Select or Play/Pause
+  plays from the preview; Menu returns to where it started and resumes.
+  Play, pause and each 10s skip flash a glyph mid-screen
+  (`TVActionFlash`); the scan shows one more triangle per level beside the
+  preview's caption (`TVScanIndicator`), and a focused scrubber shows a
+  knob at the playhead.
+- **The transport fades 4s after the last press**, never while paused,
+  loading or scrubbing; the fade is timed in the reducer from playback
+  starting, so a slow load doesn't use up the title's time on screen.
+- **The HDR chip shows only while the engine reports HDR**
+  (`videoFormatDescription`, nil for SDR); see the HDR paragraph above.
 The space bar is Play/Pause too (`TVKeyboardCommand`): a keyboard, and the
 Simulator's on-screen remote, send it as a keyboard press (type 2044, HID
 usage 0x2C), never `.playPause`, so a `.playPause` recognizer alone leaves

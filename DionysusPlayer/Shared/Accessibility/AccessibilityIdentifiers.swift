@@ -529,7 +529,17 @@ enum A11yID {
             static let transport = "tv.player.transport"
             static let titleBlock = "tv.player.title"
             static let elapsed = "tv.player.elapsed"
+            static let remaining = "tv.player.remaining"
             static let formatLabel = "tv.player.format"
+            static let scrubPreview = "tv.player.scrubPreview"
+            static let bufferedRange = "tv.player.buffered"
+            static let scanIndicator = "tv.player.scan"
+            static let actionFlash = "tv.player.flash"
+            /// Test-only: a 1pt element whose label is `TVPlayerFocusID`'s
+            /// id for what has focus, since the player doesn't use the focus
+            /// engine XCUITest's `hasFocus` reads.
+            static let focus = "tv.player.focus"
+            static func icon(_ id: String) -> String { "tv.player.icon.\(id)" }
         }
     }
 }
