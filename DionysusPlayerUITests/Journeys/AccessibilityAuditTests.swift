@@ -340,11 +340,14 @@ private extension AccessibilityAuditTests {
     /// audits using this failed every night while the run reported success
     /// (fixed in PR #258).
     func auditCurrentScreen(underModal: Bool = false, file: StaticString = #filePath, line: UInt = #line) throws {
+        // A query, resolved each time it's read, so it finds a keyboard that
+        // came up after the audit started.
+        let keyboard = app.keyboards.firstMatch
         try app.performAccessibilityAudit(for: Self.auditedTypes) { issue in
             if underModal, issue.auditType == .elementDetection, issue.element == nil {
                 return true
             }
-            if Self.isKnownAcceptable(issue, keyboard: app.keyboards.firstMatch) {
+            if Self.isKnownAcceptable(issue, keyboard: keyboard) {
                 return true
             }
             Self.record(issue)
