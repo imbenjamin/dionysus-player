@@ -3,6 +3,12 @@
 /// player that doesn't use the focus engine (`A11yID.TV.Player.focus`).
 enum TVPlayerFocusID {
     static func describe(_ state: TVPlayerInputState, context: TVPlayerContext) -> String {
+        if let panel = state.panel {
+            switch panel.focus {
+            case .tabs: return "tab.\(panel.tab.id)"
+            case .content(let index): return "content.\(panel.tab.id).\(index)"
+            }
+        }
         if state.chrome == .transport, case .icon(let icon) = state.transportFocus { return "icon.\(icon.id)" }
         return state.chrome == .transport ? "scrubber" : "none"
     }

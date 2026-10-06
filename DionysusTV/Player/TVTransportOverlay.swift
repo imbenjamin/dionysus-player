@@ -60,20 +60,59 @@ struct TVTransportOverlay: View {
                 LinearGradient(colors: [.black.opacity(0.8), .black.opacity(0.45), .clear], startPoint: .top, endPoint: .bottom)
                     .frame(height: 360)
                 Spacer()
-                LinearGradient(colors: [.clear, .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 420)
+                // Deeper with the panel open, so its rows read over the
+                // picture (prototype `PlayerTabs`). 360 + 720 fills the
+                // 1080pt screen exactly: any taller and this layer outgrew the
+                // screen and was centred, pushing the title off the top.
+                LinearGradient(
+                    colors: state.panel == nil
+                        ? [.clear, .black.opacity(0.85)]
+                        : [.clear, .black.opacity(0.75), .black.opacity(0.92)],
+                    startPoint: .top, endPoint: .bottom
+                )
+                .frame(height: state.panel == nil ? 420 : 720)
             }
             .ignoresSafeArea()
             .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 0) {
-                titleBlock
-                Spacer()
-                bottomBar
-            }
             // No padding of its own: the safe area already insets it to the
             // HIG's 80pt sides and 60pt top and bottom.
-            .frame(maxWidth: .infinity, alignment: .leading)
+            if let panel = state.panel {
+                // The panel lifts the scrubber to mid-screen, without its
+                // icons, at the prototype's positions on the 1920×1080 screen
+                // (screen 13: the title at 60, the scrubber at 440, the tabs
+                // at 560, 80 in from each side). Laid out in screen
+                // coordinates, since inside the safe area this layer started
+                // at the screen's top edge (measured), and hung in an overlay
+                // of a screen-sized view, so no child can grow the layer and
+                // have it re-centred. The scrubber block reports
+                // `BottomChromeTopKey`, so a subtitle just chosen shows above
+                // it.
+                Color.clear
+                    .overlay(alignment: .topLeading) {
+                        ZStack(alignment: .topLeading) {
+                            titleBlock
+                                .padding(.top, 60)
+                            VStack(alignment: .leading, spacing: 18) {
+                                scrubber
+                                timesRow
+                            }
+                            .reportsBottomChromeTop()
+                            .padding(.top, 440)
+                            TVPlayerPanelView(viewModel: viewModel, panel: panel, tabs: TVPlayerInputModel.availableTabs(input.context()))
+                                .padding(.top, 560)
+                        }
+                        .padding(.horizontal, 80)
+                    }
+                    .ignoresSafeArea()
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    titleBlock
+                    Spacer()
+                    bottomBar
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -134,34 +173,35 @@ struct TVTransportOverlay: View {
         VStack(alignment: .leading, spacing: 18) {
             iconRow
             scrubber
-            HStack {
-                Text(TVPlaybackTimeFormat.string(shownTime))
-                    .monospacedDigit()
-                    .accessibilityIdentifier(A11yID.TV.Player.elapsed)
-                Spacer()
-                if let chip = TVTransportLayout.formatChipText(viewModel.videoFormatDescription) {
-                    Text(chip)
-                        .font(.caption.bold())
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 6)
-                        .background(.black.opacity(0.35), in: .capsule)
-                        .accessibilityIdentifier(A11yID.TV.Player.formatLabel)
-                }
-                Spacer()
-                Text("\u{2212}" + TVPlaybackTimeFormat.string(max(0, viewModel.duration - shownTime)))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier(A11yID.TV.Player.remaining)
-            }
-            .font(.callout.weight(.semibold))
+            timesRow
         }
         // Built only while the chrome shows, so once it fades the key falls
         // back to `.infinity` and cues rest (`SubtitleOverlayView`).
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(key: BottomChromeTopKey.self, value: proxy.frame(in: .global).minY)
+        .reportsBottomChromeTop()
+    }
+
+    /// Elapsed, the format chip and remaining, under the scrubber.
+    private var timesRow: some View {
+        HStack {
+            Text(TVPlaybackTimeFormat.string(shownTime))
+                .monospacedDigit()
+                .accessibilityIdentifier(A11yID.TV.Player.elapsed)
+            Spacer()
+            if let chip = TVTransportLayout.formatChipText(viewModel.videoFormatDescription) {
+                Text(chip)
+                    .font(.caption.bold())
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+                    .background(.black.opacity(0.35), in: .capsule)
+                    .accessibilityIdentifier(A11yID.TV.Player.formatLabel)
             }
-        )
+            Spacer()
+            Text("\u{2212}" + TVPlaybackTimeFormat.string(max(0, viewModel.duration - shownTime)))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(A11yID.TV.Player.remaining)
+        }
+        .font(.callout.weight(.semibold))
     }
 
     private var iconRow: some View {
@@ -245,5 +285,17 @@ struct TVTransportOverlay: View {
             .shadow(color: .black.opacity(0.5), radius: 10)
             .offset(x: width * fraction - 18)
             .accessibilityHidden(true)
+    }
+}
+
+private extension View {
+    /// Publishes this view's top edge as `BottomChromeTopKey`, so subtitles
+    /// sit above it.
+    func reportsBottomChromeTop() -> some View {
+        background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: BottomChromeTopKey.self, value: proxy.frame(in: .global).minY)
+            }
+        )
     }
 }

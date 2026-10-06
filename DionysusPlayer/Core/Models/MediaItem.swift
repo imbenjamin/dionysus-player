@@ -734,6 +734,13 @@ struct MediaItem: Identifiable {
         return images.url(itemID: id, imageType: "Thumb", tag: tag, maxWidth: 500)
     }
 
+    /// The nearest ancestor's Thumb (an episode's season or show), `nil` when
+    /// none has one or the item has its own (`thumbImageURL`).
+    var parentThumbImageURL: URL? {
+        guard let parentID = dto.parentThumbItemId, let tag = dto.parentThumbImageTag else { return nil }
+        return images.url(itemID: parentID, imageType: "Thumb", tag: tag, maxWidth: 800)
+    }
+
     /// Whether this item's rail tile uses `LandscapeMediaCard` rather than
     /// `PosterCard`: series and episodes read better as a still frame, and
     /// episodes often have no compelling poster art. Consulted only by

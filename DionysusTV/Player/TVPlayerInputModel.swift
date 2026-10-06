@@ -28,6 +28,9 @@ enum TVPanelTab: CaseIterable, Equatable {
         case .subtitles: "subtitles"
         }
     }
+
+    /// Audio and Subtitles are vertical lists; Chapters is a rail.
+    var isList: Bool { self == .audio || self == .subtitles }
 }
 
 enum TVDirection: Equatable {
@@ -154,11 +157,21 @@ struct TVPlayerInputState: Equatable {
         var scan: Scan?
     }
 
+    /// The swipe-down panel: which tab, and whether focus is on the tabs or
+    /// on a row of the tab's content.
+    struct Panel: Equatable {
+        enum Focus: Equatable { case tabs, content(Int) }
+        var tab: TVPanelTab
+        var focus: Focus
+        var lastInputAt: TimeInterval
+    }
+
     var chrome: Chrome = .transport
     var transportFocus: TransportFocus = .scrubber
     var lastInputAt: TimeInterval = 0
     var heldArrow: HeldArrow?
     var scrub: Scrub?
+    var panel: Panel?
     var isStatsOn = false
     var hasRequestedClose = false
     var flash: Flash?
@@ -170,6 +183,8 @@ enum TVPlayerTiming {
     static let chromeFade: TimeInterval = 4
     static let holdThreshold: TimeInterval = 0.4
     static let skipInterval: TimeInterval = 10
+    /// The panel closes after this long without a press.
+    static let panelTimeout: TimeInterval = 10
     /// Real-time multiples for scan levels 1, 2 and 3 (Benjamin, 2026-10-06,
     /// from the Simulator; tuned again on the device in Task 11).
     static let scanRates: [Double] = [8, 32, 64]
@@ -209,6 +224,7 @@ enum TVPlayerInputModel {
             return input == .menu ? [.close] : []
         }
         state.lastInputAt = now
+        state.panel?.lastInputAt = now
         let intent: Intent
         switch input {
         case .select: intent = .select
@@ -242,6 +258,7 @@ enum TVPlayerInputModel {
         _ intent: Intent, _ state: inout TVPlayerInputState, context: TVPlayerContext, now: TimeInterval
     ) -> [TVPlayerCommand] {
         if let commands = reduceScrub(intent, &state, context: context, now: now) { return commands }
+        if let commands = reducePanel(intent, &state, context: context) { return commands }
         return reduceTransport(intent, &state, context: context, now: now)
     }
 
@@ -270,7 +287,11 @@ enum TVPlayerInputModel {
             }
             return []
         case .down:
-            if case .icon = state.transportFocus { state.transportFocus = .scrubber }
+            if case .icon = state.transportFocus {
+                state.transportFocus = .scrubber
+            } else {
+                openPanel(.info, focus: .tabs, &state, now: now)
+            }
             return []
         case .arrow(let direction):
             if case .icon(let icon) = state.transportFocus {
@@ -290,7 +311,9 @@ enum TVPlayerInputModel {
     ) -> [TVPlayerCommand] {
         switch icon {
         case .stats: state.isStatsOn.toggle()
-        case .chapters, .audio, .subtitles: break
+        case .chapters: openPanel(.chapters, focus: .content(defaultIndex(.chapters, context)), &state, now: now)
+        case .audio: openPanel(.audio, focus: .content(defaultIndex(.audio, context)), &state, now: now)
+        case .subtitles: openPanel(.subtitles, focus: .content(defaultIndex(.subtitles, context)), &state, now: now)
         }
         return []
     }
@@ -308,7 +331,7 @@ enum TVPlayerInputModel {
     /// The scrubber shows its knob while it has focus: transport up, no icon
     /// focused, no panel.
     static func scrubberHasFocus(_ state: TVPlayerInputState) -> Bool {
-        state.chrome == .transport && state.transportFocus == .scrubber
+        state.chrome == .transport && state.transportFocus == .scrubber && state.panel == nil
     }
 
     static func neighbour(of icon: TVPlayerIcon, _ direction: TVDirection, in icons: [TVPlayerIcon]) -> TVPlayerIcon {
@@ -349,6 +372,18 @@ enum TVPlayerInputModel {
         if case .icon(let icon) = state.transportFocus, !context.availableIcons.contains(icon) {
             state.transportFocus = .scrubber
         }
+        if var panel = state.panel {
+            if now - panel.lastInputAt >= TVPlayerTiming.panelTimeout {
+                state.panel = nil
+                state.lastInputAt = now
+            } else if case .content(let index) = panel.focus {
+                // A list that shrinks under the panel never leaves focus past
+                // its end, so a stale row can't pick the wrong track.
+                let count = contentCount(panel.tab, context)
+                panel.focus = count == 0 ? .tabs : .content(min(index, count - 1))
+                state.panel = panel
+            }
+        }
         switch context.playback {
         case .loading, .paused, .failed:
             // The transport stays up, and its fade waits for playback, so a
@@ -371,6 +406,6 @@ enum TVPlayerInputModel {
     }
 
     static func chromeMayFade(_ state: TVPlayerInputState, context: TVPlayerContext) -> Bool {
-        context.playback == .playing && !context.autoHideDisabled && state.scrub == nil
+        context.playback == .playing && !context.autoHideDisabled && state.scrub == nil && state.panel == nil
     }
 }

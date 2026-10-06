@@ -48,9 +48,9 @@ extension TVPlayerInputModel {
     }
 
     /// Where a scrub may open: a title with a duration, focus on the
-    /// scrubber (always so with the transport hidden).
+    /// scrubber (always so with the transport hidden), and no panel over it.
     static func scrubCanOpen(_ state: TVPlayerInputState, context: TVPlayerContext) -> Bool {
-        context.duration > 0 && state.transportFocus == .scrubber
+        context.duration > 0 && state.transportFocus == .scrubber && state.panel == nil
     }
 
     /// Whether a horizontal swipe scrubs freely (`TVSwipeGate`): paused, or

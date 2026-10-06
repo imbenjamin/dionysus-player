@@ -104,6 +104,13 @@ final class AccessibilityAuditTests: TVUITestCase {
         try audit(app)
     }
 
+    func test_playerPanel() throws {
+        let app = openPlayer(extraArguments: ["-UITestDisableControlAutoHide", "YES"])
+        press(.down)
+        XCTAssertTrue(waitForPlayerFocus(app, "tab.info"))
+        try audit(app)
+    }
+
     private func audit(_ app: XCUIApplication) throws {
         try app.performAccessibilityAudit(for: Self.auditedTypes) { Self.isKnownAcceptable($0) }
     }
