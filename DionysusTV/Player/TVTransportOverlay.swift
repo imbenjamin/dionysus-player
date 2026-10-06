@@ -155,6 +155,13 @@ struct TVTransportOverlay: View {
             }
             .font(.callout.weight(.semibold))
         }
+        // Built only while the chrome shows, so once it fades the key falls
+        // back to `.infinity` and cues rest (`SubtitleOverlayView`).
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: BottomChromeTopKey.self, value: proxy.frame(in: .global).minY)
+            }
+        )
     }
 
     private var iconRow: some View {

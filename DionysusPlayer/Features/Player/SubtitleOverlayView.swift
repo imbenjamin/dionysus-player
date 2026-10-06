@@ -1,5 +1,33 @@
 import SwiftUI
 
+/// The sizes that differ between a phone at arm's length and a TV across the
+/// room. `.phone` is what this overlay always drew.
+struct SubtitleOverlayMetrics {
+    var fontSize: CGFloat
+    var horizontalInset: CGFloat
+    /// Bottom clearance once the chrome has gone.
+    var restingBottomInset: CGFloat
+    /// Breathing room between a subtitle and the chrome it clears.
+    var controlsGap: CGFloat
+    var horizontalPadding: CGFloat
+    var verticalPadding: CGFloat
+    var cornerRadius: CGFloat
+
+    /// The resting inset is just enough to clear the home indicator / safe area.
+    static let phone = SubtitleOverlayMetrics(
+        fontSize: 20, horizontalInset: 24, restingBottomInset: 28, controlsGap: 8,
+        horizontalPadding: 10, verticalPadding: 5, cornerRadius: 6
+    )
+
+    /// Sized for a 1920×1080pt screen viewed from a sofa; the font size is
+    /// set against Infuse on the same title in the device pass. The resting
+    /// inset keeps a cue inside the title-safe area.
+    static let tv = SubtitleOverlayMetrics(
+        fontSize: 46, horizontalInset: 80, restingBottomInset: 60, controlsGap: 20,
+        horizontalPadding: 22, verticalPadding: 10, cornerRadius: 12
+    )
+}
+
 /// Paints `PlayerViewModel.subtitleCues` over the video surface.
 ///
 /// AetherEngine decodes and publishes subtitle cues but draws nothing itself;
@@ -20,15 +48,10 @@ struct SubtitleOverlayView: View {
     /// `.infinity` until a layout pass reports it, which resolves to
     /// `restingBottomInset`.
     let controlsTop: CGFloat
+    var metrics: SubtitleOverlayMetrics = .phone
 
     @Environment(\.displayScale) private var displayScale
 
-    /// Breathing room between a subtitle and the chrome it clears.
-    private static let controlsGap: CGFloat = 8
-    /// Bottom clearance once controls have faded, just enough to clear the
-    /// home indicator / safe area.
-    private static let restingBottomInset: CGFloat = 28
-    private static let horizontalInset: CGFloat = 24
     /// Matches `PlayerView.fadeOutAnimation`'s duration, so the clearance change
     /// reads as part of the controls fade rather than separate motion.
     private static let clearanceAnimation: Animation = .easeInOut(duration: 0.3)
@@ -36,7 +59,10 @@ struct SubtitleOverlayView: View {
     var body: some View {
         GeometryReader { proxy in
             let video = videoRect(in: proxy.size)
-            let bottomInset = bottomInset(overlayMaxY: proxy.frame(in: .global).maxY)
+            let bottomInset = Self.bottomInset(
+                controlsVisible: controlsVisible, controlsTop: controlsTop,
+                overlayMaxY: proxy.frame(in: .global).maxY, metrics: metrics
+            )
             let cues = activeCues
             let defaultCues = cues.filter(isDefaultPositioned)
             let placedCues = cues.filter { !isDefaultPositioned($0) }
@@ -66,7 +92,7 @@ struct SubtitleOverlayView: View {
                                     textCueContent(cue)
                                 }
                             }
-                            .frame(maxWidth: video.width - Self.horizontalInset * 2)
+                            .frame(maxWidth: video.width - metrics.horizontalInset * 2)
                             .padding(.bottom, bottomInset)
                             .animation(Self.clearanceAnimation, value: controlsVisible)
                         }
@@ -89,9 +115,11 @@ struct SubtitleOverlayView: View {
     /// format to name, which put the chrome at ~124pt and left a subtitle drawn
     /// straight through the scrubber in landscape. Content-dependent, so no
     /// constant can be right for both cases in either orientation.
-    private func bottomInset(overlayMaxY: CGFloat) -> CGFloat {
-        guard controlsVisible, controlsTop.isFinite else { return Self.restingBottomInset }
-        return max(overlayMaxY - controlsTop + Self.controlsGap, Self.restingBottomInset)
+    static func bottomInset(
+        controlsVisible: Bool, controlsTop: CGFloat, overlayMaxY: CGFloat, metrics: SubtitleOverlayMetrics
+    ) -> CGFloat {
+        guard controlsVisible, controlsTop.isFinite else { return metrics.restingBottomInset }
+        return max(overlayMaxY - controlsTop + metrics.controlsGap, metrics.restingBottomInset)
     }
 
     /// Cues active at `viewModel.sourceTime`. The cue list covers a window ahead
@@ -119,7 +147,7 @@ struct SubtitleOverlayView: View {
         case .text, .richText:
             if let placement = cue.placement {
                 textCueContent(cue)
-                    .frame(maxWidth: video.width - Self.horizontalInset * 2)
+                    .frame(maxWidth: video.width - metrics.horizontalInset * 2)
                     .position(placementPoint(placement, video: video))
             }
         }
@@ -139,13 +167,13 @@ struct SubtitleOverlayView: View {
                 EmptyView()
             }
         }
-        .font(.system(size: 20, weight: .semibold))
+        .font(.system(size: metrics.fontSize, weight: .semibold))
         .foregroundStyle(.white)
         .multilineTextAlignment(.center)
         .shadow(color: .black.opacity(0.9), radius: 2, y: 1)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .padding(.horizontal, metrics.horizontalPadding)
+        .padding(.vertical, metrics.verticalPadding)
+        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous))
         .accessibilityIdentifier(A11yID.Player.plainSubtitle)
     }
 
