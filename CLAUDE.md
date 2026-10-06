@@ -503,9 +503,10 @@ Policy), with iOS's footers. What isn't guessable:
 - **The License and Privacy Policy pages are cut into focusable paragraphs**
   (`TVTextPageView`), because a tvOS scroll view moves only with focus. Both
   files are bundled into `DionysusTV` as on iOS (`project.yml`).
-- **Next Episode Countdown, Chapters in Scrubber, Subtitle Styling and Show
-  Playback Stats Button are stored but change nothing on tvOS until M4**
-  brings their player features; Streaming and Max Streaming Bitrate work now.
+- **Next Episode Countdown, Chapters in Scrubber and Show Playback Stats
+  Button are stored but change nothing on tvOS until M4** brings their
+  player features; Subtitle Styling, Streaming and Max Streaming Bitrate work
+  now.
   The chapters and stats keys moved to `PlayerPreferenceKeys.swift` with the
   carousel's, since tvOS doesn't compile the iOS player views.
 
@@ -662,6 +663,13 @@ What isn't guessable:
   starting, so a slow load doesn't use up the title's time on screen.
 - **The HDR chip shows only while the engine reports HDR**
   (`videoFormatDescription`, nil for SDR); see the HDR paragraph above.
+- **Subtitles are iOS's `SubtitleOverlayView`, compiled into the TV
+  target** with `SubtitleOverlayMetrics.tv` (46pt text, a title-safe resting
+  inset), the whole overlay including libass, so styled ASS and embedded
+  fonts work as on iOS. Cues clear the transport's bottom bar through
+  `BottomChromeTopKey`, which it reports while it shows. AVKit draws no copy
+  of its own under the `AVPlayerViewController` (checked on the native route
+  with a forced SubRip track), so the host leaves native rendering alone.
 The space bar is Play/Pause too (`TVKeyboardCommand`): a keyboard, and the
 Simulator's on-screen remote, send it as a keyboard press (type 2044, HID
 usage 0x2C), never `.playPause`, so a `.playPause` recognizer alone leaves

@@ -6,8 +6,21 @@ struct TVPlayerOverlay: View {
     let viewModel: PlayerViewModel
     let input: TVPlayerInput
 
+    /// The top of the transport's bottom bar while it shows
+    /// (`BottomChromeTopKey`), so cues sit above it.
+    @State private var chromeTop: CGFloat = .infinity
+
     var body: some View {
         ZStack {
+            // Ignores the safe area to lie over the full-bleed picture; libass
+            // reads the window's insets itself (CLAUDE.md, Subtitles).
+            SubtitleOverlayView(
+                viewModel: viewModel, zoomMode: .fit,
+                controlsVisible: input.state.chrome == .transport,
+                controlsTop: chromeTop, metrics: .tv
+            )
+            .ignoresSafeArea()
+
             TVTransportOverlay(viewModel: viewModel, input: input)
             if let flash = input.state.flash {
                 TVActionFlash(flash: flash)
@@ -21,6 +34,9 @@ struct TVPlayerOverlay: View {
                     .accessibilityIdentifier(A11yID.TV.Player.focus)
             }
             #endif
+        }
+        .onPreferenceChange(BottomChromeTopKey.self) { top in
+            MainActor.assumeIsolated { chromeTop = top }
         }
     }
 }
