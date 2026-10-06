@@ -12,7 +12,7 @@ A native tvOS app with a TV-specific UI on the iOS app's shared core. It should 
 
 | Area | Decision |
 |---|---|
-| Deployment floor | tvOS 26.0. AetherEngine allows 18, but 26 gives Liquid Glass and the tvOS 26 sidebar with no `#available` forks. Swiftfin and Sodalite also target 26. |
+| Deployment floor | tvOS 26.0. Every dependency allows 18 (AetherEngine's is the highest), but 26 gives Liquid Glass (`glassEffect` on the sidebar, the dropdown pills and onboarding) with no `#available` forks; a trial build at 18 fails on it. tvOS 26 runs on every Apple TV that 18 does, and nothing uses a tvOS 27 API (checked 2026-10-06). Swiftfin and Sodalite also target 26. |
 | Bundle ID | `com.imbenjamin.dionysusplayer`, the same as iOS (Universal Purchase). |
 | Code sharing | A separate `DionysusTV` target compiles the iOS app's `Core/`, `App/AppState.swift`, selected `Shared/` files and every `Features/**/*ViewModel.swift`. TV views live under `DionysusTV/`. |
 | Downloads | Absent on tvOS. `Core/Downloads` isn't compiled; shared code guards its download paths with the `DOWNLOADS` Swift compilation condition, which only the iOS app and its unit tests define. |
