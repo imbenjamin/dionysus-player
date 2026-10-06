@@ -27,10 +27,10 @@ struct TVPlayerPanelView: View {
                 ForEach(tabs, id: \.self) { tab in
                     let focused = panel.focus == .tabs && tab == panel.tab
                     Text(tab.title)
-                        .font(.headline)
+                        .font(.callout.weight(.semibold))
                         .foregroundStyle(focused ? Color.black : Color.white)
-                        .padding(.horizontal, 28)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
                         .background(
                             Capsule().fill(focused ? Color.white : Color.white.opacity(tab == panel.tab ? 0.2 : 0))
                         )
@@ -38,8 +38,10 @@ struct TVPlayerPanelView: View {
                         .accessibilityIdentifier(A11yID.TV.Player.panelTab(tab.id))
                 }
             }
+            // One height for every tab, so switching tabs moves nothing
+            // above it.
             content
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, minHeight: 330, maxHeight: 330, alignment: .topLeading)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11yID.TV.Player.panel)
@@ -70,24 +72,24 @@ struct TVPlayerPanelView: View {
                     .accessibilityElement()
                     .accessibilityLabel(String(localized: "Artwork"))
                     .accessibilityIdentifier(A11yID.TV.Player.infoArt)
-                // Fits the prototype's 370pt below the tabs: an episode's
-                // extra name line costs its overview a line.
+                // Fits the prototype's 370pt below the tabs, an episode's
+                // extra name line included.
                 VStack(alignment: .leading, spacing: 10) {
                     Text(item.kind == .episode ? (item.dto.seriesName ?? item.railTitle) : item.railTitle)
-                        .font(.title3.bold())
+                        .font(.headline)
                     if item.kind == .episode {
-                        Text(item.numberedEpisodeName).font(.headline).foregroundStyle(.secondary)
+                        Text(item.numberedEpisodeName).font(.callout).foregroundStyle(.secondary)
                     }
                     Text(TVDetailFormat.metadata(for: item).joined(separator: " · "))
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.secondary)
                     if let overview = item.dto.overview {
-                        Text(overview).font(.callout).lineLimit(item.kind == .episode ? 2 : 3).frame(maxWidth: 900, alignment: .leading)
+                        Text(overview).font(.subheadline).lineLimit(3).frame(maxWidth: 900, alignment: .leading)
                     }
                     Label("Restart", systemImage: "arrow.counterclockwise")
-                        .font(.headline)
+                        .font(.callout.weight(.semibold))
                         .foregroundStyle(isFocused(0) ? Color.black : Color.white)
-                        .padding(.horizontal, 30)
-                        .padding(.vertical, 14)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
                         .background(Capsule().fill(isFocused(0) ? Color.white : Color.white.opacity(0.18)))
                         .accessibilityAddTraits(.isButton)
                         .accessibilityIdentifier(A11yID.TV.Player.restart)
@@ -124,11 +126,14 @@ struct TVPlayerPanelView: View {
                 } else {
                     TVChapterTrickplayFrame(viewModel: viewModel, seconds: chapter.startSeconds)
                 }
-                if current {
-                    Color.black.opacity(0.25)
+                if current { Color.black.opacity(0.25) }
+                // Watched chapters fill the bar; the current one fills as
+                // far as the playhead (Benjamin, 2026-10-06).
+                let progress = chapterProgress(index)
+                if progress > 0 {
                     GeometryReader { geo in
                         Rectangle().fill(Color.dionysusAmber)
-                            .frame(width: geo.size.width * chapterProgress(index), height: 8)
+                            .frame(width: geo.size.width * progress, height: 8)
                             .frame(maxHeight: .infinity, alignment: .bottom)
                     }
                 }
@@ -139,17 +144,17 @@ struct TVPlayerPanelView: View {
             .scaleEffect(focused ? 1.06 : 1)
             .animation(.easeOut(duration: 0.15), value: focused)
             HStack(spacing: 12) {
-                Text(chapter.name).font(.callout.weight(.semibold)).lineLimit(1)
+                Text(chapter.name).font(.subheadline.weight(.semibold)).lineLimit(1)
                 if current {
                     Text("NOW")
-                        .font(.caption.bold())
+                        .font(.caption2.bold())
                         .foregroundStyle(Color(red: 0.08, green: 0.03, blue: 0.06))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 4)
                         .background(Color.dionysusAmber, in: Capsule())
                 }
             }
-            Text(TVPlaybackTimeFormat.string(chapter.startSeconds)).font(.caption).foregroundStyle(.secondary)
+            Text(TVPlaybackTimeFormat.string(chapter.startSeconds)).font(.caption2).foregroundStyle(.secondary)
         }
         .frame(width: 380, alignment: .leading)
         .accessibilityElement(children: .ignore)
@@ -159,13 +164,23 @@ struct TVPlayerPanelView: View {
         .accessibilityIdentifier(A11yID.TV.Player.panelRow(TVPanelTab.chapters.id, index))
     }
 
-    /// How far the playhead is through chapter `index`.
     private func chapterProgress(_ index: Int) -> Double {
-        let chapters = viewModel.chapters
-        let start = chapters[index].startSeconds
-        let end = index + 1 < chapters.count ? chapters[index + 1].startSeconds : viewModel.duration
+        Self.chapterProgress(
+            index, starts: viewModel.chapters.map(\.startSeconds),
+            duration: viewModel.duration, currentTime: viewModel.currentTime
+        )
+    }
+
+    /// How far the playhead is through chapter `index`: 1 for a chapter
+    /// already passed, 0 for one not reached.
+    static func chapterProgress(
+        _ index: Int, starts: [TimeInterval], duration: TimeInterval, currentTime: TimeInterval
+    ) -> Double {
+        guard starts.indices.contains(index) else { return 0 }
+        let start = starts[index]
+        let end = index + 1 < starts.count ? starts[index + 1] : duration
         guard end > start else { return 0 }
-        return min(1, max(0, (viewModel.currentTime - start) / (end - start)))
+        return min(1, max(0, (currentTime - start) / (end - start)))
     }
 
     // MARK: Tracks
@@ -180,19 +195,19 @@ struct TVPlayerPanelView: View {
                         let focused = isFocused(index)
                         HStack(spacing: 20) {
                             Image(systemName: "checkmark")
-                                .font(.headline)
+                                .font(.callout.weight(.semibold))
                                 .opacity(row.isChosen ? 1 : 0)
                                 .accessibilityHidden(true)
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(row.title).font(.headline)
+                                Text(row.title).font(.callout.weight(.semibold))
                                 if let metadata = row.metadata {
-                                    Text(metadata).font(.subheadline).opacity(0.7)
+                                    Text(metadata).font(.caption).opacity(0.7)
                                 }
                             }
                         }
                         .foregroundStyle(focused ? Color.black : Color.white)
-                        .padding(.horizontal, 28)
-                        .padding(.vertical, 14)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
                         .frame(width: 760, alignment: .leading)
                         .background(RoundedRectangle(cornerRadius: 20).fill(focused ? Color.white : Color.clear))
                         .id(index)

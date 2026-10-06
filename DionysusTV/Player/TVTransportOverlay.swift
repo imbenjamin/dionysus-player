@@ -56,63 +56,66 @@ struct TVTransportOverlay: View {
 
     private var chromeLayer: some View {
         ZStack {
-            VStack(spacing: 0) {
-                LinearGradient(colors: [.black.opacity(0.8), .black.opacity(0.45), .clear], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 360)
-                Spacer()
-                // Deeper with the panel open, so its rows read over the
-                // picture (prototype `PlayerTabs`). 360 + 720 fills the
-                // 1080pt screen exactly: any taller and this layer outgrew the
-                // screen and was centred, pushing the title off the top.
-                LinearGradient(
-                    colors: state.panel == nil
-                        ? [.clear, .black.opacity(0.85)]
-                        : [.clear, .black.opacity(0.75), .black.opacity(0.92)],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .frame(height: state.panel == nil ? 420 : 720)
-            }
-            .ignoresSafeArea()
-            .accessibilityHidden(true)
-
-            // No padding of its own: the safe area already insets it to the
-            // HIG's 80pt sides and 60pt top and bottom.
-            if let panel = state.panel {
-                // The panel lifts the scrubber to mid-screen, without its
-                // icons, at the prototype's positions on the 1920×1080 screen
-                // (screen 13: the title at 60, the scrubber at 440, the tabs
-                // at 560, 80 in from each side). Laid out in screen
-                // coordinates, since inside the safe area this layer started
-                // at the screen's top edge (measured), and hung in an overlay
-                // of a screen-sized view, so no child can grow the layer and
-                // have it re-centred. The scrubber block reports
-                // `BottomChromeTopKey`, so a subtitle just chosen shows above
-                // it.
-                Color.clear
-                    .overlay(alignment: .topLeading) {
-                        ZStack(alignment: .topLeading) {
-                            titleBlock
-                                .padding(.top, 60)
-                            VStack(alignment: .leading, spacing: 18) {
-                                scrubber
-                                timesRow
-                            }
-                            .reportsBottomChromeTop()
-                            .padding(.top, 440)
-                            TVPlayerPanelView(viewModel: viewModel, panel: panel, tabs: TVPlayerInputModel.availableTabs(input.context()))
-                                .padding(.top, 560)
-                        }
-                        .padding(.horizontal, 80)
-                    }
-                    .ignoresSafeArea()
-            } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    titleBlock
-                    Spacer()
-                    bottomBar
+            // Hung in overlays of a clear view: as a stack of fixed heights
+            // the gradients sized this layer, and with the panel's taller
+            // one they outgrew the 960pt safe area, which pushed every
+            // piece of chrome off its inset (measured).
+            Color.clear
+                .overlay(alignment: .top) {
+                    LinearGradient(colors: [.black.opacity(0.8), .black.opacity(0.45), .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 360)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+                .overlay(alignment: .bottom) {
+                    // Deeper with the panel open, so its rows read over the
+                    // picture (prototype `PlayerTabs`).
+                    LinearGradient(
+                        colors: state.panel == nil
+                            ? [.clear, .black.opacity(0.85)]
+                            : [.clear, .black.opacity(0.75), .black.opacity(0.92)],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                    .frame(height: state.panel == nil ? 420 : 780)
+                }
+                .ignoresSafeArea()
+                .accessibilityHidden(true)
+
+            // Laid out in screen coordinates, with the HIG's 80pt sides and
+            // 60pt top and bottom written out, each piece in an overlay of a
+            // screen-sized view so no child can grow this layer.
+            Color.clear
+                .overlay(alignment: .topLeading) {
+                    titleBlock
+                        .padding(.top, 60)
+                        .padding(.leading, 80)
+                }
+                .overlay(alignment: .bottomLeading) {
+                    // One stack on the safe area's bottom edge: opening the
+                    // panel inserts it under the scrubber, which rises to
+                    // make room, while the icons fade out (Benjamin,
+                    // 2026-10-06). It reports `BottomChromeTopKey` from its
+                    // top, the icons or the raised scrubber, so a subtitle
+                    // shows above whichever is up.
+                    VStack(alignment: .leading, spacing: 18) {
+                        if state.panel == nil {
+                            iconRow.transition(.opacity)
+                        }
+                        scrubber
+                        timesRow
+                        if let panel = state.panel {
+                            TVPlayerPanelView(viewModel: viewModel, panel: panel, tabs: TVPlayerInputModel.availableTabs(input.context()))
+                                .padding(.top, 26)
+                                // From a whole panel-height below, so it rides
+                                // up under the rising scrubber rather than
+                                // fading in across it.
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        }
+                    }
+                    .reportsBottomChromeTop()
+                    .padding(.horizontal, 80)
+                    .padding(.bottom, 60)
+                }
+                .ignoresSafeArea()
+                .animation(.easeInOut(duration: 0.3), value: state.panel != nil)
         }
     }
 
@@ -168,17 +171,6 @@ struct TVTransportOverlay: View {
     }
 
     // MARK: - Bottom bar
-
-    private var bottomBar: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            iconRow
-            scrubber
-            timesRow
-        }
-        // Built only while the chrome shows, so once it fades the key falls
-        // back to `.infinity` and cues rest (`SubtitleOverlayView`).
-        .reportsBottomChromeTop()
-    }
 
     /// Elapsed, the format chip and remaining, under the scrubber.
     private var timesRow: some View {

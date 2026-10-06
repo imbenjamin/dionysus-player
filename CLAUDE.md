@@ -618,7 +618,10 @@ HDR10, so the engine only corrects `$videoFormat` from `.sdr` once AVPlayer
 accepts the master, and a session that falls back would still read SDR. Trust
 the TV's own info banner, not `displayColorFormat` or EDR headroom, when
 checking HDR here. The player's format chip therefore shows only while the
-engine reports HDR, and says nothing rather than SDR.
+engine reports HDR, and says nothing rather than SDR. When the master is
+taken it reads right: Deadpool (Dolby Vision Profile 8 on an HDR10 base
+layer) went to the Bedroom's HDR10-only panel as HDR10, and the chip said
+HDR10 (Benjamin, 2026-10-06).
 `DisplayContext` passes the real Match Content setting, and deliberately
 asserts nothing about the panel's HDR state, since EDR headroom is the only
 thing it could read and the engine reads that itself.
@@ -632,7 +635,11 @@ software route has no AVPlayer at all (`TVPlayerSurfacePolicy`). And the
 engine is made with `ownsNowPlayingSession: false`, since the
 `AVPlayerViewController` already runs Now Playing and a second session
 conflicts with it. AVKit's chrome is hidden and the transport is ours (`TVTransportOverlay`),
-inset by the safe area alone. **The player doesn't use the focus engine**
+inset by the safe area alone. The host also keeps the remote's Select and
+Play/Pause away from `AVPlayerViewController`'s own press handling (its
+`pressesBegan` and friends): passed up, AVKit toggled playback before our
+recognizer fired, so a pause flashed Play (Benjamin, on device).
+**The player doesn't use the focus engine**
 (Benjamin, 2026-10-06, as Sodalite does): the host's recognizers take every
 press and touch-surface swipe and hand them to `TVPlayerInputModel`, a pure
 reducer over `TVPlayerInputState` that returns commands for
