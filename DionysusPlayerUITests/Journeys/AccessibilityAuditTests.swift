@@ -344,7 +344,29 @@ private extension AccessibilityAuditTests {
             if underModal, issue.auditType == .elementDetection, issue.element == nil {
                 return true
             }
-            return Self.isKnownAcceptable(issue)
+            if Self.isKnownAcceptable(issue, keyboard: app.keyboards.firstMatch) {
+                return true
+            }
+            Self.record(issue)
+            return false
+        }
+    }
+
+    /// Attaches what the audit knows about an issue that fails the test.
+    /// The failure itself carries only the issue's compact description
+    /// ("Element has no description") and a screenshot, which on a CI run
+    /// says nothing about *which* element it was.
+    static func record(_ issue: XCUIAccessibilityAuditIssue) {
+        let attachment = XCTAttachment(string: """
+            \(issue.compactDescription)
+            \(issue.detailedDescription)
+
+            \(issue.element?.debugDescription ?? "No element attached.")
+            """)
+        attachment.name = "Accessibility audit issue"
+        attachment.lifetime = .keepAlways
+        XCTContext.runActivity(named: "Unsuppressed audit issue: \(issue.compactDescription)") { activity in
+            activity.add(attachment)
         }
     }
 
@@ -393,7 +415,7 @@ private extension AccessibilityAuditTests {
     /// applies to a screen nobody intended it for is the main way an audit
     /// suite rots. Every entry below is scoped to a kind of element, never to
     /// an audit type alone.
-    static func isKnownAcceptable(_ issue: XCUIAccessibilityAuditIssue) -> Bool {
+    static func isKnownAcceptable(_ issue: XCUIAccessibilityAuditIssue, keyboard: XCUIElement) -> Bool {
         guard let element = issue.element else { return false }
 
         // UIKit's own clear button inside `.searchable`'s text field, 20.5pt
@@ -439,6 +461,24 @@ private extension AccessibilityAuditTests {
         }
         if issue.auditType == .sufficientElementDescription,
            element.debugDescription.contains("identifier: 'SystemInputAssistantView'") {
+            return true
+        }
+
+        // The same bar on iPad, iOS 26, when it offers AutoFill: the
+        // username fields carry `.textContentType(.username)`, so the bar
+        // shows a "Passwords" button with an empty cell beside it. That
+        // cell fails `.sufficientElementDescription` with the same generic
+        // description, and is caught by neither check above. It fails only
+        // some nights (first on 2026-10-06, Other User sheet): the bar
+        // offers Passwords only once the system's AutoFill has answered,
+        // which may come after the audit has run. No element details
+        // were recorded, so it's recognised by sitting wholly inside the
+        // on-screen keyboard. An unlabeled app element hidden behind the
+        // keyboard would pass too, so this is limited to that one audit type
+        // and to a keyboard actually on screen.
+        if issue.auditType == .sufficientElementDescription,
+           keyboard.exists,
+           keyboard.frame.contains(element.frame) {
             return true
         }
 
