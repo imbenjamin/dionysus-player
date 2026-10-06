@@ -1,0 +1,376 @@
+import Foundation
+
+/// The transport's icons, left to right.
+enum TVPlayerIcon: CaseIterable, Equatable {
+    case chapters, audio, subtitles, stats
+
+    /// Fixed, unlocalized: identifiers and the focus marker use it.
+    var id: String {
+        switch self {
+        case .chapters: "chapters"
+        case .audio: "audio"
+        case .subtitles: "subtitles"
+        case .stats: "stats"
+        }
+    }
+}
+
+/// The swipe-down panel's tabs, left to right. Stats is not one: it is a
+/// toggle on its icon (Benjamin, 2026-10-06).
+enum TVPanelTab: CaseIterable, Equatable {
+    case info, chapters, audio, subtitles
+
+    var id: String {
+        switch self {
+        case .info: "info"
+        case .chapters: "chapters"
+        case .audio: "audio"
+        case .subtitles: "subtitles"
+        }
+    }
+}
+
+enum TVDirection: Equatable {
+    case left, right
+
+    var sign: Double { self == .left ? -1 : 1 }
+    var step: Int { self == .left ? -1 : 1 }
+}
+
+enum TVNextUpButton: Equatable {
+    case playNow, close
+}
+
+/// What the remote did, as the host reports it.
+enum TVRemoteInput: Equatable {
+    case select, playPause, menu, up, down
+    /// Left or Right going down and coming up. The model tells a press
+    /// (released within `TVPlayerTiming.holdThreshold`) from a hold.
+    case arrowDown(TVDirection), arrowUp(TVDirection)
+    /// A horizontal swipe `TVSwipeGate` committed to scrubbing: began, the
+    /// travel since it began as a fraction of the surface's width, ended.
+    case swipeBegan, swipeMoved(fraction: Double), swipeEnded
+    /// One horizontal swipe where no free scrub is possible: it enters or
+    /// steps a scan, or moves focus as an arrow press would.
+    case swipeStep(TVDirection)
+    /// The model's clock. Holds, scans, fades and timeouts advance on it.
+    case tick
+}
+
+/// What the host must do to the player (`TVPlayerCommandRunner`).
+enum TVPlayerCommand: Equatable {
+    case play, pause, togglePlayPause
+    case seek(TimeInterval)
+    case skipSegment(id: String)
+    case playNext, dismissNextUp
+    case selectAudio(id: Int), selectSubtitle(id: Int?)
+    case close
+}
+
+/// The facts the model reads but never sets, snapshotted from
+/// `PlayerViewModel` and the settings on every input
+/// (`TVPlayerContext.init(viewModel:defaults:)`).
+struct TVPlayerContext: Equatable {
+    enum Playback: Equatable {
+        case loading, playing, paused, ended, failed
+
+        /// Nothing to act on while a title loads or after it failed: only
+        /// Menu does anything then, and it closes the player.
+        var acceptsInput: Bool { self != .loading && self != .failed }
+    }
+
+    struct SkipSegment: Equatable {
+        var id: String
+        var endSeconds: TimeInterval
+    }
+
+    var playback: Playback = .playing
+    var currentTime: TimeInterval = 0
+    var duration: TimeInterval = 0
+    var chapterStarts: [TimeInterval] = []
+    var audioTrackIDs: [Int] = []
+    var selectedAudioIndex: Int?
+    var subtitleTrackIDs: [Int] = []
+    /// `nil` while subtitles are off.
+    var selectedSubtitleIndex: Int?
+    var statsButtonEnabled = false
+    var chaptersInScrubber = true
+    var skipSegment: SkipSegment?
+    var nextUpSecondsRemaining: Int?
+    var closesWhenPlaybackEnds = true
+    /// The UI-test harness's `-UITestDisableControlAutoHide`.
+    var autoHideDisabled = false
+
+    /// The icons with something to do, so none is a dead stop.
+    var availableIcons: [TVPlayerIcon] {
+        TVPlayerIcon.allCases.filter { icon in
+            switch icon {
+            case .chapters: !chapterStarts.isEmpty
+            case .audio: audioTrackIDs.count > 1
+            case .subtitles: !subtitleTrackIDs.isEmpty
+            case .stats: statsButtonEnabled
+            }
+        }
+    }
+}
+
+/// Everything the player's UI is doing. The overlay draws from it; only the
+/// reducer changes it.
+struct TVPlayerInputState: Equatable {
+    enum Chrome: Equatable { case hidden, transport }
+    enum TransportFocus: Equatable { case scrubber, icon(TVPlayerIcon) }
+
+    struct HeldArrow: Equatable {
+        var direction: TVDirection
+        var pressedAt: TimeInterval
+        var isHold = false
+        /// The hold entered or stepped a scan, so its release does nothing.
+        var actedAsScan = false
+    }
+
+    /// Native-style scanning (Benjamin, 2026-10-06): a level from -3 to 3,
+    /// 0 holding the preview still. The picture stays paused; only the
+    /// trickplay preview moves.
+    struct Scan: Equatable {
+        var level: Int
+        var lastTickAt: TimeInterval
+    }
+
+    /// The glyph flashed mid-screen to confirm an action.
+    struct Flash: Equatable {
+        enum Kind: Equatable { case play, pause, skipBack, skipForward }
+        var kind: Kind
+        /// New for every action, so a repeat flashes again.
+        var serial: Int
+    }
+
+    /// A scrub moves a preview, never playback, until it is committed.
+    struct Scrub: Equatable {
+        var previewTime: TimeInterval
+        /// Whether the scrub paused playback, so cancelling resumes it.
+        var resumesOnCancel: Bool
+        /// The preview when the current swipe began.
+        var swipeAnchor: TimeInterval?
+        var scan: Scan?
+    }
+
+    var chrome: Chrome = .transport
+    var transportFocus: TransportFocus = .scrubber
+    var lastInputAt: TimeInterval = 0
+    var heldArrow: HeldArrow?
+    var scrub: Scrub?
+    var isStatsOn = false
+    var hasRequestedClose = false
+    var flash: Flash?
+}
+
+/// The spec's timings (Benjamin, 2026-10-06). Tuned on the Bedroom Apple TV
+/// in Task 11.
+enum TVPlayerTiming {
+    static let chromeFade: TimeInterval = 4
+    static let holdThreshold: TimeInterval = 0.4
+    static let skipInterval: TimeInterval = 10
+    /// Real-time multiples for scan levels 1, 2 and 3 (Benjamin, 2026-10-06,
+    /// from the Simulator; tuned again on the device in Task 11).
+    static let scanRates: [Double] = [8, 32, 64]
+}
+
+/// How a swipe maps onto the title (tuned in Task 11).
+enum TVScrubMetrics {
+    /// A swipe across the whole surface covers this fraction of the title.
+    static let fullSwipeFractionOfDuration = 0.25
+    /// A swipe's preview snaps to a chapter start this close, as a fraction
+    /// of the title (43s of a 90-minute film).
+    static let snapFractionOfDuration = 0.008
+}
+
+/// The player's remote as a pure reducer: a state, an input and a snapshot
+/// of the player in; the new state and the commands for the host out.
+///
+/// The tvOS focus engine is not used in the player (Sodalite's approach):
+/// the host's recognizers take every press and this decides what it means,
+/// so a press can never land somewhere the focus engine chose instead.
+enum TVPlayerInputModel {
+    /// What an input means once a press has been told from a hold.
+    enum Intent: Equatable {
+        case select, playPause, menu, up, down
+        case arrow(TVDirection)
+        case holdBegan(TVDirection)
+        case swipeBegan, swipeMoved(Double), swipeEnded
+        case swipeStep(TVDirection)
+    }
+
+    static func reduce(
+        _ state: inout TVPlayerInputState, _ input: TVRemoteInput, context: TVPlayerContext, now: TimeInterval
+    ) -> [TVPlayerCommand] {
+        if input == .tick { return tick(&state, context: context, now: now) }
+        guard context.playback.acceptsInput else {
+            state.heldArrow = nil
+            return input == .menu ? [.close] : []
+        }
+        state.lastInputAt = now
+        let intent: Intent
+        switch input {
+        case .select: intent = .select
+        case .playPause: intent = .playPause
+        case .menu: intent = .menu
+        case .up: intent = .up
+        case .down: intent = .down
+        case .arrowDown(let direction):
+            state.heldArrow = .init(direction: direction, pressedAt: now)
+            return []
+        case .arrowUp(let direction):
+            guard let held = state.heldArrow, held.direction == direction else { return [] }
+            state.heldArrow = nil
+            // A hold that entered or stepped a scan has done its work; one
+            // that didn't (an icon, the panel) counts as one press.
+            if held.actedAsScan { return [] }
+            intent = .arrow(direction)
+        case .swipeBegan: intent = .swipeBegan
+        case .swipeMoved(let fraction): intent = .swipeMoved(fraction)
+        case .swipeEnded: intent = .swipeEnded
+        case .swipeStep(let direction):
+            // Where no scan can start or step, a swipe is an arrow press.
+            intent = state.scrub != nil || scrubCanOpen(state, context: context) ? .swipeStep(direction) : .arrow(direction)
+        case .tick: return []
+        }
+        return dispatch(intent, &state, context: context, now: now)
+    }
+
+    /// Each concern in turn; the first that handles the intent wins.
+    static func dispatch(
+        _ intent: Intent, _ state: inout TVPlayerInputState, context: TVPlayerContext, now: TimeInterval
+    ) -> [TVPlayerCommand] {
+        if let commands = reduceScrub(intent, &state, context: context, now: now) { return commands }
+        return reduceTransport(intent, &state, context: context, now: now)
+    }
+
+    // MARK: - Transport
+
+    static func reduceTransport(
+        _ intent: Intent, _ state: inout TVPlayerInputState, context: TVPlayerContext, now: TimeInterval
+    ) -> [TVPlayerCommand] {
+        let wasHidden = state.chrome == .hidden
+        state.chrome = .transport
+        switch intent {
+        case .select:
+            if case .icon(let icon) = state.transportFocus { return activate(icon, &state, context: context, now: now) }
+            return togglePlayPause(&state, context: context)
+        case .playPause:
+            return togglePlayPause(&state, context: context)
+        case .menu:
+            if case .icon = state.transportFocus {
+                state.transportFocus = .scrubber
+                return []
+            }
+            return [.close]
+        case .up:
+            if !wasHidden, state.transportFocus == .scrubber, let first = context.availableIcons.first {
+                state.transportFocus = .icon(first)
+            }
+            return []
+        case .down:
+            if case .icon = state.transportFocus { state.transportFocus = .scrubber }
+            return []
+        case .arrow(let direction):
+            if case .icon(let icon) = state.transportFocus {
+                state.transportFocus = .icon(neighbour(of: icon, direction, in: context.availableIcons))
+                return []
+            }
+            let commands = skip(direction, context: context)
+            if !commands.isEmpty { flash(direction == .left ? .skipBack : .skipForward, &state) }
+            return commands
+        case .holdBegan, .swipeBegan, .swipeMoved, .swipeEnded, .swipeStep:
+            return []
+        }
+    }
+
+    static func activate(
+        _ icon: TVPlayerIcon, _ state: inout TVPlayerInputState, context: TVPlayerContext, now: TimeInterval
+    ) -> [TVPlayerCommand] {
+        switch icon {
+        case .stats: state.isStatsOn.toggle()
+        case .chapters, .audio, .subtitles: break
+        }
+        return []
+    }
+
+    static func togglePlayPause(_ state: inout TVPlayerInputState, context: TVPlayerContext) -> [TVPlayerCommand] {
+        guard context.playback != .ended else { return [] }
+        flash(context.playback == .playing ? .pause : .play, &state)
+        return [.togglePlayPause]
+    }
+
+    static func flash(_ kind: TVPlayerInputState.Flash.Kind, _ state: inout TVPlayerInputState) {
+        state.flash = .init(kind: kind, serial: (state.flash?.serial ?? 0) + 1)
+    }
+
+    /// The scrubber shows its knob while it has focus: transport up, no icon
+    /// focused, no panel.
+    static func scrubberHasFocus(_ state: TVPlayerInputState) -> Bool {
+        state.chrome == .transport && state.transportFocus == .scrubber
+    }
+
+    static func neighbour(of icon: TVPlayerIcon, _ direction: TVDirection, in icons: [TVPlayerIcon]) -> TVPlayerIcon {
+        guard let index = icons.firstIndex(of: icon) else { return icons.first ?? icon }
+        let next = index + (direction == .left ? -1 : 1)
+        return icons.indices.contains(next) ? icons[next] : icon
+    }
+
+    /// Review Focus 1: no duration, no seek. M1's `skip(by:)` seeked to 0.
+    static func skip(_ direction: TVDirection, context: TVPlayerContext) -> [TVPlayerCommand] {
+        guard context.duration > 0 else { return [] }
+        return [.seek(clamp(context.currentTime + direction.sign * TVPlayerTiming.skipInterval, context))]
+    }
+
+    static func clamp(_ time: TimeInterval, _ context: TVPlayerContext) -> TimeInterval {
+        min(max(time, 0), context.duration)
+    }
+
+    // MARK: - Clock
+
+    static func tick(_ state: inout TVPlayerInputState, context: TVPlayerContext, now: TimeInterval) -> [TVPlayerCommand] {
+        var commands: [TVPlayerCommand] = []
+        if var held = state.heldArrow, !held.isHold, context.playback.acceptsInput,
+           now - held.pressedAt >= TVPlayerTiming.holdThreshold {
+            held.isHold = true
+            state.heldArrow = held
+            commands += dispatch(.holdBegan(held.direction), &state, context: context, now: now)
+        }
+        if var scrub = state.scrub, var scan = scrub.scan {
+            let moved = scrub.previewTime + scanRate(level: scan.level) * (now - scan.lastTickAt)
+            scrub.previewTime = clamp(moved, context)
+            // A scan that reaches either end stops there.
+            if moved != scrub.previewTime { scan.level = 0 }
+            scan.lastTickAt = now
+            scrub.scan = scan
+            state.scrub = scrub
+        }
+        if case .icon(let icon) = state.transportFocus, !context.availableIcons.contains(icon) {
+            state.transportFocus = .scrubber
+        }
+        switch context.playback {
+        case .loading, .paused, .failed:
+            // The transport stays up, and its fade waits for playback, so a
+            // slow load doesn't use up the title's time on screen.
+            state.chrome = .transport
+            state.lastInputAt = now
+        case .playing, .ended:
+            break
+        }
+        if state.chrome == .transport, chromeMayFade(state, context: context),
+           now - state.lastInputAt >= TVPlayerTiming.chromeFade {
+            state.chrome = .hidden
+            state.transportFocus = .scrubber
+        }
+        if context.playback == .ended, context.closesWhenPlaybackEnds, !state.hasRequestedClose {
+            state.hasRequestedClose = true
+            commands.append(.close)
+        }
+        return commands
+    }
+
+    static func chromeMayFade(_ state: TVPlayerInputState, context: TVPlayerContext) -> Bool {
+        context.playback == .playing && !context.autoHideDisabled && state.scrub == nil
+    }
+}

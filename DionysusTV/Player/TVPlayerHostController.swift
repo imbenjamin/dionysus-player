@@ -17,21 +17,27 @@ import UIKit
 /// Aether view, so nothing is bound to AVKit and its SwiftUI surface is shown
 /// instead.
 final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation {
-    private let session: TVPlaybackSession
-    private let engine: PlaybackEngine
-    private let chrome = TVTransportChrome()
+    private var session: TVPlaybackSession
     private var viewModel: PlayerViewModel { session.viewModel }
+    private var engine: PlaybackEngine { viewModel.engine }
+    private let input = TVPlayerInput()
+    private var swipeGate = TVSwipeGate()
 
     private var aetherView: AetherPlayerView?
     private var isAetherViewBound = false
-    private var overlayHost: UIHostingController<TVTransportOverlay>?
+    private var fakeSurface: UIHostingController<AnyView>?
+    private var overlayHost: UIHostingController<TVPlayerOverlay>?
     private var ourRecognizers: [UIGestureRecognizer] = []
     private var cancellables: Set<AnyCancellable> = []
 
-    init(viewModel: PlayerViewModel, engine: PlaybackEngine) {
-        self.session = TVPlaybackSession(viewModel: viewModel)
-        self.engine = engine
+    init(viewModel: PlayerViewModel) {
+        session = TVPlaybackSession(viewModel: viewModel)
         super.init(nibName: nil, bundle: nil)
+        input.context = { [weak self] in
+            guard let self else { return TVPlayerContext() }
+            return TVPlayerContext(viewModel: self.viewModel)
+        }
+        input.perform = { [weak self] commands in self?.run(commands) }
     }
 
     @available(*, unavailable)
@@ -44,13 +50,9 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         // setup on tvOS"): AVKit's automatic criteria race it for HDR HLS.
         appliesPreferredDisplayCriteriaAutomatically = false
 
-        if let aether = engine as? AetherPlaybackEngine {
-            bindToAVKit(aether)
-        } else {
-            showFakeSurface()
-        }
+        bindSurface()
 
-        let overlay = UIHostingController(rootView: TVTransportOverlay(viewModel: viewModel, chrome: chrome))
+        let overlay = UIHostingController(rootView: TVPlayerOverlay(viewModel: viewModel, input: input))
         overlay.view.backgroundColor = .clear
         overlay.view.isUserInteractionEnabled = false
         overlay.view.frame = view.bounds
@@ -60,12 +62,18 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         overlay.didMove(toParent: self)
         overlayHost = overlay
 
-        // Every handled press shows the transport; Select does nothing else.
-        addPress(.select) { [weak self] in self?.chrome.poke() }
-        addPress(.playPause) { [weak self] in self?.togglePlayPause() }
-        addPress(.leftArrow) { [weak self] in self?.skip(by: -10) }
-        addPress(.rightArrow) { [weak self] in self?.skip(by: 10) }
-        addPress(.menu) { [weak self] in self?.close() }
+        // Every press goes to the input model, which decides what it means.
+        addTap(.select) { [weak self] in self?.input.send(.select) }
+        addTap(.playPause) { [weak self] in self?.input.send(.playPause) }
+        addTap(.menu) { [weak self] in self?.input.send(.menu) }
+        addTap(.upArrow) { [weak self] in self?.input.send(.up) }
+        addTap(.downArrow) { [weak self] in self?.input.send(.down) }
+        addArrow(.leftArrow, .left)
+        addArrow(.rightArrow, .right)
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]
+        view.addGestureRecognizer(pan)
+        ourRecognizers.append(pan)
     }
 
     /// Keyboard keys with no remote press of their own (`TVKeyboardCommand`).
@@ -74,7 +82,7 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         for press in presses {
             guard let keyCode = press.key?.keyCode, let command = TVKeyboardCommand(keyCode: keyCode) else { continue }
             switch command {
-            case .playPause: togglePlayPause()
+            case .playPause: input.send(.playPause)
             }
             unhandled.remove(press)
         }
@@ -87,9 +95,10 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         hideAVKitChrome(in: view)
         // Menu pressed during the presentation: its dismiss was deferred to here.
         guard !session.hasEnded else { return dismissReportingOutcome() }
-        // The transport is up already; its fade starts with playback
-        // (`TVTransportChrome.playbackStateChanged`), not here.
+        // The transport is up already; the input model times its fade from
+        // playback starting, not from here.
         session.begin()
+        input.start()
     }
 
     override func viewDidLayoutSubviews() {
@@ -100,6 +109,14 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
     }
 
     // MARK: - Surfaces
+
+    private func bindSurface() {
+        if let aether = engine as? AetherPlaybackEngine {
+            bindToAVKit(aether)
+        } else {
+            showFakeSurface()
+        }
+    }
 
     private func bindToAVKit(_ aether: AetherPlaybackEngine) {
         // Required before tvOS runs AVKit's Now Playing session, AirPods
@@ -159,6 +176,7 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         addChild(surface)
         view.insertSubview(surface.view, at: 0)
         surface.didMove(toParent: self)
+        fakeSurface = surface
     }
 
     /// AVKit's Now Playing card reads the item's `externalMetadata`.
@@ -173,15 +191,25 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
 
     // MARK: - Remote
 
-    private func togglePlayPause() {
-        viewModel.togglePlayPause()
-        chrome.poke()
+    private func run(_ commands: [TVPlayerCommand]) {
+        TVPlayerCommandRunner(viewModel: viewModel, close: { [weak self] in self?.close() }, playNext: {}).run(commands)
     }
 
-    private func skip(by seconds: TimeInterval) {
-        let target = max(0, min(viewModel.duration, viewModel.currentTime + seconds))
-        viewModel.seek(to: target)
-        chrome.poke()
+    @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .began:
+            swipeGate.began()
+        case .changed:
+            let inputs = swipeGate.changed(
+                translation: pan.translation(in: view), velocity: pan.velocity(in: view),
+                width: view.bounds.width, scrubs: input.swipeScrubs
+            )
+            inputs.forEach(input.send)
+        case .ended, .cancelled, .failed:
+            swipeGate.ended().forEach(input.send)
+        default:
+            break
+        }
     }
 
     /// Told where playback stopped, after the player has gone, so the page
@@ -193,6 +221,7 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
     /// UIKit ignores a dismiss while the presentation is still animating, so
     /// one pressed then is left to `viewDidAppear`.
     func close() {
+        input.stop()
         if let outcome = session.end() {
             pendingOutcome = outcome
             // As iOS's `PlayerView` does: Home has no other way to learn it.
@@ -208,7 +237,31 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         }
     }
 
-    private func addPress(_ type: UIPress.PressType, _ action: @escaping () -> Void) {
+    /// Left and Right report down and up, so the model can tell a press from
+    /// a hold. A long-press recognizer with no minimum is UIKit's way to get
+    /// both edges of a remote press.
+    private func addArrow(_ type: UIPress.PressType, _ direction: TVDirection) {
+        let recognizer = UILongPressGestureRecognizer(
+            target: self, action: direction == .left ? #selector(leftArrowChanged(_:)) : #selector(rightArrowChanged(_:))
+        )
+        recognizer.minimumPressDuration = 0
+        recognizer.allowedPressTypes = [NSNumber(value: type.rawValue)]
+        view.addGestureRecognizer(recognizer)
+        ourRecognizers.append(recognizer)
+    }
+
+    @objc private func leftArrowChanged(_ recognizer: UILongPressGestureRecognizer) { arrowChanged(recognizer, .left) }
+    @objc private func rightArrowChanged(_ recognizer: UILongPressGestureRecognizer) { arrowChanged(recognizer, .right) }
+
+    private func arrowChanged(_ recognizer: UILongPressGestureRecognizer, _ direction: TVDirection) {
+        switch recognizer.state {
+        case .began: input.send(.arrowDown(direction))
+        case .ended, .cancelled, .failed: input.send(.arrowUp(direction))
+        default: break
+        }
+    }
+
+    private func addTap(_ type: UIPress.PressType, _ action: @escaping () -> Void) {
         let recognizer = PressRecognizer(action: action)
         recognizer.allowedPressTypes = [NSNumber(value: type.rawValue)]
         view.addGestureRecognizer(recognizer)

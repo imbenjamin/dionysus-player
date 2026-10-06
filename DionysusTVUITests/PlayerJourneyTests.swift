@@ -46,20 +46,20 @@ final class PlayerJourneyTests: TVUITestCase {
         XCTAssertFalse(elapsed.exists)
     }
 
-    /// The title block sits top-left, and the scrubber and elapsed time are on
-    /// screen. The format chip is not: see `TVTransportOverlay.showsFormatChip`.
-    func test_transport_showsTitleAndTimes_withoutFormatChip() {
+    /// The title block sits top-left, and the scrubber and times are on
+    /// screen. The fake engine reports a Dolby Vision picture, so the HDR
+    /// chip shows (it shows only while the engine reports HDR).
+    func test_transport_showsTitleTimesAndTheHDRChip() {
         let app = openPlayer(extraArguments: ["-UITestDisableControlAutoHide", "YES"])
         let title = app.descendants(matching: .any)[A11yID.TV.Player.titleBlock]
         XCTAssertTrue(title.waitForExistence(timeout: 10))
-        // At the tvOS safe-area edge (80pt sides, 60pt top), not inset past it.
         XCTAssertLessThanOrEqual(title.frame.minY, 70, "The title block sits at the top of the safe area")
         XCTAssertLessThanOrEqual(title.frame.minX, 90, "…and at its left edge")
-        XCTAssertTrue(app.staticTexts[A11yID.TV.Player.elapsed].exists)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Player.remaining].exists)
         XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.transport].exists)
-        // The harness's fake engine reports a Dolby Vision source, so the chip
-        // would be drawn if it weren't hidden.
-        XCTAssertFalse(app.descendants(matching: .any)[A11yID.TV.Player.formatLabel].exists)
+        let chip = app.staticTexts[A11yID.TV.Player.formatLabel]
+        XCTAssertTrue(chip.exists)
+        XCTAssertTrue(chip.label.hasPrefix("DOLBY VISION"))
     }
 
     /// A logo that hasn't arrived shows the title as text, never an empty box
@@ -89,19 +89,4 @@ final class PlayerJourneyTests: TVUITestCase {
         XCTAssertEqual(elapsed.label, pausedAt, "Nothing should play while paused")
     }
 
-    /// Launches signed in, opens the focused first tile's detail page and plays it.
-    private func openPlayer(scenario: String = "standard", extraArguments: [String]) -> XCUIApplication {
-        let app = launch(scenario: scenario, seedSession: true, extraArguments: extraArguments)
-        waitForHomeThenFirstTile(app)
-        openDetailFromFocusedTile(app)
-        press(.select)
-        return app
-    }
-
-    /// "1:02:03" or "12:34" in seconds.
-    nonisolated private static func seconds(_ label: String) -> Double? {
-        let parts = label.split(separator: ":").compactMap { Double($0) }
-        guard parts.count >= 2 else { return nil }
-        return parts.reduce(0) { $0 * 60 + $1 }
-    }
 }

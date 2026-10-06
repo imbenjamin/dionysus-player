@@ -1406,6 +1406,16 @@ final class PlayerViewModel {
         engine.togglePlayPause()
     }
 
+    /// Explicit, for the Apple TV's scrub: a swipe or hold pauses, and a
+    /// commit plays, whatever the state was. iOS only toggles.
+    func play() {
+        engine.play()
+    }
+
+    func pause() {
+        engine.pause()
+    }
+
     /// Clears `nextUpCountdownAnchorTime` before seeking. This is the one choke
     /// point every explicit jump goes through — scrubber, skip buttons,
     /// VoiceOver's adjustable action — and each must re-anchor the end-credits

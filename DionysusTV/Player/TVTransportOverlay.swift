@@ -2,22 +2,28 @@ import SwiftUI
 
 /// The player's transport, drawn over the video: the title top-left, and at
 /// the bottom a scrubber with chapter ticks, the times, and the format chip.
-/// Shown while `chrome` says so, and always while paused or loading.
+/// Shown while the input model's state says so (`TVPlayerInputModel`).
 struct TVTransportOverlay: View {
     let viewModel: PlayerViewModel
-    let chrome: TVTransportChrome
+    let input: TVPlayerInput
 
     @State private var isLogoFallbackVisible = false
+    @AppStorage(chaptersInScrubberEnabledStorageKey) private var chaptersInScrubber = chaptersInScrubberEnabledDefault
+    @State private var bufferedSeconds: Double?
+    @State private var thumbnails: TVScrubThumbnailLoader
 
-    /// Off until AetherEngine reports HDR reliably on tvOS. EDR headroom reads
-    /// 1.00 on an HDR10 panel there, so the engine only corrects its label once
-    /// AVPlayer accepts the HDR master; a session that falls back to the media
-    /// playlist still reads SDR, which would contradict the TV's own banner.
-    static let showsFormatChip = false
-
-    private var showsChrome: Bool {
-        chrome.isVisible || viewModel.state == .paused || viewModel.state == .loading
+    init(viewModel: PlayerViewModel, input: TVPlayerInput) {
+        self.viewModel = viewModel
+        self.input = input
+        _thumbnails = State(initialValue: TVScrubThumbnailLoader(fetch: { [viewModel] seconds in
+            await viewModel.scrubThumbnail(atSeconds: seconds)
+        }))
     }
+
+    private var state: TVPlayerInputState { input.state }
+    private var showsChrome: Bool { state.chrome == .transport }
+    /// The preview's time while scrubbing, else the playhead.
+    private var shownTime: TimeInterval { state.scrub?.previewTime ?? viewModel.currentTime }
 
     var body: some View {
         ZStack {
@@ -35,8 +41,16 @@ struct TVTransportOverlay: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.easeInOut(duration: 0.25), value: showsChrome)
-        .onChange(of: viewModel.state) { old, new in
-            chrome.playbackStateChanged(from: old, to: new)
+        // `PlaybackStats.bufferedSeconds` is polled, not pushed; once a
+        // second is plenty for a fill nobody reads to the second.
+        .task(id: showsChrome) {
+            while showsChrome, !Task.isCancelled {
+                bufferedSeconds = viewModel.stats.bufferedSeconds
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+        .onChange(of: state.scrub?.previewTime) { _, time in
+            if let time { thumbnails.request(time) } else { thumbnails.reset() }
         }
     }
 
@@ -118,14 +132,15 @@ struct TVTransportOverlay: View {
 
     private var bottomBar: some View {
         VStack(alignment: .leading, spacing: 18) {
+            iconRow
             scrubber
             HStack {
-                Text(TVPlaybackTimeFormat.string(viewModel.currentTime))
+                Text(TVPlaybackTimeFormat.string(shownTime))
                     .monospacedDigit()
                     .accessibilityIdentifier(A11yID.TV.Player.elapsed)
                 Spacer()
-                if Self.showsFormatChip, let format = viewModel.videoFormatDescription {
-                    Text(format.uppercased())
+                if let chip = TVTransportLayout.formatChipText(viewModel.videoFormatDescription) {
+                    Text(chip)
                         .font(.caption.bold())
                         .padding(.horizontal, 16)
                         .padding(.vertical, 6)
@@ -133,35 +148,95 @@ struct TVTransportOverlay: View {
                         .accessibilityIdentifier(A11yID.TV.Player.formatLabel)
                 }
                 Spacer()
-                Text("\u{2212}" + TVPlaybackTimeFormat.string(max(0, viewModel.duration - viewModel.currentTime)))
+                Text("\u{2212}" + TVPlaybackTimeFormat.string(max(0, viewModel.duration - shownTime)))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .accessibilityIdentifier(A11yID.TV.Player.remaining)
             }
             .font(.callout.weight(.semibold))
         }
     }
 
+    private var iconRow: some View {
+        HStack(spacing: 18) {
+            Spacer()
+            ForEach(input.context().availableIcons, id: \.self) { icon in
+                TVPlayerIconButton(
+                    icon: icon,
+                    isFocused: state.transportFocus == .icon(icon),
+                    isOn: icon == .stats && state.isStatsOn
+                )
+            }
+        }
+        .frame(height: 96)
+    }
+
     private var scrubber: some View {
         GeometryReader { geo in
             let duration = viewModel.duration
-            let fraction = duration > 0 ? min(1, max(0, viewModel.currentTime / duration)) : 0
+            let width = geo.size.width
             ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.3))
-                Capsule().fill(.white).frame(width: geo.size.width * fraction)
-                if duration > 0 {
+                // Every bar keeps the track's 12pt: the knob, 36pt, is in
+                // the same stack and would otherwise stretch them.
+                Capsule().fill(.white.opacity(0.25)).frame(height: 12)
+                if let buffered = TVTransportLayout.bufferedFraction(
+                    currentTime: viewModel.currentTime, bufferedSeconds: bufferedSeconds, duration: duration
+                ) {
+                    Capsule().fill(.white.opacity(0.45))
+                        .frame(width: width * buffered, height: 12)
+                        .accessibilityElement()
+                        .accessibilityLabel(Text("Buffered"))
+                        .accessibilityIdentifier(A11yID.TV.Player.bufferedRange)
+                }
+                Capsule().fill(.white)
+                    .frame(width: width * TVTransportLayout.fraction(viewModel.currentTime, duration: duration), height: 12)
+                if chaptersInScrubber, duration > 0 {
                     ForEach(viewModel.chapters.filter { $0.startSeconds > 0 }) { chapter in
                         Rectangle()
                             .fill(.black.opacity(0.75))
-                            .frame(width: 5)
-                            .offset(x: geo.size.width * chapter.startSeconds / duration)
+                            .frame(width: 5, height: 12)
+                            .offset(x: width * chapter.startSeconds / duration)
                     }
                 }
+                if let scrub = state.scrub {
+                    let fraction = TVTransportLayout.fraction(scrub.previewTime, duration: duration)
+                    knob(at: fraction, width: width)
+                    TVScrubPreview(
+                        image: thumbnails.image,
+                        showsFrame: viewModel.supportsScrubThumbnails,
+                        caption: TVTransportLayout.previewCaption(
+                            time: scrub.previewTime, chapterName: viewModel.chapters.chapter(at: scrub.previewTime)?.name
+                        ),
+                        scanLevel: scrub.scan?.level
+                    )
+                    .fixedSize()
+                    .position(
+                        x: TVTransportLayout.previewCenterX(fraction: fraction, trackWidth: width, previewWidth: TVScrubPreview.size.width),
+                        y: -(TVScrubPreview.size.height / 2 + 150)
+                    )
+                } else if TVPlayerInputModel.scrubberHasFocus(state), duration > 0 {
+                    // The scrubber's focus (Benjamin, 2026-10-06): a knob at
+                    // the playhead whenever the scrubber has it.
+                    knob(at: TVTransportLayout.fraction(viewModel.currentTime, duration: duration), width: width)
+                }
             }
+            // Pinned to the track, so the knob overflows it rather than
+            // growing the stack and moving the bar down.
+            .frame(width: width, height: 12)
         }
         .frame(height: 12)
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(Text("Playback position"))
-        .accessibilityValue(Text(TVPlaybackTimeFormat.string(viewModel.currentTime)))
+        .accessibilityValue(Text(TVPlaybackTimeFormat.string(shownTime)))
         .accessibilityIdentifier(A11yID.TV.Player.transport)
+    }
+
+    private func knob(at fraction: Double, width: CGFloat) -> some View {
+        Circle()
+            .fill(.white)
+            .frame(width: 36, height: 36)
+            .shadow(color: .black.opacity(0.5), radius: 10)
+            .offset(x: width * fraction - 18)
+            .accessibilityHidden(true)
     }
 }

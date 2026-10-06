@@ -1,0 +1,45 @@
+import SwiftUI
+
+extension TVPlayerIcon {
+    var systemImage: String {
+        switch self {
+        case .chapters: "list.bullet"
+        case .audio: "waveform"
+        case .subtitles: "captions.bubble"
+        case .stats: "chart.bar.xaxis"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .chapters: String(localized: "Chapters")
+        case .audio: String(localized: "Audio")
+        case .subtitles: String(localized: "Subtitles")
+        case .stats: String(localized: "Stats for Nerds")
+        }
+    }
+}
+
+/// One of the transport's icons (prototype screen 12). Drawn focused from
+/// the model's state: the player doesn't use the focus engine.
+struct TVPlayerIconButton: View {
+    let icon: TVPlayerIcon
+    let isFocused: Bool
+    /// Stats' panel is showing.
+    var isOn = false
+
+    var body: some View {
+        Image(systemName: icon.systemImage)
+            .font(.system(size: 30, weight: .semibold))
+            .foregroundStyle(isFocused ? Color.black : Color.white)
+            .frame(width: 84, height: 84)
+            .background(Circle().fill(isFocused ? Color.white : Color.white.opacity(isOn ? 0.4 : 0.18)))
+            .scaleEffect(isFocused ? 1.1 : 1)
+            .shadow(color: .black.opacity(isFocused ? 0.4 : 0), radius: 16, y: 8)
+            .animation(.easeOut(duration: 0.15), value: isFocused)
+            .accessibilityElement()
+            .accessibilityLabel(icon.label)
+            .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : .isButton)
+            .accessibilityIdentifier(A11yID.TV.Player.icon(icon.id))
+    }
+}

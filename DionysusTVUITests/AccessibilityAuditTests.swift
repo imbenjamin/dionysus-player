@@ -99,6 +99,11 @@ final class AccessibilityAuditTests: TVUITestCase {
         return app
     }
 
+    func test_playerTransport() throws {
+        let app = openPlayer(extraArguments: ["-UITestDisableControlAutoHide", "YES"])
+        try audit(app)
+    }
+
     private func audit(_ app: XCUIApplication) throws {
         try app.performAccessibilityAudit(for: Self.auditedTypes) { Self.isKnownAcceptable($0) }
     }
@@ -129,6 +134,13 @@ final class AccessibilityAuditTests: TVUITestCase {
         // real control this small still fails.
         if element.elementType == .staticText || element.elementType == .other {
             return issue.auditType == .hitRegion
+        }
+
+        // The player's test-only focus marker (`A11yID.TV.Player.focus`):
+        // its label is a fixed id, not prose, and it exists only under the
+        // harness.
+        if element.identifier == A11yID.TV.Player.focus {
+            return true
         }
 
         return false
