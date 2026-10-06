@@ -40,25 +40,22 @@ struct TVShowDetailView: View {
     private var isEpisode: Bool { item.kind == .episode }
 
     /// Whose imagery shows (Benjamin, 2026-10-02): the episode the page is
-    /// on; otherwise the season chosen from the tabs; otherwise, on the
-    /// series, the episode Play starts (Benjamin, 2026-10-05); otherwise the
-    /// show. Each episode falls back by itself to its season's, then its
-    /// show's, where it has none of its own: the server names the nearest
-    /// ancestor that has a backdrop or a logo on every item
-    /// (`MediaItem.backdropImageURL`; checked on the LAN server, an American
-    /// Horror Story episode names its season), which is what iOS relies on
-    /// too. So a show with art per season shows the right season's on landing.
-    static func artItem(episode: MediaItem?, chosenSeason: MediaItem?, playTarget: MediaItem?, loaded: MediaItem) -> MediaItem {
-        episode ?? chosenSeason ?? playTarget ?? loaded
+    /// on; otherwise, on the series, the episode Play starts (Benjamin,
+    /// 2026-10-05); otherwise the show. It changes only when the episode
+    /// does: browsing the season tabs leaves it alone (Benjamin,
+    /// 2026-10-05), since a tab with focus isn't a choice. Each episode
+    /// falls back by itself to its season's, then its show's, where it has
+    /// none of its own: the server names the nearest ancestor that has a
+    /// backdrop or a logo on every item (`MediaItem.backdropImageURL`;
+    /// checked on the LAN server, an American Horror Story episode names its
+    /// season), which is what iOS relies on too. So a show with art per
+    /// season shows the right season's on landing.
+    static func artItem(episode: MediaItem?, playTarget: MediaItem?, loaded: MediaItem) -> MediaItem {
+        episode ?? playTarget ?? loaded
     }
 
     private var artItem: MediaItem {
-        Self.artItem(
-            episode: isEpisode ? item : nil,
-            chosenSeason: selectedSeasonID.flatMap { id in viewModel.seasons.first { $0.id == id } },
-            playTarget: badgeSource,
-            loaded: loadedItem
-        )
+        Self.artItem(episode: isEpisode ? item : nil, playTarget: badgeSource, loaded: loadedItem)
     }
 
     /// The episode Play targets: the episode the page was opened on, or the
@@ -168,7 +165,8 @@ struct TVShowDetailView: View {
         // tabs from the actions or the episodes, focus is sent to the season
         // already on show: tvOS picks the tab nearest the control it left
         // (Season 2 from Play, which is wide), which would switch season on
-        // the way past.
+        // the way past. The row's default focus (`seasonTabs`) gets there
+        // first; this is the fallback.
         .onChange(of: focus) { old, new in
             guard let new, new.hasPrefix("season.") else { return }
             if old?.hasPrefix("season.") == true {
@@ -232,6 +230,12 @@ struct TVShowDetailView: View {
         .scrollClipDisabled()
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
+        // Entering the row, focus goes straight to the season on show
+        // (`.userInitiated` applies the preference to a press into the row,
+        // not only to focus placed by the system). Redirected afterwards
+        // instead, tvOS's own pick drew focused for a frame first
+        // (Benjamin, 2026-10-05).
+        .defaultFocus($focus, seasonID.map { "season.\($0)" }, priority: .userInitiated)
     }
 
     private static let railHeight: CGFloat = TVTileMetrics.episode.height + 130

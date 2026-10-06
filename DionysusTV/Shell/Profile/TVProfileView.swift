@@ -45,7 +45,7 @@ struct TVProfileView: View {
     private var focusIDs: [String] {
         [A11yID.TV.Profile.switchUser]
             + (quickConnectAvailable ? [A11yID.TV.Profile.approveQuickConnect] : [])
-            + [A11yID.TV.Profile.changeServer, A11yID.TV.Profile.signOut, A11yID.TV.Profile.followsAppleTVUsers]
+            + [A11yID.TV.Profile.signOut, A11yID.TV.Profile.changeServer, A11yID.TV.Profile.followsAppleTVUsers]
             // The second setting only means something with one shared
             // session, so it's only there while the first is off.
             + (followsAppleTVUsers ? [] : [A11yID.TV.Profile.selectsUserEveryRelaunch])
@@ -152,8 +152,9 @@ struct TVProfileView: View {
                 if quickConnectAvailable {
                     row("Approve Quick Connect Code", opensPage: true, id: A11yID.TV.Profile.approveQuickConnect) { cover = .quickConnect }
                 }
-                row("Change Server", role: .destructive, id: A11yID.TV.Profile.changeServer) { cover = .changeServer }
+                // Sign Out above Change Server (Benjamin, 2026-10-05).
                 row("Sign Out", role: .destructive, id: A11yID.TV.Profile.signOut) { cover = .signOut }
+                row("Change Server", role: .destructive, id: A11yID.TV.Profile.changeServer) { cover = .changeServer }
 
                 TVSettingsHeader(title: "Apple TV Users")
                 row("Follow Apple TV Users", value: onOff(followsAppleTVUsers), id: A11yID.TV.Profile.followsAppleTVUsers) {

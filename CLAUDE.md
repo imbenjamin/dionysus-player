@@ -341,9 +341,14 @@ guessable:
   Watched; left alone, tvOS moves it up to the synopsis.
 - **The season tabs follow focus** (Benjamin, 2026-10-02): the tab with
   focus is the season on show, no Select. So into the tabs from the actions
-  or the episodes, focus is sent to the season already on show; tvOS picks
+  or the episodes, focus goes to the season already on show; tvOS picks
   the tab nearest the control it left (Season 2 from Play, which is wide),
-  which would switch season on the way past.
+  which would switch season on the way past. It goes there directly, as
+  the row's default focus with `.userInitiated` priority, which applies to
+  a press into the row too: redirected after tvOS's own pick, that tab drew
+  focused for a frame first (Benjamin saw it on device, 2026-10-05; caught
+  frame by frame in a Simulator recording). The redirect stays as a
+  fallback.
 - **A show's format badges are the episode's that Play starts.** A series
   has no media source, and the view model resolves that episode without one,
   so the badges are read from the season's episode list, which is fetched with
@@ -361,10 +366,11 @@ guessable:
   its name, overview and Details show and Play is that episode; Watched and
   Favorite act on the show, as on iOS. It isn't a push: Menu leaves the show.
 - **A show page's imagery follows what it is on** (Benjamin, 2026-10-02;
-  `TVShowDetailView.artItem`): the episode; otherwise the season chosen from
-  the tabs; otherwise, on the series, the episode Play starts (Benjamin,
-  2026-10-05), so a show with art per season lands on the right season's;
-  otherwise the show. That covers the backdrop (handed up to
+  `TVShowDetailView.artItem`): the episode; otherwise, on the series, the
+  episode Play starts (Benjamin, 2026-10-05), so a show with art per season
+  lands on the right season's; otherwise the show. It changes only with the
+  episode: a season tab taking focus leaves it alone (Benjamin, 2026-10-05),
+  since browsing the tabs isn't choosing. That covers the backdrop (handed up to
   `TVDetailPage`), the logo and the no-backdrop side image. The fallback from
   episode to season to show isn't the app's: Jellyfin names the nearest
   ancestor with a backdrop or logo on every item, which
@@ -472,8 +478,8 @@ XCUITest's remote does.
 11): the user's avatar, name, server and address and both versions on the
 left, and the settings as rows on the right (`TVSettingsRow`), in iOS's
 sections minus Downloads, Theme and 3D Depth Effects: Account (Switch User,
-Approve Quick Connect Code while the server has it on, Change Server, Sign
-Out), Apple TV Users, Appearance (Auto Carousel on Home), Playback (Next
+Approve Quick Connect Code while the server has it on, Sign Out, Change
+Server), Apple TV Users, Appearance (Auto Carousel on Home), Playback (Next
 Episode Countdown, Chapters in Scrubber, Advanced) and About (License, Privacy
 Policy), with iOS's footers. What isn't guessable:
 - **Select on an on/off row flips it; a setting with more choices opens a
