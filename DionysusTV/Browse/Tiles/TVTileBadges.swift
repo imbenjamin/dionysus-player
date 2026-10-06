@@ -9,7 +9,10 @@ enum TVTileMetrics {
     /// Four to a row in a grid of landscape thumbs, across the six posters'
     /// width: (6 × 240 + 5 × 44 − 3 × 44) / 4, at 16:9.
     static let gridLandscape = CGSize(width: 382, height: 215)
-    static let landscape = CGSize(width: 500, height: 281)
+    /// Four to a rail beside the sidebar (Benjamin, 2026-10-06; 500pt showed
+    /// three): 200 + 4 × 370 + 3 × 48 = 1824, inside the 80pt safe area on the
+    /// right with room for the fourth's focus lift, at 16:9.
+    static let landscape = CGSize(width: 370, height: 208)
     static let episode = CGSize(width: 440, height: 248)
 
     /// How much `.card` grows a focused tile's artwork (measured on the
