@@ -28,7 +28,7 @@ final class ProfileJourneyTests: TVUITestCase {
     func test_everySection_isReachable() {
         let app = launchAtHome()
         openProfile(app)
-        for id in [A11yID.TV.Profile.approveQuickConnect, A11yID.TV.Profile.changeServer, A11yID.TV.Profile.signOut,
+        for id in [A11yID.TV.Profile.approveQuickConnect, A11yID.TV.Profile.signOut, A11yID.TV.Profile.changeServer,
                    A11yID.TV.Profile.followsAppleTVUsers, A11yID.TV.Profile.autoCarousel, A11yID.TV.Profile.nextUpCountdown,
                    A11yID.TV.Profile.chaptersInScrubber, A11yID.TV.Profile.advanced, A11yID.TV.Profile.license,
                    A11yID.TV.Profile.privacyPolicy] {
@@ -191,6 +191,19 @@ final class ProfileJourneyTests: TVUITestCase {
         XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Profile.textPage].waitForExistence(timeout: 5))
         press(.menu)
         XCTAssertTrue(waitForFocus(privacy))
+    }
+
+    /// Sign Out sits above Change Server (Benjamin, 2026-10-05): the
+    /// account's own action before the household's.
+    func test_signOut_comesBeforeChangeServer() {
+        let app = launchAtHome()
+        openProfile(app)
+        let signOut = app.buttons[A11yID.TV.Profile.signOut]
+        let changeServer = app.buttons[A11yID.TV.Profile.changeServer]
+        pressDownThroughProfile(until: signOut)
+        XCTAssertFalse(changeServer.hasFocus)
+        press(.down)
+        XCTAssertTrue(waitForFocus(changeServer), "Down from Sign Out reaches Change Server")
     }
 
     /// Sign Out asks first (Benjamin, 2026-10-05), with Cancel focused, so a

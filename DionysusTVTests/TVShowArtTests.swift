@@ -22,13 +22,12 @@ final class TVShowArtTests: XCTestCase {
         return MediaItem(dto: dto, images: images)
     }
 
-    func test_theEpisodeWins_thenTheChosenSeason_thenPlaysEpisode_thenWhatThePageOpenedOn() {
-        let show = item("show", .series), season = item("season", .season), episode = item("ep", .episode), next = item("next", .episode)
-        XCTAssertEqual(TVShowDetailView.artItem(episode: episode, chosenSeason: season, playTarget: next, loaded: show).id, "ep")
-        XCTAssertEqual(TVShowDetailView.artItem(episode: nil, chosenSeason: season, playTarget: next, loaded: show).id, "season")
-        XCTAssertEqual(TVShowDetailView.artItem(episode: nil, chosenSeason: nil, playTarget: next, loaded: show).id, "next",
+    func test_theEpisodeWins_thenPlaysEpisode_thenWhatThePageOpenedOn() {
+        let show = item("show", .series), episode = item("ep", .episode), next = item("next", .episode)
+        XCTAssertEqual(TVShowDetailView.artItem(episode: episode, playTarget: next, loaded: show).id, "ep")
+        XCTAssertEqual(TVShowDetailView.artItem(episode: nil, playTarget: next, loaded: show).id, "next",
                        "On the series, the episode Play starts: its own art, then its season's, then the show's (Benjamin, 2026-10-05)")
-        XCTAssertEqual(TVShowDetailView.artItem(episode: nil, chosenSeason: nil, playTarget: nil, loaded: show).id, "show")
+        XCTAssertEqual(TVShowDetailView.artItem(episode: nil, playTarget: nil, loaded: show).id, "show")
     }
 
     func test_anEpisodesOwnBackdropAndLogo_areUsed() {
