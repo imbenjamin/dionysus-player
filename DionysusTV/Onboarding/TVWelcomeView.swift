@@ -46,8 +46,10 @@ struct TVWelcomeView: View {
                         .frame(width: 300, height: 300)
                         .shadow(color: .black.opacity(0.45), radius: 24, y: 16)
                         .accessibilityHidden(true)
+                    // The wordmark's face on iOS (`OnboardingTitle(wordmark:)`).
                     Text(verbatim: "Dionysus")
                         .font(.title2.bold())
+                        .fontWidth(.expanded)
                         .accessibilityHidden(true)
                 }
             } task: {
