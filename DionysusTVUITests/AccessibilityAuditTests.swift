@@ -111,6 +111,16 @@ final class AccessibilityAuditTests: TVUITestCase {
         try audit(app)
     }
 
+    func test_playerNextUp() throws {
+        let app = launch(scenario: "earlyCredits", seedSession: true)
+        waitForHomeThenFirstTile(app)
+        press(.right)
+        openDetailFromFocusedTile(app)
+        press(.select)
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.nextUpCard].waitForExistence(timeout: 10))
+        try audit(app)
+    }
+
     private func audit(_ app: XCUIApplication) throws {
         try app.performAccessibilityAudit(for: Self.auditedTypes) { Self.isKnownAcceptable($0) }
     }

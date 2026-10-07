@@ -218,7 +218,56 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
     // MARK: - Remote
 
     private func run(_ commands: [TVPlayerCommand]) {
-        TVPlayerCommandRunner(viewModel: viewModel, close: { [weak self] in self?.close() }, playNext: {}).run(commands)
+        TVPlayerCommandRunner(
+            viewModel: viewModel,
+            close: { [weak self] in self?.close() },
+            playNext: { [weak self] in self?.advanceToNextItem() }
+        ).run(commands)
+    }
+
+    /// Builds the player for another item, for Next Up. Set by
+    /// `TVPlayerPresenter`, which holds the client, user and queue.
+    var makeViewModel: ((String) -> PlayerViewModel?)?
+
+    /// Play Now, or the countdown reaching zero: the next item plays in this
+    /// player, without dismissing (spec, The host). The finished item is
+    /// reported as iOS reports it, so Home and the page beneath are current.
+    private func advanceToNextItem() {
+        guard let next = viewModel.nextEpisode, let nextViewModel = makeViewModel?(next.id) else { return close() }
+        // Before `end()`, as iOS's `tearDown` does: a late time update during
+        // the stop could otherwise reach zero again and advance twice.
+        viewModel.dismissNextUp()
+        if let outcome = session.end() {
+            pendingOutcome = outcome
+            RecentPlaybackBroadcaster.shared.record(outcome)
+        }
+        // While `session` still holds the old view model, so `engine` is the
+        // old engine.
+        unbindSurface()
+        session = TVPlaybackSession(viewModel: nextViewModel)
+        input.reset()
+        bindSurface()
+        overlayHost?.rootView = TVPlayerOverlay(viewModel: nextViewModel, input: input)
+        session.begin()
+    }
+
+    private func unbindSurface() {
+        cancellables.removeAll()
+        if let aetherView {
+            if isAetherViewBound, let aether = engine as? AetherPlaybackEngine {
+                aether.hostEngine.unbind(view: aetherView)
+            }
+            aetherView.removeFromSuperview()
+        }
+        aetherView = nil
+        isAetherViewBound = false
+        player = nil
+        if let fakeSurface {
+            fakeSurface.willMove(toParent: nil)
+            fakeSurface.view.removeFromSuperview()
+            fakeSurface.removeFromParent()
+        }
+        fakeSurface = nil
     }
 
     @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
@@ -248,6 +297,7 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
     /// one pressed then is left to `viewDidAppear`.
     func close() {
         input.stop()
+        viewModel.dismissNextUp()
         if let outcome = session.end() {
             pendingOutcome = outcome
             // As iOS's `PlayerView` does: Home has no other way to learn it.

@@ -178,6 +178,13 @@ enum UITestScenario: String {
     /// rail ("Drama Movies"). The first batches come up empty, so Home has to
     /// keep loading while its spinner is on screen.
     case thinDynamicRails
+
+    /// Every item has an intro from 0:00 to 83:20, long enough that a
+    /// resumed title starts inside it: Skip Intro shows at once.
+    case skipIntro
+    /// Every episode's credits start at 0:05, so Next Up shows as soon as an
+    /// episode plays and counts down 10s.
+    case earlyCredits
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a

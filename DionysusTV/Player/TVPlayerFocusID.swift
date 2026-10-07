@@ -9,7 +9,11 @@ enum TVPlayerFocusID {
             case .content(let index): return "content.\(panel.tab.id).\(index)"
             }
         }
+        if TVPlayerInputModel.nextUpHasFocus(state, context: context) {
+            return state.nextUpFocus == .playNow ? "nextUp.playNow" : "nextUp.close"
+        }
         if state.chrome == .transport, case .icon(let icon) = state.transportFocus { return "icon.\(icon.id)" }
+        if TVPlayerInputModel.selectSkips(state, context: context) { return "skip" }
         return state.chrome == .transport ? "scrubber" : "none"
     }
 }

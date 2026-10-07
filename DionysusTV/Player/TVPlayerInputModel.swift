@@ -173,6 +173,11 @@ struct TVPlayerInputState: Equatable {
     var scrub: Scrub?
     var panel: Panel?
     var isStatsOn = false
+    /// A skip button Menu hid while nothing else was up. It shows again with
+    /// the transport (Benjamin, 2026-10-06).
+    var hiddenSkipSegmentID: String?
+    var nextUpFocus: TVNextUpButton = .playNow
+    var hasRequestedAdvance = false
     var hasRequestedClose = false
     var flash: Flash?
 }
@@ -259,6 +264,7 @@ enum TVPlayerInputModel {
     ) -> [TVPlayerCommand] {
         if let commands = reduceScrub(intent, &state, context: context, now: now) { return commands }
         if let commands = reducePanel(intent, &state, context: context) { return commands }
+        if let commands = reduceOverlays(intent, &state, context: context) { return commands }
         return reduceTransport(intent, &state, context: context, now: now)
     }
 
@@ -401,6 +407,11 @@ enum TVPlayerInputModel {
         if context.playback == .ended, context.closesWhenPlaybackEnds, !state.hasRequestedClose {
             state.hasRequestedClose = true
             commands.append(.close)
+        }
+        if context.nextUpSecondsRemaining == nil { state.nextUpFocus = .playNow }
+        // Review Focus 2: never under a scrub; once it resolves, once only.
+        if context.nextUpSecondsRemaining == 0, state.scrub == nil {
+            commands += playNext(&state)
         }
         return commands
     }
