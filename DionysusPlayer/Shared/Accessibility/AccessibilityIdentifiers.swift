@@ -535,6 +535,10 @@ enum A11yID {
             static let bufferedRange = "tv.player.buffered"
             static let scanIndicator = "tv.player.scan"
             static let actionFlash = "tv.player.flash"
+            static let skipButton = "tv.player.skip"
+            static let nextUpCard = "tv.player.nextUp"
+            static let nextUpPlayNow = "tv.player.nextUp.playNow"
+            static let nextUpClose = "tv.player.nextUp.close"
             /// Test-only: a 1pt element whose label is `TVPlayerFocusID`'s
             /// id for what has focus, since the player doesn't use the focus
             /// engine XCUITest's `hasFocus` reads.

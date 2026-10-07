@@ -31,6 +31,7 @@ struct TVPlayerOverlay: View {
                     }
                 }
                 .ignoresSafeArea()
+            bottomTrailing
             #if DEBUG
             if UITestConfiguration.isActive {
                 Color.clear
@@ -41,8 +42,49 @@ struct TVPlayerOverlay: View {
             }
             #endif
         }
+        // Per-item view state (the thumbnail loader, `chromeTop`) starts
+        // fresh when Next Up plays the next item in this player.
+        .id(viewModel.itemID)
         .onPreferenceChange(BottomChromeTopKey.self) { top in
             MainActor.assumeIsolated { chromeTop = top }
         }
+    }
+
+    /// Skip and Next Up share the bottom-right slot; the view model makes
+    /// them exclusive. With the transport up they sit above it; with the
+    /// panel open they wait, since the panel fills the lower half.
+    @ViewBuilder
+    private var bottomTrailing: some View {
+        if input.state.panel == nil {
+            bottomTrailingSlot
+        }
+    }
+
+    private var bottomTrailingSlot: some View {
+        GeometryReader { proxy in
+            let context = input.context()
+            let lift = chromeTop.isFinite ? max(0, proxy.frame(in: .global).maxY - chromeTop + 30) : 0
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    if let episode = viewModel.nextEpisode, let seconds = viewModel.nextUpSecondsRemaining {
+                        TVNextUpCard(
+                            episode: episode, secondsRemaining: seconds,
+                            totalSeconds: viewModel.nextUpTotalCountdownSeconds ?? seconds,
+                            focus: TVPlayerInputModel.nextUpHasFocus(input.state, context: context) ? input.state.nextUpFocus : nil
+                        )
+                    } else if let segment = viewModel.currentSkipSegment,
+                              TVPlayerInputModel.skipButtonVisible(input.state, context: context) {
+                        TVSkipButton(
+                            title: segment.kind.skipButtonTitle,
+                            isFocused: TVPlayerInputModel.selectSkips(input.state, context: context)
+                        )
+                    }
+                }
+            }
+            .padding(.bottom, lift)
+        }
+        .animation(.easeInOut(duration: 0.25), value: chromeTop)
     }
 }

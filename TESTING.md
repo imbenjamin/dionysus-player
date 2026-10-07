@@ -749,8 +749,12 @@ for 10s, so the Downloads tab can be opened while it is in flight),
 `slowPlaybackInfo` (`/PlaybackInfo` held for 30s, so the Apple TV player can
 be closed while it is still loading), `slowBoxSet` (the box set's requests
 held for 8s, so its Apple TV page can be left while it is still loading) and
-`emptyBoxSet` (the box set lists no movies) and `slowItems` (every list of
-items held for 8s, for Home and a library loading slowly on the Apple TV).
+`emptyBoxSet` (the box set lists no movies), `slowItems` (every list of
+items held for 8s, for Home and a library loading slowly on the Apple TV),
+`skipIntro` (every item has an intro from 0:00 to 83:20, so a resumed title
+starts inside it and Skip Intro shows at once) and `earlyCredits` (every
+episode's credits start at 0:05, so Next Up shows as soon as an episode plays
+and counts down 10s).
 
 Sign-in is built on `/Users/Public`, which the stub answers with two users:
 the fixture user (`UITestFixtureIdentity.userID`, password

@@ -700,6 +700,15 @@ What isn't guessable:
   never total more than 1080pt, or the layer outgrows the screen and is
   re-centred, pushing the title off the top (both measured in the
   Simulator).
+**Skip and Next Up** share the bottom-right slot and lift above the
+transport when it is up. Select skips while the button shows and focus
+isn't on an icon or in the panel; Menu with nothing else up hides the
+button, which comes back with the transport (Benjamin, 2026-10-06). The
+Next Up card has focus while the transport is hidden, and Menu there means
+Close. **The next item plays in the same player**
+(`TVPlayerHostController.advanceToNextItem()`): the session ends and is
+reported, a new view model and engine are bound to AVKit, nothing is
+dismissed, and Stats stays as it was. Never under an open scrub.
 The space bar is Play/Pause too (`TVKeyboardCommand`): a keyboard, and the
 Simulator's on-screen remote, send it as a keyboard press (type 2044, HID
 usage 0x2C), never `.playPause`, so a `.playPause` recognizer alone leaves

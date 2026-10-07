@@ -33,7 +33,7 @@ extension TVPlayerInputModel {
             state.chrome = .transport
             state.scrub = .init(previewTime: context.currentTime, resumesOnCancel: false, swipeAnchor: context.currentTime)
             return []
-        case .arrow(let direction) where context.playback == .paused:
+        case .arrow(let direction) where context.playback == .paused && !nextUpHasFocus(state, context: context):
             state.chrome = .transport
             state.scrub = .init(
                 previewTime: clamp(context.currentTime + direction.sign * TVPlayerTiming.skipInterval, context),

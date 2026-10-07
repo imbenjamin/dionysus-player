@@ -545,7 +545,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
              .slowVideoDownload, .slowPlaybackInfo, .slowBoxSet, .emptyBoxSet, .slowItems, .manyLibraries, .manyUsers:
             return nil
-        case .largeCast, .noBackdrop, .failingLibrary, .failingHome, .thinDynamicRails:
+        case .largeCast, .noBackdrop, .failingLibrary, .failingHome, .thinDynamicRails, .skipIntro, .earlyCredits:
             return nil
         case .failingDetail:
             return path.hasSuffix("/Items/\(UITestFixtureIdentity.movieID(3))") ? 500 : nil
@@ -739,7 +739,9 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
 
         case path.contains("/MediaSegments"):
             // Decoded as a query result, not a bare array.
-            return try encode(MediaSegmentDtoQueryResult(items: [], totalRecordCount: 0))
+            let itemID = path.components(separatedBy: "/MediaSegments/").last ?? ""
+            let segments = mediaSegments(forItem: itemID)
+            return try encode(MediaSegmentDtoQueryResult(items: segments, totalRecordCount: segments.count))
 
         case path.hasSuffix("/Sessions"):
             return try encode([SessionInfoDto]())
@@ -993,6 +995,24 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             )
         }
         return SearchHintResult(searchHints: hints, totalRecordCount: hints.count)
+    }
+
+    /// Segments for the two player scenarios; none otherwise.
+    private static func mediaSegments(forItem itemID: String) -> [MediaSegmentDto] {
+        let ticksPerSecond: Int64 = 10_000_000
+        switch UITestConfiguration.scenario {
+        case .skipIntro:
+            return [MediaSegmentDto(
+                id: "intro-\(itemID)", itemId: itemID, type: .intro, startTicks: 0, endTicks: 5000 * ticksPerSecond
+            )]
+        case .earlyCredits where UITestFixtureLibrary.allItems[itemID]?.type == .episode:
+            return [MediaSegmentDto(
+                id: "outro-\(itemID)", itemId: itemID, type: .outro,
+                startTicks: 5 * ticksPerSecond, endTicks: 2880 * ticksPerSecond
+            )]
+        default:
+            return []
+        }
     }
 
     private static func playbackInfo(forPath path: String) -> PlaybackInfoResponse {
