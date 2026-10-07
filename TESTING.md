@@ -54,7 +54,8 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 | `UITests-Smoke` | Seven journeys + the keychain-reset check | Every PR (`ui-smoke` job), on iPhone + iPad, latest iOS |
 | `UITests-Full` | Every UI test | Nightly and on release tags, on iPhone + iPad, every supported iOS version |
 | `TVUnitTests` | `DionysusTVTests`: the shared unit tests, run on tvOS | Every PR (`tvos-build` job, not yet required), Apple TV 4K (3rd generation) |
-| `TVUITests` | `DionysusTVUITests`: Siri Remote journeys for the Apple TV app | Locally for now; `-scheme DionysusTV -testPlan TVUITests` |
+| `TVUITests-Smoke` | Seven Apple TV journeys: first launch to sign-in, Home, a detail page from Home and a library, Search, the player | Every PR (`tv-ui-smoke` job, not yet required), Apple TV 4K (3rd generation), tvOS 26.5 |
+| `TVUITests` | `DionysusTVUITests`: every Siri Remote journey for the Apple TV app | Nightly and on PRs into `stable`, same Apple TV |
 
 ### The tvOS unit tests
 
@@ -983,6 +984,21 @@ be a screen-size difference; the iPhone is a 16 because the 17 can't run
 iOS 18. Each environment runs on its own runner with `fail-fast: false`, so
 every one reports, and a failed one uploads its `.xcresult` as
 `ui-test-results-<plan>-<device>-iOS-<version>`.
+
+The Apple TV suite has its own reusable workflow,
+`.github/workflows/tv-ui-tests.yml`, with one environment: an Apple TV 4K
+(3rd generation) on tvOS 26.5, on `macos-26`. The tvOS floor is 26.0, the
+same major, so there is no older leg. It runs `TVUITests-Smoke` on every PR
+and `TVUITests` nightly and on PRs into `stable`; release.yml doesn't run it
+while the Apple TV app isn't shipped. A failed run uploads
+`tv-ui-test-results-<plan>`.
+
+**Not yet required by either ruleset** (2026-10-07): on CI's runner the
+detail, player and Search journeys fail. The app opens the detail page and
+focuses Play within a fraction of a second (logged on CI), but XCUITest's
+snapshot keeps showing Home for the whole wait. All seven pass on fresh
+tvOS 26.5 and 27 Simulators locally. Add the check to both rulesets once it
+is green.
 
 A release doesn't sign or upload anything until every environment has
 passed. Because nightly and release call the same workflow, dispatching

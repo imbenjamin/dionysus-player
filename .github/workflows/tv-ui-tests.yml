@@ -1,0 +1,80 @@
+name: tvOS UI tests
+
+# The Apple TV app's UI tests (DionysusTVUITests), the tvOS counterpart of
+# ui-tests.yml. Called by pr-checks.yml (smoke plan) and nightly-ui-tests.yml
+# (full plan).
+#
+# One environment, unlike iOS's four: an Apple TV 4K (3rd generation) on the
+# latest tvOS the pinned Xcode ships. The tvOS deployment floor is 26.0, the
+# same major, so there is no older OS leg to add, and every Apple TV the app
+# supports has the same 1920×1080pt screen.
+#
+# When CI moves to a new Xcode, update the tvOS version below together with
+# ui-tests.yml's iOS list.
+on:
+  workflow_call:
+    inputs:
+      test-plan:
+        description: Test plan to run (see TestPlans/).
+        required: true
+        type: string
+      retry-tests-on-failure:
+        description: See the build-and-test action's input of the same name.
+        required: false
+        type: boolean
+        default: false
+      timeout-minutes:
+        description: >-
+          Job timeout. The full plan took 33 min in the Simulator on a Mac
+          mini on 2026-10-06; a shared runner is slower.
+        required: false
+        type: number
+        default: 90
+
+permissions:
+  contents: read
+
+jobs:
+  tv-ui-tests:
+    # ⚠️ This name is half of each check's context, "<caller job name> /
+    # <this name>", e.g. "tvOS UI smoke tests / Apple TV 4K, tvOS 26.5". If a
+    # ruleset requires it, renaming this or changing the version means
+    # updating the ruleset in the same breath. The version is
+    # repeated in the Build and test step.
+    name: Apple TV 4K, tvOS 26.5
+    runs-on: macos-26
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    steps:
+      - name: Checkout
+        # No `ref` input, for the reason ui-tests.yml gives (PR #258).
+        uses: actions/checkout@v7
+
+      - name: Set up iOS project
+        uses: ./.github/actions/setup-ios-project
+
+      - name: Shut down all simulators
+        # See ui-tests.yml: a simulator left mid-boot is the commonest
+        # source of UI-test flake on a shared runner.
+        run: xcrun simctl shutdown all || true
+
+      - name: Build and test
+        uses: ./.github/actions/build-and-test
+        with:
+          scheme: DionysusTV
+          test-plan: ${{ inputs.test-plan }}
+          platform: tvOS
+          device-type: Apple TV 4K (3rd generation)
+          # Keep in step with the job name above.
+          ios-version: "26.5"
+          retry-tests-on-failure: ${{ inputs.retry-tests-on-failure }}
+          result-bundle-path: .build/TVUITestResults.xcresult
+
+      - name: Upload UI test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tv-ui-test-results-${{ inputs.test-plan }}
+          path: .build/TVUITestResults.xcresult
+          retention-days: 7
+          if-no-files-found: ignore

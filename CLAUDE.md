@@ -730,7 +730,10 @@ in `TestPlans/` — `UnitTests` (the scheme default), `UITests-Smoke` (the PR
 gate) and `UITests-Full`. See `TESTING.md` for the strategy and what's
 covered. CI runs the UI plans on an iPhone 16 and an iPad (A16), on iOS 26.5
 (the smoke gate) and also on iOS 18.6, the deployment floor, for nightly,
-release and PRs into `stable`. `.github/workflows/ui-tests.yml` owns that matrix. CI pins Xcode
+release and PRs into `stable`. `.github/workflows/ui-tests.yml` owns that matrix.
+The Apple TV journeys run the same way from `tv-ui-tests.yml`, on one Apple TV
+4K on tvOS 26.5: `TVUITests-Smoke` on every PR, `TVUITests` nightly and into
+`stable`. CI pins Xcode
 26.6 on `macos-26`, except the iOS 18 leg: no image has both runtimes and
 Xcode won't download an iOS 18 one, so it runs on `macos-15` with Xcode 26.3. The two smoke checks' names embed the device and OS and are
 required by both rulesets. See TESTING.md's "Where they run in CI" before

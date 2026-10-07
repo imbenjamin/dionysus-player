@@ -1,0 +1,39 @@
+{
+  "configurations" : [
+    {
+      "id" : "9A1C0E2B-0000-4000-9000-0000000000A3",
+      "name" : "Configuration 1",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "maximumTestRepetitions" : 2,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:DionysusPlayer.xcodeproj",
+      "identifier" : "DionysusTV",
+      "name" : "DionysusTV"
+    },
+    "testRepetitionMode" : "retryOnFailure"
+  },
+  "testTargets" : [
+    {
+      "selectedTests" : [
+        "CollectionGridJourneyTests/test_tile_opensItsDetailPage_andMenuReturnsToIt()",
+        "DetailJourneyTests/test_tile_opensItsDetailPage_besideTheRail_andMenuReturnsToTheTile()",
+        "HomeJourneyTests/test_home_opensOnTheHero_withRailsBelow()",
+        "LaunchJourneyTests/test_firstLaunch_showsWelcome_thenGetStartedFindsServers()",
+        "OnboardingJourneyTests/test_selectDiscoveredServer_thenUser_reachesMain()",
+        "PlayerJourneyTests/test_openPlayer_skipForward_menuDismisses()",
+        "SearchJourneyTests/test_search_findsATitle_andOpensItsDetailPage()"
+      ],
+      "target" : {
+        "containerPath" : "container:DionysusPlayer.xcodeproj",
+        "identifier" : "DionysusTVUITests",
+        "name" : "DionysusTVUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

@@ -2,8 +2,14 @@ import SwiftUI
 
 @main
 struct DionysusTVApp: App {
-    @State private var appState = AppState()
+    @State private var appState: AppState
 
+    /// `AppState` is built here, after the UI-test harness, as on iOS
+    /// (`DionysusPlayerApp.init`): its `ServerSessionStore` reads the keychain
+    /// as it's made, so a test's reset and seeded session must land first. As
+    /// a property default it was built before this ran, and each launch saw
+    /// the previous one's session (every journey failed on CI's fresh
+    /// Simulator; locally the timing hid it).
     init() {
         // Jellyfin names this Apple TV from it on every request; the iOS app
         // primes it from its AppDelegate, which tvOS doesn't have.
@@ -11,6 +17,7 @@ struct DionysusTVApp: App {
         #if DEBUG
         UITestHarness.installIfNeeded()
         #endif
+        _appState = State(initialValue: AppState())
     }
 
     var body: some Scene {
