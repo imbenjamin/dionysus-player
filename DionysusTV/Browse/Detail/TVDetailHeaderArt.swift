@@ -55,11 +55,18 @@ struct TVDetailHeaderArtView: View {
             .frame(width: art.shape.size.width, height: art.shape.size.height)
             .clipShape(RoundedRectangle(cornerRadius: 28))
             .shadow(color: .black.opacity(0.5), radius: 40, y: 20)
-            // An element, not hidden: hidden, XCUITest can't see it either.
-            .accessibilityElement()
-            .accessibilityLabel(String(localized: "Artwork"))
-            .accessibilityAddTraits(.isImage)
-            .accessibilityIdentifier(A11yID.TV.Detail.headerArt)
+            .accessibilityHidden(true)
+            // The element is a layer of the frame's own size: on the image,
+            // it took the image's unclipped fill (720×1080 for a portrait
+            // picture in a 720×405 frame, measured). An element, not hidden:
+            // hidden, XCUITest can't see it either.
+            .overlay {
+                Color.clear
+                    .accessibilityElement()
+                    .accessibilityLabel(String(localized: "Artwork"))
+                    .accessibilityAddTraits(.isImage)
+                    .accessibilityIdentifier(A11yID.TV.Detail.headerArt)
+            }
     }
 }
 
@@ -77,15 +84,19 @@ extension View {
     }
 
     /// Sizes a detail page's header to the first screen, with the item's
-    /// poster or thumb at its right when it has no backdrop.
+    /// poster or thumb at its right when it has no backdrop. A poster stands
+    /// at the bottom, beside the title; a thumb is wide enough to reach the
+    /// synopsis there, so it sits top-right, clear of the text (Benjamin,
+    /// 2026-10-07).
     func tvDetailHeaderFrame(art item: MediaItem) -> some View {
-        frame(maxWidth: .infinity, minHeight: TVDetailMetrics.headerHeight, alignment: .bottomLeading)
-            .overlay(alignment: .bottomTrailing) {
+        let isLandscape = TVDetailHeaderArt(item: item)?.shape == .landscape
+        return frame(maxWidth: .infinity, minHeight: TVDetailMetrics.headerHeight, alignment: .bottomLeading)
+            .overlay(alignment: isLandscape ? .topTrailing : .bottomTrailing) {
                 TVHeldImage(TVDetailHeaderArt(item: item), url: { $0?.url }) { art in
                     if let art {
                         TVDetailHeaderArtView(art: art, placeholderSystemImage: item.kind.placeholderSystemImage)
                             .padding(.trailing, 100)
-                            .padding(.bottom, 20)
+                            .padding(isLandscape ? .top : .bottom, isLandscape ? TVDetailMetrics.landscapeArtTop : 20)
                     }
                 }
             }

@@ -645,6 +645,20 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(capturedQuery["ExcludeItemTypes"], "Audio,AudioBook,MusicAlbum,MusicArtist,MusicGenre")
     }
 
+    /// Jellyfin 12 lists the in-progress seasons and shows themselves among
+    /// resume items; only video asks for what plays (Benjamin, 2026-10-07).
+    func test_resumeItems_asksForVideoOnly() async throws {
+        let client = makeClient()
+        var capturedQuery: [String: String] = [:]
+        MockURLProtocol.requestHandler = { request in
+            capturedQuery = request.queryDictionary
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        _ = try await client.resumeItems(userID: "user-1")
+        XCTAssertEqual(capturedQuery["MediaTypes"], "Video")
+    }
+
     func test_resumeItems_omitsExcludeItemTypesWhenEmpty() async throws {
         let client = makeClient()
         var capturedQuery: [String: String] = [:]

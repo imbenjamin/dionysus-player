@@ -6,6 +6,9 @@ enum TVDetailMetrics {
     /// at its true top. 60pt taller and tvOS nudged the page down on landing
     /// (measured frame by frame; see CLAUDE.md before changing it).
     static let headerHeight: CGFloat = 776
+    /// How far a no-backdrop page's thumb sits below the header's top, so it
+    /// clears the text beneath it (`tvDetailHeaderFrame(art:)`).
+    static let landscapeArtTop: CGFloat = 40
 }
 
 extension View {

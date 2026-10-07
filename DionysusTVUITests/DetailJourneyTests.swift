@@ -182,6 +182,23 @@ final class DetailJourneyTests: TVUITestCase {
         XCTAssertTrue(poll(timeout: 5) { art.frame.minY < startY }, "It scrolls with the header")
     }
 
+    /// An episode's wide art sits top-right, clear of the text beneath it:
+    /// pinned at the foot like a poster, it ran across the synopsis
+    /// (Benjamin, 2026-10-07).
+    func test_noBackdrop_anEpisodesWideArt_staysAboveTheSynopsis() {
+        let app = launchAtHomeTile(scenario: "noBackdrop")
+        press(.right)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.episodeID(season: 1, episode: 1))]))
+        openDetailFromFocusedTile(app)
+        let art = app.descendants(matching: .any)[A11yID.TV.Detail.headerArt]
+        XCTAssertTrue(art.waitForExistence(timeout: 10))
+        XCTAssertGreaterThan(art.frame.width, art.frame.height, "Wide art, not a poster")
+        let overview = app.descendants(matching: .any)[A11yID.TV.Detail.overview]
+        XCTAssertTrue(overview.waitForExistence(timeout: 10))
+        XCTAssertLessThanOrEqual(art.frame.maxY, overview.frame.minY, "Above the synopsis")
+        XCTAssertFalse(art.frame.intersects(overview.frame))
+    }
+
     func test_withABackdrop_thereIsNoHeaderArt() {
         let app = launchAtHomeTile()
         openDetailFromFocusedTile(app)

@@ -405,7 +405,9 @@ guessable:
 playlist's poster; a show's or an episode's thumb, failing that an episode's
 still or a show's poster. It sits
 in the header, so it scrolls away with it, and the page draws no backdrop at
-all, leaving the shell's glow. A backdrop that is loading or fails draws
+all, leaving the shell's glow. A poster stands at the header's foot; a thumb
+or still is wide enough to reach the synopsis there, so it sits top-right
+(Benjamin, 2026-10-07). A backdrop that is loading or fails draws
 nothing either (`AsyncRemoteImage.showsPlaceholder`): a glyph mid-screen read
 as broken. The art is an accessibility element with a label, not hidden, or
 XCUITest can't see it.
