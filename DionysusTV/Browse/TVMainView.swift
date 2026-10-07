@@ -115,6 +115,7 @@ struct TVMainView: View {
         .environment(\.tvFocusHandoff, focusHandoff)
         .environment(\.tvRailReturn, railReturn)
         .environment(\.tvPageClaimedFocus, releaseRail)
+        .environment(\.tvPageClaimingFocus, holdRail)
         .environment(\.tvOpenRoute, open)
         .environment(\.tvOpenDetailBeneathPlayer, openDetailBeneathPlayer)
         .animation(.easeOut(duration: 0.18), value: isExpanded)
