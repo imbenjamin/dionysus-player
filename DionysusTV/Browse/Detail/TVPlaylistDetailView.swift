@@ -11,6 +11,8 @@ struct TVPlaylistDetailView: View {
     @Binding var rememberedFocus: String?
     @Binding var isBelowHeader: Bool
     @FocusState private var focus: String?
+    /// Bumped by Menu once scrolled: the page goes back to its top.
+    @State private var topRequest = 0
 
     private var items: [MediaItem] { viewModel.orderedPlaylistItems }
 
@@ -62,8 +64,14 @@ struct TVPlaylistDetailView: View {
             .padding(.trailing, 80)
         }
         .tvDetailDimsWhenScrolled($isBelowHeader)
+        .tvScrollsToTop(on: topRequest)
         .scrollClipDisabled()
-        .tvClaimsFocus($focus, ids: (viewModel.playlistResumeTarget == nil ? [] : [TVDetailFocus.play]) + items.map(Self.key), remembered: $rememberedFocus)
+        .tvClaimsFocus($focus, ids: focusIDs, remembered: $rememberedFocus)
+        .tvMenuReturnsToLanding($focus, landing: focusIDs.first, isAway: isBelowHeader) { topRequest += 1 }
+    }
+
+    private var focusIDs: [String] {
+        (viewModel.playlistResumeTarget == nil ? [] : [TVDetailFocus.play]) + items.map(Self.key)
     }
 
     private func play(_ member: MediaItem) {

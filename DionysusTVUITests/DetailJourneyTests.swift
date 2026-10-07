@@ -22,6 +22,10 @@ final class DetailJourneyTests: TVUITestCase {
         openDetailFromFocusedTile(app)
         press(.menu)
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]))
+        // On Home below the hero, Menu first goes back to the hero
+        // (Benjamin, 2026-10-07).
+        press(.menu)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.heroPlay]))
         press(.menu)
         XCTAssertTrue(waitForExpanded(app.buttons[A11yID.TV.Sidebar.home]), "With the path empty, Menu opens the rail")
     }
@@ -66,13 +70,25 @@ final class DetailJourneyTests: TVUITestCase {
             press(.select)
             XCTAssertTrue(poll(timeout: 10) { !focusedSimilar.exists && app.buttons[A11yID.TV.Detail.play].hasFocus }, "Depth \(depth): the next page opens on Play")
         }
-        for depth in stride(from: 6, to: 1, by: -1) {
-            press(.menu)
-            let focused = app.buttons.matching(NSPredicate(format: "hasFocus == true")).firstMatch
-            XCTAssertTrue(focused.waitForExistence(timeout: 5), "Back from depth \(depth): focus is on something")
-            XCTAssertTrue(isCollapsed(app.buttons[A11yID.TV.Sidebar.home]), "Back from depth \(depth): the rail did not open")
-        }
+        // A page kept alive comes back on the More Like This tile it was left
+        // from, below its header, so Menu first goes back to its Play and the
+        // next pops (Benjamin, 2026-10-07). One rebuilt past the cap opens
+        // on Play, its landing view, so one Menu pops it.
+        let play = app.buttons[A11yID.TV.Detail.play]
+        let focusedSimilar = app.buttons.matching(NSPredicate(format: "hasFocus == true AND identifier BEGINSWITH %@", "tv.detail.similar.")).firstMatch
         press(.menu)
+        for depth in stride(from: 5, through: 1, by: -1) {
+            // tvOS focuses Play for a moment as a page comes back, before
+            // the page puts focus back on the tile it had: let it settle.
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+            XCTAssertTrue(poll(timeout: 5) { focusedSimilar.exists || play.hasFocus }, "Back at depth \(depth): focus is on the tile it left from, or on Play")
+            XCTAssertTrue(isCollapsed(app.buttons[A11yID.TV.Sidebar.home]), "Back at depth \(depth): the rail did not open")
+            if focusedSimilar.exists {
+                press(.menu)
+                XCTAssertTrue(waitForFocus(play), "Depth \(depth): Menu goes to Play first")
+            }
+            press(.menu)
+        }
         XCTAssertTrue(waitForFocus(tile), "The last Menu lands on the tile the chain started from")
     }
 

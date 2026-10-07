@@ -14,4 +14,9 @@ extension EnvironmentValues {
     /// no focus and runs no timer; when it turns true again the page takes
     /// focus back and refreshes what may have changed above it.
     @Entry var tvPageIsOnShow = true
+
+    /// Hands focus to the page's own default, as choosing its sidebar row
+    /// does: what reaches Search's keyboard, a UIKit control SwiftUI can't
+    /// focus.
+    @Entry var tvFocusPageDefault: @MainActor () -> Void = {}
 }

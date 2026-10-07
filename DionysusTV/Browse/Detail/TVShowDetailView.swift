@@ -22,6 +22,8 @@ struct TVShowDetailView: View {
     @Environment(\.tvOpenRoute) private var open
     @FocusState private var focus: String?
     @State private var selectedSeasonID: String?
+    /// Bumped by Menu below the header: the page scrolls back to its top.
+    @State private var topRequest = 0
     @State private var episodes: TVSeasonEpisodesModel?
     @State private var showsFullOverview = false
     /// The episode chosen from the rail.
@@ -159,7 +161,7 @@ struct TVShowDetailView: View {
             .padding(.top, 60)
             .padding(.bottom, 160)
         }
-        .tvDetailLanding(focus: focus, isBelowHeader: $isBelowHeader, isBelow: Self.isBelowHeader)
+        .tvDetailLanding(focus: focus, isBelowHeader: $isBelowHeader, topRequest: topRequest, isBelow: Self.isBelowHeader)
         // The tabs behave as tabs (Benjamin, 2026-10-02): the season with
         // focus is the one on show, no Select needed. So coming into the
         // tabs from the actions or the episodes, focus is sent to the season
@@ -178,6 +180,8 @@ struct TVShowDetailView: View {
         .scrollClipDisabled()
         .onChange(of: artItem, initial: true) { _, art in backdropItem = art }
         .tvClaimsFocus($focus, ids: focusIDs, remembered: $rememberedFocus)
+        // Below the header, Menu first goes back to the page's landing view.
+        .tvMenuReturnsToLanding($focus, landing: focusIDs.first, isAway: isBelowHeader) { topRequest += 1 }
         // A show with nothing to play loses its Play button once that's
         // known. tvOS then moves focus to the synopsis above; the actions are
         // where it was, so it goes to Watched, set until it holds since the

@@ -15,6 +15,8 @@ struct TVMovieDetailView: View {
     @Environment(\.tvOpenRoute) private var open
     @FocusState private var focus: String?
     @State private var showsFullOverview = false
+    /// Bumped by Menu below the header: the page scrolls back to its top.
+    @State private var topRequest = 0
 
     private var focusIDs: [String] {
         TVDetailActions.focusIDs(playTarget: item)
@@ -33,9 +35,11 @@ struct TVMovieDetailView: View {
 
     var body: some View {
         scrollView
-            .tvDetailLanding(focus: focus, isBelowHeader: $isBelowHeader, isBelow: Self.isBelowHeader)
+            .tvDetailLanding(focus: focus, isBelowHeader: $isBelowHeader, topRequest: topRequest, isBelow: Self.isBelowHeader)
         .scrollClipDisabled()
         .tvClaimsFocus($focus, ids: focusIDs, remembered: $rememberedFocus)
+        // Below the header, Menu first goes back to the page's landing view.
+        .tvMenuReturnsToLanding($focus, landing: focusIDs.first, isAway: isBelowHeader) { topRequest += 1 }
         .fullScreenCover(isPresented: $showsFullOverview) {
             TVFullOverview(title: item.name, overview: item.overview ?? "")
         }

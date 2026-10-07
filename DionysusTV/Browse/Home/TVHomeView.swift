@@ -18,6 +18,8 @@ struct TVHomeView: View {
     /// Focus is in the rails below the hero: the backdrop fades away to the
     /// shell's own background (Benjamin, 2026-10-04).
     @State private var isBelowHero = false
+    /// Bumped by Menu below the hero: the page scrolls back to its top.
+    @State private var topRequest = 0
 
     private var heroItem: MediaItem? {
         viewModel.heroItems.indices.contains(pager.index) ? viewModel.heroItems[pager.index] : viewModel.heroItems.first
@@ -81,6 +83,11 @@ struct TVHomeView: View {
             withAnimation(.easeInOut(duration: 0.35)) { pager.tick() }
         }
         .tvClaimsFocus($focus, ids: focusIDs, remembered: $rememberedFocus)
+        // Below the hero, Menu goes back to the top with Play focused; from
+        // the hero it's the shell's, which opens the sidebar.
+        .tvMenuReturnsToLanding($focus, landing: heroItem == nil ? nil : TVHeroView.playFocus, isAway: isBelowHero) {
+            topRequest += 1
+        }
     }
 
     @ViewBuilder
@@ -148,7 +155,7 @@ struct TVHomeView: View {
         }
         // Back up in the hero, the page returns to its top, as a detail page
         // does from its rails.
-        .tvDetailLanding(focus: focus, isBelowHeader: $isBelowHero, isBelow: Self.isBelowHero)
+        .tvDetailLanding(focus: focus, isBelowHeader: $isBelowHero, topRequest: topRequest, isBelow: Self.isBelowHero)
         .scrollClipDisabled()
     }
 

@@ -24,7 +24,9 @@ struct TVSearchView: View {
     @State private var restoring = false
     @Environment(\.tvFocusHandoff) private var focusHandoff
     @Environment(\.tvPageClaimedFocus) private var claimedFocus
-
+    @Environment(\.tvFocusPageDefault) private var focusPageDefault
+    /// Bumped by Menu from the results: they scroll back to their top.
+    @State private var topRequest = 0
 
     private var sections: [TVSearchGrouping.Section] { TVSearchGrouping.sections(viewModel.results) }
     private var isIdle: Bool { viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -36,6 +38,8 @@ struct TVSearchView: View {
     }
 
     private static func recentFocusID(_ id: String) -> String { "recent.\(id)" }
+    /// Clear sits below the keyboard with the recent rails, so Menu treats it as one of them.
+    private static let clearFocusID = "clear"
 
     var body: some View {
         @Bindable var viewModel = viewModel
@@ -77,6 +81,14 @@ struct TVSearchView: View {
         .onChange(of: focusedResultID) { _, id in
             if let id, isOnShow, !restoring { rememberedResultID = id }
         }
+        // From the results, Menu first goes back to the keyboard, the query
+        // kept (Benjamin, 2026-10-07); from the keyboard it's the shell's,
+        // which opens the sidebar.
+        .onExitCommand(perform: focusedResultID == nil ? nil : {
+            topRequest += 1
+            focusedResultID = nil
+            focusPageDefault()
+        })
     }
 
     /// Lets the shell enable the rail once the keyboard has had its chance at
@@ -111,6 +123,7 @@ struct TVSearchView: View {
             }
             .padding(.vertical, 40)
         }
+        .tvScrollsToTop(on: topRequest)
         .scrollClipDisabled()
     }
 
@@ -142,6 +155,7 @@ struct TVSearchView: View {
                     .font(.title3.weight(.semibold))
                     .accessibilityAddTraits(.isHeader)
                 Button("Clear") { viewModel.clearHistory() }
+                    .focused($focusedResultID, equals: Self.clearFocusID)
                     .accessibilityIdentifier(A11yID.TV.Search.clearRecent)
                 Spacer(minLength: 0)
             }

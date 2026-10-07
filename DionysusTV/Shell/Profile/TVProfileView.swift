@@ -28,6 +28,9 @@ struct TVProfileView: View {
     /// Switch User is the default focus (`tvClaimsFocus`).
     @FocusState private var focus: String?
     @State private var remembered: String?
+    /// The rows have scrolled from their top; Menu then goes back there.
+    @State private var rowsScrolled = false
+    @State private var topRequest = 0
     /// Copies to draw from: these settings live in the keychain, which
     /// nothing observes.
     @State private var followsAppleTVUsers = SessionScopeSetting.followsAppleTVUsers
@@ -61,6 +64,7 @@ struct TVProfileView: View {
             }
         }
         .tvClaimsFocus($focus, ids: focusIDs, remembered: $remembered)
+        .tvMenuReturnsToLanding($focus, landing: focusIDs.first, isAway: rowsScrolled) { topRequest += 1 }
         .task {
             guard let client = appState.apiClient else { return }
             quickConnectAvailable = await QuickConnectApprovalViewModel.isAvailable(on: client)
@@ -190,6 +194,7 @@ struct TVProfileView: View {
             .padding(.bottom, 120)
             .padding(.trailing, 80)
         }
+        .tvScrollsToTop(on: topRequest, isScrolled: $rowsScrolled)
         .scrollClipDisabled()
     }
 
