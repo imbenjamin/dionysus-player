@@ -25,6 +25,8 @@ private struct TVDefaultFocus<ID: Hashable>: ViewModifier {
     let ids: [ID]
     @Binding var remembered: ID?
     @State private var userMoved = false
+    /// Direction presses on the page, so a claim stops at the first one.
+    @State private var moves = 0
     /// The item to put focus back on while the page is covered, and until
     /// it has it again.
     @State private var restoring: ID?
@@ -98,18 +100,26 @@ private struct TVDefaultFocus<ID: Hashable>: ViewModifier {
             .onChange(of: focus.wrappedValue) { _, id in
                 if let id, isOnShow, restoring == nil { remembered = id }
             }
-            .onMoveCommand { _ in userMoved = true }
+            .onMoveCommand { _ in
+                userMoved = true
+                moves += 1
+            }
     }
 
     /// Holds the rail until focus is on `id`, then lets it go
-    /// (`tvPageClaimingFocus`).
+    /// (`tvPageClaimingFocus`). Set again until it lands, which overrides
+    /// tvOS's own pick (a detail page's synopsis), but never after a press:
+    /// re-setting it then pulled the press straight back (on CI's slower
+    /// runner, Down from Play went back to Play, and the next Select played
+    /// instead of opening the tile).
     private func claim(_ id: ID) {
+        let pressesBefore = moves
         claiming()
         focus.wrappedValue = id
         Task { @MainActor in
             for _ in 0..<10 {
                 try? await Task.sleep(for: .milliseconds(50))
-                if focus.wrappedValue == id { break }
+                if focus.wrappedValue == id || moves != pressesBefore { break }
                 focus.wrappedValue = id
             }
             claimed()
