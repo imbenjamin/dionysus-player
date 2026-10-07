@@ -701,11 +701,15 @@ What isn't guessable:
   re-centred, pushing the title off the top (both measured in the
   Simulator).
 **Skip and Next Up** share the bottom-right slot and lift above the
-transport when it is up. Select skips while the button shows and focus
-isn't on an icon or in the panel; Menu with nothing else up hides the
+transport when it is up. With the transport hidden Select skips; with it
+up Skip is its own focus stop above the icon row (Up from the icons, Down
+back to the rightmost one), so Select on the scrubber still plays and
+pauses (Benjamin, 2026-10-07: Select-skips-from-the-scrubber drew the knob
+and the button focused at once). Menu with nothing else up hides the
 button, which comes back with the transport (Benjamin, 2026-10-06). The
 Next Up card has focus while the transport is hidden, and Menu there means
-Close. **The next item plays in the same player**
+Close; with the transport up it is the stop above the icon row, as Skip is,
+and Menu there returns to the scrubber (Benjamin, 2026-10-07). **The next item plays in the same player**
 (`TVPlayerHostController.advanceToNextItem()`): the session ends and is
 reported, a new view model and engine are bound to AVKit, nothing is
 dismissed, and Stats stays as it was. Never under an open scrub.

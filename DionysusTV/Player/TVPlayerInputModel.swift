@@ -121,7 +121,10 @@ struct TVPlayerContext: Equatable {
 /// reducer changes it.
 struct TVPlayerInputState: Equatable {
     enum Chrome: Equatable { case hidden, transport }
-    enum TransportFocus: Equatable { case scrubber, icon(TVPlayerIcon) }
+    /// `skip` and `nextUp` are the bottom-right slot's Skip button and Next
+    /// Up card, each its own stop above the icon row while the transport is
+    /// up (Benjamin, 2026-10-07). Only one shows at a time.
+    enum TransportFocus: Equatable { case scrubber, icon(TVPlayerIcon), skip, nextUp }
 
     struct HeldArrow: Equatable {
         var direction: TVDirection
@@ -282,24 +285,40 @@ enum TVPlayerInputModel {
         case .playPause:
             return togglePlayPause(&state, context: context)
         case .menu:
-            if case .icon = state.transportFocus {
+            if state.transportFocus != .scrubber {
                 state.transportFocus = .scrubber
                 return []
             }
             return [.close]
         case .up:
-            if !wasHidden, state.transportFocus == .scrubber, let first = context.availableIcons.first {
-                state.transportFocus = .icon(first)
+            guard !wasHidden else { return [] }
+            let slot = slotFocus(state, context: context)
+            switch state.transportFocus {
+            case .scrubber:
+                if let first = context.availableIcons.first {
+                    state.transportFocus = .icon(first)
+                } else if let slot {
+                    state.transportFocus = slot
+                }
+            case .icon:
+                if let slot { state.transportFocus = slot }
+            case .skip, .nextUp:
+                break
             }
             return []
         case .down:
-            if case .icon = state.transportFocus {
+            switch state.transportFocus {
+            case .icon:
                 state.transportFocus = .scrubber
-            } else {
+            case .skip, .nextUp:
+                // The rightmost icon sits beneath the slot.
+                state.transportFocus = context.availableIcons.last.map { .icon($0) } ?? .scrubber
+            case .scrubber:
                 openPanel(.info, focus: .tabs, &state, now: now)
             }
             return []
         case .arrow(let direction):
+            if state.transportFocus == .skip || state.transportFocus == .nextUp { return [] }
             if case .icon(let icon) = state.transportFocus {
                 state.transportFocus = .icon(neighbour(of: icon, direction, in: context.availableIcons))
                 return []
@@ -376,6 +395,12 @@ enum TVPlayerInputModel {
             state.scrub = scrub
         }
         if case .icon(let icon) = state.transportFocus, !context.availableIcons.contains(icon) {
+            state.transportFocus = .scrubber
+        }
+        if state.transportFocus == .skip, !skipButtonVisible(state, context: context) {
+            state.transportFocus = .scrubber
+        }
+        if state.transportFocus == .nextUp, context.nextUpSecondsRemaining == nil {
             state.transportFocus = .scrubber
         }
         if var panel = state.panel {
