@@ -1,4 +1,6 @@
 import SwiftUI
+import os
+let dbgLog = Logger(subsystem: "dbg.rail", category: "rail")
 import UIKit
 
 /// The signed-in shell (prototype screens 5, 6 and 6b): one top-level page
@@ -128,6 +130,7 @@ struct TVMainView: View {
         // Focus left the rail without a row being chosen (Right, back into
         // the page): the page goes back to where it was (`tvRailReturn`).
         .onChange(of: focusedRow) { old, new in
+            dbgLog.notice("focusedRow \(String(describing: old), privacy: .public) -> \(String(describing: new), privacy: .public)")
             if old != nil, new == nil, !isChoosingRow { railReturn += 1 }
         }
         .onChange(of: focusedRow) { old, new in
@@ -208,6 +211,7 @@ struct TVMainView: View {
     }
 
     private func open(_ route: AppRoute) {
+        dbgLog.notice("open route")
         let entry = nav.push(route)
         switch route {
         case .assetDetail(let itemID, let preloadedItem):
@@ -286,12 +290,14 @@ struct TVMainView: View {
     /// that failed or is still running) would otherwise leave focus nowhere,
     /// where even Menu reaches nothing, so focus then goes to the page's row.
     private func holdRail() {
+        dbgLog.notice("holdRail")
         railHeld = true
         holdGeneration += 1
         let generation = holdGeneration
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(3))
             guard generation == holdGeneration, railHeld else { return }
+            dbgLog.notice("fallback fired row=\(String(describing: focusedRow), privacy: .public)")
             railHeld = false
             // Nowhere, or left in the rail: holding it can push focus from
             // the chosen row onto another (seen: Profile's).
@@ -303,6 +309,7 @@ struct TVMainView: View {
     }
 
     private func releaseRail() {
+        dbgLog.notice("releaseRail held=\(railHeld)")
         guard railHeld else { return }
         Task { @MainActor in
             await Task.yield()

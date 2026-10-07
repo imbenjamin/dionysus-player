@@ -70,6 +70,22 @@ jobs:
           retry-tests-on-failure: ${{ inputs.retry-tests-on-failure }}
           result-bundle-path: .build/TVUITestResults.xcresult
 
+      - name: Dump app log (temporary diagnostics)
+        if: failure()
+        run: |
+          udid=$(xcrun simctl list devices booted -j | jq -r '[.devices[][]][0].udid')
+          xcrun simctl spawn "$udid" log show --last 30m --predicate 'subsystem == "dbg.rail"' --style compact > .build/TVUITestResults.xcresult/../dbg-rail.log || true
+          tail -200 .build/dbg-rail.log || true
+
+      - name: Upload app log (temporary diagnostics)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tv-dbg-rail-log
+          path: .build/dbg-rail.log
+          retention-days: 3
+          if-no-files-found: ignore
+
       - name: Upload UI test results
         if: failure()
         uses: actions/upload-artifact@v7

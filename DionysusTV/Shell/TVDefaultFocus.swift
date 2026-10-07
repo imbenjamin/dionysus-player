@@ -98,9 +98,11 @@ private struct TVDefaultFocus<ID: Hashable>: ViewModifier {
                 }
             }
             .onChange(of: focus.wrappedValue) { _, id in
+                dbgLog.notice("page focus -> \(String(describing: id), privacy: .public) onShow=\(isOnShow)")
                 if let id, isOnShow, restoring == nil { remembered = id }
             }
-            .onMoveCommand { _ in
+            .onMoveCommand { d in
+                dbgLog.notice("move \(String(describing: d), privacy: .public)")
                 userMoved = true
                 moves += 1
             }
@@ -113,6 +115,7 @@ private struct TVDefaultFocus<ID: Hashable>: ViewModifier {
     /// runner, Down from Play went back to Play, and the next Select played
     /// instead of opening the tile).
     private func claim(_ id: ID) {
+        dbgLog.notice("claim \(String(describing: id), privacy: .public) onShow=\(isOnShow)")
         let pressesBefore = moves
         claiming()
         focus.wrappedValue = id
