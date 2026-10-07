@@ -103,6 +103,13 @@ cost a debugging session each:
   arrival and on each handoff from the sidebar, the remembered one when
   rebuilt after the player. Never with `.defaultFocus`: on Profile it pulled
   every later move back to Switch User, so Change Server couldn't be reached.
+  **Every claim holds the rail until it lands** (`tvPageClaimingFocus`): a
+  page claims its loading spinner, then its first item when the data
+  arrives, and on tvOS 26 the spinner's removal makes tvOS pick focus
+  itself before the claim lands. Released after the spinner's claim, the
+  rail was free, so focus went to it and opened it after every sign-in,
+  library and search (measured on tvOS 26.5; tvOS 27 honours the claim, so
+  only a 26 Simulator shows it).
 - **Handing focus from the sidebar to a page needs the focus system asked.**
   Choosing a row holds the whole rail disabled and calls
   `UIFocusSystem.requestFocusUpdate(to:)` on the window's root; disabling a
