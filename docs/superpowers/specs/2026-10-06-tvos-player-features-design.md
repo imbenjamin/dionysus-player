@@ -142,14 +142,14 @@ Lists of tracks, two lines each, with the iOS picker's text: `PlaybackTrack.titl
 ## Skip Intro/Credits
 
 - A white capsule bottom-right, as in screen 14, with iOS's wording for each segment type, shown while `currentSkipSegment` is set.
-- **Select skips** while the button shows, unless focus is on an icon or in the panel. While Select would skip, the button is drawn focused. Play/Pause still pauses.
-- **Hiding:** Menu with the transport hidden and nothing else up hides the button for the rest of the segment; a second Menu closes the player. With the transport up the button always shows, hidden or not, and Select skips while the scrubber has focus. Hiding is the TV model's state, not iOS's `dismissSkipSegment`, which removes the button for good.
+- **Select skips** while the button shows with the transport hidden. With the transport up the button is its own focus stop above the icon row (Up from the icons, or from the scrubber when there are none; Down returns to the rightmost icon), and Select on the scrubber plays and pauses as usual (revised 2026-10-07: skipping from the scrubber drew the knob and the button focused at once). While Select would skip, the button is drawn focused. Play/Pause still pauses.
+- **Hiding:** Menu with the transport hidden and nothing else up hides the button for the rest of the segment; a second Menu closes the player. With the transport up the button always shows, hidden or not, and is reached with Up. Hiding is the TV model's state, not iOS's `dismissSkipSegment`, which removes the button for good.
 
 ## Next Up
 
 - The compact card, as in screen 15: a 420×236 thumb with a seconds chip, the countdown bar along its foot in the brand amber, "S1:E4 · Title" on one line, then **Play Now** and **Close**.
 - Timing comes from the shared view model (`nextUpSecondsRemaining`, `nextUpTotalCountdownSeconds`, the end-credits anchor), so **Next Episode Countdown** takes effect. A playlist's next item comes from the queue, as on iOS.
-- **With the transport hidden the card has focus**: Play Now first; Left/Right move between its buttons instead of skipping; Select activates. Menu means Close.
+- **With the transport hidden the card has focus**: Play Now first; Left/Right move between its buttons instead of skipping; Select activates. Menu means Close. With the transport up the card is the stop above the icon row, as Skip is (Up from the icons, or from the scrubber when there are none; Down to the rightmost icon); Menu there returns to the scrubber without closing the card (revised 2026-10-07).
 - **Close** hides the card and cancels the countdown (`dismissNextUp()`); the episode plays to its end and the player closes.
 - Up or a swipe shows the transport with focus on it; the card stays on screen unfocused. When the transport fades, focus returns to the card.
 - **Play Now**, or the countdown reaching zero, moves to the next item in place (Architecture, The host).

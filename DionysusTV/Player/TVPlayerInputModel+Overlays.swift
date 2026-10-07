@@ -14,6 +14,12 @@ extension TVPlayerInputModel {
                 state.nextUpFocus = direction == .left ? .playNow : .close
                 return []
             case .menu:
+                // Up over the transport, Menu leaves the card as it leaves the
+                // icons; alone on screen, it means Close.
+                guard state.chrome == .hidden else {
+                    state.transportFocus = .scrubber
+                    return []
+                }
                 return [.dismissNextUp]
             default:
                 return nil
@@ -34,9 +40,18 @@ extension TVPlayerInputModel {
     }
 
     /// The card has focus while the transport is hidden and nothing else is
-    /// open; with the transport up it stays on screen without focus.
+    /// open; with the transport up, once Up from the icons reaches it.
     static func nextUpHasFocus(_ state: TVPlayerInputState, context: TVPlayerContext) -> Bool {
-        context.nextUpSecondsRemaining != nil && state.chrome == .hidden && state.panel == nil && state.scrub == nil
+        guard context.nextUpSecondsRemaining != nil, state.panel == nil, state.scrub == nil else { return false }
+        return state.chrome == .hidden || state.transportFocus == .nextUp
+    }
+
+    /// The bottom-right slot's stop above the icon row, if anything shows
+    /// there. Next Up and Skip never show together.
+    static func slotFocus(_ state: TVPlayerInputState, context: TVPlayerContext) -> TVPlayerInputState.TransportFocus? {
+        if context.nextUpSecondsRemaining != nil { return .nextUp }
+        if skipButtonVisible(state, context: context) { return .skip }
+        return nil
     }
 
     /// Always with the transport up; with it hidden, until Menu hides it.
@@ -45,11 +60,13 @@ extension TVPlayerInputModel {
         return state.chrome == .transport || state.hiddenSkipSegmentID != segment.id
     }
 
-    /// Whether Select means Skip: the button shows and focus isn't on an
-    /// icon, in the panel or in a scrub. The button is drawn focused then.
+    /// Whether Select means Skip, and so the button is drawn focused: with
+    /// the transport hidden whenever it shows; with the transport up only
+    /// once focus is on it, above the icons (Benjamin, 2026-10-07). Never in
+    /// the panel or a scrub.
     static func selectSkips(_ state: TVPlayerInputState, context: TVPlayerContext) -> Bool {
-        skipButtonVisible(state, context: context) && state.panel == nil && state.scrub == nil
-            && state.transportFocus == .scrubber
+        guard skipButtonVisible(state, context: context), state.panel == nil, state.scrub == nil else { return false }
+        return state.chrome == .hidden || state.transportFocus == .skip
     }
 
     static func playNext(_ state: inout TVPlayerInputState) -> [TVPlayerCommand] {

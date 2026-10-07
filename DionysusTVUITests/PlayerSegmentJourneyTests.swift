@@ -1,10 +1,20 @@
 import XCTest
 
 final class PlayerSegmentJourneyTests: TVUITestCase {
-    func test_skipIntro_selectSkipsToTheIntrosEnd() {
+    func test_skipIntro_isAStopAboveTheIcons_andSelectSkipsToTheIntrosEnd() {
         let app = openPlayer(scenario: "skipIntro", extraArguments: ["-UITestDisableControlAutoHide", "YES"])
         let skip = app.descendants(matching: .any)[A11yID.TV.Player.skipButton]
         XCTAssertTrue(skip.waitForExistence(timeout: 10))
+        // With the transport up, Skip is its own stop above the icons
+        // (Benjamin, 2026-10-07), reached here from the panel.
+        XCTAssertTrue(waitForPlayerFocus(app, "scrubber"))
+        press(.down)
+        XCTAssertTrue(waitForPlayerFocus(app, "tab.info"))
+        press(.up)
+        XCTAssertTrue(waitForPlayerFocus(app, "scrubber"), "Closing the panel focuses the scrubber alone")
+        press(.up)
+        XCTAssertTrue(waitForPlayerFocus(app, "icon.chapters"))
+        press(.up)
         XCTAssertTrue(waitForPlayerFocus(app, "skip"))
         press(.select)
         XCTAssertTrue(poll(timeout: 5) { (self.elapsedSeconds(app) ?? 0) >= 5000 }, "Skips to 83:20")
@@ -40,6 +50,22 @@ final class PlayerSegmentJourneyTests: TVUITestCase {
                       "The second episode plays from its start in the same player")
     }
 
+    /// With the transport up the card is the stop above the icon row
+    /// (Benjamin, 2026-10-07).
+    func test_nextUp_withTheTransportUp_upFromTheIconsReachesTheCard() {
+        let app = openEpisodeOne(scenario: "earlyCredits", extraArguments: ["-UITestDisableControlAutoHide", "YES"])
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.nextUpCard].waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForPlayerFocus(app, "scrubber"))
+        press(.up)
+        XCTAssertTrue(waitForPlayerFocus(app, "icon.chapters"))
+        press(.up)
+        XCTAssertTrue(waitForPlayerFocus(app, "nextUp.playNow"))
+        press(.right)
+        XCTAssertTrue(waitForPlayerFocus(app, "nextUp.close"))
+        press(.down)
+        XCTAssertTrue(waitForPlayerFocus(app, "icon.stats"), "Down returns to the rightmost icon, beneath the card")
+    }
+
     func test_nextUp_closeHidesTheCard_forTheRestOfTheEpisode() {
         let app = openEpisodeOne(scenario: "earlyCredits")
         let card = app.descendants(matching: .any)[A11yID.TV.Player.nextUpCard]
@@ -64,8 +90,8 @@ final class PlayerSegmentJourneyTests: TVUITestCase {
     }
 
     /// Home's Continue Watching rail: the movie, then S1:E1.
-    private func openEpisodeOne(scenario: String) -> XCUIApplication {
-        let app = launch(scenario: scenario, seedSession: true)
+    private func openEpisodeOne(scenario: String, extraArguments: [String] = []) -> XCUIApplication {
+        let app = launch(scenario: scenario, seedSession: true, extraArguments: extraArguments)
         waitForHomeThenFirstTile(app)
         press(.right)
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.episodeID(season: 1, episode: 1))]))
