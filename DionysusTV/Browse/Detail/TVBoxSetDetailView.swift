@@ -9,6 +9,8 @@ struct TVBoxSetDetailView: View {
     @Binding var isBelowHeader: Bool
     @Environment(\.tvOpenRoute) private var open
     @FocusState private var focus: String?
+    /// Bumped by Menu once scrolled: the page goes back to its top.
+    @State private var topRequest = 0
 
     var body: some View {
         ScrollView {
@@ -45,8 +47,10 @@ struct TVBoxSetDetailView: View {
             .padding(.trailing, 80)
         }
         .tvDetailDimsWhenScrolled($isBelowHeader)
+        .tvScrollsToTop(on: topRequest)
         .scrollClipDisabled()
         .tvClaimsFocus($focus, ids: viewModel.collectionItems.map(\.id), remembered: $rememberedFocus)
+        .tvMenuReturnsToLanding($focus, landing: viewModel.collectionItems.first?.id, isAway: isBelowHeader) { topRequest += 1 }
     }
 }
 

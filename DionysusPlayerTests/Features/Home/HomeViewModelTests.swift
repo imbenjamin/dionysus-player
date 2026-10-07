@@ -195,6 +195,39 @@ final class HomeViewModelTests: XCTestCase {
         )
     }
 
+    /// Jellyfin 12 answers `/Items/Resume` with the in-progress seasons and
+    /// shows too. Continue Watching holds only what plays; a show waiting on
+    /// its next episode belongs to Next Up (Benjamin, 2026-10-07).
+    func test_load_continueWatching_dropsSeasonsAndShows() async {
+        let episode = BaseItemDto(id: "episode-1", name: "In Progress Episode", type: .episode)
+        let movie = BaseItemDto(id: "movie-1", name: "In Progress Movie", type: .movie)
+        let season = BaseItemDto(id: "season-1", name: "Season 1", type: .season)
+        let series = BaseItemDto(id: "series-1", name: "A Show", type: .series)
+
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Views", "/Users/user-1/Items", "/Shows/NextUp":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items/Resume":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [episode, season, series, movie], totalRecordCount: 4)
+                )
+            case "/Users/user-1/Items/Latest":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]())
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        let continueWatching = viewModel.rails.first { $0.title == "Continue Watching" }
+        XCTAssertEqual(continueWatching?.items.map(\.id), ["episode-1", "movie-1"])
+    }
+
     /// AUDIO SUPPRESSION: `/Users/{id}/Views` has no server-side type
     /// filter, so a Music library has to be dropped client-side — see
     /// `MediaItem.isAudioLibrary`.

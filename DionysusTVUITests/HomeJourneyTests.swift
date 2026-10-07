@@ -22,6 +22,45 @@ final class HomeJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.heroPlay]), "Menu goes back to the hero")
     }
 
+    /// Below the hero, Menu goes back to the top with Play focused; Menu
+    /// again opens the rail (Benjamin, 2026-10-07).
+    func test_menuBelowTheHero_returnsToTheTop_thenOpensTheRail() {
+        let app = launchAtHome()
+        let play = app.buttons[A11yID.TV.Main.heroPlay]
+        let playTop = play.frame.minY
+        focusFirstRailTile(app)
+        press(.down)
+        press(.down)
+        XCTAssertTrue(poll(timeout: 5) { !play.exists || play.frame.minY < playTop - 100 }, "The page scrolled down")
+        press(.menu)
+        XCTAssertTrue(waitForFocus(play), "Menu goes back to the hero's Play")
+        XCTAssertTrue(poll(timeout: 5) { abs(play.frame.minY - playTop) < 2 }, "At the very top")
+        XCTAssertTrue(waitForCollapsed(app.buttons[A11yID.TV.Sidebar.home]), "The rail stays collapsed")
+        press(.menu)
+        XCTAssertTrue(waitForExpanded(app.buttons[A11yID.TV.Sidebar.home]), "Menu again opens the rail")
+    }
+
+    /// Back from a tile's page, Home keeps the tile on screen: tvOS's own
+    /// focus on Play as Home came back sent it to its top, leaving the tile
+    /// cut off at the foot (Benjamin, 2026-10-07).
+    func test_backFromARailTile_keepsTheTileOnScreen() {
+        let app = launchAtHome()
+        focusFirstRailTile(app)
+        let tileID = A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)
+        // The title is in more than one rail: read the one with focus.
+        let focused = app.buttons.matching(NSPredicate(format: "hasFocus == true")).firstMatch
+        press(.down, times: 2)
+        XCTAssertTrue(poll(timeout: 5) { focused.identifier != tileID })
+        press(.up, times: 2)
+        XCTAssertTrue(poll(timeout: 5) { focused.identifier == tileID })
+        openDetailFromFocusedTile(app)
+        press(.menu)
+        XCTAssertTrue(poll(timeout: 5) { focused.identifier == tileID })
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        XCTAssertEqual(focused.identifier, tileID)
+        XCTAssertLessThanOrEqual(focused.frame.maxY, app.frame.maxY, "The focused tile is wholly on screen")
+    }
+
     func test_moreInfo_opensTheDetailPage() {
         let app = launchAtHome()
         press(.right)

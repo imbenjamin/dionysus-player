@@ -350,10 +350,14 @@ actor JellyfinAPIClient {
         try await get("/Users/\(userID)/Items/\(itemID)", query: [.init(name: "Fields", value: fields)])
     }
 
+    /// Video only: Jellyfin 12 also lists the in-progress seasons and shows
+    /// themselves here (seen on 12.2.0), which aren't anything to resume
+    /// (Benjamin, 2026-10-07). `HomeViewModel` drops any a server still sends.
     func resumeItems(userID: String, limit: Int = 12, excludeItemTypes: [String] = []) async throws -> BaseItemDtoQueryResult {
         var query = [
             URLQueryItem(name: "Limit", value: String(limit)),
-            URLQueryItem(name: "Fields", value: Self.defaultFields)
+            URLQueryItem(name: "Fields", value: Self.defaultFields),
+            URLQueryItem(name: "MediaTypes", value: "Video")
         ]
         if !excludeItemTypes.isEmpty {
             query.append(.init(name: "ExcludeItemTypes", value: excludeItemTypes.joined(separator: ",")))

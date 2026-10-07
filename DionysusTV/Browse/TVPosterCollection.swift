@@ -35,6 +35,9 @@ struct TVPosterCollection: UIViewRepresentable {
     let isLocked: Bool
     /// Bumped to send the grid back to its top.
     let scrollToTopToken: Int
+    /// Bumped to go back to the landing view: the top, focus on the first
+    /// tile (Menu once scrolled; Benjamin, 2026-10-07).
+    var landingToken = 0
     @Binding var rememberedItemID: String?
     /// How far the content has scrolled from its top, zero or more.
     let onScroll: (CGFloat) -> Void
@@ -159,6 +162,16 @@ struct TVPosterCollection: UIViewRepresentable {
 
             if old.scrollToTopToken != new.scrollToTopToken {
                 view.setContentOffset(CGPoint(x: 0, y: -new.topInset), animated: true)
+            }
+            if old.landingToken != new.landingToken, new.isOnShow, !new.items.isEmpty {
+                view.setContentOffset(CGPoint(x: 0, y: -new.topInset), animated: true)
+                // Once the scroll has landed: mid-animation the first cell
+                // may not be built, and placing focus would jump to it.
+                Task { @MainActor [weak self, weak view] in
+                    try? await Task.sleep(for: .milliseconds(350))
+                    guard let self, let view else { return }
+                    self.focus(itemID: nil, in: view)
+                }
             }
 
             guard new.isOnShow, !new.items.isEmpty else {

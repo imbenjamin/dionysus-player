@@ -22,6 +22,7 @@ struct TVCollectionGridView: View {
     /// How far the grid has scrolled from its top.
     @State private var scrollOffset: CGFloat = 0
     @State private var scrollToTopToken = 0
+    @State private var landingToken = 0
 
     private var items: [MediaItem] { viewModel.filteredItems }
 
@@ -73,7 +74,7 @@ struct TVCollectionGridView: View {
                 // From every item, not the filtered ones, so a filter never
                 // changes the grid's shape under the person.
                 items: items, shape: TVTileShape(items: viewModel.items), showsIndex: viewModel.sortField == .title, indexDescending: viewModel.sortOrder == .descending,
-                topInset: headerHeight, isLocked: openPill != nil, scrollToTopToken: scrollToTopToken,
+                topInset: headerHeight, isLocked: openPill != nil, scrollToTopToken: scrollToTopToken, landingToken: landingToken,
                 rememberedItemID: $rememberedItemID,
                 onScroll: { scrollOffset = $0 },
                 resetFocus: { resetFocus(in: gridScope) },
@@ -99,6 +100,10 @@ struct TVCollectionGridView: View {
             .offset(y: -scrollOffset)
         }
         .focusScope(gridScope)
+        // Scrolled, Menu first goes back to the landing view: the top, focus
+        // on the first tile. At the top it's the shell's (pop or sidebar).
+        // An open list's own Menu handler is nearer focus, so it closes first.
+        .onExitCommand(perform: scrollOffset > 1 ? { landingToken += 1 } : nil)
         // A pill taking focus brings the page back to its top, where the
         // pills are: they scroll away with the grid, but only on screen.
         .onChange(of: focus) { _, new in

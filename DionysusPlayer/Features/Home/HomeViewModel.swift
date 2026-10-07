@@ -299,7 +299,10 @@ final class HomeViewModel {
             newRails.append(MediaCollectionRail(title: title, items: items, seeAllQuery: seeAllQuery))
         }
 
-        let resumeItems = try await resume.items
+        // Only what plays: a season or a show in progress is Next Up's to
+        // offer (Benjamin, 2026-10-07), for a server that ignores
+        // `resumeItems`' video-only filter.
+        let resumeItems = try await resume.items.filter { $0.type != .series && $0.type != .season }
         appendRail(String(localized: "Continue Watching"), resumeItems)
         // Jellyfin's `/Shows/NextUp` isn't guaranteed disjoint from
         // `/Users/{id}/Items/Resume` — a show can surface the same

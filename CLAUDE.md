@@ -200,6 +200,9 @@ Every tile's caption is always shown. What isn't guessable:
   back up (`tvDetailLanding`). The backdrop fades out once focus is below the
   hero, leaving the shell's plum glow behind the rails, and fades back in when
   focus returns (Benjamin, 2026-10-04).
+- **Menu below the hero goes back to the top with Play focused**; Menu from
+  the hero opens the sidebar, as before. Every page does the same
+  (`tvMenuReturnsToLanding`, below).
 
 **Detail pages and See All grids are pushed onto a path inside the shell**
 (`TVShellNavigation.path`), with the rail beside them; every tile opens a
@@ -405,10 +408,32 @@ guessable:
 playlist's poster; a show's or an episode's thumb, failing that an episode's
 still or a show's poster. It sits
 in the header, so it scrolls away with it, and the page draws no backdrop at
-all, leaving the shell's glow. A backdrop that is loading or fails draws
+all, leaving the shell's glow. A poster stands at the header's foot; a thumb
+or still is wide enough to reach the synopsis there, so it sits top-right
+(Benjamin, 2026-10-07). A backdrop that is loading or fails draws
 nothing either (`AsyncRemoteImage.showsPlaceholder`): a glyph mid-screen read
 as broken. The art is an accessibility element with a label, not hidden, or
 XCUITest can't see it.
+
+**Away from its landing view, Menu first takes a page back to it**
+(Benjamin, 2026-10-07; `tvMenuReturnsToLanding`): the top, with focus on
+the item the page opens on. Menu again does what it always did: pops a
+pushed page or opens the sidebar. "Away" is focus below the header on Home
+(the hero), a movie's and a show's page; the page scrolled from its top on a
+box set, a playlist, a library or See All grid, and Profile; and focus in
+Search's results or on Clear, where Menu goes back to the keyboard with the
+query kept (through the shell's `tvFocusPageDefault`, the handoff choosing
+the row uses, since SwiftUI can't focus the keyboard). At the landing view
+a page's handler is `nil`, so the shell's handles it. A lazy stack may have
+torn the landing item down after a long scroll, so the page scrolls up
+first and focus is set until it holds; the grid waits for its scroll to
+land before placing focus.
+
+**A page coming back on show ignores tvOS's focus on its header for a
+moment** (`TVDetailLanding.settling`): tvOS focuses Play before the page puts
+focus back on the tile it had, and taken at its word that scrolled the page
+to its top and left a Continue Watching tile cut off at the foot (Benjamin,
+2026-10-07).
 
 The player reports where it stopped (`TVPlaybackSession.end()` returns the
 outcome once; `TVPlayerPresenter.present(_:queue:client:userID:onClose:)`), so

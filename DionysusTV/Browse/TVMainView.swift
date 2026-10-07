@@ -118,6 +118,7 @@ struct TVMainView: View {
         .environment(\.tvPageClaimingFocus, holdRail)
         .environment(\.tvOpenRoute, open)
         .environment(\.tvOpenDetailBeneathPlayer, openDetailBeneathPlayer)
+        .environment(\.tvFocusPageDefault, { handFocusToPage() })
         .animation(.easeOut(duration: 0.18), value: isExpanded)
         .animation(.easeOut(duration: 0.25), value: nav.hidesCollapsedRail)
         .animation(.easeOut(duration: 0.2), value: nav.librariesExpanded)
