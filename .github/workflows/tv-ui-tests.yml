@@ -73,8 +73,11 @@ jobs:
       - name: Dump app log (temporary diagnostics)
         if: failure()
         run: |
-          udid=$(xcrun simctl list devices booted -j | jq -r '[.devices[][]][0].udid')
-          xcrun simctl spawn "$udid" log show --last 30m --predicate 'subsystem == "dbg.rail"' --style compact > .build/TVUITestResults.xcresult/../dbg-rail.log || true
+          udid=$(xcrun simctl list devices -j | jq -r '.devices["com.apple.CoreSimulator.SimRuntime.tvOS-26-5"][] | select(.name == "Apple TV 4K (3rd generation)") | .udid' | head -1)
+          echo "udid=$udid"
+          xcrun simctl boot "$udid" || true
+          mkdir -p .build
+          xcrun simctl spawn "$udid" log show --last 60m --predicate 'subsystem == "dbg.rail"' --style compact > .build/dbg-rail.log 2>&1 || true
           tail -200 .build/dbg-rail.log || true
 
       - name: Upload app log (temporary diagnostics)
