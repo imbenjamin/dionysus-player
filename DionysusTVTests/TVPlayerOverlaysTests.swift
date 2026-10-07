@@ -7,12 +7,70 @@ final class TVPlayerOverlaysTests: XCTestCase, TVPlayerInputModelHarness {
     var now: TimeInterval = 1000
     let intro = TVPlayerContext.SkipSegment(id: "intro", endSeconds: 120)
 
-    func test_select_skips_whileTheButtonShows() {
+    func test_transportHidden_selectSkips() {
         context.skipSegment = intro
+        state.chrome = .hidden
+        XCTAssertEqual(TVPlayerFocusID.describe(state, context: context), "skip")
         XCTAssertEqual(send(.select), [.skipSegment(id: "intro")])
         state.chrome = .hidden
-        XCTAssertEqual(send(.select), [.skipSegment(id: "intro")])
         XCTAssertEqual(send(.playPause), [.togglePlayPause], "Play/Pause still pauses")
+    }
+
+    /// With the transport up, Skip is its own stop above the icons
+    /// (Benjamin, 2026-10-07): the scrubber alone has focus, and Select there
+    /// plays or pauses.
+    func test_transportUp_theScrubberAloneHasFocus_andSelectPauses() {
+        context.skipSegment = intro
+        XCTAssertEqual(TVPlayerFocusID.describe(state, context: context), "scrubber")
+        XCTAssertFalse(TVPlayerInputModel.selectSkips(state, context: context))
+        XCTAssertEqual(send(.select), [.togglePlayPause])
+    }
+
+    func test_upFromTheIcons_reachesSkip_andSelectSkips() {
+        context.skipSegment = intro
+        send(.up)
+        XCTAssertEqual(state.transportFocus, .icon(.chapters))
+        send(.up)
+        XCTAssertEqual(state.transportFocus, .skip)
+        XCTAssertEqual(TVPlayerFocusID.describe(state, context: context), "skip")
+        XCTAssertFalse(TVPlayerInputModel.scrubberHasFocus(state))
+        XCTAssertEqual(send(.select), [.skipSegment(id: "intro")])
+    }
+
+    func test_upFromTheIcons_withoutSkip_staysOnTheIcons() {
+        send(.up)
+        send(.up)
+        XCTAssertEqual(state.transportFocus, .icon(.chapters))
+    }
+
+    func test_downFromSkip_returnsToTheIconBeneathIt_andMenuToTheScrubber() {
+        context.skipSegment = intro
+        send(.up)
+        send(.up)
+        XCTAssertEqual(press(.left), [], "Left and Right do nothing on Skip")
+        XCTAssertEqual(state.transportFocus, .skip)
+        send(.down)
+        XCTAssertEqual(state.transportFocus, .icon(.subtitles), "The rightmost icon, which sits beneath it")
+        send(.up)
+        XCTAssertEqual(send(.menu), [])
+        XCTAssertEqual(state.transportFocus, .scrubber)
+    }
+
+    func test_withNoIcons_upFromTheScrubberReachesSkip_andDownReturns() {
+        context = TVPlayerContext(playback: .playing, currentTime: 100, duration: 5400, skipSegment: intro)
+        send(.up)
+        XCTAssertEqual(state.transportFocus, .skip)
+        send(.down)
+        XCTAssertEqual(state.transportFocus, .scrubber)
+    }
+
+    func test_skipEnding_withFocusOnIt_returnsFocusToTheScrubber() {
+        context.skipSegment = intro
+        send(.up)
+        send(.up)
+        context.skipSegment = nil
+        tick(for: 0.1)
+        XCTAssertEqual(state.transportFocus, .scrubber)
     }
 
     func test_select_onAnIcon_isTheIcons_notASkip() {
@@ -43,6 +101,8 @@ final class TVPlayerOverlaysTests: XCTestCase, TVPlayerInputModelHarness {
         send(.menu)
         send(.up)
         XCTAssertTrue(TVPlayerInputModel.skipButtonVisible(state, context: context))
+        send(.up)
+        send(.up)
         XCTAssertEqual(send(.select), [.skipSegment(id: "intro")])
     }
 
@@ -86,6 +146,56 @@ final class TVPlayerOverlaysTests: XCTestCase, TVPlayerInputModelHarness {
         // Pausing shows the transport on the next tick, so press before it.
         XCTAssertEqual(press(.right), [])
         XCTAssertNil(state.scrub)
+    }
+
+    /// With the transport up the card is the stop above the icon row, as
+    /// Skip is (Benjamin, 2026-10-07).
+    func test_nextUp_transportUp_upFromTheIconsFocusesTheCard() {
+        context.nextUpSecondsRemaining = 8
+        send(.up)
+        XCTAssertEqual(state.transportFocus, .icon(.chapters))
+        send(.up)
+        XCTAssertEqual(state.transportFocus, .nextUp)
+        XCTAssertTrue(TVPlayerInputModel.nextUpHasFocus(state, context: context))
+        XCTAssertEqual(TVPlayerFocusID.describe(state, context: context), "nextUp.playNow")
+        XCTAssertEqual(press(.right), [])
+        XCTAssertEqual(TVPlayerFocusID.describe(state, context: context), "nextUp.close")
+        XCTAssertEqual(state.chrome, .transport)
+        XCTAssertEqual(send(.select), [.dismissNextUp])
+    }
+
+    func test_nextUp_transportUp_selectOnPlayNowPlaysNext() {
+        context.nextUpSecondsRemaining = 8
+        send(.up)
+        send(.up)
+        XCTAssertEqual(send(.select), [.playNext])
+    }
+
+    func test_nextUp_transportUp_downReturnsToTheRightmostIcon_andMenuToTheScrubber() {
+        context.nextUpSecondsRemaining = 8
+        send(.up)
+        send(.up)
+        send(.down)
+        XCTAssertEqual(state.transportFocus, .icon(.subtitles))
+        send(.up)
+        XCTAssertEqual(send(.menu), [], "Menu leaves the card without closing it")
+        XCTAssertEqual(state.transportFocus, .scrubber)
+        XCTAssertFalse(TVPlayerInputModel.nextUpHasFocus(state, context: context))
+    }
+
+    func test_nextUp_transportUp_withNoIcons_upFromTheScrubberFocusesTheCard() {
+        context = TVPlayerContext(playback: .playing, currentTime: 100, duration: 5400, nextUpSecondsRemaining: 8)
+        send(.up)
+        XCTAssertEqual(state.transportFocus, .nextUp)
+    }
+
+    func test_nextUp_cardGoing_withFocusOnIt_returnsFocusToTheScrubber() {
+        context.nextUpSecondsRemaining = 8
+        send(.up)
+        send(.up)
+        context.nextUpSecondsRemaining = nil
+        tick(for: 0.1)
+        XCTAssertEqual(state.transportFocus, .scrubber)
     }
 
     func test_countdownReachingZero_playsNext_once() {
