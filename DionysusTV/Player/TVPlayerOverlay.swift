@@ -21,6 +21,14 @@ struct TVPlayerOverlay: View {
             )
             .ignoresSafeArea()
 
+            // Inside the safe area, so it sits at the title-safe insets,
+            // top-right, clear of the title block.
+            if input.state.isStatsOn, input.context().statsButtonEnabled {
+                TVStatsPanel(viewModel: viewModel)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .transition(.opacity)
+            }
+
             TVTransportOverlay(viewModel: viewModel, input: input)
             // Centred on the whole screen, whatever else is drawn: inside the
             // safe area it sat higher than centre (Benjamin, 2026-10-06).

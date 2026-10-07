@@ -10,12 +10,14 @@ extension TVPlayerIcon {
         }
     }
 
-    var label: String {
+    /// Stats is worded as iOS's stats button is (`PlayerControlsOverlay`),
+    /// by what a press would do (Benjamin, 2026-10-07).
+    func label(isOn: Bool) -> String {
         switch self {
         case .chapters: String(localized: "Chapters")
         case .audio: String(localized: "Audio")
         case .subtitles: String(localized: "Subtitles")
-        case .stats: String(localized: "Stats for Nerds")
+        case .stats: isOn ? String(localized: "Hide playback stats") : String(localized: "Show playback stats")
         }
     }
 }
@@ -38,7 +40,7 @@ struct TVPlayerIconButton: View {
             .shadow(color: .black.opacity(isFocused ? 0.4 : 0), radius: 16, y: 8)
             .animation(.easeOut(duration: 0.15), value: isFocused)
             .accessibilityElement()
-            .accessibilityLabel(icon.label)
+            .accessibilityLabel(icon.label(isOn: isOn))
             .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : .isButton)
             .accessibilityIdentifier(A11yID.TV.Player.icon(icon.id))
     }

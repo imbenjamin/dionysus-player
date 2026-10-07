@@ -1,8 +1,6 @@
 import SwiftUI
-import UIKit
-import AVFAudio
 
-/// The landscape "stats for nerds" panel, toggled by the info button in
+/// The landscape "stats for nerds" panel, toggled by the stats button in
 /// `PlayerControlsOverlay`'s top-right group. Its own layer between the video
 /// surface and `PlayerControlsOverlay` in `PlayerView`'s `ZStack`, not folded
 /// into the controls overlay, so it stays visible through the controls'
@@ -40,17 +38,9 @@ struct PlaybackStatsOverlay: View {
     let isVisible: Bool
 
     @State private var stats: PlaybackStats?
-    /// The three device readings below come from UIKit/AVFAudio rather than the
-    /// playback engine, so they're polled here instead of via `PlaybackStats`.
-    @State private var audioOutputRoute: String?
-    /// Channel count of the device's current audio route — distinct from
-    /// `stats.audioChannels`, the media's own layout. See `audioSection`.
-    @State private var audioOutputChannelCount: Int?
-    @State private var thermalState: ProcessInfo.ThermalState = .nominal
-    /// Brightness headroom the display has for HDR above SDR white (1.0 =
-    /// none). Pairs with `PlaybackStats.displayColorFormat`: an HDR source at
-    /// headroom 1.0 is getting no HDR boost, whatever the format label says.
-    @State private var edrHeadroom: CGFloat = 1
+    /// Readings from UIKit/AVFAudio rather than the playback engine, so
+    /// they're polled here instead of via `PlaybackStats`.
+    @State private var readings = PlaybackStatsReport.DeviceReadings()
 
     /// Which of `Self.pageCount` pages is showing — advanced by tapping the
     /// panel (`advancePage()`), looping past the last. Reset to `0` when the
@@ -78,36 +68,6 @@ struct PlaybackStatsOverlay: View {
     /// tick so the section isn't blank, then every
     /// `streamingSessionPollTicks`th.
     private static let streamingSessionPollTicks = 5
-    private static let screenSize = UIScreen.main.bounds.size
-    private static let refreshRateHz = UIScreen.main.maximumFramesPerSecond
-
-    /// "1.0 (1)" — `CFBundleShortVersionString` plus build number, the pairing
-    /// Settings and the App Store show.
-    private static let appVersion: String = {
-        let info = Bundle.main.infoDictionary
-        let version = info?["CFBundleShortVersionString"] as? String ?? "—"
-        let build = info?["CFBundleVersion"] as? String ?? "—"
-        return "\(version) (\(build))"
-    }()
-
-    /// Read from the linked engine itself — see `AetherEngineVersion`.
-    private static let aetherEngineVersion = AetherEngineVersion.current
-
-    /// Hardware identifier (e.g. "iPhone15,1"), not the marketing name: it
-    /// maps 1:1 to a chip/display/decoder combination. `uname`'s `machine`
-    /// field is the only way to read it; there's no public UIKit API.
-    private static let deviceModelIdentifier: String = {
-        var systemInfo = utsname()
-        uname(&systemInfo)
-        return withUnsafePointer(to: &systemInfo.machine) {
-            $0.withMemoryRebound(to: CChar.self, capacity: 1) {
-                String(cString: $0)
-            }
-        }
-    }()
-
-    private static let iOSVersion = UIDevice.current.systemVersion
-
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
             content
@@ -168,10 +128,7 @@ struct PlaybackStatsOverlay: View {
         var tick = 0
         while !Task.isCancelled {
             stats = viewModel.stats
-            audioOutputRoute = Self.currentAudioOutputRoute()
-            audioOutputChannelCount = AVAudioSession.sharedInstance().outputNumberOfChannels
-            thermalState = ProcessInfo.processInfo.thermalState
-            edrHeadroom = UIScreen.main.currentEDRHeadroom
+            readings = .current()
             if tick % Self.streamingSessionPollTicks == 0 {
                 await viewModel.refreshServerVersion()
                 await viewModel.refreshStreamingSession()
@@ -211,161 +168,28 @@ struct PlaybackStatsOverlay: View {
         }
     }
 
+    /// Rows come from `PlaybackStatsReport`, which the Apple TV's panel shares.
     @ViewBuilder
     private func pageContent(_ page: Int, _ stats: PlaybackStats) -> some View {
+        let sections: [PlaybackStatsReport.Section] = switch page {
+        case 0: [PlaybackStatsReport.video(stats, sourceVideoStream: viewModel.sourceVideoStream)]
+        case 1: [
+            PlaybackStatsReport.audio(stats, sourceAudioStream: viewModel.sourceAudioStream, readings: readings),
+            PlaybackStatsReport.playback(stats, state: viewModel.state, zoomMode: zoomMode)
+        ]
+        default: [
+            PlaybackStatsReport.display(stats, readings: readings),
+            PlaybackStatsReport.streaming(isOffline: viewModel.isOfflinePlayback, serverVersion: viewModel.serverVersion, session: viewModel.streamingSession),
+            PlaybackStatsReport.build()
+        ]
+        }
         VStack(alignment: .leading, spacing: 2) {
-            switch page {
-            case 0:
-                videoSection(stats)
-            case 1:
-                audioSection(stats)
-                playbackSection(stats)
-            default:
-                displaySection(stats)
-                streamingSection()
-                buildSection()
+            // A page's leading section has no top padding; the others do.
+            ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
+                Text(section.title).bold().padding(.top, index == 0 ? 0 : 4)
+                ForEach(section.rows) { item in row(item.label, item.value, id: item.id) }
             }
         }
-    }
-
-    @ViewBuilder
-    private func videoSection(_ stats: PlaybackStats) -> some View {
-        Text("Video").bold()
-        // `stats.videoSize`/`.frameRate`/`.bitrate` come from AetherEngine's
-        // source probe, which never runs on the `nativeRemoteHLS` bypass
-        // route — so all three stay `nil` for the life of such a session, not
-        // just at startup. Falls back to `viewModel.sourceVideoStream`,
-        // Jellyfin's probe of the same file, describing the source; the
-        // Streaming section's rows describe the transcode target.
-        row("Resolution", stats.videoSize ?? Self.sourceResolutionText(viewModel.sourceVideoStream) ?? "—")
-        row("Frame Rate", stats.frameRate ?? Self.sourceFrameRateText(viewModel.sourceVideoStream) ?? "—")
-        row("Bitrate", stats.bitrate ?? Self.sourceBitrateText(viewModel.sourceVideoStream) ?? "—")
-        // Same fallback again. Jellyfin reports these in libav's names too,
-        // and `StreamFormatDescription` formats both, so a row reads the same
-        // whichever probe filled it. A source has one video stream, so mixing
-        // the two per row can't describe two different streams.
-        row("Codec", stats.videoCodec ?? StreamFormatDescription.codec(viewModel.sourceVideoStream) ?? "—")
-        row("Container", stats.container ?? "—")
-        row("Pixel Format", stats.pixelFormat ?? StreamFormatDescription.pixelFormat(viewModel.sourceVideoStream) ?? "—")
-        row("Color", stats.colorDescription ?? StreamFormatDescription.color(viewModel.sourceVideoStream) ?? "—")
-        row("Source Color", stats.sourceColorFormat)
-        if stats.sourceColorFormat.hasPrefix("Dolby Vision") {
-            row("Enhancement Layer", Self.describeEnhancementLayer(viewModel.sourceVideoStream?.videoRangeType))
-        }
-        // Reads "AVPlayer" on a server transcode, where AetherEngine names no
-        // decoder: AVPlayer decodes the server's HLS itself.
-        row("Decoder", stats.videoDecoder ?? "—")
-        // Software route only, and constant for a session, so the row coming
-        // and going never moves the box mid-session.
-        if let decoded = stats.decodedFormat {
-            row("Decoded", decoded)
-        }
-        row("Backend", stats.backend)
-        row("Route", stats.route)
-    }
-
-    /// "Source Channels" is the media's own layout ("5.1", "Atmos", ...);
-    /// "Output Channels" is what the current route is configured for (2 for
-    /// built-in speakers whatever the source, up to 8 over HDMI/AirPlay). Kept
-    /// as separate rows because a 7.1 source plays over stereo speakers
-    /// downmixed — the same split `videoSection`/`displaySection` draw between
-    /// "Source Color" and "Displayed Color".
-    ///
-    /// "Profile" is where TrueHD Atmos and DTS:X show ("Dolby TrueHD + Dolby
-    /// Atmos"), which "Source Channels" can't: its "Atmos" covers E-AC-3 JOC
-    /// only. Next to "Decoder" ("TrueHD → FLAC bridge") it shows the Atmos is
-    /// in the source and not reaching the output.
-    @ViewBuilder
-    private func audioSection(_ stats: PlaybackStats) -> some View {
-        // Page 2's leading section — no top padding, matching `videoSection`.
-        Text("Audio").bold()
-        row("Decoder", stats.audioDecoder ?? "—", id: "Audio Decoder")
-        // Same probe-never-runs gap as the video section — falls back to
-        // `viewModel.sourceAudioStream`, Jellyfin's probe of the default audio
-        // track.
-        row("Source Channels", stats.audioChannels ?? Self.sourceChannelsText(viewModel.sourceAudioStream) ?? "—")
-        // Unlike video, a source has several audio tracks, and Jellyfin's is
-        // the default one rather than necessarily the one playing. So these
-        // fall back only when the engine knows nothing about the active track
-        // (`audioChannels` nil), never to fill one field the engine left
-        // empty — an E-AC-3 track with no profile would otherwise borrow
-        // another track's.
-        let engineKnowsTrack = stats.audioChannels != nil
-        let fallbackStream = engineKnowsTrack ? nil : viewModel.sourceAudioStream
-        row("Profile", stats.audioProfile ?? fallbackStream?.profile ?? "—")
-        row("Sampling", stats.audioSampling ?? StreamFormatDescription.audioSampling(fallbackStream) ?? "—")
-        row("Output Route", audioOutputRoute ?? "—")
-        row("Output Channels", Self.describeChannelCount(audioOutputChannelCount))
-    }
-
-    @ViewBuilder
-    private func playbackSection(_ stats: PlaybackStats) -> some View {
-        // Always page 2's second section, never its leading one, so the top
-        // padding is unconditional.
-        Text("Playback").bold().padding(.top, 4)
-        row("State", Self.describe(viewModel.state))
-        row("Position", "\(Self.formatTime(stats.currentTime)) / \(Self.formatTime(stats.duration))")
-        row("Buffered", Self.describeBuffered(seconds: stats.bufferedSeconds, bytes: stats.bufferedBytes))
-        // Live, from AetherEngine's 1 Hz sampler — the first rows to read when
-        // playback stutters: is the link keeping up, and is the display
-        // dropping frames?
-        row("Live Bitrate", stats.liveBitrate ?? "—")
-        row("Throughput", stats.networkThroughput ?? "—")
-        row("Frames", stats.frames ?? "—")
-        row("Zoom", zoomMode == .fill ? "Fill" : "Fit")
-    }
-
-    @ViewBuilder
-    private func displaySection(_ stats: PlaybackStats) -> some View {
-        // Page 3's leading section — no top padding, matching `videoSection`.
-        Text("Display").bold()
-        row("Screen", "\(Int(Self.screenSize.width))×\(Int(Self.screenSize.height)) pt")
-        row("Displayed Color", stats.displayColorFormat)
-        row("Refresh Rate", "\(Self.refreshRateHz) Hz")
-        row("EDR Headroom", String(format: "%.2fx", edrHeadroom))
-        row("Thermal State", Self.describe(thermalState))
-    }
-
-    /// Server-side diagnostics: the server's version, its view of this
-    /// session's play method, and while transcoding the transcode parameters.
-    /// See `PlayerViewModel.serverVersion`/`.streamingSession` for why these
-    /// are separate, slower-polled requests rather than `PlaybackStats`.
-    ///
-    /// For offline playback there's no live session — both refresh methods
-    /// no-op, leaving those properties `nil` forever — so this collapses to a
-    /// single "Download" play method row.
-    @ViewBuilder
-    private func streamingSection() -> some View {
-        Text(viewModel.isOfflinePlayback ? "Playback Source" : "Streaming").bold().padding(.top, 4)
-        if viewModel.isOfflinePlayback {
-            row("Play Method", "Download")
-        } else {
-            row("Jellyfin Server", viewModel.serverVersion ?? "—")
-            row("Play Method", Self.describePlayMethod(viewModel.streamingSession?.playState?.playMethod))
-            if let transcoding = viewModel.streamingSession?.transcodingInfo {
-                row("Transcode Video", transcoding.videoCodec ?? "—")
-                row("Transcode Audio", transcoding.audioCodec ?? "—")
-                row("Transcode Bitrate", transcoding.bitrate.map(Self.formatMbps) ?? "—")
-                if let width = transcoding.width, let height = transcoding.height {
-                    row("Transcode Size", "\(width)×\(height)")
-                }
-                row("Completion", transcoding.completionPercentage.map { String(format: "%.0f%%", $0) } ?? "—")
-                if let reasons = transcoding.transcodeReasons, !reasons.isEmpty {
-                    row("Reasons", reasons.joined(separator: ", "))
-                }
-            }
-        }
-    }
-
-    /// Build/environment info, static for the life of the process, so it's read
-    /// once into `static let`s rather than polled by `pollWhileVisible`.
-    @ViewBuilder
-    private func buildSection() -> some View {
-        Text("Build").bold().padding(.top, 4)
-        row("App Version", Self.appVersion)
-        row("AetherEngine Version", Self.aetherEngineVersion)
-        row("Device", Self.deviceModelIdentifier)
-        row("iOS Version", Self.iOSVersion)
     }
 
     /// `id` keys the value's accessibility identifier where `label` alone
@@ -377,141 +201,5 @@ struct PlaybackStatsOverlay: View {
             Text(value)
                 .accessibilityIdentifier(A11yID.Player.statsValue(id ?? label))
         }
-    }
-
-    private static func currentAudioOutputRoute() -> String? {
-        AVAudioSession.sharedInstance().currentRoute.outputs.first?.portName
-    }
-
-    /// The "1.0"/"2.0"/"5.1"/"7.1" labeling `AetherPlaybackEngine
-    /// .describeChannels` uses, applied to the device route's channel count so
-    /// the two rows compare at a glance. No Atmos case:
-    /// `AVAudioSession.outputNumberOfChannels` is a plain count with no way to
-    /// tell whether an Atmos bed rides on it.
-    private static func describeChannelCount(_ count: Int?) -> String {
-        guard let count, count > 0 else { return "—" }
-        switch count {
-        case 1: return "1.0"
-        case 2: return "2.0"
-        case 6: return "5.1"
-        case 8: return "7.1"
-        default: return "\(count)ch"
-        }
-    }
-
-    /// `seconds` is the gate; `bytes` comes from the same native-only source
-    /// (see `PlaybackStats.bufferedBytes`) but is treated as optional in case
-    /// it lags a tick at session startup.
-    private static func describeBuffered(seconds: Double?, bytes: Int64?) -> String {
-        guard let seconds else { return "N/A" }
-        let secondsText = String(format: "%.1fs", seconds)
-        guard let bytes else { return secondsText }
-        return "\(secondsText) (\(formatKB(bytes)))"
-    }
-
-    private static func formatKB(_ bytes: Int64) -> String {
-        "\((bytes / 1024).formatted()) KB"
-    }
-
-    /// `MediaStream.videoRangeType` is Jellyfin's server-side ffprobe result,
-    /// the same value other clients surface. Only meaningful alongside a Dolby
-    /// Vision `sourceColorFormat`: "DOVI" is a single-layer source with no base
-    /// layer (DV Profile 5), the "DOVIWith..." cases name the format a non-DV
-    /// panel falls back to.
-    private static func describeEnhancementLayer(_ videoRangeType: String?) -> String {
-        switch videoRangeType {
-        case "DOVI": return "None (single-layer)"
-        case "DOVIWithHDR10": return "HDR10"
-        case "DOVIWithHDR10Plus": return "HDR10+"
-        case "DOVIWithHLG": return "HLG"
-        case "DOVIWithSDR": return "SDR"
-        case "DOVIInvalid": return "Invalid"
-        default: return "—"
-        }
-    }
-
-    /// Jellyfin's `PlayMethod`, as reported by `/Sessions`. `"DirectPlay"` and
-    /// `"DirectStream"` both read as "Direct Play" since neither transcodes;
-    /// anything else, including an unrecognized future value, passes through
-    /// as-is rather than being mapped to the wrong label.
-    private static func describePlayMethod(_ raw: String?) -> String {
-        guard let raw else { return "—" }
-        switch raw {
-        case "DirectPlay", "DirectStream": return "Direct Play"
-        case "Transcode": return "Transcoding"
-        default: return raw
-        }
-    }
-
-    private static func formatMbps(_ bitsPerSecond: Int) -> String {
-        String(format: "%.1f Mbps", Double(bitsPerSecond) / 1_000_000)
-    }
-
-    /// Source-probe fallback for "Resolution" when AetherEngine's value is
-    /// unavailable — see `videoSection`.
-    private static func sourceResolutionText(_ stream: MediaStream?) -> String? {
-        guard let stream, let width = stream.width, let height = stream.height, width > 0, height > 0 else { return nil }
-        return "\(width)×\(height)"
-    }
-
-    /// Fallback for "Frame Rate". Prefers `realFrameRate` (measured from the
-    /// file) over the coarser container-level `averageFrameRate`, like
-    /// `MediaItem`'s technical-details formatting. `"%.3g fps"` matches
-    /// `AetherPlaybackEngine.stats`, so the row reads the same whichever source
-    /// populated it.
-    private static func sourceFrameRateText(_ stream: MediaStream?) -> String? {
-        guard let rate = stream?.realFrameRate ?? stream?.averageFrameRate, rate > 0 else { return nil }
-        return String(format: "%.3g fps", rate)
-    }
-
-    /// Fallback for "Bitrate". The stream's own `MediaStream.bitRate`, not
-    /// `MediaSourceInfo.bitrate`, which covers the whole container and is
-    /// inflated by the file's audio tracks.
-    private static func sourceBitrateText(_ stream: MediaStream?) -> String? {
-        guard let bitRate = stream?.bitRate, bitRate > 0 else { return nil }
-        return formatMbps(bitRate)
-    }
-
-    /// Fallback for "Source Channels". Jellyfin gives
-    /// `audioSpatialFormat`/`channelLayout` rather than a numeric count, so no
-    /// "1.0"/"5.1"/"7.1" normalization: its layout string is informative as-is.
-    private static func sourceChannelsText(_ stream: MediaStream?) -> String? {
-        guard let stream else { return nil }
-        if stream.audioSpatialFormat == "DolbyAtmos" { return "Atmos" }
-        return stream.channelLayout?.capitalized
-    }
-
-    private static func describe(_ state: PlaybackState) -> String {
-        switch state {
-        case .idle: return "Idle"
-        case .loading: return "Loading"
-        case .playing: return "Playing"
-        case .paused: return "Paused"
-        case .seeking: return "Seeking"
-        case .buffering: return "Buffering"
-        case .reconnecting: return "Reconnecting"
-        case .ended: return "Ended"
-        case .failed(let failure): return "Failed (\(failure.message))"
-        }
-    }
-
-    private static func describe(_ thermalState: ProcessInfo.ThermalState) -> String {
-        switch thermalState {
-        case .nominal: return "Nominal"
-        case .fair: return "Fair"
-        case .serious: return "Serious"
-        case .critical: return "Critical"
-        @unknown default: return "Unknown"
-        }
-    }
-
-    private static func formatTime(_ time: TimeInterval) -> String {
-        guard time.isFinite, time >= 0 else { return "0:00" }
-        let totalSeconds = Int(time)
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let seconds = totalSeconds % 60
-        if hours > 0 { return String(format: "%d:%02d:%02d", hours, minutes, seconds) }
-        return String(format: "%d:%02d", minutes, seconds)
     }
 }

@@ -956,20 +956,20 @@ final class AetherPlaybackEngine: PlaybackEngine {
             return .success
         }
 
-        center.skipBackwardCommand.preferredIntervals = [15]
+        center.skipBackwardCommand.preferredIntervals = [10]
         center.skipBackwardCommand.removeTarget(nil)
         center.skipBackwardCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
-            let target = max(0, engine.currentTime - 15)
+            let target = max(0, engine.currentTime - 10)
             Task { await self.engine.seek(to: target) }
             return .success
         }
 
-        center.skipForwardCommand.preferredIntervals = [30]
+        center.skipForwardCommand.preferredIntervals = [10]
         center.skipForwardCommand.removeTarget(nil)
         center.skipForwardCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
-            let target = min(engine.duration, engine.currentTime + 30)
+            let target = min(engine.duration, engine.currentTime + 10)
             Task { await self.engine.seek(to: target) }
             return .success
         }

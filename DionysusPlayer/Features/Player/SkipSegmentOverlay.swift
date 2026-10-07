@@ -90,37 +90,42 @@ struct SkipSegmentOverlay: View {
                 // it wins once the drag passes `minimumDistance` and falls
                 // through to the tap otherwise. `.accessibilityLabel` and
                 // `.isButton` restore what a `Button` gave for free.
-                Text(segment.kind.skipButtonTitle)
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .foregroundStyle(.white)
-                    .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
-                    .contentShape(Rectangle())
-                    .offset(x: dragOffset)
-                    .onTapGesture { onSkip(segment) }
-                    .highPriorityGesture(
-                        DragGesture(minimumDistance: 12)
-                            .onChanged { value in
-                                // Clamped rightward: a leftward drag isn't a
-                                // dismiss gesture here.
-                                dragOffset = max(0, value.translation.width)
-                            }
-                            .onEnded { value in
-                                if value.translation.width > Self.dismissSwipeThreshold {
-                                    withAnimation(.easeIn(duration: 0.2)) {
-                                        dragOffset = Self.dismissSlideDistance
-                                    }
-                                    onDismiss(segment)
-                                } else {
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                                        dragOffset = 0
-                                    }
+                // The ⏩ after the title matches the Apple TV's `TVSkipButton`.
+                HStack(spacing: 6) {
+                    Text(segment.kind.skipButtonTitle)
+                    Image(systemName: "forward.fill").accessibilityHidden(true)
+                }
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .foregroundStyle(.white)
+                .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+                .contentShape(Rectangle())
+                .offset(x: dragOffset)
+                .onTapGesture { onSkip(segment) }
+                .highPriorityGesture(
+                    DragGesture(minimumDistance: 12)
+                        .onChanged { value in
+                            // Clamped rightward: a leftward drag isn't a
+                            // dismiss gesture here.
+                            dragOffset = max(0, value.translation.width)
+                        }
+                        .onEnded { value in
+                            if value.translation.width > Self.dismissSwipeThreshold {
+                                withAnimation(.easeIn(duration: 0.2)) {
+                                    dragOffset = Self.dismissSlideDistance
+                                }
+                                onDismiss(segment)
+                            } else {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                                    dragOffset = 0
                                 }
                             }
-                    )
-                    .accessibilityLabel(segment.kind.skipButtonTitle)
-                    .accessibilityAddTraits(.isButton)
+                        }
+                )
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(segment.kind.skipButtonTitle)
+                .accessibilityAddTraits(.isButton)
 
                 // VoiceOver-only: the swipe above isn't a reliable path for
                 // VoiceOver users, who need an explicit way to dismiss. A real

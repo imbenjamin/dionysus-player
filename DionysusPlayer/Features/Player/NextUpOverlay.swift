@@ -85,8 +85,11 @@ struct NextUpOverlay: View {
                 HStack(spacing: 8) {
                     Button("Cancel", action: onCancel)
                         .buttonStyle(.bordered)
-                    Button("Play Now", action: onPlayNow)
-                        .buttonStyle(.borderedProminent)
+                    // The ▶ matches the Apple TV's `TVNextUpCard`.
+                    Button(action: onPlayNow) {
+                        Label("Play Now", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
                 .controlSize(.small)
             }

@@ -549,6 +549,10 @@ enum A11yID {
             static let infoArt = "tv.player.infoArt"
             static func panelTab(_ id: String) -> String { "tv.player.tab.\(id)" }
             static func panelRow(_ tab: String, _ index: Int) -> String { "tv.player.row.\(tab).\(index)" }
+            static let statsPanel = "tv.player.stats"
+            /// A row: labelled with its name, its value as the accessibility
+            /// value. Keyed by `PlaybackStatsReport.Row.id`.
+            static func statsValue(_ id: String) -> String { "tv.player.stats.\(id)" }
         }
     }
 }

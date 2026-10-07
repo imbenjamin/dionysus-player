@@ -94,7 +94,7 @@ struct PlayerView: View {
     /// documents.
     @State private var isLandscapeWindow = false
     /// Whether `PlaybackStatsOverlay` is showing. Unlike `showControls` it has no
-    /// auto-hide: a plain toggle only the info button flips.
+    /// auto-hide: a plain toggle only the stats button flips.
     @State private var showPlaybackStats = false
     /// Set as `tearDown(nextItemID:)` begins, making it run once. Its
     /// `await viewModel.stop()` leaves room for another trigger to fire before

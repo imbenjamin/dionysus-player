@@ -770,7 +770,7 @@
     "External" : {
 
     },
-    "Fast Forward 30 Seconds" : {
+    "Fast Forward 10 Seconds" : {
 
     },
     "Favorite" : {
@@ -1249,7 +1249,7 @@
     "Retrying…" : {
 
     },
-    "Rewind 15 Seconds" : {
+    "Rewind 10 Seconds" : {
 
     },
     "Runtime" : {
@@ -1411,9 +1411,6 @@
 
     },
     "Starring %@" : {
-
-    },
-    "Stats for Nerds" : {
 
     },
     "Stereo" : {

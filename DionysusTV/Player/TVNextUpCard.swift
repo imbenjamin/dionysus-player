@@ -20,7 +20,7 @@ struct TVNextUpCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             ZStack(alignment: .topTrailing) {
-                AsyncRemoteImage(url: episode.thumbImageURL ?? episode.primaryImageURL, placeholderSystemImage: "tv")
+                AsyncRemoteImage(url: episode.thumbImageURL ?? episode.primaryImageURL, placeholderSystemImage: "play.tv")
                     .frame(width: 420, height: 236)
                     .accessibilityHidden(true)
                 Text("\(secondsRemaining)s")
