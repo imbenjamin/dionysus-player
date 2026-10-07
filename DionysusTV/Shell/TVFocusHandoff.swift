@@ -25,4 +25,13 @@ extension EnvironmentValues {
     /// disabled until then, or tvOS's first focus pass would land on the
     /// rail (leftmost) and open it.
     @Entry var tvPageClaimedFocus: @MainActor () -> Void = {}
+
+    /// Called by the page on show as it starts putting focus on an item, so
+    /// the shell holds the rail until the claim lands (`tvPageClaimedFocus`).
+    /// A page claims more than once: its loading spinner, then its first item
+    /// when the data arrives. On tvOS 26 the spinner's removal makes tvOS
+    /// pick a new focus itself, before the claim lands, and with the rail
+    /// free it picked the rail and opened it (measured on tvOS 26.5; tvOS 27
+    /// honours the claim).
+    @Entry var tvPageClaimingFocus: @MainActor () -> Void = {}
 }

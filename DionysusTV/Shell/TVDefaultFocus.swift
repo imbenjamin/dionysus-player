@@ -36,6 +36,7 @@ private struct TVDefaultFocus<ID: Hashable>: ViewModifier {
     @Environment(\.tvRailReturn) private var railReturn
     @Environment(\.tvSidebarExpanded) private var sidebarExpanded
     @Environment(\.tvPageClaimedFocus) private var claimed
+    @Environment(\.tvPageClaimingFocus) private var claiming
     @Environment(\.tvPageIsOnShow) private var isOnShow
 
     func body(content: Content) -> some View {
@@ -100,8 +101,18 @@ private struct TVDefaultFocus<ID: Hashable>: ViewModifier {
             .onMoveCommand { _ in userMoved = true }
     }
 
+    /// Holds the rail until focus is on `id`, then lets it go
+    /// (`tvPageClaimingFocus`).
     private func claim(_ id: ID) {
+        claiming()
         focus.wrappedValue = id
-        claimed()
+        Task { @MainActor in
+            for _ in 0..<10 {
+                try? await Task.sleep(for: .milliseconds(50))
+                if focus.wrappedValue == id { break }
+                focus.wrappedValue = id
+            }
+            claimed()
+        }
     }
 }
