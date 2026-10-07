@@ -154,6 +154,22 @@ jobs:
       latest-only: true
       timeout-minutes: 30
 
+  tv-ui-smoke:
+    # The Apple TV app's smoke journeys (TestPlans/TVUITests-Smoke): first
+    # launch to sign-in, Home, a detail page from Home and from a library,
+    # Search, and opening and closing the player. A separate job from
+    # `tvos-build` for the reason `ui-smoke` is one from `build`. The full
+    # tvOS suite runs nightly and on PRs into `stable` (`tv-ui-full`).
+    #
+    # Reports "tvOS UI smoke tests / Apple TV 4K, tvOS 26.5" (see
+    # tv-ui-tests.yml). If a ruleset requires it, renaming this job changes
+    # that name.
+    name: tvOS UI smoke tests
+    uses: ./.github/workflows/tv-ui-tests.yml
+    with:
+      test-plan: TVUITests-Smoke
+      timeout-minutes: 40
+
   ui-full:
     # The full UI suite on every environment, for PRs into `stable` only:
     # the same plan and matrix release.yml runs before it signs anything.
@@ -176,3 +192,11 @@ jobs:
     uses: ./.github/workflows/ui-tests.yml
     with:
       test-plan: UITests-Full
+
+  tv-ui-full:
+    # The full tvOS UI suite for PRs into `stable`, as `ui-full` is for iOS.
+    name: Full tvOS UI tests
+    if: github.base_ref == 'stable'
+    uses: ./.github/workflows/tv-ui-tests.yml
+    with:
+      test-plan: TVUITests

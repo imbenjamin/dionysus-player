@@ -469,5 +469,6 @@ schemes:
         - path: TestPlans/TVUnitTests.xctestplan
           defaultPlan: true
         - path: TestPlans/TVUITests.xctestplan
+        - path: TestPlans/TVUITests-Smoke.xctestplan
     archive:
       config: Release

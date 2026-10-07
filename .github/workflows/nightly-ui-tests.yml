@@ -36,3 +36,11 @@ jobs:
       # A nightly run has the time budget for it, and a test that only fails
       # once is reported as flaky rather than as a break.
       retry-tests-on-failure: true
+
+  tv-ui-tests:
+    # The Apple TV app's full suite, on its one environment (tv-ui-tests.yml).
+    name: Full tvOS UI tests
+    uses: ./.github/workflows/tv-ui-tests.yml
+    with:
+      test-plan: TVUITests
+      retry-tests-on-failure: true
