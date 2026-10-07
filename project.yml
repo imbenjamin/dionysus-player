@@ -273,6 +273,7 @@ targets:
           - "Player/PlaybackRequest.swift"
           - "Player/SubtitleOverlayView.swift"
           - "Player/BottomChromeTopKey.swift"
+          - "Player/PlaybackStatsReport.swift"
         excludes:
           - "Downloads/**"
       - path: DionysusPlayer/Resources/Assets.xcassets
@@ -352,6 +353,7 @@ targets:
           - "Features/Player/PlayerViewModelTests.swift"
           - "Features/Player/ASSSubtitleMappingTests.swift"
           - "Features/Player/SubtitleOverlayLayoutTests.swift"
+          - "Features/Player/PlaybackStatsReportTests.swift"
           - "Shared/AppVersionInfoTests.swift"
         excludes:
           - "Core/Persistence/Download*.swift"

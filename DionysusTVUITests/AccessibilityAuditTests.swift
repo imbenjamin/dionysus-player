@@ -121,6 +121,16 @@ final class AccessibilityAuditTests: TVUITestCase {
         try audit(app)
     }
 
+    func test_playerStats() throws {
+        let app = openPlayer(extraArguments: ["-UITestDisableControlAutoHide", "YES", "-showPlaybackStatsButtonEnabled", "YES"])
+        press(.up)
+        press(.right, times: 3)
+        XCTAssertTrue(waitForPlayerFocus(app, "icon.stats"))
+        press(.select)
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.statsValue("Codec")].waitForExistence(timeout: 3))
+        try audit(app)
+    }
+
     private func audit(_ app: XCUIApplication) throws {
         try app.performAccessibilityAudit(for: Self.auditedTypes) { Self.isKnownAcceptable($0) }
     }

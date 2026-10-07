@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Bring the Apple TV player to the iOS player's features and to Infuse's standard for scrubbing: scrubbing and scanning with trickplay, the swipe-down tabs, audio and subtitle choice, libass subtitles, Skip Intro/Credits, the compact Next Up card and Stats for Nerds.
+**Goal:** Bring the Apple TV player to the iOS player's features and to Infuse's standard for scrubbing: scrubbing and scanning with trickplay, the swipe-down tabs, audio and subtitle choice, libass subtitles, Skip Intro/Credits, the compact Next Up card and the playback stats panel.
 
 **Architecture:**
 - A pure reducer, `TVPlayerInputModel.reduce(_:_:context:now:)`, owns what every remote press means. It reads a snapshot of the player (`TVPlayerContext`), mutates the player's UI state (`TVPlayerInputState`) and returns commands (`TVPlayerCommand`). Time is a parameter, so holds, scans, fades and timeouts are unit-tested without waiting.
@@ -20,7 +20,7 @@
 - **The tvOS focus engine is not used inside the player.** No `.focusable`, `@FocusState` or `.defaultFocus` in any player view. The overlay's `UIHostingController` view keeps `isUserInteractionEnabled = false`.
 - **The three host rules in CLAUDE.md still hold:** presented with UIKit `present`, never `fullScreenCover`; `AetherPlayerView` hidden whenever `currentAVPlayer` is non-nil; the engine made with `ownsNowPlayingSession: false`.
 - **Exact values from the spec:** press/hold threshold 0.4s; skip and step 10s; transport fade 4s; panel timeout 10s; scan 8× stepping every 2s held to 16×, 32×, 64×; a full-width swipe covers 0.25 of the title; swipe axis commit 40pt, scrub commit 200pt/s; trickplay preview 400×225; chapter tile 380×214; Next Up thumb 420×236.
-- **Stats:** a toggle on its icon only, never a tab, never modal. "Show Playback Stats Button" defaults to **Off on tvOS in every build**; iOS keeps on-in-debug, off-in-release.
+- **Stats:** a toggle on its icon only, never a tab, never modal. "Show Playback Stats Button" keeps iOS's shared default on tvOS: **on in debug, off in release** (Benjamin, 2026-10-07). Named as on iOS: the icon reads "Show playback stats" / "Hide playback stats", never "Stats for Nerds".
 - **HDR chip:** shown only while `PlayerViewModel.videoFormatDescription` is non-nil (AetherEngine's presented `videoFormat`, `nil` for SDR).
 - **The iOS app must behave identically.** Shared-code changes are moves, extractions and additive members only. iOS `UnitTests` and `UITests-Smoke` stay green on every PR that touches a shared file.
 - **`DOWNLOADS` is defined only on `DionysusPlayer` and `DionysusPlayerTests`.** Shared code that names a Downloads type stays inside `#if DOWNLOADS`.
@@ -97,7 +97,7 @@ New TV-only files, under `DionysusTV/Player/`:
 | `TVPlayerPanelView.swift` | Tabs row and the four tabs |
 | `TVPlayerInfoArt.swift` | The Info tab's artwork rule |
 | `TVSkipButton.swift`, `TVNextUpCard.swift` | The bottom-right overlays |
-| `TVStatsPanel.swift` | Stats for Nerds |
+| `TVStatsPanel.swift` | The playback stats panel |
 
 Removed: `DionysusTV/Player/TVTransportChrome.swift` and `DionysusTVTests/TVTransportChromeTests.swift` (the reducer owns the fade).
 
@@ -4145,7 +4145,7 @@ Run tvOS unit, tvOS UI, iOS unit, iOS smoke (the stub and the scenario list are 
 
 ## PR 5: `feature/tvos-player-stats`
 
-### Task 10: Stats for Nerds
+### Task 10: The playback stats panel
 
 **Files:**
 - Create: `DionysusPlayer/Features/Player/PlaybackStatsReport.swift`, `DionysusTV/Player/TVStatsPanel.swift`, `DionysusPlayerTests/Features/Player/PlaybackStatsReportTests.swift`, `DionysusTVUITests/PlayerStatsJourneyTests.swift`
@@ -4207,9 +4207,12 @@ final class PlaybackStatsReportTests: XCTestCase {
         #endif
     }
 
-    /// Off on the Apple TV in every build (Benjamin, 2026-10-06).
+    /// iOS's default on both platforms: on in debug, off in release
+    /// (Benjamin, 2026-10-07).
     func test_statsButtonDefault() {
-        #if os(tvOS)
+        #if DEBUG
+        XCTAssertTrue(showPlaybackStatsButtonEnabledDefault)
+        #else
         XCTAssertFalse(showPlaybackStatsButtonEnabledDefault)
         #endif
     }
@@ -4218,26 +4221,9 @@ final class PlaybackStatsReportTests: XCTestCase {
 
 Add `"Features/Player/PlaybackStatsReportTests.swift"` to `DionysusTVTests`' includes and `"Player/PlaybackStatsReport.swift"` to `DionysusTV`'s Features includes in `project.yml`; `xcodegen generate`. Run on iOS unit. Expected: build failure, "cannot find 'PlaybackStatsReport'".
 
-- [ ] **Step 3: Make Stats off by default on tvOS**
+- [ ] **Step 3: Name the icon as iOS does; keep iOS's default**
 
-In `PlayerPreferenceKeys.swift`, replace the default's `#if` with:
-
-```swift
-/// Off on the Apple TV in every build (Benjamin, 2026-10-06). On iOS: on in
-/// debug builds, off in release. `PlayerControlsOverlay`'s `@AppStorage`
-/// read of this key and `AdvancedPlaybackSettingsView`'s Toggle must declare
-/// the same default to agree before the setting is ever visited — same
-/// reasoning as `hero3DDepthEnabledStorageKey` in `HeroHeaderView.swift`.
-#if os(tvOS)
-let showPlaybackStatsButtonEnabledDefault = false
-#elseif DEBUG
-let showPlaybackStatsButtonEnabledDefault = true
-#else
-let showPlaybackStatsButtonEnabledDefault = false
-#endif
-```
-
-`TVAdvancedPlaybackView` reads the same constant, so Profile agrees.
+No change to `PlayerPreferenceKeys.swift`: its `#if DEBUG` default is shared, so the Apple TV already gets iOS's on-in-debug, off-in-release (Benjamin, 2026-10-07). In `TVPlayerIconButton`, the stats icon's label becomes iOS's (`PlayerControlsOverlay`'s stats button): "Hide playback stats" while the panel is on, "Show playback stats" while off. Remove the "Stats for Nerds" entry from `Localizable.xcstrings` if nothing else uses it.
 
 - [ ] **Step 4: Extract the report**
 
@@ -4248,7 +4234,7 @@ import AVFAudio
 import SwiftUI
 import UIKit
 
-/// Stats for Nerds' rows, built once for both apps: iOS's
+/// The playback stats rows, built once for both apps: iOS's
 /// `PlaybackStatsOverlay` pages them, the Apple TV's `TVStatsPanel` shows
 /// them on one page. Labels are technical and stay unlocalized, as they
 /// were; section titles are localized.
@@ -4446,7 +4432,7 @@ Add identifiers:
 ```swift
 import SwiftUI
 
-/// Stats for Nerds on the Apple TV: one glass page top-right, every row of
+/// The playback stats panel on the Apple TV: one glass page top-right, every row of
 /// iOS's three pages (`PlaybackStatsReport`), refreshed twice a second. A
 /// toggle on its icon; it takes no presses (Benjamin, 2026-10-06).
 struct TVStatsPanel: View {
@@ -4545,8 +4531,8 @@ In `TVPlayerOverlay`, between the subtitles and the transport:
 import XCTest
 
 final class PlayerStatsJourneyTests: TVUITestCase {
-    func test_statsIcon_isAbsentByDefault() {
-        let app = openPlayer(extraArguments: ["-UITestDisableControlAutoHide", "YES"])
+    func test_statsIcon_isAbsentWhileTheSettingIsOff() {
+        let app = openPlayer(extraArguments: ["-UITestDisableControlAutoHide", "YES", "-showPlaybackStatsButtonEnabled", "NO"])
         XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.icon("chapters")].exists)
         XCTAssertFalse(app.descendants(matching: .any)[A11yID.TV.Player.icon("stats")].exists)
     }
@@ -4582,10 +4568,11 @@ Add to `AccessibilityAuditTests` a `test_playerStats` opening the panel as above
 Run tvOS unit, tvOS UI, iOS unit, iOS smoke, and iOS UI `PlayerJourneyTests` (the stats extraction touches iOS). On the Simulator with the LAN server, open Stats on a direct-play title and on a transcode (Profile → Streaming), and screenshot both. Update CLAUDE.md's player paragraph:
 
 ```markdown
-**Stats for Nerds** is a toggle on its icon, never a tab and never modal:
+**Playback stats** is a toggle on its icon, never a tab and never modal:
 one glass page top-right with every row of iOS's three pages
 (`PlaybackStatsReport`, shared, which iOS's overlay pages). Its setting is
-Off by default on tvOS in every build.
+iOS's, shared: on in debug builds, off in release. The icon is labelled as
+iOS's button is ("Show playback stats" / "Hide playback stats").
 ```
 
 and delete the sentence "Next Episode Countdown, Chapters in Scrubber, Subtitle Styling and Show Playback Stats Button are stored but change nothing on tvOS until M4 brings their player features" from the Profile paragraph. After sign-off commit and push; the PR opens after Task 11.
@@ -4637,4 +4624,4 @@ Update each changed constant's test (`TVPlayerScrubTests`, `SubtitleOverlayLayou
 
 - [ ] **Step 5: Suites, sign-off, commit, PR 5**
 
-Run tvOS unit, tvOS UI, iOS unit, iOS smoke one after another. After Benjamin's sign-off commit, push, open "tvOS M4 PR 5: Stats for Nerds, the device pass and tuning", and merge with `--merge` when checks pass. M4 is then done; M5 (accessibility) starts with brainstorming.
+Run tvOS unit, tvOS UI, iOS unit, iOS smoke one after another. After Benjamin's sign-off commit, push, open "tvOS M4 PR 5: Playback stats, the device pass and tuning", and merge with `--merge` when checks pass. M4 is then done; M5 (accessibility) starts with brainstorming.

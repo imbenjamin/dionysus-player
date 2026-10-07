@@ -535,12 +535,10 @@ Policy), with iOS's footers. What isn't guessable:
 - **The License and Privacy Policy pages are cut into focusable paragraphs**
   (`TVTextPageView`), because a tvOS scroll view moves only with focus. Both
   files are bundled into `DionysusTV` as on iOS (`project.yml`).
-- **Next Episode Countdown, Chapters in Scrubber and Show Playback Stats
-  Button are stored but change nothing on tvOS until M4** brings their
-  player features; Subtitle Styling, Streaming and Max Streaming Bitrate work
-  now.
-  The chapters and stats keys moved to `PlayerPreferenceKeys.swift` with the
-  carousel's, since tvOS doesn't compile the iOS player views.
+- **Every Playback setting works on tvOS since M4.** The chapters and stats
+  keys moved to `PlayerPreferenceKeys.swift` with the carousel's, since tvOS
+  doesn't compile the iOS player views; Show Playback Stats Button keeps
+  iOS's default there (on in debug builds, off in release).
 
 **A page's `.accessibilityHidden(false)` overrides every
 `.accessibilityHidden(true)` inside it.** `TVMainView` once set
@@ -738,6 +736,19 @@ and Menu there returns to the scrubber (Benjamin, 2026-10-07). **The next item p
 (`TVPlayerHostController.advanceToNextItem()`): the session ends and is
 reported, a new view model and engine are bound to AVKit, nothing is
 dismissed, and Stats stays as it was. Never under an open scrub.
+**Playback stats** is a toggle on its icon, never a tab and never modal:
+one glass page top-right with every row of iOS's three pages
+(`PlaybackStatsReport`, shared, which iOS's overlay pages). The icon and its
+setting are named and defaulted as iOS's (Benjamin, 2026-10-07): "Show
+playback stats" / "Hide playback stats", on in debug builds, off in release.
+Each row is one accessibility element, its name the label and its reading
+the value: a reading alone ("1.00x") fails the audit as not human-readable.
+**The two players share their glyphs and skips** (Benjamin, 2026-10-07):
+stats is a bar chart (`chart.bar.xaxis`) on both, both skip 10s each way
+(`gobackward.10`/`goforward.10`, and iOS's Now Playing skip commands too;
+iOS used to skip 15s back and 30s forward), Skip Intro/Credits carries a
+trailing `forward.fill`, Next Up's Play Now a `play.fill`, and Next Up's
+artwork placeholder is `play.tv`. Change one platform's and change the other.
 The space bar is Play/Pause too (`TVKeyboardCommand`): a keyboard, and the
 Simulator's on-screen remote, send it as a keyboard press (type 2044, HID
 usage 0x2C), never `.playPause`, so a `.playPause` recognizer alone leaves

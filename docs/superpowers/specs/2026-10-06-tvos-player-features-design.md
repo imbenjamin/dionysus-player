@@ -6,7 +6,7 @@ Prototype canvas: https://claude.ai/artifact/Wjp3J4eh4VGqMmmR7ntAKL, screens 12�
 
 ## Goal
 
-Bring the Apple TV player up to the iOS player's features and to Infuse's standard for scrubbing: scrubbing and scanning with trickplay, the swipe-down tabs, audio and subtitle choice, libass subtitles, Skip Intro/Credits, the compact Next Up card and Stats for Nerds. After M4 the four Profile settings that do nothing on tvOS today (Next Episode Countdown, Chapters in Scrubber, Subtitle Styling, Show Playback Stats Button) take effect.
+Bring the Apple TV player up to the iOS player's features and to Infuse's standard for scrubbing: scrubbing and scanning with trickplay, the swipe-down tabs, audio and subtitle choice, libass subtitles, Skip Intro/Credits, the compact Next Up card and the playback stats panel. After M4 the four Profile settings that do nothing on tvOS today (Next Episode Countdown, Chapters in Scrubber, Subtitle Styling, Show Playback Stats Button) take effect.
 
 Most of the logic already exists in the shared `PlayerViewModel`: track switching and memory, the libass pipeline, media segments, the Next Up countdown, chapters, Jellyfin trickplay tiles and `PlaybackStats`. Core and libass already compile and link into `DionysusTV`. M4 is mostly tvOS views and a model of the remote.
 
@@ -22,7 +22,7 @@ Most of the logic already exists in the shared `PlayerViewModel`: track switchin
 | HDR chip | Shown only while the engine reports the picture as HDR; nothing while it reads SDR. Best effort to know the presented format: investigate further evidence on the device (below). |
 | Info tab | Like the system player's, with a Restart button. Artwork: a movie's portrait poster; otherwise the episode's landscape thumb, falling back to the show's thumb. |
 | Audio and Subtitles | Two lines per track with the iOS picker's text. |
-| Stats for Nerds | A toggle on the Stats icon, never a tab and never modal: the panel takes no presses, and the rest of the player works as usual around it. Gated by "Show Playback Stats Button", which is **Off by default on tvOS in every build**. |
+| Playback stats | A toggle on the stats icon, never a tab and never modal: the panel takes no presses, and the rest of the player works as usual around it. Gated by "Show Playback Stats Button", whose default is iOS's: **on in debug builds, off in release** (Benjamin, 2026-10-07). |
 | Skip Intro/Credits | Menu hides the button while nothing else is up; a second Menu closes the player. The button is always shown while the transport is up, so a hidden one can still be reached. |
 
 ## Architecture
@@ -124,12 +124,13 @@ A rail of 380×214 chapter images captioned with the name and start time. A chap
 
 Lists of tracks, two lines each, with the iOS picker's text: `PlaybackTrack.title` over `PlaybackTrack.metadata`. Subtitles starts with Off, worded as on iOS. The chosen track is ticked. Select switches track, moves the tick and leaves the panel open so the change can be seen or heard. The choice is remembered per title in `TrackPreferenceStore`, as on iOS (`PlayerViewModel.selectAudioTrack` / `selectSubtitleTrack` already record it).
 
-## Stats for Nerds
+## Playback stats
 
 - The Stats icon toggles the panel; nothing else closes it. It takes no presses: Up, Down, Select and Menu do what they would without it. It stays through the transport fading and the tabs panel opening.
 - **Top-right**, not the prototype's top-left, where the title block sits with the transport up. iOS anchors its panel top-right too.
 - One glass page, not three: a 1920×1080 screen holds every row of iOS's three pages (video, audio, presented format, route and streaming, buffer, frames, server and AetherEngine version). Refreshed twice a second from `PlaybackStats`.
-- The icon exists only while "Show Playback Stats Button" is on. tvOS takes its own default, Off in every build; iOS keeps its default (on in debug, off in release). Profile's Advanced page reads the same tvOS default.
+- The icon exists only while "Show Playback Stats Button" is on. Its default is shared with iOS, on in debug builds and off in release (Benjamin, 2026-10-07, replacing an earlier Off-in-every-build call). Profile's Advanced page reads the same default.
+- **Named as on iOS** (Benjamin, 2026-10-07): the icon's label is "Show playback stats" / "Hide playback stats", iOS's button labels; nothing on screen says "Stats for Nerds".
 
 ## Subtitles
 
@@ -194,7 +195,7 @@ Suites per PR: tvOS unit and UI; iOS unit and smoke too where a shared file chan
 2. Subtitles: the cue overlay and libass on tvOS, Subtitle Styling, and the AVKit double-subtitle check.
 3. The tabs panel: Info with Restart, Chapters, Audio and Subtitles.
 4. Skip Intro/Credits, the Next Up card, Next Episode Countdown and the in-place move to the next item.
-5. Stats for Nerds and its setting, the device pass (HDR evidence, scrubbing against Infuse, subtitle size), and the docs that close the milestone.
+5. The playback stats panel and its setting, the device pass (HDR evidence, scrubbing against Infuse, subtitle size), and the docs that close the milestone.
 
 Each PR updates CLAUDE.md's tvOS player section for what it adds, syncs the string catalog, and updates TESTING.md where it adds fixtures. PRIVACY.md is unaffected: no new data is stored or sent anywhere new.
 

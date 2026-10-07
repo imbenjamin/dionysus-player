@@ -62,7 +62,7 @@ struct PlayerControlsOverlay: View {
     /// Compiled out of Release.
     @State private var isLogoFallbackVisible = false
     #endif
-    /// Whether the info-circle button that toggles `PlaybackStatsOverlay` is
+    /// Whether the stats button (a bar chart, as on the Apple TV) that toggles `PlaybackStatsOverlay` is
     /// shown. A persisted setting read directly here rather than threaded down
     /// from `PlayerView`. Its default must match
     /// `AdvancedPlaybackSettingsView`'s read of the same key.
@@ -470,7 +470,7 @@ struct PlayerControlsOverlay: View {
                             onInteract()
                             onTogglePlaybackStats()
                         } label: {
-                            Image(systemName: "info.circle")
+                            Image(systemName: "chart.bar.xaxis")
                                 .font(.system(size: topGlyphSize))
                                 .foregroundStyle(isPlaybackStatsVisible ? .black : .white)
                                 .frame(width: topBadgeSize, height: topBadgeSize)
@@ -990,9 +990,9 @@ struct PlayerControlsOverlay: View {
             HStack(spacing: 40) {
                 Button {
                     onInteract()
-                    viewModel.seek(to: max(0, displayedTime - 15))
+                    viewModel.seek(to: max(0, displayedTime - 10))
                 } label: {
-                    Image(systemName: "gobackward.15")
+                    Image(systemName: "gobackward.10")
                         // `.system(size:)` rather than `.title`: identical at
                         // the default text size but scaled in lockstep with the
                         // play/pause glyph and the frame, so skip can neither
@@ -1002,7 +1002,7 @@ struct PlayerControlsOverlay: View {
                         .frame(width: transportSize, height: transportSize)
                         .contentShape(Rectangle())
                 }
-                .accessibilityLabel(String(localized: "Rewind 15 Seconds"))
+                .accessibilityLabel(String(localized: "Rewind 10 Seconds"))
                 .accessibilityIdentifier(A11yID.Player.skipBackwardButton)
 
                 Button {
@@ -1019,14 +1019,14 @@ struct PlayerControlsOverlay: View {
 
                 Button {
                     onInteract()
-                    viewModel.seek(to: min(viewModel.duration, displayedTime + 30))
+                    viewModel.seek(to: min(viewModel.duration, displayedTime + 10))
                 } label: {
-                    Image(systemName: "goforward.30")
+                    Image(systemName: "goforward.10")
                         .font(.system(size: skipGlyphSize))
                         .frame(width: transportSize, height: transportSize)
                         .contentShape(Rectangle())
                 }
-                .accessibilityLabel(String(localized: "Fast Forward 30 Seconds"))
+                .accessibilityLabel(String(localized: "Fast Forward 10 Seconds"))
                 .accessibilityIdentifier(A11yID.Player.skipForwardButton)
             }
             .foregroundStyle(.white)
@@ -1420,7 +1420,7 @@ struct PlayerControlsOverlay: View {
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: viewModel.seek(to: min(viewModel.duration, displayedTime + 15))
-            case .decrement: viewModel.seek(to: max(0, displayedTime - 15))
+            case .decrement: viewModel.seek(to: max(0, displayedTime - 10))
             @unknown default: break
             }
         }

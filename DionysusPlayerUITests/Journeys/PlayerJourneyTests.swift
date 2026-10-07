@@ -45,6 +45,33 @@ final class PlayerJourneyTests: UITestCase {
         )
     }
 
+    /// Both skips jump 10s, as the Apple TV's do (Benjamin, 2026-10-07; they
+    /// were 15s back and 30s forward). Read off the scrubber's value, the
+    /// unlocalized "m:ss" position; the fake engine plays on at 1x, so the
+    /// bounds leave room for a few seconds of playback, never for 30.
+    func testSkipButtonsJumpTenSeconds() {
+        let player = openPlayer()
+        func position() -> Double? {
+            let parts = ((player.scrubber.value as? String) ?? "").split(separator: ":").compactMap { Double($0) }
+            return parts.count >= 2 ? parts.reduce(0) { $0 * 60 + $1 } : nil
+        }
+        func waitForPosition(_ range: ClosedRange<Double>, _ message: String) {
+            let reached = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in position().map(range.contains) ?? false },
+                object: nil
+            )
+            XCTAssertEqual(XCTWaiter().wait(for: [reached], timeout: 5), .completed, message)
+        }
+        guard let start = position() else { return XCTFail("Unreadable scrubber value") }
+
+        player.skipForwardButton.tap()
+        waitForPosition((start + 9)...(start + 15), "Forward skips 10s on from \(start)s")
+        guard let ahead = position() else { return XCTFail("Unreadable scrubber value") }
+
+        player.skipBackwardButton.tap()
+        waitForPosition((ahead - 11)...(ahead - 5), "Back skips 10s from \(ahead)s")
+    }
+
     /// Opens the track picker, drills into each leaf, and taps a row —
     /// proving the panel is drivable at all (root → leaf → dismiss) rather
     /// than the actual audio/subtitle decision, which `PreviewPlaybackEngine`
