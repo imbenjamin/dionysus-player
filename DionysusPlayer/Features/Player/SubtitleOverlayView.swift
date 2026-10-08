@@ -19,11 +19,12 @@ struct SubtitleOverlayMetrics {
         horizontalPadding: 10, verticalPadding: 5, cornerRadius: 6
     )
 
-    /// Sized for a 1920×1080pt screen viewed from a sofa; the font size is
-    /// set against Infuse on the same title in the device pass. The resting
-    /// inset keeps a cue inside the title-safe area.
+    /// Sized for a 1920×1080pt screen viewed from a sofa. The font size
+    /// matches Infuse's default on the same scene, photographed from the sofa
+    /// (Bedroom Apple TV, 2026-10-08; 46pt was about a fifth smaller). The
+    /// resting inset keeps a cue inside the title-safe area.
     static let tv = SubtitleOverlayMetrics(
-        fontSize: 46, horizontalInset: 80, restingBottomInset: 60, controlsGap: 20,
+        fontSize: 54, horizontalInset: 80, restingBottomInset: 60, controlsGap: 20,
         horizontalPadding: 22, verticalPadding: 10, cornerRadius: 12
     )
 }

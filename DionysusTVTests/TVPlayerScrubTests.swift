@@ -44,13 +44,15 @@ final class TVPlayerScrubTests: XCTestCase, TVPlayerInputModelHarness {
         XCTAssertEqual(state.scrub?.resumesOnCancel, false)
     }
 
-    func test_aFullWidthSwipe_coversAQuarterOfTheTitle() {
+    /// Infuse (the native transport) moved ~5 min of a 119-min film and 35s
+    /// of a 9:22 episode per full swipe on the Bedroom Apple TV (2026-10-08).
+    func test_aFullWidthSwipe_coversATwentiethOfTheTitle() {
         context.playback = .paused
         context.chaptersInScrubber = false
         send(.swipeBegan)
         send(.swipeMoved(fraction: 1))
-        XCTAssertEqual(state.scrub?.previewTime ?? 0, 100 + 1350, accuracy: 0.001)
-        send(.swipeMoved(fraction: -0.1))
+        XCTAssertEqual(state.scrub?.previewTime ?? 0, 100 + 270, accuracy: 0.001)
+        send(.swipeMoved(fraction: -0.5))
         XCTAssertEqual(state.scrub?.previewTime ?? 0, 0, accuracy: 0.001, "Clamped at the start")
     }
 
@@ -58,10 +60,10 @@ final class TVPlayerScrubTests: XCTestCase, TVPlayerInputModelHarness {
         // 0.8% of 5400s is 43.2s either side of a chapter start.
         context.playback = .paused
         send(.swipeBegan)
-        send(.swipeMoved(fraction: (1320 - 100) / 1350))
+        send(.swipeMoved(fraction: (1320 - 100) / 270))
         XCTAssertEqual(state.scrub?.previewTime ?? 0, 1350, accuracy: 0.001)
         context.chaptersInScrubber = false
-        send(.swipeMoved(fraction: (1320 - 100) / 1350))
+        send(.swipeMoved(fraction: (1320 - 100) / 270))
         XCTAssertEqual(state.scrub?.previewTime ?? 0, 1320, accuracy: 0.001)
     }
 
@@ -100,8 +102,9 @@ final class TVPlayerScrubTests: XCTestCase, TVPlayerInputModelHarness {
         XCTAssertEqual(state.scrub?.scan?.level, -1)
     }
 
-    /// -3/-2/-1/stopped/+1/+2/+3: the same direction speeds up, the opposite
-    /// slows to a stop and then scans the other way.
+    /// -4…-1/stopped/+1…+4, as the native transport's four levels (Infuse on
+    /// the Bedroom Apple TV, 2026-10-08): the same direction speeds up, the
+    /// opposite slows to a stop and then scans the other way.
     func test_pressesStepTheLevel_throughAStop_toTheOtherDirection() {
         send(.arrowDown(.right))
         tick(for: 0.5)
@@ -110,8 +113,11 @@ final class TVPlayerScrubTests: XCTestCase, TVPlayerInputModelHarness {
         press(.right)
         press(.right)
         press(.right)
-        XCTAssertEqual(state.scrub?.scan?.level, 3, "Capped at 3")
+        press(.right)
+        XCTAssertEqual(state.scrub?.scan?.level, 4, "Capped at 4")
         XCTAssertEqual(TVPlayerInputModel.scanRate(level: 3), 64)
+        XCTAssertEqual(TVPlayerInputModel.scanRate(level: 4), 128)
+        press(.left)
         press(.left)
         press(.left)
         press(.left)
@@ -146,6 +152,7 @@ final class TVPlayerScrubTests: XCTestCase, TVPlayerInputModelHarness {
     func test_scanGlyphs_areTheLevelPlusOne() {
         XCTAssertEqual(TVScanIndicator.glyphCount(level: 1), 2)
         XCTAssertEqual(TVScanIndicator.glyphCount(level: -3), 4)
+        XCTAssertEqual(TVScanIndicator.glyphCount(level: 4), 5)
         XCTAssertEqual(TVScanIndicator.glyphCount(level: 0), 1)
     }
 

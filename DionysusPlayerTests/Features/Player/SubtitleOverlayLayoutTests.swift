@@ -11,6 +11,12 @@ final class SubtitleOverlayLayoutTests: XCTestCase {
         XCTAssertEqual(phone.controlsGap, 8)
     }
 
+    /// Matched to Infuse's default on the same scene of Saving Private Ryan,
+    /// photographed from the sofa (Bedroom Apple TV, 2026-10-08).
+    func test_tvFontSize_matchesInfuse() {
+        XCTAssertEqual(SubtitleOverlayMetrics.tv.fontSize, 54)
+    }
+
     func test_bottomInset_clearsTheChrome_andRestsWithoutIt() {
         let tv = SubtitleOverlayMetrics.tv
         XCTAssertEqual(

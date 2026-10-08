@@ -642,16 +642,40 @@ the refusal latched until the app was backgrounded (AetherEngine#588), so every
 HDR title fell back to the media playlist: still HDR10/PQ on screen, but with no
 subtitle or audio renditions. 7.22.2 waits for the switch to end before serving
 the master and no longer latches a refusal raised mid-switch (AetherEngine#667,
-which this app filed and retested on device). The HDR label still can't be
-trusted on its own: `currentEDRHeadroom` reads a flat 1.00 while the TV shows
-HDR10, so the engine only corrects `$videoFormat` from `.sdr` once AVPlayer
-accepts the master, and a session that falls back would still read SDR. Trust
-the TV's own info banner, not `displayColorFormat` or EDR headroom, when
-checking HDR here. The player's format chip therefore shows only while the
-engine reports HDR, and says nothing rather than SDR. When the master is
-taken it reads right: Deadpool (Dolby Vision Profile 8 on an HDR10 base
-layer) went to the Bedroom's HDR10-only panel as HDR10, and the chip said
-HDR10 (Benjamin, 2026-10-06).
+which this app filed and retested on device). The label is one-sided: AetherEngine claims HDR only on evidence (AE#459,
+since 6.82.0): AVPlayer still playing an HDR master 500ms after it was served,
+or EDR headroom above 1.00, which reads a flat 1.00 here. Checked across every
+7.x release (2026-10-06): 7.1.0, 7.10.1, 7.22.2 and 7.23.2 each removed a way
+it read SDR wrongly, and none moved the rule. It can still read SDR on an HDR
+picture for the first half second, after a fallback to the media playlist, on
+the software route and on a server transcode. Trust the TV's own info banner,
+not `displayColorFormat` or EDR headroom, when checking HDR here. The player's
+format chip therefore shows only while the engine reports HDR, and says
+nothing rather than SDR.
+**Measured on the Bedroom Apple TV (HDR10-only Hisense panel, AetherEngine
+7.27.2, 2026-10-08)**, logging once a second the display manager, the engine's
+formats and the decoded picture's transfer function:
+- Direct play reads right once the master is taken, about 4s in: HDR10
+  (1917) and Dolby Vision on an HDR10 base (Cape Fear S1:E1) both said HDR10,
+  as the TV did. The transfer function reads PQ about a second before the
+  engine's label; not worth an engine change.
+- **HDR10+ reads HDR10+ while the TV says HDR10** (The End of Oak Street; DV
+  on an HDR10+ base, Cape Fear S1:E4). Not a fault: the chip names the
+  signal, and a panel without HDR10+ ignores its metadata and shows the
+  HDR10 base. The picture looked right (Benjamin).
+- **HLG reads HLG while the TV says HDR10** (Saving Private Ryan, DV on an HLG
+  base): the engine asks for an HLG mode, the picture decoded is HLG, and the
+  Apple TV converts it to HDR10 for the panel. Nothing the app can read sees
+  that conversion (matching on, switch settled, headroom 1.00, transfer
+  function HLG), so it is AetherEngine#535's class and left as is.
+- A server transcode is really SDR: Jellyfin tone-maps it (BT.709 at 720p
+  under an 8 Mbps cap), so the chip's silence is right.
+- Not checked: the software route with HDR (the LAN library has no AV1 or VP9
+  HDR title).
+- Audio: DD+ Atmos is stream-copied with its JOC intact (`ec-3 [JOC=Atmos]`);
+  TrueHD is decoded and re-encoded to 5.1 E-AC-3, losing Atmos, as known.
+  End-to-end Atmos wasn't confirmed: the TV said "Dolby Audio" for both.
+Nothing went upstream from this pass.
 `DisplayContext` passes the real Match Content setting, and deliberately
 asserts nothing about the panel's HDR state, since EDR headroom is the only
 thing it could read and the engine reads that itself.
@@ -684,7 +708,8 @@ What isn't guessable:
   step per swipe elsewhere, or Up/Down.
 - **Scanning mimics the native player** (Benjamin, 2026-10-06): playing, a
   hold or a swipe pauses and scans at level 1; each further press or swipe
-  steps the level, -3/-2/-1/stop/+1/+2/+3 (8×, 32×, 64×), the opposite way
+  steps the level, -4…-1/stop/+1…+4 (8×, 32×, 64×, 128×; the native transport's
+  four levels, matched to Infuse on the device), the opposite way
   slowing through a stop, and releasing a hold keeps scanning. Paused, a
   swipe scrubs freely and a press steps 10s. Either way **the picture stays
   paused and only the trickplay preview moves**: AetherEngine's `setRate`
@@ -701,7 +726,7 @@ What isn't guessable:
 - **The HDR chip shows only while the engine reports HDR**
   (`videoFormatDescription`, nil for SDR); see the HDR paragraph above.
 - **Subtitles are iOS's `SubtitleOverlayView`, compiled into the TV
-  target** with `SubtitleOverlayMetrics.tv` (46pt text, a title-safe resting
+  target** with `SubtitleOverlayMetrics.tv` (54pt text, matched to Infuse on the device; a title-safe resting
   inset), the whole overlay including libass, so styled ASS and embedded
   fonts work as on iOS. Cues clear the transport's bottom bar through
   `BottomChromeTopKey`, which it reports while it shows. AVKit draws no copy

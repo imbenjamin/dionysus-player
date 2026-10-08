@@ -16,9 +16,9 @@ Most of the logic already exists in the shared `PlayerViewModel`: track switchin
 |---|---|
 | Remote handling | The player's own input model. The tvOS focus engine is not used inside the player: the host's recognizers take every press and touch-surface swipe and the model decides what each means, as Sodalite (AetherEngine's author's tvOS client) does. The overlay draws its own focus highlight. |
 | Accessibility | VoiceOver navigation in the player is not part of M4. It moves to a new **M5: accessibility**, with a pass over the whole TV app; the old M5 becomes M6. M4 still passes the structural accessibility audit (labels and traits). |
-| Scrubbing | Native-style (revised after the Simulator review, 2026-10-06). Playing: a press of Left/Right skips 10s; a hold or a swipe pauses and enters scanning at level 1 in its direction; each further press or swipe steps the level, -3/-2/-1/stop/+1/+2/+3, the opposite direction slowing through a stop. Paused: a swipe scrubs freely, a press steps 10s. The picture stays paused while scanning; only the trickplay preview moves. Select or Play/Pause plays from the preview; Menu returns to where it started and resumes. |
+| Scrubbing | Native-style (revised after the Simulator review, 2026-10-06). Playing: a press of Left/Right skips 10s; a hold or a swipe pauses and enters scanning at level 1 in its direction; each further press or swipe steps the level, -4…-1/stop/+1…+4, the opposite direction slowing through a stop. Paused: a swipe scrubs freely, a press steps 10s. The picture stays paused while scanning; only the trickplay preview moves. Select or Play/Pause plays from the preview; Menu returns to where it started and resumes. |
 | Feedback glyphs | A glyph flashes mid-screen for play, pause and each 10s skip; the scan shows its direction and speed beside the preview's caption. A focused scrubber shows a knob at the playhead. |
-| Scanning and buffered range | In M4 (Benjamin asked for both). Scan levels are 8x, 32x and 64x of real time (Benjamin, after trying them on the Simulator), tuned again on the device in Task 11. |
+| Scanning and buffered range | In M4 (Benjamin asked for both). Scan levels are 8x, 32x and 64x of real time (Benjamin, after trying them on the Simulator); the device pass against Infuse (2026-10-08) added a fourth, 128x, since the native transport has four. A full swipe covers 5% of the title (Infuse scales with length), and subtitles are 54pt. |
 | HDR chip | Shown only while the engine reports the picture as HDR; nothing while it reads SDR. Best effort to know the presented format: investigate further evidence on the device (below). |
 | Info tab | Like the system player's, with a Restart button. Artwork: a movie's portrait poster; otherwise the episode's landscape thumb, falling back to the show's thumb. |
 | Audio and Subtitles | Two lines per track with the iOS picker's text. |
@@ -87,7 +87,7 @@ As screen 12. The scrubber has focus by default. The icon row sits above it on t
 Revised after Benjamin's Simulator review of PR 1 (2026-10-06), to mimic the native player.
 
 - A scrub moves a **preview**, never playback: the picture stays paused. The played fill stays at the playhead; a knob marks the preview, overlapping the track without changing its height. Above it: a 400×225 trickplay thumbnail and "52:15 · Chapter name". Without trickplay, the time and chapter alone. A focused scrubber shows the same knob at the playhead.
-- **Scanning.** Playing, a hold of Left/Right (past 0.4s) or a horizontal swipe pauses and scans at level 1 in that direction. Releasing the hold leaves the scan running. Each further press or swipe steps the level: the same direction speeds up, the opposite slows, through a stop at level 0, then scans the other way: -3/-2/-1/stop/+1/+2/+3, at 8x, 32x and 64x of real time. A scan reaching either end stops there. The caption shows the direction as two, three or four triangles for levels 1 to 3, with no speed number, or a pause glyph at a stop.
+- **Scanning.** Playing, a hold of Left/Right (past 0.4s) or a horizontal swipe pauses and scans at level 1 in that direction. Releasing the hold leaves the scan running. Each further press or swipe steps the level: the same direction speeds up, the opposite slows, through a stop at level 0, then scans the other way: -4…-1/stop/+1…+4, at 8x, 32x, 64x and 128x of real time. A scan reaching either end stops there. The caption shows the direction as two to five triangles for levels 1 to 4, with no speed number, or a pause glyph at a stop.
 - **Paused**, a swipe scrubs freely (a full-width swipe covers a quarter of the title, snapping to chapters with Chapters in Scrubber on) and a press of Left/Right steps the preview 10s. This is the path XCUITest drives.
 - **Select or Play/Pause** seeks to the preview and plays. **Menu** cancels: the preview returns to the playhead and playback resumes if the scrub paused it.
 - **Glyphs.** Play, pause and each 10s skip flash a glyph mid-screen, as the native player does.
@@ -165,6 +165,8 @@ What AetherEngine does, checked across every 7.x release (7.0.0–7.28.0) and in
 
 M4 shows the chip from `videoFormat` alone. On the Bedroom Apple TV it then investigates evidence for the software route and transcodes: the Match Dynamic Range state (`AVDisplayManager`), the completion of the mode switch the engine requested, and the transfer function of the stream being decoded. Whatever proves reliable goes to AetherEngine as an issue, so the engine stays the one place that decides the label. CLAUDE.md's HDR paragraph is corrected with these findings.
 
+Done on 2026-10-08: no reading tracked the TV's banner better than `videoFormat` on the paths available (the software route went unchecked, for want of an AV1 or VP9 HDR title), so nothing went to AetherEngine. The findings are in CLAUDE.md.
+
 ## Testing
 
 **Unit tests** (`DionysusTVTests`) carry the weight:
@@ -196,6 +198,8 @@ Suites per PR: tvOS unit and UI; iOS unit and smoke too where a shared file chan
 3. The tabs panel: Info with Restart, Chapters, Audio and Subtitles.
 4. Skip Intro/Credits, the Next Up card, Next Episode Countdown and the in-place move to the next item.
 5. The playback stats panel and its setting, the device pass (HDR evidence, scrubbing against Infuse, subtitle size), and the docs that close the milestone.
+
+**Delivered:** #304 (PR 1), #306 (PR 2), #307 (PR 3), #312 with follow-ups #313 and #314 (PR 4), #315 (PR 5's stats panel), and the device pass, tuning and these docs in their own PR (Task 11, 2026-10-08). The HDR findings are in CLAUDE.md's HDR paragraph: direct play reads right, HLG reads HLG where the Apple TV sends HDR10, and nothing went upstream.
 
 Each PR updates CLAUDE.md's tvOS player section for what it adds, syncs the string catalog, and updates TESTING.md where it adds fixtures. PRIVACY.md is unaffected: no new data is stored or sent anywhere new.
 

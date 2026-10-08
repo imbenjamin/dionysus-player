@@ -185,23 +185,27 @@ struct TVPlayerInputState: Equatable {
     var flash: Flash?
 }
 
-/// The spec's timings (Benjamin, 2026-10-06). Tuned on the Bedroom Apple TV
-/// in Task 11.
+/// The spec's timings (Benjamin, 2026-10-06), tuned against Infuse on the
+/// Bedroom Apple TV (2026-10-08).
 enum TVPlayerTiming {
     static let chromeFade: TimeInterval = 4
     static let holdThreshold: TimeInterval = 0.4
     static let skipInterval: TimeInterval = 10
     /// The panel closes after this long without a press.
     static let panelTimeout: TimeInterval = 10
-    /// Real-time multiples for scan levels 1, 2 and 3 (Benjamin, 2026-10-06,
-    /// from the Simulator; tuned again on the device in Task 11).
-    static let scanRates: [Double] = [8, 32, 64]
+    /// Real-time multiples for scan levels 1 to 4. The native transport (as
+    /// Infuse uses it) has four levels, its third about our 64x and its fourth
+    /// faster (Benjamin, Bedroom Apple TV, 2026-10-08). Its count is the
+    /// highest level.
+    static let scanRates: [Double] = [8, 32, 64, 128]
 }
 
-/// How a swipe maps onto the title (tuned in Task 11).
+/// How a swipe maps onto the title.
 enum TVScrubMetrics {
     /// A swipe across the whole surface covers this fraction of the title.
-    static let fullSwipeFractionOfDuration = 0.25
+    /// The native transport (Infuse) scales with length: ~5 min of a 119-min
+    /// film, 35s of a 9:22 episode (Bedroom Apple TV, 2026-10-08).
+    static let fullSwipeFractionOfDuration = 0.05
     /// A swipe's preview snaps to a chapter start this close, as a fraction
     /// of the title (43s of a 90-minute film).
     static let snapFractionOfDuration = 0.008
