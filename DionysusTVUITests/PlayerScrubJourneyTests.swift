@@ -34,8 +34,9 @@ final class PlayerScrubJourneyTests: TVUITestCase {
     }
 
     /// Native-style scanning: holding Right pauses and scans at level 1;
-    /// further presses step the level (to 32x at level 3) and back through
-    /// a stop; Menu returns to where playback was and resumes.
+    /// further presses step the level (to 128x at level 4, the native
+    /// transport's top) and back through a stop; Menu returns to where
+    /// playback was and resumes.
     func test_holdingRight_scans_pressesStepTheLevel_andMenuReturns() throws {
         let app = openPlayer(extraArguments: keepTransportUp)
         let before = try XCTUnwrap(elapsedSeconds(app))
@@ -43,11 +44,11 @@ final class PlayerScrubJourneyTests: TVUITestCase {
         let indicator = app.descendants(matching: .any)[A11yID.TV.Player.scanIndicator]
         XCTAssertTrue(indicator.waitForExistence(timeout: 3))
         XCTAssertEqual(indicator.value as? String, "1")
-        press(.right, times: 2)
-        XCTAssertTrue(poll(timeout: 3) { indicator.value as? String == "3" })
+        press(.right, times: 4)
+        XCTAssertTrue(poll(timeout: 3) { indicator.value as? String == "4" }, "Capped at level 4")
         Thread.sleep(forTimeInterval: 2)
-        XCTAssertGreaterThan(elapsedSeconds(app) ?? 0, before + 40, "32x for two seconds")
-        press(.left, times: 3)
+        XCTAssertGreaterThan(elapsedSeconds(app) ?? 0, before + 40, "Scanning moved the preview on")
+        press(.left, times: 4)
         XCTAssertTrue(poll(timeout: 3) { indicator.value as? String == "0" }, "Back through the levels to a stop")
         let stopped = elapsedSeconds(app)
         Thread.sleep(forTimeInterval: 1)

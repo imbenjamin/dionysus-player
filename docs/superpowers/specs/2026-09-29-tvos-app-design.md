@@ -82,7 +82,7 @@ Downloads/offline, music (still suppressed app-wide), Top Shelf, and PiP on the 
 1. Foundation and core playback, including HDR: `docs/superpowers/plans/2026-09-29-tvos-foundation-and-playback.md`
 2. Onboarding, shell and profiles: onboarding, the sidebar with libraries, per-tvOS-user sessions, in-app account switching and the Follow Apple TV Users setting: `docs/superpowers/plans/2026-09-30-tvos-onboarding-shell-and-profiles.md` (done: PRs #278–#285).
 3. Browse: Home, detail pages, collection grid with alphabet bar, Search, Profile/Settings: `docs/superpowers/plans/2026-10-01-tvos-browse.md` (done: PRs #286–#288, #291, #294, #296, #297, then the review fixes and polish in #299, #301 and #302). As on iOS, every tile on Home, a collection grid or Search opens a detail page, never playback directly; M2's library grid playing movies and episodes on Select is a stopgap until then (Benjamin, 2026-09-30).
-4. Playback features: scrubbing and scanning with trickplay, the swipe-down tabs, tracks, libass subtitles, skip segments, Next Up, stats: `docs/superpowers/specs/2026-10-06-tvos-player-features-design.md`.
+4. Playback features: scrubbing and scanning with trickplay, the swipe-down tabs, tracks, libass subtitles, skip segments, Next Up, stats: `docs/superpowers/specs/2026-10-06-tvos-player-features-design.md` (done: PRs #304, #306, #307, #312–#315 and the device pass).
 5. Accessibility: VoiceOver navigation in the player, which M4's own input model leaves out, and an accessibility pass over the whole TV app (Benjamin, 2026-10-06). Before release, so the app ships accessible.
 6. Now Playing, Top Shelf, release pipeline (tvOS archive and upload), store assets, docs.
 

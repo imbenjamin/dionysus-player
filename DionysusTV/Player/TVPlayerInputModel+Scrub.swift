@@ -75,7 +75,7 @@ extension TVPlayerInputModel {
             return scrub.resumesOnCancel ? [.play] : []
         case .arrow(let direction), .swipeStep(let direction):
             if var scan = scrub.scan {
-                scan.level = min(max(scan.level + direction.step, -3), 3)
+                scan.level = min(max(scan.level + direction.step, -maxScanLevel), maxScanLevel)
                 scrub.scan = scan
             } else {
                 scrub.swipeAnchor = nil
@@ -84,7 +84,7 @@ extension TVPlayerInputModel {
         case .holdBegan(let direction):
             scrub.swipeAnchor = nil
             if var scan = scrub.scan {
-                scan.level = min(max(scan.level + direction.step, -3), 3)
+                scan.level = min(max(scan.level + direction.step, -maxScanLevel), maxScanLevel)
                 scrub.scan = scan
             } else {
                 scrub.scan = .init(level: direction.step, lastTickAt: now)
@@ -106,7 +106,9 @@ extension TVPlayerInputModel {
         return []
     }
 
-    /// Signed real-time multiple for a scan level: 8x, 32x, 64x each way.
+    static var maxScanLevel: Int { TVPlayerTiming.scanRates.count }
+
+    /// Signed real-time multiple for a scan level: 8x, 32x, 64x, 128x each way.
     static func scanRate(level: Int) -> Double {
         guard level != 0 else { return 0 }
         let index = min(abs(level), TVPlayerTiming.scanRates.count) - 1
