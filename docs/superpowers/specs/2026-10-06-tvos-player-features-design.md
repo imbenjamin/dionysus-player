@@ -88,7 +88,7 @@ Revised after Benjamin's Simulator review of PR 1 (2026-10-06), to mimic the nat
 
 - A scrub moves a **preview**, never playback: the picture stays paused. The played fill stays at the playhead; a knob marks the preview, overlapping the track without changing its height. Above it: a 400×225 trickplay thumbnail and "52:15 · Chapter name". Without trickplay, the time and chapter alone. A focused scrubber shows the same knob at the playhead.
 - **Scanning.** Playing, a hold of Left/Right (past 0.4s) or a horizontal swipe pauses and scans at level 1 in that direction. Releasing the hold leaves the scan running. Each further press or swipe steps the level: the same direction speeds up, the opposite slows, through a stop at level 0, then scans the other way: -4…-1/stop/+1…+4, at 8x, 32x, 64x and 128x of real time. A scan reaching either end stops there. The caption shows the direction as two to five triangles for levels 1 to 4, with no speed number, or a pause glyph at a stop.
-- **Paused**, a swipe scrubs freely (a full-width swipe covers a quarter of the title, snapping to chapters with Chapters in Scrubber on) and a press of Left/Right steps the preview 10s. This is the path XCUITest drives.
+- **Paused**, a swipe scrubs freely (a full-width swipe covers 5% of the title, as Infuse scales it, snapping to chapters with Chapters in Scrubber on) and a press of Left/Right steps the preview 10s. This is the path XCUITest drives.
 - **Select or Play/Pause** seeks to the preview and plays. **Menu** cancels: the preview returns to the playhead and playback resumes if the scrub paused it.
 - **Glyphs.** Play, pause and each 10s skip flash a glyph mid-screen, as the native player does.
 - Scanning moves the preview rather than the picture: AetherEngine caps video playback at 2x forward with no reverse (`setRate`, AetherEngine#39), and Benjamin chose a paused picture over a partial real fast-forward.
@@ -126,7 +126,7 @@ Lists of tracks, two lines each, with the iOS picker's text: `PlaybackTrack.titl
 
 ## Playback stats
 
-- The Stats icon toggles the panel; nothing else closes it. It takes no presses: Up, Down, Select and Menu do what they would without it. It stays through the transport fading and the tabs panel opening.
+- The Stats icon toggles the panel; nothing else closes it. It takes no presses: Up, Down, Select and Menu do what they would without it. It stays through the transport fading. It gives way, still on, while the tabs panel or the Next Up card is up, since they share the right half of the screen (Benjamin, 2026-10-08, after the final review found them overlapping).
 - **Top-right**, not the prototype's top-left, where the title block sits with the transport up. iOS anchors its panel top-right too.
 - One glass page, not three: a 1920×1080 screen holds every row of iOS's three pages (video, audio, presented format, route and streaming, buffer, frames, server and AetherEngine version). Refreshed twice a second from `PlaybackStats`.
 - The icon exists only while "Show Playback Stats Button" is on. Its default is shared with iOS, on in debug builds and off in release (Benjamin, 2026-10-07, replacing an earlier Off-in-every-build call). Profile's Advanced page reads the same default.

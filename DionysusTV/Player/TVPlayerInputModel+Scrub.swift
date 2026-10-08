@@ -3,7 +3,7 @@ import Foundation
 extension TVPlayerInputModel {
     /// Scrubbing and scanning (Benjamin, 2026-10-06), as the native player
     /// does it. Playing, a hold or a swipe pauses and scans at level 1 in its
-    /// direction; each further press or swipe steps the level, -3 to 3, the
+    /// direction; each further press or swipe steps the level, -4 to 4, the
     /// opposite way slowing through a stop. Paused, a swipe scrubs freely and
     /// a press steps 10s. Either way the picture stays paused and only the
     /// trickplay preview moves. `nil` when the intent isn't a scrub's.
@@ -48,9 +48,12 @@ extension TVPlayerInputModel {
     }
 
     /// Where a scrub may open: a title with a duration, focus on the
-    /// scrubber (always so with the transport hidden), and no panel over it.
+    /// scrubber (always so with the transport hidden), no panel over it, and
+    /// not the Next Up card's, which has focus while the transport is hidden:
+    /// there a swipe or hold moves along the card.
     static func scrubCanOpen(_ state: TVPlayerInputState, context: TVPlayerContext) -> Bool {
         context.duration > 0 && state.transportFocus == .scrubber && state.panel == nil
+            && !nextUpHasFocus(state, context: context)
     }
 
     /// Whether a horizontal swipe scrubs freely (`TVSwipeGate`): paused, or

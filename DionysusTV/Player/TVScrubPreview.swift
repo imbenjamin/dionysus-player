@@ -6,7 +6,7 @@ struct TVScrubPreview: View {
     let image: CGImage?
     let showsFrame: Bool
     let caption: String
-    /// The scan's level, -3 to 3, while scanning; `nil` in a free scrub.
+    /// The scan's level, -4 to 4, while scanning; `nil` in a free scrub.
     var scanLevel: Int? = nil
 
     static let size = CGSize(width: 400, height: 225)

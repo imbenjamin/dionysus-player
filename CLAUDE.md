@@ -737,7 +737,9 @@ What isn't guessable:
   audio or subtitles icon, and lifts the scrubber to mid-screen. Its tabs
   follow focus. Restart and a chapter play from there and close it; a track
   switch keeps it open so the change shows. It closes on Menu, Up from the
-  tabs, or 10s without a press. Info's art is a movie's poster, else an
+  tabs, or 10s without a press. Menu closes it even while an audio switch
+  rebuilds the session, which reads as loading, when every other press is
+  ignored and Menu would otherwise close the player. Info's art is a movie's poster, else an
   episode's thumb or still, else the nearest ancestor's Thumb
   (`MediaItem.parentThumbImageURL`): Jellyfin 10.11 sends
   `ParentThumbItemId`/`ParentThumbImageTag` on an episode, never
@@ -756,7 +758,8 @@ pauses (Benjamin, 2026-10-07: Select-skips-from-the-scrubber drew the knob
 and the button focused at once). Menu with nothing else up hides the
 button, which comes back with the transport (Benjamin, 2026-10-06). The
 Next Up card has focus while the transport is hidden, and Menu there means
-Close; with the transport up it is the stop above the icon row, as Skip is,
+Close; a swipe or hold there moves along the card, never scans
+(`scrubCanOpen`); with the transport up it is the stop above the icon row, as Skip is,
 and Menu there returns to the scrubber (Benjamin, 2026-10-07). **The next item plays in the same player**
 (`TVPlayerHostController.advanceToNextItem()`): the session ends and is
 reported, a new view model and engine are bound to AVKit, nothing is
@@ -766,6 +769,9 @@ one glass page top-right with every row of iOS's three pages
 (`PlaybackStatsReport`, shared, which iOS's overlay pages). The icon and its
 setting are named and defaulted as iOS's (Benjamin, 2026-10-07): "Show
 playback stats" / "Hide playback stats", on in debug builds, off in release.
+It gives way while the tabs panel or the Next Up card is up, the toggle
+still on (`TVPlayerInputModel.statsPanelShows`; Benjamin, 2026-10-08): they
+share the right half of the screen and drew over it.
 Each row is one accessibility element, its name the label and its reading
 the value: a reading alone ("1.00x") fails the audit as not human-readable.
 **The two players share their glyphs and skips** (Benjamin, 2026-10-07):

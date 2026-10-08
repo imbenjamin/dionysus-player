@@ -41,6 +41,14 @@ extension TVPlayerInputModel {
 
     /// The card has focus while the transport is hidden and nothing else is
     /// open; with the transport up, once Up from the icons reaches it.
+    /// Whether the stats panel is drawn: its toggle and its setting on, and
+    /// neither the tabs panel nor the Next Up card up, since they share the
+    /// right half of the screen (Benjamin, 2026-10-08). The toggle stays on
+    /// underneath, so the panel returns when they go.
+    static func statsPanelShows(_ state: TVPlayerInputState, context: TVPlayerContext) -> Bool {
+        state.isStatsOn && context.statsButtonEnabled && state.panel == nil && context.nextUpSecondsRemaining == nil
+    }
+
     static func nextUpHasFocus(_ state: TVPlayerInputState, context: TVPlayerContext) -> Bool {
         guard context.nextUpSecondsRemaining != nil, state.panel == nil, state.scrub == nil else { return false }
         return state.chrome == .hidden || state.transportFocus == .nextUp

@@ -123,6 +123,46 @@ final class TVPlayerOverlaysTests: XCTestCase, TVPlayerInputModelHarness {
         XCTAssertEqual(send(.select), [.playNext])
     }
 
+    /// M4 review: a swipe on the card used to pause into a scan.
+    func test_nextUp_transportHidden_aSwipeMovesAlongTheCard() {
+        context.nextUpSecondsRemaining = 8
+        state.chrome = .hidden
+        XCTAssertEqual(send(.swipeStep(.right)), [])
+        XCTAssertNil(state.scrub)
+        XCTAssertEqual(state.nextUpFocus, .close)
+        send(.swipeStep(.left))
+        XCTAssertEqual(state.nextUpFocus, .playNow)
+    }
+
+    /// A hold on the card acts once, on release, as on the icons.
+    func test_nextUp_transportHidden_aHoldMovesAlongTheCard_withoutScanning() {
+        context.nextUpSecondsRemaining = 8
+        state.chrome = .hidden
+        XCTAssertEqual(send(.arrowDown(.right)), [])
+        XCTAssertEqual(tick(for: 0.6), [])
+        XCTAssertNil(state.scrub, "No scan opens under the card")
+        send(.arrowUp(.right))
+        XCTAssertEqual(state.nextUpFocus, .close)
+    }
+
+    /// Stats give way to the tabs panel and the Next Up card (Benjamin,
+    /// 2026-10-08): they shared the right half of the screen.
+    func test_statsPanel_hidesWhileTheTabsPanelOrNextUpShows() {
+        context.statsButtonEnabled = true
+        state.isStatsOn = true
+        XCTAssertTrue(TVPlayerInputModel.statsPanelShows(state, context: context))
+        context.nextUpSecondsRemaining = 8
+        XCTAssertFalse(TVPlayerInputModel.statsPanelShows(state, context: context))
+        context.nextUpSecondsRemaining = nil
+        send(.down)
+        XCTAssertNotNil(state.panel)
+        XCTAssertFalse(TVPlayerInputModel.statsPanelShows(state, context: context))
+        XCTAssertTrue(state.isStatsOn, "The toggle itself stays on")
+        context.statsButtonEnabled = false
+        state.panel = nil
+        XCTAssertFalse(TVPlayerInputModel.statsPanelShows(state, context: context))
+    }
+
     func test_nextUp_menuMeansClose() {
         context.nextUpSecondsRemaining = 8
         state.chrome = .hidden

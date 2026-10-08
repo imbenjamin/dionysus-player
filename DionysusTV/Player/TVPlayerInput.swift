@@ -35,7 +35,9 @@ final class TVPlayerInput {
         ticker = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.tickInterval)
-                self?.send(.tick)
+                // Ends with its owner, not only on `stop()` (M4 review).
+                guard let self else { return }
+                self.send(.tick)
             }
         }
     }

@@ -23,7 +23,7 @@ struct TVPlayerOverlay: View {
 
             // Inside the safe area, so it sits at the title-safe insets,
             // top-right, clear of the title block.
-            if input.state.isStatsOn, input.context().statsButtonEnabled {
+            if TVPlayerInputModel.statsPanelShows(input.state, context: input.context()) {
                 TVStatsPanel(viewModel: viewModel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                     .transition(.opacity)

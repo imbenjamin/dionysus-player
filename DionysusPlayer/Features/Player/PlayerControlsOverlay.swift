@@ -178,6 +178,16 @@ struct PlayerControlsOverlay: View {
     /// lingers.
     @State private var chapterSnapHapticTrigger = false
 
+    /// One step for the skip buttons and the scrubber's VoiceOver adjustable
+    /// action alike, as the Apple TV's player skips (Benjamin, 2026-10-07).
+    /// The two once disagreed (VoiceOver kept a 15s step forward).
+    static let skipSeconds: TimeInterval = 10
+
+    /// `skipSeconds` back (`direction` -1) or on (1), within the title.
+    static func skipped(from time: TimeInterval, by direction: Double, duration: TimeInterval) -> TimeInterval {
+        min(max(0, time + direction * skipSeconds), max(duration, 0))
+    }
+
     /// A fixed cap rather than a measured fraction of the screen: reading the
     /// real height via `GeometryReader` or a `PreferenceKey` left the panel
     /// rendering nowhere, the dead end `estimatedHeight(for:)` also documents.
@@ -990,7 +1000,7 @@ struct PlayerControlsOverlay: View {
             HStack(spacing: 40) {
                 Button {
                     onInteract()
-                    viewModel.seek(to: max(0, displayedTime - 10))
+                    viewModel.seek(to: Self.skipped(from: displayedTime, by: -1, duration: viewModel.duration))
                 } label: {
                     Image(systemName: "gobackward.10")
                         // `.system(size:)` rather than `.title`: identical at
@@ -1019,7 +1029,7 @@ struct PlayerControlsOverlay: View {
 
                 Button {
                     onInteract()
-                    viewModel.seek(to: min(viewModel.duration, displayedTime + 10))
+                    viewModel.seek(to: Self.skipped(from: displayedTime, by: 1, duration: viewModel.duration))
                 } label: {
                     Image(systemName: "goforward.10")
                         .font(.system(size: skipGlyphSize))
@@ -1419,8 +1429,8 @@ struct PlayerControlsOverlay: View {
         .accessibilityValue(Text(Self.formatTime(displayedTime)))
         .accessibilityAdjustableAction { direction in
             switch direction {
-            case .increment: viewModel.seek(to: min(viewModel.duration, displayedTime + 15))
-            case .decrement: viewModel.seek(to: max(0, displayedTime - 10))
+            case .increment: viewModel.seek(to: Self.skipped(from: displayedTime, by: 1, duration: viewModel.duration))
+            case .decrement: viewModel.seek(to: Self.skipped(from: displayedTime, by: -1, duration: viewModel.duration))
             @unknown default: break
             }
         }
