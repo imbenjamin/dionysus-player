@@ -83,8 +83,14 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
     /// engine ignored (Benjamin, on the Bedroom Apple TV, 2026-10-06).
     private static let swallowedPressTypes: Set<UIPress.PressType> = [.select, .playPause]
 
+    /// Every press but those we act on: the remote's Select and Play/Pause,
+    /// and the keyboard keys `TVKeyboardCommand` maps, kept from AVKit for
+    /// the whole press, not only its release (M4 review).
     private func forwardable(_ presses: Set<UIPress>) -> Set<UIPress> {
-        presses.filter { !Self.swallowedPressTypes.contains($0.type) }
+        presses.filter { press in
+            !Self.swallowedPressTypes.contains(press.type)
+                && press.key.flatMap { TVKeyboardCommand(keyCode: $0.keyCode) } == nil
+        }
     }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
@@ -104,15 +110,14 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
 
     /// Keyboard keys with no remote press of their own (`TVKeyboardCommand`).
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        var unhandled = forwardable(presses)
         for press in presses {
             guard let keyCode = press.key?.keyCode, let command = TVKeyboardCommand(keyCode: keyCode) else { continue }
             switch command {
             case .playPause: input.send(.playPause)
             }
-            unhandled.remove(press)
         }
-        if !unhandled.isEmpty { super.pressesEnded(unhandled, with: event) }
+        let rest = forwardable(presses)
+        if !rest.isEmpty { super.pressesEnded(rest, with: event) }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -131,6 +136,10 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         super.viewDidLayoutSubviews()
         // AVKit rebuilds parts of its chrome as the item changes; keep it hidden.
         hideAVKitChrome(in: view)
+        // And its recognizers, which a new `player` (the next item played in
+        // place) may bring back (M4 review). Only once on screen, when every
+        // recognizer of ours is installed.
+        if view.window != nil { suppressAVKitGestures(in: view) }
         if let overlay = overlayHost?.view { view.bringSubviewToFront(overlay) }
     }
 

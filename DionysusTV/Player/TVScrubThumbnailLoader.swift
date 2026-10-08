@@ -17,6 +17,13 @@ final class TVScrubThumbnailLoader {
     @ObservationIgnored private var lastFetchAt: TimeInterval = -.infinity
     @ObservationIgnored private var pending: Double?
     @ObservationIgnored private var trailing: Task<Void, Never>?
+    /// Bumped by each fetch. An answer is shown only if it's newer than the
+    /// one on screen, and `reset()` raises the bar past every fetch in
+    /// flight, so a slow, older answer or one landing after a reset is
+    /// dropped (M4 review). Not "only the latest": with fetches slower than
+    /// the throttle, a long scan would then never show a frame.
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var shownGeneration = 0
 
     init(
         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -45,14 +52,20 @@ final class TVScrubThumbnailLoader {
         trailing = nil
         pending = nil
         image = nil
+        shownGeneration = generation
     }
 
     private func fire() {
         guard let seconds = pending else { return }
         pending = nil
         lastFetchAt = clock()
+        generation += 1
+        let mine = generation
         Task { [weak self, fetch] in
-            if let image = await fetch(seconds) { self?.image = image }
+            let image = await fetch(seconds)
+            guard let self, let image, mine > self.shownGeneration else { return }
+            self.shownGeneration = mine
+            self.image = image
         }
     }
 }

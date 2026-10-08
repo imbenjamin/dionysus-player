@@ -134,7 +134,7 @@ struct TVPlayerInputState: Equatable {
         var actedAsScan = false
     }
 
-    /// Native-style scanning (Benjamin, 2026-10-06): a level from -3 to 3,
+    /// Native-style scanning (Benjamin, 2026-10-06): a level from -4 to 4,
     /// 0 holding the preview still. The picture stays paused; only the
     /// trickplay preview moves.
     struct Scan: Equatable {
@@ -233,7 +233,14 @@ enum TVPlayerInputModel {
         if input == .tick { return tick(&state, context: context, now: now) }
         guard context.playback.acceptsInput else {
             state.heldArrow = nil
-            return input == .menu ? [.close] : []
+            guard input == .menu else { return [] }
+            // An audio switch rebuilds the session, reading as loading with
+            // the Audio tab still open: Menu closes the tab first (M4 review).
+            if state.panel != nil {
+                state.panel = nil
+                return []
+            }
+            return [.close]
         }
         state.lastInputAt = now
         state.panel?.lastInputAt = now

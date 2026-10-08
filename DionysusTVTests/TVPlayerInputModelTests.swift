@@ -30,6 +30,17 @@ final class TVPlayerInputModelTests: XCTestCase, TVPlayerInputModelHarness {
         }
     }
 
+    /// An audio switch rebuilds the session, which reads as loading with the
+    /// Audio tab still open: Menu closes the tab, not the player (M4 review).
+    func test_loading_menuClosesAnOpenPanelFirst() {
+        send(.down)
+        XCTAssertNotNil(state.panel)
+        context.playback = .loading
+        XCTAssertEqual(send(.menu), [])
+        XCTAssertNil(state.panel)
+        XCTAssertEqual(send(.menu), [.close])
+    }
+
     func test_up_focusesTheFirstIcon_onlyOnceTheTransportIsUp() {
         state.chrome = .hidden
         send(.up)
