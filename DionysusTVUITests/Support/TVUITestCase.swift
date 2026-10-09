@@ -7,6 +7,10 @@ class TVUITestCase: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
+        // Experiment: evaluate queries from XCTest's own accessibility
+        // snapshot rather than in the app's automation session, which on
+        // CI kept answering with Home after a page had opened.
+        UserDefaults.standard.set(true, forKey: "XCTDisableRemoteQueryEvaluation")
     }
 
     @discardableResult
