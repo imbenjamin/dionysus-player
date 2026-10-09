@@ -1224,6 +1224,21 @@ model. Fixed by snapshotting the row's display fields
 (`DownloadsRow.StandaloneItem`); 10/10 clean afterwards. Worth knowing the
 shape of, because a rerun-until-green habit would have buried it.
 
+**The same message after every failure means the retry was lost.** In Xcode
+26, a Swift UI test with `continueAfterFailure = false` and an async `setUp`,
+`tearDown` or test method has its runner terminated after its first failure;
+xcodebuild logs "Restarting after unexpected exit…" and carries on at the next
+test, so the plan's `retryOnFailure` never runs (Apple's known issue
+108565878, [forum thread 809989](https://developer.apple.com/forums/thread/809989)).
+Until 2026-10-09 `UITestCase` overrode the async variants, so every iOS UI
+failure in CI was final, a one-off launch timeout included: four of the five
+nightlies that finished between 4 and 9 October failed on the iPad on iOS
+26.5, each on one test, a different one each night, with every other test
+passing.
+The Apple TV suite's synchronous `setUp` retried all along. Keep both base
+classes' overrides synchronous, and don't make a test method `async`. A retried
+failure shows as "Iteration 2 of 3" in the runner's log.
+
 ## Adding a unit test
 
 1. Put it under `DionysusPlayerTests/`, mirroring the path of the file it
