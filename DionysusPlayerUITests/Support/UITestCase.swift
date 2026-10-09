@@ -42,12 +42,13 @@ class UITestCase: XCTestCase {
     }
 
     // A synchronous override is nonisolated whatever this class's
-    // `@MainActor` says, but XCTest calls it on the main thread, so it can
-    // claim the isolation to reach `app`.
+    // `@MainActor` says, so it can't reach `app` (handing `self` to the main
+    // actor is a Swift 6 error). XCTest calls it on the main thread, so it
+    // claims the isolation for a fresh handle on the same app instead, which
+    // terminates whatever instance is running and does nothing if none is.
     override func tearDown() {
         MainActor.assumeIsolated {
-            app?.terminate()
-            app = nil
+            XCUIApplication().terminate()
         }
         super.tearDown()
     }
