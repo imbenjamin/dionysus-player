@@ -146,10 +146,6 @@ struct TVMainView: View {
             }
         }
         .onAppear { holdRail() }
-        // A page change replaces the screen's content without a navigation
-        // container to say so, so accessibility is told here.
-        .onChange(of: nav.destination) { announceScreenChanged() }
-        .onChange(of: nav.path.map(\.id)) { announceScreenChanged() }
         .task { await sidebar.loadIfNeeded() }
         // A load that failed at launch (offline, or a server still starting)
         // is tried again whenever the rail is used, not only at next launch.
@@ -235,15 +231,6 @@ struct TVMainView: View {
             model?.applyOptimisticPlaybackPosition(outcome)
             if entryBeneathPlayer == entry.id { entryBeneathPlayer = nil }
             // Back on show, the page refreshes its item itself.
-        }
-    }
-
-    /// Posted once the new page has been built, so the tree read afterwards
-    /// is the new page's.
-    private func announceScreenChanged() {
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(100))
-            UIAccessibility.post(notification: .screenChanged, argument: nil)
         }
     }
 
