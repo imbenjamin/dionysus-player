@@ -88,16 +88,4 @@ final class PlayerSegmentJourneyTests: TVUITestCase {
         XCTAssertTrue(poll(timeout: 16) { elapsed.exists && (self.elapsedSeconds(app) ?? 999) < 20 },
                       "The next episode starts when the countdown ends")
     }
-
-    /// Home's Continue Watching rail: the movie, then S1:E1.
-    private func openEpisodeOne(scenario: String, extraArguments: [String] = []) -> XCUIApplication {
-        let app = launch(scenario: scenario, seedSession: true, extraArguments: extraArguments)
-        waitForHomeThenFirstTile(app)
-        press(.right)
-        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.episodeID(season: 1, episode: 1))]))
-        openDetailFromFocusedTile(app)
-        press(.select)
-        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.focus].waitForExistence(timeout: 10))
-        return app
-    }
 }

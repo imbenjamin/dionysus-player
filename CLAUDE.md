@@ -786,6 +786,41 @@ usage 0x2C), never `.playPause`, so a `.playPause` recognizer alone leaves
 Play/Pause dead there. XCUITest can't type into the player (nothing has
 keyboard focus), so check that path with `idb ui key <udid> 44`.
 
+**The accessible transport** (M5, `TVAccessibleTransport`): while VoiceOver
+or Switch Control runs (or `-UITestAccessibleTransport YES` forces it, since
+XCUITest can run neither), the player is driven by the focus engine instead
+of the input model's own focus. Nothing hides the transport by itself and
+the panel never times out; Menu closes the panel, then hides the controls
+(leaving one invisible "Show Player Controls" button, which Select, Up or
+Down answers with the controls back on Play/Pause, and Left and Right with a
+10s skip), then leaves (Benjamin, 2026-10-08). Up from the scrubber always
+lands on Play/Pause: the icon row's default focus at `.userInitiated`
+priority, as the season tabs do. The icon row gains back 10s, Play/Pause, forward 10s and
+Info; the scrubber is one adjustable element (10s a step, its spoken
+position as its value); panel tabs and rows, Skip and Next Up are focusable
+buttons, each sending a `TVPlayerControl` through the same reducer, so
+`PlayerViewModel` doesn't change. Play/pause, skips and track changes are
+announced once each, as are Skip and Next Up arriving. Three measured facts
+(tvOS 26.5 Simulator, 2026-10-08):
+- **With VoiceOver on, every press still reached the host's recognizers**,
+  so in this mode all but Menu and Play/Pause stand down, or Select would
+  act on both the focused button and our toggle.
+- **The controls are a layer presented over the player**
+  (`TVAccessibleTransportLayer`, over full screen), not part of its
+  overlay. AVKit's container view can take focus itself and UIKit doesn't
+  search inside a focusable view, so buttons hosted in the overlay took
+  focus once and never moved it: every heading proposed the container. The
+  player's own overlay keeps the subtitles (`TVPlayerOverlay.Role`), so
+  libass runs once; the transport's top reaches them through
+  `TVPlayerInput.chromeTop`. The player dismisses through its presenter, so
+  the layer goes with it.
+- **Menu in the layer must be the overlay's** (`onExitCommand`): left to
+  UIKit it dismissed the layer, leaving the player with no controls. A bare
+  `.focusable()` view was never reached by Down, so the scrubber is a
+  button too (Select plays and pauses, as on the remote's scrubber).
+XCUITest reports an adjustable SwiftUI element as Other, so the scrubber's
+swipe-up/down steps are checked by hand with VoiceOver on.
+
 ## Commands
 
 The Xcode project (`DionysusPlayer.xcodeproj`) is generated from `project.yml`

@@ -21,6 +21,12 @@ struct TVTransportOverlay: View {
     }
 
     private var state: TVPlayerInputState { input.state }
+    /// The accessible transport (M5): real focusable controls, drawn from
+    /// the focus engine's focus rather than the model's.
+    private var accessible: Bool { input.accessibleTransport }
+    @FocusState private var focusedControl: String?
+    @FocusState private var isScrubberFocused: Bool
+    private func send(_ control: TVPlayerControl) { input.send(.control(control)) }
     private var showsChrome: Bool { state.chrome == .transport }
     /// The preview's time while scrubbing, else the playhead.
     private var shownTime: TimeInterval { state.scrub?.previewTime ?? viewModel.currentTime }
@@ -37,6 +43,8 @@ struct TVTransportOverlay: View {
             }
             if showsChrome {
                 chromeLayer.transition(.opacity)
+            } else if accessible {
+                showControlsButton
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -48,6 +56,12 @@ struct TVTransportOverlay: View {
                 bufferedSeconds = viewModel.stats.bufferedSeconds
                 try? await Task.sleep(for: .seconds(1))
             }
+        }
+        // Shown again from the hidden state: Play/Pause, once the controls
+        // exist to take it.
+        .onChange(of: showsChrome) { _, shown in
+            guard accessible, shown else { return }
+            Task { @MainActor in focusedControl = TVAccessibleTransportButton.playPause.id }
         }
         .onChange(of: state.scrub?.previewTime) { _, time in
             if let time { thumbnails.request(time) } else { thumbnails.reset() }
@@ -96,13 +110,19 @@ struct TVTransportOverlay: View {
                     // top, the icons or the raised scrubber, so a subtitle
                     // shows above whichever is up.
                     VStack(alignment: .leading, spacing: 18) {
-                        if state.panel == nil {
+                        // In the accessible transport the icons stay with the
+                        // panel open: they are how focus gets back up.
+                        if state.panel == nil || accessible {
                             iconRow.transition(.opacity)
                         }
-                        scrubber
+                        scrubberStop
                         timesRow
                         if let panel = state.panel {
-                            TVPlayerPanelView(viewModel: viewModel, panel: panel, tabs: TVPlayerInputModel.availableTabs(input.context()))
+                            TVPlayerPanelView(
+                                viewModel: viewModel, panel: panel, tabs: TVPlayerInputModel.availableTabs(input.snapshot()),
+                                accessible: accessible, send: send,
+                                landingRow: TVPlayerInputModel.defaultIndex(panel.tab, input.snapshot())
+                            )
                                 .padding(.top, 26)
                                 // From a whole panel-height below, so it rides
                                 // up under the rising scrubber rather than
@@ -117,6 +137,35 @@ struct TVTransportOverlay: View {
                 .ignoresSafeArea()
                 .animation(.easeInOut(duration: 0.3), value: state.panel != nil)
         }
+        .defaultFocus($focusedControl, TVAccessibleTransportButton.playPause.id)
+        // Closing the panel takes its rows away; focus goes to Play/Pause
+        // rather than wherever tvOS lands (the leftmost button).
+        .onChange(of: state.panel == nil) { _, closed in
+            if accessible, closed { focusedControl = TVAccessibleTransportButton.playPause.id }
+        }
+    }
+
+    /// The accessible transport with its controls hidden (Benjamin,
+    /// 2026-10-08): nothing on screen but the picture, and one invisible
+    /// button holding focus, so Select, Up or Down brings the controls back
+    /// with Play/Pause focused. Named as iOS's VoiceOver button is.
+    private var showControlsButton: some View {
+        TVPlayerControlButton(action: { send(.showControls) }) { _ in
+            Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .onMoveCommand { direction in
+            switch direction {
+            case .up, .down: send(.showControls)
+            // Watching without the controls, Left and Right still skip
+            // (Benjamin, 2026-10-08).
+            case .left: send(.skip(.left))
+            case .right: send(.skip(.right))
+            @unknown default: break
+            }
+        }
+        .accessibilityLabel(String(localized: "Show Player Controls"))
+        .accessibilityIdentifier(A11yID.TV.Player.showControls)
+        .ignoresSafeArea()
     }
 
     // MARK: - Title
@@ -198,16 +247,78 @@ struct TVTransportOverlay: View {
 
     private var iconRow: some View {
         HStack(spacing: 18) {
+            if accessible {
+                ForEach([TVAccessibleTransportButton.back, .playPause, .forward], id: \.id) { button in
+                    accessibleButton(button)
+                }
+            }
             Spacer()
-            ForEach(input.context().availableIcons, id: \.self) { icon in
-                TVPlayerIconButton(
-                    icon: icon,
-                    isFocused: state.transportFocus == .icon(icon),
-                    isOn: icon == .stats && state.isStatsOn
-                )
+            if accessible { accessibleButton(.info) }
+            ForEach(input.snapshot().availableIcons, id: \.self) { icon in
+                if accessible {
+                    let isOn = icon == .stats && state.isStatsOn
+                    TVPlayerControlButton(action: { send(icon == .stats ? .toggleStats : .openPanel(icon.panelTab)) }) { focused in
+                        TVPlayerIconFace(systemImage: icon.systemImage, isFocused: focused, isOn: isOn)
+                    }
+                    .accessibilityLabel(icon.label(isOn: isOn))
+                    .accessibilityAddTraits(isOn ? .isSelected : [])
+                    .accessibilityIdentifier(A11yID.TV.Player.icon(icon.id))
+                } else {
+                    TVPlayerIconButton(
+                        icon: icon,
+                        isFocused: state.transportFocus == .icon(icon),
+                        isOn: icon == .stats && state.isStatsOn
+                    )
+                }
             }
         }
         .frame(height: 96)
+        .focusSection()
+        // Up from the scrubber always lands on Play/Pause (Benjamin,
+        // 2026-10-08), not on whichever icon sits above the knob. As the
+        // detail page's season tabs do: `.userInitiated` applies to a press
+        // into the row as well.
+        .defaultFocus($focusedControl, TVAccessibleTransportButton.playPause.id, priority: .userInitiated)
+    }
+
+    private func accessibleButton(_ button: TVAccessibleTransportButton) -> some View {
+        let isPlaying = TVPlayerContext.playback(viewModel.state) == .playing
+        return TVPlayerControlButton(action: { send(button.control) }) { focused in
+            TVPlayerIconFace(systemImage: button.systemImage(isPlaying: isPlaying), isFocused: focused)
+        }
+        .focused($focusedControl, equals: button.id)
+        .accessibilityLabel(button.label(isPlaying: isPlaying))
+        .accessibilityIdentifier(A11yID.TV.Player.control(button.id))
+    }
+
+    /// The scrubber; in the accessible transport, one adjustable element
+    /// that steps 10s, as iOS's scrubber does under VoiceOver.
+    @ViewBuilder
+    private var scrubberStop: some View {
+        if accessible {
+            // A button, as a bare `.focusable()` view was never reached by
+            // Down from the icons (measured); Select plays and pauses, as it
+            // does on the remote's scrubber.
+            TVPlayerControlButton(action: { send(.playPause) }) { _ in scrubber }
+                .focused($isScrubberFocused)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(viewModel.item?.railTitle ?? String(localized: "Playback position"))
+                .accessibilityValue(TVPlaybackTimeFormat.spokenPosition(viewModel.currentTime, of: viewModel.duration))
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: send(.skip(.right))
+                    case .decrement: send(.skip(.left))
+                    @unknown default: break
+                    }
+                }
+                .onMoveCommand { direction in
+                    if direction == .left { send(.skip(.left)) }
+                    if direction == .right { send(.skip(.right)) }
+                }
+                .accessibilityIdentifier(A11yID.TV.Player.scrubber)
+        } else {
+            scrubber
+        }
     }
 
     private var scrubber: some View {
@@ -253,7 +364,7 @@ struct TVTransportOverlay: View {
                         x: TVTransportLayout.previewCenterX(fraction: fraction, trackWidth: width, previewWidth: TVScrubPreview.size.width),
                         y: -(TVScrubPreview.size.height / 2 + 150)
                     )
-                } else if TVPlayerInputModel.scrubberHasFocus(state), duration > 0 {
+                } else if accessible ? isScrubberFocused : TVPlayerInputModel.scrubberHasFocus(state), duration > 0 {
                     // The scrubber's focus (Benjamin, 2026-10-06): a knob at
                     // the playhead whenever the scrubber has it.
                     knob(at: TVTransportLayout.fraction(viewModel.currentTime, duration: duration), width: width)

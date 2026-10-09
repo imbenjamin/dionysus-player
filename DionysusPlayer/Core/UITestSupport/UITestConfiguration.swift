@@ -234,6 +234,10 @@ enum UITestConfiguration {
     /// otherwise race that timer.
     static var disablesControlAutoHide: Bool { flag("UITestDisableControlAutoHide") }
 
+    /// The tvOS player's accessible transport, which otherwise needs
+    /// VoiceOver or Switch Control running; XCUITest can run neither.
+    static var forcesAccessibleTransport: Bool { flag("UITestAccessibleTransport") }
+
     /// The server address a seeded session points at. Arbitrary, since every
     /// request is intercepted, but it must be a real URL and must match what
     /// `UITestStubURLProtocol.respond` claims to have responded from.

@@ -28,6 +28,14 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
     private var fakeSurface: UIHostingController<AnyView>?
     private var overlayHost: UIHostingController<TVPlayerOverlay>?
     private var ourRecognizers: [UIGestureRecognizer] = []
+    /// Menu and Play/Pause: they keep working in the accessible transport,
+    /// where every other press is the focus engine's (M5).
+    private var modeIndependentRecognizers: Set<ObjectIdentifier> = []
+    private var isAccessibleTransportApplied = false
+    private var accessibleLayer: TVAccessibleTransportLayer?
+    /// VoiceOver's and Switch Control's status, kept apart from
+    /// `cancellables`, which `unbindSurface` empties for the next item.
+    private var accessibilityObservers: Set<AnyCancellable> = []
     private var cancellables: Set<AnyCancellable> = []
 
     init(viewModel: PlayerViewModel) {
@@ -74,6 +82,59 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         pan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]
         view.addGestureRecognizer(pan)
         ourRecognizers.append(pan)
+
+        input.announce = { text in AccessibilityNotification.Announcement(text).post() }
+        applyAccessibleTransport()
+        for name in [UIAccessibility.voiceOverStatusDidChangeNotification, UIAccessibility.switchControlStatusDidChangeNotification] {
+            NotificationCenter.default.publisher(for: name)
+                .receive(on: RunLoop.main)
+                .sink { [weak self] _ in self?.applyAccessibleTransport() }
+                .store(in: &accessibilityObservers)
+        }
+    }
+
+    /// VoiceOver or Switch Control, read now and on every change (M5). In
+    /// the accessible transport every press but Menu and Play/Pause is the
+    /// focus engine's: with VoiceOver on, Select still reached our
+    /// recognizers as well as the focused button (measured, tvOS 26.5
+    /// Simulator), so they stand down rather than act twice.
+    private func applyAccessibleTransport() {
+        var forced = false
+        #if DEBUG
+        forced = UITestConfiguration.isActive && UITestConfiguration.forcesAccessibleTransport
+        #endif
+        let on = TVAccessibleTransport.isOn(
+            voiceOver: UIAccessibility.isVoiceOverRunning,
+            switchControl: UIAccessibility.isSwitchControlRunning,
+            forced: forced
+        )
+        if on != input.accessibleTransport || !isAccessibleTransportApplied {
+            isAccessibleTransportApplied = true
+            input.accessibleTransport = on
+            for recognizer in ourRecognizers where !modeIndependentRecognizers.contains(ObjectIdentifier(recognizer)) {
+                recognizer.isEnabled = !on
+            }
+        }
+        syncAccessibleLayer()
+    }
+
+    /// The accessible transport's controls are a layer presented over the
+    /// player, not part of its overlay: AVKit's container view can take
+    /// focus itself, and UIKit doesn't search inside a focusable view, so
+    /// buttons hosted in it took focus once and could never move it
+    /// (measured, tvOS 26.5 Simulator). Presented only once the player is
+    /// on screen, and never while it is closing.
+    private func syncAccessibleLayer() {
+        if input.accessibleTransport {
+            guard accessibleLayer == nil, viewIfLoaded?.window != nil, presentedViewController == nil,
+                  !session.hasEnded, !isBeingDismissed else { return }
+            let layer = TVAccessibleTransportLayer(rootView: TVPlayerOverlay(viewModel: viewModel, input: input, role: .accessibleLayer))
+            accessibleLayer = layer
+            present(layer, animated: false)
+        } else if let layer = accessibleLayer {
+            accessibleLayer = nil
+            if presentedViewController === layer { dismiss(animated: false) }
+        }
     }
 
     /// Remote presses our recognizers already turn into input. Passed up,
@@ -130,6 +191,7 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         // playback starting, not from here.
         session.begin()
         input.start()
+        syncAccessibleLayer()
     }
 
     override func viewDidLayoutSubviews() {
@@ -257,6 +319,7 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         input.reset()
         bindSurface()
         overlayHost?.rootView = TVPlayerOverlay(viewModel: nextViewModel, input: input)
+        accessibleLayer?.rootView = TVPlayerOverlay(viewModel: nextViewModel, input: input, role: .accessibleLayer)
         session.begin()
     }
 
@@ -317,7 +380,9 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
     }
 
     private func dismissReportingOutcome() {
-        dismiss(animated: true) { [onClose, pendingOutcome] in
+        // From the presenter, so the accessible transport's layer goes with
+        // the player: `dismiss` on the player would close only the layer.
+        (presentingViewController ?? self).dismiss(animated: true) { [onClose, pendingOutcome] in
             if let pendingOutcome { onClose?(pendingOutcome) }
         }
     }
@@ -351,6 +416,7 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         recognizer.allowedPressTypes = [NSNumber(value: type.rawValue)]
         view.addGestureRecognizer(recognizer)
         ourRecognizers.append(recognizer)
+        if type == .menu || type == .playPause { modeIndependentRecognizers.insert(ObjectIdentifier(recognizer)) }
     }
 
     /// Switches off every recognizer AVKit installed, leaving ours.
@@ -394,3 +460,21 @@ private final class PressRecognizer: UITapGestureRecognizer {
     @objc private func fire() { action() }
 }
 
+/// The accessible transport's controls (M5), presented over the player
+/// (`TVPlayerHostController.syncAccessibleLayer`). Menu and Play/Pause are
+/// its overlay's (`AccessibleLayerCommands`), since presses start at the
+/// focused control in this layer, not at the player's recognizers.
+final class TVAccessibleTransportLayer: UIHostingController<TVPlayerOverlay> {
+    override init(rootView: TVPlayerOverlay) {
+        super.init(rootView: rootView)
+        modalPresentationStyle = .overFullScreen
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+    }
+}

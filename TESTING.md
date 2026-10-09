@@ -287,7 +287,22 @@ that Menu dismisses, including while the item is still loading
 (`slowPlaybackInfo`). `PlayerStatsJourneyTests` checks the stats icon is
 absent while its setting is off (on by default in the debug builds tests run),
 and that it toggles the playback stats panel, which shows the fake engine's
-readings and stays through Menu and Select. `TileShapeJourneyTests` reads a tile's shape from its
+readings and stays through Menu and Select. `PlayerAccessibleTransportJourneyTests`
+forces the accessible transport (`-UITestAccessibleTransport YES`, since
+XCUITest can't run VoiceOver) and drives it with the real focus engine:
+Play/Pause has focus as the player opens and relabels on a press, the
+transport stays up while playing until Menu hides it, Select, Up and Down
+each bring it back on Play/Pause while Left and Right skip and leave it
+hidden, Up from the scrubber lands on Play/Pause even from the far right, Forward and the scrubber skip 10s (the
+scrubber's spoken value changes with it), Audio opens the panel on the
+chosen track and a second track is marked selected, Menu closes the panel,
+then hides the controls, then the player, and Skip and Next Up's Close are buttons reached with Up
+from the last icon. The scrubber's adjustable steps (VoiceOver's swipe up and
+down) are checked by hand, since XCUITest reports it as Other.
+`TVPlayerAccessibleTransportTests` pins the reducer in that mode: raw arrows,
+Select and swipes do nothing, each `TVPlayerControl` reuses the remote's own
+action, nothing fades or times out, and a stale panel row does nothing;
+`TVAccessibleTransportTests` pins when the mode is on and what is announced. `TileShapeJourneyTests` reads a tile's shape from its
 frame: a shows library's grid and Search's Shows rail are landscape, a movies
 library's grid stays posters. `SearchJourneyTests` opens Search from the rail and
 types into the system search field (`typeText` works on tvOS once the field

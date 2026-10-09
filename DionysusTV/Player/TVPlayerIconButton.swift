@@ -31,7 +31,23 @@ struct TVPlayerIconButton: View {
     var isOn = false
 
     var body: some View {
-        Image(systemName: icon.systemImage)
+        TVPlayerIconFace(systemImage: icon.systemImage, isFocused: isFocused, isOn: isOn)
+            .accessibilityElement()
+            .accessibilityLabel(icon.label(isOn: isOn))
+            .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : .isButton)
+            .accessibilityIdentifier(A11yID.TV.Player.icon(icon.id))
+    }
+}
+
+/// The icon's look for a given focus; shared by the remote's mode (focus
+/// from the model) and the accessible transport (focus from the engine).
+struct TVPlayerIconFace: View {
+    let systemImage: String
+    let isFocused: Bool
+    var isOn = false
+
+    var body: some View {
+        Image(systemName: systemImage)
             .font(.system(size: 30, weight: .semibold))
             .foregroundStyle(isFocused ? Color.black : Color.white)
             .frame(width: 84, height: 84)
@@ -39,9 +55,17 @@ struct TVPlayerIconButton: View {
             .scaleEffect(isFocused ? 1.1 : 1)
             .shadow(color: .black.opacity(isFocused ? 0.4 : 0), radius: 16, y: 8)
             .animation(.easeOut(duration: 0.15), value: isFocused)
-            .accessibilityElement()
-            .accessibilityLabel(icon.label(isOn: isOn))
-            .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : .isButton)
-            .accessibilityIdentifier(A11yID.TV.Player.icon(icon.id))
+    }
+}
+
+extension TVPlayerIcon {
+    /// The panel tab an icon opens; Stats opens none, and is never asked.
+    var panelTab: TVPanelTab {
+        switch self {
+        case .chapters: .chapters
+        case .audio: .audio
+        case .subtitles: .subtitles
+        case .stats: .info
+        }
     }
 }
