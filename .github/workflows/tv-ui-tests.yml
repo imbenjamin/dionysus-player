@@ -69,8 +69,6 @@ jobs:
           ios-version: "26.5"
           retry-tests-on-failure: ${{ inputs.retry-tests-on-failure }}
           result-bundle-path: .build/TVUITestResults.xcresult
-          # Experiment: a new Apple TV rather than the image's own one.
-          fresh-simulator: true
 
       - name: Upload UI test results
         if: failure()
