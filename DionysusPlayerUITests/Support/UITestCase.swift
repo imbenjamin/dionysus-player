@@ -26,21 +26,31 @@ class UITestCase: XCTestCase {
 
     private(set) var app: XCUIApplication!
 
-    // The `async throws` variants, not the plain ones. An override of
-    // `XCTestCase`'s synchronous `setUp()`/`tearDown()` is nonisolated
-    // regardless of this class's `@MainActor`, so it cannot touch `app` —
-    // these inherit the isolation instead.
-    override func setUp() async throws {
-        try await super.setUp()
+    // The synchronous overrides, never the `async throws` ones. In Xcode 26,
+    // a Swift test with `continueAfterFailure = false` and an async `setUp`
+    // or `tearDown` (or an async test method) has its runner terminated
+    // after its first failure, and the run resumes at the *next* test: the
+    // test plan's retry never runs (Apple's known issue 108565878, in the
+    // developer forums' thread 809989). Every iOS UI failure in CI was final
+    // because of it, a launch timeout included, while the Apple TV suite's
+    // synchronous `setUp` retried. Keep these synchronous.
+    override func setUp() {
+        super.setUp()
         // A UI test that has already failed one assertion is reporting
         // cascading noise from that point on, not new information.
         continueAfterFailure = false
     }
 
-    override func tearDown() async throws {
-        app?.terminate()
-        app = nil
-        try await super.tearDown()
+    // A synchronous override is nonisolated whatever this class's
+    // `@MainActor` says, so it can't reach `app` (handing `self` to the main
+    // actor is a Swift 6 error). XCTest calls it on the main thread, so it
+    // claims the isolation for a fresh handle on the same app instead, which
+    // terminates whatever instance is running and does nothing if none is.
+    override func tearDown() {
+        MainActor.assumeIsolated {
+            XCUIApplication().terminate()
+        }
+        super.tearDown()
     }
 
     /// Launches the app against the stub server.

@@ -4,6 +4,8 @@ import XCTest
 /// `UITestHarness` the iOS suite uses) and drives it with the Siri Remote.
 @MainActor
 class TVUITestCase: XCTestCase {
+    // Synchronous, never `async`: with `continueAfterFailure = false`, an
+    // async override stops the test plan's retries (see `UITestCase`).
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
