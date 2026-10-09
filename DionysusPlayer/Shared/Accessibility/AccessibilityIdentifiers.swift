@@ -544,6 +544,13 @@ enum A11yID {
             /// engine XCUITest's `hasFocus` reads.
             static let focus = "tv.player.focus"
             static func icon(_ id: String) -> String { "tv.player.icon.\(id)" }
+            /// The accessible transport's own buttons: back, playPause, forward, info.
+            static func control(_ id: String) -> String { "tv.player.control.\(id)" }
+            /// The scrubber as one adjustable element (accessible transport).
+            static let scrubber = "tv.player.scrubber"
+            /// The accessible transport's hidden state: one invisible
+            /// button that brings the controls back.
+            static let showControls = "tv.player.showControls"
             static let panel = "tv.player.panel"
             static let restart = "tv.player.restart"
             static let infoArt = "tv.player.infoArt"

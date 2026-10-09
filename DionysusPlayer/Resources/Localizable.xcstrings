@@ -23,6 +23,9 @@
     "%@ (Previously selected)" : {
 
     },
+    "%@ available" : {
+
+    },
     "%@ bitrate, in kilobits per second" : {
 
     },
@@ -31,6 +34,16 @@
     },
     "%@ megabits per second" : {
 
+    },
+    "%@ of %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ of %2$@"
+          }
+        }
+      }
     },
     "%@ of %@ Used" : {
       "localizations" : {
@@ -330,6 +343,9 @@
     "Audio and music playback aren't supported." : {
 
     },
+    "Audio, %@" : {
+
+    },
     "Authorize" : {
 
     },
@@ -340,6 +356,9 @@
 
     },
     "Back" : {
+
+    },
+    "Back 10 seconds" : {
 
     },
     "Based on a %lld minute movie and %lld minute TV episode." : {
@@ -803,6 +822,9 @@
     "Formats: %@" : {
 
     },
+    "Forward 10 seconds" : {
+
+    },
     "Frame Rate" : {
 
     },
@@ -1099,6 +1121,9 @@
 
     },
     "Playback Source" : {
+
+    },
+    "Playing" : {
 
     },
     "Playing in Picture in Picture" : {
@@ -1443,6 +1468,12 @@
     "Subtitles" : {
 
     },
+    "Subtitles, %@" : {
+
+    },
+    "Subtitles, Off" : {
+
+    },
     "Switch Apple TV users in Control Center and Dionysus follows, each person signed in to their own Jellyfin account." : {
 
     },
@@ -1636,6 +1667,9 @@
 
     },
     "Unwatched" : {
+
+    },
+    "Up next: %@" : {
 
     },
     "Up to %@" : {

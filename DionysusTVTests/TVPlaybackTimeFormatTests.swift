@@ -9,4 +9,11 @@ final class TVPlaybackTimeFormatTests: XCTestCase {
         XCTAssertEqual(TVPlaybackTimeFormat.string(.infinity), "0:00")
     }
     func test_negative_isZero() { XCTAssertEqual(TVPlaybackTimeFormat.string(-3), "0:00") }
+
+    func test_spoken() {
+        XCTAssertEqual(TVPlaybackTimeFormat.spoken(750), "12 minutes, 30 seconds")
+        XCTAssertEqual(TVPlaybackTimeFormat.spoken(0), String(localized: "0 seconds"))
+        XCTAssertEqual(TVPlaybackTimeFormat.spokenPosition(750, of: 6720),
+                       String(localized: "12 minutes, 30 seconds of 1 hour, 52 minutes"))
+    }
 }

@@ -34,4 +34,27 @@ extension TVUITestCase {
         guard parts.count >= 2 else { return nil }
         return parts.reduce(0) { $0 * 60 + $1 }
     }
+
+    /// Launches signed in and plays S1:E1 from Home's Continue Watching rail,
+    /// where it follows the movie.
+    @discardableResult
+    func openEpisodeOne(scenario: String, extraArguments: [String] = []) -> XCUIApplication {
+        let app = launch(scenario: scenario, seedSession: true, extraArguments: extraArguments)
+        waitForHomeThenFirstTile(app)
+        press(.right)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.episodeID(season: 1, episode: 1))]))
+        openDetailFromFocusedTile(app)
+        press(.select)
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.focus].waitForExistence(timeout: 10))
+        return app
+    }
+
+    /// Presses `direction` until `element` has focus, at most `limit` times.
+    func moveFocus(to element: XCUIElement, pressing direction: XCUIRemote.Button, limit: Int) -> Bool {
+        for _ in 0..<limit {
+            if element.hasFocus { return true }
+            press(direction)
+        }
+        return element.hasFocus
+    }
 }

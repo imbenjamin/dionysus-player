@@ -104,6 +104,21 @@ final class AccessibilityAuditTests: TVUITestCase {
         try audit(app)
     }
 
+    func test_playerAccessibleTransport() throws {
+        let app = openPlayer(extraArguments: ["-UITestAccessibleTransport", "YES"])
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Player.control("playPause")]))
+        try audit(app)
+    }
+
+    func test_playerAccessibleTransportPanel() throws {
+        let app = openPlayer(extraArguments: ["-UITestAccessibleTransport", "YES"])
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Player.control("playPause")]))
+        XCTAssertTrue(moveFocus(to: app.buttons[A11yID.TV.Player.control("info")], pressing: .right, limit: 6))
+        press(.select)
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.panel].waitForExistence(timeout: 5))
+        try audit(app)
+    }
+
     func test_playerPanel() throws {
         let app = openPlayer(extraArguments: ["-UITestDisableControlAutoHide", "YES"])
         press(.down)

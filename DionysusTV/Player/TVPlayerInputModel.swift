@@ -44,6 +44,23 @@ enum TVNextUpButton: Equatable {
     case playNow, close
 }
 
+/// What one of the accessible transport's focusable controls asked for
+/// (M5). The focus engine has already moved and selected, so these say
+/// what to do, not which press happened.
+enum TVPlayerControl: Equatable {
+    case playPause
+    case skip(TVDirection)
+    /// Opens the panel on this tab, or switches to it while open.
+    case openPanel(TVPanelTab)
+    case toggleStats
+    /// A row of the open panel's tab: Restart, a chapter, a track.
+    case panelRow(Int)
+    case skipSegment
+    case nextUp(TVNextUpButton)
+    /// The hidden layer's Show Player Controls: Select, Up or Down.
+    case showControls
+}
+
 /// What the remote did, as the host reports it.
 enum TVRemoteInput: Equatable {
     case select, playPause, menu, up, down
@@ -56,6 +73,8 @@ enum TVRemoteInput: Equatable {
     /// One horizontal swipe where no free scrub is possible: it enters or
     /// steps a scan, or moves focus as an arrow press would.
     case swipeStep(TVDirection)
+    /// A control of the accessible transport (`TVPlayerControl`).
+    case control(TVPlayerControl)
     /// The model's clock. Holds, scans, fades and timeouts advance on it.
     case tick
 }
@@ -103,6 +122,12 @@ struct TVPlayerContext: Equatable {
     var closesWhenPlaybackEnds = true
     /// The UI-test harness's `-UITestDisableControlAutoHide`.
     var autoHideDisabled = false
+    /// VoiceOver or Switch Control is running, or the UI-test harness
+    /// forces it: the focus engine drives the player (M5).
+    var accessibleTransport = false
+    /// The tracks' titles, for the accessible transport's announcements.
+    var audioTrackTitles: [String] = []
+    var subtitleTrackTitles: [String] = []
 
     /// The icons with something to do, so none is a dead stop.
     var availableIcons: [TVPlayerIcon] {
@@ -244,6 +269,19 @@ enum TVPlayerInputModel {
         }
         state.lastInputAt = now
         state.panel?.lastInputAt = now
+        if context.accessibleTransport {
+            switch input {
+            case .control(let control):
+                return reduceControl(control, &state, context: context, now: now)
+            case .menu:
+                return accessibleMenu(&state)
+            case .playPause:
+                break
+            default:
+                // The focus engine moves and selects in this mode.
+                return []
+            }
+        }
         let intent: Intent
         switch input {
         case .select: intent = .select
@@ -267,7 +305,7 @@ enum TVPlayerInputModel {
         case .swipeStep(let direction):
             // Where no scan can start or step, a swipe is an arrow press.
             intent = state.scrub != nil || scrubCanOpen(state, context: context) ? .swipeStep(direction) : .arrow(direction)
-        case .tick: return []
+        case .tick, .control: return []
         }
         return dispatch(intent, &state, context: context, now: now)
     }
@@ -415,7 +453,7 @@ enum TVPlayerInputModel {
             state.transportFocus = .scrubber
         }
         if var panel = state.panel {
-            if now - panel.lastInputAt >= TVPlayerTiming.panelTimeout {
+            if !context.accessibleTransport, now - panel.lastInputAt >= TVPlayerTiming.panelTimeout {
                 state.panel = nil
                 state.lastInputAt = now
             } else if case .content(let index) = panel.focus {
@@ -426,7 +464,15 @@ enum TVPlayerInputModel {
                 state.panel = panel
             }
         }
+        if context.accessibleTransport {
+            // The focus engine's focus, not the model's, is drawn.
+            state.transportFocus = .scrubber
+        }
         switch context.playback {
+        case .paused where context.accessibleTransport && state.chrome == .hidden:
+            // Hidden by hand: the person chose to watch without them
+            // (Benjamin, 2026-10-08), and Menu must still reach Close.
+            state.lastInputAt = now
         case .loading, .paused, .failed:
             // The transport stays up, and its fade waits for playback, so a
             // slow load doesn't use up the title's time on screen.
@@ -453,6 +499,7 @@ enum TVPlayerInputModel {
     }
 
     static func chromeMayFade(_ state: TVPlayerInputState, context: TVPlayerContext) -> Bool {
-        context.playback == .playing && !context.autoHideDisabled && state.scrub == nil && state.panel == nil
+        context.playback == .playing && !context.autoHideDisabled && !context.accessibleTransport
+            && state.scrub == nil && state.panel == nil
     }
 }

@@ -18,26 +18,52 @@ struct TVPlayerPanelView: View {
     let viewModel: PlayerViewModel
     let panel: TVPlayerInputState.Panel
     let tabs: [TVPanelTab]
+    /// The accessible transport (M5): tabs and rows are focusable buttons
+    /// sending `send`, drawn from the focus engine's focus.
+    var accessible = false
+    var send: (TVPlayerControl) -> Void = { _ in }
+    /// The row focus lands on as the panel opens in the accessible
+    /// transport: Restart, the current chapter, the chosen track, as the
+    /// remote's Down does (`TVPlayerInputModel.defaultIndex`).
+    var landingRow = 0
+    @FocusState private var focusedRow: Int?
 
     private func isFocused(_ index: Int) -> Bool { panel.focus == .content(index) }
+
+    /// A button the focus engine reaches in the accessible transport;
+    /// otherwise the face drawn from the model's focus.
+    @ViewBuilder
+    private func control<Face: View>(
+        _ action: TVPlayerControl, modelFocused: Bool, @ViewBuilder face: @escaping (_ isFocused: Bool) -> Face
+    ) -> some View {
+        if accessible {
+            let row: Int? = if case .panelRow(let index) = action { index } else { nil }
+            TVPlayerControlButton(action: { send(action) }, label: face)
+                .focused($focusedRow, equals: row)
+        } else {
+            face(modelFocused)
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 34) {
             HStack(spacing: 12) {
                 ForEach(tabs, id: \.self) { tab in
-                    let focused = panel.focus == .tabs && tab == panel.tab
-                    Text(tab.title)
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(focused ? Color.black : Color.white)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 10)
-                        .background(
-                            Capsule().fill(focused ? Color.white : Color.white.opacity(tab == panel.tab ? 0.2 : 0))
-                        )
-                        .accessibilityAddTraits(tab == panel.tab ? [.isButton, .isSelected] : .isButton)
-                        .accessibilityIdentifier(A11yID.TV.Player.panelTab(tab.id))
+                    control(.openPanel(tab), modelFocused: panel.focus == .tabs && tab == panel.tab) { focused in
+                        Text(tab.title)
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(focused ? Color.black : Color.white)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 10)
+                            .background(
+                                Capsule().fill(focused ? Color.white : Color.white.opacity(tab == panel.tab ? 0.2 : 0))
+                            )
+                    }
+                    .accessibilityAddTraits(tab == panel.tab ? [.isButton, .isSelected] : .isButton)
+                    .accessibilityIdentifier(A11yID.TV.Player.panelTab(tab.id))
                 }
             }
+            .focusSection()
             // One height for every tab, so switching tabs moves nothing
             // above it.
             content
@@ -45,6 +71,7 @@ struct TVPlayerPanelView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11yID.TV.Player.panel)
+        .onAppear { if accessible { focusedRow = landingRow } }
     }
 
     @ViewBuilder
@@ -85,13 +112,15 @@ struct TVPlayerPanelView: View {
                     if let overview = item.dto.overview {
                         Text(overview).font(.subheadline).lineLimit(3).frame(maxWidth: 900, alignment: .leading)
                     }
-                    Label("Restart", systemImage: "arrow.counterclockwise")
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(isFocused(0) ? Color.black : Color.white)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 12)
-                        .background(Capsule().fill(isFocused(0) ? Color.white : Color.white.opacity(0.18)))
-                        .accessibilityAddTraits(.isButton)
+                    control(.panelRow(0), modelFocused: isFocused(0)) { focused in
+                        Label("Restart", systemImage: "arrow.counterclockwise")
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(focused ? Color.black : Color.white)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 12)
+                            .background(Capsule().fill(focused ? Color.white : Color.white.opacity(0.18)))
+                    }
+                    .accessibilityAddTraits(.isButton)
                         .accessibilityIdentifier(A11yID.TV.Player.restart)
                 }
             }
@@ -105,7 +134,10 @@ struct TVPlayerPanelView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 40) {
                     ForEach(Array(viewModel.chapters.enumerated()), id: \.element.id) { index, chapter in
-                        chapterTile(chapter, index: index).id(index)
+                        control(.panelRow(index), modelFocused: isFocused(index)) { focused in
+                            chapterTile(chapter, index: index, focused: focused)
+                        }
+                        .id(index)
                     }
                 }
             }
@@ -116,9 +148,8 @@ struct TVPlayerPanelView: View {
         }
     }
 
-    private func chapterTile(_ chapter: Chapter, index: Int) -> some View {
+    private func chapterTile(_ chapter: Chapter, index: Int, focused: Bool) -> some View {
         let current = viewModel.currentChapter?.id == chapter.id
-        let focused = isFocused(index)
         return VStack(alignment: .leading, spacing: 10) {
             ZStack(alignment: .bottomLeading) {
                 if let url = chapter.imageURL {
@@ -192,24 +223,25 @@ struct TVPlayerPanelView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                        let focused = isFocused(index)
-                        HStack(spacing: 20) {
-                            Image(systemName: "checkmark")
-                                .font(.callout.weight(.semibold))
-                                .opacity(row.isChosen ? 1 : 0)
-                                .accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(row.title).font(.callout.weight(.semibold))
-                                if let metadata = row.metadata {
-                                    Text(metadata).font(.caption).opacity(0.7)
+                        control(.panelRow(index), modelFocused: isFocused(index)) { focused in
+                            HStack(spacing: 20) {
+                                Image(systemName: "checkmark")
+                                    .font(.callout.weight(.semibold))
+                                    .opacity(row.isChosen ? 1 : 0)
+                                    .accessibilityHidden(true)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(row.title).font(.callout.weight(.semibold))
+                                    if let metadata = row.metadata {
+                                        Text(metadata).font(.caption).opacity(0.7)
+                                    }
                                 }
                             }
+                            .foregroundStyle(focused ? Color.black : Color.white)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 12)
+                            .frame(width: 760, alignment: .leading)
+                            .background(RoundedRectangle(cornerRadius: 20).fill(focused ? Color.white : Color.clear))
                         }
-                        .foregroundStyle(focused ? Color.black : Color.white)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 12)
-                        .frame(width: 760, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 20).fill(focused ? Color.white : Color.clear))
                         .id(index)
                         .accessibilityElement(children: .combine)
                         .accessibilityAddTraits(row.isChosen ? [.isButton, .isSelected] : .isButton)

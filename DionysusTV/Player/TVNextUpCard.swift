@@ -9,6 +9,9 @@ struct TVNextUpCard: View {
     let totalSeconds: Int
     /// `nil` while the transport is up and the card has no focus.
     let focus: TVNextUpButton?
+    /// Set in the accessible transport (M5): the buttons are focusable and
+    /// send this, drawn from the focus engine's focus instead of `focus`.
+    var send: ((TVNextUpButton) -> Void)?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The bar glides rather than stepping with the whole seconds
@@ -51,9 +54,9 @@ struct TVNextUpCard: View {
                 .lineLimit(1)
                 .padding(.horizontal, 4)
             HStack(spacing: 12) {
-                button("Play Now", systemImage: "play.fill", isFocused: focus == .playNow, id: A11yID.TV.Player.nextUpPlayNow)
+                button(.playNow, "Play Now", systemImage: "play.fill", id: A11yID.TV.Player.nextUpPlayNow)
                     .frame(maxWidth: .infinity)
-                button("Close", systemImage: nil, isFocused: focus == .close, id: A11yID.TV.Player.nextUpClose)
+                button(.close, "Close", systemImage: nil, id: A11yID.TV.Player.nextUpClose)
             }
         }
         .padding(20)
@@ -75,7 +78,21 @@ struct TVNextUpCard: View {
         }
     }
 
-    private func button(_ title: LocalizedStringKey, systemImage: String?, isFocused: Bool, id: String) -> some View {
+    @ViewBuilder
+    private func button(_ which: TVNextUpButton, _ title: LocalizedStringKey, systemImage: String?, id: String) -> some View {
+        if let send {
+            TVPlayerControlButton(action: { send(which) }) { focused in
+                face(title, systemImage: systemImage, isFocused: focused)
+            }
+            .accessibilityIdentifier(id)
+        } else {
+            face(title, systemImage: systemImage, isFocused: focus == which)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier(id)
+        }
+    }
+
+    private func face(_ title: LocalizedStringKey, systemImage: String?, isFocused: Bool) -> some View {
         HStack(spacing: 10) {
             if let systemImage { Image(systemName: systemImage).accessibilityHidden(true) }
             Text(title)
@@ -88,7 +105,5 @@ struct TVNextUpCard: View {
         .frame(maxWidth: systemImage == nil ? nil : .infinity)
         .background(Capsule().fill(isFocused ? Color.white : Color.white.opacity(0.18)))
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityIdentifier(id)
     }
 }
