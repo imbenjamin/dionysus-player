@@ -25,6 +25,7 @@ struct DionysusTVApp: App {
             TVRootView()
                 .environment(appState)
                 .task { await appState.start() }
+                .tvUITestFreezesAnimations()
         }
     }
 }
@@ -69,5 +70,24 @@ struct TVRootView: View {
             default: break
             }
         }
+    }
+}
+
+private extension View {
+    /// Under the UI-test harness (`-UITestDisableAnimations`), every SwiftUI
+    /// change lands at once. `UIView.setAnimationsEnabled(false)` doesn't
+    /// reach SwiftUI, and on CI's runner XCUITest's snapshot froze partway
+    /// through an animated change (the rail caught 80% into its slide) and
+    /// never caught up, so a page opened that way never appeared to it.
+    func tvUITestFreezesAnimations() -> some View {
+        #if DEBUG
+        transaction { transaction in
+            guard UITestHarness.freezesAmbientMotion else { return }
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
+        #else
+        self
+        #endif
     }
 }
