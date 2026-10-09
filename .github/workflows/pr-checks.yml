@@ -161,9 +161,10 @@ jobs:
     # `tvos-build` for the reason `ui-smoke` is one from `build`. The full
     # tvOS suite runs nightly and on PRs into `stable` (`tv-ui-full`).
     #
-    # Reports "tvOS UI smoke tests / Apple TV 4K, tvOS 26.5" (see
-    # tv-ui-tests.yml). If a ruleset requires it, renaming this job changes
-    # that name.
+    # Reports "tvOS UI smoke tests / Apple TV 4K, tvOS 27.0" (see
+    # tv-ui-tests.yml, which also says why tvOS 26.5 runs nightly only).
+    # Both rulesets are meant to require it: renaming this job changes that
+    # name.
     name: tvOS UI smoke tests
     uses: ./.github/workflows/tv-ui-tests.yml
     with:
