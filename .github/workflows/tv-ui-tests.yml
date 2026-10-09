@@ -38,14 +38,19 @@ jobs:
   tv-ui-tests:
     # ⚠️ This name is half of each check's context, "<caller job name> /
     # <this name>", e.g. "tvOS UI smoke tests / Apple TV 4K, tvOS 26.5". If a
-    # ruleset requires it, renaming this or changing the version means
-    # updating the ruleset in the same breath. The version is
-    # repeated in the Build and test step.
-    name: Apple TV 4K, tvOS 26.5
-    # Experiment: GitHub's Xcode 27 preview image, for its newer
-    # simulator service.
+    # ruleset requires it, renaming this or changing a version means
+    # updating the ruleset in the same breath.
+    name: Apple TV 4K, tvOS ${{ matrix.tvos }}
+    # Experiment: GitHub's Xcode 27 preview image (macOS 27). On macos-26 the
+    # app's accessibility tree never showed a page opened after launch.
     runs-on: xcode-27
     timeout-minutes: ${{ inputs.timeout-minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # 26.5: the deployment floor's major, downloaded (the image has none).
+        # 27.0: the image's own runtime.
+        tvos: ["26.5", "27.0"]
 
     steps:
       - name: Checkout
@@ -55,21 +60,25 @@ jobs:
       - name: Set up iOS project
         uses: ./.github/actions/setup-ios-project
         with:
-          xcode-version: latest-stable
+          xcode-version: "27.1"
 
       - name: Describe the runner (experiment)
-        id: runner
         run: |
           sw_vers
-          ls -d /Applications/Xcode*.app
           xcodebuild -version
           xcrun simctl list runtimes
-          # tvOS 26.5 if the image has it, so only the host changes;
-          # otherwise its newest tvOS.
-          version=$(xcrun simctl list runtimes available -j \
-            | jq -r '[.runtimes[] | select(.platform == "tvOS") | .version] | if index("26.5") then "26.5" else (sort_by(split(".") | map(tonumber)) | last) end')
-          echo "Running on tvOS $version"
-          echo "tvos-version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Download the tvOS runtime if the image lacks it
+        env:
+          TVOS_VERSION: ${{ matrix.tvos }}
+        run: |
+          if xcrun simctl list runtimes available -j \
+            | jq -e --arg v "$TVOS_VERSION" '.runtimes[] | select(.platform == "tvOS" and .version == $v)' > /dev/null; then
+            echo "tvOS $TVOS_VERSION is on the image"
+          else
+            xcodebuild -downloadPlatform tvOS -buildVersion "$TVOS_VERSION"
+            xcrun simctl list runtimes
+          fi
 
       - name: Shut down all simulators
         # See ui-tests.yml: a simulator left mid-boot is the commonest
@@ -83,8 +92,7 @@ jobs:
           test-plan: ${{ inputs.test-plan }}
           platform: tvOS
           device-type: Apple TV 4K (3rd generation)
-          # Keep in step with the job name above.
-          ios-version: ${{ steps.runner.outputs.tvos-version }}
+          ios-version: ${{ matrix.tvos }}
           retry-tests-on-failure: ${{ inputs.retry-tests-on-failure }}
           result-bundle-path: .build/TVUITestResults.xcresult
 
@@ -92,7 +100,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: tv-ui-test-results-${{ inputs.test-plan }}
+          name: tv-ui-test-results-${{ inputs.test-plan }}-tvOS-${{ matrix.tvos }}
           path: .build/TVUITestResults.xcresult
           retention-days: 7
           if-no-files-found: ignore
