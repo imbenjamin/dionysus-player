@@ -25,7 +25,9 @@ runs:
       # (ui-tests.yml) names simulator runtimes that only this Xcode's image
       # carries. The callers pin `runs-on: macos-26` for the same reason: this
       # version exists on that image. (ui-tests.yml's iOS 18 leg is the one
-      # exception: it runs on macos-15 and passes 26.3 — see that file.)
+      # exception: it runs on macos-15 and passes 26.3 — see that file. The
+      # Apple TV UI tests are the other: tv-ui-tests.yml runs on the
+      # xcode-27 image and passes 27.1, for the reason that file gives.)
       # Moving to a new Xcode is a deliberate edit here, alongside the runner
       # labels and ui-tests.yml's OS list.
       uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1

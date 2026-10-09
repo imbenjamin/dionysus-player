@@ -38,9 +38,23 @@ jobs:
       retry-tests-on-failure: true
 
   tv-ui-tests:
-    # The Apple TV app's full suite, on its one environment (tv-ui-tests.yml).
+    # The Apple TV app's full suite on tvOS 27.0 (tv-ui-tests.yml).
     name: Full tvOS UI tests
     uses: ./.github/workflows/tv-ui-tests.yml
     with:
       test-plan: TVUITests
       retry-tests-on-failure: true
+
+  tv-ui-floor:
+    # The smoke journeys on tvOS 26.5, the deployment floor's major. They
+    # fail in CI on tvOS 26.x for a reason not yet found (tv-ui-tests.yml's
+    # header), so this is an allowed failure: it reports, and passing again
+    # is the signal to make it a PR check. The smoke plan, not the full
+    # one, which would spend its whole timeout failing.
+    name: tvOS floor smoke tests
+    uses: ./.github/workflows/tv-ui-tests.yml
+    with:
+      test-plan: TVUITests-Smoke
+      tvos-versions: '["26.5"]'
+      allow-failure: true
+      timeout-minutes: 40

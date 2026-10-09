@@ -54,8 +54,8 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 | `UITests-Smoke` | Seven journeys + the keychain-reset check | Every PR (`ui-smoke` job), on iPhone + iPad, latest iOS |
 | `UITests-Full` | Every UI test | Nightly and on release tags, on iPhone + iPad, every supported iOS version |
 | `TVUnitTests` | `DionysusTVTests`: the shared unit tests, run on tvOS | Every PR (`tvos-build` job, not yet required), Apple TV 4K (3rd generation) |
-| `TVUITests-Smoke` | Seven Apple TV journeys: first launch to sign-in, Home, a detail page from Home and a library, Search, the player | Every PR (`tv-ui-smoke` job, not yet required), Apple TV 4K (3rd generation), tvOS 26.5 |
-| `TVUITests` | `DionysusTVUITests`: every Siri Remote journey for the Apple TV app | Nightly and on PRs into `stable`, same Apple TV |
+| `TVUITests-Smoke` | Seven Apple TV journeys: first launch to sign-in, Home, a detail page from Home and a library, Search, the player | Every PR (`tv-ui-smoke` job), Apple TV 4K (3rd generation), tvOS 27.0; also nightly on tvOS 26.5, as an allowed failure (see "Where they run in CI") |
+| `TVUITests` | `DionysusTVUITests`: every Siri Remote journey for the Apple TV app | Nightly and on PRs into `stable`, Apple TV 4K (3rd generation), tvOS 27.0 |
 
 ### The tvOS unit tests
 
@@ -1010,19 +1010,33 @@ every one reports, and a failed one uploads its `.xcresult` as
 `ui-test-results-<plan>-<device>-iOS-<version>`.
 
 The Apple TV suite has its own reusable workflow,
-`.github/workflows/tv-ui-tests.yml`, with one environment: an Apple TV 4K
-(3rd generation) on tvOS 26.5, on `macos-26`. The tvOS floor is 26.0, the
-same major, so there is no older leg. It runs `TVUITests-Smoke` on every PR
-and `TVUITests` nightly and on PRs into `stable`; release.yml doesn't run it
-while the Apple TV app isn't shipped. A failed run uploads
-`tv-ui-test-results-<plan>`.
+`.github/workflows/tv-ui-tests.yml`: an Apple TV 4K (3rd generation) with
+Xcode 27.1, on GitHub's `xcode-27` image (macOS 27, a preview image) rather
+than `macos-26`, one job per tvOS version (`tvos-versions`). It runs
+`TVUITests-Smoke` on tvOS 27.0 on every PR and `TVUITests` on tvOS 27.0
+nightly and on PRs into `stable`; release.yml doesn't run it while the Apple
+TV app isn't shipped. A failed job uploads
+`tv-ui-test-results-<plan>-tvOS-<version>`.
 
-**Not yet required by either ruleset** (2026-10-07): on CI's runner the
-detail, player and Search journeys fail. The app opens the detail page and
-focuses Play within a fraction of a second (logged on CI), but XCUITest's
-snapshot keeps showing Home for the whole wait. All seven pass on fresh
-tvOS 26.5 and 27 Simulators locally. Add the check to both rulesets once it
-is green.
+**Why not tvOS 26.5, and not `macos-26`** (#319, 2026-10-09): on tvOS 26.x
+in CI, the app's accessibility tree never shows a page the shell opens after
+launch. The screen recording in the `.xcresult` shows the detail page,
+library or Search open within the wait, but every element tree XCUITest
+reads still lists Home, so the journeys that open one fail (four of the
+seven smoke journeys). It isn't SwiftUI animation, XCTest's in-app query
+evaluation (`XCTDisableRemoteQueryEvaluation`), the runner image's own
+simulator, the host (it fails on both `macos-26` and `xcode-27`), the Xcode
+(26.6 and 27.1), or a missing `UIAccessibility` screen-changed notification
+from the shell; each was tried. tvOS 27.0 passes on the same runner, and
+tvOS 26.5 passes on a Mac (macOS 27, Xcode 26.6's tools). So tvOS 26.5, the
+deployment floor's major, runs nightly only, as `tvOS floor smoke tests` with
+`allow-failure`: it reports without turning the nightly red, and the image
+has no 26.5 runtime, so the job downloads one (3.76 GB, about five minutes).
+When it passes again, make it a PR check.
+
+"tvOS UI smoke tests / Apple TV 4K, tvOS 27.0" is meant to be required by
+both rulesets; its name embeds the version, so a version change means
+updating them in the same breath.
 
 A release doesn't sign or upload anything until every environment has
 passed. Because nightly and release call the same workflow, dispatching

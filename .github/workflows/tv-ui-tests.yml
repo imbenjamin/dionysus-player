@@ -1,16 +1,22 @@
 name: tvOS UI tests
 
 # The Apple TV app's UI tests (DionysusTVUITests), the tvOS counterpart of
-# ui-tests.yml. Called by pr-checks.yml (smoke plan) and nightly-ui-tests.yml
-# (full plan).
+# ui-tests.yml. Called by pr-checks.yml (smoke plan, tvOS 27.0) and
+# nightly-ui-tests.yml (full plan on tvOS 27.0, smoke plan on tvOS 26.5).
 #
-# One environment, unlike iOS's four: an Apple TV 4K (3rd generation) on the
-# latest tvOS the pinned Xcode ships. The tvOS deployment floor is 26.0, the
-# same major, so there is no older OS leg to add, and every Apple TV the app
-# supports has the same 1920×1080pt screen.
+# An Apple TV 4K (3rd generation), on GitHub's `xcode-27` image (macOS 27,
+# a preview image) rather than `macos-26` with every other job. On tvOS
+# 26.x in CI the app's accessibility tree never showed a page opened after
+# launch (a detail page, a library, Search), so XCUITest kept seeing Home
+# and every journey that opened one failed, though the screen recording
+# showed the page. That held on both images and with Xcode 26.6 and 27.1;
+# tvOS 27.0 passes, and tvOS 26.5 passes on a Mac (2026-10-09, #319).
+# Every Apple TV the app supports has the same 1920×1080pt screen.
 #
-# When CI moves to a new Xcode, update the tvOS version below together with
-# ui-tests.yml's iOS list.
+# tvOS 26.5, the deployment floor's major, isn't on the image and is
+# downloaded (3.76 GB, about five minutes). Until it passes in CI it runs
+# nightly only, as an allowed failure, so it neither gates a PR nor turns
+# the nightly red.
 on:
   workflow_call:
     inputs:
@@ -30,6 +36,20 @@ on:
         required: false
         type: number
         default: 90
+      tvos-versions:
+        description: >-
+          JSON array of tvOS runtime versions, one job each. Each job's name
+          (and so each check's) carries its version.
+        required: false
+        type: string
+        default: '["27.0"]'
+      allow-failure:
+        description: >-
+          Let the jobs fail without failing the calling workflow, for a leg
+          that is known to fail in CI (tvOS 26.5, see above).
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -37,20 +57,18 @@ permissions:
 jobs:
   tv-ui-tests:
     # ⚠️ This name is half of each check's context, "<caller job name> /
-    # <this name>", e.g. "tvOS UI smoke tests / Apple TV 4K, tvOS 26.5". If a
+    # <this name>", e.g. "tvOS UI smoke tests / Apple TV 4K, tvOS 27.0". If a
     # ruleset requires it, renaming this or changing a version means
     # updating the ruleset in the same breath.
     name: Apple TV 4K, tvOS ${{ matrix.tvos }}
-    # Experiment: GitHub's Xcode 27 preview image (macOS 27). On macos-26 the
-    # app's accessibility tree never showed a page opened after launch.
+    # See the top of this file for why not macos-26.
     runs-on: xcode-27
     timeout-minutes: ${{ inputs.timeout-minutes }}
+    continue-on-error: ${{ inputs.allow-failure }}
     strategy:
       fail-fast: false
       matrix:
-        # 26.5: the deployment floor's major, downloaded (the image has none).
-        # 27.0: the image's own runtime.
-        tvos: ["26.5", "27.0"]
+        tvos: ${{ fromJSON(inputs.tvos-versions) }}
 
     steps:
       - name: Checkout
@@ -60,13 +78,9 @@ jobs:
       - name: Set up iOS project
         uses: ./.github/actions/setup-ios-project
         with:
+          # An exact version, as setup-ios-project's default is: the image
+          # also carries 27.1 and 27.2 betas.
           xcode-version: "27.1"
-
-      - name: Describe the runner (experiment)
-        run: |
-          sw_vers
-          xcodebuild -version
-          xcrun simctl list runtimes
 
       - name: Download the tvOS runtime if the image lacks it
         env:
@@ -77,7 +91,6 @@ jobs:
             echo "tvOS $TVOS_VERSION is on the image"
           else
             xcodebuild -downloadPlatform tvOS -buildVersion "$TVOS_VERSION"
-            xcrun simctl list runtimes
           fi
 
       - name: Shut down all simulators
