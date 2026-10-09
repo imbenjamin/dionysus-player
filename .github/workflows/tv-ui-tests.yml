@@ -42,7 +42,9 @@ jobs:
     # updating the ruleset in the same breath. The version is
     # repeated in the Build and test step.
     name: Apple TV 4K, tvOS 26.5
-    runs-on: macos-26
+    # Experiment: GitHub's Xcode 27 preview image, for its newer
+    # simulator service.
+    runs-on: xcode-27
     timeout-minutes: ${{ inputs.timeout-minutes }}
 
     steps:
@@ -52,6 +54,22 @@ jobs:
 
       - name: Set up iOS project
         uses: ./.github/actions/setup-ios-project
+        with:
+          xcode-version: latest-stable
+
+      - name: Describe the runner (experiment)
+        id: runner
+        run: |
+          sw_vers
+          ls -d /Applications/Xcode*.app
+          xcodebuild -version
+          xcrun simctl list runtimes
+          # tvOS 26.5 if the image has it, so only the host changes;
+          # otherwise its newest tvOS.
+          version=$(xcrun simctl list runtimes available -j \
+            | jq -r '[.runtimes[] | select(.platform == "tvOS") | .version] | if index("26.5") then "26.5" else (sort_by(split(".") | map(tonumber)) | last) end')
+          echo "Running on tvOS $version"
+          echo "tvos-version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Shut down all simulators
         # See ui-tests.yml: a simulator left mid-boot is the commonest
@@ -66,7 +84,7 @@ jobs:
           platform: tvOS
           device-type: Apple TV 4K (3rd generation)
           # Keep in step with the job name above.
-          ios-version: "26.5"
+          ios-version: ${{ steps.runner.outputs.tvos-version }}
           retry-tests-on-failure: ${{ inputs.retry-tests-on-failure }}
           result-bundle-path: .build/TVUITestResults.xcresult
 
