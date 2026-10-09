@@ -55,6 +55,12 @@ inputs:
       flaky rather than as a break.
     required: false
     default: "false"
+  fresh-simulator:
+    description: >-
+      Always create a new simulator rather than use the image's own one of
+      the same device type and runtime.
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -66,6 +72,7 @@ runs:
         DEVICE_TYPE: ${{ inputs.device-type }}
         IOS_VERSION: ${{ inputs.ios-version }}
         PLATFORM: ${{ inputs.platform }}
+        FRESH_SIMULATOR: ${{ inputs.fresh-simulator }}
       run: |
         # Exactly the requested device type on exactly the requested runtime.
         # This used to mean "the newest iPhone on the newest runtime", which
@@ -91,12 +98,15 @@ runs:
           xcrun simctl list runtimes
           exit 1
         fi
-        udid=$(xcrun simctl list devices available -j \
-          | jq -r --arg rt "$runtime" --arg name "$DEVICE_TYPE" '.devices[$rt] // [] | map(select(.name == $name)) | first | .udid // empty')
+        udid=""
+        if [ "$FRESH_SIMULATOR" != "true" ]; then
+          udid=$(xcrun simctl list devices available -j \
+            | jq -r --arg rt "$runtime" --arg name "$DEVICE_TYPE" '.devices[$rt] // [] | map(select(.name == $name)) | first | .udid // empty')
+        fi
         if [ -n "$udid" ]; then
           echo "Using the image's '$DEVICE_TYPE' on $runtime: $udid"
         elif udid=$(xcrun simctl create "$DEVICE_TYPE" "$DEVICE_TYPE" "$runtime"); then
-          echo "Created '$DEVICE_TYPE' on $runtime (the image has none): $udid"
+          echo "Created '$DEVICE_TYPE' on $runtime (fresh-simulator=$FRESH_SIMULATOR): $udid"
         else
           echo "::error::Couldn't create a '$DEVICE_TYPE' simulator on $runtime — is the device type supported by that runtime?" >&2
           xcrun simctl list devicetypes
