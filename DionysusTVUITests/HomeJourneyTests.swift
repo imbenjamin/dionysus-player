@@ -40,6 +40,41 @@ final class HomeJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForExpanded(app.buttons[A11yID.TV.Sidebar.home]), "Menu again opens the rail")
     }
 
+    /// A rail is one container named for its heading, so VoiceOver says the
+    /// heading as focus enters the rail, and its See All names the rail: on
+    /// its own it read "See All" (M5). Labels are compared with each other,
+    /// never with a localized literal.
+    func test_rail_isNamedForVoiceOver_andItsSeeAllNamesIt() {
+        let app = launchAtHome()
+        let title = "Recently Added Movies"
+        let heading = app.staticTexts[A11yID.TV.Main.rail(title)]
+        focusFirstRailTile(app)
+        press(.down, times: 2)
+        XCTAssertTrue(heading.waitForExistence(timeout: 10))
+        let group = app.otherElements[A11yID.TV.Main.railGroup(title)]
+        XCTAssertTrue(group.exists, "The rail is one container")
+        XCTAssertEqual(group.label, heading.label, "Named for its heading")
+        let seeAll = app.buttons[A11yID.TV.Main.seeAll(title)]
+        XCTAssertTrue(seeAll.waitForExistence(timeout: 5))
+        XCTAssertTrue(seeAll.label.contains(heading.label), "See All names its rail")
+    }
+
+    /// Far below the hero, the hero is still built, so Menu's focus lands on
+    /// Play without waiting for a scroll to rebuild it: under VoiceOver that
+    /// scroll never starts, and focus set on a torn-down Play was refused
+    /// every time, snapping back to the tile (M5, Benjamin, 2026-10-10).
+    func test_heroStaysBuilt_farBelowIt_soMenuLandsOnPlay() {
+        let app = launchAtHome()
+        let play = app.buttons[A11yID.TV.Main.heroPlay]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        focusFirstRailTile(app)
+        press(.down, times: 10)
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        XCTAssertTrue(play.exists, "The hero is built however far the page scrolls")
+        press(.menu)
+        XCTAssertTrue(waitForFocus(play), "Menu goes back to the hero's Play")
+    }
+
     /// Back from a tile's page, Home keeps the tile on screen: tvOS's own
     /// focus on Play as Home came back sent it to its top, leaving the tile
     /// cut off at the foot (Benjamin, 2026-10-07).

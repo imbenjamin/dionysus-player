@@ -50,8 +50,8 @@ final class TVHeroPagerTests: XCTestCase {
     }
 
     func test_timerRuns_onlyWhenEverythingAllowsIt() {
-        func runs(count: Int = 3, auto: Bool = true, reduce: Bool = false, frozen: Bool = false, focus: Bool = true, onShow: Bool = true, stopped: Bool = false) -> Bool {
-            TVHeroPager.timerRuns(count: count, autoCarousel: auto, reduceMotion: reduce, motionFrozen: frozen, heroHasFocus: focus, isOnShow: onShow, stoppedByHand: stopped)
+        func runs(count: Int = 3, auto: Bool = true, reduce: Bool = false, frozen: Bool = false, focus: Bool = true, onShow: Bool = true, stopped: Bool = false, voiceOver: Bool = false) -> Bool {
+            TVHeroPager.timerRuns(count: count, autoCarousel: auto, reduceMotion: reduce, motionFrozen: frozen, voiceOver: voiceOver, heroHasFocus: focus, isOnShow: onShow, stoppedByHand: stopped)
         }
         XCTAssertTrue(runs())
         XCTAssertFalse(runs(count: 1), "One item has nowhere to go")
@@ -62,6 +62,7 @@ final class TVHeroPagerTests: XCTestCase {
         XCTAssertFalse(runs(focus: false), "Only while the hero has focus")
         XCTAssertFalse(runs(onShow: false), "A hidden page runs no timer")
         XCTAssertFalse(runs(stopped: true))
+        XCTAssertFalse(runs(voiceOver: true), "VoiceOver needs to read one item fully, as on iOS")
     }
 
     /// A refresh can return fewer hero items than the index points at.

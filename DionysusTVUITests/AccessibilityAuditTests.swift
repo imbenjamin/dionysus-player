@@ -14,6 +14,22 @@ final class AccessibilityAuditTests: TVUITestCase {
         try audit(app)
     }
 
+    /// The open sidebar (M5), and with many libraries its Libraries row.
+    func test_openSidebar() throws {
+        let app = launchAtHome()
+        openRailFromHome(app)
+        XCTAssertTrue(waitForExpanded(app.buttons[A11yID.TV.Sidebar.home]))
+        try audit(app)
+    }
+
+    func test_openSidebar_withLibrariesFolded() throws {
+        let app = launchAtHome(scenario: "manyLibraries")
+        openRailFromHome(app)
+        XCTAssertTrue(waitForExpanded(app.buttons[A11yID.TV.Sidebar.home]))
+        XCTAssertTrue(app.buttons[A11yID.TV.Sidebar.librariesGroup].exists)
+        try audit(app)
+    }
+
     func test_moviePage() throws {
         let app = launchAtHomeTile()
         openDetailFromFocusedTile(app)

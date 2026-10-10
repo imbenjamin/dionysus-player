@@ -5,6 +5,7 @@ import SwiftUI
 struct TVRail<Content: View>: View {
     let title: String
     var titleIdentifier: String?
+    var groupIdentifier: String?
     /// Every tile built at once, for a rail that scrolls under the sidebar
     /// (Home): lazily, a tile scrolled past the row's leading edge, under the
     /// sidebar, was torn down once scrolling stopped. The row itself keeps
@@ -33,5 +34,10 @@ struct TVRail<Content: View>: View {
             .scrollClipDisabled()
             .focusSection()
         }
+        // One container named for the heading, so VoiceOver says it as focus
+        // enters the rail; a heading beside the row wasn't read (M5).
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(verbatim: title))
+        .accessibilityIdentifier(groupIdentifier ?? "")
     }
 }

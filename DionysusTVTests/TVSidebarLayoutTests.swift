@@ -10,6 +10,18 @@ final class TVSidebarLayoutTests: XCTestCase {
         return MediaItem(dto: dto, images: ImageURLBuilder(baseURL: URL(string: "http://h")!, accessToken: nil))
     }
 
+    /// Collapsed, VoiceOver read every dimmed row after each tile, so a row
+    /// that can't take focus is hidden from it then; open, nothing is (M5).
+    /// XCUITest lists these rows whatever their hidden state, so this rule is
+    /// pinned here and heard with VoiceOver.
+    func test_collapsed_hidesOnlyTheRowsThatCantTakeFocus() {
+        let focusable: Set<TVSidebarLayout.Row> = [.home]
+        XCTAssertFalse(TVSidebarLayout.isHiddenFromAccessibility(.home, isExpanded: false, focusable: focusable))
+        XCTAssertTrue(TVSidebarLayout.isHiddenFromAccessibility(.search, isExpanded: false, focusable: focusable))
+        XCTAssertTrue(TVSidebarLayout.isHiddenFromAccessibility(.profile, isExpanded: false, focusable: focusable))
+        XCTAssertFalse(TVSidebarLayout.isHiddenFromAccessibility(.search, isExpanded: true, focusable: focusable), "Open, every row is read")
+    }
+
     func test_noLibraries_addsNoEntries() {
         XCTAssertEqual(TVSidebarLayout.libraries([]), .none)
     }

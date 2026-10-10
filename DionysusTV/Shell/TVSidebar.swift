@@ -50,6 +50,12 @@ struct TVSidebar: View {
         .padding(TVShellMetrics.railLeading)
         .frame(maxHeight: .infinity, alignment: isExpanded ? .top : .center)
         .focusSection()
+        // One named container, so VoiceOver says where focus went (M5).
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("Sidebar"))
+        // Open, VoiceOver read the dimmed page behind it (M5).
+        .accessibilityAddTraits(isExpanded ? .isModal : [])
+        .accessibilityIdentifier(A11yID.TV.Sidebar.container)
     }
 
     private var divider: some View {
@@ -72,7 +78,12 @@ struct TVSidebar: View {
         ))
         .focused(focus, equals: row)
         .disabled(!focusable.contains(row))
+        // One combined button, so `false` here hides nothing inside it.
+        .accessibilityHidden(TVSidebarLayout.isHiddenFromAccessibility(row, isExpanded: isExpanded, focusable: focusable))
         .accessibilityLabel(Text(accessibilityLabel(for: row)))
+        .accessibilityValue(Text(verbatim: accessibilityValue(for: row)))
+        // The page on show, so VoiceOver says which is current (M5).
+        .accessibilityAddTraits(highlighted.contains(row) ? .isSelected : [])
         .accessibilityIdentifier(identifier(for: row))
     }
 
@@ -148,6 +159,13 @@ struct TVSidebar: View {
     /// Profile reads as where it goes, not whose it is (Benjamin, 2026-09-30).
     private func accessibilityLabel(for row: TVSidebarLayout.Row) -> String {
         row == .profile ? String(localized: "Profile & Settings") : title(for: row)
+    }
+
+    /// The Libraries row says whether it's open; its chevron is drawn, not
+    /// read (M5).
+    private func accessibilityValue(for row: TVSidebarLayout.Row) -> String {
+        guard row == .librariesGroup else { return "" }
+        return librariesExpanded ? String(localized: "Expanded") : String(localized: "Collapsed")
     }
 
     private func symbol(for row: TVSidebarLayout.Row) -> String {

@@ -547,6 +547,32 @@ the avatar and every backdrop in the tree (found by the tvOS accessibility
 audit). Hidden pages stay out of the tree without it (checked with a movie
 page over Home); set a hidden modifier only where it is always `true`.
 
+**VoiceOver outside the player** (M5, measured on the tvOS 26.5 Simulator
+with VoiceOver's speech read from its log, `category == "VOTSpeech"`; see
+TESTING.md). Five facts, none guessable:
+- **Menu arrives as VoiceOver's escape command**, which SwiftUI still hands
+  to `onExitCommand`, so every Menu handler works. What broke was the focus
+  move behind Menu-to-landing: a focus write naming a view the lazy stack
+  tore down is refused, and under VoiceOver a `ScrollPosition` scroll never
+  starts while focus stays put, so the scroll meant to rebuild the landing
+  item never did (20 refused writes, focus snapping back to the tile;
+  Benjamin, 2026-10-10). So **a landing item must stay built**: Home's hero
+  sits outside its `LazyVStack`. Asking the focus system as well only moved
+  focus to the nearest built tile.
+- **VoiceOver reads what sits beside the focused button, but skips an element
+  with the header trait**, so `TVDetailHeader`'s title has none: with it the
+  hero's and every detail page's title was never read.
+- **A disabled button is read as content**, "dimmed", after each move, so the
+  collapsed rail hides the rows it can't focus
+  (`TVSidebarLayout.isHiddenFromAccessibility`). XCUITest still lists them,
+  and the divider that was always hidden, so that rule is unit-tested.
+- **A container's label is spoken as focus enters it** with
+  `.accessibilityElement(children: .contain)`: the sidebar ("Sidebar") and
+  each rail (its heading; a heading beside the row wasn't read). Without
+  `.contain` the container's label and identifier land on every child.
+- **The open sidebar is modal** (`.isModal`), or VoiceOver went on to read the
+  dimmed page behind it.
+
 **Find Your Server's Rescan** appears once a scan is over and scans again
 from an empty list (`ServerSetupViewModel.rescan()`, Benjamin, 2026-10-05);
 iOS's Scan Again keeps the old list until the first answer. Once the address

@@ -55,7 +55,9 @@ struct TVDetailHeader: View {
                 .frame(width: 640, height: 210, alignment: .bottomLeading)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(item.name)
-                .accessibilityAddTraits(.isHeader)
+                // No header trait: VoiceOver on tvOS reads what sits beside the
+                // focused button, but skips a header, so the title was never
+                // read (measured, M5).
                 .accessibilityIdentifier(titleIdentifier)
             HStack(spacing: 16) {
                 ForEach(Array(TVDetailFormat.metadata(for: item).enumerated()), id: \.offset) { index, part in
