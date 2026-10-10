@@ -569,7 +569,11 @@ TESTING.md). Five facts, none guessable:
 - **A disabled button is read as content**, "dimmed", after each move, so the
   collapsed rail hides the rows it can't focus
   (`TVSidebarLayout.isHiddenFromAccessibility`). XCUITest still lists them,
-  and the divider that was always hidden, so that rule is unit-tested.
+  and the divider that was always hidden, so that rule is unit-tested. On
+  tvOS 27 the one row left unhidden reports the whole rail's frame, so the
+  journeys read collapsed or open from the sidebar container's width
+  (`TVShellJourney.isCollapsed`), never a row's: measured by its row, the
+  rail read open beside every page (#322's CI).
 - **A container's label is spoken as focus enters it** with
   `.accessibilityElement(children: .contain)`: the sidebar ("Sidebar") and
   each rail (its heading; a heading beside the row wasn't read). Without
