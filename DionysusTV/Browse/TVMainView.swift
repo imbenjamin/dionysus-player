@@ -303,10 +303,24 @@ struct TVMainView: View {
         }
     }
 
+    /// Enables the sidebar once focus is on the page, asking the focus system
+    /// again until it is. A page's claim isn't proof by itself: Search claims
+    /// on a timer, since its keyboard is UIKit, and on a loaded machine the
+    /// keyboard joined the window after it. Released with focus nowhere,
+    /// tvOS gave focus to the rail and opened it over Search, so nothing
+    /// typed reached the field (nightly CI on tvOS 27.0, 2026-10-09). Gives
+    /// up after two seconds, leaving `holdRail`'s fallback to place focus.
     private func releaseRail() {
         guard railHeld else { return }
+        let generation = holdGeneration
         Task { @MainActor in
             await Task.yield()
+            for _ in 0..<20 where Self.focusedItem() == nil || focusedRow != nil {
+                Self.requestFocusUpdate()
+                try? await Task.sleep(for: .milliseconds(100))
+                guard generation == holdGeneration else { return }
+            }
+            guard generation == holdGeneration else { return }
             railHeld = false
         }
     }

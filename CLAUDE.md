@@ -117,6 +117,10 @@ cost a debugging session each:
   keyboard, a UIKit control SwiftUI can't focus. The rail stays held until
   the page reports it has claimed focus (`tvPageClaimedFocus`), also on a
   fresh shell, where tvOS's first focus pass would otherwise open the rail.
+  Even then it's released only once focus is in the page, asking again until
+  it is: Search claims on a timer, and on a loaded CI machine its keyboard
+  joined the window after it, so the rail was freed with focus nowhere and
+  tvOS opened it over Search (2026-10-09).
   After three seconds with focus nowhere (an empty library), focus goes to
   the page's row, since Menu reaches nothing while nothing has focus. The
   same goes for focus left elsewhere in the rail: holding it sometimes pushes
@@ -872,11 +876,16 @@ gate) and `UITests-Full`. See `TESTING.md` for the strategy and what's
 covered. CI runs the UI plans on an iPhone 16 and an iPad (A16), on iOS 26.5
 (the smoke gate) and also on iOS 18.6, the deployment floor, for nightly,
 release and PRs into `stable`. `.github/workflows/ui-tests.yml` owns that matrix.
-The Apple TV journeys run the same way from `tv-ui-tests.yml`, on one Apple TV
-4K on tvOS 26.5: `TVUITests-Smoke` on every PR, `TVUITests` nightly and into
+The Apple TV journeys run the same way from `tv-ui-tests.yml`, on an Apple TV
+4K on tvOS 27.0: `TVUITests-Smoke` on every PR, `TVUITests` nightly and into
 `stable`. CI pins Xcode
 26.6 on `macos-26`, except the iOS 18 leg: no image has both runtimes and
-Xcode won't download an iOS 18 one, so it runs on `macos-15` with Xcode 26.3. The two smoke checks' names embed the device and OS and are
+Xcode won't download an iOS 18 one, so it runs on `macos-15` with Xcode 26.3.
+The Apple TV UI tests are the other exception, on the `xcode-27` image with
+Xcode 27.1: on tvOS 26.x in CI the app's accessibility tree never shows a
+page the shell opens, so XCUITest keeps seeing Home (tvOS 26.5 passes on a
+Mac, 27.0 passes in CI). tvOS 26.5 runs nightly only, as an allowed failure,
+until it passes; TESTING.md's "Where they run in CI" lists what was ruled out. The two smoke checks' names embed the device and OS and are
 required by both rulesets. See TESTING.md's "Where they run in CI" before
 changing any of it. Run it from Xcode with
 the `DionysusPlayer` scheme (Cmd+U), or from the CLI once a Simulator runtime
