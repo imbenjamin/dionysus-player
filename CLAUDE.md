@@ -117,6 +117,10 @@ cost a debugging session each:
   keyboard, a UIKit control SwiftUI can't focus. The rail stays held until
   the page reports it has claimed focus (`tvPageClaimedFocus`), also on a
   fresh shell, where tvOS's first focus pass would otherwise open the rail.
+  Even then it's released only once focus is in the page, asking again until
+  it is: Search claims on a timer, and on a loaded CI machine its keyboard
+  joined the window after it, so the rail was freed with focus nowhere and
+  tvOS opened it over Search (2026-10-09).
   After three seconds with focus nowhere (an empty library), focus goes to
   the page's row, since Menu reaches nothing while nothing has focus. The
   same goes for focus left elsewhere in the rail: holding it sometimes pushes
