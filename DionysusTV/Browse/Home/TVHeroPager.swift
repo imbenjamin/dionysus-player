@@ -41,9 +41,9 @@ struct TVHeroPager: Equatable {
     }
 
     static func timerRuns(
-        count: Int, autoCarousel: Bool, reduceMotion: Bool, motionFrozen: Bool,
+        count: Int, autoCarousel: Bool, reduceMotion: Bool, motionFrozen: Bool, voiceOver: Bool,
         heroHasFocus: Bool, isOnShow: Bool, stoppedByHand: Bool
     ) -> Bool {
-        count > 1 && autoCarousel && !reduceMotion && !motionFrozen && heroHasFocus && isOnShow && !stoppedByHand
+        count > 1 && autoCarousel && !reduceMotion && !motionFrozen && !voiceOver && heroHasFocus && isOnShow && !stoppedByHand
     }
 }

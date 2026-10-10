@@ -16,6 +16,48 @@ final class SidebarJourneyTests: TVUITestCase {
         XCTAssertGreaterThanOrEqual(tile.frame.minX, home.frame.maxX, "Content never runs under the rail")
     }
 
+    /// The rail is one named container holding its rows, so VoiceOver says
+    /// "Sidebar" as focus enters it (M5). The name is localized, so it is
+    /// checked only for being there.
+    func test_sidebar_isOneNamedContainerOfItsRows() {
+        let app = launchAtHome()
+        let sidebar = app.otherElements[A11yID.TV.Sidebar.container]
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 10), "The rail is one container")
+        XCTAssertFalse(sidebar.label.isEmpty, "VoiceOver names it as focus enters")
+        XCTAssertTrue(sidebar.buttons[A11yID.TV.Sidebar.home].exists, "Its rows keep their own identifiers")
+        XCTAssertTrue(sidebar.buttons[A11yID.TV.Sidebar.profile].exists)
+    }
+
+    /// The page on show is the selected row, so VoiceOver says which page
+    /// is current (M5).
+    func test_theCurrentPagesRow_isSelected() {
+        let app = launchAtHome()
+        let home = app.buttons[A11yID.TV.Sidebar.home]
+        let search = app.buttons[A11yID.TV.Sidebar.search]
+        openRailFromHome(app)
+        XCTAssertTrue(home.isSelected, "Home is the page on show")
+        XCTAssertFalse(search.isSelected)
+        press(.down)
+        XCTAssertTrue(waitForFocus(search))
+        press(.select)
+        XCTAssertTrue(poll(timeout: 5) { search.isSelected && !home.isSelected }, "Search is now")
+    }
+
+    /// The Libraries row says whether it's open; the chevron is drawn, not
+    /// read (M5). Compared before and after, never with a literal.
+    func test_librariesRow_saysWhetherItIsOpen() {
+        let app = launchAtHome(scenario: "manyLibraries")
+        let group = app.buttons[A11yID.TV.Sidebar.librariesGroup]
+        openRailFromHome(app)
+        XCTAssertTrue(group.waitForExistence(timeout: 5))
+        let open = group.value as? String ?? ""
+        XCTAssertFalse(open.isEmpty, "It has a value")
+        press(.down, times: 2)
+        XCTAssertTrue(waitForFocus(group))
+        press(.select)
+        XCTAssertTrue(poll(timeout: 5) { (group.value as? String ?? "") != open && !(group.value as? String ?? "").isEmpty }, "Closed, it says so")
+    }
+
     /// Left from the leftmost tile opens the rail on Home's row, whichever
     /// row is nearest; Right goes back to the page and closes it.
     func test_left_opensTheRailOnTheCurrentPage_andRightReturns() {

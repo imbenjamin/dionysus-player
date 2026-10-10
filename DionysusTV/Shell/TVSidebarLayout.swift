@@ -29,6 +29,12 @@ enum TVSidebarLayout {
         case library(String)
     }
 
+    /// Collapsed, a row that can't take focus is hidden from VoiceOver, which
+    /// otherwise read every dimmed row after each tile (M5).
+    static func isHiddenFromAccessibility(_ row: Row, isExpanded: Bool, focusable: Set<Row>) -> Bool {
+        !isExpanded && !focusable.contains(row)
+    }
+
     /// The sidebar's rows, top to bottom: Profile pinned at the top, as in
     /// Apple's TV app, then Home and Search, then each library, or, above
     /// `foldThreshold`, the Libraries row with its libraries only while it's

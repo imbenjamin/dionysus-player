@@ -40,11 +40,18 @@ extension TVUITestCase {
         return tile
     }
 
-    func isCollapsed(_ row: XCUIElement) -> Bool { row.exists && row.frame.width < 100 }
+    /// The rail's width is read from its container, not the row: on tvOS 27,
+    /// with every other row hidden from accessibility (collapsed, M5), the
+    /// one row left reports the whole rail's frame.
+    private var railWidth: CGFloat {
+        XCUIApplication().descendants(matching: .any)[A11yID.TV.Sidebar.container].frame.width
+    }
+
+    func isCollapsed(_ row: XCUIElement) -> Bool { row.exists && railWidth < 200 }
 
     /// Waits for the rail to open: it widens as focus enters it.
     func waitForExpanded(_ row: XCUIElement, timeout: TimeInterval = 5) -> Bool {
-        poll(timeout: timeout) { row.exists && row.frame.width > 300 }
+        poll(timeout: timeout) { row.exists && self.railWidth > 300 }
     }
 
     /// Waits for the rail to close again after focus leaves it.

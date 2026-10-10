@@ -17,6 +17,7 @@ struct TVHeroView: View {
     let focus: FocusState<String?>.Binding
     let play: () -> Void
     let moreInfo: () -> Void
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
 
     static let playFocus = "hero.play"
     static let infoFocus = "hero.info"
@@ -37,9 +38,11 @@ struct TVHeroView: View {
                 Button(action: play) { Label("Play", systemImage: "play.fill") }
                     .focused(focus, equals: Self.playFocus)
                     .accessibilityIdentifier(A11yID.TV.Main.heroPlay)
+                    .modifier(nextItemAction)
                 Button(action: moreInfo) { Label("More Info", systemImage: "info.circle") }
                     .focused(focus, equals: Self.infoFocus)
                     .accessibilityIdentifier(A11yID.TV.Main.heroInfo)
+                    .modifier(nextItemAction)
                 pageGuard(Self.forwardGuard, enabled: pager.canGoForward) {
                     withAnimation(.easeInOut(duration: 0.35)) { pager.forward() }
                     focus.wrappedValue = Self.infoFocus
@@ -56,12 +59,19 @@ struct TVHeroView: View {
         }
     }
 
+    /// VoiceOver can't reach the paging guard, so both buttons page instead.
+    private var nextItemAction: TVHeroNextItemAction {
+        TVHeroNextItemAction(pager: $pager)
+    }
+
     /// One point wide and unseen: it exists to catch a Left or Right that
-    /// would otherwise leave the hero.
+    /// would otherwise leave the hero. Not focusable under VoiceOver, which
+    /// would land on it and speak nothing; the row's Next Item action pages
+    /// there instead.
     private func pageGuard(_ id: String, enabled: Bool, turn: @escaping () -> Void) -> some View {
         Color.clear
             .frame(width: 1, height: 60)
-            .focusable(enabled)
+            .focusable(enabled && !voiceOverEnabled)
             .focused(focus, equals: id)
             .onChange(of: focus.wrappedValue) { _, now in
                 if now == id { turn() }
@@ -74,6 +84,18 @@ struct TVHeroView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(String(localized: "Item \(pager.index + 1) of \(count)"))
             .accessibilityIdentifier(A11yID.TV.Main.heroDots)
+    }
+}
+
+/// The hero's "Next Item" action, on each of its buttons (M5).
+private struct TVHeroNextItemAction: ViewModifier {
+    @Binding var pager: TVHeroPager
+
+    func body(content: Content) -> some View {
+        content.accessibilityAction(named: Text("Next Item")) {
+            guard pager.canGoForward else { return }
+            withAnimation(.easeInOut(duration: 0.35)) { pager.forward() }
+        }
     }
 }
 

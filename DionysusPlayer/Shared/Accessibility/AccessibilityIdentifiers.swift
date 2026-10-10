@@ -437,6 +437,9 @@ enum A11yID {
             static let heroTitle = "tv.main.hero.title"
             static let heroDots = "tv.main.hero.dots"
             static func seeAll(_ title: String) -> String { "tv.main.seeAll.\(title)" }
+            /// A rail as one container named for its heading (not a screen
+            /// root, so its tiles keep their identifiers).
+            static func railGroup(_ title: String) -> String { "tv.main.railGroup.\(title)" }
             static func rail(_ title: String) -> String { "tv.main.rail.\(title)" }
             static func library(_ libraryID: String) -> String { "tv.main.library.\(libraryID)" }
             static let retry = "tv.main.retry"
@@ -519,6 +522,9 @@ enum A11yID {
         }
         /// The custom sidebar's rows (collapsed rail and open panel alike).
         enum Sidebar {
+            /// The rail as one container, named for VoiceOver. Not a screen
+            /// root, so its rows keep their own identifiers.
+            static let container = "tv.sidebar"
             static let profile = "tv.sidebar.profile"
             static let home = "tv.sidebar.home"
             static let search = "tv.sidebar.search"

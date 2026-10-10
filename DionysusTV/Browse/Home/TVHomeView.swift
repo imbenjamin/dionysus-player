@@ -15,6 +15,7 @@ struct TVHomeView: View {
     @AppStorage(heroAutoCarouselEnabledStorageKey) private var autoCarousel = true
     @FocusState private var focus: String?
     @State private var pager = TVHeroPager(count: 0)
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     /// Focus is in the rails below the hero: the backdrop fades away to the
     /// shell's own background (Benjamin, 2026-10-04).
     @State private var isBelowHero = false
@@ -30,7 +31,7 @@ struct TVHomeView: View {
     private var timerRuns: Bool {
         TVHeroPager.timerRuns(
             count: viewModel.heroItems.count, autoCarousel: autoCarousel, reduceMotion: reduceMotion,
-            motionFrozen: UITestHarness.freezesAmbientMotion, heroHasFocus: heroHasFocus,
+            motionFrozen: UITestHarness.freezesAmbientMotion, voiceOver: voiceOverEnabled, heroHasFocus: heroHasFocus,
             isOnShow: isOnShow, stoppedByHand: pager.stoppedByHand
         )
     }
@@ -107,7 +108,11 @@ struct TVHomeView: View {
 
     private var content: some View {
         ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 50) {
+            // The hero sits outside the lazy stack, so it's built however far
+            // down the page is: Menu's focus on Play landed only once a scroll
+            // rebuilt it, and under VoiceOver that scroll never starts, so
+            // focus snapped back to the tile (Benjamin, 2026-10-10).
+            VStack(alignment: .leading, spacing: 50) {
                 if let heroItem {
                     TVHeroView(item: heroItem, count: viewModel.heroItems.count, pager: $pager, isCounting: timerRuns, focus: $focus) {
                         playHero(heroItem)
@@ -119,35 +124,37 @@ struct TVHomeView: View {
                     // height, measured so Play lands without a nudge.
                     .frame(minHeight: TVDetailMetrics.headerHeight, alignment: .bottomLeading)
                 }
-                // By title, not id: a rail's id is new with every refresh, and
-                // Home refreshes when it comes back on show. Keyed by id the
-                // rails were rebuilt, each scrolled back to its start, and the
-                // tile focus was to return to (a See All at a rail's end) no
-                // longer existed.
-                ForEach(viewModel.rails, id: \.title) { rail in
-                    railView(rail)
-                }
-                if viewModel.hasMoreDynamicRails {
-                    // Keeps loading batches for as long as the spinner is
-                    // built (on screen, or near it in the lazy stack), not one
-                    // when it appears: a batch whose candidates were all too
-                    // thin, or one that added rails without moving the spinner
-                    // out of the stack, or an appearance mid-load, left it
-                    // spinning for good. iOS's `ScrollBottomObserver` exists
-                    // for the same reason. Each batch runs in a task of its
-                    // own: cancelled with the spinner, its requests failed and
-                    // its candidates were dropped as too thin.
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .task {
-                            while !Task.isCancelled, viewModel.hasMoreDynamicRails {
-                                if viewModel.isLoadingMoreDynamicRails {
-                                    try? await Task.sleep(for: .milliseconds(250))
-                                    continue
+                LazyVStack(alignment: .leading, spacing: 50) {
+                    // By title, not id: a rail's id is new with every refresh, and
+                    // Home refreshes when it comes back on show. Keyed by id the
+                    // rails were rebuilt, each scrolled back to its start, and the
+                    // tile focus was to return to (a See All at a rail's end) no
+                    // longer existed.
+                    ForEach(viewModel.rails, id: \.title) { rail in
+                        railView(rail)
+                    }
+                    if viewModel.hasMoreDynamicRails {
+                        // Keeps loading batches for as long as the spinner is
+                        // built (on screen, or near it in the lazy stack), not one
+                        // when it appears: a batch whose candidates were all too
+                        // thin, or one that added rails without moving the spinner
+                        // out of the stack, or an appearance mid-load, left it
+                        // spinning for good. iOS's `ScrollBottomObserver` exists
+                        // for the same reason. Each batch runs in a task of its
+                        // own: cancelled with the spinner, its requests failed and
+                        // its candidates were dropped as too thin.
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                            .task {
+                                while !Task.isCancelled, viewModel.hasMoreDynamicRails {
+                                    if viewModel.isLoadingMoreDynamicRails {
+                                        try? await Task.sleep(for: .milliseconds(250))
+                                        continue
+                                    }
+                                    await Task { await viewModel.loadMoreDynamicRails() }.value
                                 }
-                                await Task { await viewModel.loadMoreDynamicRails() }.value
                             }
-                        }
+                    }
                 }
             }
             .padding(.top, 60)
@@ -161,7 +168,7 @@ struct TVHomeView: View {
 
     private func railView(_ rail: MediaCollectionRail) -> some View {
         let shape = TVTileShape(items: rail.items)
-        return TVRail(title: rail.title, titleIdentifier: A11yID.TV.Main.rail(rail.title), buildsEveryTile: true) {
+        return TVRail(title: rail.title, titleIdentifier: A11yID.TV.Main.rail(rail.title), groupIdentifier: A11yID.TV.Main.railGroup(rail.title), buildsEveryTile: true) {
             ForEach(rail.items) { item in
                 TVShapedTile(item: item, shape: shape, identifier: A11yID.TV.Main.tile(item.id)) {
                     open(.assetDetail(itemID: item.id, preloadedItem: item))
@@ -176,6 +183,9 @@ struct TVHomeView: View {
                     }
                     .frame(width: TVTileMetrics.poster.width, height: shape.railSize.height)
                     .background(.white.opacity(0.1))
+                    // Named for its rail: on its own VoiceOver read "See All" (M5).
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text("See All, \(rail.title)"))
                 }
                 .buttonStyle(.card)
                 .focused($focus, equals: Self.seeAllFocus(rail))
