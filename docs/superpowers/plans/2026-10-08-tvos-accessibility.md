@@ -1130,6 +1130,31 @@ Re-checked in Step D (2026-10-11):
 
 - [ ] Steps A–F for Search (empty, typing, results, Recent Searches, Clear) and Profile (each section, each picker, each cover).
 
+**Findings (Steps A–B, 2026-10-11, tvOS 26.5 Simulator `90E06237`, SavareseHillFlix as Ben, speech from VoiceOver's log).** Search's results rails are named on the way in ("Movies", "Collections"), from PR 2's `TVRail` container. Confirmations read Cancel first, then the question and message. Typing is spoken by the system keyboard.
+
+Search:
+1. **Results land unannounced** (known fix 1): typing "bourne" said nothing about results, and a query with none never reads "No results", which can't take focus.
+2. **"Recent Searches" is never read**, so Clear reads "Clear, Button" with nothing saying what it clears. The heading's header trait is why: VoiceOver's read-ahead skips header elements (Task 7, finding 4). Known fix 2 (`.isHeader` on the headings) would hide them the same way. Fix: drop the trait and make the heading row a container named "Recent Searches", so entering Clear says it.
+
+Profile:
+3. **Every row's value is read twice**: "Follow Apple TV Users, On, On, Button". The button's label joins its texts, title and value, and the value is set again. Fix: label the row with its title alone.
+4. **Next Episode Countdown reads "30s (Default)"**, the abbreviation; its picker reads "30 seconds (Default)". Fix: the row's value is the option's spoken form.
+5. **No section heading is read** (Account, Apple TV Users, Appearance, Playback, About), nor a picker's title or Advanced's: all header-trait elements, skipped as in 2. Fix: each section, each picker and Advanced are containers named for their heading or title, as rails are.
+6. **No footer is read** (what Follow Apple TV Users does, Playback's, Advanced's; one was caught once in passing). Proposed: each footer becomes the hint of the row it explains. Playback's covers two rows in one string.
+7. **A row that opens a page reads "Advanced, Button"**, with no word that it opens one. With 5, the page's name is spoken as it opens, so no hint is proposed.
+8. **The Quick Connect approval's result is never spoken**: "approved" or the failure shows below the field while focus stays put. Fix: announce it.
+9. **After a cover closes, VoiceOver reads its text again**: back on Sign Out, it read the dismissed question and message. To investigate.
+
+Shell (every page):
+10. **VoiceOver's read-ahead runs off the page into the collapsed sidebar**: "Sidebar, Profile & Settings, selected" after a row, and on arrival. This is the stray "selected" PR 3 noted on the grid. Proposed: order the sidebar before the page for accessibility, so the read-ahead stops at the page's end. To try first.
+
+Seen, known: Menu opening the sidebar from Profile is silent (Task 8, finding 1's limitation).
+
+**Step D (2026-10-11).** Benjamin ruled: footers become their rows' hints, Playback's split per row; 10 folded in; no hint for 7. Fixed test-first: 1 (`TVSearchGrouping.announcement`, `TVSearchGroupingTests`), 2 (`SearchJourneyTests` recent-searches journey), 3, 4 and 5 (`ProfileJourneyTests.test_row_isLabelledByItsTitleAlone`, `test_countdownRow_readsItsValueAsThePickerDoes`, `test_sections_areNamedForTheirHeadings`, `test_pickerAndAdvanced_areNamedForTheirTitles`), each RED then GREEN. 6 and 8 are by ear only: XCUITest exposes neither a hint nor an announcement. The audit then flagged "Show Playback Stats Button" as a label repeating its trait, once labelled by its title alone, so VoiceOver reads it "Show Playback Stats". Heard on the LAN server: sections named on the way in, each value once, "30 seconds (Default)", the hints, "4 results" and "No results".
+9: reproduced (the closed question is read once more beside its row); the cover is still in the tree as the system dismisses it on Menu, with no hook before. Left.
+10: the named sections stopped the read-ahead running into the rail after every row; it still does after a section's last row and on arrival. Two probes changed nothing: the rail sorted first (`.accessibilitySortPriority`), and the page as an unnamed container. The "selected" before a page's first item is the chosen row announcing its new selected trait.
+Step E: audits added for no results, Recent Searches and Sign Out's question.
+
 ### Task 10 (PR 5): Onboarding
 
 **Known fix 1: the Quick Connect code is read digit by digit.** Where the code `Text` is drawn on tvOS, add `.accessibilityLabel(code.map(String.init).joined(separator: " "))`. Unit test: a `static func spokenCode(_ code: String) -> String` beside it (`"123456"` → `"1 2 3 4 5 6"`).

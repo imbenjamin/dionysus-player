@@ -126,6 +126,42 @@ final class AccessibilityAuditTests: TVUITestCase {
         try audit(app)
     }
 
+    /// No results, and Recent Searches with Clear beside its heading (M5).
+    func test_searchNoResults() throws {
+        let app = launchAtHome()
+        openSearch(app).typeText("zzzzzz")
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Search.noResults].waitForExistence(timeout: 10))
+        try audit(app)
+    }
+
+    func test_searchRecentSearches() throws {
+        let app = launchAtHome()
+        let field = openSearch(app)
+        field.typeText("Quiet")
+        let result = app.buttons[A11yID.TV.Search.result(UITestFixtureIdentity.primaryMovieID)]
+        XCTAssertTrue(result.waitForExistence(timeout: 10))
+        for _ in 0..<5 where !result.hasFocus { press(.down) }
+        XCTAssertTrue(waitForFocus(result))
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Detail.play]))
+        press(.menu)
+        XCTAssertTrue(result.waitForExistence(timeout: 5))
+        press(.up, times: 3)
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5))
+        XCTAssertTrue(app.buttons[A11yID.TV.Search.clearRecent].waitForExistence(timeout: 10))
+        try audit(app)
+    }
+
+    private func openSearch(_ app: XCUIApplication) -> XCUIElement {
+        openRailFromHome(app)
+        press(.down)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Sidebar.search]))
+        press(.select)
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        return field
+    }
+
     func test_profile() throws {
         let app = openProfile()
         try audit(app)
@@ -152,6 +188,15 @@ final class AccessibilityAuditTests: TVUITestCase {
         pressDown(until: app.buttons[A11yID.TV.Profile.approveQuickConnect])
         press(.select)
         XCTAssertTrue(app.textFields[A11yID.TV.Profile.quickConnectCode].waitForExistence(timeout: 5))
+        try audit(app)
+    }
+
+    /// Sign Out's question, Cancel focused (M5).
+    func test_profileConfirmation() throws {
+        let app = openProfile()
+        pressDown(until: app.buttons[A11yID.TV.Profile.signOut])
+        press(.select)
+        XCTAssertTrue(app.buttons[A11yID.TV.Profile.signOutConfirm].waitForExistence(timeout: 5))
         try audit(app)
     }
 

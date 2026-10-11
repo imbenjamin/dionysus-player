@@ -238,4 +238,70 @@ final class ProfileJourneyTests: TVUITestCase {
         XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Onboarding.user(UITestFixtureIdentity.userID)].waitForExistence(timeout: 5))
         XCTAssertFalse(app.descendants(matching: .any)[A11yID.TV.Onboarding.rememberedUser(UITestFixtureIdentity.userID)].exists)
     }
+    /// A row is labelled by its title alone, its setting the value: the
+    /// button's label joined both, so VoiceOver read the value twice
+    /// ("Chapters in Scrubber, On, On"; M5).
+    func test_row_isLabelledByItsTitleAlone() {
+        let app = launchAtHome()
+        openProfile(app)
+        for id in [A11yID.TV.Profile.autoCarousel, A11yID.TV.Profile.nextUpCountdown] {
+            let row = app.buttons[id]
+            pressDownThroughProfile(until: row)
+            let value = row.value as? String ?? ""
+            XCTAssertFalse(value.isEmpty)
+            XCTAssertFalse(row.label.contains(value), "\(row.label) doesn't repeat \(value)")
+        }
+    }
+
+    /// The countdown's value is read as its picker reads the choice ("30
+    /// seconds"), not as the row shows it ("30s"; M5).
+    func test_countdownRow_readsItsValueAsThePickerDoes() {
+        let app = launchAtHome()
+        openProfile(app)
+        let row = app.buttons[A11yID.TV.Profile.nextUpCountdown]
+        pressDownThroughProfile(until: row)
+        let value = row.value as? String
+        press(.select)
+        let current = app.buttons[A11yID.TV.Profile.option("30")]
+        XCTAssertTrue(current.waitForExistence(timeout: 5))
+        XCTAssertEqual(value, current.label)
+    }
+
+    /// Each section is a container named for its heading, so VoiceOver says
+    /// it on the way in: the heading alone, a header, was never read (M5).
+    func test_sections_areNamedForTheirHeadings() {
+        let app = launchAtHome()
+        openProfile(app)
+        for section in ["account", "appleTVUsers", "appearance", "playback", "about"] {
+            let group = app.otherElements[A11yID.TV.Profile.section(section)]
+            let heading = app.staticTexts[A11yID.TV.Profile.sectionHeading(section)]
+            XCTAssertTrue(group.exists, "\(section) is one container")
+            XCTAssertTrue(heading.exists)
+            // The heading is drawn in capitals (`textCase`), which its label
+            // takes too.
+            XCTAssertEqual(group.label.localizedLowercase, heading.label.localizedLowercase, "\(section) is named for its heading")
+        }
+    }
+
+    /// A picker's choices and Advanced's rows are named for the page's
+    /// title, which, a header, was never read as it opened (M5).
+    func test_pickerAndAdvanced_areNamedForTheirTitles() {
+        let app = launchAtHome()
+        openProfile(app)
+        let row = app.buttons[A11yID.TV.Profile.nextUpCountdown]
+        pressDownThroughProfile(until: row)
+        press(.select)
+        let options = app.otherElements[A11yID.TV.Profile.pickerOptions]
+        XCTAssertTrue(options.waitForExistence(timeout: 5))
+        XCTAssertEqual(options.label, app.staticTexts[A11yID.TV.Profile.pageTitle].label)
+        press(.menu)
+        XCTAssertTrue(waitForFocus(row))
+
+        let advanced = app.buttons[A11yID.TV.Profile.advanced]
+        pressDownThroughProfile(until: advanced)
+        press(.select)
+        let rows = app.otherElements[A11yID.TV.Profile.advancedRows]
+        XCTAssertTrue(rows.waitForExistence(timeout: 5))
+        XCTAssertEqual(rows.label, app.staticTexts[A11yID.TV.Profile.pageTitle].label)
+    }
 }

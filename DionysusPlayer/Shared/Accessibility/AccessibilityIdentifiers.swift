@@ -452,6 +452,9 @@ enum A11yID {
             static let clearRecent = "tv.search.recent.clear"
             static let noResults = "tv.search.noResults"
             static let emptyHistory = "tv.search.emptyHistory"
+            /// Recent Searches' heading row, one container named for it (M5).
+            static let recentHeader = "tv.search.recentHeader"
+            static let recentHeading = "tv.search.recentHeading"
         }
         enum Library {
             static let count = "tv.library.count"
@@ -537,6 +540,14 @@ enum A11yID {
             static let quickConnectAuthorize = "tv.profile.quickConnect.authorize"
             static let quickConnectMessage = "tv.profile.quickConnect.message"
             static let textPage = "tv.profile.textPage"
+            /// A section's rows, one container named for its heading (M5).
+            static func section(_ id: String) -> String { "tv.profile.section.\(id)" }
+            static func sectionHeading(_ id: String) -> String { "tv.profile.section.\(id).heading" }
+            /// A picker's or Advanced's title, and their rows as one
+            /// container named for it (M5).
+            static let pageTitle = "tv.profile.pageTitle"
+            static let pickerOptions = "tv.profile.picker.options"
+            static let advancedRows = "tv.profile.advanced.rows"
             /// A choice on a setting's picker page, by the option's id
             /// (`StreamDecisionMode.rawValue`, a countdown's seconds…).
             static func option(_ id: String) -> String { "tv.profile.option.\(id)" }

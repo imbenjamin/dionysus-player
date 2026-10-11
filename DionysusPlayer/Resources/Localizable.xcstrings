@@ -137,6 +137,28 @@
     "%lld min left" : {
 
     },
+    "%lld results" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld result"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld results"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld/%lld" : {
       "localizations" : {
         "en" : {
@@ -1006,6 +1028,9 @@
     "No local network access" : {
 
     },
+    "No results" : {
+
+    },
     "No results for “%@”" : {
 
     },
@@ -1070,6 +1095,9 @@
 
     },
     "Other: %@" : {
+
+    },
+    "Overlays chapter markers on the scrubber with magnetic snapping while dragging." : {
 
     },
     "Overrides your default download settings for this item only." : {
@@ -1360,10 +1388,16 @@
     "Servers found: %lld" : {
 
     },
+    "Sets how long before the end of an episode to count down the next one, if end credits aren't detected." : {
+
+    },
     "Show" : {
 
     },
     "Show playback stats" : {
+
+    },
+    "Show Playback Stats" : {
 
     },
     "Show Playback Stats Button" : {
