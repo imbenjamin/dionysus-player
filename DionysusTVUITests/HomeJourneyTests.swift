@@ -59,6 +59,22 @@ final class HomeJourneyTests: TVUITestCase {
         XCTAssertTrue(seeAll.label.contains(heading.label), "See All names its rail")
     }
 
+    /// A tile whose artwork didn't load holds an image as one with artwork
+    /// does. Without one, VoiceOver's read-ahead read that tile's name
+    /// whenever Right found nothing past a rail's end, while focus stayed
+    /// put (M5, finding 9): it passes over tiles that hold an image.
+    func test_tileWithoutArtwork_holdsAnImage_asOneWithArtworkDoes() {
+        let app = launchAtHomeTile(scenario: "missingTileArtwork")
+        // The artwork itself has no identifier; XCUITest also lists the
+        // placeholder's hidden glyph, named for its symbol ("film").
+        let artwork = NSPredicate(format: "identifier == ''")
+        let loaded = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.episodeID(season: 1, episode: 1))]
+        XCTAssertTrue(loaded.images.matching(artwork).firstMatch.waitForExistence(timeout: 10), "A tile with artwork holds an image")
+        let missing = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
+        XCTAssertTrue(missing.exists)
+        XCTAssertTrue(missing.images.matching(artwork).firstMatch.waitForExistence(timeout: 5), "So does one without")
+    }
+
     /// Far below the hero, the hero is still built, so Menu's focus lands on
     /// Play without waiting for a scroll to rebuild it: under VoiceOver that
     /// scroll never starts, and focus set on a torn-down Play was refused

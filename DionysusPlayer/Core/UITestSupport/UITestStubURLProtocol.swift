@@ -81,6 +81,10 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
                 }
                 return
             }
+            if scenario == .missingTileArtwork, path.contains("/Items/\(UITestFixtureIdentity.partWatchedMovieID)/Images/") {
+                finish(.success((404, Data(), "text/plain")))
+                return
+            }
             finish(.success((200, Self.placeholderPNG, "image/png")))
             return
         }
@@ -545,7 +549,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
              .slowVideoDownload, .slowPlaybackInfo, .slowBoxSet, .emptyBoxSet, .slowItems, .manyLibraries, .manyUsers:
             return nil
-        case .largeCast, .noBackdrop, .failingLibrary, .failingHome, .thinDynamicRails, .skipIntro, .earlyCredits:
+        case .largeCast, .noBackdrop, .missingTileArtwork, .manyGenres, .failingLibrary, .failingHome, .thinDynamicRails, .skipIntro, .earlyCredits:
             return nil
         case .failingDetail:
             return path.hasSuffix("/Items/\(UITestFixtureIdentity.movieID(3))") ? 500 : nil
@@ -961,6 +965,9 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         if let watched = watchedOverride(item.id) {
             copy.userData?.played = watched
             if watched { copy.userData?.playbackPositionTicks = 0 }
+        }
+        if UITestConfiguration.scenario == .manyGenres, item.type == .movie {
+            copy.genres = ["Genre \(item.id)"]
         }
         guard UITestConfiguration.scenario == .noDeletePermission else { return copy }
         copy.canDelete = false

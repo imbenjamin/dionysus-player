@@ -26,9 +26,22 @@ final class ShowDetailJourneyTests: TVUITestCase {
         XCTAssertTrue(poll(timeout: 10) { play.label.contains("S1:E2") }, "Play names the episode it starts")
         XCTAssertTrue(play.hasFocus, "Focus stays on Play while its episode is resolved")
         XCTAssertTrue(episode(app, season: 1, 1).waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts.matching(identifier: A11yID.TV.Detail.badge).firstMatch.waitForExistence(timeout: 10), "The episode's format badges show, as on a movie's page")
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Detail.badges].waitForExistence(timeout: 10), "The episode's format badges show, as on a movie's page")
         let subject = app.staticTexts[A11yID.TV.Detail.detailsSubject]
         XCTAssertTrue(poll(timeout: 10) { subject.exists && subject.label.contains("S1:E2") }, "Details describes the episode Play starts")
+    }
+
+    /// On its own show's page an episode reads its caption, not its show's
+    /// name: VoiceOver read "American Horror Story, S1:E1 · Pilot" (M5).
+    func test_episodeTile_doesNotRepeatItsShowsName() {
+        let app = launchAtHome()
+        openSeries(app)
+        let title = app.descendants(matching: .any)[A11yID.TV.Detail.title]
+        let tile = episode(app, season: 1, 1)
+        XCTAssertTrue(tile.waitForExistence(timeout: 10))
+        XCTAssertTrue(title.exists)
+        XCTAssertFalse(title.label.isEmpty)
+        XCTAssertFalse(tile.label.contains(title.label), "\(tile.label) names its show")
     }
 
     func test_seasonTab_switchesTheEpisodeRail() {

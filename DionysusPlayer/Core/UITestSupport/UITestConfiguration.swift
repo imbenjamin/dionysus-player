@@ -148,6 +148,15 @@ enum UITestScenario: String {
     /// Apple TV detail page shows its poster beside the title instead.
     case noBackdrop
 
+    /// `.standard`, but the part-watched movie's artwork answers 404, so its
+    /// tile shows the placeholder: the Apple TV journey that checks such a
+    /// tile reads as one with artwork does (M5).
+    case missingTileArtwork
+
+    /// `.standard`, but every movie has a genre of its own, twelve in all,
+    /// so the Apple TV library's Genre list is long enough to scroll (M5).
+    case manyGenres
+
     /// `.standard`, but listing the Movies library's items answers 500, so
     /// its Apple TV page fails to load and offers Retry.
     case failingLibrary

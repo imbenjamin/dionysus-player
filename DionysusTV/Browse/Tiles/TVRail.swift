@@ -6,6 +6,7 @@ struct TVRail<Content: View>: View {
     let title: String
     var titleIdentifier: String?
     var groupIdentifier: String?
+    var rowIdentifier: String?
     /// Every tile built at once, for a rail that scrolls under the sidebar
     /// (Home): lazily, a tile scrolled past the row's leading edge, under the
     /// sidebar, was torn down once scrolling stopped. The row itself keeps
@@ -30,6 +31,13 @@ struct TVRail<Content: View>: View {
                 }
                 .padding(.vertical, 30)
                 .padding(.trailing, 80)
+                // Named again: VoiceOver says the name of the container
+                // focus enters, and a lazy stack is a container of its own,
+                // so a detail page's rails went unnamed while Home's, built
+                // at once, were named (M5).
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(Text(verbatim: title))
+                .accessibilityIdentifier(rowIdentifier ?? "")
             }
             .scrollClipDisabled()
             .focusSection()

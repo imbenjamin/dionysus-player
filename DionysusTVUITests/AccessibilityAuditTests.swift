@@ -54,6 +54,65 @@ final class AccessibilityAuditTests: TVUITestCase {
         try audit(app)
     }
 
+    /// An open dropdown list, and the sort list with its two groups (M5).
+    func test_libraryGridOpenList() throws {
+        let app = launchAtHome()
+        _ = openMovies(app)
+        press(.up)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Library.filter("genre")]))
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Library.option("genre", "all")]))
+        try audit(app)
+        press(.menu)
+        let sort = app.buttons[A11yID.TV.Library.sort]
+        for _ in 0..<8 where !sort.hasFocus { press(.right) }
+        XCTAssertTrue(waitForFocus(sort))
+        press(.select)
+        XCTAssertTrue(app.otherElements[A11yID.TV.Library.list("sort")].waitForExistence(timeout: 5))
+        try audit(app)
+    }
+
+    /// A See All grid, pushed from Home.
+    func test_seeAllGrid() throws {
+        let app = launchAtHome()
+        let seeAll = app.buttons[A11yID.TV.Main.seeAll("Recently Added Movies")]
+        focusFirstRailTile(app)
+        press(.down, times: 2)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        for _ in 0..<20 where !(seeAll.exists && seeAll.hasFocus) { press(.right) }
+        XCTAssertTrue(waitForFocus(seeAll))
+        press(.select)
+        XCTAssertTrue(waitForFocus(firstLibraryTile(app)))
+        try audit(app)
+    }
+
+    /// Full Details, laid over a movie's page.
+    func test_fullDetails() throws {
+        let app = launchAtHomeTile()
+        openDetailFromFocusedTile(app)
+        let details = app.buttons[A11yID.TV.Detail.details]
+        for _ in 0..<5 where !details.hasFocus { press(.down) }
+        XCTAssertTrue(waitForFocus(details))
+        press(.select)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Detail.fullDetailsTitle].waitForExistence(timeout: 5))
+        try audit(app)
+    }
+
+    func test_boxSet() throws {
+        let app = launchAtHome()
+        openLibraryTile(UITestFixtureIdentity.boxSetID, inLibrary: UITestFixtureIdentity.boxSetsLibraryID, app)
+        let member = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tv.detail.member.")).firstMatch
+        XCTAssertTrue(waitForFocus(member, timeout: 10))
+        try audit(app)
+    }
+
+    func test_playlist() throws {
+        let app = launchAtHome()
+        openLibraryTile(UITestFixtureIdentity.playlistID, inLibrary: UITestFixtureIdentity.playlistsLibraryID, app)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Detail.play], timeout: 10))
+        try audit(app)
+    }
+
     func test_search() throws {
         let app = launchAtHome()
         openRailFromHome(app)
