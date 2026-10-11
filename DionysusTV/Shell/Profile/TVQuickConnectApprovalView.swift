@@ -42,13 +42,26 @@ struct TVQuickConnectApprovalView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { Rectangle().fill(.ultraThickMaterial).ignoresSafeArea() }
         .defaultFocus($focus, A11yID.TV.Profile.quickConnectCode)
+        // The outcome shows below the button while focus stays on it, so
+        // VoiceOver is told (M5).
+        .onChange(of: viewModel.state) { _, state in
+            switch state {
+            case .approved: AccessibilityNotification.Announcement(approvedMessage).post()
+            case .failed(let message): AccessibilityNotification.Announcement(message).post()
+            case .entering, .submitting: break
+            }
+        }
+    }
+
+    private var approvedMessage: String {
+        String(localized: "The other device is now signed in as \(viewModel.userName). It can take a few seconds to finish.")
     }
 
     @ViewBuilder
     private var message: some View {
         switch viewModel.state {
         case .approved:
-            Text("The other device is now signed in as \(viewModel.userName). It can take a few seconds to finish.")
+            Text(verbatim: approvedMessage)
                 .accessibilityIdentifier(A11yID.TV.Profile.quickConnectMessage)
         case .failed(let message):
             Text(verbatim: message)

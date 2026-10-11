@@ -27,6 +27,8 @@ struct TVSearchView: View {
     @Environment(\.tvFocusPageDefault) private var focusPageDefault
     /// Bumped by Menu from the results: they scroll back to their top.
     @State private var topRequest = 0
+    /// The results VoiceOver last heard announced (M5).
+    @State private var announcedResults: [String]?
 
     private var sections: [TVSearchGrouping.Section] { TVSearchGrouping.sections(viewModel.results) }
     private var isIdle: Bool { viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -51,6 +53,16 @@ struct TVSearchView: View {
             }
         }
         .onChange(of: viewModel.query) { viewModel.queryChanged() }
+        // Focus stays in the keyboard as results land, so VoiceOver is told
+        // how many there are, once per new set (M5).
+        .onChange(of: viewModel.loadState) { _, state in
+            guard !isIdle else { announcedResults = nil; return }
+            guard state == .loaded else { return }
+            let ids = viewModel.results.map(\.id)
+            guard let text = TVSearchGrouping.announcement(results: ids, lastAnnounced: announcedResults) else { return }
+            announcedResults = ids
+            AccessibilityNotification.Announcement(text).post()
+        }
         .task(id: viewModel.results.count + viewModel.history.count) { await viewModel.loadImagesIfNeeded() }
         // Search's default focus is the system keyboard, a UIKit control no
         // SwiftUI focus target reaches: with the rail held disabled, tvOS puts
@@ -154,12 +166,18 @@ struct TVSearchView: View {
                 Text("Recent Searches")
                     .font(.title3.weight(.semibold))
                     .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier(A11yID.TV.Search.recentHeading)
                 Button("Clear") { viewModel.clearHistory() }
                     .focused($focusedResultID, equals: Self.clearFocusID)
                     .accessibilityIdentifier(A11yID.TV.Search.clearRecent)
                 Spacer(minLength: 0)
             }
             .focusSection()
+            // Named for the heading, so VoiceOver says what Clear clears: the
+            // heading itself, a header, is passed over (M5).
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(Text("Recent Searches"))
+            .accessibilityIdentifier(A11yID.TV.Search.recentHeader)
             // Keyed apart from the results' rails: sharing their ids
             // ("movies"), the lazy stack kept the results' rail in place when
             // the field was emptied.

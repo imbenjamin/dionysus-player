@@ -591,6 +591,19 @@ TESTING.md). None of these is guessable:
   tile whose artwork had failed, with focus never moving. So on tvOS
   `AsyncRemoteImage`'s placeholder sits over an empty `Image`. An image trait
   on the tile didn't do it (VoiceOver then read "Image" and an identifier).
+- **A button's label joins every text inside it**, so a settings row read
+  its value twice ("Chapters in Scrubber, On, On"): `TVSettingsRow` labels
+  itself with its title alone. And VoiceOver passes over a header-trait
+  heading (above) however it sits, so Profile's sections, its pickers,
+  Advanced and Recent Searches are containers named for their headings.
+  Named sections also keep the read-ahead inside them: before, it ran on
+  into the collapsed rail after a row ("Sidebar, Profile & Settings,
+  selected"). It still does after a section's last row and on arrival;
+  sorting the rail first and making the page a container changed nothing.
+- **A footer is never reached**, since focus moves only between buttons, so
+  each settings footer is also its row's hint, and hidden itself.
+- **Results and outcomes are announced** (`TVSearchGrouping.announcement`,
+  Quick Connect's approval): focus stays in the keyboard or on the button.
 - **Limitation: a focus move made by Menu isn't spoken properly.** Back to the
   landing item, VoiceOver says "Button" and the read-ahead, not the label,
   though its cursor is on the right element; the same move by the remote's Up

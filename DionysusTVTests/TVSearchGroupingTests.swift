@@ -33,4 +33,19 @@ final class TVSearchGroupingTests: XCTestCase {
         XCTAssertEqual(sections.map(\.id), ["movies", "other"])
         XCTAssertEqual(sections.last?.results.map(\.id), ["x", "y"])
     }
+    /// What VoiceOver hears when results land (M5): a count, or that there
+    /// are none, since the results can't announce themselves.
+    func test_announcement_saysHowManyResultsThereAre() {
+        XCTAssertEqual(TVSearchGrouping.announcement(results: ["a", "b", "c"], lastAnnounced: nil), "3 results")
+        XCTAssertEqual(TVSearchGrouping.announcement(results: ["a"], lastAnnounced: nil), "1 result")
+        XCTAssertEqual(TVSearchGrouping.announcement(results: [], lastAnnounced: nil), "No results")
+    }
+
+    /// Only a new set of results is announced: another keystroke that finds
+    /// the same titles says nothing.
+    func test_announcement_onlyWhenTheResultsChange() {
+        XCTAssertNil(TVSearchGrouping.announcement(results: ["a", "b"], lastAnnounced: ["a", "b"]))
+        XCTAssertNil(TVSearchGrouping.announcement(results: [], lastAnnounced: []))
+        XCTAssertEqual(TVSearchGrouping.announcement(results: ["a"], lastAnnounced: ["a", "b"]), "1 result")
+    }
 }

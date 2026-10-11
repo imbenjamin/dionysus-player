@@ -104,6 +104,13 @@ final class SearchJourneyTests: TVUITestCase {
         XCTAssertTrue(recent.waitForExistence(timeout: 10), "With the field empty, what was opened is listed")
         XCTAssertTrue(app.staticTexts[A11yID.TV.Search.recentSection("movies")].exists, "…under its type's rail")
 
+        // The heading and Clear are one container named for the heading, so
+        // VoiceOver says what Clear clears: the heading, a header, was never
+        // read (M5).
+        let header = app.otherElements[A11yID.TV.Search.recentHeader]
+        XCTAssertTrue(header.exists)
+        XCTAssertEqual(header.label, app.staticTexts[A11yID.TV.Search.recentHeading].label)
+
         let clear = app.buttons[A11yID.TV.Search.clearRecent]
         focus(recent)
         press(.up)

@@ -28,32 +28,42 @@ struct TVSettingsPicker<Option: Hashable>: View {
                 .padding(.leading, 34)
                 .padding(.bottom, 12)
                 .accessibilityAddTraits(.isHeader)
-            ForEach(options, id: \.self) { option in
-                let isSelected = option == selection
-                Button {
-                    selection = option
-                    dismiss()
-                } label: {
-                    HStack {
-                        Text(verbatim: label(option))
-                        Spacer()
-                        if isSelected {
-                            Image(systemName: "checkmark")
-                                .accessibilityHidden(true)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .focused($focused, equals: id(option))
-                .accessibilityLabel(Text(verbatim: accessibilityLabel?(option) ?? label(option)))
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
-                .accessibilityIdentifier(A11yID.TV.Profile.option(id(option)))
-            }
+                .accessibilityIdentifier(A11yID.TV.Profile.pageTitle)
+            // The choices are one container named for the title, which
+            // VoiceOver passes over as a header (M5).
+            VStack(alignment: .leading, spacing: 12) { choices }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(Text(title))
+                .accessibilityIdentifier(A11yID.TV.Profile.pickerOptions)
         }
         .frame(width: 900)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { Rectangle().fill(.ultraThickMaterial).ignoresSafeArea() }
         .defaultFocus($focused, id(selection))
+    }
+
+    private var choices: some View {
+        ForEach(options, id: \.self) { option in
+            let isSelected = option == selection
+            Button {
+                selection = option
+                dismiss()
+            } label: {
+                HStack {
+                    Text(verbatim: label(option))
+                    Spacer()
+                    if isSelected {
+                        Image(systemName: "checkmark")
+                            .accessibilityHidden(true)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .focused($focused, equals: id(option))
+            .accessibilityLabel(Text(verbatim: accessibilityLabel?(option) ?? label(option)))
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .accessibilityIdentifier(A11yID.TV.Profile.option(id(option)))
+        }
     }
 }
 
