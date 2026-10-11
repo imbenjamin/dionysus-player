@@ -10,6 +10,9 @@ struct TVLandscapeTile: View {
     let title: String
     let subtitle: String?
     let identifier: String
+    /// What VoiceOver reads, when the item's own description isn't right
+    /// here: on its show's page an episode needn't name its show (M5).
+    var accessibilityLabel: String?
     let action: () -> Void
     @FocusState private var isFocused: Bool
 
@@ -26,7 +29,7 @@ struct TVLandscapeTile: View {
             }
             .buttonStyle(.card)
             .focused($isFocused)
-            .accessibilityLabel(item.accessibilityDescription)
+            .accessibilityLabel(accessibilityLabel ?? item.accessibilityDescription)
             .accessibilityValue(TVTileBadges.spokenValue(for: item))
             .accessibilityIdentifier(identifier)
 

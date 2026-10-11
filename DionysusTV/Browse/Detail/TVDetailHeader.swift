@@ -82,9 +82,16 @@ struct TVDetailHeader: View {
                             .font(.caption2.weight(.bold))
                             .padding(.horizontal, 12).padding(.vertical, 5)
                             .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.5), lineWidth: 2))
-                            .accessibilityIdentifier(A11yID.TV.Detail.badge)
                     }
                 }
+                // One element in full words, as iOS's row: each badge alone
+                // was a stop of its own, read "DD plus", "CC" (M5).
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(verbatim: MediaItem.spokenBadges(badges)))
+                .accessibilityIdentifier(A11yID.TV.Detail.badges)
+                // While loading the row is only holding its space. A combined
+                // element, so `false` here hides nothing inside it.
+                .accessibilityHidden(badges.isEmpty)
             }
         }
     }

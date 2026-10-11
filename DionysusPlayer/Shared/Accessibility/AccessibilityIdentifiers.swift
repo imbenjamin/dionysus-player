@@ -460,6 +460,13 @@ enum A11yID {
             static let resetFilters = "tv.library.resetFilters"
             /// A choice in an open pill's list: "all", or the option's index.
             static func option(_ pill: String, _ option: String) -> String { "tv.library.option.\(pill).\(option)" }
+            /// An open pill's list, one container named for its pill (M5).
+            static func list(_ pill: String) -> String { "tv.library.list.\(pill)" }
+            /// A long list's scrolled rows, named again: a scroll view is a
+            /// container of its own, and VoiceOver names the innermost (M5).
+            static func listRows(_ pill: String) -> String { "tv.library.list.\(pill).rows" }
+            /// A group of choices in an open list (the sort's fields, its order).
+            static func listSection(_ pill: String, _ index: Int) -> String { "tv.library.list.\(pill).\(index)" }
             static let retry = "tv.library.retry"
             static func title(_ libraryID: String) -> String { "tv.library.title.\(libraryID)" }
             static func tile(_ itemID: String) -> String { "tv.library.tile.\(itemID)" }
@@ -474,8 +481,22 @@ enum A11yID {
             static let retry = "tv.detail.retry"
             static func similar(_ itemID: String) -> String { "tv.detail.similar.\(itemID)" }
             static func cast(_ memberID: String) -> String { "tv.detail.cast.\(memberID)" }
+            /// Cast & Crew, one container named for its heading (M5).
+            static let castGroup = "tv.detail.castGroup"
+            static let castHeading = "tv.detail.castHeading"
+            /// Cast & Crew's lazy row, named again: VoiceOver says the name of
+            /// the container it enters, and a lazy stack is one of its own.
+            static let castRow = "tv.detail.castRow"
+            /// More Like This: its heading, its container and its lazy row.
+            static let similarHeading = "tv.detail.similarHeading"
+            static let similarGroup = "tv.detail.similarGroup"
+            static let similarRow = "tv.detail.similarRow"
             static let details = "tv.detail.details"
             static let fullDetailsTitle = "tv.detail.fullDetails.title"
+            /// A Full Details section ("about", "audio.<version>"…), one container
+            /// named for its heading (M5), and that heading.
+            static func fullDetailsSection(_ id: String) -> String { "tv.detail.fullDetails.section.\(id)" }
+            static func fullDetailsSectionTitle(_ id: String) -> String { "tv.detail.fullDetails.sectionTitle.\(id)" }
             /// Which episode a show page's Details describe.
             static let detailsSubject = "tv.detail.details.subject"
             static func season(_ seasonID: String) -> String { "tv.detail.season.\(seasonID)" }
@@ -485,8 +506,8 @@ enum A11yID {
             static func member(_ id: String) -> String { "tv.detail.member.\(id)" }
             static let emptyMessage = "tv.detail.empty"
             static let loading = "tv.detail.loading"
-            /// Each format badge in the header ("4K", "HDR10"…).
-            static let badge = "tv.detail.badge"
+            /// The row of format badges, read as one element (M5).
+            static let badges = "tv.detail.badges"
             /// The poster or still beside the title, for a title with no backdrop.
             static let headerArt = "tv.detail.headerArt"
         }

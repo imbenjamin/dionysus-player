@@ -168,7 +168,8 @@ struct TVCollectionGridView: View {
         ]
         let orders: [(CollectionSortOrder, String)] = [(.ascending, String(localized: "Ascending")), (.descending, String(localized: "Descending"))]
         return TVDropdown(
-            id: "sort", title: sortTitle, icon: "arrow.up.arrow.down",
+            id: "sort", title: sortTitle, name: String(localized: "Sort"),
+            value: "\(sortTitle), \(orders.first { $0.0 == viewModel.sortOrder }?.1 ?? "")", icon: "arrow.up.arrow.down",
             sections: [
                 fields.enumerated().map { index, field in
                     TVDropdownOption(id: "field\(index)", title: field.1, isSelected: viewModel.sortField == field.0) {
@@ -181,6 +182,7 @@ struct TVCollectionGridView: View {
                     }
                 }
             ],
+            sectionNames: [String(localized: "Sort By"), String(localized: "Order")],
             alignsTrailing: true, identifier: A11yID.TV.Library.sort
         )
     }
@@ -213,7 +215,7 @@ struct TVCollectionGridView: View {
     ) -> TVDropdown? {
         guard !options.isEmpty else { return nil }
         return TVDropdown(
-            id: facet, title: selection.map(display) ?? title, icon: icon,
+            id: facet, title: selection.map(display) ?? title, name: title, value: selection.map(display) ?? all, icon: icon,
             sections: [
                 [TVDropdownOption(id: "all", title: all, isSelected: selection == nil) { set(nil) }]
                     + options.enumerated().map { index, option in

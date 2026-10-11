@@ -140,8 +140,26 @@ struct AsyncRemoteImage: View {
             Color.clear
         case .loadingGlyph:
             MediaPlaceholderBox(systemImage: placeholderSystemImage, glyphSize: glyphSize, isSettled: false)
+                .modifier(StandsInForImage())
         case .settledGlyph:
             MediaPlaceholderBox(systemImage: placeholderSystemImage, glyphSize: glyphSize, isSettled: true)
+                .modifier(StandsInForImage())
+        }
+    }
+
+    /// On tvOS the placeholder sits over an empty image, so a tile without
+    /// artwork reads to VoiceOver as one with it. VoiceOver's read-ahead
+    /// passes over a tile that holds an image and read one that didn't:
+    /// whenever Right found nothing past a rail's end it spoke that tile's
+    /// name, though focus stayed put (M5; measured with the image moved
+    /// between tiles, and an image trait alone didn't do it).
+    private struct StandsInForImage: ViewModifier {
+        func body(content: Content) -> some View {
+            #if os(tvOS)
+            content.background { Image(uiImage: UIImage()).resizable() }
+            #else
+            content
+            #endif
         }
     }
 

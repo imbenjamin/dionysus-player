@@ -144,6 +144,72 @@ final class DetailJourneyTests: TVUITestCase {
         XCTAssertTrue(focused("tv.detail.similar.").waitForExistence(timeout: 5), "Up returns to More Like This")
     }
 
+    /// Cast & Crew is one container named for its heading, so VoiceOver says
+    /// it on the way in, as Home's rails do (M5): a heading beside the row
+    /// wasn't read.
+    func test_castAndCrew_isNamedForItsHeading() {
+        let app = launchAtHomeTile()
+        openDetailFromFocusedTile(app)
+        press(.down)
+        let heading = app.staticTexts[A11yID.TV.Detail.castHeading]
+        XCTAssertTrue(heading.waitForExistence(timeout: 5))
+        let group = app.otherElements[A11yID.TV.Detail.castGroup]
+        XCTAssertTrue(group.exists, "Cast & Crew is one container")
+        XCTAssertEqual(group.label, heading.label, "Named for its heading")
+        let row = app.otherElements[A11yID.TV.Detail.castRow]
+        XCTAssertTrue(row.exists, "Its lazy row is a container too")
+        XCTAssertEqual(row.label, heading.label, "Named for the heading as well")
+    }
+
+    /// More Like This's lazy row is named for its heading: VoiceOver says
+    /// the name of the container focus enters, and a lazy stack is a
+    /// container of its own, so the rail's name went unsaid on detail pages
+    /// while Home's rails, built every tile at once, said theirs (M5).
+    func test_moreLikeThis_isNamedForItsHeading() {
+        let app = launchAtHomeTile()
+        openDetailFromFocusedTile(app)
+        let heading = app.staticTexts[A11yID.TV.Detail.similarHeading]
+        XCTAssertTrue(heading.waitForExistence(timeout: 10))
+        let group = app.otherElements[A11yID.TV.Detail.similarGroup]
+        XCTAssertTrue(group.exists, "More Like This is one container")
+        XCTAssertEqual(group.label, heading.label, "Named for its heading")
+        let row = app.otherElements[A11yID.TV.Detail.similarRow]
+        XCTAssertTrue(row.exists, "Its lazy row is a container too")
+        XCTAssertEqual(row.label, heading.label, "Named for the heading as well")
+    }
+
+    /// Each Full Details section is a container named for its heading:
+    /// VoiceOver read "Dolby Digital - Stereo" with no "Audio" (M5).
+    func test_fullDetails_sectionsAreNamedForTheirHeadings() {
+        let app = launchAtHomeTile()
+        openDetailFromFocusedTile(app)
+        let details = app.buttons[A11yID.TV.Detail.details]
+        for _ in 0..<5 where !details.hasFocus { press(.down) }
+        XCTAssertTrue(waitForFocus(details))
+        press(.select)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Detail.fullDetailsTitle].waitForExistence(timeout: 5))
+        let heading = app.staticTexts[A11yID.TV.Detail.fullDetailsSectionTitle("about")]
+        let section = app.descendants(matching: .any)[A11yID.TV.Detail.fullDetailsSection("about")]
+        XCTAssertTrue(heading.exists)
+        XCTAssertTrue(section.exists, "The section is one container")
+        XCTAssertEqual(section.label, heading.label, "Named for its heading")
+    }
+
+    /// The format badges are one element, read in full words, as iOS's row
+    /// is: one stop each, VoiceOver read "DD plus", "CC" (M5).
+    func test_formatBadges_areReadAsOneElement() {
+        let app = launchAtHomeTile()
+        openDetailFromFocusedTile(app)
+        let badges = app.descendants(matching: .any)[A11yID.TV.Detail.badges]
+        XCTAssertTrue(badges.waitForExistence(timeout: 10), "The badge row is one element")
+        // XCUITest still lists the badges inside (as it does hidden rows),
+        // so the check is the row's label: every badge's text, and more.
+        let shown = badges.staticTexts.allElementsBoundByIndex.map(\.label).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        XCTAssertFalse(shown.isEmpty)
+        XCTAssertTrue(shown.allSatisfy { badges.label.contains($0) || ["DD+", "DD", "CC"].contains($0) }, "\(badges.label) reads \(shown)")
+        XCTAssertGreaterThan(badges.label.count, shown.joined(separator: ", ").count, "One element with its own label")
+    }
+
     /// Back up to the actions, the page returns to its starting position:
     /// the whole logo on show, not cut off at the top (Benjamin, 2026-10-02).
     /// Down is pressed the moment the page opens: the start position is the

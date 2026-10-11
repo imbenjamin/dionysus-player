@@ -101,8 +101,8 @@ struct DownloadedInfoMetadataRow: View {
         return "SD"
     }
 
-    /// See `InfoMetadataRow.accessibilityBadge(_:)` — identical copy, not
-    /// shared, for the same reason that one documents. Only `CC` actually
+    /// See `MediaItem.spokenBadge(_:)`: the same switch, kept here because
+    /// its `default` also spells out a file size. Only `CC` actually
     /// appears in this view's own `badges` (no DD/DD+ here — every download
     /// is transcoded to a fixed audio format), but kept as the same switch
     /// rather than a one-off special case in case that ever changes. The

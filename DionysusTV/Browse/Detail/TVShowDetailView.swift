@@ -146,7 +146,12 @@ struct TVShowDetailView: View {
                     TVCastRail(cast: cast, focus: $focus)
                 }
                 if !viewModel.similar.isEmpty {
-                    TVRail(title: String(localized: "More Like This")) {
+                    TVRail(
+                        title: String(localized: "More Like This"),
+                        titleIdentifier: A11yID.TV.Detail.similarHeading,
+                        groupIdentifier: A11yID.TV.Detail.similarGroup,
+                        rowIdentifier: A11yID.TV.Detail.similarRow
+                    ) {
                         let shape = TVTileShape(items: viewModel.similar)
                         ForEach(viewModel.similar) { similar in
                             TVShapedTile(item: similar, shape: shape, identifier: A11yID.TV.Detail.similar(similar.id)) {
@@ -262,7 +267,11 @@ struct TVShowDetailView: View {
                         TVLandscapeTile(
                             item: episode, size: TVTileMetrics.episode,
                             title: episode.numberedEpisodeName, subtitle: episode.durationText,
-                            identifier: A11yID.TV.Detail.episode(episode.id)
+                            identifier: A11yID.TV.Detail.episode(episode.id),
+                            // Its caption, worded out: the show's name is the
+                            // page's own (M5).
+                            accessibilityLabel: [episode.episodeLabelAccessibilityText, episode.name, episode.durationAccessibilityText]
+                                .compactMap { $0 }.joined(separator: ", ")
                         ) {
                             // The page turns to this episode; the landing
                             // behaviour scrolls it back to the top as focus

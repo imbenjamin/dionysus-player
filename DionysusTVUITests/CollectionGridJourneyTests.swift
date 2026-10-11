@@ -81,6 +81,95 @@ final class CollectionGridJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(genre), "Focus moves to the first pill when Reset removes itself")
     }
 
+    /// A pill is named for its facet and reads its choice as its value, so
+    /// VoiceOver says "Genre, Adventure" rather than "Adventure" (M5). Labels
+    /// are compared with each other, never with a localized literal.
+    func test_pills_nameTheirFacet_andReadTheirChoiceAsTheirValue() {
+        let app = launchAtHome()
+        _ = openMovies(app)
+        let genre = app.buttons[A11yID.TV.Library.filter("genre")]
+        let facet = genre.label
+        press(.up)
+        XCTAssertTrue(waitForFocus(genre))
+        press(.select)
+        let all = app.buttons[A11yID.TV.Library.option("genre", "all")]
+        XCTAssertTrue(waitForFocus(all))
+        XCTAssertEqual(genre.value as? String, all.label, "Nothing chosen, the value is the list's first choice")
+        press(.down)
+        let first = app.buttons[A11yID.TV.Library.option("genre", "0")]
+        XCTAssertTrue(waitForFocus(first))
+        let chosen = first.label
+        press(.select)
+        XCTAssertTrue(poll(timeout: 1) { genre.hasFocus })
+        XCTAssertTrue(poll(timeout: 5) { genre.value as? String == chosen }, "The value is the choice")
+        XCTAssertEqual(genre.label, facet, "The label stays the facet")
+
+        let sort = app.buttons[A11yID.TV.Library.sort]
+        let sortName = sort.label
+        for _ in 0..<8 where !sort.hasFocus { press(.right) }
+        XCTAssertTrue(waitForFocus(sort))
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Library.option("sort", "field0")]))
+        let descending = app.buttons[A11yID.TV.Library.option("sort", "order1")]
+        let field = app.buttons[A11yID.TV.Library.option("sort", "field0")].label
+        for _ in 0..<4 where !descending.hasFocus { press(.down) }
+        XCTAssertTrue(waitForFocus(descending))
+        let order = descending.label
+        press(.select)
+        XCTAssertTrue(poll(timeout: 1) { sort.hasFocus })
+        let value = sort.value as? String ?? ""
+        XCTAssertTrue(value.contains(field) && value.contains(order), "The sort reads its field and its order: \(value)")
+        XCTAssertNotEqual(sort.label, field, "The label names the sort, not its field")
+        XCTAssertEqual(sort.label, sortName)
+    }
+
+    /// An open list is one container named for its pill, and the pill isn't
+    /// marked selected while it's open: VoiceOver read "selected, selected,
+    /// All Genres" (M5). The sort's two groups are named apart.
+    /// A list long enough to scroll names its rows as well: the scroll view
+    /// is a container of its own, and VoiceOver names the innermost it
+    /// enters, so the genre list went unnamed (M5).
+    func test_longList_namesItsScrolledRows() {
+        let app = launchAtHome(scenario: "manyGenres")
+        _ = openMovies(app)
+        let genre = app.buttons[A11yID.TV.Library.filter("genre")]
+        press(.up)
+        XCTAssertTrue(waitForFocus(genre))
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Library.option("genre", "all")]))
+        let rows = app.otherElements[A11yID.TV.Library.listRows("genre")]
+        XCTAssertTrue(rows.exists, "The scrolled rows are a container")
+        XCTAssertEqual(rows.label, genre.label, "Named for the pill")
+    }
+
+    func test_openList_isNamedForItsPill() {
+        let app = launchAtHome()
+        _ = openMovies(app)
+        let genre = app.buttons[A11yID.TV.Library.filter("genre")]
+        press(.up)
+        XCTAssertTrue(waitForFocus(genre))
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Library.option("genre", "all")]))
+        let list = app.otherElements[A11yID.TV.Library.list("genre")]
+        XCTAssertTrue(list.exists, "The open list is one container")
+        XCTAssertEqual(list.label, genre.label, "Named for its pill")
+        XCTAssertFalse(genre.isSelected, "The pill isn't selected while its list is open")
+        press(.menu)
+        XCTAssertTrue(poll(timeout: 1) { genre.hasFocus })
+
+        let sort = app.buttons[A11yID.TV.Library.sort]
+        for _ in 0..<8 where !sort.hasFocus { press(.right) }
+        XCTAssertTrue(waitForFocus(sort))
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Library.option("sort", "field0")]))
+        let fields = app.otherElements[A11yID.TV.Library.listSection("sort", 0)]
+        let orders = app.otherElements[A11yID.TV.Library.listSection("sort", 1)]
+        XCTAssertTrue(fields.exists && orders.exists, "Both groups are containers")
+        XCTAssertFalse(fields.label.isEmpty)
+        XCTAssertFalse(orders.label.isEmpty)
+        XCTAssertNotEqual(fields.label, orders.label, "Each group has its own name")
+    }
+
     /// Menu closes an open list without choosing, back on its pill; it
     /// doesn't open the rail.
     func test_menu_closesAnOpenList() {

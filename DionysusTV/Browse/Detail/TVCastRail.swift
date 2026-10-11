@@ -10,6 +10,7 @@ struct TVCastRail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Cast & Crew").font(.headline).accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier(A11yID.TV.Detail.castHeading)
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 56) {
                     ForEach(cast) { member in
@@ -35,10 +36,21 @@ struct TVCastRail: View {
                 }
                 .padding(.vertical, 30)
                 .padding(.trailing, 80)
+                // The lazy row is a container of its own, which VoiceOver
+                // names as focus enters (see `TVRail`).
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(Text("Cast & Crew"))
+                .accessibilityIdentifier(A11yID.TV.Detail.castRow)
             }
             .scrollClipDisabled()
             .focusSection()
         }
+        // One named container, so VoiceOver says "Cast & Crew" as focus
+        // enters it, as it does a Home rail (M5): the heading beside the row
+        // wasn't read.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("Cast & Crew"))
+        .accessibilityIdentifier(A11yID.TV.Detail.castGroup)
     }
 }
 

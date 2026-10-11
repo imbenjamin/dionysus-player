@@ -26,10 +26,18 @@ struct TVDropdownOption: Identifiable {
 /// page's own focus state.
 struct TVDropdown: Identifiable {
     let id: String
+    /// What the pill shows: the choice once one is made.
     let title: String
+    /// What it is ("Genre", "Sort"), its label for VoiceOver, and its list's.
+    let name: String
+    /// What's chosen ("Adventure", "All Genres"; "Title, Descending"), read
+    /// as its value: once chosen, the title alone said "Adventure" (M5).
+    let value: String
     let icon: String
     /// Groups of choices, drawn with a divider between them.
     let sections: [[TVDropdownOption]]
+    /// Each group's name, for VoiceOver, when there is more than one.
+    var sectionNames: [String] = []
     /// The list hangs from the pill's trailing edge, for a pill at the
     /// row's right.
     var alignsTrailing = false
@@ -76,8 +84,11 @@ struct TVDropdownPill: View {
             }
         }
         .focused(focus, equals: dropdown.pillFocus)
+        .accessibilityLabel(Text(verbatim: dropdown.name))
+        .accessibilityValue(Text(verbatim: dropdown.value))
+        // No selected trait while its list is open: VoiceOver read
+        // "selected" for the pill and again for the ticked row (M5).
         .accessibilityIdentifier(dropdown.identifier)
-        .accessibilityAddTraits(isOpen ? .isSelected : [])
         .anchorPreference(key: TVDropdownAnchors.self, value: .bounds) { [dropdown.id: $0] }
         // Focus that was in the list and has gone elsewhere (the rail, a
         // pill) closes it, as pressing away from a menu does.
@@ -117,7 +128,16 @@ struct TVDropdownList: View {
         Group {
             // A long list (genres) scrolls inside its panel.
             if dropdown.options.count > 9 {
-                ScrollView { rows.padding(.vertical, 6) }.frame(height: 640)
+                ScrollView {
+                    rows.padding(.vertical, 6)
+                        // Named again: the scroll view is a container of its
+                        // own, and VoiceOver names the innermost it enters,
+                        // so the genre list went unnamed (M5).
+                        .accessibilityElement(children: .contain)
+                        .accessibilityLabel(Text(verbatim: dropdown.name))
+                        .accessibilityIdentifier(A11yID.TV.Library.listRows(dropdown.id))
+                }
+                .frame(height: 640)
             } else {
                 rows
             }
@@ -125,6 +145,11 @@ struct TVDropdownList: View {
         .frame(width: Self.rowWidth)
         .padding(Self.inset)
         .glassEffect(.regular, in: .rect(cornerRadius: 36))
+        // One container named for its pill, so VoiceOver says what the list
+        // is for as focus enters it (M5).
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(verbatim: dropdown.name))
+        .accessibilityIdentifier(A11yID.TV.Library.list(dropdown.id))
         .onExitCommand(perform: close)
     }
 
@@ -149,26 +174,44 @@ struct TVDropdownList: View {
                 if index > 0 {
                     Rectangle().fill(.white.opacity(0.18)).frame(height: 2).padding(.vertical, 10).padding(.horizontal, 14)
                 }
-                ForEach(section) { option in
-                    Button {
-                        option.action()
-                        close()
-                    } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: "checkmark")
-                                .font(.callout.weight(.bold))
-                                .opacity(option.isSelected ? 1 : 0)
-                                .accessibilityHidden(true)
-                            Text(verbatim: option.title).lineLimit(1)
-                            Spacer(minLength: 0)
-                        }
-                    }
-                    .buttonStyle(TVDropdownRowStyle())
-                    .focused(focus, equals: dropdown.optionFocus(option))
-                    .accessibilityAddTraits(option.isSelected ? .isSelected : [])
-                    .accessibilityIdentifier(A11yID.TV.Library.option(dropdown.id, option.id))
+                sectionRows(section, index: index)
+            }
+        }
+    }
+
+    /// A group of rows; named for VoiceOver when the list has more than one
+    /// ("Sort By", "Order"), since "Descending" alone says nothing (M5).
+    @ViewBuilder
+    private func sectionRows(_ section: [TVDropdownOption], index: Int) -> some View {
+        if dropdown.sectionNames.indices.contains(index) {
+            VStack(alignment: .leading, spacing: 4) { optionRows(section) }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(Text(verbatim: dropdown.sectionNames[index]))
+                .accessibilityIdentifier(A11yID.TV.Library.listSection(dropdown.id, index))
+        } else {
+            optionRows(section)
+        }
+    }
+
+    private func optionRows(_ section: [TVDropdownOption]) -> some View {
+        ForEach(section) { option in
+            Button {
+                option.action()
+                close()
+            } label: {
+                HStack(spacing: 14) {
+                    Image(systemName: "checkmark")
+                        .font(.callout.weight(.bold))
+                        .opacity(option.isSelected ? 1 : 0)
+                        .accessibilityHidden(true)
+                    Text(verbatim: option.title).lineLimit(1)
+                    Spacer(minLength: 0)
                 }
             }
+            .buttonStyle(TVDropdownRowStyle())
+            .focused(focus, equals: dropdown.optionFocus(option))
+            .accessibilityAddTraits(option.isSelected ? .isSelected : [])
+            .accessibilityIdentifier(A11yID.TV.Library.option(dropdown.id, option.id))
         }
     }
 }

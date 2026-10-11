@@ -3,18 +3,8 @@ import XCTest
 /// Box set and playlist pages: a box set's movies open their own detail
 /// pages; a playlist's rows play.
 final class CollectionDetailJourneyTests: TVUITestCase {
-    /// Chooses a library from the rail and opens one of its tiles.
     private func open(_ itemID: String, inLibrary libraryID: String, _ app: XCUIApplication) -> XCUIElement {
-        openRailFromHome(app)
-        pressDown(until: app.buttons[A11yID.TV.Sidebar.library(libraryID)])
-        press(.select)
-        let tile = app.buttons[A11yID.TV.Library.tile(itemID)]
-        XCTAssertTrue(tile.waitForExistence(timeout: 10))
-        XCTAssertTrue(waitForFocus(firstLibraryTile(app)))
-        for _ in 0..<6 where !tile.hasFocus { press(.right) }
-        XCTAssertTrue(waitForFocus(tile))
-        press(.select)
-        return tile
+        openLibraryTile(itemID, inLibrary: libraryID, app)
     }
 
     private func members(_ app: XCUIApplication) -> XCUIElementQuery {

@@ -408,6 +408,26 @@ struct MediaItem: Identifiable {
         }
     }
 
+    /// A badge as VoiceOver should read it: the handful it can't read on
+    /// their own are spelled out, and everything else (4K, HD, DTS, Dolby
+    /// Atmos…) passes through unchanged. Shared by iOS's `InfoMetadataRow`
+    /// and the Apple TV's `TVDetailHeader`, where "DD+" was read "DD plus"
+    /// (M5). `DownloadedInfoMetadataRow` keeps its own, which also spells
+    /// out a file size.
+    static func spokenBadge(_ badge: String) -> String {
+        switch badge {
+        case "CC": String(localized: "Closed Captions")
+        case "DD+": String(localized: "Dolby Digital Plus")
+        case "DD": String(localized: "Dolby Digital")
+        default: badge
+        }
+    }
+
+    /// A row of badges read as one element: "Formats: HD, Dolby Digital Plus".
+    static func spokenBadges(_ badges: [String]) -> String {
+        String(localized: "Formats: \(badges.map(spokenBadge).joined(separator: ", "))")
+    }
+
     /// Badges for `InfoMetadataRow`: resolution class, dynamic range, audio
     /// format and accessibility tracks. Separate from `technicalDetails`, since
     /// a "4K"/"HD" badge needs a coarser bucket than that view's exact

@@ -553,7 +553,7 @@ page over Home); set a hidden modifier only where it is always `true`.
 
 **VoiceOver outside the player** (M5, measured on the tvOS 26.5 Simulator
 with VoiceOver's speech read from its log, `category == "VOTSpeech"`; see
-TESTING.md). Five facts, none guessable:
+TESTING.md). None of these is guessable:
 - **Menu arrives as VoiceOver's escape command**, which SwiftUI still hands
   to `onExitCommand`, so every Menu handler works. What broke was the focus
   move behind Menu-to-landing: a focus write naming a view the lazy stack
@@ -580,6 +580,23 @@ TESTING.md). Five facts, none guessable:
   `.contain` the container's label and identifier land on every child.
 - **The open sidebar is modal** (`.isModal`), or VoiceOver went on to read the
   dimmed page behind it.
+- **VoiceOver names only the innermost container focus enters, and a lazy
+  stack or a scroll view is a container of its own.** So a detail page's
+  rails, on `LazyHStack`s, went unnamed while Home's, built at once, were
+  named, and the genre list, which scrolls, went unnamed while short lists
+  didn't. `TVRail`, `TVCastRail` and a long dropdown list name their lazy or
+  scrolled rows as well; the two names are said once.
+- **VoiceOver's read-ahead passes over a tile that holds an image**, and read
+  one without: whenever Right found nothing past a rail's end it spoke the
+  tile whose artwork had failed, with focus never moving. So on tvOS
+  `AsyncRemoteImage`'s placeholder sits over an empty `Image`. An image trait
+  on the tile didn't do it (VoiceOver then read "Image" and an identifier).
+- **Limitation: a focus move made by Menu isn't spoken properly.** Back to the
+  landing item, VoiceOver says "Button" and the read-ahead, not the label,
+  though its cursor is on the right element; the same move by the remote's Up
+  speaks it. Layout- and screen-changed notifications, `@AccessibilityFocusState`
+  and a delayed write all failed (Benjamin left it, 2026-10-11); announcing
+  the item ourselves after each Menu move is the fallback if it's revisited.
 
 **Find Your Server's Rescan** appears once a scan is over and scans again
 from an empty list (`ServerSetupViewModel.rescan()`, Benjamin, 2026-10-05);

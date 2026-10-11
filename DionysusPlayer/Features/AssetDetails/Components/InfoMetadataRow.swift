@@ -68,27 +68,9 @@ struct InfoMetadataRow: View {
                 Text(item.metadataBadges.joined(separator: " \u{00B7} "))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .accessibilityLabel(
-                        String(localized: "Formats: \(item.metadataBadges.map(Self.accessibilityBadge).joined(separator: ", "))")
-                    )
+                    .accessibilityLabel(MediaItem.spokenBadges(item.metadataBadges))
             }
         }
         .frame(maxWidth: .infinity)
-    }
-
-    /// Expands the handful of badges VoiceOver can't be expected to read
-    /// naturally on their own — everything else (4K, HD, DTS, Dolby Atmos,
-    /// ...) already reads fine as-is and passes through unchanged.
-    /// `DownloadedInfoMetadataRow` has its own identical copy rather than
-    /// sharing this one — same "small pure duplication, documented why"
-    /// shape `MediaItem`/`DownloadedItem`'s own `durationText` pair already
-    /// uses elsewhere in this codebase.
-    fileprivate static func accessibilityBadge(_ badge: String) -> String {
-        switch badge {
-        case "CC": String(localized: "Closed Captions")
-        case "DD+": String(localized: "Dolby Digital Plus")
-        case "DD": String(localized: "Dolby Digital")
-        default: badge
-        }
     }
 }

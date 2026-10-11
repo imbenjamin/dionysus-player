@@ -72,6 +72,7 @@ struct TVFullDetailsView: View {
                 ForEach(sections) { section in
                     VStack(alignment: .leading, spacing: 14) {
                         Text(verbatim: section.title).font(.headline).accessibilityAddTraits(.isHeader)
+                            .accessibilityIdentifier(A11yID.TV.Detail.fullDetailsSectionTitle(section.id))
                         ForEach(section.rows, id: \.label) { row in
                             HStack(alignment: .firstTextBaseline, spacing: 40) {
                                 Text(verbatim: row.label).foregroundStyle(.secondary).frame(width: 320, alignment: .leading)
@@ -89,6 +90,11 @@ struct TVFullDetailsView: View {
                     .background(.white.opacity(focused == section.id ? 0.14 : 0.06), in: RoundedRectangle(cornerRadius: 24))
                     .focusable()
                     .focused($focused, equals: section.id)
+                    // Named for its heading, so VoiceOver says "Audio" before
+                    // the tracks: the heading itself wasn't read (M5).
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel(Text(verbatim: section.title))
+                    .accessibilityIdentifier(A11yID.TV.Detail.fullDetailsSection(section.id))
                 }
             }
             .padding(.horizontal, 260)

@@ -689,6 +689,24 @@ final class MediaItemTests: XCTestCase {
         XCTAssertEqual(item.technicalDetails(forVersion: "no-such-id")?.resolution, item.technicalDetails?.resolution)
     }
 
+    // MARK: spokenBadge
+
+    /// The badges VoiceOver can't read on their own are spelled out; the
+    /// rest (4K, HD, DTS, Dolby Atmos…) read fine as they are. Shared by
+    /// iOS's info row and the Apple TV's header (M5).
+    func test_spokenBadge_spellsOutTheAbbreviations() {
+        XCTAssertEqual(MediaItem.spokenBadge("CC"), String(localized: "Closed Captions"))
+        XCTAssertEqual(MediaItem.spokenBadge("DD+"), String(localized: "Dolby Digital Plus"))
+        XCTAssertEqual(MediaItem.spokenBadge("DD"), String(localized: "Dolby Digital"))
+        for badge in ["4K", "HD", "HDR10", "Dolby Vision", "DTS", "Dolby Atmos"] {
+            XCTAssertEqual(MediaItem.spokenBadge(badge), badge)
+        }
+    }
+
+    func test_spokenBadges_readTheRowAsOne() {
+        XCTAssertEqual(MediaItem.spokenBadges(["HD", "DD+", "CC"]), String(localized: "Formats: \("HD, Dolby Digital Plus, Closed Captions")"))
+    }
+
     // MARK: metadataBadges
 
     private func makeMovie(mediaSources: [MediaSourceInfo]) -> MediaItem {
