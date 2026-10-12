@@ -1163,6 +1163,28 @@ Step E: audits added for no results, Recent Searches and Sign Out's question.
 
 - [ ] Steps A–F for Welcome, Find Your Server (scanning, found, address field, Rescan), sign-in (user list, password, Quick Connect), Who's Watching? (lockups, Forget This Account).
 
+**Findings (Steps A–B, 2026-10-12, tvOS 26.5 Simulator `90E06237`, LAN server, speech from VoiceOver's log).** Known fixes 1 and 2 are in (`TVOnboardingSpeech`, `TVOnboardingSpeechTests`): heard "9 3 1 1 1 3" and "Found a server". Welcome reads in full: Get Started, the title, each feature's title then detail, the footer. VoiceOver needed `launchctl start com.apple.VoiceOverTouch` in the Simulator as well as the defaults write.
+
+Focus (with VoiceOver off too):
+1. **Enter Server Address doesn't put focus in the field.** The button turns into the field's heading, focus is dropped, and tvOS gives it to the server row (the list's default focus); the field's `onAppear` claim loses. Fix: the field claims focus until it holds. Test: `OnboardingJourneyTests.test_enterServerAddress_revealsTheAddressField` also waits for the field's focus (failing first).
+2. **Down from an outer lockup on Who's Watching? doesn't reach Change Server**, only from the middle one (geometry: nothing below Ben). Fix: Change Server sits in a full-width focus section. Test: `OnboardingJourneyTests`, Down from the first lockup focuses Change Server.
+3. **Down from the password field lands on Cancel, not Sign In** (Cancel is nearer the wide field's centre). Fix: Sign In is the button row's default focus. Test: journey, Down from the field focuses Sign In.
+
+VoiceOver:
+4. **A remembered account doesn't say it's signed in** ("Tara, Button"; the checkmark badge is hidden). Fix: its value says "Signed in". Test: journey, a remembered lockup has a value and a listed user's has none.
+5. **Forget This Account is a context menu on a held Select**, which VoiceOver users may not reach. Fix: also a named accessibility action on the remembered lockup. Manual-only (XCUITest can't list custom actions; the Simulator's keyboard can't send VoiceOver's swipe).
+6. **"Signing in to SavareseHillFlix" is read in two pieces** ("Signing in to", pause, "Savarese Hill Flix"): the bold server name is its own run. Fix: one label for the line. Test: journey, the line's label ends with the server's name.
+7. **Arriving on Who's Watching? reads "Change Server" first**, the only focusable thing while users load, then jumps to the first user. Proposed: Change Server isn't focusable while the users load. Manual (timing).
+8. **A scan that finds nothing is silent**: "No servers found." and "Still searching…" can't take focus, and Rescan says nothing as the list empties. Fix: announce "No servers found" when a scan ends empty (`TVOnboardingSpeech`, unit-tested).
+9. **Sign-in errors are never spoken**: a refused password, an unreachable server, a failed connect show red text while focus stays put. Fix: each onboarding screen announces its error when it appears. By ear (XCUITest can't see announcements), as Task 9's Quick Connect approval.
+10. **Quick Connect's expiry is silent**: "The code expired." and Get New Code appear while focus stays on Use Password Instead. Fix: announce it and move focus to Get New Code. Test: journey with the stub's expiring code, Get New Code takes focus.
+11. **A server row is read again when its Jellyfin version lands** (the address twice). Proposed: leave; it's once, and the version is useful.
+
+**Step D (2026-10-12).** Benjamin: all as proposed. Fixed test-first: 1, 2, 3, 10 (`OnboardingJourneyTests`), 4 (`AccountSwitchingJourneyTests.test_rememberedAccount_saysItIsSignedIn`), the code's label (known fix 1), 8 (`TVOnboardingSpeechTests`), each RED then GREEN. 6's journey passed before the fix (XCUITest joins the runs), so it's by ear: heard "Signing in to Dionysus UI Test Server" in one go. 5, 7 and 9 by ear: heard "The code expired.", the refused password, "uitester, Signed in, Button", no Change Server on arrival. Not heard: 8 (every scan finds a server) and 5's action. Step E: audits for Welcome, Find Your Server, its address field, Who's Watching?, Quick Connect and the password screen.
+Seen, not onboarding: under the harness with VoiceOver on, Left from Home read "Sidebar, selected, Home, dimmed" and VoiceOver's speech stayed on the hero while focus went on to Profile and Switch User (the keys acted; only the speech lagged). It looks like the held rail of the cold-start sidebar flake (`openProfile` failing as a run's first test); left for that investigation.
+
+HIG review (apple-design-skill): the secondary text over the gradient (`.secondary`, e.g. "Jellyfin servers on this network…") is low contrast; that's Task 11's Increase Contrast.
+
 # PR 6: display settings, device pass, closing
 
 ### Task 11: Reduce Motion, Reduce Transparency, Increase Contrast, Bold Text

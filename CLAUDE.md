@@ -619,7 +619,22 @@ TESTING.md). None of these is guessable:
 from an empty list (`ServerSetupViewModel.rescan()`, Benjamin, 2026-10-05);
 iOS's Scan Again keeps the old list until the first answer. Once the address
 field is open, Enter Server Address heads it as text rather than staying a
-button.
+button. **The field claims focus until it holds**: the button it was goes,
+so tvOS drops its focus and hands it to the server list's default, which beat
+a claim made as the field appeared (M5, with or without VoiceOver).
+
+**Onboarding with VoiceOver** (M5, measured on the tvOS 26.5 Simulator):
+nothing that only shows text is reached by focus, so what the screen says
+changed is announced (`TVOnboardingSpeech`): a found server (once, as the
+list stops being empty), a scan that ends with none, the Quick Connect
+code's expiry (focus then goes to Get New Code) and every sign-in error.
+The code is read a digit at a time. Who's Watching?'s Change Server sits in
+a full-width focus section, or Down reached it only from a lockup above it,
+and isn't focusable while the users load, or it was read first; a
+remembered lockup's value is "Signed in", and Forget This Account is also a
+named accessibility action, since holding Select may not reach the menu.
+"Signing in to …" carries one label: its bold server name is a run of its
+own, which VoiceOver read after a pause though XCUITest reports one label.
 
 Sign-in puts
 Quick Connect first (`TVSignInRoute`): a user with a password goes to a code,

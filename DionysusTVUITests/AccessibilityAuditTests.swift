@@ -1,6 +1,6 @@
 import XCTest
 
-/// `performAccessibilityAudit()` over the Apple TV's signed-in screens: the
+/// `performAccessibilityAudit()` over the Apple TV's screens, onboarding included: the
 /// tvOS counterpart of the iOS suite's file of the same name, gating on the
 /// same structural audit types for the same reasons (see its
 /// `auditedTypes`). Each test gets a screen on screen and asks.
@@ -264,6 +264,63 @@ final class AccessibilityAuditTests: TVUITestCase {
         press(.select)
         XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.statsValue("Codec")].waitForExistence(timeout: 3))
         try audit(app)
+    }
+
+    // MARK: Onboarding (M5)
+
+    func test_welcome() throws {
+        let app = launch(skipsWelcome: false)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Onboarding.getStarted], timeout: 10))
+        try audit(app)
+    }
+
+    func test_findYourServer() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons[A11yID.TV.Onboarding.rescan].waitForExistence(timeout: 10))
+        try audit(app)
+    }
+
+    func test_findYourServer_addressEntry() throws {
+        let app = launch()
+        let enter = app.buttons[A11yID.TV.Onboarding.enterAddress]
+        XCTAssertTrue(enter.waitForExistence(timeout: 10))
+        for _ in 0..<4 where !enter.hasFocus { press(.down) }
+        XCTAssertTrue(waitForFocus(enter))
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.textFields[A11yID.TV.Onboarding.addressField]))
+        try audit(app)
+    }
+
+    func test_whosWatching() throws {
+        let app = launch()
+        connectToDiscoveredServer(app)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Onboarding.user(UITestFixtureIdentity.userID)], timeout: 10))
+        try audit(app)
+    }
+
+    func test_quickConnect() throws {
+        let app = launch(scenario: "quickConnectPending")
+        connectToDiscoveredServer(app)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Onboarding.user(UITestFixtureIdentity.userID)], timeout: 10))
+        press(.select)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.quickConnectCode].waitForExistence(timeout: 10))
+        try audit(app)
+    }
+
+    func test_passwordSignIn() throws {
+        let app = launch(scenario: "quickConnectDisabled")
+        connectToDiscoveredServer(app)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Onboarding.user(UITestFixtureIdentity.userID)], timeout: 10))
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.secureTextFields[A11yID.TV.Onboarding.passwordField]))
+        try audit(app)
+    }
+
+    private func connectToDiscoveredServer(_ app: XCUIApplication) {
+        let server = app.buttons[A11yID.TV.Onboarding.serverRow(UITestFixtureIdentity.discoveredServerID)]
+        XCTAssertTrue(waitForFocus(server, timeout: 10))
+        press(.select)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.whosWatchingTitle].waitForExistence(timeout: 10))
     }
 
     private func audit(_ app: XCUIApplication) throws {

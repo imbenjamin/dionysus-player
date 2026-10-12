@@ -51,10 +51,18 @@ struct TVLoginView: View {
                     Text(error).foregroundStyle(.red).padding(.top, 30)
                 }
                 Spacer(minLength: 60)
-                Button("Change Server") { appState.changeServer() }
-                    .font(.callout)
-                    .accessibilityIdentifier(A11yID.TV.Onboarding.changeServer)
-                    .padding(.bottom, 110)
+                // The screen's width, so Down reaches it from every lockup,
+                // not only one above it. Not focusable while the users load:
+                // it would take focus, and be read, before the first of them.
+                HStack {
+                    Button("Change Server") { appState.changeServer() }
+                        .font(.callout)
+                        .disabled(viewModel.usersState == .loading)
+                        .accessibilityIdentifier(A11yID.TV.Onboarding.changeServer)
+                }
+                .frame(maxWidth: .infinity)
+                .focusSection()
+                .padding(.bottom, 110)
             }
             .frame(maxWidth: .infinity)
             .ignoresSafeArea()
@@ -65,6 +73,12 @@ struct TVLoginView: View {
             focusedUserID = firstID
         }
         .onMoveCommand { _ in userMovedFocus = true }
+        // A refused sign-in shows its reason in red while focus stays put.
+        // The covers (password, Other) share this view model and sit over
+        // this view, so this says it once for all of them.
+        .onChange(of: viewModel.errorMessage) { _, message in
+            if let message { AccessibilityNotification.Announcement(message).post() }
+        }
         .fullScreenCover(item: $quickConnectTarget, onDismiss: switchToPasswordIfAsked) { target in
             if let client = appState.apiClient {
                 TVQuickConnectView(
@@ -96,6 +110,10 @@ struct TVLoginView: View {
                 .accessibilityIdentifier(A11yID.TV.Onboarding.whosWatchingTitle)
             Text("Signing in to \(Text(serverName).bold())")
                 .foregroundStyle(.secondary)
+                // One label: the bold name is a run of its own, which
+                // VoiceOver reads after a pause.
+                .accessibilityLabel(Text("Signing in to \(serverName)"))
+                .accessibilityIdentifier(A11yID.TV.Onboarding.signingInTo)
         }
     }
 
@@ -159,11 +177,17 @@ struct TVLoginView: View {
                     }
                     .focused($focusedUserID, equals: entry.id)
                     .accessibilityIdentifier(A11yID.TV.Onboarding.rememberedUser(entry.id))
+                    // The checkmark is drawn, not read.
+                    .accessibilityValue(Text("Signed in"))
                     .contextMenu {
                         Button("Forget This Account", role: .destructive) {
                             appState.sessionStore.forgetAccount(userID: entry.id)
                         }
                         .accessibilityIdentifier(A11yID.TV.Onboarding.forgetAccount)
+                    }
+                    // Holding Select may not reach the menu under VoiceOver.
+                    .accessibilityAction(named: Text("Forget This Account")) {
+                        appState.sessionStore.forgetAccount(userID: entry.id)
                     }
                 } else {
                     lockup(name: entry.user.name) {

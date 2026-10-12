@@ -47,7 +47,11 @@ final class OnboardingJourneyTests: TVUITestCase {
         for _ in 0..<4 where !enter.hasFocus { press(.down) }
         XCTAssertTrue(waitForFocus(enter))
         press(.select)
-        XCTAssertTrue(app.textFields[A11yID.TV.Onboarding.addressField].waitForExistence(timeout: 5))
+        let field = app.textFields[A11yID.TV.Onboarding.addressField]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        // The button it was is gone, and tvOS would hand focus to the server
+        // list's default; the field keeps it.
+        XCTAssertTrue(waitForFocus(field), "The field takes focus")
         // With the field shown, Enter Server Address heads it rather than
         // being a button again (Benjamin, 2026-10-05).
         XCTAssertTrue(poll(timeout: 5) { !enter.exists }, "No longer a button")
@@ -92,6 +96,12 @@ final class OnboardingJourneyTests: TVUITestCase {
         press(.select)
         let usePassword = app.buttons[A11yID.TV.Onboarding.usePassword]
         XCTAssertTrue(usePassword.waitForExistence(timeout: 10))
+        // Read a digit at a time, as it's typed in.
+        let code = UITestFixtureIdentity.quickConnectCode(1)
+        XCTAssertEqual(
+            app.staticTexts[A11yID.TV.Onboarding.quickConnectCode].label,
+            code.map(String.init).joined(separator: " ")
+        )
         XCTAssertTrue(waitForFocus(usePassword))
         press(.select)
         XCTAssertTrue(app.secureTextFields[A11yID.TV.Onboarding.passwordField].waitForExistence(timeout: 5))
@@ -106,6 +116,44 @@ final class OnboardingJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(user))
         press(.select)
         XCTAssertTrue(app.secureTextFields[A11yID.TV.Onboarding.passwordField].waitForExistence(timeout: 5))
+    }
+
+    /// Change Server sits centred below the lockups; Down reaches it from
+    /// any of them, not only one above it.
+    func test_downFromTheFirstLockup_reachesChangeServer() {
+        let app = launch()
+        connectToDiscoveredServer(app)
+        let first = app.buttons[A11yID.TV.Onboarding.user(UITestFixtureIdentity.userID)]
+        XCTAssertTrue(waitForFocus(first, timeout: 10))
+        press(.down)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Onboarding.changeServer]))
+    }
+
+    /// Down from the password field goes to Sign In, not to Cancel beside it.
+    func test_passwordField_downGoesToSignIn() {
+        let app = launch(scenario: "quickConnectDisabled")
+        connectToDiscoveredServer(app)
+        let user = app.buttons[A11yID.TV.Onboarding.user(UITestFixtureIdentity.userID)]
+        XCTAssertTrue(waitForFocus(user))
+        press(.select)
+        let field = app.secureTextFields[A11yID.TV.Onboarding.passwordField]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForFocus(field))
+        press(.down)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Onboarding.passwordSignIn]))
+    }
+
+    /// An expired code hands focus to Get New Code, the one thing to do next
+    /// (and VoiceOver hears the expiry; by ear).
+    func test_quickConnect_expiredCode_focusesGetNewCode() {
+        let app = launch(scenario: "quickConnectExpiring")
+        connectToDiscoveredServer(app)
+        let user = app.buttons[A11yID.TV.Onboarding.user(UITestFixtureIdentity.userID)]
+        XCTAssertTrue(waitForFocus(user))
+        press(.select)
+        let getNewCode = app.buttons[A11yID.TV.Onboarding.getNewCode]
+        XCTAssertTrue(getNewCode.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(getNewCode))
     }
 
     private func connectToDiscoveredServer(_ app: XCUIApplication) {

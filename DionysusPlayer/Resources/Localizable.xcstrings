@@ -402,6 +402,12 @@
     "Build" : {
 
     },
+    "Found %lld servers" : {
+
+    },
+    "Found a server" : {
+
+    },
     "Rescan" : {
 
     },
@@ -1437,6 +1443,9 @@
 
     },
     "Sign out of %@?" : {
+
+    },
+    "Signed in" : {
 
     },
     "Signing in as %@" : {

@@ -21,6 +21,17 @@ final class AccountSwitchingJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(play))
     }
 
+    /// A remembered account says it's signed in (its checkmark is drawn, not
+    /// read); one of the server's other users says nothing.
+    func test_rememberedAccount_saysItIsSignedIn() {
+        let app = switchUser()
+        XCTAssertTrue(remembered.waitForExistence(timeout: 10))
+        let listed = app.buttons[A11yID.TV.Onboarding.user(UITestFixtureIdentity.passwordlessUserID)]
+        XCTAssertTrue(listed.waitForExistence(timeout: 5))
+        XCTAssertFalse((remembered.value as? String ?? "").isEmpty, "Remembered: has a value")
+        XCTAssertTrue((listed.value as? String ?? "").isEmpty, "Listed: none")
+    }
+
     /// Holding Select offers to forget the account. It then goes back among
     /// the server's users, where choosing it asks for a code again.
     func test_forgetAccount_putsItBackAmongTheServersUsers() {
