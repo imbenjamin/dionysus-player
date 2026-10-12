@@ -107,6 +107,9 @@ jobs:
           device-type: Apple TV 4K (3rd generation)
           ios-version: ${{ matrix.tvos }}
           retry-tests-on-failure: ${{ inputs.retry-tests-on-failure }}
+          # The journey that read a stale sidebar as the job's first test
+          # (TESTING.md, "The first test's warm-up"); it's in both plans.
+          warm-up-test: DionysusTVUITests/CollectionGridJourneyTests/test_tile_opensItsDetailPage_andMenuReturnsToIt
           result-bundle-path: .build/TVUITestResults.xcresult
 
       - name: Upload UI test results

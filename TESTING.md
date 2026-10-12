@@ -1039,6 +1039,17 @@ deployment floor's major, runs nightly only, as `tvOS floor smoke tests` with
 has no 26.5 runtime, so the job downloads one (3.76 GB, about five minutes).
 When it passes again, make it a PR check.
 
+**The first test's warm-up** (2026-10-12): on tvOS 27.0 in CI the job's
+first UI test sometimes read an accessibility tree seconds behind the app.
+In PR #325's run, Down from Home's row put focus on Search within a second
+in the screen recording, but for over five seconds every tree XCUITest read
+had the open panel's frames and the collapsed rail's states: every row but
+Home disabled. That test failed on its retry too; every later test passed,
+and so did a re-run of the job. It's milder than the tvOS 26.x failure
+above, and it didn't reproduce on a Mac, rebooted or not. So before the plan,
+`tv-ui-tests.yml` runs that journey once as a warm-up (build-and-test's
+`warm-up-test`), its result ignored.
+
 "tvOS UI smoke tests / Apple TV 4K, tvOS 27.0" is meant to be required by
 both rulesets; its name embeds the version, so a version change means
 updating them in the same breath.

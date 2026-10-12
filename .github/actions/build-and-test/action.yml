@@ -56,6 +56,15 @@ inputs:
     required: false
     default: "false"
 
+  warm-up-test:
+    description: >-
+      A UI test (`Target/Class/test_name`) run once between the build and the
+      plan, its result ignored. Empty runs none. On CI the first UI test of a
+      job could read an accessibility tree seconds behind the app (see
+      TESTING.md, "The first test's warm-up").
+    required: false
+    default: ""
+
 runs:
   using: composite
   steps:
@@ -118,6 +127,24 @@ runs:
           -testPlan "${{ inputs.test-plan }}" \
           -destination "platform=${{ inputs.platform }} Simulator,id=${{ steps.select_simulator.outputs.udid }}" \
           | xcbeautify --renderer github-actions
+
+    - name: Warm up
+      if: inputs.warm-up-test != ''
+      shell: bash
+      run: |
+        # Its result doesn't count: the plan runs this test again. No result
+        # bundle, so the uploaded one holds only the plan's run.
+        if xcodebuild test-without-building \
+          -scheme "${{ inputs.scheme }}" \
+          -project "${{ inputs.project }}" \
+          -testPlan "${{ inputs.test-plan }}" \
+          -destination "platform=${{ inputs.platform }} Simulator,id=${{ steps.select_simulator.outputs.udid }}" \
+          -only-testing:"${{ inputs.warm-up-test }}" \
+          | xcbeautify --renderer github-actions; then
+          echo "Warm-up test passed"
+        else
+          echo "::notice::The warm-up test failed; its result doesn't count."
+        fi
 
     - name: Test
       shell: bash
