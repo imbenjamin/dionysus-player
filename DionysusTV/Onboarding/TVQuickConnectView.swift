@@ -12,6 +12,7 @@ struct TVQuickConnectView: View {
     /// Bumped by "Get New Code" to restart `.task(id:)`, as on iOS.
     @State private var attempt = 0
     @FocusState private var usePasswordFocused: Bool
+    @FocusState private var getNewCodeFocused: Bool
     let serverName: String
     let user: UserDto?
     let serverURL: URL?
@@ -65,6 +66,20 @@ struct TVQuickConnectView: View {
         // The code needs no press, so the one thing to press is the way out
         // to a password; Cancel is beside it.
         .defaultFocus($usePasswordFocused, true)
+        // Nothing on screen takes focus to say the code expired or a sign-in
+        // failed, so VoiceOver is told; an expired code also hands focus to
+        // Get New Code, the one thing to do next.
+        .onChange(of: viewModel.state) { _, state in
+            switch state {
+            case .expired:
+                AccessibilityNotification.Announcement(String(localized: "The code expired.")).post()
+                getNewCodeFocused = true
+            case .failed(let message):
+                AccessibilityNotification.Announcement(message).post()
+            default:
+                break
+            }
+        }
         .task(id: attempt) {
             await viewModel.run { secret in
                 _ = try await appState.signInWithQuickConnect(secret: secret)
@@ -85,10 +100,11 @@ struct TVQuickConnectView: View {
                             .background(RoundedRectangle(cornerRadius: 22).fill(.white.opacity(0.12)))
                     }
                 }
-                // Read as one piece of text, not six tiles. A representation
-                // rather than `.accessibilityElement(children: .ignore)`, which
-                // exposes a generic element instead of static text.
-                .accessibilityRepresentation { Text(verbatim: code) }
+                // Read as one piece of text, not six tiles, a digit at a time.
+                // A representation rather than
+                // `.accessibilityElement(children: .ignore)`, which exposes a
+                // generic element instead of static text.
+                .accessibilityRepresentation { Text(verbatim: TVOnboardingSpeech.spokenCode(code)) }
                 .accessibilityIdentifier(A11yID.TV.Onboarding.quickConnectCode)
                 HStack(spacing: 14) {
                     Circle().fill(Color.dionysusGold).frame(width: 14, height: 14)
@@ -98,6 +114,8 @@ struct TVQuickConnectView: View {
             case .expired:
                 Text("The code expired.")
                 Button("Get New Code") { attempt += 1 }
+                    .focused($getNewCodeFocused)
+                    .accessibilityIdentifier(A11yID.TV.Onboarding.getNewCode)
             case .failed(let message):
                 Text(message).foregroundStyle(.red)
             default:

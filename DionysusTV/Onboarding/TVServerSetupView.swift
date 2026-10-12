@@ -40,6 +40,10 @@ struct TVServerSetupView: View {
                         guard !userMovedFocus, focusedServer == nil, !showsAddressEntry, let firstID else { return }
                         focusedServer = firstID
                     }
+                    .onChange(of: viewModel.discoveredServers.count) { previous, count in
+                        guard let text = TVOnboardingSpeech.foundServersAnnouncement(count: count, previousCount: previous) else { return }
+                        AccessibilityNotification.Announcement(text).post()
+                    }
                     // Rescan, or how the scan is going, on a line of its
                     // own above Enter Server Address (Benjamin, 2026-10-05).
                     if canRescan || statusText != nil {
@@ -85,6 +89,27 @@ struct TVServerSetupView: View {
             }
         }
         .onAppear { viewModel.startScanOnArrival() }
+        // Enter Server Address turns into the field's heading, so the focus
+        // it had is dropped and tvOS hands it to the server list's default.
+        // A claim made as the field appears loses to that, so it's made
+        // until it holds.
+        .task(id: showsAddressEntry) {
+            guard showsAddressEntry else { return }
+            for _ in 0..<20 where !addressFocused {
+                addressFocused = true
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+        .onChange(of: viewModel.scanState == .scanning) { wasScanning, isScanning in
+            guard let text = TVOnboardingSpeech.scanEndedAnnouncement(
+                wasScanning: wasScanning, isScanning: isScanning, serverCount: viewModel.discoveredServers.count
+            ) else { return }
+            AccessibilityNotification.Announcement(text).post()
+        }
+        // The error shows below everything while focus stays put.
+        .onChange(of: viewModel.errorMessage) { _, message in
+            if let message { AccessibilityNotification.Announcement(message).post() }
+        }
         .onMoveCommand { _ in userMovedFocus = true }
     }
 
@@ -143,7 +168,6 @@ struct TVServerSetupView: View {
                 .frame(width: 560)
                 .focused($addressFocused)
                 .accessibilityIdentifier(A11yID.TV.Onboarding.addressField)
-                .onAppear { addressFocused = true }
             Button("Connect") {
                 Task {
                     if let config = await viewModel.testConnection() {

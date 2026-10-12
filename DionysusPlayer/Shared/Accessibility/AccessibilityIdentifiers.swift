@@ -429,6 +429,9 @@ enum A11yID {
             static let usePassword = "tv.onboarding.quickConnect.usePassword"
             static let passwordField = "tv.onboarding.password.field"
             static let changeServer = "tv.onboarding.whosWatching.changeServer"
+            static let signingInTo = "tv.onboarding.whosWatching.signingInTo"
+            static let passwordSignIn = "tv.onboarding.password.signIn"
+            static let getNewCode = "tv.onboarding.quickConnect.getNewCode"
         }
         enum Main {
             static func tile(_ itemID: String) -> String { "tv.main.tile.\(itemID)" }

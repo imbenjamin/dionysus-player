@@ -10,6 +10,7 @@ struct TVPasswordSignInView: View {
     let serverName: String
     let viewModel: LoginViewModel
     @FocusState private var fieldFocused: Bool
+    @FocusState private var signInFocused: Bool
 
     var body: some View {
         @Bindable var viewModel = viewModel
@@ -32,9 +33,17 @@ struct TVPasswordSignInView: View {
                         Text(error).foregroundStyle(.red)
                     }
                     HStack(spacing: 26) {
-                        Button("Sign In", action: signIn).disabled(viewModel.isSigningIn)
+                        Button("Sign In", action: signIn)
+                            .disabled(viewModel.isSigningIn)
+                            .focused($signInFocused)
+                            .accessibilityIdentifier(A11yID.TV.Onboarding.passwordSignIn)
                         Button("Cancel") { viewModel.clearSelection(); dismiss() }
                     }
+                    // Down from the wide field lands on Sign In, not on
+                    // Cancel, which is nearer its centre. `.userInitiated`,
+                    // as the season tabs, so it applies to a press.
+                    .focusSection()
+                    .defaultFocus($signInFocused, true, priority: .userInitiated)
                 }
             }
         }
