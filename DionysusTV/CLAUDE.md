@@ -308,6 +308,23 @@ always shown (Benjamin, 2026-10-02).
   return to a cached grid. **Until artwork arrives, or with none, a clear
   stand-in image is set the same way** (`showStandIn`): with no image the
   system draws the artwork uninset, larger than its neighbours.
+- **The posters follow ancestor focus, and SwiftUI focus counts as an
+  ancestor's** (`TVPosterCollectionView.didUpdateFocus`, measured
+  2026-10-12). While SwiftUI holds focus (the sidebar, the pills, a page
+  pushed over the grid) the root hosting view reports `isFocused`, so a poster
+  built or left under it takes the focused look, and UIKit tells only the
+  posters on the focus chain when focus moves. On tvOS 26 that drew every
+  poster of a freshly opened grid at its lifted size, over its caption; on 26
+  and 27 the poster focus last left kept its caption lowered. So when focus
+  enters the grid from outside, every other visible poster is made to look
+  again: its `adjustsImageWhenAncestorFocused` turned off and on (the
+  artwork), and that focus update handed to it (the caption). Turning the
+  setting off for good draws the artwork flat, square and uninset, with no
+  lift. **Known issue, tvOS 26 only** (Benjamin, 2026-10-12: every tvOS 26
+  device can update to 27): while focus is outside the grid, the poster it
+  left still looks focused, and posters reloaded from the header (a sort or
+  filter) are drawn lifted until focus comes back down. tvOS 27 fixed the
+  artwork; closing it on 26 would need a poster that draws its own lift.
 - **Focus is put on a poster through SwiftUI, not UIKit.** A focus update
   requested of a cell while SwiftUI holds focus in the header was refused
   every time. So the grid is its scope's default (`prefersDefaultFocus`),

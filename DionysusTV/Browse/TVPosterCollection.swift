@@ -316,6 +316,30 @@ final class TVPosterCollectionView: UICollectionView {
         if let focusTarget, let cell = cellForItem(at: focusTarget) { return [cell] }
         return super.preferredFocusEnvironments
     }
+
+    /// While SwiftUI holds focus (the sidebar, the header's pills, a page
+    /// pushed over the grid) the root hosting view reports itself focused,
+    /// and it is an ancestor of every poster. The system poster follows
+    /// ancestor focus, so the posters built or left under it take the focused
+    /// look: on tvOS 26 artwork drawn at the lifted size, running over its
+    /// caption; on 26 and 27 the caption lowered for the lift. UIKit only
+    /// tells the posters on the focus chain when focus moves, so the rest kept
+    /// that look until focus passed over them (measured, 2026-10-12). Focus
+    /// arriving from outside the grid is when they're told to look again.
+    override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
+        super.didUpdateFocus(in: context, with: coordinator)
+        guard Self.focusEntered(from: context.previouslyFocusedItem, to: context.nextFocusedItem, in: self) else { return }
+        for case let cell as TVPosterCell in visibleCells where cell.poster !== context.nextFocusedItem {
+            cell.settleFocusAppearance(in: context, with: coordinator)
+        }
+    }
+
+    /// Whether focus moved into `view` from outside it: from SwiftUI, or
+    /// from nothing.
+    static func focusEntered(from previous: UIFocusItem?, to next: UIFocusItem?, in view: UIView) -> Bool {
+        func isInside(_ item: UIFocusItem?) -> Bool { (item as? UIView)?.isDescendant(of: view) ?? false }
+        return isInside(next) && !isInside(previous)
+    }
 }
 
 /// A grid cell: the system poster, with the app's badges over its artwork
@@ -479,6 +503,16 @@ final class TVPosterCell: UICollectionViewCell {
     }
 
     @objc private func openTile() { action() }
+
+    /// Puts an unfocused poster back to its unfocused look once focus is in
+    /// the grid (`TVPosterCollectionView.didUpdateFocus`). The artwork looks
+    /// again only when its ancestor-focus setting changes; the caption only
+    /// on a focus update, so it's handed the one that brought focus in.
+    func settleFocusAppearance(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
+        poster.imageView.adjustsImageWhenAncestorFocused = false
+        poster.imageView.adjustsImageWhenAncestorFocused = true
+        poster.didUpdateFocus(in: context, with: coordinator)
+    }
 }
 
 /// The system poster with its title and subtitle styled as the app's own

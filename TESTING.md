@@ -630,6 +630,7 @@ the detail.
 | `TVPlayerScrubTests` | Scrubbing and scanning |
 | `TVPlayerSurfacePolicyTests` | Which view draws each route |
 | `TVPosterCellTests` | A grid poster's inset while loading or without art |
+| `TVPosterCollectionViewTests` | When focus enters the grid, so posters settle |
 | `TVProfileIdentityTests` | The sidebar's Profile entry, offline too |
 | `TVScrubThumbnailLoaderTests` | Throttled, ordered scrub thumbnails |
 | `TVSearchGroupingTests` | Search's rails and its announcements |
