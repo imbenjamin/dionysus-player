@@ -158,6 +158,13 @@ struct BaseItemDto: Codable, Identifiable, Equatable {
     /// This flag comes from the same predicate `DELETE /Items/{id}` enforces.
     var canDelete: Bool?
 
+    /// `"FileSystem"` for an item backed by a file or folder, `"Virtual"` for
+    /// one the server made up: a Season with no folder of its own (its
+    /// episodes sit loose in the show's folder), or a missing Episode listed
+    /// from metadata. Always sent. A virtual item has no path, so
+    /// `canDelete` is always `false` on it.
+    var locationType: String?
+
     /// This entry's identity within one playlist, distinct from `id`, which
     /// identifies the media item and is not unique per row — the same item can
     /// appear twice. Populated only by `GET /Playlists/{id}/Items`, and required

@@ -1952,6 +1952,231 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.preselectedSeasonID, "season-2", "picker must move off the deleted season")
     }
 
+    /// An episode page offers its season too, and deleting the season takes
+    /// the episode on show with it. Picked in place, the page is still the
+    /// show's, so it stays, with the hero back on the show rather than on an
+    /// episode that no longer exists.
+    func test_delete_seasonOfEpisodeSelectedInPlace_staysAndRevertsToTheShow() async throws {
+        stubShowEndpoints(
+            seriesEpisodeCount: 8,
+            seasons: [
+                BaseItemDto(id: "season-1", name: "Season 1", type: .season),
+                BaseItemDto(id: "season-2", name: "Season 2", type: .season)
+            ]
+        )
+        let viewModel = makeViewModel(itemID: "series-1")
+        await viewModel.load()
+        await viewModel.selectEpisode("ep-1")
+        XCTAssertEqual(viewModel.item?.id, "ep-1", "precondition")
+
+        stubShowEndpoints(
+            seriesEpisodeCount: 8,
+            seasons: [BaseItemDto(id: "season-2", name: "Season 2", type: .season)]
+        )
+        let outcome = try await viewModel.delete(mediaItem(BaseItemDto(id: "season-1", name: "Season 1", type: .season)))
+
+        XCTAssertEqual(outcome, .stayAndRefresh)
+        XCTAssertEqual(viewModel.item?.id, "series-1", "hero should revert to the show")
+        XCTAssertEqual(viewModel.preselectedSeasonID, "season-2", "picker must move off the deleted season")
+    }
+
+    /// The same, on the episode's own pushed page: the page's subject went
+    /// with its season, and the show beneath still has episodes, so pop one.
+    func test_delete_seasonOfEpisodeOnItsOwnPushedPage_popsOneLevel() async throws {
+        stubShowEndpoints(seriesEpisodeCount: 8)
+        let viewModel = makeViewModel(itemID: "ep-1")
+        await viewModel.load()
+        XCTAssertEqual(viewModel.item?.id, "ep-1", "precondition")
+
+        let outcome = try await viewModel.delete(mediaItem(BaseItemDto(id: "season-1", name: "Season 1", type: .season)))
+        XCTAssertEqual(outcome, .popOneLevel)
+    }
+
+    /// Deleting the season Play would start from moves Play on to what's left,
+    /// rather than leaving it on an episode that went with the season.
+    func test_delete_seasonHoldingThePlayTarget_reresolvesPlay() async throws {
+        func handler(nextUp: [BaseItemDto], seasons: [BaseItemDto]) -> (URLRequest) throws -> (HTTPURLResponse, Data) {
+            { request in
+                if request.httpMethod == "DELETE" {
+                    return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+                }
+                switch (request.url?.path, request.queryDictionary["seasonId"]) {
+                case ("/Users/user-1/Items/series-1", _):
+                    var series = BaseItemDto(id: "series-1", name: "Severance", type: .series)
+                    series.recursiveItemCount = 3
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: series)
+                case ("/Shows/NextUp", _):
+                    return try MockURLProtocol.encodedJSONResponse(
+                        for: request, value: BaseItemDtoQueryResult(items: nextUp, totalRecordCount: nextUp.count))
+                case ("/Shows/series-1/Seasons", _):
+                    return try MockURLProtocol.encodedJSONResponse(
+                        for: request, value: BaseItemDtoQueryResult(items: seasons, totalRecordCount: seasons.count))
+                case ("/Shows/series-1/Episodes", "season-2"):
+                    var episode = BaseItemDto(id: "ep-2-1", name: "Second Season Opener", type: .episode)
+                    episode.seriesId = "series-1"
+                    episode.seasonId = "season-2"
+                    return try MockURLProtocol.encodedJSONResponse(
+                        for: request, value: BaseItemDtoQueryResult(items: [episode], totalRecordCount: 1))
+                default:
+                    return try MockURLProtocol.encodedJSONResponse(
+                        for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+            }
+        }
+        let bothSeasons = [
+            BaseItemDto(id: "season-1", name: "Season 1", type: .season),
+            BaseItemDto(id: "season-2", name: "Season 2", type: .season)
+        ]
+        MockURLProtocol.requestHandler = handler(nextUp: [episodeDto()], seasons: bothSeasons)
+        let viewModel = makeViewModel(itemID: "series-1")
+        await viewModel.load()
+        XCTAssertEqual(viewModel.showPlaybackEpisode?.id, "ep-1", "precondition")
+
+        MockURLProtocol.requestHandler = handler(nextUp: [], seasons: [bothSeasons[1]])
+        let outcome = try await viewModel.delete(mediaItem(BaseItemDto(id: "season-1", name: "Season 1", type: .season)))
+
+        XCTAssertEqual(outcome, .stayAndRefresh)
+        XCTAssertEqual(viewModel.showPlaybackEpisode?.id, "ep-2-1", "Play must move off the deleted season")
+    }
+
+    // MARK: Folderless seasons
+
+    /// A show whose seasons have no folder on disk: Jellyfin lists them as
+    /// `Virtual` with `CanDelete: false` whoever asks, and keeps listing an
+    /// emptied one until a library scan, so `seasons` here never changes.
+    /// Season 1 holds three deletable episodes and one missing (`Virtual`) one.
+    private func stubFolderlessShow(
+        deletes: DeletedPathRecorder,
+        failingEpisodeID: String? = nil,
+        episodeCanDelete: Bool = true
+    ) {
+        func season(_ number: Int) -> BaseItemDto {
+            var season = BaseItemDto(id: "season-\(number)", name: "Season \(number)", type: .season)
+            season.locationType = "Virtual"
+            season.canDelete = false
+            return season
+        }
+        func episode(_ id: String, virtual: Bool = false) -> BaseItemDto {
+            var episode = BaseItemDto(id: id, name: id, type: .episode)
+            episode.seriesId = "series-1"
+            episode.seasonId = "season-1"
+            episode.locationType = virtual ? "Virtual" : "FileSystem"
+            episode.canDelete = virtual ? false : episodeCanDelete
+            return episode
+        }
+        let seasons = [season(1), season(2)]
+        let seasonOne = [episode("ep-1"), episode("ep-2"), episode("ep-3"), episode("ep-missing", virtual: true)]
+        MockURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            if request.httpMethod == "DELETE" {
+                deletes.record(path)
+                let status = path == "/Items/\(failingEpisodeID ?? "")" ? 500 : 204
+                return MockURLProtocol.jsonResponse(for: request, status: status, body: Data())
+            }
+            switch (path, request.queryDictionary["seasonId"]) {
+            case ("/Users/user-1/Items/series-1", _):
+                var series = BaseItemDto(id: "series-1", name: "Severance", type: .series)
+                series.recursiveItemCount = 5
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: series)
+            case ("/Shows/series-1/Seasons", _):
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: seasons, totalRecordCount: seasons.count))
+            case ("/Shows/series-1/Episodes", "season-1"):
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: seasonOne, totalRecordCount: seasonOne.count))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+    }
+
+    private func loadedFolderlessShow(deletes: DeletedPathRecorder, failingEpisodeID: String? = nil) async -> AssetDetailViewModel {
+        stubFolderlessShow(deletes: deletes, failingEpisodeID: failingEpisodeID)
+        let viewModel = makeViewModel(itemID: "series-1")
+        await viewModel.load()
+        await viewModel.loadSeasonDeletability(seasonID: "season-1")
+        return viewModel
+    }
+
+    /// The server never lets a folderless season go as a unit, so the menu
+    /// offers it on its episodes' say-so, and only once they've been asked.
+    func test_canDeleteSeason_folderless_followsItsEpisodes() async throws {
+        stubFolderlessShow(deletes: DeletedPathRecorder())
+        let viewModel = makeViewModel(itemID: "series-1")
+        await viewModel.load()
+        let seasonOne = try XCTUnwrap(viewModel.seasons.first)
+        XCTAssertFalse(viewModel.canDelete(season: seasonOne), "nothing known before the episodes are fetched")
+
+        await viewModel.loadSeasonDeletability(seasonID: "season-1")
+        XCTAssertTrue(
+            viewModel.canDelete(season: seasonOne),
+            "every episode with a file is deletable; the missing one doesn't count"
+        )
+        XCTAssertEqual(viewModel.folderlessSeasonEpisodes["season-1"]?.map(\.id), ["ep-1", "ep-2", "ep-3"])
+    }
+
+    /// One episode the user can't delete means the season can't go either.
+    func test_canDeleteSeason_folderless_falseWhenAnEpisodeIsNotDeletable() async throws {
+        stubFolderlessShow(deletes: DeletedPathRecorder(), episodeCanDelete: false)
+        let viewModel = makeViewModel(itemID: "series-1")
+        await viewModel.load()
+        await viewModel.loadSeasonDeletability(seasonID: "season-1")
+        XCTAssertFalse(viewModel.canDelete(season: try XCTUnwrap(viewModel.seasons.first)))
+    }
+
+    /// Each episode is deleted on its own, never the season (which Jellyfin
+    /// refuses), and the emptied season leaves the page although the server
+    /// still lists it.
+    func test_delete_folderlessSeason_deletesEachEpisodeAndDropsTheSeason() async throws {
+        DeletedItemBroadcaster.shared.reset()
+        let deletes = DeletedPathRecorder()
+        let viewModel = await loadedFolderlessShow(deletes: deletes)
+
+        let outcome = try await viewModel.delete(try XCTUnwrap(viewModel.seasons.first))
+
+        XCTAssertEqual(deletes.paths, ["/Items/ep-1", "/Items/ep-2", "/Items/ep-3"])
+        XCTAssertEqual(outcome, .stayAndRefresh)
+        XCTAssertEqual(viewModel.seasons.map(\.id), ["season-2"])
+        XCTAssertEqual(DeletedItemBroadcaster.shared.lastDeletedItemID, "season-1")
+    }
+
+    /// A failure partway stops there, says how far it got, and leaves the
+    /// season listed, since some of it is still on the server.
+    func test_delete_folderlessSeason_stopsAtTheFirstFailureAndSaysHowFarItGot() async throws {
+        let deletes = DeletedPathRecorder()
+        let viewModel = await loadedFolderlessShow(deletes: deletes, failingEpisodeID: "ep-2")
+
+        do {
+            try await viewModel.delete(try XCTUnwrap(viewModel.seasons.first))
+            XCTFail("expected a partial failure")
+        } catch let error as AssetDetailViewModel.PartialSeasonDeletionError {
+            XCTAssertEqual(error.deletedCount, 1)
+            XCTAssertEqual(error.totalCount, 3)
+        }
+        XCTAssertEqual(deletes.paths, ["/Items/ep-1", "/Items/ep-2"], "nothing after the failure is attempted")
+        XCTAssertEqual(viewModel.seasons.map(\.id), ["season-1", "season-2"])
+        XCTAssertEqual(
+            viewModel.folderlessSeasonEpisodes["season-1"]?.map(\.id), ["ep-2", "ep-3"],
+            "a retry must not ask for the deleted episode again"
+        )
+    }
+
+    /// Failing on the very first episode is an ordinary failed delete, with
+    /// the server's own error rather than a "0 of 3" one.
+    func test_delete_folderlessSeason_failingOnTheFirstEpisode_throwsThePlainError() async throws {
+        let deletes = DeletedPathRecorder()
+        let viewModel = await loadedFolderlessShow(deletes: deletes, failingEpisodeID: "ep-1")
+
+        do {
+            try await viewModel.delete(try XCTUnwrap(viewModel.seasons.first))
+            XCTFail("expected a failure")
+        } catch {
+            XCTAssertFalse(error is AssetDetailViewModel.PartialSeasonDeletionError, "was \(error)")
+        }
+        XCTAssertEqual(deletes.paths, ["/Items/ep-1"])
+    }
+
     /// A refused deletion has to propagate rather than being swallowed — the
     /// button surfaces it, and nothing may be treated as deleted.
     func test_delete_whenServerRefuses_throwsAndBroadcastsNothing() async {
@@ -1980,5 +2205,24 @@ final class AssetDetailViewModelTests: XCTestCase {
 
     private func mediaItem(_ dto: BaseItemDto) -> MediaItem {
         MediaItem(dto: dto, images: ImageURLBuilder(baseURL: baseURL, accessToken: "tok"))
+    }
+}
+
+/// `DELETE` paths in the order they were sent. `MockURLProtocol.requestHandler`
+/// runs off the main actor, so a plain captured `var` isn't safe.
+private final class DeletedPathRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+
+    func record(_ path: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        recorded.append(path)
+    }
+
+    var paths: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
     }
 }

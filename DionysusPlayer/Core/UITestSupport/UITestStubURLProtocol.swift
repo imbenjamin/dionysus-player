@@ -197,7 +197,11 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         if request.httpMethod == "DELETE", let itemID = Self.deletedItemID(forPath: path) {
             // Refuses with Jellyfin's own 401 rather than a 403, as the real
             // server does (see `JellyfinAPIClient.deleteItem`).
-            guard scenario != .noDeletePermission else {
+            // A season with no folder can't be deleted as a unit, by anyone:
+            // Jellyfin's `CanDelete()` is `IsFileProtocol`.
+            let isFolderlessSeason = scenario == .folderlessSeasons
+                && UITestFixtureLibrary.seasons.contains { $0.id == itemID }
+            guard scenario != .noDeletePermission, !isFolderlessSeason else {
                 finish(.success((401, Data("{}".utf8), "application/json")))
                 return
             }
@@ -544,7 +548,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         // `.noDeletePermission` fails nothing wholesale: the standard catalogue
         // with `canDelete` cleared, and only `DELETE` refused in `startLoading`,
         // which has the method.
-        case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission,
+        case .standard, .emptyLibrary, .offline, .noDeletePermission, .folderlessSeasons, .noPlaylistEditPermission,
              .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort,
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
              .slowVideoDownload, .slowPlaybackInfo, .slowBoxSet, .emptyBoxSet, .slowItems, .manyLibraries, .manyUsers:
@@ -688,7 +692,21 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return try encode(result(scoped([library.episodes[1]])))
 
         case path.hasSuffix("/Seasons"):
-            return try encode(result(scoped(library.seasons)))
+            // Jellyfin leaves both `nil` unless `Fields` names them, and this
+            // is the route a show page's Season delete row reads them from;
+            // served regardless, the stub hid that the app never asked.
+            let fields = query.first { $0.name.caseInsensitiveCompare("Fields") == .orderedSame }?.value ?? ""
+            let seasons = scoped(library.seasons).map { season in
+                var season = season
+                if UITestConfiguration.scenario == .folderlessSeasons {
+                    season.locationType = "Virtual"
+                    season.canDelete = false
+                }
+                if !fields.contains("CanDelete") { season.canDelete = nil }
+                if !fields.contains("RecursiveItemCount") { season.recursiveItemCount = nil }
+                return season
+            }
+            return try encode(result(seasons))
 
         case path.hasSuffix("/Episodes"):
             guard UITestConfiguration.scenario != .showWithoutEpisodes else { return try encode(result([])) }

@@ -376,8 +376,17 @@ actor JellyfinAPIClient {
 
     // MARK: - Shows
 
+    /// Asks for `CanDelete` and `RecursiveItemCount`, which Jellyfin leaves
+    /// `nil` unless named: they gate a show page's Season delete row and fill
+    /// its "will delete all {n} episodes" copy (`AssetActionsButton`). A show
+    /// has a handful of seasons, so `CanDelete`'s per-item lookup that keeps it
+    /// out of `defaultFields` costs little here. Naming fields drops nothing
+    /// else the season list carries (user data, image tags; checked on 12.2.0).
     func seasons(seriesID: String, userID: String) async throws -> BaseItemDtoQueryResult {
-        try await get("/Shows/\(seriesID)/Seasons", query: [.init(name: "userId", value: userID)])
+        try await get("/Shows/\(seriesID)/Seasons", query: [
+            .init(name: "userId", value: userID),
+            .init(name: "Fields", value: "CanDelete,RecursiveItemCount")
+        ])
     }
 
     /// `fields:` defaults to `defaultFields`, enough for
