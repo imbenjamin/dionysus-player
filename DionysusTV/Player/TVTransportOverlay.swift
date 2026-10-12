@@ -11,6 +11,7 @@ struct TVTransportOverlay: View {
     @AppStorage(chaptersInScrubberEnabledStorageKey) private var chaptersInScrubber = chaptersInScrubberEnabledDefault
     @State private var bufferedSeconds: Double?
     @State private var thumbnails: TVScrubThumbnailLoader
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(viewModel: PlayerViewModel, input: TVPlayerInput) {
         self.viewModel = viewModel
@@ -135,7 +136,7 @@ struct TVTransportOverlay: View {
                     .padding(.bottom, 60)
                 }
                 .ignoresSafeArea()
-                .animation(.easeInOut(duration: 0.3), value: state.panel != nil)
+                .animation(TVMotion.moving(.easeInOut(duration: 0.3), reduceMotion: reduceMotion), value: state.panel != nil)
         }
         .defaultFocus($focusedControl, TVAccessibleTransportButton.playPause.id)
         // Closing the panel takes its rows away; focus goes to Play/Pause

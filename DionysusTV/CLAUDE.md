@@ -518,6 +518,27 @@ launch got, print `NSHomeDirectory()`.
 backdrop in the tree (found by the audit). Hidden pages stay out of the tree
 without it; set a hidden modifier only where it is always `true`.
 
+### Display settings
+
+Checked by screenshot on the tvOS 26.5 Simulator, each setting alone (M5).
+
+- **Under Reduce Transparency tvOS draws a default-style button's resting
+  platter opaque light grey** under the label's white (about 2:1): every
+  Profile row, filter pill and hero button. Forcing dark changed nothing.
+  `TVOpaqueAtRestButtonStyle`, set once at the root, tints it to the grey
+  Apple's Settings rows rest on and makes the label primary, since the tint
+  colours it too; focus is the system's as before, and a button with a style
+  of its own is untouched. It's a button style, not a root tint, because
+  spinners follow the tint. Glass and materials go opaque by themselves.
+- **Under Reduce Motion nothing slides** (`TVMotion.moving`): the sidebar
+  opening, sliding off on Search and its Libraries group, Menu's scroll back
+  to the top, the player's panel rising and the subtitles' lift land at once.
+  Fades stay, the hero's page turn included.
+- **Under Increase Contrast, translucent white over artwork is drawn solid**
+  (`TVContrast.opacity`: the hero's overview, Search's edge chevron);
+  `.secondary` brightens by itself.
+- Bold Text clipped nothing.
+
 ### VoiceOver
 
 Measured on the tvOS 26.5 Simulator, VoiceOver's speech read from its log

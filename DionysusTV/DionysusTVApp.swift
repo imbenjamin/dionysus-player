@@ -56,6 +56,7 @@ struct TVRootView: View {
                 }
             }
         }
+        .buttonStyle(TVOpaqueAtRestButtonStyle())
         // tvOS suspends the app through sleep, so a long time away counts as
         // a relaunch: back to Who's Watching? when the settings ask
         // (`WhoIsWatchingPolicy`), closing the player first.
@@ -71,3 +72,4 @@ struct TVRootView: View {
         }
     }
 }
+

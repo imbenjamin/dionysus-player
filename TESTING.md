@@ -493,6 +493,15 @@ What no suite can reach, and how it was or should be checked.
   jump targets), the 30-minute return to Who's Watching? (`AppStateTests` pins
   the rule with injected dates), and the space bar as Play/Pause (`idb ui key
   <udid> 44`).
+- **Display settings on the Apple TV** (Reduce Transparency, Reduce Motion,
+  Increase Contrast, Bold Text): XCUITest can turn none on, so they were
+  checked by screenshot on the tvOS 26.5 Simulator, each alone. Turn one on
+  with `xcrun simctl spawn <udid> defaults write com.apple.Accessibility <key>
+  -bool true`, then `notifyutil -p com.apple.accessibility.cache.<name>` and a
+  relaunch. Keys: `ReduceMotionEnabled`, `EnhancedBackgroundContrastEnabled`
+  (Reduce Transparency), `DarkenSystemColors` (Increase Contrast),
+  `EnhancedTextLegibilityEnabled` (Bold Text). Pages checked: Home, a detail
+  page, Profile, the grid's pills and lists, the sidebar and the player.
 - **VoiceOver on the Apple TV**: announcements, hints (each settings footer is
   its row's hint), the open sidebar's modal trait, titles read beside Play,
   container names spoken on the way in, the collapsed rail's dimmed rows
@@ -601,6 +610,7 @@ the detail.
 | `TVHeroPagerTests` | When the hero's timer runs, and paging |
 | `TVHeroPlayTargetTests` | What Play on a series plays |
 | `TVKeyboardCommandTests` | The space bar as Play/Pause |
+| `TVMotionTests` | Reduce Motion dropping a moving animation; Increase Contrast drawing translucent text solid |
 | `TVOnboardingSpeechTests` | The Quick Connect code spoken; discovery announcements |
 | `TVPageKeepAliveTests` | Which pushed pages stay built |
 | `TVPlaybackSessionTests` | A session's start, end and reported outcome |
