@@ -1633,6 +1633,28 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertTrue(fields.contains("RecursiveItemCount"), "Fields was \(fields)")
     }
 
+    /// The same two fields on the season list, which is where a show page's
+    /// Season delete row and its "all {n} episodes" copy come from. Without
+    /// them every season reads as undeletable and the row never appears.
+    func test_seasons_requestsCanDeleteAndRecursiveItemCountFields() async throws {
+        let client = makeClient(accessToken: "tok")
+        var capturedRequest: URLRequest?
+        MockURLProtocol.requestHandler = { request in
+            capturedRequest = request
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0)
+            )
+        }
+
+        _ = try await client.seasons(seriesID: "series-1", userID: "user-1")
+
+        let components = capturedRequest?.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        XCTAssertEqual(components?.path, "/Shows/series-1/Seasons")
+        let fields = components?.queryItems?.first { $0.name == "Fields" }?.value ?? ""
+        XCTAssertTrue(fields.contains("CanDelete"), "Fields was \(fields)")
+        XCTAssertTrue(fields.contains("RecursiveItemCount"), "Fields was \(fields)")
+    }
+
     // MARK: - Playlists
 
     func test_playlistUserPermissions_ownerGetsCanEditTrue() async throws {

@@ -91,7 +91,11 @@ struct AssetActionsButton: View {
         }
         let season = viewModel.seasons.first { $0.id == selectedSeasonID }
         let episode = isEpisodeContent ? item : nil
-        return [show, season, episode].compactMap { $0 }.filter(\.canDelete)
+        // A season goes through `canDelete(season:)`: one with no folder of its
+        // own is never deletable as a unit, and is offered when its episodes are.
+        return [show, season, episode].compactMap { $0 }.filter { target in
+            target.kind == .season ? viewModel.canDelete(season: target) : target.canDelete
+        }
     }
 
     /// Every entity this page could offer to add to a playlist, most specific
