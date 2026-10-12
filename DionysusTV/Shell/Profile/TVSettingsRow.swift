@@ -18,13 +18,20 @@ struct TVSettingsRow: View {
     var hint: LocalizedStringKey?
     var opensPage = false
     var role: ButtonRole?
+    /// Whether the row has focus, for a destructive row's look.
+    var isFocused = false
     let identifier: String
     let action: () -> Void
 
     var body: some View {
-        Button(role: role, action: action) {
+        // A destructive row takes the system's role only in focus (a red
+        // platter, white title). At rest tvOS 26 drew its title red on a
+        // red platter, unreadable (Benjamin, 2026-10-11), so at rest it is
+        // a plain row with a red title.
+        Button(role: Self.buttonRole(role, isFocused: isFocused), action: action) {
             HStack {
                 Text(title)
+                    .foregroundStyle(Self.titleIsRed(role, isFocused: isFocused) ? AnyShapeStyle(Color.red) : AnyShapeStyle(.primary))
                 Spacer()
                 if let value {
                     Text(verbatim: value).foregroundStyle(.secondary)
@@ -43,6 +50,14 @@ struct TVSettingsRow: View {
         .accessibilityValue(spokenValue ?? value ?? "")
         .accessibilityHint(hint.map { Text($0) } ?? Text(verbatim: ""))
         .accessibilityIdentifier(identifier)
+    }
+
+    static func buttonRole(_ role: ButtonRole?, isFocused: Bool) -> ButtonRole? {
+        isFocused ? role : nil
+    }
+
+    static func titleIsRed(_ role: ButtonRole?, isFocused: Bool) -> Bool {
+        role == .destructive && !isFocused
     }
 }
 

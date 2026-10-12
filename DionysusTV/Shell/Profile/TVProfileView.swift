@@ -226,7 +226,7 @@ struct TVProfileView: View {
         _ title: LocalizedStringKey, value: String? = nil, spokenValue: String? = nil, hint: LocalizedStringKey? = nil,
         opensPage: Bool = false, role: ButtonRole? = nil, id: String, action: @escaping () -> Void
     ) -> some View {
-        TVSettingsRow(title: title, value: value, spokenValue: spokenValue, hint: hint, opensPage: opensPage, role: role, identifier: id, action: action)
+        TVSettingsRow(title: title, value: value, spokenValue: spokenValue, hint: hint, opensPage: opensPage, role: role, isFocused: focus == id, identifier: id, action: action)
             .focused($focus, equals: id)
     }
 }

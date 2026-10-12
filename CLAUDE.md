@@ -532,7 +532,11 @@ Policy), with iOS's footers. What isn't guessable:
   (`AppState.signOutForgettingAccount()`); Switch User keeps it remembered,
   one press away on Who's Watching? (Benjamin, 2026-10-01). So Sign Out asks
   first, as Change Server does (`TVConfirmation`, Cancel focused; Benjamin,
-  2026-10-05), and both rows are tinted red as destructive.
+  2026-10-05), and both rows are red as destructive: a red title at rest,
+  the system's red platter in focus. The row takes the destructive role
+  only while focused (`TVSettingsRow.buttonRole`), since at rest tvOS 26
+  drew that role's title red on a red platter, unreadable (Benjamin,
+  2026-10-11).
 - **Each sub-screen is a full-screen cover** (Advanced, Quick Connect
   approval, the two text pages, Change Server's and Sign Out's questions), so Menu closes it
   onto its row; not a push, which would put the sidebar beside it.
