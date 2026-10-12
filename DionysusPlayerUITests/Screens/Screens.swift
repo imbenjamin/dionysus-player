@@ -496,6 +496,15 @@ struct AssetDetailScreen: Screen {
         deleteButton.tap()
     }
 
+    /// One row of the Show/Season/Episode submenu `openDelete()` opens on a
+    /// show page, by the entity's display name, as `addToPlaylistScope(_:)`.
+    /// SwiftUI drops an identifier set on a row inside a `Menu`, so there is
+    /// none to key on. Scoped to the menu's cells: "Season 1" is also the
+    /// season picker's label on the page behind.
+    func deleteTarget(_ entityName: String) -> XCUIElement {
+        app.collectionViews.cells.buttons[entityName]
+    }
+
     /// Reaches "Add to Playlist" and taps it, opening `AddToPlaylistSheet`.
     /// On a show/episode page this instead opens the Show/Season/Episode
     /// submenu — see `addToPlaylistScope(_:)`.

@@ -655,6 +655,16 @@
     "Delete this download?" : {
 
     },
+    "Deleted %lld of %lld episodes, then stopped: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Deleted %1$lld of %2$lld episodes, then stopped: %3$@"
+          }
+        }
+      }
+    },
     "Deleting \"%@\" will remove it from the Jellyfin server. This cannot be undone." : {
 
     },

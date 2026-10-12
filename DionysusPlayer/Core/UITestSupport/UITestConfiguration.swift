@@ -38,6 +38,12 @@ enum UITestScenario: String {
     /// asserts the absence of `deleteButton`, not of the toolbar item.
     case noDeletePermission
 
+    /// `.standard`'s catalogue with the show's seasons made up by the server
+    /// (`LocationType: Virtual`, `CanDelete: false`), as for a show whose
+    /// episodes sit loose in its folder, and a `DELETE` of a season refused as
+    /// Jellyfin refuses it. Delete Season then goes episode by episode.
+    case folderlessSeasons
+
     /// `.standard`'s catalogue with every playlist's permissions lookup
     /// answering 404 — Jellyfin's "permissions not found" for a user who neither
     /// owns the playlist nor is shared on it — and any add or removal refused

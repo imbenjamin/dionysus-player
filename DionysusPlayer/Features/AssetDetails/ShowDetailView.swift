@@ -241,6 +241,25 @@ struct ShowDetailView: View {
                     // last episode crosses a boundary. Guarded to Episode
                     // content and an actual mismatch, so it no-ops for every
                     // other `item` change.
+                    // Moves the picker off a season that's gone, which only
+                    // deleting it does: `AssetDetailViewModel` re-reads the
+                    // season list and moves `preselectedSeasonID` to one that's
+                    // left, but this selection is the view's own. Left on the
+                    // deleted id, the episode list re-fetched it and showed the
+                    // season as empty under the next season's name.
+                    // Whether a folderless season's Delete row can show
+                    // depends on its episodes; see
+                    // `AssetDetailViewModel.loadSeasonDeletability(seasonID:)`.
+                    // Keyed on the season list too, since the selection can
+                    // land before the seasons do.
+                    .task(id: [selectedSeasonID ?? ""] + viewModel.seasons.map(\.id)) {
+                        guard let selectedSeasonID else { return }
+                        await viewModel.loadSeasonDeletability(seasonID: selectedSeasonID)
+                    }
+                    .onChange(of: viewModel.seasons.map(\.id)) { _, seasonIDs in
+                        guard let selected = selectedSeasonID, !seasonIDs.contains(selected) else { return }
+                        selectedSeasonID = viewModel.preselectedSeasonID ?? seasonIDs.first
+                    }
                     .onChange(of: viewModel.item?.id) { _, _ in
                         if isEpisodeContent, let preselectedSeasonID = viewModel.preselectedSeasonID,
                            selectedSeasonID != preselectedSeasonID {

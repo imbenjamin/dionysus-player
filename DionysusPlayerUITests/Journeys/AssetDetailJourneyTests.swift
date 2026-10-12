@@ -279,6 +279,129 @@ final class AssetDetailJourneyTests: UITestCase {
         )
     }
 
+    /// A show page offers its selected season in the Delete submenu, says how
+    /// many episodes go with it, and after the delete stays on the show with
+    /// the picker moved to the season that's left.
+    ///
+    /// The stub serves a season's `CanDelete` and episode count only when the
+    /// request asks for them, as Jellyfin does, so the row's presence and the
+    /// "all 3 episodes" copy both prove the season list asks.
+    func testDeletingASeasonStaysOnTheShowAndMovesToTheNextSeason() {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.showsLibraryID)
+
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.seriesID)
+        collection.card(UITestFixtureIdentity.seriesID).tap()
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.episodeRow(UITestFixtureIdentity.episodeID(season: 1, episode: 1))
+            .awaitExistence("Season 1's first episode, the selected season")
+
+        detail.openDelete()
+        let seasonRow = detail.deleteTarget("Season 1")
+        seasonRow.awaitExistence("the Season row in the Delete submenu")
+        XCTAssertTrue(
+            detail.deleteTarget(UITestFixtureIdentity.seriesName).exists,
+            "The show itself should still be offered beside its season."
+        )
+        seasonRow.tap()
+
+        detail.deleteConfirmButton.awaitExistence("the season delete confirmation")
+        let warning = app.sheets.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS %@", "all 3 episodes")
+        ).firstMatch
+        XCTAssertTrue(warning.exists, "The dialog should say how many episodes the season takes with it.")
+        detail.confirmDelete()
+
+        // Still on the show, now on Season 2.
+        detail.episodeRow(UITestFixtureIdentity.episodeID(season: 2, episode: 1))
+            .awaitExistence("Season 2's first episode, once the picker moves off the deleted season")
+        XCTAssertFalse(
+            detail.episodeRow(UITestFixtureIdentity.episodeID(season: 1, episode: 1)).exists,
+            "The deleted season's episodes should be gone."
+        )
+        XCTAssertTrue(detail.playButton.exists, "Deleting one of two seasons should leave the show page up.")
+        XCTAssertFalse(detail.playButton.label.contains("S1:E"), "Play should leave Season 1. Was: \(detail.playButton.label)")
+    }
+
+    /// An episode page offers all three: the episode, its season and the
+    /// show. Deleting the season from there takes the episode on show with it,
+    /// so the page goes back to the show, on the season that's left.
+    func testEpisodePageOffersEpisodeSeasonAndShowForDeletion() {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.showsLibraryID)
+
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.seriesID)
+        collection.card(UITestFixtureIdentity.seriesID).tap()
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        let episodeRow = detail.episodeRow(UITestFixtureIdentity.episodeID(season: 1, episode: 1))
+        episodeRow.awaitExistence("the Season 1, Episode 1 row")
+        episodeRow.tap()
+
+        detail.openDelete()
+        detail.deleteTarget(UITestFixtureIdentity.seriesName).awaitExistence("the Show row in the Delete submenu")
+        XCTAssertTrue(detail.deleteTarget("Season 1").exists, "An episode page should offer its season.")
+        XCTAssertTrue(detail.deleteTarget("S1:E1 \u{00B7} Episode 1").exists, "An episode page should offer the episode.")
+
+        detail.deleteTarget("Season 1").tap()
+        detail.confirmDelete()
+
+        detail.episodeRow(UITestFixtureIdentity.episodeID(season: 2, episode: 1))
+            .awaitExistence("Season 2's first episode, once the season on show is gone")
+        XCTAssertFalse(
+            detail.episodeRow(UITestFixtureIdentity.episodeID(season: 1, episode: 1)).exists,
+            "The deleted season's episodes should be gone."
+        )
+        // Back on the show: Play no longer targets a deleted episode.
+        XCTAssertFalse(detail.playButton.label.contains("S1:E"), "Play should leave Season 1. Was: \(detail.playButton.label)")
+    }
+
+    /// A show whose episodes sit loose in its folder: Jellyfin makes its
+    /// seasons up and won't delete one as a unit, so Delete Season is offered
+    /// on its episodes' say-so and deletes them one by one. Driven from an
+    /// episode page, where it was first missed.
+    func testFolderlessSeasonIsDeletedEpisodeByEpisode() {
+        launch(scenario: "folderlessSeasons")
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.showsLibraryID)
+
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.seriesID)
+        collection.card(UITestFixtureIdentity.seriesID).tap()
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        let episodeRow = detail.episodeRow(UITestFixtureIdentity.episodeID(season: 1, episode: 1))
+        episodeRow.awaitExistence("the Season 1, Episode 1 row")
+        episodeRow.tap()
+
+        detail.openDelete()
+        detail.deleteTarget("Season 1").awaitExistence("the folderless Season row in the Delete submenu")
+        XCTAssertTrue(detail.deleteTarget(UITestFixtureIdentity.seriesName).exists, "The show should be offered too.")
+        XCTAssertTrue(detail.deleteTarget("S1:E1 \u{00B7} Episode 1").exists, "The episode should be offered too.")
+
+        detail.deleteTarget("Season 1").tap()
+        detail.confirmDelete()
+
+        detail.episodeRow(UITestFixtureIdentity.episodeID(season: 2, episode: 1))
+            .awaitExistence("Season 2's first episode, once Season 1's episodes are gone")
+        XCTAssertFalse(
+            detail.episodeRow(UITestFixtureIdentity.episodeID(season: 1, episode: 1)).exists,
+            "The deleted season's episodes should be gone."
+        )
+        XCTAssertFalse(detail.playButton.label.contains("S1:E"), "Play should leave Season 1. Was: \(detail.playButton.label)")
+    }
+
     // MARK: - Playlist item removal
 
     /// The only removal path this feature has: long-press a row, tap

@@ -578,8 +578,12 @@ pattern, since ViewModels are constructed with an already-built client
   leaving everything in place, and a row leaving "Preparing download…" on
   its own when its download finishes with the tab open),
   Profile's two account actions, server-side deletion (the permission gate
-  in both directions, the confirmation warning, and delete → pop → gone from
-  the grid), playlist item removal (the permission gate, and the
+  in both directions, the confirmation warning, delete → pop → gone from
+  the grid, and a season deleted from a show page or an episode page, which
+  offers episode, season and show, leaving the show on the season that's
+  left; the stub serves a season's `CanDelete` only when `Fields` asks, as
+  Jellyfin does; and, under `folderlessSeasons`, a made-up season deleted
+  episode by episode), playlist item removal (the permission gate, and the
   context-menu path — a long-press menu is this feature's only removal
   path; a swipe gesture was tried and reverted after on-device testing,
   see `PlaylistItemList.onRemove`'s doc comment), adding an asset to a

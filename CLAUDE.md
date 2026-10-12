@@ -1626,6 +1626,21 @@ funnel down to zero results. When adding another facet here, follow that
 same "exclude yourself, apply the rest" shape rather than a flat AND filter,
 or the funnel guarantee breaks.
 
+### Deleting a season
+
+**A season with no folder of its own can't be deleted as a unit, by anyone.**
+Jellyfin's `BaseItem.CanDelete()` is `IsFileProtocol`, and a show whose
+episodes sit loose in its folder (no `Season NN/`) gets made-up seasons:
+`LocationType: Virtual`, no path, `CanDelete: false` even for an admin, and
+`DELETE /Items/{season}` refused. Benjamin's library is shaped like this
+(checked on 12.2.0). So for such a season the Delete menu asks for its
+episodes with `CanDelete` (`AssetDetailViewModel.loadSeasonDeletability`),
+offers Delete Season when every episode with a file is deletable, and deletes
+them one at a time, stopping at the first failure with a "Deleted N of M"
+message. `LibraryManager.DeleteItem` doesn't remove the emptied season, which
+stays listed until a library scan, so the page drops it itself. A season with
+a folder is still one request.
+
 ### Transient confirmations (`Shared/Components/Toast.swift`)
 
 `ToastCenter.shared.post(Toast(message:))` shows a brief, self-dismissing

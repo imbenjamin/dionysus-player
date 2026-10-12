@@ -129,6 +129,7 @@ enum UITestFixtureLibrary {
         item.seriesName = UITestFixtureIdentity.seriesName
         item.indexNumber = number
         item.childCount = 3
+        item.recursiveItemCount = 3
         item.productionYear = 2019 + number
         item.userData = UserItemDataDto(playbackPositionTicks: 0, playedPercentage: 0, played: false, isFavorite: false)
         return item
