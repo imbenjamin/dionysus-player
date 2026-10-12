@@ -636,6 +636,24 @@ named accessibility action, since holding Select may not reach the menu.
 "Signing in to …" carries one label: its bold server name is a run of its
 own, which VoiceOver read after a pause though XCUITest reports one label.
 
+**Display accessibility settings** (M5, checked by screenshot on the tvOS
+26.5 Simulator, each setting alone). **Under Reduce Transparency tvOS draws
+a default-style button's resting platter opaque light grey**, under the
+label's white (about 2:1): every Profile row, filter pill and hero button.
+Forcing dark changed nothing. `TVOpaqueAtRestButtonStyle`, set once at the
+root, tints it to the grey Apple's Settings rows rest on and makes the
+label primary, since the tint colours it too; focus is the system's as
+before, and a button with a style of its own is untouched. It is a button
+style, not a root tint, because spinners follow the tint. The glass and
+materials go opaque by themselves. Under Reduce Motion nothing slides
+(`TVMotion.moving`): the sidebar opening, sliding off on Search and its
+Libraries group, Menu's scroll back to the top, the player's panel rising
+and the subtitles' lift land at once; fades stay, the hero's page turn
+included. Under Increase Contrast the translucent white over artwork (the
+hero's overview, Search's edge chevron) is drawn solid
+(`TVContrast.opacity`); `.secondary` brightens by itself. Bold Text clipped
+nothing.
+
 Sign-in puts
 Quick Connect first (`TVSignInRoute`): a user with a password goes to a code,
 with "Use Password Instead" one press away, and only a user the server reports

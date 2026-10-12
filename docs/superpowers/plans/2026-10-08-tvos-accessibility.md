@@ -1196,6 +1196,14 @@ HIG review (apple-design-skill): the secondary text over the gradient (`.seconda
 - [ ] **Step 5:** Screenshots of each setting on the 26.5 Simulator to Benjamin before tests (`xcrun simctl spawn <udid> defaults write com.apple.Accessibility ReduceMotionEnabled -bool true` and the equivalents, or Settings ▸ Accessibility).
 - [ ] **Step 6:** Unit tests where a helper decides (e.g. a `TVHeldImage` transition chooser); otherwise record each in TESTING.md as checked by screenshot.
 
+**Findings (2026-10-12, tvOS 26.5 Simulator `90E06237`, each setting alone).**
+
+1. **Reduce Transparency: default-style buttons rest on an opaque light grey under white text** (Profile rows, grid pills and lists, hero and detail buttons; about 2:1). Apple's Settings rows rest on dark grey. `.preferredColorScheme(.dark)` at the root changed nothing; `.tint` sets the resting platter but also colours an unstyled label. Fix: `TVOpaqueAtRestButtonStyle`, a root `PrimitiveButtonStyle` that under Reduce Transparency tints `Color(white: 0.28)` and makes the label primary; scoped to buttons since spinners follow a root tint. Benjamin approved the look. Glass and materials (sidebar, panels) go opaque by themselves.
+2. **Reduce Motion:** moving animations guarded with `TVMotion.moving`: sidebar open/slide/Libraries/select, Menu-to-landing and detail landing scrolls, player panel rise, subtitle lift. Ruling: the hero's page turn stays animated (a crossfade).
+3. **Increase Contrast:** `.secondary` brightens by itself; the hero's overview (0.82) and Search's edge chevron (0.45) go solid (`TVContrast.opacity`).
+4. **Bold Text:** nothing clips (sidebar, Profile, grid, detail page, player panel).
+5. Seen with no setting on, out of scope: grid captions overlapping their posters on some runs (the bug `TVPosterCell.show` fixed), reported separately.
+
 ### Task 12: Device pass and closing docs
 
 - [ ] **Step 1:** Ask Benjamin before deploying to Bedroom. VoiceOver on the Apple TV; walk the success journey end to end: sign in, Home, Search a title and open it, play, pause, skip, scrub, change audio and subtitles, skip an intro, Next Up, leave. Fix what the device shows that the Simulator didn't.

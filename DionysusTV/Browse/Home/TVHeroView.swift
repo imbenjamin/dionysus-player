@@ -18,6 +18,7 @@ struct TVHeroView: View {
     let play: () -> Void
     let moreInfo: () -> Void
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @Environment(\.colorSchemeContrast) private var contrast
 
     static let playFocus = "hero.play"
     static let infoFocus = "hero.info"
@@ -32,7 +33,7 @@ struct TVHeroView: View {
             Text(verbatim: item.overview ?? " ")
                 .lineLimit(2, reservesSpace: true)
                 .frame(width: 900, alignment: .leading)
-                .foregroundStyle(.white.opacity(0.82))
+                .foregroundStyle(.white.opacity(TVContrast.opacity(0.82, increased: contrast == .increased)))
                 .accessibilityHidden(!item.hasDescription)
             HStack(spacing: 22) {
                 Button(action: play) { Label("Play", systemImage: "play.fill") }

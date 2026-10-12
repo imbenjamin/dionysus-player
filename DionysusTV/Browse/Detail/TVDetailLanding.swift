@@ -49,6 +49,7 @@ private struct TVDetailLanding: ViewModifier {
     /// 2026-10-07).
     @State private var settling = false
     @Environment(\.tvPageIsOnShow) private var isOnShow
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
@@ -83,6 +84,6 @@ private struct TVDetailLanding: ViewModifier {
 
     private func restoreLanding() {
         guard abs(scrollOffset) > 1 else { return }
-        withAnimation(.easeInOut(duration: 0.3)) { scrollPosition.scrollTo(edge: .top) }
+        withAnimation(TVMotion.moving(.easeInOut(duration: 0.3), reduceMotion: reduceMotion)) { scrollPosition.scrollTo(edge: .top) }
     }
 }
