@@ -118,7 +118,11 @@ targets:
     platform: iOS
     deploymentTarget: "18.0"
     sources:
+      # Folder CLAUDE.md files are guidance for Claude Code, not app
+      # resources: left in, two in one target collide and both ship.
       - path: DionysusPlayer
+        excludes:
+          - "**/CLAUDE.md"
       - path: dionysus.icon
       # Extensionless files (LICENSE, symlinked in from the repo root so
       # there's a single source of truth) aren't auto-classified as a
@@ -248,10 +252,13 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - path: DionysusTV
+        excludes:
+          - "**/CLAUDE.md"
       - path: DionysusPlayer/Core
         excludes:
           - "Downloads/**"
           - "Persistence/Download*.swift"
+          - "**/CLAUDE.md"
       - path: DionysusPlayer/App/AppState.swift
       - path: DionysusPlayer/Shared
         includes:
