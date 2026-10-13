@@ -10,9 +10,7 @@ import Foundation
 /// into Copy Bundle Resources), so editing `LICENSE` or
 /// `THIRD-PARTY-NOTICES` updates the page with no sync step. In
 /// `THIRD-PARTY-NOTICES` a line `# <name>` starts a library's notices.
-/// It holds LibTrueHD's (MIT, and Apache-2.0 for the crates compiled into
-/// it), which its license asks to ship with the app; it arrived with
-/// AetherEngine 7.34.0.
+/// It holds the notices of every library that ships in the app.
 enum LicenseDocument {
     /// One library's notices, shown under its name.
     struct Component: Equatable {

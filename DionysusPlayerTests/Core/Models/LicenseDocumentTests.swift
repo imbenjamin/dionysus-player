@@ -16,6 +16,26 @@ final class LicenseDocumentTests: XCTestCase {
         XCTAssertFalse(libTrueHD.text.hasPrefix("#"), "The header line is the name, not text")
     }
 
+    /// Every library that ships in the app, in the file's order. SMBClient
+    /// isn't one: only AetherEngine's `AetherEngineSMB` product uses it.
+    func test_everyShippedLibrary_hasItsNotices() {
+        XCTAssertEqual(LicenseDocument.components().map(\.name), [
+            "AetherEngine", "FFmpeg", "dav1d", "zimg", "libzvbi", "libdovi", "LibTrueHD",
+            "libass", "fontconfig", "FreeType", "HarfBuzz", "FriBidi", "libpng",
+            "swift-ass-renderer", "swift-libass", "SwiftUI-Shimmer",
+            "swift-issue-reporting", "combine-schedulers", "swift-concurrency-extras"
+        ])
+        XCTAssertTrue(LicenseDocument.components().allSatisfy { !$0.text.isEmpty })
+    }
+
+    func test_theLGPLs_areBundled() throws {
+        let libraries = LicenseDocument.components()
+        let engine = try XCTUnwrap(libraries.first { $0.name == "AetherEngine" })
+        XCTAssertTrue(engine.text.contains("GNU LESSER GENERAL PUBLIC LICENSE\n                       Version 3"))
+        let ffmpeg = try XCTUnwrap(libraries.first { $0.name == "FFmpeg" })
+        XCTAssertTrue(ffmpeg.text.contains("Version 2.1, February 1999"), "Also covers libzvbi and FriBidi")
+    }
+
     func test_eachHeaderLine_startsALibrary() {
         let notices = "# One\n\nFirst text.\n\n# Two\nSecond\ntext.\n"
         XCTAssertEqual(LicenseDocument.components(in: notices), [
