@@ -129,6 +129,20 @@ final class OnboardingJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Onboarding.changeServer]))
     }
 
+    /// While the users load, Change Server is the way off a slow server
+    /// (M5 review): disabled for everyone, nothing could take focus for up to
+    /// the request's 20s. Only under VoiceOver does it wait.
+    func test_changeServer_worksWhileTheUsersLoad() {
+        let app = launch(scenario: "slowPublicUsers")
+        connectToDiscoveredServer(app)
+        let change = app.buttons[A11yID.TV.Onboarding.changeServer]
+        XCTAssertTrue(waitForFocus(change, timeout: 10))
+        XCTAssertFalse(app.buttons[A11yID.TV.Onboarding.user(UITestFixtureIdentity.userID)].exists)
+        press(.select)
+        let server = app.buttons[A11yID.TV.Onboarding.serverRow(UITestFixtureIdentity.discoveredServerID)]
+        XCTAssertTrue(server.waitForExistence(timeout: 10), "Change Server returns to Find Your Server")
+    }
+
     /// Down from the password field goes to Sign In, not to Cancel beside it.
     func test_passwordField_downGoesToSignIn() {
         let app = launch(scenario: "quickConnectDisabled")

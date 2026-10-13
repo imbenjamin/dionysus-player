@@ -428,6 +428,15 @@ enum TVPlayerInputModel {
 
     static func tick(_ state: inout TVPlayerInputState, context: TVPlayerContext, now: TimeInterval) -> [TVPlayerCommand] {
         var commands: [TVPlayerCommand] = []
+        if context.accessibleTransport {
+            // Turned on mid-hold or mid-scrub (M5 review): nothing in this
+            // mode ends either, so they end here, a scrub as Menu ends it.
+            state.heldArrow = nil
+            if let scrub = state.scrub {
+                state.scrub = nil
+                if scrub.resumesOnCancel { commands.append(.play) }
+            }
+        }
         if var held = state.heldArrow, !held.isHold, context.playback.acceptsInput,
            now - held.pressedAt >= TVPlayerTiming.holdThreshold {
             held.isHold = true

@@ -559,7 +559,9 @@ final class TVCaptionedPosterView: TVPosterView {
         }
         if let subtitle = footer.subtitleLabel {
             subtitle.font = UIFont.preferredFont(forTextStyle: .caption2)
-            subtitle.textColor = UIColor.white.withAlphaComponent(0.6)
+            subtitle.textColor = UIColor.white.withAlphaComponent(
+                TVContrast.opacity(0.6, increased: UIAccessibility.isDarkerSystemColorsEnabled)
+            )
             subtitle.textAlignment = .natural
             subtitle.numberOfLines = 1
             subtitle.lineBreakMode = .byTruncatingTail

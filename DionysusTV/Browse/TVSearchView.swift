@@ -54,9 +54,15 @@ struct TVSearchView: View {
         }
         .onChange(of: viewModel.query) { viewModel.queryChanged() }
         // Focus stays in the keyboard as results land, so VoiceOver is told
-        // how many there are, once per new set (M5).
+        // how many there are, once per new set (M5), and why a search failed
+        // (M5 review: the notice can't take focus).
         .onChange(of: viewModel.loadState) { _, state in
             guard !isIdle else { announcedResults = nil; return }
+            if case .failed(let message) = state {
+                announcedResults = nil
+                AccessibilityNotification.Announcement(message).post()
+                return
+            }
             guard state == .loaded else { return }
             let ids = viewModel.results.map(\.id)
             guard let text = TVSearchGrouping.announcement(results: ids, lastAnnounced: announcedResults) else { return }

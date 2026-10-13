@@ -37,9 +37,14 @@ struct TVPlayerPanelView: View {
         _ action: TVPlayerControl, modelFocused: Bool, @ViewBuilder face: @escaping (_ isFocused: Bool) -> Face
     ) -> some View {
         if accessible {
-            let row: Int? = if case .panelRow(let index) = action { index } else { nil }
-            TVPlayerControlButton(action: { send(action) }, label: face)
-                .focused($focusedRow, equals: row)
+            // Only rows are tracked: a tab bound to `nil` would claim focus
+            // whenever nothing else had it (M5 review).
+            if case .panelRow(let index) = action {
+                TVPlayerControlButton(action: { send(action) }, label: face)
+                    .focused($focusedRow, equals: index)
+            } else {
+                TVPlayerControlButton(action: { send(action) }, label: face)
+            }
         } else {
             face(modelFocused)
         }
@@ -106,6 +111,7 @@ struct TVPlayerPanelView: View {
                         .font(.headline)
                     if item.kind == .episode {
                         Text(item.numberedEpisodeName).font(.callout).foregroundStyle(.secondary)
+                            .accessibilityLabel(item.numberedEpisodeNameAccessibilityText)
                     }
                     let metadata = TVDetailFormat.metadata(for: item)
                     Text(metadata.map(\.text).joined(separator: " · "))
@@ -192,7 +198,8 @@ struct TVPlayerPanelView: View {
         .frame(width: 380, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(chapter.name)
-        .accessibilityValue(TVPlaybackTimeFormat.string(chapter.startSeconds))
+        // Spoken, not "0:00": read as a clock it was "0 01" (M5 review).
+        .accessibilityValue(TVPlaybackTimeFormat.spoken(chapter.startSeconds))
         .accessibilityAddTraits(current ? [.isButton, .isSelected] : .isButton)
         .accessibilityIdentifier(A11yID.TV.Player.panelRow(TVPanelTab.chapters.id, index))
     }

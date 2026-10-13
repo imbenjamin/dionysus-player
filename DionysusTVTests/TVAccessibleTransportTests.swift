@@ -24,4 +24,30 @@ final class TVAccessibleTransportTests: XCTestCase {
         XCTAssertEqual(TVPlayerAnnouncement.trackChosen([.selectSubtitle(id: nil)], context: context), String(localized: "Subtitles, Off"))
         XCTAssertNil(TVPlayerAnnouncement.trackChosen([.seek(0)], context: context))
     }
+
+    /// Subtitle titles spell out their abbreviations, as the rows do (M5 review).
+    func test_subtitleAnnouncement_spellsOutFormats() {
+        var context = TVPlayerContext()
+        context.subtitleTrackIDs = [7]
+        context.subtitleTrackTitles = ["English (CC)"]
+        XCTAssertEqual(
+            TVPlayerAnnouncement.trackChosen([.selectSubtitle(id: 7)], context: context),
+            String(localized: "Subtitles, \(MediaItem.spokenFormats(in: "English (CC)"))")
+        )
+        XCTAssertNotEqual(MediaItem.spokenFormats(in: "English (CC)"), "English (CC)")
+    }
+
+    /// Next Up names the episode, not only the show already playing (M5 review).
+    func test_nextUp_namesTheEpisode() {
+        var dto = BaseItemDto(id: "e", name: "Alone in the Night", type: .episode)
+        dto.seriesName = "Space Show"
+        dto.parentIndexNumber = 1
+        dto.indexNumber = 3
+        let images = ImageURLBuilder(baseURL: URL(string: "http://h")!, accessToken: nil)
+        let episode = MediaItem(dto: dto, images: images)
+        let spoken = String(localized: "season \(1) episode \(3)")
+        XCTAssertEqual(TVPlayerAnnouncement.nextUp(episode), String(localized: "Up next: \("Space Show, \(spoken), Alone in the Night")"))
+        let movie = MediaItem(dto: BaseItemDto(id: "m", name: "1917", type: .movie), images: images)
+        XCTAssertEqual(TVPlayerAnnouncement.nextUp(movie), String(localized: "Up next: \("1917")"))
+    }
 }

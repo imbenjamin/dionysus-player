@@ -17,6 +17,15 @@ final class TVPlaybackTimeFormatTests: XCTestCase {
                        String(localized: "12 minutes, 30 seconds of 1 hour, 52 minutes"))
     }
 
+    /// Edges (M5 review): nothing known, a whole hour, past a day.
+    func test_spoken_edges() {
+        XCTAssertEqual(TVPlaybackTimeFormat.spoken(.nan), String(localized: "0 seconds"))
+        XCTAssertEqual(TVPlaybackTimeFormat.spoken(-5), String(localized: "0 seconds"))
+        XCTAssertEqual(TVPlaybackTimeFormat.spoken(59.9), "59 seconds")
+        XCTAssertEqual(TVPlaybackTimeFormat.spoken(3600), "1 hour")
+        XCTAssertEqual(TVPlaybackTimeFormat.spoken(90_061), "25 hours, 1 minute, 1 second")
+    }
+
     /// iOS's lead-ins: read as clocks, the times were "0 01" (M5).
     func test_spokenElapsedAndRemaining_leadInAsIOS() {
         XCTAssertEqual(TVPlaybackTimeFormat.spokenElapsed(750), String(localized: "Current position: \("12 minutes, 30 seconds")"))

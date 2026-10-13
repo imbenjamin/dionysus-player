@@ -29,6 +29,8 @@ struct TVNextUpCard: View {
                 Text("\(secondsRemaining)s")
                     .font(.caption.weight(.semibold))
                     .monospacedDigit()
+                    // Compact text is misread ("1h 48m" was "meters").
+                    .accessibilityLabel(Text("\(secondsRemaining) seconds"))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 6)
                     .background(Color.black.opacity(0.6), in: Capsule())
@@ -52,6 +54,7 @@ struct TVNextUpCard: View {
             Text(episode.kind == .episode ? episode.numberedEpisodeName : episode.railTitle)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
+                .accessibilityLabel(episode.kind == .episode ? episode.numberedEpisodeNameAccessibilityText : episode.railTitle)
                 .padding(.horizontal, 4)
             HStack(spacing: 12) {
                 button(.playNow, "Play Now", systemImage: "play.fill", id: A11yID.TV.Player.nextUpPlayNow)

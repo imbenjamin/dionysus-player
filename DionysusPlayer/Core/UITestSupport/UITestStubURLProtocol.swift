@@ -138,7 +138,18 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
-        // Held back under `.slowBoxSet` and `.slowItems`, the same way.
+        // Held back under `.slowPublicUsers`, `.slowBoxSet` and `.slowItems`, the same way.
+        if scenario == .slowPublicUsers, path.hasSuffix("/Users/Public") {
+            let request = request
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.slowPublicUsersDelay) {
+                do {
+                    self.finish(.success((200, try Self.body(forPath: path, query: query, request: request), "application/json")))
+                } catch {
+                    self.finish(.failure(error))
+                }
+            }
+            return
+        }
         if (scenario == .slowBoxSet && url.absoluteString.contains(UITestFixtureIdentity.boxSetID))
             || (scenario == .slowItems && (path.contains("/Items") || path.contains("/Shows/"))) {
             let request = request
@@ -551,7 +562,8 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         case .standard, .emptyLibrary, .offline, .noDeletePermission, .folderlessSeasons, .noPlaylistEditPermission,
              .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort,
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
-             .slowVideoDownload, .slowPlaybackInfo, .slowBoxSet, .emptyBoxSet, .slowItems, .manyLibraries, .manyUsers:
+             .slowVideoDownload, .slowPlaybackInfo, .slowBoxSet, .emptyBoxSet, .slowItems, .manyLibraries, .manyUsers,
+             .slowPublicUsers:
             return nil
         case .largeCast, .noBackdrop, .missingTileArtwork, .manyGenres, .failingLibrary, .failingHome, .thinDynamicRails, .skipIntro, .earlyCredits:
             return nil
@@ -1224,6 +1236,10 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     /// shell's three-second hold on the sidebar, which is what used to open
     /// it over a page with nothing to focus.
     static let slowBoxSetDelay: TimeInterval = 8
+
+    /// How long `.slowPublicUsers` holds `/Users/Public`: long enough for its
+    /// journey to reach Change Server and press it before any user arrives.
+    static let slowPublicUsersDelay: TimeInterval = 20
 
     /// Stand-in bytes for a font attachment.
     ///

@@ -30,10 +30,10 @@ enum TVSearchGrouping {
         }
         return sections
     }
+
     /// What VoiceOver hears as results land, or nil for the same results
-    /// heard last (M5).
-    /// The results can't say they've arrived: focus stays in the keyboard,
-    /// and "No results" can't take focus.
+    /// heard last (M5). The results can't say they've arrived: focus stays in
+    /// the keyboard, and "No results" can't take focus.
     static func announcement(results: [String], lastAnnounced: [String]?) -> String? {
         guard results != lastAnnounced else { return nil }
         return results.isEmpty ? String(localized: "No results") : String(localized: "\(results.count) results")

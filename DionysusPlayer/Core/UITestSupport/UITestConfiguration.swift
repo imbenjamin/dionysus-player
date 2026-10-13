@@ -182,6 +182,11 @@ enum UITestScenario: String {
     /// Watching? on Apple TV shows in one row.
     case manyUsers
 
+    /// `.standard`, but `/Users/Public` is held for
+    /// `UITestStubURLProtocol.slowPublicUsersDelay`: the Apple TV journey
+    /// that checks Change Server works while Who's Watching? loads.
+    case slowPublicUsers
+
     /// `.standard`, but `/Views` answers 500 for five seconds after it is
     /// first asked, as a server still starting up does: whatever loads the
     /// libraries at launch fails, and a later retry succeeds.
