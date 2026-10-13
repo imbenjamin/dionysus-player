@@ -438,10 +438,16 @@ footers.
   (`AppState.signOutForgettingAccount()`); Switch User keeps it, one press
   away on Who's Watching? (Benjamin, 2026-10-01). Sign Out and Change Server
   ask first (`TVConfirmation`, Cancel focused; Benjamin, 2026-10-05), and both
-  rows are red: a red title at rest, the system's red platter in focus. The
-  row takes the destructive role only while focused
-  (`TVSettingsRow.buttonRole`): at rest tvOS 26 drew that role's red title on
-  a red platter (Benjamin, 2026-10-11).
+  rows are red: a red title on the resting glass, a red platter with a white
+  title in focus. **The rows draw their own platter**
+  (`TVDestructiveRowStyle`, sized to the system row's, measured on 26.5).
+  The system can't: its destructive role draws a red title on a red platter
+  at rest on tvOS 26 (Benjamin, 2026-10-11), and a red tint does the same.
+  Taking the role only while focused showed the grey platter for a frame as
+  focus left the row, on 26 and 27 (Benjamin, 2026-10-13): SwiftUI's focus
+  moves a frame before the system's platter does, so a look that mixes the
+  system's platter with focus state races it. Check a change here by
+  recording the Simulator and reading it frame by frame.
 - **Each sub-screen is a full-screen cover** (Advanced, Quick Connect
   approval, the two text pages, the two questions), so Menu closes it onto its
   row; a push would put the sidebar beside it.
