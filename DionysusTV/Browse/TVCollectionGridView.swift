@@ -169,7 +169,7 @@ struct TVCollectionGridView: View {
         let orders: [(CollectionSortOrder, String)] = [(.ascending, String(localized: "Ascending")), (.descending, String(localized: "Descending"))]
         return TVDropdown(
             id: "sort", title: sortTitle, name: String(localized: "Sort"),
-            value: "\(sortTitle), \(orders.first { $0.0 == viewModel.sortOrder }?.1 ?? "")", icon: "arrow.up.arrow.down",
+            value: String(localized: "\(sortTitle), \(orders.first { $0.0 == viewModel.sortOrder }?.1 ?? "")"), icon: "arrow.up.arrow.down",
             sections: [
                 fields.enumerated().map { index, field in
                     TVDropdownOption(id: "field\(index)", title: field.1, isSelected: viewModel.sortField == field.0) {

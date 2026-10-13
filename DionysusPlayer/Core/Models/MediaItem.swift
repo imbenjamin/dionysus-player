@@ -208,6 +208,12 @@ struct MediaItem: Identifiable {
         return String(localized: "season \(season) episode \(episode)")
     }
 
+    /// `numberedEpisodeName` worded out for VoiceOver: "season 1 episode 4,
+    /// Pilot".
+    var numberedEpisodeNameAccessibilityText: String {
+        episodeLabelAccessibilityText.map { "\($0), \(name)" } ?? name
+    }
+
     /// First line under a poster card. Episodes show their series name, so
     /// Continue Watching reads as show titles rather than episode titles.
     var railTitle: String {

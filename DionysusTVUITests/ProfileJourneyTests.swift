@@ -238,6 +238,7 @@ final class ProfileJourneyTests: TVUITestCase {
         XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Onboarding.user(UITestFixtureIdentity.userID)].waitForExistence(timeout: 5))
         XCTAssertFalse(app.descendants(matching: .any)[A11yID.TV.Onboarding.rememberedUser(UITestFixtureIdentity.userID)].exists)
     }
+
     /// A row is labelled by its title alone, its setting the value: the
     /// button's label joined both, so VoiceOver read the value twice
     /// ("Chapters in Scrubber, On, On"; M5).

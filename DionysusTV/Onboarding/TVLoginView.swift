@@ -14,6 +14,7 @@ import SwiftUI
 /// press away. Holding Select on one offers to forget it.
 struct TVLoginView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @State private var viewModel = LoginViewModel()
     @FocusState private var focusedUserID: String?
     /// As on Find Your Server: the users arrive after the first focus pass, so
@@ -52,12 +53,14 @@ struct TVLoginView: View {
                 }
                 Spacer(minLength: 60)
                 // The screen's width, so Down reaches it from every lockup,
-                // not only one above it. Not focusable while the users load:
-                // it would take focus, and be read, before the first of them.
+                // not only one above it. Under VoiceOver not focusable while
+                // the users load: it would take focus, and be read, before
+                // the first of them. Otherwise it stays the way off a slow
+                // server (M5 review).
                 HStack {
                     Button("Change Server") { appState.changeServer() }
                         .font(.callout)
-                        .disabled(viewModel.usersState == .loading)
+                        .disabled(voiceOverEnabled && viewModel.usersState == .loading)
                         .accessibilityIdentifier(A11yID.TV.Onboarding.changeServer)
                 }
                 .frame(maxWidth: .infinity)

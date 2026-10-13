@@ -153,7 +153,8 @@ caption always shows.
   invisible focus guard right of More Info turns the page when it takes focus
   and hands focus back. Nothing is left of Play, so Left there opens the rail.
   Under VoiceOver the guard isn't focusable; the hero's buttons carry a "Next
-  Item" accessibility action instead.
+  Item" accessibility action instead, which announces the item it turns to
+  (focus stays on the button, whose label doesn't change), as iOS's does.
 - **The current page dot fills over the interval while the timer runs**, and
   is solid white while stopped (Benjamin, 2026-10-04).
 - **The hero holds only titles with a backdrop of their own**: the random
@@ -558,8 +559,10 @@ Checked by screenshot on the tvOS 26.5 Simulator, each setting alone (M5).
   to the top, the player's panel rising and the subtitles' lift land at once.
   Fades stay, the hero's page turn included.
 - **Under Increase Contrast, translucent white over artwork is drawn solid**
-  (`TVContrast.opacity`: the hero's overview, Search's edge chevron);
-  `.secondary` brightens by itself.
+  (`TVContrast.opacity`: the hero's, a box set's and a playlist's overview,
+  the sidebar's server name, a grid poster's caption, Search's edge chevron);
+  `.secondary` brightens by itself. Hand-made translucency doesn't, so new
+  text drawn that way goes through `TVContrast` too.
 - Bold Text clipped nothing.
 
 ### VoiceOver
@@ -576,7 +579,9 @@ Measured on the tvOS 26.5 Simulator, VoiceOver's speech read from its log
   built tile.
 - **VoiceOver reads what sits beside the focused button but skips an element
   with the header trait**, so `TVDetailHeader`'s title has none (the hero's
-  and every detail title went unread). It passes over a header-trait heading
+  and every detail title went unread). A grid's title is still never read:
+  focus lands on a poster or a pill, and neither dropping the trait nor
+  naming the grid a container for it changed that (M5 review, 26.5). It passes over a header-trait heading
   however it sits, so Profile's sections, its pickers, Advanced and Recent
   Searches are containers named for their headings, which also keeps the
   read-ahead inside them. (It still runs on into the collapsed rail after a
@@ -606,14 +611,17 @@ Measured on the tvOS 26.5 Simulator, VoiceOver's speech read from its log
 - **A footer is never reached** (focus moves only between buttons), so each
   settings footer is also its row's hint, and hidden itself.
 - **Results and outcomes are announced** (`TVSearchGrouping.announcement`,
-  Quick Connect's approval), since focus stays in the keyboard or on the
-  button.
+  a failed search's reason, Quick Connect's approval), since focus stays in
+  the keyboard or on the button.
 - **Compact text needs a spoken form** (Bedroom device pass, M5): on tvOS 27
   "1h 48m" was read "1 H 48 meters" (26.5 happens to expand it, so the
   Simulator hides this). Runtimes use `MediaItem.durationAccessibilityText`
   (`TVDetailFormat.metadata` carries both forms), and format abbreviations
   in track text go through `MediaItem.spokenFormats(in:)` ("DD+" → "Dolby
-  Digital Plus", DTS-HD "MA"), shared with iOS's track rows.
+  Digital Plus", DTS-HD "MA"), shared with iOS's track rows. The player
+  speaks its times and chapter starts in words (`TVPlaybackTimeFormat.spoken`)
+  and "S1:E4" as "season 1 episode 4"
+  (`MediaItem.numberedEpisodeNameAccessibilityText`).
 - **A grid poster is read from its footer's labels**, not the poster's own
   label, so the spoken subtitle is set on the footer's subtitle label
   (`TVCaptionedPosterView.spokenSubtitle`).
@@ -638,7 +646,8 @@ error. Each Quick Connect code is announced with the screen's title and
 instructions (only its buttons take focus, so landing read "Use Password
 Instead" alone; Benjamin, on device), the code a digit at a time. Who's Watching?'s Change Server sits
 in a full-width focus section (or Down reached it only from a lockup above
-it), and isn't focusable while users load (or it was read first). A
+it). Under VoiceOver it isn't focusable while users load (or it was read
+first); otherwise it is, as the way off a slow server. A
 remembered lockup's value is "Signed in", and Forget This Account is also a
 named action, since holding Select may not reach the menu. "Signing in to …"
 carries one label: its bold server name was a run VoiceOver read after a
@@ -759,7 +768,12 @@ announced once each.
   in the overlay took focus once and never moved it. The player's overlay
   keeps the subtitles (`TVPlayerOverlay.Role`), so libass runs once; the
   transport's top reaches them through `TVPlayerInput.chromeTop`. The layer is
-  dismissed with the player.
+  dismissed with the player. It sits above the player, so code looking for
+  the player searches the presented chain (`TVPlayerPresenter.player(in:)`),
+  never its top: closing it on a return after 30 minutes once missed it.
+- **VoiceOver turned on mid-scrub or mid-hold** ends the scrub the way Menu
+  would and drops the held arrow on the next tick: nothing in this mode
+  could end either.
 - **Menu in the layer must be the overlay's** (`onExitCommand`): left to UIKit
   it dismissed the layer, leaving no controls. A bare `.focusable()` view was
   never reached by Down, so the scrubber is a button too (Select plays and

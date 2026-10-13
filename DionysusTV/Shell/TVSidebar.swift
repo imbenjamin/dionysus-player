@@ -23,6 +23,7 @@ struct TVSidebar: View {
     let librariesExpanded: Bool
     var focus: FocusState<TVSidebarLayout.Row?>.Binding
     let onSelect: (TVSidebarLayout.Row) -> Void
+    @Environment(\.colorSchemeContrast) private var contrast
 
     /// Folded libraries, listed after the Libraries row, show only in the open
     /// panel: the rail keeps the one folder icon.
@@ -100,7 +101,7 @@ struct TVSidebar: View {
                         if let serverName {
                             Text(verbatim: serverName)
                                 .font(.system(size: 23, weight: .medium))
-                                .opacity(0.6)
+                                .opacity(TVContrast.opacity(0.6, increased: contrast == .increased))
                         }
                     }
                     .lineLimit(1)

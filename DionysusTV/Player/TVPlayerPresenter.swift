@@ -2,7 +2,10 @@ import UIKit
 
 /// The player's host, as `TVPlayerPresenter` recognises it in the presented
 /// chain.
-protocol TVPlayerPresentation: UIViewController {}
+protocol TVPlayerPresentation: UIViewController {
+    /// Ends the session and dismisses the player, as Menu does.
+    func close()
+}
 
 /// Presents the player with UIKit, never `fullScreenCover`, which takes the
 /// Menu press away from the controller. The page beneath stays as it is, so
@@ -42,7 +45,14 @@ enum TVPlayerPresenter {
     /// Closes the player if it's up, as Menu does.
     @MainActor
     static func dismissPlayer() {
-        (topViewController() as? TVPlayerHostController)?.close()
+        player(in: presentedChain())?.close()
+    }
+
+    /// The player anywhere in `chain`, not only on top: under VoiceOver it
+    /// presents its controls as a layer over itself
+    /// (`TVAccessibleTransportLayer`), M5 review.
+    static func player(in chain: [UIViewController]) -> TVPlayerPresentation? {
+        chain.lazy.compactMap { $0 as? TVPlayerPresentation }.first
     }
 
     /// The harness's fake under UI tests; otherwise AetherEngine, without Now
@@ -63,11 +73,6 @@ enum TVPlayerPresenter {
     /// `present` is called, so a player still animating in counts.
     static func canPresent(over chain: [UIViewController]) -> Bool {
         !chain.isEmpty && !chain.contains { $0 is TVPlayerPresentation }
-    }
-
-    @MainActor
-    private static func topViewController() -> UIViewController? {
-        presentedChain().last
     }
 
     @MainActor

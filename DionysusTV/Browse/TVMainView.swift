@@ -310,16 +310,19 @@ struct TVMainView: View {
     /// keyboard joined the window after it. Released with focus nowhere,
     /// tvOS gave focus to the rail and opened it over Search, so nothing
     /// typed reached the field (nightly CI on tvOS 27.0, 2026-10-09). Gives
-    /// up after two seconds, leaving `holdRail`'s fallback to place focus.
+    /// up after two seconds and releases the rail anyway, to tvOS's choice.
+    /// Stops at once if something else released it (Menu opening the rail).
     private func releaseRail() {
         guard railHeld else { return }
         let generation = holdGeneration
         Task { @MainActor in
             await Task.yield()
-            for _ in 0..<20 where Self.focusedItem() == nil || focusedRow != nil {
+            var attempts = 0
+            while Self.focusedItem() == nil || focusedRow != nil, attempts < 20 {
                 Self.requestFocusUpdate()
+                attempts += 1
                 try? await Task.sleep(for: .milliseconds(100))
-                guard generation == holdGeneration else { return }
+                guard generation == holdGeneration, railHeld else { return }
             }
             guard generation == holdGeneration else { return }
             railHeld = false

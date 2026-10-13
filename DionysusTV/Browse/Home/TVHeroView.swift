@@ -19,6 +19,8 @@ struct TVHeroView: View {
     let moreInfo: () -> Void
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @Environment(\.colorSchemeContrast) private var contrast
+    /// Next Item turned the page, so the item arriving is announced.
+    @State private var announcesNextItem = false
 
     static let playFocus = "hero.play"
     static let infoFocus = "hero.info"
@@ -58,11 +60,23 @@ struct TVHeroView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .focusSection()
         }
+        // Focus stays on the button, whose label doesn't change, so the new
+        // item is said, as iOS's hero does (M5 review). Posted with the
+        // action it's dropped, so it waits for the page turn.
+        .onChange(of: item.id) {
+            guard announcesNextItem else { return }
+            announcesNextItem = false
+            let description = item.accessibilityDescription
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(550))
+                AccessibilityNotification.Announcement(description).post()
+            }
+        }
     }
 
     /// VoiceOver can't reach the paging guard, so both buttons page instead.
     private var nextItemAction: TVHeroNextItemAction {
-        TVHeroNextItemAction(pager: $pager)
+        TVHeroNextItemAction(pager: $pager) { announcesNextItem = true }
     }
 
     /// One point wide and unseen: it exists to catch a Left or Right that
@@ -91,10 +105,12 @@ struct TVHeroView: View {
 /// The hero's "Next Item" action, on each of its buttons (M5).
 private struct TVHeroNextItemAction: ViewModifier {
     @Binding var pager: TVHeroPager
+    let willTurn: () -> Void
 
     func body(content: Content) -> some View {
         content.accessibilityAction(named: Text("Next Item")) {
             guard pager.canGoForward else { return }
+            willTurn()
             withAnimation(.easeInOut(duration: 0.35)) { pager.forward() }
         }
     }

@@ -10,6 +10,7 @@ struct TVPlaylistDetailView: View {
     let userID: String
     @Binding var rememberedFocus: String?
     @Binding var isBelowHeader: Bool
+    @Environment(\.colorSchemeContrast) private var contrast
     @FocusState private var focus: String?
     /// Bumped by Menu once scrolled: the page goes back to its top.
     @State private var topRequest = 0
@@ -27,7 +28,7 @@ struct TVPlaylistDetailView: View {
                 VStack(alignment: .leading, spacing: 40) {
                     TVDetailHeader(item: item, showsBadges: false)
                     if let overview = item.overview, item.hasDescription {
-                        Text(verbatim: overview).lineLimit(3).frame(width: 900, alignment: .leading).foregroundStyle(.white.opacity(0.82))
+                        Text(verbatim: overview).lineLimit(3).frame(width: 900, alignment: .leading).foregroundStyle(.white.opacity(TVContrast.opacity(0.82, increased: contrast == .increased)))
                     }
                     if let target = viewModel.playlistResumeTarget {
                         Button { play(target) } label: {

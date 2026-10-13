@@ -45,7 +45,6 @@ struct TVSettingsRow: View {
         .accessibilityHint(hint.map { Text($0) } ?? Text(verbatim: ""))
         .accessibilityIdentifier(identifier)
     }
-
 }
 
 /// A destructive row's style, where a plain row keeps the system's.
@@ -79,8 +78,6 @@ struct TVDestructiveRowStyle: ButtonStyle {
     static let titleInset: CGFloat = 30
     static let focusOutset = CGSize(width: 4, height: 3.5)
 
-    static func titleIsWhite(isFocused: Bool) -> Bool { isFocused }
-
     private struct RowBody: View {
         let configuration: ButtonStyleConfiguration
         @Environment(\.isFocused) private var isFocused
@@ -88,7 +85,7 @@ struct TVDestructiveRowStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .foregroundStyle(TVDestructiveRowStyle.titleIsWhite(isFocused: isFocused) ? Color.white : Color.red)
+                .foregroundStyle(isFocused ? Color.white : Color.red)
                 .padding(.horizontal, TVDestructiveRowStyle.titleInset)
                 .frame(height: TVDestructiveRowStyle.height)
                 .background { platter }

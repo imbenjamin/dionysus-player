@@ -8,7 +8,9 @@ import XCTest
 /// page beneath it.
 @MainActor
 final class TVPlayerPresenterTests: XCTestCase {
-    private final class FakePlayer: UIViewController, TVPlayerPresentation {}
+    private final class FakePlayer: UIViewController, TVPlayerPresentation {
+        func close() {}
+    }
 
     func test_aPlayerAnywhereInTheChain_refusesAnother() {
         XCTAssertFalse(TVPlayerPresenter.canPresent(over: [UIViewController(), FakePlayer()]))
@@ -22,5 +24,18 @@ final class TVPlayerPresenterTests: XCTestCase {
 
     func test_noWindow_presentsNothing() {
         XCTAssertFalse(TVPlayerPresenter.canPresent(over: []))
+    }
+
+    /// Under VoiceOver the player presents its controls as a layer over
+    /// itself, so the player isn't the top controller (M5 review).
+    func test_thePlayerIsFound_withALayerAboveIt() {
+        let player = FakePlayer()
+        XCTAssertTrue(TVPlayerPresenter.player(in: [UIViewController(), player, UIViewController()]) === player)
+        XCTAssertTrue(TVPlayerPresenter.player(in: [UIViewController(), player]) === player)
+    }
+
+    func test_noPlayerInTheChain_findsNone() {
+        XCTAssertNil(TVPlayerPresenter.player(in: [UIViewController(), UIViewController()]))
+        XCTAssertNil(TVPlayerPresenter.player(in: []))
     }
 }
