@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last updated: September 25, 2026**
+**Last updated: October 13, 2026**
 
 Dionysus Player is a client for [Jellyfin](https://jellyfin.org) media
 servers. It has no backend of its own: everything the app does happens
@@ -92,7 +92,7 @@ server on your Wi-Fi network.
 ## Third-Party Components
 
 Dionysus Player's playback is built on [AetherEngine](https://github.com/superuser404notfound/AetherEngine)
-and its own dependencies (FFmpegBuild, LibDovi, SMBClient), which decode
+and its own dependencies (FFmpegBuild, LibDovi, LibTrueHD, SMBClient), which decode
 and play media on-device. We have no indication that these components make
 network connections of their own beyond what Dionysus Player itself
 directs (streaming or downloading from your configured server), but as

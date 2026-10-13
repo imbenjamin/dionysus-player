@@ -103,7 +103,7 @@ struct TVProfileView: View {
             case .advanced:
                 TVAdvancedPlaybackView()
             case .license:
-                TVTextPageView(title: "License", paragraphs: TVTextPageView.paragraphs(resource: "LICENSE", extension: nil, markdown: false))
+                TVTextPageView(title: "License", paragraphs: TVTextPageView.licenseParagraphs(license: LicenseDocument.appLicense(), components: LicenseDocument.components()))
             case .privacyPolicy:
                 TVTextPageView(title: "Privacy Policy", paragraphs: TVTextPageView.paragraphs(resource: "PRIVACY", extension: "md", markdown: true))
             }

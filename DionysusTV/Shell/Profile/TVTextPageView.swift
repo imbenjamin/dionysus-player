@@ -11,10 +11,27 @@ struct TVTextPageView: View {
     /// The bundled file split on blank lines, with the privacy policy's
     /// headers and bullets styled as iOS's `PrivacyPolicyView` styles them.
     static func paragraphs(resource: String, extension ext: String?, markdown: Bool, bundle: Bundle = .main) -> [AttributedString] {
-        guard let url = bundle.url(forResource: resource, withExtension: ext),
-              let raw = try? String(contentsOf: url, encoding: .utf8) else {
-            return [AttributedString(String(localized: "This text is unavailable."))]
+        let raw = bundle.url(forResource: resource, withExtension: ext)
+            .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        return paragraphs(of: raw, markdown: markdown)
+    }
+
+    /// The License page: the app's license, then each bundled library's
+    /// notices after its name in a bold heading, so it's clear which
+    /// component a license refers to (`LicenseDocument`). The name is a
+    /// plain paragraph, with no header trait, since VoiceOver on tvOS skips
+    /// a header-trait element.
+    static func licenseParagraphs(license: String?, components: [LicenseDocument.Component]) -> [AttributedString] {
+        paragraphs(of: license, markdown: false) + components.flatMap { component in
+            var name = AttributedString(component.name)
+            name.font = .title3.bold()
+            return [name] + paragraphs(of: component.text, markdown: false)
         }
+    }
+
+    /// `raw`'s paragraphs, or a line saying the text is unavailable.
+    static func paragraphs(of raw: String?, markdown: Bool) -> [AttributedString] {
+        guard let raw else { return [AttributedString(String(localized: "This text is unavailable."))] }
         return paragraphs(of: raw, markdown: markdown)
     }
 
