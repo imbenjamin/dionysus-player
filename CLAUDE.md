@@ -509,13 +509,19 @@ bundled, or one needs nested lists, code blocks or tables, switch to a real
 Markdown library (e.g. MarkdownUI).
 
 **`THIRD-PARTY-NOTICES`** (repo root, symlinked into `Resources/` like
-`LICENSE`) holds the notices a dependency's licence asks the app to ship:
-LibTrueHD's, arriving through AetherEngine 7.34.0. A line `# <name>` starts
+`LICENSE`) holds the notices of every library that ships in the app
+(2026-10-13): AetherEngine and what it brings (FFmpeg, dav1d, zimg, libzvbi,
+libdovi, LibTrueHD), the native libraries swift-libass vendors and the Swift
+packages. A library's notices give where it comes from, its version and its
+licence text; the LGPL-2.1 text is given once, under FFmpeg, and libzvbi and
+FriBidi point to it. SMBClient isn't there: it comes only with AetherEngine's
+`AetherEngineSMB` product, which the app doesn't link. A line `# <name>` starts
 each library's notices, and the License page shows each after `LICENSE`
 under a heading with that name, on both platforms (`LicenseDocument`;
 Benjamin, 2026-10-13, so it's clear which component a licence refers to).
-When an AetherEngine bump brings a new dependency, read its licence and add
-its notices there too, under its own `# <name>` line.
+When a bump brings a new dependency or changes a version, read its licence
+and add or update its notices there too, under its own `# <name>` line
+(`LicenseDocumentTests` lists the libraries it expects).
 
 ## Store screenshots
 

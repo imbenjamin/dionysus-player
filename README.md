@@ -380,9 +380,11 @@ carry their own licences (libass ISC, HarfBuzz MIT, FreeType FTL, fontconfig
 MIT, libpng, and FriBidi LGPL-2.1+ — all GPLv3-compatible).
 [LibTrueHD](https://github.com/superuser404notfound/LibTrueHD), which
 AetherEngine pulls in for TrueHD Atmos, is MIT with Apache-2.0 crates compiled
-in; its notices ship with the app in
-[THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES), shown on the License page after
-the app's own licence under the library's name.
+in. Every library that ships in the app has its notices in
+[THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES): AetherEngine; FFmpeg, dav1d, zimg
+and libzvbi (through FFmpegBuild); libdovi; LibTrueHD; the six native
+subtitle libraries; and the Swift packages. The License page shows them after
+the app's own licence, each under the library's name.
 
 See [PRIVACY.md](PRIVACY.md) for the app's privacy policy — also reachable
 in-app from Profile.
