@@ -707,6 +707,21 @@ final class MediaItemTests: XCTestCase {
         XCTAssertEqual(MediaItem.spokenBadges(["HD", "DD+", "CC"]), String(localized: "Formats: \("HD, Dolby Digital Plus, Closed Captions")"))
     }
 
+    /// A track's metadata line, abbreviations in words: VoiceOver read "DD"
+    /// as letters (Benjamin, on the Apple TV, M5).
+    func test_spokenFormats_spellsOutWholeTokensOnly() {
+        XCTAssertEqual(
+            MediaItem.spokenFormats(in: "DD+ \u{00B7} Atmos \u{00B7} 7.1 \u{00B7} Default"),
+            "Dolby Digital Plus \u{00B7} Atmos \u{00B7} 7.1 \u{00B7} Default"
+        )
+        XCTAssertEqual(MediaItem.spokenFormats(in: "English, DD \u{00B7} 5.1"), "English, Dolby Digital \u{00B7} 5.1")
+        XCTAssertEqual(MediaItem.spokenFormats(in: "English (CC)"), "English (Closed Captions)")
+        XCTAssertEqual(MediaItem.spokenFormats(in: "English - DTS-HD MA - 5.1 - Default"), "English - DTS-HD Master Audio - 5.1 - Default")
+        XCTAssertEqual(MediaItem.spokenFormats(in: "DTS-HD HRA"), "DTS-HD High Resolution Audio")
+        // Inside a word, or a longer abbreviation, nothing changes.
+        XCTAssertEqual(MediaItem.spokenFormats(in: "ADDA DDP CCTV"), "ADDA DDP CCTV")
+    }
+
     // MARK: metadataBadges
 
     private func makeMovie(mediaSources: [MediaSourceInfo]) -> MediaItem {

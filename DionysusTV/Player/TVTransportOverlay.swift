@@ -201,6 +201,10 @@ struct TVTransportOverlay: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(item.accessibilityDescription)
                 .accessibilityIdentifier(A11yID.TV.Player.titleBlock)
+                // Never focused, so VoiceOver read it ahead after every
+                // focus move and state change (Benjamin, on device, M5).
+                // The Info tab names the title.
+                .modifier(HiddenFromVoiceOver(isHidden: accessible))
 
                 #if DEBUG
                 // Test-only, beside the collapsed block rather than inside it.
@@ -227,6 +231,7 @@ struct TVTransportOverlay: View {
         HStack {
             Text(TVPlaybackTimeFormat.string(shownTime))
                 .monospacedDigit()
+                .accessibilityLabel(TVPlaybackTimeFormat.spokenElapsed(shownTime))
                 .accessibilityIdentifier(A11yID.TV.Player.elapsed)
             Spacer()
             if let chip = TVTransportLayout.formatChipText(viewModel.videoFormatDescription) {
@@ -241,6 +246,7 @@ struct TVTransportOverlay: View {
             Text("\u{2212}" + TVPlaybackTimeFormat.string(max(0, viewModel.duration - shownTime)))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
+                .accessibilityLabel(TVPlaybackTimeFormat.spokenRemaining(max(0, viewModel.duration - shownTime)))
                 .accessibilityIdentifier(A11yID.TV.Player.remaining)
         }
         .font(.callout.weight(.semibold))
@@ -303,7 +309,8 @@ struct TVTransportOverlay: View {
             TVPlayerControlButton(action: { send(.playPause) }) { _ in scrubber }
                 .focused($isScrubberFocused)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(viewModel.item?.railTitle ?? String(localized: "Playback position"))
+                // iOS's label: the title here was read again on every move.
+                .accessibilityLabel(String(localized: "Playback position"))
                 .accessibilityValue(TVPlaybackTimeFormat.spokenPosition(viewModel.currentTime, of: viewModel.duration))
                 .accessibilityAdjustableAction { direction in
                     switch direction {
@@ -389,6 +396,16 @@ struct TVTransportOverlay: View {
             .shadow(color: .black.opacity(0.5), radius: 10)
             .offset(x: width * fraction - 18)
             .accessibilityHidden(true)
+    }
+}
+
+/// `.accessibilityHidden(true)` only while `isHidden`: a `false` would
+/// override every hidden view inside (`DionysusTV/CLAUDE.md`, Accessibility).
+private struct HiddenFromVoiceOver: ViewModifier {
+    let isHidden: Bool
+
+    func body(content: Content) -> some View {
+        if isHidden { content.accessibilityHidden(true) } else { content }
     }
 }
 

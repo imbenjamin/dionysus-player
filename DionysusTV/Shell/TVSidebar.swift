@@ -112,6 +112,9 @@ struct TVSidebar: View {
                 Image(systemName: symbol(for: row))
                     .font(.system(size: isNested(row) ? 30 : 34, weight: .medium))
                     .frame(width: 40)
+                    // The row's label names it. On tvOS 27 the first open
+                    // read the glyph's own name, "House" (Benjamin, on device, M5).
+                    .accessibilityHidden(true)
                 if isExpanded {
                     Text(verbatim: title(for: row))
                         .font(.system(size: isNested(row) ? 29 : 31, weight: .semibold))

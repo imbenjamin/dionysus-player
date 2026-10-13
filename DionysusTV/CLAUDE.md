@@ -608,6 +608,21 @@ Measured on the tvOS 26.5 Simulator, VoiceOver's speech read from its log
 - **Results and outcomes are announced** (`TVSearchGrouping.announcement`,
   Quick Connect's approval), since focus stays in the keyboard or on the
   button.
+- **Compact text needs a spoken form** (Bedroom device pass, M5): on tvOS 27
+  "1h 48m" was read "1 H 48 meters" (26.5 happens to expand it, so the
+  Simulator hides this). Runtimes use `MediaItem.durationAccessibilityText`
+  (`TVDetailFormat.metadata` carries both forms), and format abbreviations
+  in track text go through `MediaItem.spokenFormats(in:)` ("DD+" → "Dolby
+  Digital Plus", DTS-HD "MA"), shared with iOS's track rows.
+- **A grid poster is read from its footer's labels**, not the poster's own
+  label, so the spoken subtitle is set on the footer's subtitle label
+  (`TVCaptionedPosterView.spokenSubtitle`).
+- **A focusable `.contain` section read only its last line**, so each Full
+  Details section is one element: its heading as label, every row as value.
+- **In the accessible transport the player's title block is hidden**: never
+  focused, it was read ahead after every move and state change. The times
+  carry iOS's lead-ins ("Current position: …", "Remaining time: …"), and the
+  scrubber is iOS's "Playback position".
 - **Limitation: a focus move made by Menu isn't spoken properly.** Back to the
   landing item VoiceOver says "Button" and the read-ahead, not the label,
   though its cursor is right; Up speaks it. Layout- and screen-changed
@@ -619,7 +634,9 @@ Measured on the tvOS 26.5 Simulator, VoiceOver's speech read from its log
 focus, so what changes is announced (`TVOnboardingSpeech`): a found server
 (once, as the list stops being empty), a scan ending with none, the Quick
 Connect code's expiry (focus then goes to Get New Code) and every sign-in
-error. The code is read a digit at a time. Who's Watching?'s Change Server sits
+error. Each Quick Connect code is announced with the screen's title and
+instructions (only its buttons take focus, so landing read "Use Password
+Instead" alone; Benjamin, on device), the code a digit at a time. Who's Watching?'s Change Server sits
 in a full-width focus section (or Down reached it only from a lockup above
 it), and isn't focusable while users load (or it was read first). A
 remembered lockup's value is "Signed in", and Forget This Account is also a

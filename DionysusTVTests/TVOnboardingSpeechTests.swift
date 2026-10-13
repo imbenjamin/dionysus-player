@@ -12,6 +12,15 @@ final class TVOnboardingSpeechTests: XCTestCase {
         XCTAssertEqual(TVOnboardingSpeech.spokenCode(""), "")
     }
 
+    /// Only the buttons take focus, so the screen is announced with its code
+    /// (Benjamin, on device, M5).
+    func test_quickConnectCode_announcesTheScreenAndTheCode() {
+        let text = TVOnboardingSpeech.quickConnectCodeAnnouncement(serverName: "Home", code: "123456")
+        XCTAssertTrue(text.hasPrefix(String(localized: "Sign In with Quick Connect")))
+        XCTAssertTrue(text.contains(String(localized: "On a device already signed in to \("Home"), open Quick Connect and enter this code.")))
+        XCTAssertTrue(text.hasSuffix("1 2 3 4 5 6"))
+    }
+
     func test_foundServers_isAnnouncedWhenTheListStopsBeingEmpty() {
         XCTAssertNotNil(TVOnboardingSpeech.foundServersAnnouncement(count: 1, previousCount: 0))
         XCTAssertNotNil(TVOnboardingSpeech.foundServersAnnouncement(count: 2, previousCount: 0))

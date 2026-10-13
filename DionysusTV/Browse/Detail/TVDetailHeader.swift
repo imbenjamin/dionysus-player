@@ -62,7 +62,7 @@ struct TVDetailHeader: View {
             HStack(spacing: 16) {
                 ForEach(Array(TVDetailFormat.metadata(for: item).enumerated()), id: \.offset) { index, part in
                     if index > 0 { Text(verbatim: "·").foregroundStyle(.tertiary).accessibilityHidden(true) }
-                    Text(verbatim: part)
+                    Text(verbatim: part.text).accessibilityLabel(Text(verbatim: part.spoken))
                 }
                 if let rating = item.communityRating {
                     Text(verbatim: "·").foregroundStyle(.tertiary).accessibilityHidden(true)

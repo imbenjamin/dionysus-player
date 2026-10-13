@@ -16,4 +16,10 @@ final class TVPlaybackTimeFormatTests: XCTestCase {
         XCTAssertEqual(TVPlaybackTimeFormat.spokenPosition(750, of: 6720),
                        String(localized: "12 minutes, 30 seconds of 1 hour, 52 minutes"))
     }
+
+    /// iOS's lead-ins: read as clocks, the times were "0 01" (M5).
+    func test_spokenElapsedAndRemaining_leadInAsIOS() {
+        XCTAssertEqual(TVPlaybackTimeFormat.spokenElapsed(750), String(localized: "Current position: \("12 minutes, 30 seconds")"))
+        XCTAssertEqual(TVPlaybackTimeFormat.spokenRemaining(60), String(localized: "Remaining time: \("1 minute")"))
+    }
 }
