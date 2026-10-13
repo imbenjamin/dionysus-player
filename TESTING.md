@@ -45,6 +45,23 @@ Use whatever `xcrun simctl list devices available` shows. Check Apple TV
 journeys on a tvOS 26 Simulator as well as 27: 26.0 is the floor and focus
 behaves differently there.
 
+**Before a full Apple TV UI run, run one journey on its own as a warm-up**,
+as CI does ("The first test's warm-up", below), and ignore how it ends:
+
+```sh
+xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
+  -testPlan TVUITests -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)' \
+  -only-testing:DionysusTVUITests/CollectionGridJourneyTests/test_tile_opensItsDetailPage_andMenuReturnsToIt
+```
+
+Without it the plan's first test, `AccessibilityAuditTests.test_boxSet`, can
+fail at `TVShellJourney.pressDown` on a tvOS 26.5 Simulator with nothing wrong
+(2026-10-13). The recording shows Collections focused, but XCUITest's tree
+keeps the collapsed sidebar's attributes (every row Disabled, none focused),
+so the loop presses on to Playlists. Whichever test runs first takes it:
+`test_playlist` failed the same way when run first, and `test_boxSet` passed
+after it.
+
 ## Unit tests
 
 They target the layer with the logic: models, the networking client, view
@@ -424,7 +441,9 @@ it while the Apple TV app isn't shipped. A failed job uploads
 - **The first test's warm-up**: on tvOS 27.0 in CI the first UI test sometimes
   read a tree seconds behind the app (PR #325), failing its retry too, while
   every later test and a job re-run passed. So before the plan the workflow
-  runs one journey as a warm-up (`warm-up-test`), its result ignored.
+  runs one journey as a warm-up (`warm-up-test`), its result ignored. The
+  same lag shows on a tvOS 26.5 Simulator locally; "Running the tests" has
+  the local warm-up.
 
 **Required checks.** `develop` requires the iOS build and unit tests, the
 Release compile, GitGuardian, both `UI smoke tests / <device>, iOS 26.5`
