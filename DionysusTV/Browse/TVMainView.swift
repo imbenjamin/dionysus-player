@@ -17,6 +17,7 @@ import UIKit
 /// exception: it's laid over the page, which stays as it is beneath.
 struct TVMainView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let client: JellyfinAPIClient
     let userID: String
 
@@ -119,9 +120,9 @@ struct TVMainView: View {
         .environment(\.tvOpenRoute, open)
         .environment(\.tvOpenDetailBeneathPlayer, openDetailBeneathPlayer)
         .environment(\.tvFocusPageDefault, { handFocusToPage() })
-        .animation(.easeOut(duration: 0.18), value: isExpanded)
-        .animation(.easeOut(duration: 0.25), value: nav.hidesCollapsedRail)
-        .animation(.easeOut(duration: 0.2), value: nav.librariesExpanded)
+        .animation(TVMotion.moving(.easeOut(duration: 0.18), reduceMotion: reduceMotion), value: isExpanded)
+        .animation(TVMotion.moving(.easeOut(duration: 0.25), reduceMotion: reduceMotion), value: nav.hidesCollapsedRail)
+        .animation(TVMotion.moving(.easeOut(duration: 0.2), reduceMotion: reduceMotion), value: nav.librariesExpanded)
         .onExitCommand(perform: exitCommand)
         // Collapsed, focus can only enter on the anchor row; a folded
         // library's anchor is the Libraries row, so it moves on to the
@@ -341,7 +342,7 @@ struct TVMainView: View {
             pushedGrids = [:]
             rememberedPushedFocus = [:]
         }
-        let selection = withAnimation(.easeOut(duration: 0.2)) { nav.select(row) }
+        let selection = withAnimation(TVMotion.moving(.easeOut(duration: 0.2), reduceMotion: reduceMotion)) { nav.select(row) }
         guard selection == .navigated else { return }
         handFocusToPage(choosingRow: true)
     }

@@ -174,6 +174,11 @@ across the app, and it raises the minimum to iOS 18. Its code is exactly what
 - **No Apple TV or Mac release yet.** An Apple TV app is being built on
   `develop` (see [Building](#building)) but isn't in any release; macOS
   hasn't started. Every release so far is iOS/iPadOS only.
+- **On tvOS 26, a library grid can draw an unfocused poster lifted** while
+  focus is in the sidebar or the filter row (the poster just left, or every
+  poster after a sort or filter change), until focus moves back into the
+  grid. It's the system poster following SwiftUI's focus; tvOS 27 fixed it,
+  and every Apple TV on 26 can update.
 - **Audio/music libraries aren't supported yet** — browsing/playing music is
   future scope (see Apple TV and Mac above), so a server's Music library and its
   contents (tracks, albums, artists) are suppressed throughout the app:

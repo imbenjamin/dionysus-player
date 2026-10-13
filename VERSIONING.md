@@ -405,10 +405,9 @@ string isn't user-visible anyway.
   `workflow_dispatch`): discovers the newest AetherEngine release within the
   currently-pinned major version and, if it's newer than `project.yml`'s
   `version:` pin (XcodeGen's spelling of an exact/SPM `.exact`
-  requirement), opens a PR bumping that pin and the generated version
-  constant together. Never proposes a major-version bump. Goes through the
-  normal `pr-checks.yml` gate like any other PR — see CLAUDE.md's "Keeping
-  the AetherEngine version display current" for why the pin is exact
+  requirement), opens a PR bumping that pin. Never proposes a
+  major-version bump. Goes through the normal `pr-checks.yml` gate like any
+  other PR — see CLAUDE.md's "Pinning AetherEngine" for why the pin is exact
   rather than a `from:` range in the first place.
 
 - **`.github/workflows/codeql.yml`** — CodeQL security scanning, split into

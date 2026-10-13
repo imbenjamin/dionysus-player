@@ -5,10 +5,12 @@ import SwiftUI
 /// page's leftmost item, slides it in (Benjamin, 2026-10-04). It isn't
 /// focusable and VoiceOver skips it; the sidebar's rows are what it reads.
 struct TVEdgeChevron: View {
+    @Environment(\.colorSchemeContrast) private var contrast
+
     var body: some View {
         Image(systemName: "chevron.left")
             .font(.system(size: 40, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.45))
+            .foregroundStyle(.white.opacity(TVContrast.opacity(0.45, increased: contrast == .increased)))
             .accessibilityHidden(true)
             .padding(.leading, 28)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)

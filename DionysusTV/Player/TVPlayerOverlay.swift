@@ -13,6 +13,7 @@ struct TVPlayerOverlay: View {
     let viewModel: PlayerViewModel
     let input: TVPlayerInput
     var role: Role = .player
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var drawsSubtitles: Bool { role == .player }
     private var drawsControls: Bool { role == .accessibleLayer || !input.accessibleTransport }
@@ -133,7 +134,7 @@ struct TVPlayerOverlay: View {
             }
             .padding(.bottom, lift)
         }
-        .animation(.easeInOut(duration: 0.25), value: chromeTop)
+        .animation(TVMotion.moving(.easeInOut(duration: 0.25), reduceMotion: reduceMotion), value: chromeTop)
     }
 }
 

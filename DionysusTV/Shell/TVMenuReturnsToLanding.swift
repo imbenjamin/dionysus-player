@@ -36,6 +36,7 @@ private struct TVScrollsToTop: ViewModifier {
     let request: Int
     let isScrolled: Binding<Bool>?
     @State private var position = ScrollPosition(edge: .top)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
@@ -44,7 +45,7 @@ private struct TVScrollsToTop: ViewModifier {
                 isScrolled?.wrappedValue = scrolled
             }
             .onChange(of: request) {
-                withAnimation(.easeInOut(duration: 0.3)) { position.scrollTo(edge: .top) }
+                withAnimation(TVMotion.moving(.easeInOut(duration: 0.3), reduceMotion: reduceMotion)) { position.scrollTo(edge: .top) }
             }
     }
 }
