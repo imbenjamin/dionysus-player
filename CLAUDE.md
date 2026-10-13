@@ -508,6 +508,15 @@ destination other than the user's Jellyfin server.
 bundled, or one needs nested lists, code blocks or tables, switch to a real
 Markdown library (e.g. MarkdownUI).
 
+**`THIRD-PARTY-NOTICES`** (repo root, symlinked into `Resources/` like
+`LICENSE`) holds the notices a dependency's licence asks the app to ship:
+LibTrueHD's, arriving through AetherEngine 7.34.0. A line `# <name>` starts
+each library's notices, and the License page shows each after `LICENSE`
+under a heading with that name, on both platforms (`LicenseDocument`;
+Benjamin, 2026-10-13, so it's clear which component a licence refers to).
+When an AetherEngine bump brings a new dependency, read its licence and add
+its notices there too, under its own `# <name>` line.
+
 ## Store screenshots
 
 `store-screenshots/` holds the App Store Connect screenshot sets, made by

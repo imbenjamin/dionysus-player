@@ -535,6 +535,7 @@ the detail.
 | `Core/Downloads/DownloadedItemTests` | A download's estimated size |
 | `Core/Downloads/FileSizeTextTests` | File sizes shown and spoken |
 | `Core/Downloads/OfflineTrickplayThumbnailProviderTests` | Scrub thumbnails from downloaded trickplay sheets |
+| `Core/Models/LicenseDocumentTests` | The License page's text: the app's licence, then each bundled library's notices under its name |
 | `Core/Models/MediaCollectionRailTests` | A rail's tile shape, decided for the whole rail |
 | `Core/Models/MediaItemTests` | All display logic: dates, durations, labels, badges, versions, image URLs and fallbacks, optimistic updates, equality |
 | `Core/Models/SearchResultTests` | Search hints mapped for display |
@@ -643,6 +644,7 @@ the detail.
 | `TVSignInRouteTests` | Where choosing a user leads |
 | `TVSignOutTests` | Sign Out forgets; Switch User keeps |
 | `TVSwipeGateTests` | Swipes becoming scrubs or steps |
+| `TVTextPageViewTests` | The License page: each library's notices after its name, as a heading |
 | `TVTileCaptionTests` | A caption's lift under a focused card |
 | `TVTileShapeTests` | Posters or landscape, per rail or grid |
 | `TVTransportLayoutTests` | The scrubber, buffered bar and preview |

@@ -378,6 +378,11 @@ LGPL-3.0 with its own equivalent App Store/DRM exception.
 styled ASS/SSA subtitles, are MIT; the native libraries swift-libass vendors
 carry their own licences (libass ISC, HarfBuzz MIT, FreeType FTL, fontconfig
 MIT, libpng, and FriBidi LGPL-2.1+ — all GPLv3-compatible).
+[LibTrueHD](https://github.com/superuser404notfound/LibTrueHD), which
+AetherEngine pulls in for TrueHD Atmos, is MIT with Apache-2.0 crates compiled
+in; its notices ship with the app in
+[THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES), shown on the License page after
+the app's own licence under the library's name.
 
 See [PRIVACY.md](PRIVACY.md) for the app's privacy policy — also reachable
 in-app from Profile.
