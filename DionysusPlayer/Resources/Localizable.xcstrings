@@ -471,6 +471,9 @@
     "Code" : {
 
     },
+    "Code: %@" : {
+
+    },
     "Collapsed" : {
 
     },
@@ -918,6 +921,9 @@
     "High" : {
 
     },
+    "High Resolution Audio" : {
+
+    },
     "Home" : {
 
     },
@@ -979,6 +985,9 @@
 
     },
     "Mark as Watched" : {
+
+    },
+    "Master Audio" : {
 
     },
     "Max Streaming Bitrate" : {

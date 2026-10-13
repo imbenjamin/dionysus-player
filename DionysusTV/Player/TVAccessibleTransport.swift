@@ -28,7 +28,7 @@ enum TVPlayerAnnouncement {
             case .selectAudio(let id):
                 guard let index = context.audioTrackIDs.firstIndex(of: id),
                       context.audioTrackTitles.indices.contains(index) else { continue }
-                return String(localized: "Audio, \(context.audioTrackTitles[index])")
+                return String(localized: "Audio, \(MediaItem.spokenFormats(in: context.audioTrackTitles[index]))")
             case .selectSubtitle(nil):
                 return String(localized: "Subtitles, Off")
             case .selectSubtitle(let id?):

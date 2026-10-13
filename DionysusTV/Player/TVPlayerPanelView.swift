@@ -107,8 +107,10 @@ struct TVPlayerPanelView: View {
                     if item.kind == .episode {
                         Text(item.numberedEpisodeName).font(.callout).foregroundStyle(.secondary)
                     }
-                    Text(TVDetailFormat.metadata(for: item).joined(separator: " · "))
+                    let metadata = TVDetailFormat.metadata(for: item)
+                    Text(metadata.map(\.text).joined(separator: " · "))
                         .font(.subheadline).foregroundStyle(.secondary)
+                        .accessibilityLabel(metadata.map(\.spoken).joined(separator: ", "))
                     if let overview = item.dto.overview {
                         Text(overview).font(.subheadline).lineLimit(3).frame(maxWidth: 900, alignment: .leading)
                     }
@@ -243,7 +245,12 @@ struct TVPlayerPanelView: View {
                             .background(RoundedRectangle(cornerRadius: 20).fill(focused ? Color.white : Color.clear))
                         }
                         .id(index)
-                        .accessibilityElement(children: .combine)
+                        .accessibilityElement(children: .ignore)
+                        // As iOS's row reads it, abbreviations in words: "DD"
+                        // was read as letters (Benjamin, on device, M5).
+                        .accessibilityLabel(MediaItem.spokenFormats(
+                            in: row.metadata.map { String(localized: "\(row.title), \($0)") } ?? row.title
+                        ))
                         .accessibilityAddTraits(row.isChosen ? [.isButton, .isSelected] : .isButton)
                         .accessibilityIdentifier(A11yID.TV.Player.panelRow(panel.tab.id, index))
                     }

@@ -25,6 +25,17 @@ enum TVPlaybackTimeFormat {
         return text
     }
 
+    /// The elapsed time's spoken label, as iOS's ("Current position: 12
+    /// minutes, 30 seconds"): read as a clock it was "0 01" (Benjamin, M5).
+    static func spokenElapsed(_ seconds: TimeInterval) -> String {
+        String(localized: "Current position: \(spoken(seconds))")
+    }
+
+    /// The remaining time's spoken label, as iOS's.
+    static func spokenRemaining(_ seconds: TimeInterval) -> String {
+        String(localized: "Remaining time: \(spoken(seconds))")
+    }
+
     /// The scrubber's accessibility value: "12 minutes, 30 seconds of 1 hour, 52 minutes".
     static func spokenPosition(_ seconds: TimeInterval, of duration: TimeInterval) -> String {
         String(localized: "\(spoken(seconds)) of \(spoken(duration))")

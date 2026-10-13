@@ -55,6 +55,15 @@ final class TVDetailFormatTests: XCTestCase {
         dto.officialRating = "PG-13"
         dto.genres = ["Sci-Fi", "Drama", "Mystery"]
         // No year and no runtime: neither leaves a gap or a stray separator.
-        XCTAssertEqual(TVDetailFormat.metadata(for: item(dto)), ["PG-13", "Sci-Fi, Drama"])
+        XCTAssertEqual(TVDetailFormat.metadata(for: item(dto)).map(\.text), ["PG-13", "Sci-Fi, Drama"])
+    }
+
+    /// VoiceOver read "1h 48m" as "1 H 48 meters" (Benjamin, on device, M5).
+    func test_metadata_speaksTheRuntimeInWords() {
+        var dto = BaseItemDto(id: "m", name: "Arrival", type: .movie)
+        dto.runTimeTicks = Int64(108 * 60) * 10_000_000
+        let runtime = TVDetailFormat.metadata(for: item(dto)).first
+        XCTAssertEqual(runtime?.text, "1h 48m")
+        XCTAssertEqual(runtime?.spoken, "1 hour, 48 minutes")
     }
 }

@@ -71,6 +71,10 @@ struct TVQuickConnectView: View {
         // Get New Code, the one thing to do next.
         .onChange(of: viewModel.state) { _, state in
             switch state {
+            case .waiting(let code):
+                AccessibilityNotification.Announcement(
+                    TVOnboardingSpeech.quickConnectCodeAnnouncement(serverName: serverName, code: code)
+                ).post()
             case .expired:
                 AccessibilityNotification.Announcement(String(localized: "The code expired.")).post()
                 getNewCodeFocused = true

@@ -26,7 +26,10 @@ struct TVFullDetailsView: View {
             (String(localized: "Rating"), item.ageRating),
             (String(localized: "Runtime"), item.durationText)
         ]
-        let aboutRows = about.compactMap { label, value in value.map { (label: label, value: $0, spoken: String?.none) } }
+        let runtimeLabel = String(localized: "Runtime")
+        let aboutRows = about.compactMap { label, value in
+            value.map { (label: label, value: $0, spoken: label == runtimeLabel ? item.durationAccessibilityText : nil) }
+        }
         if !aboutRows.isEmpty {
             result.append(Section(id: "about", title: String(localized: "About"), rows: aboutRows))
         }
@@ -61,6 +64,14 @@ struct TVFullDetailsView: View {
         return result
     }
 
+    /// A section's rows as VoiceOver reads them: "Container, MKV. Video Codec,
+    /// HEVC." Tracks are read in full words ("Dolby Digital", not "DD").
+    private static func spokenContent(of section: Section) -> String {
+        let rows = section.rows.map { "\($0.label), \($0.spoken ?? $0.value)" }
+        let lines = section.lines.map(MediaItem.spokenFormats(in:))
+        return (rows + lines).joined(separator: ". ")
+    }
+
     var body: some View {
         let sections = sections
         ScrollView {
@@ -90,10 +101,12 @@ struct TVFullDetailsView: View {
                     .background(.white.opacity(focused == section.id ? 0.14 : 0.06), in: RoundedRectangle(cornerRadius: 24))
                     .focusable()
                     .focused($focused, equals: section.id)
-                    // Named for its heading, so VoiceOver says "Audio" before
-                    // the tracks: the heading itself wasn't read (M5).
-                    .accessibilityElement(children: .contain)
+                    // One element named for its heading, its rows the value:
+                    // as a container VoiceOver said "Audio" and then only the
+                    // section's last row (Benjamin, on device, M5).
+                    .accessibilityElement(children: .ignore)
                     .accessibilityLabel(Text(verbatim: section.title))
+                    .accessibilityValue(Text(verbatim: Self.spokenContent(of: section)))
                     .accessibilityIdentifier(A11yID.TV.Detail.fullDetailsSection(section.id))
                 }
             }

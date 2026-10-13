@@ -1206,7 +1206,7 @@ HIG review (apple-design-skill): the secondary text over the gradient (`.seconda
 
 ### Task 12: Device pass and closing docs
 
-- [ ] **Step 1:** Ask Benjamin before deploying to Bedroom. VoiceOver on the Apple TV; walk the success journey end to end: sign in, Home, Search a title and open it, play, pause, skip, scrub, change audio and subtitles, skip an intro, Next Up, leave. Fix what the device shows that the Simulator didn't.
-- [ ] **Step 2:** Docs: CLAUDE.md (accessible transport, anything learned about VoiceOver and the focus claims), TESTING.md, parent spec's M5 line "done", memory `tvos-app-direction`.
+- [x] **Step 1:** Ask Benjamin before deploying to Bedroom. VoiceOver on the Apple TV; walk the success journey end to end: sign in, Home, Search a title and open it, play, pause, skip, scrub, change audio and subtitles, skip an intro, Next Up, leave. Fix what the device shows that the Simulator didn't.
+- [x] **Step 2:** Docs: CLAUDE.md (accessible transport, anything learned about VoiceOver and the focus claims), TESTING.md, parent spec's M5 line "done", memory `tvos-app-direction`.
 - [ ] **Step 3:** Four suites, catalog sync, Simulators re-pointed, sign-off, PR "tvOS M5 PR 6: display settings and device pass", merge.
 - [ ] **Step 4:** Final whole-milestone review (`superpowers:requesting-code-review`), fixes in a follow-up PR as M4's #317 was.

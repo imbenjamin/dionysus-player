@@ -28,11 +28,18 @@ extension TVUITestCase {
         Self.seconds(app.staticTexts[A11yID.TV.Player.elapsed].label)
     }
 
-    /// "1:02:03" or "12:34" in seconds.
+    /// "1:02:03" or "12:34" in seconds, or the elapsed time's spoken label,
+    /// "Current position: 1 minute, 5 seconds" (the harness runs in English).
     nonisolated static func seconds(_ label: String) -> Double? {
         let parts = label.split(separator: ":").compactMap { Double($0) }
-        guard parts.count >= 2 else { return nil }
-        return parts.reduce(0) { $0 * 60 + $1 }
+        if parts.count >= 2 { return parts.reduce(0) { $0 * 60 + $1 } }
+        let units: [(String, Double)] = [("hour", 3600), ("minute", 60), ("second", 1)]
+        let matches = label.matches(of: /(\d+) (hour|minute|second)s?/)
+        guard !matches.isEmpty else { return nil }
+        return matches.reduce(0) { total, match in
+            let scale = units.first { $0.0 == String(match.output.2) }?.1 ?? 0
+            return total + (Double(String(match.output.1)) ?? 0) * scale
+        }
     }
 
     /// Launches signed in and plays S1:E1 from Home's Continue Watching rail,
