@@ -54,27 +54,53 @@ never AetherEngine or UI, to stay inside an extension's memory limit. It
 fetches live (Benjamin, 2026-10-14, over an app-written snapshot that goes
 stale whenever something is watched elsewhere).
 
-**It must send the app's Jellyfin device id.** `DeviceIdentity.deviceID` lives
-in the app's own `UserDefaults`, which the extension can't read, and a token
-presented with another device id risks Jellyfin rebinding or revoking the
-session. On tvOS the id is mirrored into the current user's keychain, in the
-access group the two share, and the extension reads it from there.
+**It reads a session the app mirrors for it, the last-used profile's**
+(Benjamin, 2026-10-14, after the spike below). The extension can't see the
+current Apple TV profile's keychain, so the app copies what the extension
+needs (server URL and id, user id, token, and the app's Jellyfin device id)
+into one item in the user-independent keychain (`KeychainStore` scope
+`.allUsers`) whenever it is used: on launch and foreground with a session, on
+sign-in, Quick Connect and account switch, and deletes it on sign-out. The
+shelf therefore shows whoever last used Dionysus; after a profile switch it
+shows the previous person's rows until Dionysus is opened. The device id
+travels with the token because a token presented with another device id risks
+Jellyfin rebinding or revoking the session, and `DeviceIdentity` lives in the
+app's own `UserDefaults`, which the extension can't read.
 
-### Step 0: spike (throwaway)
+### Step 0: spike findings (2026-10-14)
 
-A bare extension on the Simulator with a second tvOS user answers:
+A throwaway extension, on the tvOS 27 Simulator and on Bedroom (tvOS 27) with
+two Apple TV profiles: Ben (the default) and Tara, each signed in to Dionysus
+as themselves.
 
-- Does the extension run as the current tvOS user?
-- With a shared `keychain-access-groups` entry, can it read that user's
-  per-user credentials and the shared server configuration?
-- Does it need the user-management entitlement itself?
-- Does a keychain item the app writes without an explicit access group (the
-  credentials, the server, the device id) show up for the extension once both
-  list the app's group first?
-
-If it can't see per-user data, the alternatives go back to Benjamin before
-the Top Shelf tasks are planned in detail. The spike's code is discarded; its
-findings go in this spec and `DionysusTV/CLAUDE.md`.
+- **The extension reads the default profile's keychain, not the current
+  one's.** On Tara's profile a provably fresh run read Ben's
+  `server.credentials`, both with and without
+  `runs-as-current-user-with-user-independent-keychain` on the extension.
+  `TVUserManager.currentUserIdentifier` is deprecated since tvOS 16 ("no
+  longer supported"), so nothing tells the extension who is watching.
+  Sodalite's extension assumes per-user reads; nothing in its issues shows a
+  multi-profile check.
+- **The user-independent keychain is shared:** the server configuration the
+  app writes there reads fine from the extension, with both listing
+  `$(AppIdentifierPrefix)com.imbenjamin.dionysusplayer` in
+  `keychain-access-groups`. Items written before the group existed are found.
+- **The app's `UserDefaults` aren't visible** (`device.identifier` reads nil):
+  the extension has its own container.
+- **The Simulator can't answer per-user questions:** it has no profile at all
+  and refuses additional ones ("not supported on the simulator").
+- **Build traps:** Xcode links a `tv-app-extension` with `-e _TVExtensionMain`;
+  the `TVTopShelfContentProvider` API needs `OTHER_LDFLAGS: -e
+  _NSExtensionMain` (as Sodalite), or the extension exits at launch and the
+  shelf shows the static image. The `async` `loadTopShelfContent()` override
+  doesn't compile under Swift 6 (non-Sendable return); the completion-handler
+  override does.
+- **Layout:** on device a `.details` item with only a title draws no text,
+  even full screen, so the summary, context line and attributes are what make
+  it read; checked again when Task 5 has real content. Artwork must be an
+  `https` URL (set at `.screenScale2x`, the scale Apple TV renders): a
+  `file://` image from the extension's own temporary directory shows on the
+  Simulator but not on device.
 
 ### Content
 
@@ -134,7 +160,7 @@ A `dionysus` URL scheme, tvOS only:
 Before any release work (Benjamin, 2026-10-14): on the Bedroom Apple TV, Now
 Playing (Siri Remote, the TV button's Control Center) on the native and, if a
 title allows, software route, Next Up changing the card, and the Top Shelf:
-content per Apple TV user, both actions from a cold and a warm app, refresh
+content follows the last-used profile (and switches once Dionysus is opened on another), both actions from a cold and a warm app, refresh
 after watching. Fixes land before the pipeline PR.
 
 ## 4. Release pipeline

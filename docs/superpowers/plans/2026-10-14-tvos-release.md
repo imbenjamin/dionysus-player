@@ -341,7 +341,7 @@ final class ContentProvider: TVTopShelfContentProvider {
 
 ## PR 3: Top Shelf and deep links
 
-Branch `feature/tvos-top-shelf` from `develop`. Commit the spike's findings (spec edit) as its first commit after sign-off.
+Branch `feature/tvos-top-shelf` from `develop`. First commit (signed off 2026-10-14): the spike's findings in the spec and this plan's Tasks 6, 8, 10 and 11 rewritten for the last-used-profile session mirror.
 
 ### Task 5: Deep links
 
@@ -458,15 +458,36 @@ struct TVDeepLink: Equatable {
 
 - [ ] **Step 5: Run the tests to verify they pass.** Expected: PASS.
 
-### Task 6: A device id and session the extension can read
+### Task 6: The session the app mirrors for the Top Shelf
+
+Rewritten after the spike (Task 4 ledger, Benjamin 2026-10-14): the extension reads the **default** Apple TV profile's keychain whatever profile is active, so it can't read the current user's credentials. The app instead mirrors what the extension needs into one item in the user-independent keychain, and the shelf shows **whoever last used Dionysus**.
 
 **Files:**
-- Modify: `DionysusPlayer/Core/Persistence/DeviceIdentity.swift:9-19`
-- Modify: `project.yml` (app entitlements: `keychain-access-groups`, as the spike settled)
-- Test: `DionysusPlayerTests/Core/Persistence/DeviceIdentityTests.swift` (create, or extend if it exists)
+- Create: `DionysusPlayer/Core/Persistence/TopShelfSession.swift` (under `Core/`, so every target compiles it; only tvOS uses it)
+- Modify: `DionysusPlayer/Core/Persistence/DeviceIdentity.swift` (`adopt(deviceID:deviceName:)`)
+- Modify: `project.yml` (app entitlements: `keychain-access-groups`)
+- Test: `DionysusTVTests/TopShelfSessionTests.swift`
 
 **Interfaces:**
-- Produces: `DeviceIdentity.resolveDeviceID(defaultsValue: String?, keychainValue: String?, generate: () -> String) -> (id: String, writeDefaults: Bool, writeKeychain: Bool)` (pure); `DeviceIdentity.deviceID` unchanged in signature.
+- Produces:
+
+```swift
+struct TopShelfSession: Codable, Equatable {
+    var serverURL: URL
+    var serverID: String
+    var userID: String
+    var accessToken: String
+    var deviceID: String
+    var deviceName: String
+    static let keychainKey = "topshelf.session"
+    static func make(server: ServerConfiguration?, credentials: StoredCredentials?, deviceID: String, deviceName: String) -> TopShelfSession?
+}
+enum TopShelfSessionMirror {
+    static func write(_ session: TopShelfSession?)   // nil deletes
+    static func read() -> TopShelfSession?
+}
+extension DeviceIdentity { static func adopt(deviceID: String, deviceName: String) }
+```
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -474,93 +495,141 @@ struct TVDeepLink: Equatable {
 import XCTest
 @testable import Dionysus
 
-/// The Top Shelf extension must present the app's own Jellyfin device id
-/// with its token (M6), so on tvOS the id is also kept in the keychain group
-/// the two share. Existing installs keep the id they have.
-final class DeviceIdentityTests: XCTestCase {
-    func test_existingDefaultsID_isKept_andCopiedToTheKeychain() {
-        let result = DeviceIdentity.resolveDeviceID(defaultsValue: "old", keychainValue: nil, generate: { "new" })
-        XCTAssertEqual(result.id, "old")
-        XCTAssertFalse(result.writeDefaults)
-        XCTAssertTrue(result.writeKeychain)
+/// The Top Shelf extension can't see the current Apple TV profile's keychain
+/// (spike, M6), so the app mirrors the last-used session into the keychain
+/// every profile shares.
+final class TopShelfSessionTests: XCTestCase {
+    private let server = ServerConfiguration(name: "JF", baseURL: URL(string: "http://jf.local")!)
+    private func credentials(token: String? = "tok", userID: String? = "u1", serverID: String? = "http://jf.local") -> StoredCredentials {
+        StoredCredentials(username: "ben", password: "", accessToken: token, userID: userID, serverID: serverID)
     }
 
-    func test_keychainID_winsAndRefillsDefaults() {
-        let result = DeviceIdentity.resolveDeviceID(defaultsValue: nil, keychainValue: "kept", generate: { "new" })
-        XCTAssertEqual(result.id, "kept")
-        XCTAssertTrue(result.writeDefaults)
-        XCTAssertFalse(result.writeKeychain)
+    func test_make_carriesWhatTheExtensionNeeds() throws {
+        let session = try XCTUnwrap(TopShelfSession.make(server: server, credentials: credentials(), deviceID: "dev", deviceName: "Bedroom"))
+        XCTAssertEqual(session.serverURL, server.baseURL)
+        XCTAssertEqual(session.serverID, server.id)
+        XCTAssertEqual(session.userID, "u1")
+        XCTAssertEqual(session.accessToken, "tok")
+        XCTAssertEqual(session.deviceID, "dev")
+        XCTAssertEqual(session.deviceName, "Bedroom")
     }
 
-    func test_neither_generatesOnce_andWritesBoth() {
-        let result = DeviceIdentity.resolveDeviceID(defaultsValue: nil, keychainValue: nil, generate: { "new" })
-        XCTAssertEqual(result.id, "new")
-        XCTAssertTrue(result.writeDefaults)
-        XCTAssertTrue(result.writeKeychain)
+    func test_make_isNil_withoutAServerTokenOrUser() {
+        XCTAssertNil(TopShelfSession.make(server: nil, credentials: credentials(), deviceID: "d", deviceName: "n"))
+        XCTAssertNil(TopShelfSession.make(server: server, credentials: nil, deviceID: "d", deviceName: "n"))
+        XCTAssertNil(TopShelfSession.make(server: server, credentials: credentials(token: nil), deviceID: "d", deviceName: "n"))
+        XCTAssertNil(TopShelfSession.make(server: server, credentials: credentials(token: ""), deviceID: "d", deviceName: "n"))
+        XCTAssertNil(TopShelfSession.make(server: server, credentials: credentials(userID: nil), deviceID: "d", deviceName: "n"))
     }
 
-    func test_bothAgree_writesNothing() {
-        let result = DeviceIdentity.resolveDeviceID(defaultsValue: "same", keychainValue: "same", generate: { "new" })
-        XCTAssertEqual(result.id, "same")
-        XCTAssertFalse(result.writeDefaults || result.writeKeychain)
+    func test_make_isNil_forCredentialsFromAnotherServer() {
+        XCTAssertNil(TopShelfSession.make(server: server, credentials: credentials(serverID: "http://elsewhere"), deviceID: "d", deviceName: "n"))
+    }
+
+    func test_mirror_roundTrips_andNilDeletes() throws {
+        let session = try XCTUnwrap(TopShelfSession.make(server: server, credentials: credentials(), deviceID: "d", deviceName: "n"))
+        TopShelfSessionMirror.write(session)
+        XCTAssertEqual(TopShelfSessionMirror.read(), session)
+        TopShelfSessionMirror.write(nil)
+        XCTAssertNil(TopShelfSessionMirror.read())
+    }
+
+    func test_adopt_replacesTheIdentityTheHeaderSends() {
+        DeviceIdentity.adopt(deviceID: "app-device", deviceName: "Bedroom")
+        defer { DeviceIdentity.adopt(deviceID: nil, deviceName: nil) }
+        let header = JellyfinAuthorization.headerValue(token: nil)
+        XCTAssertTrue(header.contains("DeviceId=\"app-device\""))
+        XCTAssertTrue(header.contains("Device=\"Bedroom\""))
     }
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail** (iOS unit target `-only-testing:DionysusPlayerTests/DeviceIdentityTests`). Expected: FAIL.
+(`adopt` takes optionals so tests can clear it; the extension always passes values.) Check the `ServerConfiguration` and `StoredCredentials` initialisers against the source before running and adjust the fixtures, not the production types.
 
-- [ ] **Step 3: Implement** in `DeviceIdentity`:
+- [ ] **Step 2: Run to verify they fail** (`-only-testing:DionysusTVTests/TopShelfSessionTests`). Expected: FAIL, types undefined.
+
+- [ ] **Step 3: Implement.** `TopShelfSession.swift`:
 
 ```swift
-    private static let deviceIDKey = "device.identifier"
+import Foundation
 
-    /// Per Apple TV user like the rest of the session (Jellyfin revokes a
-    /// user's older token on the same device id). On tvOS also kept in the
-    /// current user's keychain, in the group the Top Shelf extension shares,
-    /// so the extension sends the same id with the same token (M6).
-    static var deviceID: String {
-        #if os(tvOS)
-        let keychainValue = KeychainStore.load(forKey: deviceIDKey).flatMap { String(data: $0, encoding: .utf8) }
-        #else
-        let keychainValue: String? = nil
-        #endif
-        let result = resolveDeviceID(
-            defaultsValue: UserDefaults.standard.string(forKey: deviceIDKey),
-            keychainValue: keychainValue,
-            generate: { UUID().uuidString }
+/// What the Top Shelf extension needs to fetch (M6). The extension reads the
+/// default Apple TV profile's keychain whichever profile is active (spike,
+/// 2026-10-14), so it can't read the current user's credentials; the app
+/// mirrors its session here, in the keychain every profile shares, each time
+/// it's used, and the shelf shows whoever last used Dionysus (Benjamin). The
+/// device id and name travel with the token: a token presented with another
+/// device id risks Jellyfin revoking the session.
+struct TopShelfSession: Codable, Equatable {
+    var serverURL: URL
+    var serverID: String
+    var userID: String
+    var accessToken: String
+    var deviceID: String
+    var deviceName: String
+
+    static let keychainKey = "topshelf.session"
+
+    static func make(
+        server: ServerConfiguration?, credentials: StoredCredentials?, deviceID: String, deviceName: String
+    ) -> TopShelfSession? {
+        guard let server, let credentials,
+              let token = credentials.accessToken, !token.isEmpty,
+              let userID = credentials.userID,
+              credentials.serverID == nil || credentials.serverID == server.id
+        else { return nil }
+        return TopShelfSession(
+            serverURL: server.baseURL, serverID: server.id, userID: userID,
+            accessToken: token, deviceID: deviceID, deviceName: deviceName
         )
-        if result.writeDefaults { UserDefaults.standard.set(result.id, forKey: deviceIDKey) }
-        #if os(tvOS)
-        if result.writeKeychain { KeychainStore.save(Data(result.id.utf8), forKey: deviceIDKey) }
-        #endif
-        return result.id
+    }
+}
+
+enum TopShelfSessionMirror {
+    /// `nil` deletes the mirror (signing out).
+    static func write(_ session: TopShelfSession?) {
+        guard let session, let data = try? JSONEncoder().encode(session) else {
+            KeychainStore.delete(forKey: TopShelfSession.keychainKey, scope: .allUsers)
+            return
+        }
+        KeychainStore.save(data, forKey: TopShelfSession.keychainKey, scope: .allUsers)
     }
 
-    /// The defaults value wins when present (existing installs keep their
-    /// id); the keychain refills defaults when the extension, which has its
-    /// own defaults, is the reader.
-    static func resolveDeviceID(
-        defaultsValue: String?, keychainValue: String?, generate: () -> String
-    ) -> (id: String, writeDefaults: Bool, writeKeychain: Bool) {
-        let id = defaultsValue ?? keychainValue ?? generate()
-        return (id, defaultsValue != id, keychainValue != id)
+    static func read() -> TopShelfSession? {
+        KeychainStore.load(forKey: TopShelfSession.keychainKey, scope: .allUsers)
+            .flatMap { try? JSONDecoder().decode(TopShelfSession.self, from: $0) }
+    }
+}
+```
+
+In `DeviceIdentity`, an adopted identity wins over the stored one:
+
+```swift
+    /// Set only by the Top Shelf extension, which has its own defaults and
+    /// must present the app's identity with the app's token (M6).
+    nonisolated(unsafe) private static var adoptedDeviceID: String?
+    nonisolated(unsafe) private static var adoptedDeviceName: String?
+
+    static func adopt(deviceID: String?, deviceName: String?) {
+        adoptedDeviceID = deviceID
+        adoptedDeviceName = deviceName
     }
 ```
 
-On iOS `writeKeychain` is computed but never acted on; that's intended (no keychain write on iOS). In the extension the defaults write is harmless (its own container). Note: the extension must never *generate* an id (that would be a new device to Jellyfin); Task 8's loader returns nothing when the keychain has no id, checked before `deviceID` is read.
+and `deviceID`/`deviceName` return the adopted value first when set. Check the `ServerConfiguration.id` property name in `Core/Models` and use the real one.
 
-- [ ] **Step 4: Entitlements.** In `project.yml`, the `DionysusTV` entitlements gain (per the spike's findings):
+- [ ] **Step 4: Entitlements.** In `project.yml`, the `DionysusTV` entitlements gain:
 
 ```yaml
-        # Shared with the Top Shelf extension, first so items written without
-        # an access group (credentials, server, device id) land in it.
+        # Shared with the Top Shelf extension: the session mirror
+        # (TopShelfSession) lives in the user-independent keychain under it.
         keychain-access-groups:
           - $(AppIdentifierPrefix)com.imbenjamin.dionysusplayer
 ```
 
 `xcodegen generate`.
 
-- [ ] **Step 5: Run the tests** (iOS and tvOS unit). Expected: PASS. Then on the tvOS 27 Simulator, launch the app already signed in: it must stay signed in (no lost keychain items after the entitlement change). Record in the ledger.
+- [ ] **Step 5: Run the tests** (tvOS unit, then iOS unit since `DeviceIdentity` is shared). Expected: PASS. Then on the tvOS 27 Simulator, launch the app already signed in: it must stay signed in after the entitlement change (the spike saw old items still found). Record in the ledger. The mirror is written in Task 10, which wires it to the app's lifecycle.
 
 ### Task 7: The Top Shelf content builder
 
@@ -865,8 +934,8 @@ enum TopShelfContentBuilder {
 - Docs: `DionysusTV/CLAUDE.md` (new "Top Shelf" section), root `CLAUDE.md` ("The Apple TV target, in brief": the extension and what it compiles), the parent spec's Non-goals line
 
 **Interfaces:**
-- Consumes: `TopShelfContentBuilder.entries(...)`, `JellyfinAPIClient.topShelfFields`, `ServerSessionStore`, `KeychainStore`.
-- Produces: `enum TopShelfLoader { static func load(server: ServerConfiguration?, credentials: StoredCredentials?, hasDeviceID: Bool, session: URLSession) async -> [TopShelfEntry] }`
+- Consumes: `TopShelfContentBuilder.entries(...)`, `JellyfinAPIClient.topShelfFields`, `TopShelfSession`/`TopShelfSessionMirror`, `DeviceIdentity.adopt` (Task 6).
+- Produces: `enum TopShelfLoader { static func load(session: TopShelfSession?, urlSession: URLSession) async -> [TopShelfEntry] }`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -874,35 +943,29 @@ enum TopShelfContentBuilder {
 import XCTest
 @testable import Dionysus
 
-/// The extension's fetch (M6): nothing without a session, the app's device
-/// id, or a server answering; never a password sign-in (Review Focus 1).
+/// The extension's fetch (M6): nothing without the mirrored session or a
+/// server answering; never a password sign-in (Review Focus 1).
 final class TopShelfLoaderTests: XCTestCase {
-    private let server = ServerConfiguration(name: "JF", baseURL: URL(string: "http://jf.local")!)
-    private let credentials = StoredCredentials(username: "ben", password: "secret", accessToken: "tok", userID: "u1", serverID: "http://jf.local")
+    private let session = TopShelfSession(
+        serverURL: URL(string: "http://jf.local")!, serverID: "http://jf.local", userID: "u1",
+        accessToken: "tok", deviceID: "dev", deviceName: "Bedroom"
+    )
 
     override func tearDown() {
         MockURLProtocol.reset()
+        DeviceIdentity.adopt(deviceID: nil, deviceName: nil)
         super.tearDown()
     }
 
-    func test_noSession_orNoDeviceID_loadsNothing_andAsksNothing() async {
+    func test_noSession_loadsNothing_andAsksNothing() async {
         var requests = 0
         MockURLProtocol.requestHandler = { request in
             requests += 1
             return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
         }
-        let none1 = await TopShelfLoader.load(server: nil, credentials: credentials, hasDeviceID: true, session: MockURLProtocol.makeSession())
-        let none2 = await TopShelfLoader.load(server: server, credentials: nil, hasDeviceID: true, session: MockURLProtocol.makeSession())
-        let none3 = await TopShelfLoader.load(server: server, credentials: credentials, hasDeviceID: false, session: MockURLProtocol.makeSession())
-        XCTAssertTrue(none1.isEmpty && none2.isEmpty && none3.isEmpty)
-        XCTAssertEqual(requests, 0)
-    }
-
-    func test_credentialsForAnotherServer_loadNothing() async {
-        var other = credentials
-        other.serverID = "http://elsewhere"
-        let entries = await TopShelfLoader.load(server: server, credentials: other, hasDeviceID: true, session: MockURLProtocol.makeSession())
+        let entries = await TopShelfLoader.load(session: nil, urlSession: MockURLProtocol.makeSession())
         XCTAssertTrue(entries.isEmpty)
+        XCTAssertEqual(requests, 0)
     }
 
     func test_401_loadsNothing_withoutSigningIn() async {
@@ -911,13 +974,15 @@ final class TopShelfLoaderTests: XCTestCase {
             paths.append(request.url?.path ?? "")
             return MockURLProtocol.jsonResponse(for: request, status: 401, body: Data())
         }
-        let entries = await TopShelfLoader.load(server: server, credentials: credentials, hasDeviceID: true, session: MockURLProtocol.makeSession())
+        let entries = await TopShelfLoader.load(session: session, urlSession: MockURLProtocol.makeSession())
         XCTAssertTrue(entries.isEmpty)
         XCTAssertFalse(paths.contains { $0.hasSuffix("/AuthenticateByName") }, "The extension never signs in")
     }
 
-    func test_success_buildsEntries() async {
+    func test_success_buildsEntries_presentingTheAppsDeviceID() async {
+        var headers: [String] = []
         MockURLProtocol.requestHandler = { request in
+            headers.append(request.value(forHTTPHeaderField: "Authorization") ?? "")
             let path = request.url?.path ?? ""
             if path.hasSuffix("/Items/Latest") { return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]()) }
             var movie = BaseItemDto(id: "m1", name: "Arrival", type: .movie)
@@ -925,8 +990,9 @@ final class TopShelfLoaderTests: XCTestCase {
             let items = path.hasSuffix("/Items/Resume") ? [movie] : []
             return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
         }
-        let entries = await TopShelfLoader.load(server: server, credentials: credentials, hasDeviceID: true, session: MockURLProtocol.makeSession())
+        let entries = await TopShelfLoader.load(session: session, urlSession: MockURLProtocol.makeSession())
         XCTAssertEqual(entries.map(\.id), ["m1"])
+        XCTAssertTrue(headers.allSatisfy { $0.contains("DeviceId=\"dev\"") }, "Every request carries the app's device id")
     }
 }
 ```
@@ -939,22 +1005,21 @@ final class TopShelfLoaderTests: XCTestCase {
 import Foundation
 
 /// The Top Shelf extension's fetch (M6), in the app target as well so it's
-/// unit-tested. It uses the session the app stored, presenting the app's own
-/// device id, and never signs in: with no usable session, the shelf falls
+/// unit-tested. It uses the session the app mirrored (`TopShelfSession`),
+/// presenting the app's own device id, and never signs in: with no usable session, the shelf falls
 /// back to the static Top Shelf image.
 enum TopShelfLoader {
     /// tvOS gives the extension little time; a slow server shows the static
     /// image rather than holding the shelf.
     static let timeout: TimeInterval = 8
 
-    static func load(
-        server: ServerConfiguration?, credentials: StoredCredentials?, hasDeviceID: Bool, session: URLSession
-    ) async -> [TopShelfEntry] {
-        guard hasDeviceID, let server, let credentials,
-              let token = credentials.accessToken, let userID = credentials.userID,
-              credentials.serverID == nil || credentials.serverID == server.id
-        else { return [] }
-        let client = JellyfinAPIClient(baseURL: server.baseURL, accessToken: token, session: session)
+    static func load(session: TopShelfSession?, urlSession: URLSession) async -> [TopShelfEntry] {
+        guard let session else { return [] }
+        // The app's identity, so the token is presented with the device id
+        // it was issued to.
+        DeviceIdentity.adopt(deviceID: session.deviceID, deviceName: session.deviceName)
+        let userID = session.userID
+        let client = JellyfinAPIClient(baseURL: session.serverURL, accessToken: session.accessToken, session: urlSession)
         do {
             async let resume = client.resumeItems(
                 userID: userID, excludeItemTypes: JellyfinAPIClient.audioItemTypeExclusions, fields: JellyfinAPIClient.topShelfFields)
@@ -962,7 +1027,7 @@ enum TopShelfLoader {
             async let latest = client.latestItems(userID: userID, limit: TopShelfContentBuilder.totalLimit, fields: JellyfinAPIClient.topShelfFields)
             return try await TopShelfContentBuilder.entries(
                 resume: resume.items, nextUp: nextUp.items, latest: latest,
-                images: client.makeImageURLBuilder(), serverID: server.id
+                images: client.makeImageURLBuilder(), serverID: session.serverID
             )
         } catch {
             return []
@@ -1007,8 +1072,7 @@ The client re-authenticates on a 401 only with `reauthCredentials`, which only `
           - "RemoteImageLoader.swift"
       - path: DionysusPlayer/Core/Models
       - path: DionysusPlayer/Core/Persistence/KeychainStore.swift
-      - path: DionysusPlayer/Core/Persistence/ServerSessionStore.swift
-      - path: DionysusPlayer/Core/Persistence/SessionScopeSetting.swift
+      - path: DionysusPlayer/Core/Persistence/TopShelfSession.swift
       - path: DionysusPlayer/Core/Persistence/DeviceIdentity.swift
       - path: DionysusPlayer/Shared/AppVersion.swift
       - path: DionysusPlayer/Resources/Localizable.xcstrings
@@ -1017,19 +1081,28 @@ The client re-authenticates on a 401 only with `reauthCredentials`, which only `
         PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.topshelf
         PRODUCT_NAME: DionysusTopShelf
         SWIFT_EMIT_LOC_STRINGS: YES
+        TARGETED_DEVICE_FAMILY: "3"
+        # Xcode links a tv-app-extension with -e _TVExtensionMain; the
+        # TVTopShelfContentProvider API needs NSExtensionMain, or the
+        # extension exits at launch (spike, as Sodalite).
+        OTHER_LDFLAGS: -e _NSExtensionMain
     entitlements:
       path: Generated/DionysusTVTopShelf.entitlements
       properties:
+        # The session mirror lives in the user-independent keychain under
+        # this group. No user-management entitlement: with or without it the
+        # extension reads the default profile's keychain (spike).
         keychain-access-groups:
           - $(AppIdentifierPrefix)com.imbenjamin.dionysusplayer
-        # Add com.apple.developer.user-management here only if the spike
-        # (Task 4) found the extension needs it to read per-user items.
     info:
       path: Generated/Info-TopShelf.plist
       properties:
         CFBundleDisplayName: Dionysus
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        # Self-hosted servers on plain http, as the app.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
         NSExtension:
           NSExtensionPointIdentifier: com.apple.tv-top-shelf
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ContentProvider
@@ -1046,16 +1119,15 @@ import TVServices
 /// and on its own schedule; the app also asks for a refresh after playback,
 /// sign-in or a watched change (`TopShelfRefresh`).
 final class ContentProvider: TVTopShelfContentProvider {
-    override func loadTopShelfContent() async -> (any TVTopShelfContent)? {
-        let store = ServerSessionStore()
-        let entries = await TopShelfLoader.load(
-            server: store.serverConfiguration,
-            credentials: store.credentials,
-            hasDeviceID: KeychainStore.load(forKey: "device.identifier") != nil,
-            session: TopShelfLoader.makeSession()
-        )
-        guard !entries.isEmpty else { return nil }
-        return TVTopShelfCarouselContent(style: .details, items: entries.map(Self.item))
+    /// The completion-handler form: the `async` override doesn't compile
+    /// under Swift 6 (its return isn't Sendable; spike).
+    override func loadTopShelfContent(completionHandler: @escaping ((any TVTopShelfContent)?) -> Void) {
+        Task {
+            let entries = await TopShelfLoader.load(
+                session: TopShelfSessionMirror.read(), urlSession: TopShelfLoader.makeSession()
+            )
+            completionHandler(entries.isEmpty ? nil : TVTopShelfCarouselContent(style: .details, items: entries.map(Self.item)))
+        }
     }
 
     private static func item(_ entry: TopShelfEntry) -> TVTopShelfCarouselItem {
@@ -1072,7 +1144,8 @@ final class ContentProvider: TVTopShelfContentProvider {
             item.namedAttributes = [TVTopShelfNamedAttribute(name: String(localized: "Starring"), values: entry.cast)]
         }
         item.mediaOptions = mediaOptions(entry.mediaOptions)
-        item.setImageURL(entry.image1x, for: .screenScale1x)
+        // 2x only: the scale Apple TV renders (Sodalite: setting both doubles
+        // the system's fetches).
         item.setImageURL(entry.image2x, for: .screenScale2x)
         item.displayAction = TVTopShelfAction(url: entry.displayURL)
         item.playAction = TVTopShelfAction(url: entry.playURL)
@@ -1090,11 +1163,11 @@ final class ContentProvider: TVTopShelfContentProvider {
 }
 ```
 
-Check each `MediaOptions` constant name against the SDK (`mcp__xcode__DocumentationSearch` "TVTopShelfCarouselItem.MediaOptions") and fix any that differ. The keychain key `"device.identifier"` must match `DeviceIdentity.deviceIDKey`; make that constant `static let` (not `private`) and use it here instead of the literal.
+Check each `MediaOptions` constant name against the SDK (`mcp__xcode__DocumentationSearch` "TVTopShelfCarouselItem.MediaOptions") and fix any that differ. If the `Task { }` capturing `completionHandler` trips Swift 6's sendability checks, wrap the handler in a small `@unchecked Sendable` box and record it in the ledger.
 
-- [ ] **Step 7: Check on the tvOS 27 Simulator.** Build and run `DionysusTV` (it embeds the extension), signed in as Ben; move the app to the Home Screen's top row; focus it. Expected: the carousel with Continue Watching first. Select a backdrop (display action) and press Play/Pause on one (play action): the app opens (routing comes in Task 9; for now it just launches). Sign out in the app, return to the Home Screen: the static Top Shelf image. Screenshots to the scratchpad; show Benjamin.
+- [ ] **Step 7: Check on the tvOS 27 Simulator.** Build and run `DionysusTV` (it embeds the extension), signed in as Ben; move the app to the Home Screen's top row; focus it. The mirror is only written once Task 10 wires it, so until then write it once from a throwaway line in the app (reverted). Expected: the carousel with Continue Watching first, with the summary, context line and attributes drawn (a title alone draws nothing, spike). Select a backdrop (display action) and press Play/Pause on one (play action): the app opens (routing comes in Task 9; for now it just launches). Sign out in the app, return to the Home Screen: the static Top Shelf image. Screenshots to the scratchpad; show Benjamin.
 
-- [ ] **Step 8: Docs.** `DionysusTV/CLAUDE.md`, new section "## Top Shelf" (after "Profile and settings"): what it shows and why (Benjamin's rule), that it fetches live with the app's session from the shared keychain group, the device-id rule, what makes it fall back to the static image, the spike's findings on per-user access, and that the logo is parked. Root `CLAUDE.md`, "The Apple TV target, in brief": add a sentence on `DionysusTVTopShelf` and its sources list. Parent spec: delete "Top Shelf" from "Non-goals".
+- [ ] **Step 8: Docs.** `DionysusTV/CLAUDE.md`, new section "## Top Shelf" (after "Profile and settings"): what it shows and why (Benjamin's rule), that it fetches live with the session the app mirrors into the user-independent keychain (the last-used profile's, because the extension reads the default profile's keychain whichever is active: spike), the device-id rule, the `_NSExtensionMain` link flag, what makes it fall back to the static image, and that the logo is parked. Root `CLAUDE.md`, "The Apple TV target, in brief": add a sentence on `DionysusTVTopShelf` and its sources list. Parent spec: delete "Top Shelf" from "Non-goals".
 
 ### Task 9: Routing deep links in the app
 
@@ -1316,15 +1389,16 @@ Before running, check: the stub's `ServerConfiguration.id` is `UITestFixtureIden
 
 - [ ] **Step 8: Run the router tests and the new journeys**, then the full tvOS suites. Expected: PASS. If `XCUIApplication.open(_:)` hands the URL to the system instead of the app under test on the Simulator, open it with `XCUIDevice.shared.system.open(_:)` (tvOS 16.4+), and record which works.
 
-### Task 10: Refreshing the shelf
+### Task 10: Mirroring the session and refreshing the shelf
 
 **Files:**
 - Create: `DionysusTV/TopShelf/TopShelfRefresh.swift`
-- Modify: `DionysusTV/Player/TVPlaybackSession.swift` (on end), `DionysusPlayer/App/AppState.swift` (sign-in paths, `signOut`, `signOutForgettingAccount`, `signIn(rememberedAccount:)`; inside `#if os(tvOS)`), `DionysusPlayer/Features/AssetDetails/AssetDetailViewModel.swift` (after a watched toggle succeeds; inside `#if os(tvOS)`)
+- Modify: `DionysusTV/Player/TVPlaybackSession.swift` (on end), `DionysusPlayer/App/AppState.swift` (session restore, sign-in paths incl. Quick Connect, `signOut`, `signOutForgettingAccount`, `signIn(rememberedAccount:)`; inside `#if os(tvOS)`), `DionysusTV/DionysusTVApp.swift` (scene becoming active with a session), `DionysusPlayer/Features/AssetDetails/AssetDetailViewModel.swift` (after a watched toggle succeeds; inside `#if os(tvOS)`)
 - Test: `DionysusTVTests/TopShelfRefreshTests.swift`
 
 **Interfaces:**
-- Produces: `enum TopShelfRefresh { @MainActor static var notify: () -> Void; @MainActor static func contentChanged() }`
+- Consumes: `TopShelfSession.make`, `TopShelfSessionMirror` (Task 6).
+- Produces: `enum TopShelfRefresh { @MainActor static var notify: () -> Void; @MainActor static func contentChanged(); @MainActor static func sessionChanged(_ session: TopShelfSession?) }`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1350,12 +1424,28 @@ final class TopShelfRefreshTests: XCTestCase {
 
     private let suiteName = "com.dionysusplayer.tests.TopShelfRefreshTests"
 
-    func test_signOut_refreshesTheShelf() throws {
+    func test_signOut_deletesTheMirror_andRefreshesTheShelf() throws {
+        TopShelfSessionMirror.write(TopShelfSession(
+            serverURL: URL(string: "http://jf.local")!, serverID: "http://jf.local", userID: "u1",
+            accessToken: "tok", deviceID: "d", deviceName: "n"
+        ))
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         let state = AppState(sessionStore: ServerSessionStore(defaults: defaults))
         state.signOut()
+        XCTAssertNil(TopShelfSessionMirror.read(), "A signed-out app leaves the shelf nothing to fetch with")
         XCTAssertEqual(calls, 1)
         defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    func test_sessionChanged_writesTheMirror_andRefreshes() {
+        let session = TopShelfSession(
+            serverURL: URL(string: "http://jf.local")!, serverID: "http://jf.local", userID: "u1",
+            accessToken: "tok", deviceID: "d", deviceName: "n"
+        )
+        TopShelfRefresh.sessionChanged(session)
+        defer { TopShelfSessionMirror.write(nil) }
+        XCTAssertEqual(TopShelfSessionMirror.read(), session)
+        XCTAssertEqual(calls, 1)
     }
 
     /// `end()` returns an outcome only once a session has started; one never
@@ -1389,16 +1479,24 @@ enum TopShelfRefresh {
     @MainActor static var notify: () -> Void = { TVTopShelfContentProvider.topShelfContentDidChange() }
 
     @MainActor static func contentChanged() { notify() }
+
+    /// Mirrors the session the shelf fetches with (`nil` on sign-out) and
+    /// reloads it. The shelf shows whoever last used Dionysus: the extension
+    /// can't read the current Apple TV profile's keychain (spike).
+    @MainActor static func sessionChanged(_ session: TopShelfSession?) {
+        TopShelfSessionMirror.write(session)
+        notify()
+    }
 }
 ```
 
-Call `TopShelfRefresh.contentChanged()` at the end of `TVPlaybackSession.end()` (only when it returns an outcome), in `AppState` after each successful sign-in path and in `signOut()`, and in `AssetDetailViewModel`'s watched toggle after the server call succeeds. In shared files wrap each call in `#if os(tvOS)`. `TopShelfRefresh.swift` lives in `DionysusTV/TopShelf/`, which the app compiles; the extension also compiles that folder, so guard the file's content with `#if !TOPSHELF_EXTENSION` … or, simpler, move `TopShelfRefresh.swift` to `DionysusTV/Shell/` so the extension never compiles it. Do the latter.
+Call `TopShelfRefresh.contentChanged()` at the end of `TVPlaybackSession.end()` (only when it returns an outcome) and in `AssetDetailViewModel`'s watched toggle after the server call succeeds. Call `TopShelfRefresh.sessionChanged(TopShelfSession.make(server:credentials:deviceID: DeviceIdentity.deviceID, deviceName: DeviceIdentity.deviceName))` in `AppState` once a session is restored at launch, after each successful sign-in path (password, Quick Connect, remembered account), and from `DionysusTVApp` when the scene becomes active while in `.main` (that's what makes the shelf follow the profile now using the app); call `TopShelfRefresh.sessionChanged(nil)` in `signOut()` and `signOutForgettingAccount()`. Read the server and credentials from `AppState`'s own session store, not new reads of the keychain. In shared files wrap each call in `#if os(tvOS)`. `TopShelfRefresh.swift` lives in `DionysusTV/TopShelf/`, which the app compiles; the extension also compiles that folder, so guard the file's content with `#if !TOPSHELF_EXTENSION` … or, simpler, move `TopShelfRefresh.swift` to `DionysusTV/Shell/` so the extension never compiles it. Do the latter.
 
 - [ ] **Step 4: Run the tests to verify they pass**, then all four suites (shared files changed).
 
-- [ ] **Step 5: Check on the Simulator**: watch a few minutes of a new title, close it, go to the Home Screen: the title leads the shelf within seconds.
+- [ ] **Step 5: Check on the Simulator**: signed in, go to the Home Screen: the shelf shows Ben's rows (the mirror was written at launch). Watch a few minutes of a new title, close it, go back: the title leads the shelf within seconds. Sign out: the static image. Per-profile behaviour (the shelf follows the last profile to open Dionysus) is checked on Bedroom in Task 11.
 
-- [ ] **Step 6: Strings and docs.** Sync `Localizable.xcstrings` ("Continue Watching", "Next Up", "Recently Added" already exist; "Starring" is new). Add the refresh triggers to `DionysusTV/CLAUDE.md`'s "Top Shelf" section. Update `PRIVACY.md` with one line in the relevant section: the Top Shelf shows your Continue Watching, Next Up and recently added titles from your own server, fetched on the Apple TV.
+- [ ] **Step 6: Strings and docs.** Sync `Localizable.xcstrings` ("Continue Watching", "Next Up", "Recently Added" already exist; "Starring" is new). Add the refresh triggers to `DionysusTV/CLAUDE.md`'s "Top Shelf" section. Update `PRIVACY.md` with one line in the relevant section: the Top Shelf shows your Continue Watching, Next Up and recently added titles from your own server, fetched on the Apple TV with a copy of your session that the app keeps in the Apple TV's shared keychain, so it shows the rows of whoever used Dionysus last.
 
 - [ ] **Step 7: Sign-off, commit, PR 3.** Re-point Simulators. Commits: one per task (5–10) or one squashed set as Benjamin prefers at sign-off. PR "Top Shelf for the Apple TV app"; merge on green.
 
@@ -1412,7 +1510,7 @@ Call `TopShelfRefresh.contentChanged()` at the end of `TVPlaybackSession.end()` 
 
 - [ ] **Step 1: Ask Benjamin** for the Bedroom Apple TV, then build and install a Debug build of `DionysusTV` (with the extension) per [[physical-device-cli-deployment]].
 - [ ] **Step 2: Now Playing**: play an HDR movie (native route); open Control Center with the TV button: title, art, pause/play, ±10s, scrub. Let an episode count down into the next: the tile changes. If a software-route title exists in the library (AV1/VP9), repeat.
-- [ ] **Step 3: Top Shelf per user**: as Ben, check the shelf's order (3 resume, then Next Up, then Recently Added), badges (4K/HDR/DV/Atmos), and both actions from a cold app (force-quit first) and a warm one. Switch tvOS user to another person signed in to a different Jellyfin account: their own shelf. Watch something on the iPhone app, return to the Apple TV Home Screen: the shelf reflects it after a refresh.
+- [ ] **Step 3: Top Shelf, last-used profile**: as Ben, check the shelf's order (3 resume, then Next Up, then Recently Added), badges (4K/HDR/DV/Atmos), how many items show and how long text truncates, and both actions from a cold app (force-quit first) and a warm one. Switch to Tara's profile: the shelf still shows Ben's rows (expected, Benjamin 2026-10-14); open Dionysus as Tara and return: Tara's rows. Sign out on one profile: the static image until a profile with a session opens Dionysus. Watch something on the iPhone app, return to the Apple TV Home Screen: the shelf reflects it after a refresh.
 - [ ] **Step 4: Fix what the device shows**, each fix test-first where it's code, re-checked on the device by Benjamin.
 - [ ] **Step 5: Suites, sign-off, commit, PR** ("M6 device pass: Now Playing and Top Shelf"), merge.
 
@@ -1426,7 +1524,7 @@ Call `TopShelfRefresh.contentChanged()` at the end of `TVPlaybackSession.end()` 
 
 - [ ] **Step 1: Read the current state** with the hand-rolled ES256 JWT ([[asc-api-direct-queries]]): `GET /v1/apps?filter[bundleId]=com.imbenjamin.dionysusplayer&include=appStoreVersions` (platforms present), `GET /v1/bundleIds?filter[identifier]=com.imbenjamin.dionysusplayer,com.imbenjamin.dionysusplayer.topshelf&include=bundleIdCapabilities`, `GET /v1/profiles?filter[name]=Dionysus App Store,Dionysus tvOS App Store,Dionysus Top Shelf App Store`, `GET /v1/certificates?filter[certificateType]=DISTRIBUTION`.
 - [ ] **Step 2: Tell Benjamin exactly what will be created**, then, one call at a time, recording each response:
-  1. `POST /v1/bundleIds` `{identifier: "com.imbenjamin.dionysusplayer.topshelf", name: "Dionysus Top Shelf", platform: "IOS"}` (Apple's bundle-ID platform for tvOS apps is `IOS`/universal; confirm from the existing app's bundle ID record).
+  1. ~~`POST /v1/bundleIds` for the extension~~: done in the spike (2026-10-14): `9GM3388778`, `com.imbenjamin.dionysusplayer.topshelf`, "Dionysus Top Shelf", UNIVERSAL, with USER_MANAGEMENT enabled. The shipped extension doesn't use user-management, so `DELETE /v1/bundleIdCapabilities/9GM3388778_USER_MANAGEMENT` before making its profile (announce it).
   2. `POST /v1/bundleIdCapabilities` for keychain sharing on both bundle IDs if the API lists it as a capability (it may be implicit; skip if `GET /v1/bundleIds/{id}/bundleIdCapabilities` shows no such type is needed).
   3. `POST /v1/profiles` `{name: "Dionysus tvOS App Store", profileType: "TVOS_APP_STORE"}` with the app's bundle ID and the distribution certificate.
   4. `POST /v1/profiles` `{name: "Dionysus Top Shelf App Store", profileType: "TVOS_APP_STORE"}` with the extension's bundle ID and the certificate.
