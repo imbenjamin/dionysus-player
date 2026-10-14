@@ -36,7 +36,9 @@ stages title and subtitle (`railTitle`/`railSubtitle`) with
 `engine.setNowPlayingInfo(title:subtitle:artwork:)` at once, the artwork
 following once `RemoteImageLoader` fetches it. (The Apple TV player is the
 opposite case: it runs in an `AVPlayerViewController`, so its engine is made
-with `ownsNowPlayingSession: false`.)
+with `ownsNowPlayingSession: false` and the same call stages the info as the
+item's `externalMetadata` for AVKit instead; `NowPlayingMetadata`, and
+`DionysusTV/CLAUDE.md`'s player section.)
 
 ## Reporting a stop
 

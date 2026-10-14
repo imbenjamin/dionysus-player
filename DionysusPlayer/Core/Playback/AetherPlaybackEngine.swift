@@ -67,6 +67,10 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// session that has just gone native needs one at all.
     private var pipController: AVPictureInPictureController?
     private var pipPossibleObservation: NSKeyValueObservation?
+    /// Under an AVPlayerViewController host: stages Now Playing as the item's
+    /// `externalMetadata`, again whenever playback settles (see the type).
+    private lazy var avKitNowPlaying = AVKitNowPlayingRepublisher { [weak self] in self?.engine.setExternalMetadata($0) }
+    private var timeControlObservation: NSKeyValueObservation?
     /// `AVPictureInPictureControllerDelegate` is `NSObjectProtocol`-bound, and
     /// conforming directly would cost this class its throwing argument-less
     /// `init()`, whose signature `NSObject.init()` occupies. A small proxy
@@ -444,6 +448,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
                     // once a native host does, and a rebuilt host brings a fresh
                     // `remoteCommandCenter` with no targets.
                     self?.updateNowPlayingCommands()
+                    self?.observeTimeControlForNowPlaying()
                 }
             }
             .store(in: &cancellables)
@@ -902,14 +907,31 @@ final class AetherPlaybackEngine: PlaybackEngine {
     // MARK: - Now Playing
 
     func setNowPlayingInfo(title: String, subtitle: String?, artwork: UIImage?) {
-        // Under an AVPlayerViewController host AVKit owns Now Playing.
-        guard engine.ownsVideoNowPlayingSession else { return }
+        // Under an AVPlayerViewController host AVKit owns Now Playing, read
+        // from the item's `externalMetadata`; the engine replays what's staged
+        // onto every item it makes, so staging before `load()` reaches AVKit's
+        // first read (M6, after Sodalite).
+        guard engine.ownsVideoNowPlayingSession else {
+            avKitNowPlaying.stage(NowPlayingMetadata.externalMetadata(title: title, subtitle: subtitle, artwork: artwork))
+            return
+        }
         var info: [String: Any] = [MPMediaItemPropertyTitle: title]
         info[MPMediaItemPropertyArtist] = subtitle
         if let artwork {
             info[MPMediaItemPropertyArtwork] = Self.makeArtwork(artwork)
         }
         engine.setVideoNowPlayingInfo(info)
+    }
+
+    /// Same signal: a new AVPlayer needs its own observation. Only under an
+    /// AVPlayerViewController host, whose Now Playing is AVKit's.
+    private func observeTimeControlForNowPlaying() {
+        timeControlObservation = nil
+        guard !engine.ownsVideoNowPlayingSession, let player = engine.currentAVPlayer else { return }
+        timeControlObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
+            let status = player.timeControlStatus
+            Task { @MainActor in self?.avKitNowPlaying.timeControlStatusChanged(status) }
+        }
     }
 
     /// `nonisolated` to avoid a crash. MediaPlayer calls
