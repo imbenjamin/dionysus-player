@@ -8,16 +8,27 @@ final class ContentProvider: TVTopShelfContentProvider {
     /// under Swift 6 (its return isn't Sendable; spike).
     override func loadTopShelfContent(completionHandler: @escaping ((any TVTopShelfContent)?) -> Void) {
         let reply = Reply(completionHandler)
-        Task {
-            let urlSession = TopShelfLoader.makeSession()
-            let entries = await TopShelfLoader.load(session: TopShelfSessionMirror.read(), urlSession: urlSession)
-            let art = await TopShelfArtworkComposer.artwork(for: entries, store: .shared(), session: urlSession)
-            // `.actions`: tvOS 27 draws no text over either style, so the
-            // title is in the art, and Play and More Info are our two links.
-            reply.send(entries.isEmpty ? nil : TVTopShelfCarouselContent(
-                style: .actions, items: entries.map { Self.item($0, art: art[$0.id]) }
-            ))
+        // Only hands the reply on: Xcode 26.6's region-based isolation
+        // checker gave up on a closure that did the work itself.
+        Task.detached { await ContentProvider.respond(to: reply) }
+    }
+
+    private static func respond(to reply: Reply) async {
+        let urlSession = TopShelfLoader.makeSession()
+        let entries = await TopShelfLoader.load(session: TopShelfSessionMirror.read(), urlSession: urlSession)
+        let art = await TopShelfArtworkComposer.artwork(for: entries, store: .shared(), session: urlSession)
+        reply.send(content(entries, art: art))
+    }
+
+    /// `.actions`: tvOS 27 draws no text over either style, so the title is
+    /// in the art, and Play and More Info are our two links.
+    private static func content(_ entries: [TopShelfEntry], art: [String: URL]) -> (any TVTopShelfContent)? {
+        guard !entries.isEmpty else { return nil }
+        var items: [TVTopShelfCarouselItem] = []
+        for entry in entries {
+            items.append(item(entry, art: art[entry.id]))
         }
+        return TVTopShelfCarouselContent(style: .actions, items: items)
     }
 
     /// The system's completion handler, carried into the fetch's task. It's
