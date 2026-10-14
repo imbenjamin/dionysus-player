@@ -156,6 +156,32 @@ final class TVPlayerAccessibleTransportTests: XCTestCase, TVPlayerInputModelHarn
         XCTAssertEqual(state.chrome, .transport)
     }
 
+    /// Turned on mid-scan (M5 review): nothing in this mode commits or
+    /// cancels a scrub, so the next tick cancels it as Menu does, resuming.
+    func test_turnedOnMidScan_cancelsTheScrub_andResumes() {
+        context.accessibleTransport = false
+        send(.arrowDown(.right))
+        tick(for: TVPlayerTiming.holdThreshold + 0.2)
+        XCTAssertNotNil(state.scrub?.scan)
+        context.playback = .paused
+        context.accessibleTransport = true
+        XCTAssertEqual(send(.tick), [.play])
+        XCTAssertNil(state.scrub)
+        XCTAssertNil(state.heldArrow)
+    }
+
+    /// Turned on mid-hold (M5 review): the release lands in this mode, so the
+    /// held arrow must not become a scan on a later tick.
+    func test_turnedOnMidHold_neverOpensAScan() {
+        context.accessibleTransport = false
+        send(.arrowDown(.right))
+        context.accessibleTransport = true
+        send(.arrowUp(.right))
+        tick(for: TVPlayerTiming.holdThreshold + 0.2)
+        XCTAssertNil(state.scrub)
+        XCTAssertNil(state.heldArrow)
+    }
+
     func test_controlsOutsideTheMode_doNothing() {
         context.accessibleTransport = false
         XCTAssertEqual(send(.control(.playPause)), [])

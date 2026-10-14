@@ -23,10 +23,23 @@ enum TVDetailFormat {
         return String(localized: "\(minutes) min left")
     }
 
+    /// One part of the metadata line: what's drawn, and what VoiceOver says.
+    struct MetadataPart: Equatable {
+        let text: String
+        let spoken: String
+    }
+
     /// Year, age rating, runtime and the first two genres, each only when
-    /// the item has it.
-    static func metadata(for item: MediaItem) -> [String] {
+    /// the item has it. The runtime is spoken in words: VoiceOver read "1h 48m"
+    /// as "1 H 48 meters" (Benjamin, on device, M5).
+    static func metadata(for item: MediaItem) -> [MetadataPart] {
         let genres = item.genres.prefix(2).joined(separator: ", ")
-        return [item.yearText, item.ageRating, item.durationText, genres.isEmpty ? nil : genres].compactMap { $0 }
+        let runtime = item.durationText.map { MetadataPart(text: $0, spoken: item.durationAccessibilityText ?? $0) }
+        return [
+            item.yearText.map { MetadataPart(text: $0, spoken: $0) },
+            item.ageRating.map { MetadataPart(text: $0, spoken: $0) },
+            runtime,
+            genres.isEmpty ? nil : MetadataPart(text: genres, spoken: genres)
+        ].compactMap { $0 }
     }
 }

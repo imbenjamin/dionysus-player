@@ -33,6 +33,7 @@ final class TVSearchGroupingTests: XCTestCase {
         XCTAssertEqual(sections.map(\.id), ["movies", "other"])
         XCTAssertEqual(sections.last?.results.map(\.id), ["x", "y"])
     }
+
     /// What VoiceOver hears when results land (M5): a count, or that there
     /// are none, since the results can't announce themselves.
     func test_announcement_saysHowManyResultsThereAre() {

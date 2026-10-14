@@ -208,6 +208,12 @@ struct MediaItem: Identifiable {
         return String(localized: "season \(season) episode \(episode)")
     }
 
+    /// `numberedEpisodeName` worded out for VoiceOver: "season 1 episode 4,
+    /// Pilot".
+    var numberedEpisodeNameAccessibilityText: String {
+        episodeLabelAccessibilityText.map { "\($0), \(name)" } ?? name
+    }
+
     /// First line under a poster card. Episodes show their series name, so
     /// Continue Watching reads as show titles rather than episode titles.
     var railTitle: String {
@@ -249,7 +255,7 @@ struct MediaItem: Identifiable {
 
     /// `railSubtitle` with `durationAccessibilityText` in place of
     /// `durationText`. Only movies embed a duration, so only they diverge.
-    private var railSubtitleAccessibilityText: String? {
+    var railSubtitleAccessibilityText: String? {
         guard dto.type == .movie else { return railSubtitle }
         let parts = [yearText, durationAccessibilityText].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: ", ")
@@ -420,6 +426,25 @@ struct MediaItem: Identifiable {
         case "DD+": String(localized: "Dolby Digital Plus")
         case "DD": String(localized: "Dolby Digital")
         default: badge
+        }
+    }
+
+    /// `text` with each format abbreviation `spokenBadge` knows in words:
+    /// "DD+ · Atmos · 5.1" reads "Dolby Digital Plus · Atmos · 5.1". Only
+    /// whole tokens change, so "DD" inside a word is left alone. For an
+    /// audio track's line in either player's track list and the Apple TV's
+    /// Full Details, where VoiceOver read "DD" as letters (Benjamin, M5).
+    static func spokenFormats(in text: String) -> String {
+        // The boundary before is captured and kept: Swift's `Regex` has no
+        // lookbehind.
+        text.replacing(/(^|[^\w+])(DD\+|DD|CC|MA|HRA)(?![\w+])/) { match in
+            let token = String(match.output.2)
+            let spoken = switch token {
+            case "MA": String(localized: "Master Audio")
+            case "HRA": String(localized: "High Resolution Audio")
+            default: spokenBadge(token)
+            }
+            return match.output.1 + spoken
         }
     }
 

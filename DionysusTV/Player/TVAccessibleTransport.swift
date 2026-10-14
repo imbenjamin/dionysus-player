@@ -28,13 +28,13 @@ enum TVPlayerAnnouncement {
             case .selectAudio(let id):
                 guard let index = context.audioTrackIDs.firstIndex(of: id),
                       context.audioTrackTitles.indices.contains(index) else { continue }
-                return String(localized: "Audio, \(context.audioTrackTitles[index])")
+                return String(localized: "Audio, \(MediaItem.spokenFormats(in: context.audioTrackTitles[index]))")
             case .selectSubtitle(nil):
                 return String(localized: "Subtitles, Off")
             case .selectSubtitle(let id?):
                 guard let index = context.subtitleTrackIDs.firstIndex(of: id),
                       context.subtitleTrackTitles.indices.contains(index) else { continue }
-                return String(localized: "Subtitles, \(context.subtitleTrackTitles[index])")
+                return String(localized: "Subtitles, \(MediaItem.spokenFormats(in: context.subtitleTrackTitles[index]))")
             default:
                 continue
             }
@@ -43,5 +43,12 @@ enum TVPlayerAnnouncement {
     }
 
     static func skipAvailable(_ title: String) -> String { String(localized: "\(title) available") }
-    static func nextUp(_ title: String) -> String { String(localized: "Up next: \(title)") }
+    /// "Up next: Show, season 1 episode 4, Pilot": the show alone said only
+    /// what was already playing (M5 review).
+    static func nextUp(_ item: MediaItem) -> String {
+        let title = item.kind == .episode
+            ? [item.railTitle, item.numberedEpisodeNameAccessibilityText].joined(separator: ", ")
+            : item.railTitle
+        return String(localized: "Up next: \(title)")
+    }
 }

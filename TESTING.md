@@ -534,7 +534,11 @@ What no suite can reach, and how it was or should be checked.
   <udid> log stream --level debug --style compact --predicate 'category ==
   "VOTSpeech"'` prints each "Post-processed string", one key press at a time. If nothing is
   spoken although the setting is on, `launchctl start
-  com.apple.VoiceOverTouch` in the Simulator starts it.
+  com.apple.VoiceOverTouch` in the Simulator starts it. The tvOS 27
+  Simulator doesn't log the text (its `VOTSpeech` category is off and private
+  data can't be turned on), so listen on 26.5; tvOS 27 speech differs
+  (26.5 reads "1h 48m" as hours and minutes, 27 as "meters"), so a check of
+  how text is pronounced still needs the device.
 
 ## Where each thing is tested
 

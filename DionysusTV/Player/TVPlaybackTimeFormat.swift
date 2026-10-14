@@ -15,14 +15,31 @@ enum TVPlaybackTimeFormat {
     /// reads it (`PlayerControlsOverlay.spokenTime`).
     static func spoken(_ seconds: TimeInterval) -> String {
         guard seconds.isFinite, seconds >= 0 else { return String(localized: "0 seconds") }
+        guard let text = spokenFormatter.string(from: seconds.rounded(.down)), !text.isEmpty else {
+            return String(localized: "0 seconds")
+        }
+        return text
+    }
+
+    /// Shared by every call: the transport reads three spoken times a render.
+    /// Formatting with a configured formatter is thread-safe.
+    nonisolated(unsafe) private static let spokenFormatter: DateComponentsFormatter = {
         let formatter = DateComponentsFormatter()
         formatter.unitsStyle = .full
         formatter.allowedUnits = [.hour, .minute, .second]
         formatter.zeroFormattingBehavior = .dropAll
-        guard let text = formatter.string(from: seconds.rounded(.down)), !text.isEmpty else {
-            return String(localized: "0 seconds")
-        }
-        return text
+        return formatter
+    }()
+
+    /// The elapsed time's spoken label, as iOS's ("Current position: 12
+    /// minutes, 30 seconds"): read as a clock it was "0 01" (Benjamin, M5).
+    static func spokenElapsed(_ seconds: TimeInterval) -> String {
+        String(localized: "Current position: \(spoken(seconds))")
+    }
+
+    /// The remaining time's spoken label, as iOS's.
+    static func spokenRemaining(_ seconds: TimeInterval) -> String {
+        String(localized: "Remaining time: \(spoken(seconds))")
     }
 
     /// The scrubber's accessibility value: "12 minutes, 30 seconds of 1 hour, 52 minutes".

@@ -8,6 +8,18 @@ enum TVOnboardingSpeech {
         code.map(String.init).joined(separator: " ")
     }
 
+    /// Said as each Quick Connect code arrives: the screen's title, what to do
+    /// and the code. Only the buttons take focus, so landing on the screen
+    /// read "Use Password Instead" and nothing else (Benjamin, on device, M5).
+    static func quickConnectCodeAnnouncement(serverName: String, code: String) -> String {
+        // The title ends in no stop of its own, so it ran into the next line.
+        [
+            String(localized: "Sign In with Quick Connect") + ".",
+            String(localized: "On a device already signed in to \(serverName), open Quick Connect and enter this code."),
+            String(localized: "Code: \(spokenCode(code))")
+        ].joined(separator: " ")
+    }
+
     /// Said once, when discovery's list stops being empty: the first server
     /// takes focus, but nothing else says the scan found anything. Servers
     /// that arrive after it are read as focus reaches them.

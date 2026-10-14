@@ -946,7 +946,8 @@ struct PlayerControlsOverlay: View {
         // `.isSelected` below instead, not left to a shape/opacity a screen
         // reader can't perceive at all.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(metadata.map { String(localized: "\(title), \($0)") } ?? title)
+        // Format abbreviations in words: "DD+" was read as letters.
+        .accessibilityLabel(MediaItem.spokenFormats(in: metadata.map { String(localized: "\(title), \($0)") } ?? title))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier(identifier)
     }

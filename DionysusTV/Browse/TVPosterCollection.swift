@@ -448,6 +448,7 @@ final class TVPosterCell: UICollectionViewCell {
         }
         poster.title = item.railTitle
         poster.subtitle = item.railSubtitle
+        poster.spokenSubtitle = item.railSubtitleAccessibilityText
         poster.styleCaption()
         poster.accessibilityIdentifier = A11yID.TV.Library.tile(item.id)
         poster.accessibilityLabel = item.accessibilityDescription
@@ -522,6 +523,11 @@ final class TVPosterCell: UICollectionViewCell {
 /// keep its focus behaviour; the style is put back after every appearance
 /// change, since the footer restyles its labels as focus comes and goes.
 final class TVCaptionedPosterView: TVPosterView {
+    /// The subtitle as VoiceOver says it. VoiceOver reads the footer's
+    /// labels, not the poster's own label, and "2h 2m" was read "2 H 2
+    /// meters" on tvOS 27 (Benjamin, on device, M5).
+    var spokenSubtitle: String?
+
     override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
         super.didUpdateFocus(in: context, with: coordinator)
         styleCaption()
@@ -553,10 +559,13 @@ final class TVCaptionedPosterView: TVPosterView {
         }
         if let subtitle = footer.subtitleLabel {
             subtitle.font = UIFont.preferredFont(forTextStyle: .caption2)
-            subtitle.textColor = UIColor.white.withAlphaComponent(0.6)
+            subtitle.textColor = UIColor.white.withAlphaComponent(
+                TVContrast.opacity(0.6, increased: UIAccessibility.isDarkerSystemColorsEnabled)
+            )
             subtitle.textAlignment = .natural
             subtitle.numberOfLines = 1
             subtitle.lineBreakMode = .byTruncatingTail
+            subtitle.accessibilityLabel = spokenSubtitle
         }
     }
 }

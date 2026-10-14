@@ -1,6 +1,6 @@
 # Dionysus for Apple TV — Milestone 5: Accessibility
 
-Status: design agreed in conversation with Benjamin on 2026-10-08; awaiting his review of this document.
+Status: done (2026-10-13). Design agreed with Benjamin on 2026-10-08; built in PRs #318–#341, reviewed as a whole after.
 Parent spec: `docs/superpowers/specs/2026-09-29-tvos-app-design.md` (milestone 5).
 Player spec: `docs/superpowers/specs/2026-10-06-tvos-player-features-design.md` (the input model this milestone extends).
 
@@ -33,9 +33,9 @@ Whenever VoiceOver or Switch Control is running (`UIAccessibility.isVoiceOverRun
 
 - **The transport never fades by itself**, as iOS's controls don't under VoiceOver; the person hides it (Benjamin, 2026-10-08). Menu closes the panel, then hides the controls, then leaves the player. Hidden, nothing is on screen but the picture and one invisible "Show Player Controls" button holding focus (iOS's VoiceOver name); Select, Up or Down brings the controls back with Play/Pause focused, while Left and Right skip 10s and leave them hidden. Hidden while paused stays hidden, so Menu still reaches Close. Up from the scrubber always lands on Play/Pause, never on whichever icon sits above the knob.
 - **The icon row gains four buttons**: back 10s, Play/Pause, forward 10s on its left (`gobackward.10`, `play.fill`/`pause.fill`, `goforward.10`, the glyphs both players share), and Info (`info.circle`, which the remote reaches with Down today) before today's icons: Chapters (when the title has them), Audio, Subtitles, Stats (when its setting is on).
-- **The scrubber is one adjustable element**: label the title, value the position and duration worded out ("12 minutes 30 seconds of 1 hour 52 minutes"), increment and decrement step 10s, iOS's `PlayerControlsOverlay` skip step. No scanning in this mode.
+- **The scrubber is one adjustable element**: label "Playback position" (iOS's; the title, at first, until the Bedroom device pass hid the title block), value the position and duration worded out ("12 minutes 30 seconds of 1 hour 52 minutes"), increment and decrement step 10s, iOS's `PlayerControlsOverlay` skip step. No scanning in this mode.
 - **The swipe-down panel** opens from Chapters, Audio, Subtitles and Info. Its tabs and rows are focusable buttons; the chosen track and current chapter carry `.isSelected`. Menu closes it.
-- **Skip Intro/Credits and Next Up** are focusable buttons. Their arrival is announced ("Skip Intro available"; Next Up's title once, never each countdown second). Next Up's Play Now and Close are both focusable buttons (Close is the card's own, M4).
+- **Skip Intro/Credits and Next Up** are focusable buttons. Their arrival is announced ("Skip Intro available"; Next Up's show and episode once, never each countdown second). Next Up's Play Now and Close are both focusable buttons (Close is the card's own, M4).
 - **Announcements**: play, pause, each 10s skip and a track change post one short announcement. The mid-screen flashes stay as they are.
 
 ### How it's built

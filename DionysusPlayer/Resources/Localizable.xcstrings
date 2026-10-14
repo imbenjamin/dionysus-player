@@ -159,6 +159,28 @@
         }
       }
     },
+    "%lld seconds" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld second"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld seconds"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld/%lld" : {
       "localizations" : {
         "en" : {
@@ -469,6 +491,9 @@
 
     },
     "Code" : {
+
+    },
+    "Code: %@" : {
 
     },
     "Collapsed" : {
@@ -918,6 +943,9 @@
     "High" : {
 
     },
+    "High Resolution Audio" : {
+
+    },
     "Home" : {
 
     },
@@ -979,6 +1007,9 @@
 
     },
     "Mark as Watched" : {
+
+    },
+    "Master Audio" : {
 
     },
     "Max Streaming Bitrate" : {

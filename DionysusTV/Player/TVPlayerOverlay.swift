@@ -50,7 +50,7 @@ struct TVPlayerOverlay: View {
         }
         .onChange(of: viewModel.nextUpSecondsRemaining != nil) { _, shows in
             guard role == .accessibleLayer, shows, let episode = viewModel.nextEpisode else { return }
-            AccessibilityNotification.Announcement(TVPlayerAnnouncement.nextUp(episode.railTitle)).post()
+            AccessibilityNotification.Announcement(TVPlayerAnnouncement.nextUp(episode)).post()
         }
         .onPreferenceChange(BottomChromeTopKey.self) { top in
             // Only from the layer drawing the controls: the other reports

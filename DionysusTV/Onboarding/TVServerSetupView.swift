@@ -95,8 +95,10 @@ struct TVServerSetupView: View {
         // until it holds.
         .task(id: showsAddressEntry) {
             guard showsAddressEntry else { return }
-            for _ in 0..<20 where !addressFocused {
+            var attempts = 0
+            while !addressFocused, attempts < 20 {
                 addressFocused = true
+                attempts += 1
                 try? await Task.sleep(for: .milliseconds(100))
             }
         }
