@@ -236,10 +236,6 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
             .receive(on: DispatchQueue.main)
             .sink { [weak self] avPlayer in self?.apply(avPlayer: avPlayer, hostEngine: hostEngine) }
             .store(in: &cancellables)
-        hostEngine.$currentAVPlayerItem
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] item in self?.stampExternalMetadata(on: item) }
-            .store(in: &cancellables)
     }
 
     private func apply(avPlayer: AVPlayer?, hostEngine: AetherEngine) {
@@ -247,7 +243,6 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         let surface = TVPlayerSurfacePolicy.surface(nativePlayerAvailable: avPlayer != nil)
         if surface.avKitRendersPlayer, let avPlayer {
             player = avPlayer
-            stampExternalMetadata(on: avPlayer.currentItem)
         } else {
             // Left set, AVKit draws a spinner over the software route's frames.
             player = nil
@@ -274,16 +269,6 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         view.insertSubview(surface.view, at: 0)
         surface.didMove(toParent: self)
         fakeSurface = surface
-    }
-
-    /// AVKit's Now Playing card reads the item's `externalMetadata`.
-    private func stampExternalMetadata(on item: AVPlayerItem?) {
-        guard let item, let title = viewModel.item?.railTitle else { return }
-        let metadata = AVMutableMetadataItem()
-        metadata.identifier = .commonIdentifierTitle
-        metadata.value = title as NSString
-        metadata.extendedLanguageTag = "und"
-        item.externalMetadata = [metadata]
     }
 
     // MARK: - Remote

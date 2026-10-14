@@ -629,12 +629,24 @@ pause, though XCUITest reports one label.
 `AetherPlayerView` is hidden whenever `currentAVPlayer` is non-nil, because
 AVKit draws the native route and the software route has no AVPlayer
 (`TVPlayerSurfacePolicy`). And the engine is made with
-`ownsNowPlayingSession: false`, since the `AVPlayerViewController` already runs
-Now Playing. AVKit's chrome is hidden and the transport is ours
-(`TVTransportOverlay`), inset by the safe area alone. The host keeps Select and
-Play/Pause away from `AVPlayerViewController`'s own `pressesBegan`: passed up,
-AVKit toggled playback before our recognizer fired, so a pause flashed Play
-(Benjamin, on device).
+`ownsNowPlayingSession: false`: AVKit runs Now Playing, from the item's
+`externalMetadata`, which `setNowPlayingInfo` stages through the engine before
+`load()` (`NowPlayingMetadata`, M6, after Sodalite). AVKit publishes only with
+`showsPlaybackControls` on, so the chrome is hidden, not switched off; an
+`MPNowPlayingSession` of the app's own conflicts with AVKit's (Sodalite:
+CoreMediaErrorDomain -16046), and `updatesNowPlayingInfoCenter` doesn't exist
+on tvOS. **tvOS 27's Control Center shows no Now Playing tile for a video
+app**, Infuse included (Bedroom, 2026-10-14); it surfaces on a paired iPhone
+(Lock Screen card, Apple TV Remote) with title, second line, artwork and
+working play/pause, ±10s and scrubbing. AVKit publishes while the player is
+still waiting to play and not again once it plays, so the iPhone's bar stood
+still: `AVKitNowPlayingRepublisher` stages the metadata again each time
+playback settles into `.playing`.
+AVKit's chrome is hidden and the transport is ours (`TVTransportOverlay`),
+inset by the safe area alone. The host keeps Select and Play/Pause away from
+`AVPlayerViewController`'s own `pressesBegan`: passed up, AVKit toggled
+playback before our recognizer fired, so a pause flashed Play (Benjamin, on
+device).
 
 **The player doesn't use the focus engine** (Benjamin, 2026-10-06, as
 Sodalite does). The host's recognizers take every press and swipe and hand
