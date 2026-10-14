@@ -55,7 +55,10 @@ target is the list. Two rules bind shared code:
   `DionysusTV/CLAUDE.md` before changing a shared view model's behaviour.
 
 Scheme `DionysusTV`; its unit tests (`DionysusTVTests`, plan `TVUnitTests`)
-reuse the shared test files. Design and milestones:
+reuse the shared test files. It embeds `DionysusTVTopShelf`, the Top Shelf
+extension, which compiles `DionysusTV/TopShelf` and a UI-free slice of
+`Core/` (its `sources` in `project.yml`); see `DionysusTV/CLAUDE.md`,
+"Top Shelf". Design and milestones:
 `docs/superpowers/specs/2026-09-29-tvos-app-design.md`.
 
 ## Commands

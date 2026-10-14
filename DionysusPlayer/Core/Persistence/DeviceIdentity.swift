@@ -10,12 +10,26 @@ enum DeviceIdentity {
     private static let deviceIDKey = "device.identifier"
 
     static var deviceID: String {
+        if let adoptedDeviceID {
+            return adoptedDeviceID
+        }
         if let existing = UserDefaults.standard.string(forKey: deviceIDKey) {
             return existing
         }
         let generated = UUID().uuidString
         UserDefaults.standard.set(generated, forKey: deviceIDKey)
         return generated
+    }
+
+    /// Set only by the Top Shelf extension, which has its own defaults and
+    /// must present the app's identity with the app's token (M6). `nil`
+    /// clears it.
+    nonisolated(unsafe) private static var adoptedDeviceID: String?
+    nonisolated(unsafe) private static var adoptedDeviceName: String?
+
+    static func adopt(deviceID: String?, deviceName: String?) {
+        adoptedDeviceID = deviceID
+        adoptedDeviceName = deviceName
     }
 
     /// Cached by `primeCache()` rather than read live: recent SDKs mark
@@ -38,12 +52,15 @@ enum DeviceIdentity {
     }
 
     static var deviceName: String {
+        if let adoptedDeviceName {
+            return adoptedDeviceName
+        }
         #if canImport(UIKit)
         // A placeholder rather than touching `UIDevice.current` if read before
         // `primeCache()`, which shouldn't happen but beats a crash.
-        cachedDeviceName ?? "Unknown Device"
+        return cachedDeviceName ?? "Unknown Device"
         #else
-        Host.current().localizedName ?? "Mac"
+        return Host.current().localizedName ?? "Mac"
         #endif
     }
 

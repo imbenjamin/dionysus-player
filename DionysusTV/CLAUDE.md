@@ -460,6 +460,80 @@ footers.
   compile the iOS player views; Show Playback Stats Button keeps iOS's
   default (on in debug builds, off in release).
 
+## Top Shelf
+
+`DionysusTVTopShelf` (M6) fills the shelf above the app's icon with an
+`.actions` carousel: the **first 3 Continue Watching** items, then Next Up
+not already shown, then Recently Added, 10 at most, a show once and nothing
+without a backdrop up its chain (Benjamin, 2026-10-14;
+`TopShelfContentBuilder`). Its display action (Select, More Info) opens the
+title's page (`dionysus://item/<id>?server=<id>`), its play action (Play,
+Play/Pause) plays over that page (`dionysus://play/…`), so Menu lands on the
+page; `TVDeepLink`, `TVDeepLinkRouter` and `TVMainView.apply(_:)`. A link
+waits while the session restores and is dropped when signed out or for
+another server.
+
+- **The text is drawn into the art.** tvOS 27 draws no text over a
+  third-party carousel in either style (`.details` shows the bare image), so
+  the extension composites the title's logo (or its name in bold), the
+  context line and, for Continue Watching, "1h 45m remaining" (Benjamin,
+  2026-10-14; not a bar) onto the backdrop: `TopShelfArtworkLayout`,
+  `TopShelfArtworkRenderer`, `TopShelfArtworkComposer`. The block sits left,
+  clear of full screen's left arrow and Play/More Info, and above the compact
+  shelf's app dock. Art is cached in the App Group by `artworkKey`; bump
+  `artworkVersion` when the drawing changes.
+- **No UIKit in the renderer, and mind the memory.** On Bedroom the
+  extension had about 21MB free, 17MB after a backdrop download, and a UIKit
+  render (`UIGraphicsPushContext`, `UIImage.draw`, `NSString.draw`) died at
+  its first draw every time while working on the Simulator. The renderer is
+  Core Graphics and Core Text only, draws at **1280 wide** (1920 died on
+  every render on Bedroom; 1600 left about a megabyte; Benjamin judged 1280
+  sharp enough, 2026-10-14), decodes images straight to the size drawn, and
+  draws one item at a time within a 6s budget; it draws nothing if even 1280
+  won't fit what's free (`pixelWidth`). A render that kills the extension
+  leaves a `.rendering` marker: the next load marks that item `.failed`
+  (plain backdrop from then on) and draws nothing new, so a death costs one
+  blank load, not one per item.
+
+- **It shows whoever last used Dionysus, not the current Apple TV profile.**
+  On Bedroom with two profiles the extension read the *default* profile's
+  keychain on either, with or without the user-management entitlement
+  (spike, 2026-10-14), and `TVUserManager.currentUserIdentifier` is
+  deprecated. So the app mirrors its session (server, user, token, device id
+  and name) into the user-independent keychain whenever its phase settles or
+  it becomes active (`TopShelfRefresh.appStateChanged`, from `TVRootView`),
+  and deletes it when signed out. After a profile switch the shelf shows the
+  previous person's rows until Dionysus is opened (Benjamin's call).
+- **It presents the app's own device id with the token**
+  (`DeviceIdentity.adopt`): `DeviceIdentity` lives in the app's
+  `UserDefaults`, which the extension can't read, and a token sent with
+  another device id risks Jellyfin revoking the session. It never signs in:
+  no copy, a 401 or a slow server (8s, `TopShelfLoader.timeout`) shows the
+  static Top Shelf image.
+- **Refreshes**, besides tvOS's own schedule: a playback session ending
+  (`TVPlaybackSession.end()`), a watched toggle, and every mirror write.
+- **Build traps:** Xcode links a `tv-app-extension` with
+  `-e _TVExtensionMain`; `TVTopShelfContentProvider` needs
+  `OTHER_LDFLAGS: -e _NSExtensionMain` (as Sodalite), or the extension exits
+  at launch and the shelf shows the static image. The `async`
+  `loadTopShelfContent()` override doesn't compile under Swift 6, so the
+  provider uses the completion-handler one. Art is set at `.screenScale2x`
+  only, the scale Apple TV renders (Sodalite).
+- **The extension stays UI-free:** it compiles `DionysusTV/TopShelf`,
+  `Core/Networking` (less discovery and the image loader), `Core/Models`,
+  `Chapter.swift` and the keychain and session files (`project.yml`). Code
+  that needs SwiftUI or UIKit goes in `DionysusTV/Shell`.
+- **Reading what it did on a device:** device logs aren't reachable over the
+  network here, but `xcrun devicectl device copy from --domain-type
+  appDataContainer --domain-identifier com.imbenjamin.dionysusplayer.topshelf`
+  reads the extension's container, so a temporary step log written to
+  `Library/Caches` (tvOS refuses writes to `Documents`) shows how far it got
+  and `os_proc_available_memory()` at each step.
+- **Checking it:** the Simulator has no Apple TV profiles and refuses extra
+  ones, so per-profile behaviour is checked on Bedroom. A UI-test run leaves
+  the Simulator signed in to the stub, so the shelf fails to load until it is
+  re-pointed.
+
 ## Onboarding and accounts
 
 **Find Your Server's Rescan** appears once a scan is over and scans again from

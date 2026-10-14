@@ -35,6 +35,7 @@ final class TVPlaybackSession {
             itemID: viewModel.itemID, positionSeconds: viewModel.currentTime, durationSeconds: viewModel.duration
         )
         Task { [viewModel] in await viewModel.stop() }
+        TopShelfRefresh.contentChanged()
         return outcome
     }
 }

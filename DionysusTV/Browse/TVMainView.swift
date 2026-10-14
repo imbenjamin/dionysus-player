@@ -18,6 +18,8 @@ import UIKit
 struct TVMainView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.tvPendingDeepLink) private var pendingLink
+    @Environment(\.tvDeepLinkApplied) private var deepLinkApplied
     let client: JellyfinAPIClient
     let userID: String
 
@@ -124,6 +126,9 @@ struct TVMainView: View {
         .animation(TVMotion.moving(.easeOut(duration: 0.25), reduceMotion: reduceMotion), value: nav.hidesCollapsedRail)
         .animation(TVMotion.moving(.easeOut(duration: 0.2), reduceMotion: reduceMotion), value: nav.librariesExpanded)
         .onExitCommand(perform: exitCommand)
+        .onChange(of: pendingLink, initial: true) { _, link in
+            if let link { apply(link) }
+        }
         // Collapsed, focus can only enter on the anchor row; a folded
         // library's anchor is the Libraries row, so it moves on to the
         // library's own row once that's drawn.
@@ -232,6 +237,44 @@ struct TVMainView: View {
             model?.applyOptimisticPlaybackPosition(outcome)
             if entryBeneathPlayer == entry.id { entryBeneathPlayer = nil }
             // Back on show, the page refreshes its item itself.
+        }
+    }
+
+    /// A Top Shelf link (M6): Home with its path dropped, the title's page
+    /// pushed over it, and for Play the player over that page, as the hero's
+    /// Play does, so Menu lands on the page. A player already up closes
+    /// first, reporting its stop.
+    private func apply(_ link: TVDeepLink) {
+        deepLinkApplied()
+        TVPlayerPresenter.dismissPlayer()
+        if nav.destination != .home || !nav.path.isEmpty { select(.home) }
+        Task { @MainActor in
+            // The closing player has to leave the presented chain before
+            // another can be presented, and Home has to rebuild before the push.
+            for _ in 0..<40 where TVPlayerPresenter.isPlayerUp {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let dto = try? await client.item(userID: userID, itemID: link.itemID) else {
+                // Gone or not this user's: the page shows its own error and Retry.
+                open(.assetDetail(itemID: link.itemID, preloadedItem: nil))
+                return
+            }
+            let item = MediaItem(dto: dto, images: await client.makeImageURLBuilder())
+            guard link.action == .play,
+                  let target = await TVHeroPlayTarget.resolve(item, client: client, userID: userID) else {
+                open(.assetDetail(itemID: item.id, preloadedItem: item))
+                return
+            }
+            var playbackEnded: (@MainActor (PlaybackSessionOutcome) -> Void)?
+            let presented = TVPlayerPresenter.present(PlaybackRequest(itemID: target), client: client, userID: userID) { outcome in
+                playbackEnded?(outcome)
+            }
+            if presented {
+                playbackEnded = openDetailBeneathPlayer(item)
+            } else {
+                open(.assetDetail(itemID: item.id, preloadedItem: item))
+            }
         }
     }
 

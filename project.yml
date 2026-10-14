@@ -306,6 +306,7 @@ targets:
         product: SwiftAssRenderer
       - package: SwiftLibass
         product: SwiftLibass
+      - target: DionysusTVTopShelf
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer
@@ -327,6 +328,10 @@ targets:
       properties:
         com.apple.developer.user-management:
           - runs-as-current-user-with-user-independent-keychain
+        # Shared with the Top Shelf extension: the session mirror
+        # (TopShelfSession) lives in the user-independent keychain under it.
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.imbenjamin.dionysusplayer
     info:
       path: Generated/Info-tvOS.plist
       properties:
@@ -341,6 +346,73 @@ targets:
         NSLocalNetworkUsageDescription: "Dionysus looks for and connects to your Jellyfin media server on your local network."
         NSBonjourServices:
           - _jellyfin._tcp
+        # The Top Shelf's actions open the app here (TVDeepLink).
+        CFBundleURLTypes:
+          - CFBundleURLName: com.imbenjamin.dionysusplayer.deeplink
+            CFBundleURLSchemes: [dionysus]
+
+  # The Top Shelf (M6): Continue Watching, Next Up and Recently Added as a
+  # `.details` carousel, fetched live with the app's stored session. Compiles
+  # the networking and model layers and the session stores, never
+  # AetherEngine or UI, to stay inside an extension's memory limit.
+  DionysusTVTopShelf:
+    type: tv-app-extension
+    platform: tvOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: DionysusTVTopShelf
+        excludes:
+          - "**/CLAUDE.md"
+      - path: DionysusTV/TopShelf
+      - path: DionysusPlayer/Core/Networking
+        excludes:
+          - "ServerDiscovery.swift"
+          - "LocalNetworkPermission.swift"
+          - "TrickplayThumbnailProvider.swift"
+          - "RemoteImageLoader.swift"
+      - path: DionysusPlayer/Core/Models
+      # MediaItem's chapters; Foundation only.
+      - path: DionysusPlayer/Core/Playback/Chapter.swift
+      - path: DionysusPlayer/Core/Persistence/KeychainStore.swift
+      - path: DionysusPlayer/Core/Persistence/TopShelfSession.swift
+      - path: DionysusPlayer/Core/Persistence/DeviceIdentity.swift
+      - path: DionysusPlayer/Shared/AppVersion.swift
+      - path: DionysusPlayer/Resources/Localizable.xcstrings
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.topshelf
+        PRODUCT_NAME: DionysusTopShelf
+        SWIFT_EMIT_LOC_STRINGS: YES
+        TARGETED_DEVICE_FAMILY: "3"
+        # Xcode links a tv-app-extension with -e _TVExtensionMain; the
+        # TVTopShelfContentProvider API needs NSExtensionMain, or the
+        # extension exits at launch (spike, as Sodalite).
+        OTHER_LDFLAGS: -e _NSExtensionMain
+    entitlements:
+      path: Generated/DionysusTVTopShelf.entitlements
+      properties:
+        # The session mirror lives in the user-independent keychain under
+        # this group. No user-management entitlement: with or without it the
+        # extension reads the default profile's keychain (spike).
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.imbenjamin.dionysusplayer
+        # The composited art goes here for tvOS to read
+        # (TopShelfArtworkStore); the extension's own container isn't
+        # readable to it on the device (spike).
+        com.apple.security.application-groups:
+          - group.com.imbenjamin.dionysusplayer
+    info:
+      path: Generated/Info-TopShelf.plist
+      properties:
+        CFBundleDisplayName: Dionysus
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        # Self-hosted servers on plain http, as the app.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.tv-top-shelf
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ContentProvider
 
   DionysusTVTests:
     type: bundle.unit-test

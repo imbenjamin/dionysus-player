@@ -48,6 +48,12 @@ enum TVPlayerPresenter {
         player(in: presentedChain())?.close()
     }
 
+    /// A player is presented or still animating out.
+    @MainActor
+    static var isPlayerUp: Bool {
+        player(in: presentedChain()) != nil
+    }
+
     /// The player anywhere in `chain`, not only on top: under VoiceOver it
     /// presents its controls as a layer over itself
     /// (`TVAccessibleTransportLayer`), M5 review.

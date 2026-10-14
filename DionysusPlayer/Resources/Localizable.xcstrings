@@ -55,6 +55,9 @@
         }
       }
     },
+    "%@ remaining" : {
+
+    },
     "%@, %@" : {
       "localizations" : {
         "en" : {
@@ -428,6 +431,9 @@
 
     },
     "Found a server" : {
+
+    },
+    "Recently Added" : {
 
     },
     "Rescan" : {
@@ -1532,6 +1538,9 @@
 
     },
     "Sort Options" : {
+
+    },
+    "Starring" : {
 
     },
     "Starring %@" : {

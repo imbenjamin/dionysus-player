@@ -633,6 +633,23 @@ final class JellyfinAPIClientTests: XCTestCase {
 
     // MARK: resumeItems
 
+    /// The Top Shelf asks its three lists for more than the rails do (M6).
+    func test_listCalls_passTheFieldsAsked() async throws {
+        let client = makeClient()
+        var fields: [String] = []
+        MockURLProtocol.requestHandler = { request in
+            fields.append(request.queryDictionary["Fields"] ?? "")
+            if request.url?.path.hasSuffix("/Items/Latest") == true {
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]())
+            }
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+        _ = try await client.resumeItems(userID: "u", fields: JellyfinAPIClient.topShelfFields)
+        _ = try await client.nextUp(userID: "u", fields: JellyfinAPIClient.topShelfFields)
+        _ = try await client.latestItems(userID: "u", fields: JellyfinAPIClient.topShelfFields)
+        XCTAssertEqual(fields, Array(repeating: JellyfinAPIClient.topShelfFields, count: 3))
+    }
+
     func test_resumeItems_appliesExcludeItemTypesWhenProvided() async throws {
         let client = makeClient()
         var capturedQuery: [String: String] = [:]
