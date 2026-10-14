@@ -54,49 +54,89 @@ never AetherEngine or UI, to stay inside an extension's memory limit. It
 fetches live (Benjamin, 2026-10-14, over an app-written snapshot that goes
 stale whenever something is watched elsewhere).
 
-**It must send the app's Jellyfin device id.** `DeviceIdentity.deviceID` lives
-in the app's own `UserDefaults`, which the extension can't read, and a token
-presented with another device id risks Jellyfin rebinding or revoking the
-session. On tvOS the id is mirrored into the current user's keychain, in the
-access group the two share, and the extension reads it from there.
+**It reads a session the app mirrors for it, the last-used profile's**
+(Benjamin, 2026-10-14, after the spike below). The extension can't see the
+current Apple TV profile's keychain, so the app copies what the extension
+needs (server URL and id, user id, token, and the app's Jellyfin device id)
+into one item in the user-independent keychain (`KeychainStore` scope
+`.allUsers`) whenever it is used: on launch and foreground with a session, on
+sign-in, Quick Connect and account switch, and deletes it on sign-out. The
+shelf therefore shows whoever last used Dionysus; after a profile switch it
+shows the previous person's rows until Dionysus is opened. The device id
+travels with the token because a token presented with another device id risks
+Jellyfin rebinding or revoking the session, and `DeviceIdentity` lives in the
+app's own `UserDefaults`, which the extension can't read.
 
-### Step 0: spike (throwaway)
+### Step 0: spike findings (2026-10-14)
 
-A bare extension on the Simulator with a second tvOS user answers:
+A throwaway extension, on the tvOS 27 Simulator and on Bedroom (tvOS 27) with
+two Apple TV profiles: Ben (the default) and Tara, each signed in to Dionysus
+as themselves.
 
-- Does the extension run as the current tvOS user?
-- With a shared `keychain-access-groups` entry, can it read that user's
-  per-user credentials and the shared server configuration?
-- Does it need the user-management entitlement itself?
-- Does a keychain item the app writes without an explicit access group (the
-  credentials, the server, the device id) show up for the extension once both
-  list the app's group first?
-
-If it can't see per-user data, the alternatives go back to Benjamin before
-the Top Shelf tasks are planned in detail. The spike's code is discarded; its
-findings go in this spec and `DionysusTV/CLAUDE.md`.
+- **The extension reads the default profile's keychain, not the current
+  one's.** On Tara's profile a provably fresh run read Ben's
+  `server.credentials`, both with and without
+  `runs-as-current-user-with-user-independent-keychain` on the extension.
+  `TVUserManager.currentUserIdentifier` is deprecated since tvOS 16 ("no
+  longer supported"), so nothing tells the extension who is watching.
+  Sodalite's extension assumes per-user reads; nothing in its issues shows a
+  multi-profile check.
+- **The user-independent keychain is shared:** the server configuration the
+  app writes there reads fine from the extension, with both listing
+  `$(AppIdentifierPrefix)com.imbenjamin.dionysusplayer` in
+  `keychain-access-groups`. Items written before the group existed are found.
+- **The app's `UserDefaults` aren't visible** (`device.identifier` reads nil):
+  the extension has its own container.
+- **The Simulator can't answer per-user questions:** it has no profile at all
+  and refuses additional ones ("not supported on the simulator").
+- **Build traps:** Xcode links a `tv-app-extension` with `-e _TVExtensionMain`;
+  the `TVTopShelfContentProvider` API needs `OTHER_LDFLAGS: -e
+  _NSExtensionMain` (as Sodalite), or the extension exits at launch and the
+  shelf shows the static image. The `async` `loadTopShelfContent()` override
+  doesn't compile under Swift 6 (non-Sendable return); the completion-handler
+  override does.
+- **Layout:** neither carousel style draws any text over a third-party
+  shelf on tvOS 27, full screen or not: `.details` shows the bare image,
+  `.actions` adds only Play and More Info (Simulator, 2026-10-14). So the art
+  has to say what the title is (Content, below).
+- **Corrected 2026-10-14:** the spike's "a `file://` image from the
+  extension's own temporary directory doesn't show on device" is unproven:
+  that render drew with UIKit, which is what killed the extension on Bedroom
+  (see Content). Use the App Group, as Sodalite does, until a device check
+  says otherwise.
 
 ### Content
 
-`TVTopShelfCarouselContent(style: .details)`, no preview video (it needs a
-stream URL the system fetches without auth, and few libraries have trailers).
+`TVTopShelfCarouselContent(style: .actions)`: its Play and More Info buttons
+are the two deep links (below), and neither style draws text on tvOS 27. No
+preview video (it needs a stream URL the system fetches without auth, and few
+libraries have trailers).
 
 - **Items** (Benjamin, 2026-10-14): the **first 3 Continue Watching** items
   (`MediaTypes=Video`, as Home), then Next Up episodes not already shown, then
   Recently Added to fill the remaining places, up to 10 in all (Apple's
-  guidance checked during planning).
-- **Per item:** the title (a movie's, or an episode's show name); a context
-  line ("Continue Watching", "Next Up", "Recently Added"), for an episode with
-  "S2:E4 · Episode title"; summary, genres, year, running time; cast as a named attribute; media options from the default
-  source (4K/HD, HDR, Dolby Vision, Atmos, CC/SDH).
-- **Art:** the backdrop at 1080p and 4K, through Jellyfin's fallback from
-  episode to show. A title with no backdrop anywhere up its chain is left
-  out: a carousel item without art draws an empty frame.
+  guidance checked during planning). A show appears once; a title with no
+  backdrop anywhere up its chain is left out.
+- **The art says what it is** (Benjamin, 2026-10-14): the extension draws the
+  title's logo (an episode's show's; the name in bold when there is none),
+  the context line ("Continue Watching", "Next Up · S2:E4 · Episode title",
+  "Recently Added") and, for Continue Watching, the time left ("1h 45m
+  remaining", Home's form, instead of a progress bar) over the backdrop. The
+  block sits left of centre, clear of full screen's left arrow and Play/More
+  Info and above the compact shelf's dock. Summary, genres, year, running
+  time, cast and media options are still set on the item, though tvOS 27
+  doesn't draw them.
+- **Drawing within the extension's limits** (Bedroom, 2026-10-14): about
+  21MB free before the backdrop downloads, 17MB after. A UIKit render died
+  at its first draw every time, so the renderer is Core Graphics and Core
+  Text only, draws at 1280 wide (1920 died every time; Benjamin judged 1280
+  sharp enough), one item at a time within a 6s budget, and writes JPEGs to
+  the App Group (`group.com.imbenjamin.dionysusplayer`), cached by what's
+  drawn. An item not drawn in time keeps its plain backdrop for that load; one
+  whose render killed the extension keeps it from then on, and the load after
+  a death draws nothing new. Verified on Bedroom 2026-10-14.
 - **Signed out, server unreachable or any error:** no content, so tvOS shows
   the static Top Shelf image. Requests use a short timeout.
-- **Parked: the content logo in place of the title** (Benjamin, 2026-10-14).
-  TV Services has no logo field; it would mean compositing the logo into the
-  backdrop and leaving the title out, untested. A future iteration.
 
 **Kept fresh:** besides tvOS's own schedule, the app calls
 `TVTopShelfContentProvider.topShelfContentDidChange()` when a playback
@@ -134,7 +174,7 @@ A `dionysus` URL scheme, tvOS only:
 Before any release work (Benjamin, 2026-10-14): on the Bedroom Apple TV, Now
 Playing (Siri Remote, the TV button's Control Center) on the native and, if a
 title allows, software route, Next Up changing the card, and the Top Shelf:
-content per Apple TV user, both actions from a cold and a warm app, refresh
+content follows the last-used profile (and switches once Dionysus is opened on another), both actions from a cold and a warm app, refresh
 after watching. Fixes land before the pipeline PR.
 
 ## 4. Release pipeline

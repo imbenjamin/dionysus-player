@@ -75,7 +75,7 @@ Tiles carry iOS's corner badges (`PosterCard.watchStatusOverlay`): a heart top-l
 
 ## Non-goals (for now)
 
-Downloads/offline, music (still suppressed app-wide), Top Shelf, and PiP on the software route (tvOS AVKit doesn't support it).
+Downloads/offline, music (still suppressed app-wide), and PiP on the software route (tvOS AVKit doesn't support it).
 
 ## Milestones
 

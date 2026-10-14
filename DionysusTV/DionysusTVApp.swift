@@ -33,6 +33,8 @@ struct DionysusTVApp: App {
 struct TVRootView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.scenePhase) private var scenePhase
+    /// A Top Shelf link (M6), held until the session can take it.
+    @State private var pendingLink: TVDeepLink?
 
     var body: some View {
         Group {
@@ -57,6 +59,12 @@ struct TVRootView: View {
             }
         }
         .buttonStyle(TVOpaqueAtRestButtonStyle())
+        .onOpenURL { url in pendingLink = TVDeepLink(url: url) }
+        .environment(\.tvPendingDeepLink, appliedLink)
+        .environment(\.tvDeepLinkApplied, { pendingLink = nil })
+        // The Top Shelf follows whoever last used Dionysus (M6).
+        .onChange(of: appState.phase, initial: true) { mirrorSessionForTopShelf() }
+        .onChange(of: appState.isRestoringSession) { mirrorSessionForTopShelf() }
         // tvOS suspends the app through sleep, so a long time away counts as
         // a relaunch: back to Who's Watching? when the settings ask
         // (`WhoIsWatchingPolicy`), closing the player first.
@@ -64,11 +72,41 @@ struct TVRootView: View {
             switch phase {
             case .background: appState.didEnterBackground()
             case .active:
-                guard appState.asksWhoIsWatching(returningAt: Date()) else { return }
+                guard appState.asksWhoIsWatching(returningAt: Date()) else {
+                    mirrorSessionForTopShelf()
+                    return
+                }
                 TVPlayerPresenter.dismissPlayer()
                 appState.signOut()
             default: break
             }
+        }
+    }
+
+    private func mirrorSessionForTopShelf() {
+        TopShelfRefresh.appStateChanged(
+            isRestoringSession: appState.isRestoringSession,
+            isSignedIn: appState.phase == .main,
+            server: appState.sessionStore.serverConfiguration,
+            credentials: appState.sessionStore.credentials
+        )
+    }
+
+    /// The pending link once the router says it can go; a dropped one is
+    /// cleared here, a waiting one is kept until the session has restored.
+    private var appliedLink: TVDeepLink? {
+        guard let pendingLink else { return nil }
+        switch TVDeepLinkRouter.decide(
+            pendingLink,
+            isRestoringSession: appState.isRestoringSession,
+            isSignedIn: appState.phase == .main,
+            serverID: appState.sessionStore.serverConfiguration?.id
+        ) {
+        case .wait: return nil
+        case .ignore:
+            Task { @MainActor in self.pendingLink = nil }
+            return nil
+        case .openDetail, .play: return pendingLink
         }
     }
 }

@@ -701,7 +701,13 @@ final class AssetDetailViewModel {
         defer { pendingWatchedIDs.remove(itemID) }
         let newValue = !currentlyWatched
         let succeeded = (try? await client.setWatched(newValue, itemID: itemID, userID: userID)) != nil
-        if succeeded { applyOptimisticFavoriteWatched(itemID: itemID, watched: newValue) }
+        if succeeded {
+            applyOptimisticFavoriteWatched(itemID: itemID, watched: newValue)
+            #if os(tvOS)
+            // Watched changes Continue Watching and Next Up (M6).
+            TopShelfRefresh.contentChanged()
+            #endif
+        }
         await refetchFavoriteWatchedTarget(itemID: itemID, expectedWatched: newValue)
     }
 

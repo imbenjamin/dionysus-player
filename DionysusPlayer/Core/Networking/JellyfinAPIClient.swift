@@ -204,7 +204,11 @@ actor JellyfinAPIClient {
 
     // `Genres`/`Studios` must be named explicitly or the server omits them;
     // `CollectionGridView`'s filters need both.
-    private static let defaultFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,BasicSyncInfo"
+    static let defaultFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,BasicSyncInfo"
+
+    /// What the Top Shelf shows per item (M6): the summary and genres, the
+    /// default source's streams for its 4K/HDR/Atmos/CC badges, and the cast.
+    static let topShelfFields = "Overview,Genres,MediaSources,People,BasicSyncInfo"
     /// Non-`private` so `episodes(seriesID:seasonID:userID:fields:)` callers can
     /// opt into this heavier list.
     ///
@@ -353,10 +357,10 @@ actor JellyfinAPIClient {
     /// Video only: Jellyfin 12 also lists the in-progress seasons and shows
     /// themselves here (seen on 12.2.0), which aren't anything to resume
     /// (Benjamin, 2026-10-07). `HomeViewModel` drops any a server still sends.
-    func resumeItems(userID: String, limit: Int = 12, excludeItemTypes: [String] = []) async throws -> BaseItemDtoQueryResult {
+    func resumeItems(userID: String, limit: Int = 12, excludeItemTypes: [String] = [], fields: String = defaultFields) async throws -> BaseItemDtoQueryResult {
         var query = [
             URLQueryItem(name: "Limit", value: String(limit)),
-            URLQueryItem(name: "Fields", value: Self.defaultFields),
+            URLQueryItem(name: "Fields", value: fields),
             URLQueryItem(name: "MediaTypes", value: "Video")
         ]
         if !excludeItemTypes.isEmpty {
@@ -365,10 +369,10 @@ actor JellyfinAPIClient {
         return try await get("/Users/\(userID)/Items/Resume", query: query)
     }
 
-    func latestItems(userID: String, parentID: String? = nil, limit: Int = 16) async throws -> [BaseItemDto] {
+    func latestItems(userID: String, parentID: String? = nil, limit: Int = 16, fields: String = defaultFields) async throws -> [BaseItemDto] {
         var query = [
             URLQueryItem(name: "Limit", value: String(limit)),
-            URLQueryItem(name: "Fields", value: Self.defaultFields)
+            URLQueryItem(name: "Fields", value: fields)
         ]
         if let parentID { query.append(.init(name: "ParentId", value: parentID)) }
         return try await get("/Users/\(userID)/Items/Latest", query: query)
@@ -415,10 +419,10 @@ actor JellyfinAPIClient {
     /// `AssetDetailViewModel.resolveShowPlaybackEpisode` finds a Series page's
     /// Play/Resume target; that caller reads only the first result, so `limit`
     /// and `fields` stay optional.
-    func nextUp(userID: String, seriesID: String? = nil, limit: Int? = nil) async throws -> BaseItemDtoQueryResult {
+    func nextUp(userID: String, seriesID: String? = nil, limit: Int? = nil, fields: String = defaultFields) async throws -> BaseItemDtoQueryResult {
         var query = [
             URLQueryItem(name: "UserId", value: userID),
-            URLQueryItem(name: "Fields", value: Self.defaultFields)
+            URLQueryItem(name: "Fields", value: fields)
         ]
         if let seriesID { query.append(.init(name: "SeriesId", value: seriesID)) }
         if let limit { query.append(.init(name: "Limit", value: String(limit))) }

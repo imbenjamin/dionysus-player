@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last updated: October 13, 2026**
+**Last updated: October 14, 2026**
 
 Dionysus Player is a client for [Jellyfin](https://jellyfin.org) media
 servers. It has no backend of its own: everything the app does happens
@@ -33,6 +33,12 @@ storage, and is never sent anywhere except where noted:
   Every Relaunch** are stored on the Apple TV as on/off values and nothing
   else.
 - **Server address** — the URL of the Jellyfin server you configured.
+- **A copy of your session for the Top Shelf (Apple TV)** — your server
+  address, user ID, access token and device identifier, kept in the Apple
+  TV's Keychain where every user of that Apple TV can reach it, so the Top
+  Shelf can show your Continue Watching, Next Up and recently added titles,
+  fetched from your own server. The Top Shelf shows whoever used Dionysus
+  last; signing out deletes the copy.
 - **A random device identifier** — a UUID generated once on first launch,
   used only to identify this app installation to your Jellyfin server (the
   standard way Jellyfin/Emby clients identify themselves). It is not
