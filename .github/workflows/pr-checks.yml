@@ -94,6 +94,20 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             | xcbeautify --renderer github-actions
 
+      - name: Build Release for a generic tvOS device
+        # The Apple TV app and its Top Shelf extension, Release, unsigned: a
+        # Release-only break (the extension not embedded, a stray #if DEBUG)
+        # fails here, not at the tag.
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project DionysusPlayer.xcodeproj \
+            -scheme DionysusTV \
+            -configuration Release \
+            -destination 'generic/platform=tvOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
+
   tvos-build:
     # Builds the Apple TV app and runs the shared unit tests on tvOS
     # (TestPlans/TVUnitTests.xctestplan).

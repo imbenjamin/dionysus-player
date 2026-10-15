@@ -120,8 +120,9 @@ forward only through the `develop → stable` promotion PR
 directly. `develop` is the default branch and where all work happens.
 
 **Cutting a release is one annotated tag push.** `release.yml` stamps the
-version from the tag, builds, tests, archives, signs, uploads to App Store
-Connect (TestFlight) and publishes the GitHub Release. Nothing needs stamping
+version from the tag and, for both apps in parallel, builds, tests, archives,
+signs and uploads to App Store Connect (TestFlight); it publishes the GitHub
+Release once both have. Nothing needs stamping
 beforehand; before adding a "stamp before tagging" step, read
 `VERSIONING.md`'s "Why there is no longer a release-prep PR". Three things
 the workflow doesn't show:
@@ -133,8 +134,10 @@ the workflow doesn't show:
   on purpose: CI stamps the shipped build, and the checked-in copies report
   off-tag metadata (`0.8.0-alpha.1+12.gabc1234`). Don't "fix" them.
 - **The archive and the export both sign manually**, with the distribution
-  certificate and a provisioning profile named by string (the app target's
-  Release config in `project.yml`, and `Config/ExportOptions.plist`).
+  certificate and a provisioning profile named by string (each shipped
+  target's Release config in `project.yml`, and `Config/ExportOptions.plist`
+  or `Config/ExportOptions-tvOS.plist`; three profiles, listed in
+  `VERSIONING.md`).
   Automatic export fails with a cloud-signing permission error, and automatic
   archiving made a new development certificate per run. Both expire
   2027-08-30; see `VERSIONING.md`'s "Signing setup".
