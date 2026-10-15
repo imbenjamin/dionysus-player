@@ -80,26 +80,29 @@ jobs:
       test-plan: UITests-Full
 
   tv-ui-tests:
-    # The Apple TV app's full UI suite on tvOS 27.0, as ui-tests runs the
-    # full iOS plan (see tv-ui-tests.yml for why only 27.0). Gates
-    # tvos-release as ui-tests gates ios-release. A prerelease tag on develop
-    # has otherwise only had the smoke plan on its PRs.
+    # The Apple TV app's smoke plan on tvOS 27.0 (see tv-ui-tests.yml for
+    # why only 27.0), with retries. Gates tvos-release as ui-tests gates
+    # ios-release.
     #
-    # With retries, as the nightly runs it: on a shared runner the full
-    # tvOS plan without them loses a few journeys to a slow accessibility
-    # tree on nearly every run (v1.2.0-alpha.2: 7 of 197, all passing in
-    # that day's nightly), and a test that only fails once is flaky, not a
-    # break.
+    # Not the full plan, unlike iOS: in CI it isn't reliable enough to gate
+    # a tag, which can't pick up a fix by re-running. Without retries it lost
+    # 7 of 197 journeys to a slow accessibility tree (v1.2.0-alpha.2); with
+    # them it ran into tv-ui-tests.yml's 90-minute limit (alpha.3), and the
+    # nightly's runs of it take 60–88 minutes and fail about two in five.
+    # The full plan still gates the promotion PR into stable (a required
+    # check) and runs nightly.
     name: tvOS UI tests
     uses: ./.github/workflows/tv-ui-tests.yml
     with:
-      test-plan: TVUITests
+      test-plan: TVUITests-Smoke
       retry-tests-on-failure: true
 
   prepare:
     # What both platforms ship and what the release says, decided once.
+    # On Linux: it needs only git, gh and openssl, and v1.2.0-alpha.3's run
+    # was cancelled when no macOS runner picked this job up within an hour.
     name: Resolve the tag and compose release notes
-    runs-on: macos-26
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       tag: ${{ steps.tag.outputs.tag }}

@@ -400,8 +400,9 @@ string isn't user-visible anyway.
   the version from the tag via `Scripts/update-version.sh`, build and test the
   exact tagged commit, archive, sign and upload their app to App Store
   Connect; `ios-release` waits for the full iOS UI suite on every device and
-  iOS version `ui-tests.yml` covers, `tvos-release` for the full tvOS UI
-  suite on tvOS 27.0.
+  iOS version `ui-tests.yml` covers, `tvos-release` for the tvOS smoke plan
+  on tvOS 27.0 with retries (the full tvOS plan isn't reliable enough in CI
+  to gate a tag; it gates the promotion PR into `stable` instead).
   `publish` creates the GitHub Release only once both have finished, with the
   tag's own message above GitHub's generated notes (`--prerelease` for
   `-alpha`/`-beta` tags and for any `0.x` version).
