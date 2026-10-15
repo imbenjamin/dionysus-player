@@ -424,8 +424,9 @@ generation), the same 820×1180pt screen. Each environment runs with
 **Apple TV** has its own reusable workflow, `.github/workflows/tv-ui-tests.yml`:
 an Apple TV 4K (3rd generation) with Xcode 27.1 on GitHub's `xcode-27` image,
 one job per tvOS version. `TVUITests-Smoke` runs on tvOS 27.0 on every PR;
-`TVUITests` on 27.0 nightly and on PRs into `stable`. `release.yml` doesn't run
-it while the Apple TV app isn't shipped. A failed job uploads
+`TVUITests` on 27.0 nightly and on PRs into `stable`. `release.yml` runs
+`TVUITests` before `tvos-release` archives anything, and `pr-checks.yml`'s
+Release build compiles the Apple TV app and its extension as well as iOS. A failed job uploads
 `tv-ui-test-results-<plan>-tvOS-<version>`.
 
 - **Not tvOS 26.5, and not `macos-26`** (#319): on tvOS 26.x in CI the
@@ -448,10 +449,11 @@ it while the Apple TV app isn't shipped. A failed job uploads
 **Required checks.** `develop` requires the iOS build and unit tests, the
 Release compile, GitGuardian, both `UI smoke tests / <device>, iOS 26.5`
 checks, `tvOS build and unit tests` and `tvOS UI smoke tests / Apple TV 4K,
-tvOS 27.0`. `stable` requires the same minus the tvOS UI smoke, plus the two
-CodeQL "Analyze" checks and the four `Full UI tests / <device>, iOS <version>` checks, which is why a
-PR into `stable` runs the full plan (`pr-checks.yml`'s `ui-full` job, named to
-match). **Check names embed the device and OS**, so changing either renames
+tvOS 27.0`. `stable` requires the same, plus the two CodeQL "Analyze" checks,
+the four `Full UI tests / <device>, iOS <version>` checks and `Full tvOS UI
+tests / Apple TV 4K, tvOS 27.0` (added 2026-10-15), which is why a PR into
+`stable` runs both full plans (`pr-checks.yml`'s `ui-full` and `tv-ui-full`
+jobs, named to match). **Check names embed the device and OS**, so changing either renames
 them, and both rulesets must be updated in the same change. A nightly
 dispatched on a PR's branch reports checks of the right names, but GitHub
 doesn't count them towards the PR (#290).

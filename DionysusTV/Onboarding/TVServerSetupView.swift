@@ -217,7 +217,12 @@ private struct TVScanRadar: View {
     private static let sweepPeriod = 3.0
     private static let fade = 0.9
 
-    private var animates: Bool { !reduceMotion && !UITestHarness.freezesAmbientMotion }
+    private var animates: Bool {
+        #if DEBUG
+        if UITestHarness.freezesAmbientMotion { return false }
+        #endif
+        return !reduceMotion
+    }
 
     var body: some View {
         ZStack {

@@ -28,10 +28,19 @@ struct TVHomeView: View {
 
     private var heroHasFocus: Bool { focus?.hasPrefix("hero.") ?? false }
 
+    /// The UI-test harness freezes the carousel; it doesn't exist in Release.
+    private static var motionFrozen: Bool {
+        #if DEBUG
+        UITestHarness.freezesAmbientMotion
+        #else
+        false
+        #endif
+    }
+
     private var timerRuns: Bool {
         TVHeroPager.timerRuns(
             count: viewModel.heroItems.count, autoCarousel: autoCarousel, reduceMotion: reduceMotion,
-            motionFrozen: UITestHarness.freezesAmbientMotion, voiceOver: voiceOverEnabled, heroHasFocus: heroHasFocus,
+            motionFrozen: Self.motionFrozen, voiceOver: voiceOverEnabled, heroHasFocus: heroHasFocus,
             isOnShow: isOnShow, stoppedByHand: pager.stoppedByHand
         )
     }
