@@ -85,21 +85,24 @@ jobs:
     # tvos-release as ui-tests gates ios-release. A prerelease tag on develop
     # has otherwise only had the smoke plan on its PRs.
     #
-    # With retries, as the nightly runs it: on a shared runner the full
-    # tvOS plan without them loses a few journeys to a slow accessibility
-    # tree on nearly every run (v1.2.0-alpha.2: 7 of 197, all passing in
-    # that day's nightly), and a test that only fails once is flaky, not a
-    # break.
+    # As the nightly runs it: split across four jobs, each failing test
+    # retried up to five attempts in all. In one job without retries it lost
+    # 7 of 197 journeys to CI's stale accessibility tree (v1.2.0-alpha.2);
+    # with xcodebuild's three attempts in one job it ran into the 90-minute
+    # limit (alpha.3). See tv-ui-tests.yml's header.
     name: tvOS UI tests
     uses: ./.github/workflows/tv-ui-tests.yml
     with:
       test-plan: TVUITests
       retry-tests-on-failure: true
+      shards: 4
 
   prepare:
     # What both platforms ship and what the release says, decided once.
+    # On Linux: it needs only git, gh and openssl, and v1.2.0-alpha.3's run
+    # was cancelled when no macOS runner picked this job up within an hour.
     name: Resolve the tag and compose release notes
-    runs-on: macos-26
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       tag: ${{ steps.tag.outputs.tag }}

@@ -38,12 +38,14 @@ jobs:
       retry-tests-on-failure: true
 
   tv-ui-tests:
-    # The Apple TV app's full suite on tvOS 27.0 (tv-ui-tests.yml).
+    # The Apple TV app's full suite on tvOS 27.0 (tv-ui-tests.yml), split
+    # across four jobs as release.yml runs it.
     name: Full tvOS UI tests
     uses: ./.github/workflows/tv-ui-tests.yml
     with:
       test-plan: TVUITests
       retry-tests-on-failure: true
+      shards: 4
 
   tv-ui-floor:
     # The smoke journeys on tvOS 26.5, the deployment floor's major. They
