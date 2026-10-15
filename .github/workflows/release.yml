@@ -84,10 +84,17 @@ jobs:
     # full iOS plan (see tv-ui-tests.yml for why only 27.0). Gates
     # tvos-release as ui-tests gates ios-release. A prerelease tag on develop
     # has otherwise only had the smoke plan on its PRs.
+    #
+    # With retries, as the nightly runs it: on a shared runner the full
+    # tvOS plan without them loses a few journeys to a slow accessibility
+    # tree on nearly every run (v1.2.0-alpha.2: 7 of 197, all passing in
+    # that day's nightly), and a test that only fails once is flaky, not a
+    # break.
     name: tvOS UI tests
     uses: ./.github/workflows/tv-ui-tests.yml
     with:
       test-plan: TVUITests
+      retry-tests-on-failure: true
 
   prepare:
     # What both platforms ship and what the release says, decided once.

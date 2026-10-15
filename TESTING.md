@@ -425,7 +425,8 @@ generation), the same 820×1180pt screen. Each environment runs with
 an Apple TV 4K (3rd generation) with Xcode 27.1 on GitHub's `xcode-27` image,
 one job per tvOS version. `TVUITests-Smoke` runs on tvOS 27.0 on every PR;
 `TVUITests` on 27.0 nightly and on PRs into `stable`. `release.yml` runs
-`TVUITests` before `tvos-release` archives anything, and `pr-checks.yml`'s
+`TVUITests`, with retries as the nightly does, before `tvos-release` archives
+anything, and `pr-checks.yml`'s
 Release build compiles the Apple TV app and its extension as well as iOS. A failed job uploads
 `tv-ui-test-results-<plan>-tvOS-<version>`.
 
