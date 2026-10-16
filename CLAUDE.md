@@ -559,6 +559,22 @@ capture-then-render workflow. What the scripts don't say:
   wait out another cycle or pick a shorter title.
 - `gen.py`'s `MAGENTA`/`AMBER` are copies of `BrandColors.swift`; update both
   if the palette changes.
+- **The Apple TV set** (`appstore-appletv`, `gen.py`'s `TV_SLIDES`, no device
+  frame) is captured with `xcrun simctl io <udid> screenshot`, which works on
+  tvOS with no rotation or status bar to handle; the 4K Simulator saves
+  3840×2160, kept downscaled to 1920×1080 in `store-screenshots/raw/appletv/`
+  so the set can be re-rendered.
+- **On the demo server the Top Shelf can show only Recently Added**: the demo
+  user has no Continue Watching or Next Up (progress doesn't stick on the
+  shared account). It showed the static image when the set was made
+  (2026-10-16), since the shelf then asked `/Items/Latest` across every
+  library and got only music albums; it now asks the Movies and TV Shows
+  libraries (`DionysusTV/CLAUDE.md`, "Top Shelf"), which hasn't been checked
+  against the demo yet. Never capture it against a personal server.
+- **The Apple TV player slide claims HDR formats only**: Atmos end to end was
+  never confirmed on the TV, and TrueHD Atmos is decoded to 5.1
+  (`DionysusTV/CLAUDE.md`, "HDR and audio"). Avoid frames with burnt-in
+  on-screen text behind the player's panel.
 
 ## Commit messages and pull request descriptions
 
