@@ -289,8 +289,15 @@ final class HomeViewModel {
         // once Dionysus Player supports audio/music playback.
         async let resume = client.resumeItems(userID: userID, excludeItemTypes: JellyfinAPIClient.audioItemTypeExclusions)
         async let upNext = client.nextUp(userID: userID, limit: 16)
-        async let latestMovies = client.latestItems(userID: userID, parentID: moviesLibraryID, limit: 16)
-        async let latestShows = client.latestItems(userID: userID, parentID: showsLibraryID, limit: 16)
+        // Without the library there's nothing to ask: unscoped, Latest answers
+        // from every library, music and books included (Benjamin, 2026-10-16).
+        let api = client, user = userID
+        func latest(in library: String?) async throws -> [BaseItemDto] {
+            guard let library else { return [] }
+            return try await api.latestItems(userID: user, parentID: library, limit: 16)
+        }
+        async let latestMovies = latest(in: moviesLibraryID)
+        async let latestShows = latest(in: showsLibraryID)
 
         var newRails: [MediaCollectionRail] = []
         func appendRail(_ title: String, _ dtos: [BaseItemDto], seeAllQuery: CollectionQuery? = nil) {

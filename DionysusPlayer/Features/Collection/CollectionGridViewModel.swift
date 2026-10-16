@@ -219,7 +219,7 @@ final class CollectionGridViewModel {
                 parentID: query.parentID,
                 includeItemTypes: query.includeItemTypes,
                 excludeItemTypes: JellyfinAPIClient.audioItemTypeExclusions,
-                sortBy: sortField.sortBy,
+                sortBy: sortField.sortBy(includeItemTypes: query.includeItemTypes),
                 sortOrder: sortOrder.value
             )
             items = result.items.map { MediaItem(dto: $0, images: images) }
