@@ -207,8 +207,9 @@ actor JellyfinAPIClient {
     static let defaultFields = "Overview,Genres,Studios,PrimaryImageAspectRatio,BasicSyncInfo"
 
     /// What the Top Shelf shows per item (M6): the summary and genres, the
-    /// default source's streams for its 4K/HDR/Atmos/CC badges, and the cast.
-    static let topShelfFields = "Overview,Genres,MediaSources,People,BasicSyncInfo"
+    /// default source's streams for its 4K/HDR/Atmos/CC badges, the cast, and
+    /// the dates Recently Added is ordered by.
+    static let topShelfFields = "Overview,Genres,MediaSources,People,BasicSyncInfo,DateCreated,DateLastMediaAdded"
     /// Non-`private` so `episodes(seriesID:seasonID:userID:fields:)` callers can
     /// opt into this heavier list.
     ///

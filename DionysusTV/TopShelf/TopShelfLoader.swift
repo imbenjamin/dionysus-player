@@ -30,10 +30,11 @@ enum TopShelfLoader {
         }
     }
 
-    /// Home's Recently Added (Benjamin, 2026-10-16): the first Movies
-    /// library's newest, then the first TV Shows library's, each asked for by
-    /// its id. Unscoped, `/Items/Latest` draws on every library (music and
-    /// books crowd out video) and groups by whichever library comes first.
+    /// Recently Added from Home's libraries (Benjamin, 2026-10-16): the first
+    /// Movies and the first TV Shows library, each asked for by its id, then
+    /// newest first across both. Unscoped, `/Items/Latest` draws on every
+    /// library (music and books crowd out video) and groups by whichever
+    /// library comes first.
     private static func recentlyAdded(client: JellyfinAPIClient, userID: String) async throws -> [BaseItemDto] {
         let libraries = try await client.userViews(userID: userID).items
         func latest(collectionType: String) async throws -> [BaseItemDto] {
@@ -43,7 +44,13 @@ enum TopShelfLoader {
         }
         async let movies = latest(collectionType: JellyfinCollectionType.movies)
         async let shows = latest(collectionType: JellyfinCollectionType.tvShows)
-        return try await movies + shows
+        // A show Latest groups is dated by its newest episode, as the server
+        // orders it; its own date is when the show was first added. The sort
+        // is stable, so undated items keep the server's order, last.
+        func added(_ item: BaseItemDto) -> Date { item.dateLastMediaAdded ?? item.dateCreated ?? .distantPast }
+        return try await (movies + shows).enumerated()
+            .sorted { added($0.element) != added($1.element) ? added($0.element) > added($1.element) : $0.offset < $1.offset }
+            .map(\.element)
     }
 
     /// A session for the extension, with `timeout` on every request.

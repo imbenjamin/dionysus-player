@@ -53,10 +53,10 @@ final class TopShelfLoaderTests: XCTestCase {
         XCTAssertTrue(headers.allSatisfy { $0.contains("DeviceId=\"dev\"") }, "Every request carries the app's device id")
     }
 
-    /// Home's Recently Added: the first Movies library's newest, then the
-    /// first TV Shows library's. Music, books and a second library of either
-    /// kind are never asked, and nothing asks `/Items/Latest` unscoped.
-    func test_recentlyAdded_isTheFirstMoviesThenShowsLibrary() async {
+    /// Home's libraries: the first Movies and the first TV Shows library.
+    /// Music, books and a second library of either kind are never asked, and
+    /// nothing asks `/Items/Latest` unscoped.
+    func test_recentlyAdded_asksOnlyTheFirstMoviesAndShowsLibrary() async {
         let libraries = [
             Self.library("music", collectionType: JellyfinCollectionType.music),
             Self.library("shows", collectionType: JellyfinCollectionType.tvShows),
@@ -84,9 +84,48 @@ final class TopShelfLoaderTests: XCTestCase {
             return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
         }
         let entries = await TopShelfLoader.load(session: session, urlSession: MockURLProtocol.makeSession())
-        XCTAssertEqual(entries.map(\.id), ["m1", "s1", "s2"])
+        XCTAssertEqual(Set(entries.map(\.id)), ["m1", "s1", "s2"])
         XCTAssertEqual(Set(latestParents.compactMap { $0 }), ["movies", "shows"])
         XCTAssertFalse(latestParents.contains(nil), "Unscoped, Latest draws on every library")
+    }
+
+    /// Both libraries' items in one order, newest first (Benjamin,
+    /// 2026-10-16). A show Latest groups is dated by its newest episode
+    /// (`DateLastMediaAdded`), not when the show itself was added.
+    func test_recentlyAdded_isNewestFirstAcrossLibraries_datingAShowByItsNewestEpisode() async {
+        let libraries = [
+            Self.library("movies", collectionType: JellyfinCollectionType.movies),
+            Self.library("shows", collectionType: JellyfinCollectionType.tvShows)
+        ]
+        var oldMovie = Self.backdropped("oldMovie", .movie)
+        oldMovie.dateCreated = Self.date("2020-01-01")
+        var newMovie = Self.backdropped("newMovie", .movie)
+        newMovie.dateCreated = Self.date("2025-06-01")
+        var showWithNewEpisodes = Self.backdropped("show", .series)
+        showWithNewEpisodes.dateCreated = Self.date("2019-01-01")
+        showWithNewEpisodes.dateLastMediaAdded = Self.date("2026-01-01")
+        var loneEpisode = Self.backdropped("episode", .episode)
+        loneEpisode.dateCreated = Self.date("2024-01-01")
+        let latestByLibrary = ["movies": [newMovie, oldMovie], "shows": [showWithNewEpisodes, loneEpisode]]
+        var latestFields: [String] = []
+        MockURLProtocol.requestHandler = { request in
+            let url = request.url!
+            if url.path.hasSuffix("/Items/Latest") {
+                latestFields.append(request.queryDictionary["Fields"] ?? "")
+                let parent = request.queryDictionary["ParentId"]
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: parent.flatMap { latestByLibrary[$0] } ?? [])
+            }
+            let items = url.path.hasSuffix("/Views") ? libraries : []
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
+        }
+        let entries = await TopShelfLoader.load(session: session, urlSession: MockURLProtocol.makeSession())
+        XCTAssertEqual(entries.map(\.id), ["show", "newMovie", "episode", "oldMovie"])
+        XCTAssertTrue(latestFields.allSatisfy { $0.contains("DateCreated") && $0.contains("DateLastMediaAdded") },
+                      "Jellyfin sends neither date unless asked")
+    }
+
+    private static func date(_ day: String) -> Date {
+        ISO8601DateFormatter().date(from: day + "T00:00:00Z")!
     }
 
     func test_noMoviesOrShowsLibrary_asksNoLatest() async {

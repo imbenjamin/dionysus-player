@@ -123,6 +123,12 @@ struct BaseItemDto: Codable, Identifiable, Equatable {
     var productionYear: Int?
     var endDate: Date?
     var premiereDate: Date?
+    /// When the item reached the library; sent only when `Fields` names
+    /// `DateCreated`. A show's is when the show was first added.
+    var dateCreated: Date?
+    /// A show's newest episode's arrival, which `/Items/Latest` orders a
+    /// grouped show by; sent only when `Fields` names `DateLastMediaAdded`.
+    var dateLastMediaAdded: Date?
 
     var communityRating: Double?
     var officialRating: String?
