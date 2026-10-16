@@ -240,7 +240,36 @@ final class TVPlayerOverlaysTests: XCTestCase, TVPlayerInputModelHarness {
 
     func test_countdownReachingZero_playsNext_once() {
         context.nextUpSecondsRemaining = 0
-        XCTAssertEqual(tick(for: 1), [.playNext])
+        XCTAssertEqual(tick(for: 1.2), [.playNext])
+        XCTAssertEqual(tick(for: 1), [], "Once only")
+    }
+
+    /// The card reads 0 for its last second, its bar gliding to empty, before
+    /// the next item plays (Benjamin, 2026-10-16).
+    func test_countdownReachingZero_waitsOutTheCardsLastSecond() {
+        context.nextUpSecondsRemaining = 0
+        XCTAssertEqual(tick(for: 0.9), [], "The bar is still gliding")
+        XCTAssertEqual(tick(for: 0.2), [.playNext])
+    }
+
+    func test_countdownAtZero_titleEnding_playsNextAtOnce() {
+        // As the view model has it while Next Up is pending.
+        context.closesWhenPlaybackEnds = false
+        context.nextUpSecondsRemaining = 0
+        tick(for: 0.3)
+        context.playback = .ended
+        XCTAssertEqual(send(.tick), [.playNext])
+    }
+
+    /// A backward scrub out of the last second starts its wait over.
+    func test_countdownLeavingZero_startsItsLastSecondOver() {
+        context.nextUpSecondsRemaining = 0
+        tick(for: 0.8)
+        context.nextUpSecondsRemaining = 1
+        tick(for: 0.5)
+        context.nextUpSecondsRemaining = 0
+        XCTAssertEqual(tick(for: 0.9), [])
+        XCTAssertEqual(tick(for: 0.2), [.playNext])
     }
 
     /// Review Focus 2.
@@ -252,7 +281,7 @@ final class TVPlayerOverlaysTests: XCTestCase, TVPlayerInputModelHarness {
         XCTAssertEqual(tick(for: 1), [])
         send(.menu)
         context.playback = .playing
-        XCTAssertEqual(tick(for: 1), [.playNext])
+        XCTAssertEqual(tick(for: 1.2), [.playNext])
     }
 
     func test_theCardsFocus_resetsWhenItGoes() {

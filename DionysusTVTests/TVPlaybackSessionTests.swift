@@ -104,4 +104,29 @@ final class TVPlaybackSessionTests: XCTestCase {
         XCTAssertNil(session.end(), "A second end reports nothing")
         try await Task.sleep(for: .milliseconds(200))
     }
+
+    /// Next Up's hand-off keeps the TV's mode for the next item; leaving the
+    /// player returns it to its default (AetherEngine #128).
+    func test_end_handingOff_stopsTheEngineForAHandOff() async throws {
+        MockURLProtocol.requestHandler = { request in MockURLProtocol.jsonResponse(for: request, status: 204, body: Data()) }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        func makeSession(_ engine: FakePlaybackEngine) -> TVPlaybackSession {
+            TVPlaybackSession(viewModel: PlayerViewModel(
+                client: JellyfinAPIClient(baseURL: URL(string: "https://jellyfin.example.com")!, accessToken: "tok", session: MockURLProtocol.makeSession()),
+                userID: "user-1", itemID: "item-1", engine: engine,
+                trackPreferenceStore: TrackPreferenceStore(defaults: defaults),
+                nextUpPreferenceStore: NextUpPreferenceStore(defaults: defaults),
+                streamPreferenceStore: StreamPreferenceStore(defaults: defaults)
+            ))
+        }
+        let handedOff = FakePlaybackEngine()
+        let closed = FakePlaybackEngine()
+
+        makeSession(handedOff).end(handingOff: true)
+        makeSession(closed).end()
+        try await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertEqual(handedOff.stopsHandingOff, [true])
+        XCTAssertEqual(closed.stopsHandingOff, [false])
+    }
 }

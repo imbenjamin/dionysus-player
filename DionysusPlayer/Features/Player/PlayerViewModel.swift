@@ -1490,7 +1490,9 @@ final class PlayerViewModel {
     /// a stop only after one.
     private var hasReportedPlaybackStart = false
 
-    func stop() async {
+    /// `handingOff`: the next item plays straight after in the same player
+    /// (`PlaybackEngine.stop(handingOff:)`); only the Apple TV's player does.
+    func stop(handingOff: Bool = false) async {
         progressReportTask?.cancel()
         #if DOWNLOADS
         if let downloadedItem {
@@ -1507,7 +1509,7 @@ final class PlayerViewModel {
         }
         #endif
         let ticks = Int64(currentTime * 10_000_000)
-        engine.stop()
+        engine.stop(handingOff: handingOff)
         // Skipped while known-offline rather than awaited: a guaranteed failure
         // still costs `sendRaw`'s 20s timeout, stalling every caller of `stop()`
         // including `PlayerView.tearDown()`, so any close affordance sat doing

@@ -88,4 +88,22 @@ final class PlayerSegmentJourneyTests: TVUITestCase {
         XCTAssertTrue(poll(timeout: 16) { elapsed.exists && (self.elapsedSeconds(app) ?? 999) < 20 },
                       "The next episode starts when the countdown ends")
     }
+
+    /// The remote still drives the player once the countdown has advanced it
+    /// (Benjamin, 2026-10-16: the transport could no longer be brought up,
+    /// and Play/Pause did nothing).
+    func test_nextUp_afterTheCountdownAdvances_theRemoteStillWorks() {
+        let app = openEpisodeOne(scenario: "earlyCredits")
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.nextUpCard].waitForExistence(timeout: 10))
+        let elapsed = app.staticTexts[A11yID.TV.Player.elapsed]
+        XCTAssertTrue(poll(timeout: 16) { elapsed.exists && (self.elapsedSeconds(app) ?? 999) < 20 })
+        // Past `TVTransportChrome.visibleDuration` (4s), so the transport fades.
+        XCTAssertTrue(poll(timeout: 10) { !elapsed.exists }, "The transport fades on the next episode")
+        press(.playPause)
+        XCTAssertTrue(elapsed.waitForExistence(timeout: 3), "Play/Pause brings the transport up")
+        Thread.sleep(forTimeInterval: 1)
+        let pausedAt = elapsed.label
+        Thread.sleep(forTimeInterval: 3)
+        XCTAssertEqual(elapsed.label, pausedAt, "Play/Pause paused the next episode")
+    }
 }

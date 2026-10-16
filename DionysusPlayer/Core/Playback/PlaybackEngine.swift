@@ -100,7 +100,12 @@ protocol PlaybackEngine: AnyObject {
     func pause()
     func togglePlayPause()
     func seek(to time: TimeInterval) async
-    func stop()
+    /// `handingOff` is a stop with the next item about to play in the same
+    /// player (the Apple TV's Next Up): on tvOS the TV stays in the mode the
+    /// content set, rather than returning to its default and switching back
+    /// for the next item (AetherEngine's "Handoffs between items", #128).
+    /// `stop()` below is the plain stop, which leaves playback.
+    func stop(handingOff: Bool)
 
     func selectAudioTrack(id: Int)
     /// `nil` disables subtitles.
@@ -167,5 +172,10 @@ extension PlaybackEngine {
     /// transcode path.
     func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws {
         try await load(url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: knownAtmosAudioTrackIndices, isRemoteHLS: false)
+    }
+
+    /// Leaving playback: on tvOS the TV returns to its default mode.
+    func stop() {
+        stop(handingOff: false)
     }
 }

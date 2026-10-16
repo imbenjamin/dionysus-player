@@ -697,9 +697,11 @@ final class AetherPlaybackEngine: PlaybackEngine {
     }
     func pause() { engine.pause() }
     func togglePlayPause() { engine.togglePlayPause() }
-    func stop() {
+    func stop(handingOff: Bool) {
         pausedRebuildAnchor = nil
-        engine.stop()
+        // A hand-off keeps the display criteria, and isn't a final teardown
+        // (`finalTeardown` follows `resetDisplayCriteria`).
+        engine.stop(resetDisplayCriteria: !handingOff)
     }
 
     /// Arms a watchdog after each seek, turning a stuck backward seek —

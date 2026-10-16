@@ -293,7 +293,10 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         // Before `end()`, as iOS's `tearDown` does: a late time update during
         // the stop could otherwise reach zero again and advance twice.
         viewModel.dismissNextUp()
-        if let outcome = session.end() {
+        // A hand-off: a plain stop sends the TV back to its default mode just
+        // as the next item asks for the content's, a black flash between
+        // episodes on the Bedroom Apple TV (Benjamin, 2026-10-16).
+        if let outcome = session.end(handingOff: true) {
             pendingOutcome = outcome
             RecentPlaybackBroadcaster.shared.record(outcome)
         }

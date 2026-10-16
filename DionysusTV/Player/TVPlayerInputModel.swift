@@ -206,6 +206,9 @@ struct TVPlayerInputState: Equatable {
     var hiddenSkipSegmentID: String?
     var nextUpFocus: TVNextUpButton = .playNow
     var hasRequestedAdvance = false
+    /// When the Next Up count first read 0, so the card's last second plays
+    /// out before the next item takes over (`TVPlayerTiming.nextUpFinalSecond`).
+    var nextUpReachedZeroAt: TimeInterval?
     var hasRequestedClose = false
     var flash: Flash?
 }
@@ -223,6 +226,12 @@ enum TVPlayerTiming {
     /// faster (Benjamin, Bedroom Apple TV, 2026-10-08). Its count is the
     /// highest level.
     static let scanRates: [Double] = [8, 32, 64, 128]
+    /// How long the Next Up card reads 0 before the next item plays. The
+    /// count truncates, so 0 means up to a second remains, and the card's bar
+    /// glides to empty over that second (`TVNextUpCard`): advancing as the
+    /// count reached 0 cut the countdown off with its bar a second from the
+    /// end and "1s" still showing (Benjamin, 2026-10-16).
+    static let nextUpFinalSecond: TimeInterval = 1
 }
 
 /// How a swipe maps onto the title.
@@ -500,8 +509,16 @@ enum TVPlayerInputModel {
             commands.append(.close)
         }
         if context.nextUpSecondsRemaining == nil { state.nextUpFocus = .playNow }
+        if context.nextUpSecondsRemaining == 0 {
+            if state.nextUpReachedZeroAt == nil { state.nextUpReachedZeroAt = now }
+        } else {
+            state.nextUpReachedZeroAt = nil
+        }
         // Review Focus 2: never under a scrub; once it resolves, once only.
-        if context.nextUpSecondsRemaining == 0, state.scrub == nil {
+        // Once the card's last second has played out, or sooner if the title
+        // ends first.
+        if let reachedZeroAt = state.nextUpReachedZeroAt, state.scrub == nil,
+           now - reachedZeroAt >= TVPlayerTiming.nextUpFinalSecond || context.playback == .ended {
             commands += playNext(&state)
         }
         return commands
