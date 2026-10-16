@@ -961,7 +961,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             ordered = items.sorted { ($0.communityRating ?? 0, $0.name) < ($1.communityRating ?? 0, $1.name) }
         case "Runtime":
             ordered = items.sorted { ($0.runTimeTicks ?? 0, $0.name) < ($1.runTimeTicks ?? 0, $1.name) }
-        case "DateCreated", "DatePlayed":
+        case "DateCreated", "DateLastContentAdded", "DatePlayed":
             ordered = items.sorted { $0.id < $1.id }
         default:
             ordered = items.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }

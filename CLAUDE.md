@@ -388,10 +388,14 @@ models take an already-resolved `client` and `userID`** (see
 
 What Home's rails select is a placeholder per the view models' doc comments;
 don't over-invest in curation without checking whether it's being redesigned.
+The Recently Added rails ask `/Items/Latest` of the first Movies and TV Shows
+library only, and are skipped when there is none: unscoped, Latest answers
+from every library, music and books included.
 
 `CollectionGridView`/`CollectionGridViewModel` (the Movies, Shows and
 Collections grids) combine a server-side sort (field and direction,
-refetched on change) with client-side filtering over five facets: Genre,
+refetched on change; Date Added on a grid of shows is its newest episode's,
+`DateLastContentAdded`, not the show's own `DateCreated`) with client-side filtering over five facets: Genre,
 Studio (labelled "Network" for Series queries; Jellyfin keeps a show's network
 in `Studios`), Decade, Watched and Favorites. Favorites and Watched are
 `Optional` selections, so they can filter *out* too. **The facets cascade**:

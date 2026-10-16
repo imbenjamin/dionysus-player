@@ -140,6 +140,28 @@ final class CollectionGridViewModelTests: XCTestCase {
         XCTAssertEqual(captured["SortBy"], "DateCreated")
     }
 
+    /// A show's `DateCreated` is when the show was first added; Date Added
+    /// on a Shows grid means its newest episode, as Home's Recently Added
+    /// Shows rail orders it, so its See All grid matches (Benjamin,
+    /// 2026-10-16).
+    func test_dateAdded_onAShowsGrid_sortsByNewestEpisode() async {
+        let query = CollectionQuery(
+            title: "Shows", parentID: "lib-shows", includeItemTypes: ["Series"],
+            initialSortField: .dateAdded, initialSortOrder: .descending
+        )
+        let viewModel = makeViewModel(query: query)
+        var captured: [String: String] = [:]
+        MockURLProtocol.requestHandler = { request in
+            captured = request.queryDictionary
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(captured["SortBy"], "DateLastContentAdded")
+        XCTAssertEqual(captured["SortOrder"], "Descending")
+    }
+
     func test_setSortField_releaseDate() async {
         let viewModel = makeViewModel(query: CollectionQuery(title: "Movies"))
         var captured: [String: String] = [:]

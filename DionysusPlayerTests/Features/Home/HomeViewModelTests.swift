@@ -150,6 +150,37 @@ final class HomeViewModelTests: XCTestCase {
         XCTAssertEqual(recentMovies.seeAllQuery?.initialSortOrder, .descending)
     }
 
+    /// With no Movies or TV Shows library there is nothing to ask: unscoped,
+    /// `/Items/Latest` answers from every library, and music or books would
+    /// fill a rail titled "Recently Added Movies" (Benjamin, 2026-10-16).
+    func test_load_withoutMoviesOrShowsLibrary_asksNoLatestAndShowsNoRecentlyAddedRails() async {
+        let musicLibrary = BaseItemDto(id: "lib-music", name: "Music", type: .collectionFolder, collectionType: "music")
+        let album = BaseItemDto(id: "album-1", name: "An Album", type: .musicAlbum)
+        var latestRequests = 0
+
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Views":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [musicLibrary], totalRecordCount: 1)
+                )
+            case "/Users/user-1/Items/Latest":
+                latestRequests += 1
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: [album])
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(latestRequests, 0)
+        XCTAssertFalse(viewModel.rails.contains { $0.title.hasPrefix("Recently Added") })
+    }
+
     /// `/Shows/NextUp` isn't guaranteed disjoint from `/Users/{id}/Items/Resume`
     /// — an item already surfaced in Continue Watching should be filtered
     /// out of Next Up rather than shown in both rails.
