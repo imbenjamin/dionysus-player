@@ -52,4 +52,68 @@ final class TopShelfLoaderTests: XCTestCase {
         XCTAssertEqual(entries.map(\.id), ["m1"])
         XCTAssertTrue(headers.allSatisfy { $0.contains("DeviceId=\"dev\"") }, "Every request carries the app's device id")
     }
+
+    /// Home's Recently Added: the first Movies library's newest, then the
+    /// first TV Shows library's. Music, books and a second library of either
+    /// kind are never asked, and nothing asks `/Items/Latest` unscoped.
+    func test_recentlyAdded_isTheFirstMoviesThenShowsLibrary() async {
+        let libraries = [
+            Self.library("music", collectionType: JellyfinCollectionType.music),
+            Self.library("shows", collectionType: JellyfinCollectionType.tvShows),
+            Self.library("movies", collectionType: JellyfinCollectionType.movies),
+            Self.library("books", collectionType: "books"),
+            Self.library("movies2", collectionType: JellyfinCollectionType.movies)
+        ]
+        let latestByLibrary = [
+            "music": [Self.backdropped("album", .movie)],
+            "shows": [Self.backdropped("s1", .series), Self.backdropped("s2", .series)],
+            "movies": [Self.backdropped("m1", .movie)],
+            "books": [Self.backdropped("book", .movie)],
+            "movies2": [Self.backdropped("m2", .movie)]
+        ]
+        var latestParents: [String?] = []
+        MockURLProtocol.requestHandler = { request in
+            let url = request.url!
+            if url.path.hasSuffix("/Items/Latest") {
+                let parent = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first { $0.name == "ParentId" }?.value
+                latestParents.append(parent)
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: parent.flatMap { latestByLibrary[$0] } ?? [])
+            }
+            let items = url.path.hasSuffix("/Views") ? libraries : []
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
+        }
+        let entries = await TopShelfLoader.load(session: session, urlSession: MockURLProtocol.makeSession())
+        XCTAssertEqual(entries.map(\.id), ["m1", "s1", "s2"])
+        XCTAssertEqual(Set(latestParents.compactMap { $0 }), ["movies", "shows"])
+        XCTAssertFalse(latestParents.contains(nil), "Unscoped, Latest draws on every library")
+    }
+
+    func test_noMoviesOrShowsLibrary_asksNoLatest() async {
+        var latestRequests = 0
+        MockURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            if path.hasSuffix("/Items/Latest") {
+                latestRequests += 1
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: [Self.backdropped("album", .movie)])
+            }
+            let items = path.hasSuffix("/Views") ? [Self.library("music", collectionType: JellyfinCollectionType.music)] : []
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
+        }
+        let entries = await TopShelfLoader.load(session: session, urlSession: MockURLProtocol.makeSession())
+        XCTAssertTrue(entries.isEmpty)
+        XCTAssertEqual(latestRequests, 0)
+    }
+
+    private static func library(_ id: String, collectionType: String) -> BaseItemDto {
+        var library = BaseItemDto(id: id, name: id, type: .collectionFolder)
+        library.collectionType = collectionType
+        return library
+    }
+
+    private static func backdropped(_ id: String, _ type: BaseItemKind) -> BaseItemDto {
+        var item = BaseItemDto(id: id, name: id, type: type)
+        item.backdropImageTags = ["t"]
+        return item
+    }
 }

@@ -20,7 +20,7 @@ enum TopShelfLoader {
             async let resume = client.resumeItems(
                 userID: userID, excludeItemTypes: JellyfinAPIClient.audioItemTypeExclusions, fields: JellyfinAPIClient.topShelfFields)
             async let nextUp = client.nextUp(userID: userID, limit: TopShelfContentBuilder.totalLimit, fields: JellyfinAPIClient.topShelfFields)
-            async let latest = client.latestItems(userID: userID, limit: TopShelfContentBuilder.totalLimit, fields: JellyfinAPIClient.topShelfFields)
+            async let latest = recentlyAdded(client: client, userID: userID)
             return try await TopShelfContentBuilder.entries(
                 resume: resume.items, nextUp: nextUp.items, latest: latest,
                 images: client.makeImageURLBuilder(), serverID: session.serverID
@@ -28,6 +28,22 @@ enum TopShelfLoader {
         } catch {
             return []
         }
+    }
+
+    /// Home's Recently Added (Benjamin, 2026-10-16): the first Movies
+    /// library's newest, then the first TV Shows library's, each asked for by
+    /// its id. Unscoped, `/Items/Latest` draws on every library (music and
+    /// books crowd out video) and groups by whichever library comes first.
+    private static func recentlyAdded(client: JellyfinAPIClient, userID: String) async throws -> [BaseItemDto] {
+        let libraries = try await client.userViews(userID: userID).items
+        func latest(collectionType: String) async throws -> [BaseItemDto] {
+            guard let library = libraries.first(where: { $0.collectionType == collectionType }) else { return [] }
+            return try await client.latestItems(
+                userID: userID, parentID: library.id, limit: TopShelfContentBuilder.totalLimit, fields: JellyfinAPIClient.topShelfFields)
+        }
+        async let movies = latest(collectionType: JellyfinCollectionType.movies)
+        async let shows = latest(collectionType: JellyfinCollectionType.tvShows)
+        return try await movies + shows
     }
 
     /// A session for the extension, with `timeout` on every request.
