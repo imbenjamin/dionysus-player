@@ -117,7 +117,7 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         onSourceTimeUpdate?(currentTime)
     }
 
-    func stop(handingOff: Bool) {
+    func stop() {
         stopTicking()
         onStateChange?(.ended)
     }

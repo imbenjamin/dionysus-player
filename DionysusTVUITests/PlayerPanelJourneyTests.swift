@@ -43,9 +43,9 @@ final class PlayerPanelJourneyTests: TVUITestCase {
         XCTAssertTrue(poll(timeout: 3) { second.isSelected }, "The tick moves to the chosen track")
         XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.panel].exists, "The panel stays open")
 
-        // Close the player and play the same title again.
-        press(.menu)
-        press(.menu)
+        // Close the panel, hide the transport, close the player, and play
+        // the same title again.
+        press(.menu, times: 3)
         let play = app.buttons[A11yID.TV.Detail.play]
         XCTAssertTrue(waitForFocus(play))
         press(.select)
@@ -84,7 +84,7 @@ final class PlayerPanelJourneyTests: TVUITestCase {
         XCTAssertTrue(app.descendants(matching: .any)[A11yID.Player.styledSubtitle].waitForExistence(timeout: 10))
     }
 
-    func test_menu_closesThePanel_andASecondMenuClosesThePlayer() {
+    func test_menu_closesThePanel_thenHidesTheTransport_thenClosesThePlayer() {
         let app = openPlayer(extraArguments: keepTransportUp)
         press(.down)
         XCTAssertTrue(waitForPlayerFocus(app, "tab.info"))
@@ -92,6 +92,8 @@ final class PlayerPanelJourneyTests: TVUITestCase {
         XCTAssertTrue(poll(timeout: 3) { !app.descendants(matching: .any)[A11yID.TV.Player.panel].exists })
         XCTAssertTrue(app.staticTexts[A11yID.TV.Player.elapsed].exists)
         press(.menu)
-        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Detail.play]))
+        XCTAssertTrue(poll(timeout: 3) { !app.staticTexts[A11yID.TV.Player.elapsed].exists }, "A second Menu hides the transport")
+        press(.menu)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Detail.play]), "A third closes the player")
     }
 }

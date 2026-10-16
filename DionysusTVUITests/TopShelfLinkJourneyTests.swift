@@ -25,7 +25,7 @@ final class TopShelfLinkJourneyTests: TVUITestCase {
         let app = launchAtHome()
         app.open(link("play", UITestFixtureIdentity.primaryMovieID))
         XCTAssertTrue(app.staticTexts[A11yID.TV.Player.elapsed].waitForExistence(timeout: 10))
-        press(.menu)
+        leavePlayer(app)
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Detail.play]), "Leaving the player lands on the title's page")
     }
 
@@ -33,7 +33,7 @@ final class TopShelfLinkJourneyTests: TVUITestCase {
         let app = openEpisodeOne(scenario: "standard")
         app.open(link("play", UITestFixtureIdentity.primaryMovieID))
         XCTAssertTrue(app.staticTexts[A11yID.TV.Player.elapsed].waitForExistence(timeout: 10))
-        press(.menu)
+        leavePlayer(app)
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Detail.play]))
         let title = app.descendants(matching: .any)[A11yID.TV.Detail.title]
         XCTAssertTrue(title.waitForExistence(timeout: 5))

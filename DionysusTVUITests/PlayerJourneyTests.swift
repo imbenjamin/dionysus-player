@@ -27,8 +27,9 @@ final class PlayerJourneyTests: TVUITestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [skipped], timeout: 5), .completed, "Right should skip 10s on from \(before)s")
 
         press(.menu)
+        XCTAssertTrue(poll(timeout: 3) { !elapsed.exists }, "With the transport up, Menu first hides it")
+        press(.menu)
         XCTAssertTrue(waitForFocus(play), "Menu returns to the detail page the title was played from")
-        XCTAssertFalse(elapsed.exists)
     }
 
     /// Menu while the item is still loading must stop and dismiss (Review

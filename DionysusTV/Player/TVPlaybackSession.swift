@@ -25,8 +25,8 @@ final class TVPlaybackSession {
 
     /// Safe in any state, `.loading` included. Returns where playback
     /// stopped, the first time only: read before `stop()`, which reports the
-    /// same position to the server. `handingOff` when the next item plays in
-    /// the same player, so the TV keeps its mode across the seam.
+    /// same position to the server. `handingOff` when the next item takes
+    /// over this one's engine (`PlayerViewModel.stop(handingOff:)`).
     @discardableResult
     func end(handingOff: Bool = false) -> PlaybackSessionOutcome? {
         guard !hasEnded else { return nil }

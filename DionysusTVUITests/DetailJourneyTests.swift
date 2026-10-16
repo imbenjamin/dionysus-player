@@ -35,7 +35,7 @@ final class DetailJourneyTests: TVUITestCase {
         let play = openDetailFromFocusedTile(app)
         press(.select)
         XCTAssertTrue(app.staticTexts[A11yID.TV.Player.elapsed].waitForExistence(timeout: 10))
-        press(.menu)
+        leavePlayer(app)
         XCTAssertTrue(play.waitForExistence(timeout: 5))
         XCTAssertTrue(poll(timeout: 5) { !app.staticTexts[A11yID.TV.Player.elapsed].exists })
         press(.menu)

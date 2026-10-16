@@ -32,9 +32,8 @@ enum TVPlayerPresenter {
         )
         let host = TVPlayerHostController(viewModel: viewModel)
         host.onClose = onClose
-        host.makeViewModel = { itemID in
-            guard let engine = makeEngine() else { return nil }
-            return PlayerViewModel(client: client, userID: userID, itemID: itemID, engine: engine, playbackQueue: queue)
+        host.makeViewModel = { itemID, engine in
+            PlayerViewModel(client: client, userID: userID, itemID: itemID, engine: engine, playbackQueue: queue)
         }
         host.modalPresentationStyle = .fullScreen
         guard let presenter = presentedChain().last else { return false }

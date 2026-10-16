@@ -209,6 +209,11 @@ struct TVPlayerInputState: Equatable {
     /// When the Next Up count first read 0, so the card's last second plays
     /// out before the next item takes over (`TVPlayerTiming.nextUpFinalSecond`).
     var nextUpReachedZeroAt: TimeInterval?
+    /// The playback the last tick saw, to catch a pause from outside the
+    /// model (`tick`).
+    var observedPlayback: TVPlayerContext.Playback?
+    /// Our own Play/Pause asked for a pause, and flashed for it already.
+    var awaitsOwnPause = false
     var hasRequestedClose = false
     var flash: Flash?
 }
@@ -347,6 +352,12 @@ enum TVPlayerInputModel {
                 state.transportFocus = .scrubber
                 return []
             }
+            // Up, Back hides the transport rather than leaving; hidden, it
+            // closes the player (Benjamin, 2026-10-16).
+            if !wasHidden {
+                state.chrome = .hidden
+                return []
+            }
             return [.close]
         case .up:
             guard !wasHidden else { return [] }
@@ -403,6 +414,7 @@ enum TVPlayerInputModel {
 
     static func togglePlayPause(_ state: inout TVPlayerInputState, context: TVPlayerContext) -> [TVPlayerCommand] {
         guard context.playback != .ended else { return [] }
+        if context.playback == .playing { state.awaitsOwnPause = true }
         flash(context.playback == .playing ? .pause : .play, &state)
         return [.togglePlayPause]
     }
@@ -486,10 +498,24 @@ enum TVPlayerInputModel {
             // The focus engine's focus, not the model's, is drawn.
             state.transportFocus = .scrubber
         }
+        // A pause from outside the model: while a title plays, tvOS gives the
+        // remote's Play/Pause to AVKit, the Now Playing app, which pauses the
+        // player itself and never sends the press on (Bedroom Apple TV,
+        // 2026-10-16). It gets the glyph and the transport ours would have.
+        if state.observedPlayback == .playing, context.playback == .paused, state.scrub == nil, !state.awaitsOwnPause {
+            flash(.pause, &state)
+            state.chrome = .transport
+            state.lastInputAt = now
+        }
+        if state.observedPlayback != context.playback {
+            state.observedPlayback = context.playback
+            state.awaitsOwnPause = false
+        }
         switch context.playback {
-        case .paused where context.accessibleTransport && state.chrome == .hidden:
-            // Hidden by hand: the person chose to watch without them
-            // (Benjamin, 2026-10-08), and Menu must still reach Close.
+        case .paused where state.chrome == .hidden:
+            // Hidden by hand, with Back or in the accessible transport: the
+            // person chose to watch without them (Benjamin, 2026-10-08 and
+            // 2026-10-16), and Back must still reach Close.
             state.lastInputAt = now
         case .loading, .paused, .failed:
             // The transport stays up, and its fade waits for playback, so a

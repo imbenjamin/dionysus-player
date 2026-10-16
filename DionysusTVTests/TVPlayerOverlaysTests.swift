@@ -106,8 +106,14 @@ final class TVPlayerOverlaysTests: XCTestCase, TVPlayerInputModelHarness {
         XCTAssertEqual(send(.select), [.skipSegment(id: "intro")])
     }
 
-    func test_menuWithTheTransportUp_closes_evenWithTheButtonShowing() {
+    /// Back takes away one thing at a time: the transport, then the button
+    /// it leaves showing, then the player.
+    func test_menuWithTheTransportUp_hidesIt_thenTheButton_thenCloses() {
         context.skipSegment = intro
+        XCTAssertEqual(send(.menu), [])
+        XCTAssertEqual(state.chrome, .hidden)
+        XCTAssertEqual(send(.menu), [])
+        XCTAssertEqual(state.hiddenSkipSegmentID, "intro")
         XCTAssertEqual(send(.menu), [.close])
     }
 

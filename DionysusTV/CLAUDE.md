@@ -752,7 +752,12 @@ AVKit's chrome is hidden and the transport is ours (`TVTransportOverlay`),
 inset by the safe area alone. The host keeps Select and Play/Pause away from
 `AVPlayerViewController`'s own `pressesBegan`: passed up, AVKit toggled
 playback before our recognizer fired, so a pause flashed Play (Benjamin, on
-device).
+device). **While a title plays, the remote's Play/Pause never reaches the
+app**: tvOS gives it to AVKit, the Now Playing app, which pauses the player
+itself (measured on Bedroom, 2026-10-16; presses while paused do arrive).
+So the reducer flashes the pause glyph and brings the transport up on any
+playing-to-paused change it didn't cause (`TVPlayerInputModel.tick`), and
+skips it for its own Play/Pause and a scan.
 
 **The player doesn't use the focus engine** (Benjamin, 2026-10-06, as
 Sodalite does). The host's recognizers take every press and swipe and hand
@@ -780,6 +785,10 @@ state, so XCUITest reads it from a test-only marker
   shows a knob at the playhead.
 - **The transport fades 4s after the last press**, never while paused,
   loading or scrubbing, timed in the reducer from playback starting.
+- **Back takes away one thing at a time**: an icon's focus back to the
+  scrubber, then the transport, then a Skip button left showing, then the
+  player (Benjamin, 2026-10-16). Hidden by Back, the transport stays hidden
+  while paused too.
 - **The HDR chip shows only while the engine reports HDR**
   (`videoFormatDescription`, nil for SDR); see "HDR and audio" below.
 - **Subtitles are iOS's `SubtitleOverlayView`**, with `SubtitleOverlayMetrics.tv`
@@ -809,8 +818,15 @@ state, so XCUITest reads it from a test-only marker
   transport up it's the stop above the icons, and Menu returns to the
   scrubber. **The next item plays in the same player**
   (`TVPlayerHostController.advanceToNextItem()`): the session ends and is
-  reported, a new view model and engine are bound to AVKit, nothing is
-  dismissed. Never under an open scrub.
+  reported, and a new view model takes over **the same engine**, whose next
+  `load()` keeps its `AVPlayer` and the TV's mode; nothing is dismissed.
+  Never a new engine: AVKit handed a new `AVPlayer` loses its Now Playing
+  registration (AetherEngine #15, `Code=14` in the console), and on the
+  Bedroom Apple TV the remote's Play/Pause then never reached the app, while a
+  stop between the two items flashed the TV through its default mode
+  (Benjamin, 2026-10-16). Never under an open scrub. The countdown reads 0
+  for a second before it advances, so its bar runs out
+  (`TVPlayerTiming.nextUpFinalSecond`).
 - **Playback stats is a toggle on its icon**, never a tab or modal: one glass
   page top-right with every row of iOS's three pages (`PlaybackStatsReport`,
   shared), named and defaulted as iOS's ("Show/Hide playback stats", on in

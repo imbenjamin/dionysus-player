@@ -115,7 +115,7 @@ final class ShowDetailJourneyTests: TVUITestCase {
 
         press(.select)
         XCTAssertTrue(app.staticTexts[A11yID.TV.Player.elapsed].waitForExistence(timeout: 10))
-        press(.menu)
+        leavePlayer(app)
         XCTAssertTrue(poll(timeout: 5) { !app.staticTexts[A11yID.TV.Player.elapsed].exists })
         XCTAssertTrue(play.label.contains("S1:E3"), "Back on the same episode's page")
     }

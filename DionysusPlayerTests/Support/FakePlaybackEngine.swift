@@ -68,8 +68,6 @@ final class FakePlaybackEngine: PlaybackEngine {
     private(set) var togglePlayPauseCallCount = 0
     private(set) var seekedTimes: [TimeInterval] = []
     private(set) var stopCallCount = 0
-    /// Each stop's `handingOff`, in order.
-    private(set) var stopsHandingOff: [Bool] = []
     private(set) var selectedAudioTrackIDs: [Int] = []
     private(set) var selectedSubtitleTrackIDs: [Int?] = []
     private(set) var startPictureInPictureCallCount = 0
@@ -94,10 +92,7 @@ final class FakePlaybackEngine: PlaybackEngine {
         seekedTimes.append(time)
         onSeek?()
     }
-    func stop(handingOff: Bool) {
-        stopCallCount += 1
-        stopsHandingOff.append(handingOff)
-    }
+    func stop() { stopCallCount += 1 }
     func selectAudioTrack(id: Int) { selectedAudioTrackIDs.append(id) }
     func selectSubtitleTrack(id: Int?) { selectedSubtitleTrackIDs.append(id) }
     /// Recorded rather than acted on: there is no AVPlayer here to hand the

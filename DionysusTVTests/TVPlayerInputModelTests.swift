@@ -91,11 +91,57 @@ final class TVPlayerInputModelTests: XCTestCase, TVPlayerInputModelHarness {
         XCTAssertFalse(state.isStatsOn)
     }
 
-    func test_menu_fromAnIcon_returnsToTheScrubber_thenCloses() {
+    func test_menu_fromAnIcon_returnsToTheScrubber_thenHides_thenCloses() {
         send(.up)
         XCTAssertEqual(send(.menu), [])
         XCTAssertEqual(state.transportFocus, .scrubber)
+        XCTAssertEqual(send(.menu), [])
+        XCTAssertEqual(state.chrome, .hidden)
         XCTAssertEqual(send(.menu), [.close])
+    }
+
+    /// Back with the transport up hides it rather than waiting for the fade;
+    /// with nothing up it leaves (Benjamin, 2026-10-16).
+    func test_menu_withTheTransportUp_hidesIt_thenCloses() {
+        XCTAssertEqual(state.chrome, .transport)
+        XCTAssertEqual(send(.menu), [])
+        XCTAssertEqual(state.chrome, .hidden)
+        XCTAssertEqual(send(.menu), [.close])
+    }
+
+    func test_menu_whilePaused_hidesTheTransport_andItStaysHidden() {
+        context.playback = .paused
+        XCTAssertEqual(send(.menu), [])
+        tick(for: 10)
+        XCTAssertEqual(state.chrome, .hidden, "Hidden by hand, paused or not")
+        XCTAssertEqual(send(.menu), [.close])
+    }
+
+    /// While a title plays, AVKit takes Play/Pause and pauses the player
+    /// itself (Bedroom Apple TV, 2026-10-16): the pause still gets its glyph.
+    func test_pauseFromOutside_flashesPause_andShowsTheTransport() {
+        state.chrome = .hidden
+        tick(for: 0.2)
+        context.playback = .paused
+        send(.tick)
+        XCTAssertEqual(state.flash?.kind, .pause)
+        XCTAssertEqual(state.chrome, .transport)
+    }
+
+    func test_ownPause_flashesOnce() {
+        XCTAssertEqual(send(.playPause), [.togglePlayPause])
+        let serial = state.flash?.serial
+        context.playback = .paused
+        tick(for: 0.3)
+        XCTAssertEqual(state.flash?.serial, serial, "No second flash when the pause lands")
+        XCTAssertEqual(state.flash?.kind, .pause)
+    }
+
+    func test_scanPause_doesntFlash() {
+        send(.swipeStep(.right))
+        context.playback = .paused
+        tick(for: 0.3)
+        XCTAssertNil(state.flash)
     }
 
     func test_pressWhilePlaying_skipsTenSeconds_clampedToTheTitle() {
@@ -124,6 +170,7 @@ final class TVPlayerInputModelTests: XCTestCase, TVPlayerInputModelHarness {
 
     func test_transport_neverFadesWhilePausedOrLoading_andItsFadeStartsWithPlayback() {
         state.chrome = .hidden
+        tick(for: 0.1)
         context.playback = .paused
         tick(for: 10)
         XCTAssertEqual(state.chrome, .transport, "Pausing shows the transport, and it stays")
