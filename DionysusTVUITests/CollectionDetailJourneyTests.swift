@@ -93,7 +93,7 @@ final class CollectionDetailJourneyTests: TVUITestCase {
         press(.select)
         let elapsed = app.staticTexts[A11yID.TV.Player.elapsed]
         XCTAssertTrue(elapsed.waitForExistence(timeout: 10))
-        press(.menu)
+        leavePlayer(app)
         XCTAssertTrue(poll(timeout: 5) { !elapsed.exists })
         XCTAssertTrue(waitForFocus(play))
 
@@ -102,7 +102,7 @@ final class CollectionDetailJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(first))
         press(.select)
         XCTAssertTrue(elapsed.waitForExistence(timeout: 10), "A playlist's row plays; it doesn't open a detail page")
-        press(.menu)
+        leavePlayer(app)
         XCTAssertTrue(poll(timeout: 5) { !elapsed.exists })
         XCTAssertTrue(first.exists, "Back on the playlist")
     }

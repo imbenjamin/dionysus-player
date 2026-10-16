@@ -206,6 +206,14 @@ struct TVPlayerInputState: Equatable {
     var hiddenSkipSegmentID: String?
     var nextUpFocus: TVNextUpButton = .playNow
     var hasRequestedAdvance = false
+    /// When the Next Up count first read 0, so the card's last second plays
+    /// out before the next item takes over (`TVPlayerTiming.nextUpFinalSecond`).
+    var nextUpReachedZeroAt: TimeInterval?
+    /// The playback the last tick saw, to catch a pause from outside the
+    /// model (`tick`).
+    var observedPlayback: TVPlayerContext.Playback?
+    /// Our own Play/Pause asked for a pause, and flashed for it already.
+    var awaitsOwnPause = false
     var hasRequestedClose = false
     var flash: Flash?
 }
@@ -223,6 +231,12 @@ enum TVPlayerTiming {
     /// faster (Benjamin, Bedroom Apple TV, 2026-10-08). Its count is the
     /// highest level.
     static let scanRates: [Double] = [8, 32, 64, 128]
+    /// How long the Next Up card reads 0 before the next item plays. The
+    /// count truncates, so 0 means up to a second remains, and the card's bar
+    /// glides to empty over that second (`TVNextUpCard`): advancing as the
+    /// count reached 0 cut the countdown off with its bar a second from the
+    /// end and "1s" still showing (Benjamin, 2026-10-16).
+    static let nextUpFinalSecond: TimeInterval = 1
 }
 
 /// How a swipe maps onto the title.
@@ -338,6 +352,12 @@ enum TVPlayerInputModel {
                 state.transportFocus = .scrubber
                 return []
             }
+            // Up, Back hides the transport rather than leaving; hidden, it
+            // closes the player (Benjamin, 2026-10-16).
+            if !wasHidden {
+                state.chrome = .hidden
+                return []
+            }
             return [.close]
         case .up:
             guard !wasHidden else { return [] }
@@ -394,6 +414,7 @@ enum TVPlayerInputModel {
 
     static func togglePlayPause(_ state: inout TVPlayerInputState, context: TVPlayerContext) -> [TVPlayerCommand] {
         guard context.playback != .ended else { return [] }
+        if context.playback == .playing { state.awaitsOwnPause = true }
         flash(context.playback == .playing ? .pause : .play, &state)
         return [.togglePlayPause]
     }
@@ -477,10 +498,24 @@ enum TVPlayerInputModel {
             // The focus engine's focus, not the model's, is drawn.
             state.transportFocus = .scrubber
         }
+        // A pause from outside the model: while a title plays, tvOS gives the
+        // remote's Play/Pause to AVKit, the Now Playing app, which pauses the
+        // player itself and never sends the press on (Bedroom Apple TV,
+        // 2026-10-16). It gets the glyph and the transport ours would have.
+        if state.observedPlayback == .playing, context.playback == .paused, state.scrub == nil, !state.awaitsOwnPause {
+            flash(.pause, &state)
+            state.chrome = .transport
+            state.lastInputAt = now
+        }
+        if state.observedPlayback != context.playback {
+            state.observedPlayback = context.playback
+            state.awaitsOwnPause = false
+        }
         switch context.playback {
-        case .paused where context.accessibleTransport && state.chrome == .hidden:
-            // Hidden by hand: the person chose to watch without them
-            // (Benjamin, 2026-10-08), and Menu must still reach Close.
+        case .paused where state.chrome == .hidden:
+            // Hidden by hand, with Back or in the accessible transport: the
+            // person chose to watch without them (Benjamin, 2026-10-08 and
+            // 2026-10-16), and Back must still reach Close.
             state.lastInputAt = now
         case .loading, .paused, .failed:
             // The transport stays up, and its fade waits for playback, so a
@@ -500,8 +535,16 @@ enum TVPlayerInputModel {
             commands.append(.close)
         }
         if context.nextUpSecondsRemaining == nil { state.nextUpFocus = .playNow }
+        if context.nextUpSecondsRemaining == 0 {
+            if state.nextUpReachedZeroAt == nil { state.nextUpReachedZeroAt = now }
+        } else {
+            state.nextUpReachedZeroAt = nil
+        }
         // Review Focus 2: never under a scrub; once it resolves, once only.
-        if context.nextUpSecondsRemaining == 0, state.scrub == nil {
+        // Once the card's last second has played out, or sooner if the title
+        // ends first.
+        if let reachedZeroAt = state.nextUpReachedZeroAt, state.scrub == nil,
+           now - reachedZeroAt >= TVPlayerTiming.nextUpFinalSecond || context.playback == .ended {
             commands += playNext(&state)
         }
         return commands

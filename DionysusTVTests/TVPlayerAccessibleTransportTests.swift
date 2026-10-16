@@ -123,7 +123,7 @@ final class TVPlayerAccessibleTransportTests: XCTestCase, TVPlayerInputModelHarn
 
     func test_accessibleTransport_nextUpAtZero_advancesOnce() {
         context.nextUpSecondsRemaining = 0
-        XCTAssertEqual(tick(for: 1), [.playNext])
+        XCTAssertEqual(tick(for: 1.2), [.playNext])
         XCTAssertEqual(send(.control(.nextUp(.playNow))), [])
     }
 

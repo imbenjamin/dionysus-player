@@ -13,6 +13,20 @@ extension TVUITestCase {
         return app
     }
 
+    /// Leaves the player with Back. Back takes away one thing at a time
+    /// (DionysusTV/CLAUDE.md): with the transport up, the first press only
+    /// hides it, and whether it is still up depends on its 4s fade.
+    func leavePlayer(_ app: XCUIApplication) {
+        let player = app.descendants(matching: .any)[A11yID.TV.Player.focus]
+        press(.menu)
+        XCTAssertTrue(poll(timeout: 3) { !app.staticTexts[A11yID.TV.Player.elapsed].exists })
+        let deadline = Date().addingTimeInterval(1)
+        while player.exists, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        if player.exists { press(.menu) }
+    }
+
     /// `TVPlayerFocusID`'s id for what has focus in the player.
     func playerFocus(_ app: XCUIApplication) -> String {
         app.descendants(matching: .any)[A11yID.TV.Player.focus].label

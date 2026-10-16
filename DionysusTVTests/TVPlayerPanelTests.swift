@@ -98,12 +98,14 @@ final class TVPlayerPanelTests: XCTestCase, TVPlayerInputModelHarness {
         XCTAssertEqual(state.transportFocus, .scrubber)
     }
 
-    func test_menu_closesFromAnywhere() {
+    func test_menu_closesThePanel_thenHidesTheTransport_thenCloses() {
         send(.down)
         send(.down)
         XCTAssertEqual(send(.menu), [])
         XCTAssertNil(state.panel)
-        XCTAssertEqual(send(.menu), [.close], "A second Menu closes the player")
+        XCTAssertEqual(send(.menu), [], "A second Menu hides the transport")
+        XCTAssertEqual(state.chrome, .hidden)
+        XCTAssertEqual(send(.menu), [.close], "A third closes the player")
     }
 
     func test_panel_closesAfterTenQuietSeconds_andTheTransportFadesLater() {

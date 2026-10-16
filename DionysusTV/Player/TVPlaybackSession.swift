@@ -25,16 +25,17 @@ final class TVPlaybackSession {
 
     /// Safe in any state, `.loading` included. Returns where playback
     /// stopped, the first time only: read before `stop()`, which reports the
-    /// same position to the server.
+    /// same position to the server. `handingOff` when the next item takes
+    /// over this one's engine (`PlayerViewModel.stop(handingOff:)`).
     @discardableResult
-    func end() -> PlaybackSessionOutcome? {
+    func end(handingOff: Bool = false) -> PlaybackSessionOutcome? {
         guard !hasEnded else { return nil }
         hasEnded = true
         startTask?.cancel()
         let outcome = PlaybackSessionOutcome(
             itemID: viewModel.itemID, positionSeconds: viewModel.currentTime, durationSeconds: viewModel.duration
         )
-        Task { [viewModel] in await viewModel.stop() }
+        Task { [viewModel] in await viewModel.stop(handingOff: handingOff) }
         TopShelfRefresh.contentChanged()
         return outcome
     }

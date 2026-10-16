@@ -14,7 +14,7 @@ final class HomeJourneyTests: TVUITestCase {
         let app = launchAtHome()
         press(.select)
         XCTAssertTrue(app.staticTexts[A11yID.TV.Player.elapsed].waitForExistence(timeout: 10))
-        press(.menu)
+        leavePlayer(app)
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Detail.play]), "The title's detail page, focus on Play")
         XCTAssertFalse(app.staticTexts[A11yID.TV.Player.elapsed].exists)
         XCTAssertTrue(waitForCollapsed(app.buttons[A11yID.TV.Sidebar.home]), "The rail stays collapsed")

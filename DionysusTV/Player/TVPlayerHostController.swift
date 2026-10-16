@@ -33,8 +33,7 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
     private var modeIndependentRecognizers: Set<ObjectIdentifier> = []
     private var isAccessibleTransportApplied = false
     private var accessibleLayer: TVAccessibleTransportLayer?
-    /// VoiceOver's and Switch Control's status, kept apart from
-    /// `cancellables`, which `unbindSurface` empties for the next item.
+    /// VoiceOver's and Switch Control's status.
     private var accessibilityObservers: Set<AnyCancellable> = []
     private var cancellables: Set<AnyCancellable> = []
 
@@ -281,50 +280,35 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         ).run(commands)
     }
 
-    /// Builds the player for another item, for Next Up. Set by
-    /// `TVPlayerPresenter`, which holds the client, user and queue.
-    var makeViewModel: ((String) -> PlayerViewModel?)?
+    /// Builds the player for another item, for Next Up, on the engine
+    /// playing now. Set by `TVPlayerPresenter`, which holds the client, user
+    /// and queue.
+    var makeViewModel: ((String, PlaybackEngine) -> PlayerViewModel)?
 
     /// Play Now, or the countdown reaching zero: the next item plays in this
     /// player, without dismissing (spec, The host). The finished item is
     /// reported as iOS reports it, so Home and the page beneath are current.
     private func advanceToNextItem() {
-        guard let next = viewModel.nextEpisode, let nextViewModel = makeViewModel?(next.id) else { return close() }
+        // The next item plays on this engine, its `load()` replacing this
+        // one's. A new engine handed AVKit a new `AVPlayer`, which breaks
+        // AVKit's Now Playing registration (AetherEngine issue #15): on the
+        // Bedroom Apple TV the remote's Play/Pause then never reached the
+        // player, and a stop between the two sent the TV through its default
+        // mode, a black flash (Benjamin, 2026-10-16). The same engine keeps
+        // both the player and the mode across the seam.
+        guard let next = viewModel.nextEpisode, let nextViewModel = makeViewModel?(next.id, engine) else { return close() }
         // Before `end()`, as iOS's `tearDown` does: a late time update during
         // the stop could otherwise reach zero again and advance twice.
         viewModel.dismissNextUp()
-        if let outcome = session.end() {
+        if let outcome = session.end(handingOff: true) {
             pendingOutcome = outcome
             RecentPlaybackBroadcaster.shared.record(outcome)
         }
-        // While `session` still holds the old view model, so `engine` is the
-        // old engine.
-        unbindSurface()
         session = TVPlaybackSession(viewModel: nextViewModel)
         input.reset()
-        bindSurface()
         overlayHost?.rootView = TVPlayerOverlay(viewModel: nextViewModel, input: input)
         accessibleLayer?.rootView = TVPlayerOverlay(viewModel: nextViewModel, input: input, role: .accessibleLayer)
         session.begin()
-    }
-
-    private func unbindSurface() {
-        cancellables.removeAll()
-        if let aetherView {
-            if isAetherViewBound, let aether = engine as? AetherPlaybackEngine {
-                aether.hostEngine.unbind(view: aetherView)
-            }
-            aetherView.removeFromSuperview()
-        }
-        aetherView = nil
-        isAetherViewBound = false
-        player = nil
-        if let fakeSurface {
-            fakeSurface.willMove(toParent: nil)
-            fakeSurface.view.removeFromSuperview()
-            fakeSurface.removeFromParent()
-        }
-        fakeSurface = nil
     }
 
     @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
