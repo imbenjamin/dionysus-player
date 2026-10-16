@@ -560,11 +560,13 @@ capture-then-render workflow. What the scripts don't say:
   tvOS with no rotation or status bar to handle; the 4K Simulator saves
   3840×2160, kept downscaled to 1920×1080 in `store-screenshots/raw/appletv/`
   so the set can be re-rendered.
-- **The Top Shelf can't be shown with demo content**: the demo user has no
-  Continue Watching or Next Up (progress doesn't stick on the shared account),
-  and `/Items/Latest` returns only music albums, which the shelf leaves out,
-  so it shows the static image (2026-10-16). Don't capture it against a
-  personal server instead.
+- **On the demo server the Top Shelf can show only Recently Added**: the demo
+  user has no Continue Watching or Next Up (progress doesn't stick on the
+  shared account). It showed the static image when the set was made
+  (2026-10-16), since the shelf then asked `/Items/Latest` across every
+  library and got only music albums; it now asks the Movies and TV Shows
+  libraries (`DionysusTV/CLAUDE.md`, "Top Shelf"), which hasn't been checked
+  against the demo yet. Never capture it against a personal server.
 - **The Apple TV player slide claims HDR formats only**: Atmos end to end was
   never confirmed on the TV, and TrueHD Atmos is decoded to 5.1
   (`DionysusTV/CLAUDE.md`, "HDR and audio"). Avoid frames with burnt-in

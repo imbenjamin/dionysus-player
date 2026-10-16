@@ -466,12 +466,20 @@ footers.
 `.actions` carousel: the **first 3 Continue Watching** items, then Next Up
 not already shown, then Recently Added, 10 at most, a show once and nothing
 without a backdrop up its chain (Benjamin, 2026-10-14;
-`TopShelfContentBuilder`). Its display action (Select, More Info) opens the
-title's page (`dionysus://item/<id>?server=<id>`), its play action (Play,
-Play/Pause) plays over that page (`dionysus://play/…`), so Menu lands on the
-page; `TVDeepLink`, `TVDeepLinkRouter` and `TVMainView.apply(_:)`. A link
-waits while the session restores and is dropped when signed out or for
-another server.
+`TopShelfContentBuilder`). **Recently Added draws on Home's libraries**, the
+first Movies and the first TV Shows library, each asked for by its id, newest
+first across both (Benjamin, 2026-10-16). A show Latest groups is dated by
+its newest episode (`DateLastMediaAdded`), not its own `DateCreated`, which
+is when the show was first added. Unscoped, `/Items/Latest` draws on every
+library, music and books included, and groups by whichever library comes
+first (by album when that's Music), so on the demo server it once answered
+four music albums and the shelf showed the static image. Its display action
+(Select, More Info) opens the title's page
+(`dionysus://item/<id>?server=<id>`), its play action (Play, Play/Pause)
+plays over that page (`dionysus://play/…`), so Menu lands on the page;
+`TVDeepLink`, `TVDeepLinkRouter` and `TVMainView.apply(_:)`. A link waits
+while the session restores and is dropped when signed out or for another
+server.
 
 - **The text is drawn into the art.** tvOS 27 draws no text over a
   third-party carousel in either style (`.details` shows the bare image), so
