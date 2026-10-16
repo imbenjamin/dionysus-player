@@ -209,9 +209,14 @@ jobs:
       test-plan: UITests-Full
 
   tv-ui-full:
-    # The full tvOS UI suite for PRs into `stable`, as `ui-full` is for iOS.
+    # The full tvOS UI suite for PRs into `stable`, as `ui-full` is for iOS:
+    # split across four jobs, with retries, as the nightly and release.yml
+    # run it (see tv-ui-tests.yml's header). "Secure stable" requires
+    # "Full tvOS UI tests / Apple TV 4K, tvOS 27.0".
     name: Full tvOS UI tests
     if: github.base_ref == 'stable'
     uses: ./.github/workflows/tv-ui-tests.yml
     with:
       test-plan: TVUITests
+      retry-tests-on-failure: true
+      shards: 4

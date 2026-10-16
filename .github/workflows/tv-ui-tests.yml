@@ -17,6 +17,15 @@ name: tvOS UI tests
 # downloaded (3.76 GB, about five minutes). Until it passes in CI it runs
 # nightly only, as an allowed failure, so it neither gates a PR nor turns
 # the nightly red.
+#
+# On tvOS 27.0 the same stale tree still shows up now and then: about 5% of
+# test attempts in CI see a page or a focus change late or never, spread
+# across every journey, against about 1.5% on a Mac (measured over seven
+# full runs, 2026-10-15). A retry relaunches the app and passes, so
+# `retry-tests-on-failure` gives each failing test up to five attempts.
+# The full plan is split by class across `shards` parallel jobs
+# (Scripts/tv-ui-test-shards.py): in one job it took about an hour of test
+# time, which left the 90-minute limit no room for retries (v1.2.0-alpha.3).
 on:
   workflow_call:
     inputs:
@@ -50,17 +59,42 @@ on:
         required: false
         type: boolean
         default: false
+      shards:
+        description: >-
+          How many parallel jobs to split the plan across, by test class, for
+          each tvOS version. Only for a plan that runs whole classes
+          (TVUITests); a plan that selects single tests (TVUITests-Smoke)
+          stays at 1, or its classes would run whole.
+        required: false
+        type: number
+        default: 1
 
 permissions:
   contents: read
 
 jobs:
-  tv-ui-tests:
-    # ⚠️ This name is half of each check's context, "<caller job name> /
-    # <this name>", e.g. "tvOS UI smoke tests / Apple TV 4K, tvOS 27.0". If a
-    # ruleset requires it, renaming this or changing a version means
-    # updating the ruleset in the same breath.
-    name: Apple TV 4K, tvOS ${{ matrix.tvos }}
+  plan:
+    # Which classes each shard runs. On Linux: it only reads the sources.
+    name: Plan the shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Split the test classes
+        id: plan
+        env:
+          SHARDS: ${{ inputs.shards }}
+        run: |
+          shards=$(python3 Scripts/tv-ui-test-shards.py "$SHARDS")
+          echo "shards=$shards" >> "$GITHUB_OUTPUT"
+          echo "$shards" | jq -r '.[] | "Shard \(.index) of \(.count): \(if .tests == "" then "the whole plan" else .tests end)"'
+
+  shard:
+    name: Apple TV 4K, tvOS ${{ matrix.tvos }}, part ${{ matrix.shard.index }} of ${{ matrix.shard.count }}
+    needs: plan
     # See the top of this file for why not macos-26.
     runs-on: xcode-27
     timeout-minutes: ${{ inputs.timeout-minutes }}
@@ -69,6 +103,7 @@ jobs:
       fail-fast: false
       matrix:
         tvos: ${{ fromJSON(inputs.tvos-versions) }}
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
 
     steps:
       - name: Checkout
@@ -107,6 +142,10 @@ jobs:
           device-type: Apple TV 4K (3rd generation)
           ios-version: ${{ matrix.tvos }}
           retry-tests-on-failure: ${{ inputs.retry-tests-on-failure }}
+          # Five attempts in all, not xcodebuild's three: see the top of
+          # this file. A test that passes isn't run again.
+          test-iterations: "5"
+          only-testing: ${{ matrix.shard.tests }}
           # The journey that read a stale sidebar as the job's first test
           # (TESTING.md, "The first test's warm-up"); it's in both plans.
           warm-up-test: DionysusTVUITests/CollectionGridJourneyTests/test_tile_opensItsDetailPage_andMenuReturnsToIt
@@ -116,7 +155,35 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: tv-ui-test-results-${{ inputs.test-plan }}-tvOS-${{ matrix.tvos }}
+          name: tv-ui-test-results-${{ inputs.test-plan }}-tvOS-${{ matrix.tvos }}-part-${{ matrix.shard.index }}
           path: .build/TVUITestResults.xcresult
           retention-days: 7
           if-no-files-found: ignore
+
+  tv-ui-tests:
+    # ⚠️ This name is half of each check's context, "<caller job name> /
+    # <this name>", e.g. "tvOS UI smoke tests / Apple TV 4K, tvOS 27.0". If a
+    # ruleset requires it, renaming this or changing a version means
+    # updating the ruleset in the same breath.
+    #
+    # One result per tvOS version for the shards above, so the checks the
+    # rulesets require keep their names however many shards there are. It
+    # reads the shards of every version together, since `needs` can't tell
+    # a matrix's legs apart; every caller passes one version per call.
+    name: Apple TV 4K, tvOS ${{ matrix.tvos }}
+    needs: [plan, shard]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: ${{ inputs.allow-failure }}
+    strategy:
+      matrix:
+        tvos: ${{ fromJSON(inputs.tvos-versions) }}
+    steps:
+      - name: Every shard passed
+        env:
+          PLAN: ${{ needs.plan.result }}
+          SHARDS: ${{ needs.shard.result }}
+        run: |
+          echo "Planning: $PLAN. Shards: $SHARDS."
+          [ "$PLAN" = success ] && [ "$SHARDS" = success ]

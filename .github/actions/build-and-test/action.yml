@@ -55,6 +55,21 @@ inputs:
       flaky rather than as a break.
     required: false
     default: "false"
+  test-iterations:
+    description: >-
+      With `retry-tests-on-failure`, how many attempts a failing test gets in
+      all (`-test-iterations`). Empty keeps xcodebuild's default, 3. A test
+      that passes is never run again, so this costs nothing on a green run.
+    required: false
+    default: ""
+  only-testing:
+    description: >-
+      Space-separated test identifiers (`Target/Class` or
+      `Target/Class/test_name`) to run instead of the whole plan, each passed
+      as `-only-testing`. Empty runs the plan. tv-ui-tests.yml uses it to
+      split a plan across parallel jobs.
+    required: false
+    default: ""
 
   warm-up-test:
     description: >-
@@ -148,16 +163,29 @@ runs:
 
     - name: Test
       shell: bash
+      env:
+        # Via env, not `${{ }}` in the script: they're word-split into
+        # arguments below, never pasted into the script text.
+        ONLY_TESTING: ${{ inputs.only-testing }}
+        TEST_ITERATIONS: ${{ inputs.test-iterations }}
       run: |
         retry=()
         if [ "${{ inputs.retry-tests-on-failure }}" = "true" ]; then
           retry=(-retry-tests-on-failure)
+          if [ -n "$TEST_ITERATIONS" ]; then
+            retry+=(-test-iterations "$TEST_ITERATIONS")
+          fi
         fi
+        only=()
+        for test in $ONLY_TESTING; do
+          only+=("-only-testing:$test")
+        done
         xcodebuild test-without-building \
           -scheme "${{ inputs.scheme }}" \
           -project "${{ inputs.project }}" \
           -testPlan "${{ inputs.test-plan }}" \
           -destination "platform=${{ inputs.platform }} Simulator,id=${{ steps.select_simulator.outputs.udid }}" \
           "${retry[@]}" \
+          "${only[@]}" \
           -resultBundlePath "${{ inputs.result-bundle-path }}" \
           | xcbeautify --renderer github-actions

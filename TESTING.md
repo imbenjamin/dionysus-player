@@ -424,11 +424,17 @@ generation), the same 820×1180pt screen. Each environment runs with
 **Apple TV** has its own reusable workflow, `.github/workflows/tv-ui-tests.yml`:
 an Apple TV 4K (3rd generation) with Xcode 27.1 on GitHub's `xcode-27` image,
 one job per tvOS version. `TVUITests-Smoke` runs on tvOS 27.0 on every PR;
-`TVUITests` on 27.0 nightly and on PRs into `stable`. `release.yml` runs
-`TVUITests`, with retries as the nightly does, before `tvos-release` archives
-anything, and `pr-checks.yml`'s
-Release build compiles the Apple TV app and its extension as well as iOS. A failed job uploads
-`tv-ui-test-results-<plan>-tvOS-<version>`.
+`TVUITests` on 27.0 nightly, on PRs into `stable`, and in `release.yml` before
+`tvos-release` archives anything. `pr-checks.yml`'s Release build compiles the
+Apple TV app and its extension as well as iOS. A failed job uploads
+`tv-ui-test-results-<plan>-tvOS-<version>-part-<n>`.
+
+The full plan runs as **four parallel jobs** (`shards: 4`), split by test class
+(`Scripts/tv-ui-test-shards.py`, weighted by test count, so a new class needs
+no edit), each giving a failing test **up to five attempts**. A last job named
+`Apple TV 4K, tvOS <version>` passes only if every part did, so the required
+checks keep their names. Shard only a plan that runs whole classes: the smoke
+plan selects single tests and stays one job.
 
 - **Not tvOS 26.5, and not `macos-26`** (#319): on tvOS 26.x in CI the
   accessibility tree never shows a page the shell opens after launch. The
@@ -446,6 +452,15 @@ Release build compiles the Apple TV app and its extension as well as iOS. A fail
   runs one journey as a warm-up (`warm-up-test`), its result ignored. The
   same lag shows on a tvOS 26.5 Simulator locally; "Running the tests" has
   the local warm-up.
+- **Why shards and five attempts** (2026-10-15, seven full runs): on tvOS 27.0
+  the stale tree still hits about 5% of test attempts in CI (about 1.5% on a
+  Mac), at random across ~40 journeys and evenly through a run. The
+  recordings show the app right every time: the detail page open, the tile
+  focused, while every tree read for the whole wait says otherwise, so a
+  longer wait doesn't help but a relaunch does. Every failed run was one
+  multi-step journey failing all three of xcodebuild's default attempts, and
+  one job of the full plan took about an hour of test time, leaving the
+  90-minute limit no room for retries (`v1.2.0-alpha.3` ran out).
 
 **Required checks.** `develop` requires the iOS build and unit tests, the
 Release compile, GitGuardian, both `UI smoke tests / <device>, iOS 26.5`
