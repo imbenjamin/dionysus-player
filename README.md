@@ -21,19 +21,50 @@
 
 A better and open Apple client for Jellyfin.
 
-Dionysus Player is a native client for [Jellyfin](https://jellyfin.org) media
-servers, targeting iOS/iPadOS first, with tvOS and macOS to follow. It talks
-to your Jellyfin server over the [Jellyfin REST API](https://api.jellyfin.org/)
-and plays media using [AetherEngine](https://github.com/superuser404notfound/AetherEngine),
-an FFmpeg + VideoToolbox based playback engine with HDR10, HDR10+ and Dolby
+Dionysus Player is a native client for [Jellyfin](https://jellyfin.org)
+media servers on iPhone, iPad and Apple TV, with macOS to follow. It talks
+to your Jellyfin server over the
+[Jellyfin REST API](https://api.jellyfin.org/) and plays media using
+[AetherEngine](https://github.com/superuser404notfound/AetherEngine), an
+FFmpeg + VideoToolbox based playback engine with HDR10, HDR10+ and Dolby
 Vision support.
 
-The thing Dionysus is trying to do differently from other Jellyfin clients is
-**offline downloads that actually feel like a commercial streaming app's** —
-not a bolted-on "save for later" checkbox, but per-title quality control,
-reliable background transfer, bulk season downloads, its own fully-offline
-browsing UI, and local watch-progress that syncs back once you're
-reconnected. See [Downloads](#downloads) below for what that covers today.
+The thing Dionysus is trying to do differently from other Jellyfin clients
+is **offline downloads that actually feel like a commercial streaming
+app's** — not a bolted-on "save for later" checkbox, but per-title quality
+control, reliable background transfer, bulk season downloads, its own
+fully-offline browsing UI, and local watch-progress that syncs back once
+you're reconnected. See [Downloads](#downloads) below for what that covers
+today.
+
+On the Apple TV it aims for the same standard on the big screen: a
+remote-first interface of its own over the iOS app's core, a Top Shelf that
+picks up where you left off, and a profile for everyone in the house.
+
+## Screenshots
+
+Captured against the [Jellyfin demo server](https://demo.jellyfin.org/stable),
+whose catalogue is public-domain and Creative Commons. These are the App Store
+sets (see [Store screenshots](#store-screenshots)).
+
+**iPhone**
+
+<p align="center">
+  <img src="store-screenshots/appstore-iphone-69/01.png" alt="Home" width="19%">
+  <img src="store-screenshots/appstore-iphone-69/03.png" alt="A movie's detail page" width="19%">
+  <img src="store-screenshots/appstore-iphone-69/02.png" alt="The Movies grid with filters" width="19%">
+  <img src="store-screenshots/appstore-iphone-69/05.png" alt="Downloads" width="19%">
+  <img src="store-screenshots/appstore-iphone-69/06.png" alt="Home in light appearance" width="19%">
+</p>
+
+**Apple TV**
+
+<p align="center">
+  <img src="store-screenshots/appstore-appletv/01.png" alt="Home with its hero" width="49%">
+  <img src="store-screenshots/appstore-appletv/03.png" alt="A movie's detail page" width="49%">
+  <img src="store-screenshots/appstore-appletv/05.png" alt="The player with its Info panel" width="49%">
+  <img src="store-screenshots/appstore-appletv/07.png" alt="Who's Watching?" width="49%">
+</p>
 
 ## Features
 
@@ -94,7 +125,31 @@ reconnected. See [Downloads](#downloads) below for what that covers today.
   Connect codes from the Account screen, silent session restore, per-server
   config, profile/settings screen.
 
+### Apple TV
+
+The Apple TV app (tvOS 26 or later) shares the iOS app's networking,
+playback and view models, with an interface built for the Siri Remote:
+
+- **A sidebar shell** — Home's full-screen hero carousel and rails, library
+  grids with the same cascading filters, detail pages with episode rows and
+  Next Up, and Search with the system keyboard and dictation.
+- **Who's Watching?** — each Apple TV user signs in to their own Jellyfin
+  account, by password or Quick Connect, and every account signed in is
+  remembered for a one-press switch.
+- **Top Shelf** — Continue Watching, then Next Up, then Recently Added, with
+  Play and More Info straight from the Home Screen.
+- **Playback** — the same AetherEngine route as iOS, switching the TV to the
+  title's dynamic range and frame rate (Dolby Vision, HDR10, HDR10+ and HLG
+  read correctly on device); a transport of its own with scrubbing,
+  skip-segment buttons and a Next Up countdown; a swipe-down panel for Info,
+  Audio and Subtitles; and Now Playing on a paired iPhone.
+- **Accessibility** — VoiceOver throughout, including the player's
+  controls, and Reduce Motion, Reduce Transparency and Increase Contrast
+  honoured.
+
 ### Downloads
+
+Downloads are an iPhone and iPad feature; the Apple TV app has none.
 
 - **Per-title and per-episode downloads**, plus bulk **season/whole-show**
   download and delete, from the same detail screens as live content.
@@ -140,24 +195,33 @@ yet.
 
 Navigation, screens, and the networking/playback plumbing are in place with
 placeholder content where noted. With Xcode 26.6, the app builds clean end
-to end — package resolution (AetherEngine and its dependencies), compilation,
-and linking all succeed with no errors — and both the unit and UI test suites
-pass (see [Testing](#testing)). Real device testing (see `TESTING.md`) has confirmed
-direct-play HDR/Dolby Vision video with passthrough audio, the Downloads
-feature end-to-end (queueing, background transfer, resume, bulk season
-download, quality overrides, offline playback, sync-back), and Allow
-Transcoding live streaming (both AVC and HEVC transcode targets, seeking,
-Picture in Picture) — all driven by extensive live iPhone testing, not just
-unit tests. Areas still resting on unit-test coverage alone rather than
-confirmed live: non-Dolby-Vision HDR formats on other devices, and some
-seeking/scrubbing edge cases.
+to end — package resolution (AetherEngine and its dependencies),
+compilation, and linking all succeed with no errors — and both the unit and
+UI test suites pass (see [Testing](#testing)). Real device testing (see
+`TESTING.md`) has confirmed direct-play HDR/Dolby Vision video with
+passthrough audio, the Downloads feature end-to-end (queueing, background
+transfer, resume, bulk season download, quality overrides, offline playback,
+sync-back), and Allow Transcoding live streaming (both AVC and HEVC
+transcode targets, seeking, Picture in Picture) — all driven by extensive
+live iPhone testing, not just unit tests. Areas still resting on unit-test
+coverage alone rather than confirmed live: non-Dolby-Vision HDR formats on
+other devices, and some seeking/scrubbing edge cases.
 
 **v1.0.0**, the first final release, was tagged and submitted for Apple App
-Review on 2026-09-07. **v1.1.0** followed on 2026-10-04 and is with App Review
-now. It adds styled ASS/SSA subtitles, the redesigned welcome and server setup
-with network discovery, Quick Connect, playlist editing, and design polish
-across the app, and it raises the minimum to iOS 18. Its code is exactly what
-`v1.1.0-beta.2` tested.
+Review on 2026-09-07. **v1.1.0** followed on 2026-10-04. It adds styled
+ASS/SSA subtitles, the redesigned welcome and server setup with network
+discovery, Quick Connect, playlist editing, and design polish across the app,
+and it raises the minimum to iOS 18. Its code is exactly what `v1.1.0-beta.2`
+tested.
+
+**The Apple TV app reached a deployable state with v1.2.0-alpha.4**
+(2026-10-16), its first TestFlight build. Every release now builds, tests,
+signs and uploads both apps from the one tag, and the Apple TV app is gated
+on its own full UI suite. It has been checked on an Apple TV 4K (3rd
+generation) on tvOS 27: playback with HDR10, Dolby Vision, HDR10+ and HLG
+sources, the Top Shelf, Now Playing on a paired iPhone, and episode
+hand-offs. Its App Store listing is in preparation; it ships under the same
+App Store record as the iOS app (Universal Purchase).
 
 ## Known limitations
 
@@ -171,16 +235,23 @@ across the app, and it raises the minimum to iOS 18. Its code is exactly what
   app's subtitle overlay isn't inside the layer AVKit captures — the track is
   handed to AVKit as a native rendition instead. In-app playback is
   unaffected, styled or not.
-- **No Apple TV or Mac release yet.** An Apple TV app is being built on
-  `develop` (see [Building](#building)) but isn't in any release; macOS
-  hasn't started. Every release so far is iOS/iPadOS only.
+- **The Apple TV app is in TestFlight, not yet on the App Store**, and
+  there's no Mac app; macOS hasn't started.
+- **On the Apple TV, the Top Shelf follows whoever last used Dionysus**, not
+  the Apple TV user currently selected: the system gives the extension the
+  default user's keychain whichever user is active. After a user switch it
+  shows the previous person's rows until Dionysus is opened.
+- **tvOS's own user switching is unreliable** (a system bug, fixed in 26.6
+  and reported again on 27): a cold launch can run as the wrong Apple TV
+  user. Profile → Follow Apple TV Users can be turned off to keep switching
+  inside the app instead.
 - **On tvOS 26, a library grid can draw an unfocused poster lifted** while
   focus is in the sidebar or the filter row (the poster just left, or every
   poster after a sort or filter change), until focus moves back into the
   grid. It's the system poster following SwiftUI's focus; tvOS 27 fixed it,
   and every Apple TV on 26 can update.
 - **Audio/music libraries aren't supported yet** — browsing/playing music is
-  future scope (see Apple TV and Mac above), so a server's Music library and its
+  future scope, so a server's Music library and its
   contents (tracks, albums, artists) are suppressed throughout the app:
   hidden from Home's library rail and excluded server-side from Continue
   Watching/library grids, with a clear "not supported" state on the rare
@@ -200,7 +271,8 @@ across the app, and it raises the minimum to iOS 18. Its code is exactly what
 ## Requirements
 
 - Xcode 26 or later (the Liquid Glass UI builds against the iOS 26 SDK)
-- iOS/iPadOS 18 or later to run it (AetherEngine 7.x's platform floor)
+- iOS/iPadOS 18 or later to run it (AetherEngine 7.x's platform floor), or
+  tvOS 26 or later for the Apple TV app
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
 - A Jellyfin server to point the app at
 
@@ -218,12 +290,13 @@ open DionysusPlayer.xcodeproj
 Then let Xcode resolve Swift Package dependencies (AetherEngine) and build
 the `DionysusPlayer` scheme.
 
-An Apple TV app is in progress under the `DionysusTV` scheme (tvOS 26 or
-later), sharing the iOS app's core. Each Apple TV user signs in to their own
-Jellyfin account on the household's server. Its unit tests run with:
+The Apple TV app is the `DionysusTV` scheme in the same project (tvOS 26 or
+later; same bundle ID as the iOS app, for Universal Purchase). Building it
+also builds and embeds its Top Shelf extension, `DionysusTVTopShelf`. From
+the command line:
 
 ```sh
-xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
+xcodebuild build -project DionysusPlayer.xcodeproj -scheme DionysusTV \
   -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)'
 ```
 
@@ -252,6 +325,16 @@ the iOS 18 floor.
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
   -testPlan UITests-Smoke \
   -destination 'platform=iOS Simulator,name=iPhone 17'
+```
+
+The Apple TV app has the same two layers: `DionysusTVTests` (the shared
+test files) and `DionysusTVUITests`, whose smoke plan gates every PR and
+whose full plan gates every release. Its unit tests run with:
+
+```sh
+xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
+  -testPlan TVUnitTests \
+  -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)'
 ```
 
 All tests passing as of this writing. See [`TESTING.md`](TESTING.md) for the
@@ -286,8 +369,9 @@ DionysusPlayer/
 │   └── Profile/         Server/account settings, build version footer
 └── Shared/         Reusable components (poster cards, async images, nav)
 
-DionysusTV/         The Apple TV app (in progress) — its own UI over the
-                    iOS app's Core and view models
+DionysusTV/         The Apple TV app — its own UI over the iOS app's Core
+                    and view models
+DionysusTVTopShelf/ The Apple TV app's Top Shelf extension
 ```
 
 The networking and playback layers are each behind a small protocol
@@ -297,7 +381,8 @@ previews/tests — without touching feature code.
 
 ## Localization
 
-The app's user-facing strings go through Apple's [String Catalog](https://developer.apple.com/documentation/xcode/localizing-and-varying-text-with-a-string-catalog)
+The app's user-facing strings go through Apple's
+[String Catalog](https://developer.apple.com/documentation/xcode/localizing-and-varying-text-with-a-string-catalog)
 mechanism (`DionysusPlayer/Resources/Localizable.xcstrings`), the current
 standard replacement for `.strings`/`.stringsdict` files. Only English is
 populated so far — no other language is enabled yet — but the mechanism is
@@ -330,8 +415,9 @@ changes.
 
 [`store-screenshots/`](store-screenshots) holds the App Store Connect
 screenshot sets — one folder per required size (`appstore-iphone-69`,
-`appstore-iphone-65`, `appstore-ipad-13`), six PNGs each at exact store
-pixel dimensions. Every slide is a real screenshot of the running app
+`appstore-iphone-65`, `appstore-ipad-13`, six PNGs each, and
+`appstore-appletv`, seven at 1920×1080), at exact store pixel dimensions.
+Every slide is a real screenshot of the running app
 (against the [Jellyfin demo server](https://demo.jellyfin.org/stable), so
 no personal library content or credentials appear in them) framed and
 captioned to match the brand palette in
@@ -351,15 +437,26 @@ Producing a set is two steps:
    complete/in-progress items, and Home again in the opposite appearance.
    Name them to match `Scripts/store-screenshots/gen.py`'s `SLIDES` list
    (`01-home.png` … `06-light.png`) into `<raw>/iphone/` and `<raw>/ipad/`.
+
+   For the Apple TV, sign the tvOS Simulator in to the demo server and
+   capture with `xcrun simctl io <udid> screenshot` (no status bar or
+   rotation to deal with): Home's hero, the Movies grid, a movie page, a
+   show page, the player paused with its swipe-down panel on Info, Search
+   with results, and Who's Watching?. Name them to match `gen.py`'s
+   `TV_SLIDES` into `<raw>/appletv/`. The captures used for the current set
+   are kept, downscaled to 1920×1080, in
+   [`store-screenshots/raw/appletv/`](store-screenshots/raw/appletv).
 2. **Render the store PNGs**:
    ```sh
    ./Scripts/render-store-screenshots.sh <raw-dir> store-screenshots
    ```
    This builds `Scripts/store-screenshots/shot.swift` (a headless WKWebView
    snapshot tool — no Chrome/Node dependency) and runs `gen.py` to lay each
-   raw screenshot into a CSS-drawn device frame over a brand-gradient
-   background with a headline/subcopy pair, then renders each slide to a
-   PNG at the exact size App Store Connect expects.
+   raw screenshot into a CSS-drawn device frame (none for the Apple TV,
+   whose screenshot is the whole screen) over a brand-gradient background
+   with a headline/subcopy pair, then renders each slide to a PNG at the
+   exact size App Store Connect expects. Each set renders only if its raw
+   folder is there, so the Apple TV set can be redone on its own.
 
 Update the headline/subcopy text or the backdrop palette in `gen.py`
 directly; re-run the render script to regenerate. See that file's own
@@ -367,24 +464,25 @@ comments for the slide list and layout parameters.
 
 ## License
 
-GPLv3 (see [LICENSE](LICENSE)), with an added App Store/DRM exception
-under GPLv3 §7 permitting distribution through the Apple App Store and
-similar platforms despite their code-signing and DRM restrictions —
-source obligations are otherwise unaffected. [AetherEngine](https://github.com/superuser404notfound/AetherEngine),
-the playback engine dependency, is separately licensed under
-LGPL-3.0 with its own equivalent App Store/DRM exception.
+GPLv3 (see [LICENSE](LICENSE)), with an added App Store/DRM exception under
+GPLv3 §7 permitting distribution through the Apple App Store and similar
+platforms despite their code-signing and DRM restrictions — source
+obligations are otherwise unaffected.
+[AetherEngine](https://github.com/superuser404notfound/AetherEngine), the
+playback engine dependency, is separately licensed under LGPL-3.0 with its
+own equivalent App Store/DRM exception.
 [swift-ass-renderer](https://github.com/mihai8804858/swift-ass-renderer) and
 [swift-libass](https://github.com/mihai8804858/swift-libass), which render
 styled ASS/SSA subtitles, are MIT; the native libraries swift-libass vendors
 carry their own licences (libass ISC, HarfBuzz MIT, FreeType FTL, fontconfig
 MIT, libpng, and FriBidi LGPL-2.1+ — all GPLv3-compatible).
 [LibTrueHD](https://github.com/superuser404notfound/LibTrueHD), which
-AetherEngine pulls in for TrueHD Atmos, is MIT with Apache-2.0 crates compiled
-in. Every library that ships in the app has its notices in
-[THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES): AetherEngine; FFmpeg, dav1d, zimg
-and libzvbi (through FFmpegBuild); libdovi; LibTrueHD; the six native
-subtitle libraries; and the Swift packages. The License page shows them after
-the app's own licence, each under the library's name.
+AetherEngine pulls in for TrueHD Atmos, is MIT with Apache-2.0 crates
+compiled in. Every library that ships in the app has its notices in
+[THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES): AetherEngine; FFmpeg, dav1d,
+zimg and libzvbi (through FFmpegBuild); libdovi; LibTrueHD; the six native
+subtitle libraries; and the Swift packages. The License page shows them
+after the app's own licence, each under the library's name.
 
 See [PRIVACY.md](PRIVACY.md) for the app's privacy policy — also reachable
 in-app from Profile.

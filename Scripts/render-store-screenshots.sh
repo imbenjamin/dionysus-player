@@ -1,5 +1,6 @@
 #!/bin/sh
-# Renders App Store screenshot sets (iPhone 6.9", iPhone 6.5", iPad 13")
+# Renders App Store screenshot sets (iPhone 6.9", iPhone 6.5", iPad 13",
+# Apple TV)
 # from a folder of raw device screenshots, using Scripts/store-screenshots/
 # {gen.py,shot.swift}.
 #
@@ -12,13 +13,15 @@
 #
 # usage: Scripts/render-store-screenshots.sh <raw-dir> <out-dir>
 #
-#   <raw-dir> must contain an iphone/ and an ipad/ subfolder, each holding
+#   <raw-dir> holds an iphone/, ipad/ and/or appletv/ subfolder (each set
+#   renders only if its folder is there), each holding
 #   the slide source screenshots named to match Scripts/store-screenshots/
 #   gen.py's SLIDES list (01-home.png, 02-grid.png, 03-detail.png,
 #   04-player.png, 05-downloads.png, 06-light.png as of this writing — the
 #   iPad and iPhone frames of a given slide are independent captures, since
 #   the app looks different at each size, but should show the same content
-#   so the sets read as one series).
+#   so the sets read as one series). appletv/ holds tvOS Simulator captures
+#   named to match gen.py's TV_SLIDES (01-home.png … 07-whos-watching.png).
 #
 #   <out-dir> is created if missing, with one subfolder per store size —
 #   this is what you upload to App Store Connect, one subfolder per slot.
@@ -34,8 +37,8 @@ if [ -z "$RAW" ] || [ -z "$OUT" ]; then
     echo "usage: $0 <raw-dir> <out-dir>" >&2
     exit 2
 fi
-if [ ! -d "$RAW/iphone" ] || [ ! -d "$RAW/ipad" ]; then
-    echo "error: $RAW must contain iphone/ and ipad/ subfolders" >&2
+if [ ! -d "$RAW/iphone" ] && [ ! -d "$RAW/ipad" ] && [ ! -d "$RAW/appletv" ]; then
+    echo "error: $RAW must contain an iphone/, ipad/ or appletv/ subfolder" >&2
     exit 2
 fi
 
@@ -48,12 +51,10 @@ trap 'rm -rf "$WORK"' EXIT
 SHOT="$WORK/shot"
 swiftc -O -o "$SHOT" "$TOOLDIR/shot.swift"
 
-mkdir -p "$OUT/appstore-iphone-69" "$OUT/appstore-iphone-65" "$OUT/appstore-ipad-13"
-
 render_set() {
     kind="$1" src="$2" W="$3" H="$4" dest="$5"
     work="$WORK/$dest"
-    mkdir -p "$work"
+    mkdir -p "$work" "$OUT/$dest"
     cp "$src"/*.png "$work/" 2>/dev/null || true
     n_slides=$(python3 "$TOOLDIR/gen.py" "$kind" "$W" "$H" "$work" all | wc -l | tr -d ' ')
     idx=1
@@ -64,9 +65,16 @@ render_set() {
     done
 }
 
-render_set iphone "$RAW/iphone" 1320 2868 appstore-iphone-69
-render_set iphone "$RAW/iphone" 1284 2778 appstore-iphone-65
-render_set ipad   "$RAW/ipad"   2064 2752 appstore-ipad-13
+if [ -d "$RAW/iphone" ]; then
+    render_set iphone "$RAW/iphone" 1320 2868 appstore-iphone-69
+    render_set iphone "$RAW/iphone" 1284 2778 appstore-iphone-65
+fi
+if [ -d "$RAW/ipad" ]; then
+    render_set ipad "$RAW/ipad" 2064 2752 appstore-ipad-13
+fi
+if [ -d "$RAW/appletv" ]; then
+    render_set appletv "$RAW/appletv" 1920 1080 appstore-appletv
+fi
 
 echo "Rendered to $OUT:"
 for f in "$OUT"/*/*.png; do
