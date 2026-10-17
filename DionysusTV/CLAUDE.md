@@ -96,6 +96,12 @@ first screen came back at the top.
   Home, the hero's Play, however far down focus had been). The shell bumps it
   when focus leaves without a row chosen; the page takes what it had when the
   rail opened, since tvOS's own move lands first and is remembered.
+- **The app is built with Xcode 27.1 (the tvOS 27 SDK), in CI as here.**
+  Built with Xcode 26.6, as `release.yml` archived v1.2.0-alpha.4 and alpha.5,
+  it ran on tvOS 27 with tvOS 26's focus rendering: a focused button's label
+  was drawn light on its white platter, except where the label set `.primary`
+  itself (Favorite's heart), which turned black. Nothing in the code or a
+  Simulator showed it; a device build from the Mac didn't either.
 - **Each page's content is a focus section**, so Right from any row enters it
   (Profile's buttons are level with no row). Left from Search's keyboard stays
   in the keyboard; Menu still opens the rail there.

@@ -115,7 +115,8 @@ jobs:
     # ⚠️ Both rulesets require this check by name, "tvOS build and unit
     # tests". Renaming the job means updating both rulesets first.
     name: tvOS build and unit tests
-    runs-on: macos-26
+    # The Xcode and image release.yml's tvos-release archives with (see there).
+    runs-on: xcode-27
     timeout-minutes: 45
 
     steps:
@@ -124,6 +125,8 @@ jobs:
 
       - name: Set up iOS project
         uses: ./.github/actions/setup-ios-project
+        with:
+          xcode-version: "27.1"
 
       - name: List tvOS runtimes
         run: xcrun simctl list runtimes | grep -i tvos || (echo "::error::No tvOS runtime on this image" && exit 1)
