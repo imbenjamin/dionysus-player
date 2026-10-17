@@ -385,7 +385,12 @@ jobs:
   tvos-release:
     name: tvOS build, test, archive and upload
     needs: [tv-ui-tests, prepare]
-    runs-on: macos-26
+    # Xcode 27.1 on the xcode-27 image, as tv-ui-tests.yml, not ios-release's
+    # 26.6: an app built against the tvOS 26 SDK runs on tvOS 27 with the
+    # old focus rendering, where a focused button's label is drawn light on
+    # its white platter (v1.2.0-alpha.4 and alpha.5; the same commit built
+    # with 27.1 drew it black on the same Apple TV, 2026-10-17).
+    runs-on: xcode-27
     timeout-minutes: 60
 
     steps:
@@ -399,6 +404,8 @@ jobs:
 
       - name: Set up iOS project
         uses: ./.github/actions/setup-ios-project
+        with:
+          xcode-version: "27.1"
 
       - name: Stamp version from the tag being built
         # As ios-release's step: the tag exists, so nothing is predicted.
