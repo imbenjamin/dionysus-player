@@ -114,6 +114,39 @@ final class TopShelfArtworkComposerTests: XCTestCase {
         XCTAssertFalse(store.isMarkedRendering(entry.artworkKey))
     }
 
+    /// A load that found nothing (a server not answering as the TV wakes)
+    /// leaves the drawn art for the next.
+    func test_anEmptyLoad_keepsTheCachedArt() async throws {
+        MockURLProtocol.requestHandler = { request in MockURLProtocol.jsonResponse(for: request, body: Self.png) }
+        let entry = entries()[0]
+        _ = await TopShelfArtworkComposer.artwork(for: [entry], store: store, session: MockURLProtocol.makeSession())
+        XCTAssertNotNil(store.existing(for: entry.artworkKey))
+
+        _ = await TopShelfArtworkComposer.artwork(for: [], store: store, session: MockURLProtocol.makeSession())
+        XCTAssertNotNil(store.existing(for: entry.artworkKey))
+    }
+
+    /// The app asks for a refresh on every return, so tvOS can start a load
+    /// while one is drawing: the second waits, rather than taking the first's
+    /// marker for a render that died.
+    func test_overlappingLoads_neverMarkEachOthersRenderFailed() async throws {
+        MockURLProtocol.requestHandler = { request in
+            Thread.sleep(forTimeInterval: 0.2)
+            return MockURLProtocol.jsonResponse(for: request, body: Self.png)
+        }
+        let entry = entries()[0], store = store!
+        async let first = TopShelfArtworkComposer.artwork(for: [entry], store: store, session: MockURLProtocol.makeSession())
+        // Started while the first is fetching its backdrop.
+        async let second: [String: URL] = {
+            try? await Task.sleep(for: .milliseconds(100))
+            return await TopShelfArtworkComposer.artwork(for: [entry], store: store, session: MockURLProtocol.makeSession())
+        }()
+        let (a, b) = await (first, second)
+        XCTAssertFalse(store.isFailed(entry.artworkKey))
+        XCTAssertNotNil(a[entry.id])
+        XCTAssertNotNil(b[entry.id])
+    }
+
     func test_withoutAStore_composesNothing() async {
         let art = await TopShelfArtworkComposer.artwork(for: entries(), store: nil, session: MockURLProtocol.makeSession())
         XCTAssertTrue(art.isEmpty)

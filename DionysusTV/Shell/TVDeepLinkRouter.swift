@@ -20,6 +20,15 @@ enum TVDeepLinkRouter {
         case .play: return .play(itemID: link.itemID)
         }
     }
+
+    /// Whether a link being applied may go on after an await. Applying takes
+    /// a few (the closing player, the item's fetch), and a sign-out in
+    /// between must end it: on return after a while tvOS can hand the app
+    /// the link before Who's Watching? signs out, and the player would
+    /// otherwise open over the picker on the last user's account (M6 review).
+    static func canFinish(appliedFor userID: String, isSignedIn: Bool, signedInUserID: String?) -> Bool {
+        isSignedIn && signedInUserID == userID
+    }
 }
 
 extension EnvironmentValues {

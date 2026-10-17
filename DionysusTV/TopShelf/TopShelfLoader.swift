@@ -16,18 +16,16 @@ enum TopShelfLoader {
         DeviceIdentity.adopt(deviceID: session.deviceID, deviceName: session.deviceName)
         let userID = session.userID
         let client = JellyfinAPIClient(baseURL: session.serverURL, accessToken: session.accessToken, session: urlSession)
-        do {
-            async let resume = client.resumeItems(
-                userID: userID, excludeItemTypes: JellyfinAPIClient.audioItemTypeExclusions, fields: JellyfinAPIClient.topShelfFields)
-            async let nextUp = client.nextUp(userID: userID, limit: TopShelfContentBuilder.totalLimit, fields: JellyfinAPIClient.topShelfFields)
-            async let latest = recentlyAdded(client: client, userID: userID)
-            return try await TopShelfContentBuilder.entries(
-                resume: resume.items, nextUp: nextUp.items, latest: latest,
-                images: client.makeImageURLBuilder(), serverID: session.serverID
-            )
-        } catch {
-            return []
-        }
+        // A source that fails is left out and the rest shown (M6 review); a
+        // revoked token fails all three, which is the static image.
+        async let resume = try? await client.resumeItems(
+            userID: userID, excludeItemTypes: JellyfinAPIClient.audioItemTypeExclusions, fields: JellyfinAPIClient.topShelfFields)
+        async let nextUp = try? await client.nextUp(userID: userID, limit: TopShelfContentBuilder.totalLimit, fields: JellyfinAPIClient.topShelfFields)
+        async let latest = try? await recentlyAdded(client: client, userID: userID)
+        return await TopShelfContentBuilder.entries(
+            resume: resume?.items ?? [], nextUp: nextUp?.items ?? [], latest: latest ?? [],
+            images: client.makeImageURLBuilder(), serverID: session.serverID
+        )
     }
 
     /// Recently Added from Home's libraries (Benjamin, 2026-10-16): the first
