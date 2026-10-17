@@ -49,6 +49,18 @@ final class TopShelfContentBuilderTests: XCTestCase {
         XCTAssertEqual(ids, ["e1", "e9", "l1"])
     }
 
+    /// Latest groups a TV library's new episodes into the show itself, whose
+    /// id is the show's and which has no `seriesId`.
+    func test_neverRepeatsAShowFromLatest_alreadyShownByItsEpisode() {
+        var show = BaseItemDto(id: "s1", name: "Show s1", type: .series)
+        show.backdropImageTags = ["tag-s1"]
+        var otherShow = BaseItemDto(id: "s2", name: "Show s2", type: .series)
+        otherShow.backdropImageTags = ["tag-s2"]
+        let ids = build(resume: [episode("e1", series: "s1")], nextUp: [episode("e3", series: "s3")],
+                        latest: [show, otherShow, movie("l1")]).map(\.id)
+        XCTAssertEqual(ids, ["e1", "e3", "s2", "l1"])
+    }
+
     func test_dropsItemsWithNoArt_andSeasonsOrShowsFromResume() {
         var season = BaseItemDto(id: "season", name: "Season 1", type: .season)
         season.backdropImageTags = ["t"]

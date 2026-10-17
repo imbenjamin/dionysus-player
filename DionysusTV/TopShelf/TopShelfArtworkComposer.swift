@@ -9,9 +9,19 @@ enum TopShelfArtworkComposer {
     static let budget: Duration = .seconds(6)
     private static let concurrency = 1
 
+    /// One load at a time in the process. The app asks for a refresh on every
+    /// return, so tvOS can start a load while one is drawing, which would take
+    /// the first's marker for a render that died (M6 review); and two renders
+    /// at once wouldn't fit the memory.
+    private static let serial = Serial()
+
     /// File URLs by entry id; an entry missing keeps its backdrop URL.
     static func artwork(for entries: [TopShelfEntry], store: TopShelfArtworkStore?, session: URLSession) async -> [String: URL] {
         guard let store else { return [:] }
+        return await serial.run { await artwork(for: entries, in: store, session: session) }
+    }
+
+    private static func artwork(for entries: [TopShelfEntry], in store: TopShelfArtworkStore, session: URLSession) async -> [String: URL] {
         var art: [String: URL] = [:]
         var pending: [TopShelfEntry] = []
         // A marker left behind means the last load died rendering that item:
@@ -55,8 +65,25 @@ enum TopShelfArtworkComposer {
             }
             group.cancelAll()
         }
-        store.prune(keeping: Set(entries.map(\.artworkKey)))
+        // A load that found nothing (the server not answering as the TV
+        // wakes) leaves the art for the next.
+        if !entries.isEmpty { store.prune(keeping: Set(entries.map(\.artworkKey))) }
         return art
+    }
+
+    /// Runs each piece of work after the one before it has finished.
+    private actor Serial {
+        private var last: Task<Void, Never>?
+
+        func run<T: Sendable>(_ work: @escaping @Sendable () async -> T) async -> T {
+            let previous = last
+            let task = Task {
+                await previous?.value
+                return await work()
+            }
+            last = Task { _ = await task.value }
+            return await task.value
+        }
     }
 
     /// An item whose last render never finished killed the extension then and

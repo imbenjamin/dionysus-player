@@ -518,6 +518,13 @@ destination other than the user's Jellyfin server.
 bundled, or one needs nested lists, code blocks or tables, switch to a real
 Markdown library (e.g. MarkdownUI).
 
+**The privacy manifests are per target**: iOS's
+`DionysusPlayer/Resources/PrivacyInfo.xcprivacy`, the Apple TV app's
+`DionysusTV/Resources/PrivacyInfo.xcprivacy` and the Top Shelf extension's
+`DionysusTVTopShelf/PrivacyInfo.xcprivacy`. A required-reason API
+(UserDefaults, disk space, `systemUptime`, file timestamps…) newly used in a
+target's code needs an entry in that target's manifest, in the same PR.
+
 **`THIRD-PARTY-NOTICES`** (repo root, symlinked into `Resources/` like
 `LICENSE`) holds the notices of every library that ships in the app
 (2026-10-13): AetherEngine and what it brings (FFmpeg, dav1d, zimg, libzvbi,

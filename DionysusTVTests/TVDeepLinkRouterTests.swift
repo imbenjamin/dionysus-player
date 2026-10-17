@@ -19,4 +19,14 @@ final class TVDeepLinkRouterTests: XCTestCase {
         play.action = .play
         XCTAssertEqual(TVDeepLinkRouter.decide(play, isRestoringSession: false, isSignedIn: true, serverID: "http://jf.local"), .play(itemID: "m1"))
     }
+
+    /// A link takes a few awaits to apply (the closing player, the item's
+    /// fetch); a sign-out in between, as Who's Watching? on return, or
+    /// another user signed in, ends it (M6 review).
+    func test_aLinkBeingApplied_finishesOnlyForTheSameSignedInUser() {
+        XCTAssertTrue(TVDeepLinkRouter.canFinish(appliedFor: "u1", isSignedIn: true, signedInUserID: "u1"))
+        XCTAssertFalse(TVDeepLinkRouter.canFinish(appliedFor: "u1", isSignedIn: false, signedInUserID: "u1"))
+        XCTAssertFalse(TVDeepLinkRouter.canFinish(appliedFor: "u1", isSignedIn: true, signedInUserID: "u2"))
+        XCTAssertFalse(TVDeepLinkRouter.canFinish(appliedFor: "u1", isSignedIn: true, signedInUserID: nil))
+    }
 }

@@ -53,6 +53,19 @@ final class TopShelfLoaderTests: XCTestCase {
         XCTAssertTrue(headers.allSatisfy { $0.contains("DeviceId=\"dev\"") }, "Every request carries the app's device id")
     }
 
+    /// One source failing leaves the others on the shelf.
+    func test_aFailingSource_leavesTheOthers() async {
+        MockURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            guard path.hasSuffix("/Items/Resume") else { return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data()) }
+            var movie = BaseItemDto(id: "m1", name: "Arrival", type: .movie)
+            movie.backdropImageTags = ["t"]
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [movie], totalRecordCount: 1))
+        }
+        let entries = await TopShelfLoader.load(session: session, urlSession: MockURLProtocol.makeSession())
+        XCTAssertEqual(entries.map(\.id), ["m1"])
+    }
+
     /// Home's libraries: the first Movies and the first TV Shows library.
     /// Music, books and a second library of either kind are never asked, and
     /// nothing asks `/Items/Latest` unscoped.

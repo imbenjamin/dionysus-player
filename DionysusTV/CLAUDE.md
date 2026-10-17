@@ -472,7 +472,10 @@ footers.
 `.actions` carousel: the **first 3 Continue Watching** items, then Next Up
 not already shown, then Recently Added, 10 at most, a show once and nothing
 without a backdrop up its chain (Benjamin, 2026-10-14;
-`TopShelfContentBuilder`). **Recently Added draws on Home's libraries**, the
+`TopShelfContentBuilder`). A show once means Latest's own entry for it too:
+Latest groups a TV library's new episodes into the Series, which has no
+`seriesId`, so the builder keys a show by the Series' id or an episode's
+`seriesId`. A source that fails is left out and the rest shown. **Recently Added draws on Home's libraries**, the
 first Movies and the first TV Shows library, each asked for by its id, newest
 first across both (Benjamin, 2026-10-16). A show Latest groups is dated by
 its newest episode (`DateLastMediaAdded`), not its own `DateCreated`, which
@@ -485,7 +488,9 @@ four music albums and the shelf showed the static image. Its display action
 plays over that page (`dionysus://play/…`), so Menu lands on the page;
 `TVDeepLink`, `TVDeepLinkRouter` and `TVMainView.apply(_:)`. A link waits
 while the session restores and is dropped when signed out or for another
-server.
+server. Applying one takes a few awaits, and after each it stops unless the
+same user is still signed in (`TVDeepLinkRouter.canFinish`): returning after
+a while, tvOS can hand the app the link before Who's Watching? signs out.
 
 - **The text is drawn into the art.** tvOS 27 draws no text over a
   third-party carousel in either style (`.details` shows the bare image), so
@@ -507,7 +512,10 @@ server.
   won't fit what's free (`pixelWidth`). A render that kills the extension
   leaves a `.rendering` marker: the next load marks that item `.failed`
   (plain backdrop from then on) and draws nothing new, so a death costs one
-  blank load, not one per item.
+  blank load, not one per item. **Loads run one at a time**
+  (`TopShelfArtworkComposer`'s `Serial`): the app asks for a refresh on every
+  return, and a second load during a render took its marker for a death. A
+  load that found nothing leaves the cache alone.
 
 - **It shows whoever last used Dionysus, not the current Apple TV profile.**
   On Bedroom with two profiles the extension read the *default* profile's
@@ -533,6 +541,12 @@ server.
   `loadTopShelfContent()` override doesn't compile under Swift 6, so the
   provider uses the completion-handler one. Art is set at `.screenScale2x`
   only, the scale Apple TV renders (Sodalite).
+- **Each target has its own privacy manifest**: the app's
+  `DionysusTV/Resources/PrivacyInfo.xcprivacy` (UserDefaults, and system boot
+  time for the player's `systemUptime` clocks), the extension's
+  `DionysusTVTopShelf/PrivacyInfo.xcprivacy` (UserDefaults). The iOS app's
+  isn't compiled for tvOS; a new required-reason API in tvOS code needs an
+  entry in the target's manifest.
 - **The extension stays UI-free:** it compiles `DionysusTV/TopShelf`,
   `Core/Networking` (less discovery and the image loader), `Core/Models`,
   `Chapter.swift` and the keychain and session files (`project.yml`). Code

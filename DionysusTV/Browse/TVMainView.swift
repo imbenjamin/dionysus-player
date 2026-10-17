@@ -249,20 +249,28 @@ struct TVMainView: View {
         TVPlayerPresenter.dismissPlayer()
         if nav.destination != .home || !nav.path.isEmpty { select(.home) }
         Task { @MainActor in
+            // Asked after every await (`TVDeepLinkRouter.canFinish`).
+            @MainActor func canFinish() -> Bool {
+                TVDeepLinkRouter.canFinish(appliedFor: userID, isSignedIn: appState.phase == .main, signedInUserID: appState.signedInUserID)
+            }
             // The closing player has to leave the presented chain before
             // another can be presented, and Home has to rebuild before the push.
             for _ in 0..<40 where TVPlayerPresenter.isPlayerUp {
                 try? await Task.sleep(for: .milliseconds(50))
             }
             try? await Task.sleep(for: .milliseconds(300))
-            guard let dto = try? await client.item(userID: userID, itemID: link.itemID) else {
+            guard canFinish() else { return }
+            let dto = try? await client.item(userID: userID, itemID: link.itemID)
+            guard canFinish() else { return }
+            guard let dto else {
                 // Gone or not this user's: the page shows its own error and Retry.
                 open(.assetDetail(itemID: link.itemID, preloadedItem: nil))
                 return
             }
             let item = MediaItem(dto: dto, images: await client.makeImageURLBuilder())
-            guard link.action == .play,
-                  let target = await TVHeroPlayTarget.resolve(item, client: client, userID: userID) else {
+            let target = link.action == .play ? await TVHeroPlayTarget.resolve(item, client: client, userID: userID) : nil
+            guard canFinish() else { return }
+            guard let target else {
                 open(.assetDetail(itemID: item.id, preloadedItem: item))
                 return
             }

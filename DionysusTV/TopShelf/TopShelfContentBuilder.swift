@@ -50,11 +50,14 @@ enum TopShelfContentBuilder {
             for dto in dtos where taken < limit && entries.count < totalLimit {
                 guard dto.type != .season, !(context == .continueWatching && dto.type == .series) else { continue }
                 guard !seenItems.contains(dto.id) else { continue }
-                if let show = dto.seriesId, seenShows.contains(show) { continue }
+                // An episode's show, or the show itself: Latest groups a TV
+                // library's new episodes into the show.
+                let show = dto.type == .series ? dto.id : dto.seriesId
+                if let show, seenShows.contains(show) { continue }
                 guard let entry = entry(for: MediaItem(dto: dto, images: images), context: context, images: images, serverID: serverID) else { continue }
                 entries.append(entry)
                 seenItems.insert(dto.id)
-                if let show = dto.seriesId { seenShows.insert(show) }
+                if let show { seenShows.insert(show) }
                 taken += 1
             }
         }
