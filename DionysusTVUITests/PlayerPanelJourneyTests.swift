@@ -96,4 +96,33 @@ final class PlayerPanelJourneyTests: TVUITestCase {
         press(.menu)
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Detail.play]), "A third closes the player")
     }
+
+    func test_audioOffset_stepsScopesAndResets() {
+        let app = openPlayer(extraArguments: keepTransportUp)
+        press(.up)
+        press(.right)
+        XCTAssertTrue(waitForPlayerFocus(app, "icon.audio"))
+        press(.select)
+        XCTAssertTrue(waitForPlayerFocus(app, "content.audio.0"))
+        press(.right)
+        XCTAssertTrue(waitForPlayerFocus(app, "content.audio.3"), "Right from a track lands on the offset row")
+        let row = app.descendants(matching: .any)[A11yID.TV.Player.audioOffsetRow]
+        XCTAssertEqual(row.value as? String, "0 milliseconds, in sync")
+        press(.right)
+        press(.right)
+        XCTAssertTrue(poll(timeout: 3) { (row.value as? String) == "20 milliseconds, audio later" })
+        press(.down)
+        XCTAssertTrue(waitForPlayerFocus(app, "content.audio.4"), "Reset is reachable once the title has its own offset")
+        press(.select)
+        XCTAssertTrue(poll(timeout: 3) { (row.value as? String) == "0 milliseconds, in sync" })
+    }
+
+    func test_audioOffset_hiddenWhenUnavailable() {
+        let app = openPlayer(scenario: "audioOffsetUnavailable", extraArguments: keepTransportUp)
+        press(.up)
+        press(.right)
+        press(.select)
+        XCTAssertTrue(waitForPlayerFocus(app, "content.audio.0"))
+        XCTAssertFalse(app.descendants(matching: .any)[A11yID.TV.Player.audioOffsetRow].exists)
+    }
 }

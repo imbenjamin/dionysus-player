@@ -77,6 +77,8 @@ struct TVPlayerPanelView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11yID.TV.Player.panel)
         .onAppear { if accessible { focusedRow = landingRow } }
+        // A step waiting out its settle is applied as the panel goes.
+        .onDisappear { viewModel.audioOffset.flush() }
     }
 
     @ViewBuilder
@@ -84,7 +86,7 @@ struct TVPlayerPanelView: View {
         switch panel.tab {
         case .info: info
         case .chapters: chapters
-        case .audio: trackList(rows: viewModel.audioTracks.map { ($0.title, $0.metadata, $0.isSelected) })
+        case .audio: audioContent
         case .subtitles:
             trackList(rows: [(String(localized: "Off"), nil, !viewModel.subtitleTracks.contains(where: \.isSelected))]
                 + viewModel.subtitleTracks.map { ($0.title, $0.metadata, $0.isSelected) })
@@ -227,7 +229,7 @@ struct TVPlayerPanelView: View {
 
     /// iOS's picker text, two lines a track: the title, then the metadata
     /// line (`PlaybackTrack.metadata`), with a tick on the chosen one.
-    private func trackList(rows: [(title: String, metadata: String?, isChosen: Bool)]) -> some View {
+    private func trackList(rows: [(title: String, metadata: String?, isChosen: Bool)], width: CGFloat = 760, height: CGFloat = 330) -> some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -248,7 +250,7 @@ struct TVPlayerPanelView: View {
                             .foregroundStyle(focused ? Color.black : Color.white)
                             .padding(.horizontal, 24)
                             .padding(.vertical, 12)
-                            .frame(width: 760, alignment: .leading)
+                            .frame(width: width, alignment: .leading)
                             .background(RoundedRectangle(cornerRadius: 20).fill(focused ? Color.white : Color.clear))
                         }
                         .id(index)
@@ -263,11 +265,141 @@ struct TVPlayerPanelView: View {
                     }
                 }
             }
-            .frame(height: 330)
+            .frame(height: height)
             .onChange(of: panel.focus, initial: true) { _, focus in
                 if case .content(let index) = focus { withAnimation { proxy.scrollTo(index, anchor: .center) } }
             }
         }
+    }
+}
+
+// MARK: Audio offset
+
+extension TVPlayerPanelView {
+    /// Two columns: the tracks on the left, the offset on the right, which
+    /// only shows while the offset can apply (Benjamin, 2026-10-18). The
+    /// offset rows are numbered on from the tracks
+    /// (`TVPlayerInputModel.audioRow(at:_:)`).
+    var audioContent: some View {
+        let tracks = viewModel.audioTracks.map { ($0.title, $0.metadata, $0.isSelected) }
+        return HStack(alignment: .top, spacing: 60) {
+            VStack(alignment: .leading, spacing: 8) {
+                columnHeading("Audio Tracks", id: A11yID.TV.Player.audioTracksHeading)
+                // Below the heading, in the tab's 330pt.
+                trackList(rows: tracks, width: 760, height: 290)
+            }
+            .frame(width: 760, alignment: .topLeading)
+            if viewModel.audioOffset.isAvailable {
+                VStack(alignment: .leading, spacing: 8) {
+                    audioOffsetRows(firstIndex: tracks.count)
+                }
+                .frame(width: offsetColumnWidth, alignment: .topLeading)
+            }
+        }
+    }
+
+    /// Each column's heading, styled alike (Benjamin, 2026-10-18).
+    func columnHeading(_ title: LocalizedStringKey, id: String) -> some View {
+        Text(title)
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.leading, 24)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier(id)
+    }
+
+    /// The right column, beside the 760pt track list and a 60pt gap.
+    var offsetColumnWidth: CGFloat { 640 }
+
+    /// The scope, the audio offset and Reset: the scope sits under the
+    /// heading, above what it governs (Benjamin, 2026-10-18).
+    @ViewBuilder
+    func audioOffsetRows(firstIndex: Int) -> some View {
+        let offset = viewModel.audioOffset
+        columnHeading("Audio Offset", id: A11yID.TV.Player.audioOffsetHeading)
+        scopeRow(offset, index: firstIndex)
+        offsetRow(offset, index: firstIndex + 1)
+        if offset.scope == .thisTitle {
+            resetRow(offset, index: firstIndex + 2)
+        }
+    }
+
+    private func offsetRow(_ offset: AudioOffsetController, index: Int) -> some View {
+        control(.panelRow(index), modelFocused: isFocused(index)) { focused in
+            HStack(spacing: 24) {
+                Text("Offset").font(.callout.weight(.semibold))
+                Spacer()
+                Image(systemName: "chevron.left").opacity(offset.canDecrease ? 1 : 0.3).accessibilityHidden(true)
+                VStack(spacing: 2) {
+                    Text(verbatim: AudioOffsetFormat.value(offset.milliseconds)).font(.callout.monospacedDigit().weight(.semibold))
+                    Text(verbatim: AudioOffsetFormat.hint(offset.milliseconds)).font(.caption).opacity(0.7)
+                }
+                .frame(minWidth: 160)
+                Image(systemName: "chevron.right").opacity(offset.canIncrease ? 1 : 0.3).accessibilityHidden(true)
+            }
+            .foregroundStyle(focused ? Color.black : Color.white)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            .frame(width: offsetColumnWidth, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 20).fill(focused ? Color.white : Color.white.opacity(0.08)))
+        }
+        .id(index)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Audio Offset"))
+        .accessibilityValue(Text(verbatim: AudioOffsetFormat.spoken(offset.milliseconds)))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: send(.adjustPanelRow(index, .right))
+            case .decrement: send(.adjustPanelRow(index, .left))
+            @unknown default: break
+            }
+        }
+        .accessibilityIdentifier(A11yID.TV.Player.audioOffsetRow)
+    }
+
+    private func scopeRow(_ offset: AudioOffsetController, index: Int) -> some View {
+        control(.panelRow(index), modelFocused: isFocused(index)) { focused in
+            HStack(spacing: 12) {
+                scopeCapsule("This Title", isOn: offset.scope == .thisTitle, focused: focused)
+                scopeCapsule("All Titles", isOn: offset.scope == .allTitles, focused: focused)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .frame(width: offsetColumnWidth, alignment: .leading)
+        }
+        .id(index)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Apply To"))
+        .accessibilityValue(offset.scope == .thisTitle ? Text("This Title") : Text("All Titles"))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier(A11yID.TV.Player.audioOffsetScope)
+    }
+
+    /// The chosen side is filled; with the row focused it turns white, as a
+    /// focused row does.
+    private func scopeCapsule(_ title: LocalizedStringKey, isOn: Bool, focused: Bool) -> some View {
+        Text(title)
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(isOn && focused ? Color.black : Color.white)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 10)
+            .background(Capsule().fill(isOn ? (focused ? Color.white : Color.white.opacity(0.3)) : Color.white.opacity(0.08)))
+    }
+
+    private func resetRow(_ offset: AudioOffsetController, index: Int) -> some View {
+        control(.panelRow(index), modelFocused: isFocused(index)) { focused in
+            Label("Reset to Global", systemImage: "arrow.uturn.backward")
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(focused ? Color.black : Color.white)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 12)
+                .background(Capsule().fill(focused ? Color.white : Color.white.opacity(0.18)))
+                .opacity(offset.hasTitleOffset ? 1 : 0.4)
+        }
+        .id(index)
+        .disabled(!offset.hasTitleOffset)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier(A11yID.TV.Player.audioOffsetReset)
     }
 }
 

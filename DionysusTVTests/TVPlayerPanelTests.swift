@@ -165,51 +165,75 @@ final class TVPlayerPanelTests: XCTestCase, TVPlayerInputModelHarness {
         .init(canDecrease: true, canIncrease: true, hasTitleOffset: false, scope: .thisTitle)
     }
 
-    func test_offsetRows_followTheTracks() {
+    /// Two columns (Benjamin, 2026-10-18): tracks on the left; scope, offset
+    /// and Reset on the right, numbered on from the tracks.
+    func test_columns_downStaysInTheTrackColumn_rightReachesTheOffset() {
         context.audioOffset = offsetContext
         openAudio()
         XCTAssertEqual(state.panel?.focus, .content(0))
         send(.down)
         send(.down)
-        XCTAssertEqual(state.panel?.focus, .content(2), "The offset row follows the two tracks")
-        XCTAssertEqual(TVPlayerInputModel.audioRow(at: 2, context), .offset)
+        XCTAssertEqual(state.panel?.focus, .content(1), "Down stops at the last track")
+        press(.right)
+        XCTAssertEqual(state.panel?.focus, .content(3), "Right lands on the offset row")
+        XCTAssertEqual(TVPlayerInputModel.audioRow(at: 3, context), .offset)
+        send(.up)
+        XCTAssertEqual(state.panel?.focus, .content(2), "The scope row is above it")
+        XCTAssertEqual(TVPlayerInputModel.audioRow(at: 2, context), .scope)
+        send(.up)
+        XCTAssertEqual(state.panel?.focus, .tabs)
+    }
+
+    func test_columns_leftFromScopeOrReset_returnsToTheChosenTrack() {
+        context.selectedAudioIndex = 1
+        context.audioOffset = .init(canDecrease: true, canIncrease: true, hasTitleOffset: true, scope: .thisTitle)
+        openAudio()
+        press(.right)
+        send(.up)
+        XCTAssertEqual(press(.left), [])
+        XCTAssertEqual(state.panel?.focus, .content(1), "Left from the scope row")
+        press(.right)
         send(.down)
-        XCTAssertEqual(state.panel?.focus, .content(3), "Scope")
-        send(.down)
-        XCTAssertEqual(state.panel?.focus, .content(3), "Reset is skipped while there is nothing to reset")
+        XCTAssertEqual(state.panel?.focus, .content(4))
+        press(.left)
+        XCTAssertEqual(state.panel?.focus, .content(1), "Left from Reset")
     }
 
     func test_offsetRow_leftRightStep() {
         context.audioOffset = offsetContext
         openAudio()
-        send(.down); send(.down)
+        press(.right)
         XCTAssertEqual(press(.right), [.stepAudioOffset(1)])
         XCTAssertEqual(press(.left), [.stepAudioOffset(-1)])
-        XCTAssertEqual(state.panel?.tab, .audio, "Arrows on the offset row never switch tabs")
+        XCTAssertEqual(state.panel?.focus, .content(3), "Arrows on the offset row step, never leave it")
+        XCTAssertEqual(state.panel?.tab, .audio)
     }
 
     func test_offsetRow_stepRefusedAtTheEnd() {
         context.audioOffset = .init(canDecrease: true, canIncrease: false, hasTitleOffset: true, scope: .thisTitle)
         openAudio()
-        send(.down); send(.down)
+        press(.right)
         XCTAssertEqual(press(.right), [])
     }
 
     func test_offsetRow_holdRepeats() {
         context.audioOffset = offsetContext
         openAudio()
-        send(.down); send(.down)
+        press(.right)
         send(.arrowDown(.right))
         let commands = tick(for: 1.0)
         XCTAssertGreaterThanOrEqual(commands.filter { $0 == .stepAudioOffset(1) }.count, 5, "About ten a second after the hold threshold")
         XCTAssertEqual(send(.arrowUp(.right)), [], "The release of a repeating hold adds no extra step")
     }
 
-    func test_scopeRow_switches() {
+    /// Select switches the scope; Left is the way back to the tracks.
+    func test_scopeRow_selectSwitches() {
         context.audioOffset = offsetContext
         openAudio()
-        send(.down); send(.down); send(.down)
-        XCTAssertEqual(press(.right), [.setAudioOffsetScope(.allTitles)])
+        press(.right)
+        send(.up)
+        XCTAssertEqual(press(.right), [], "Right does nothing on the scope row")
+        XCTAssertEqual(send(.select), [.setAudioOffsetScope(.allTitles)])
         context.audioOffset?.scope = .allTitles
         XCTAssertEqual(send(.select), [.setAudioOffsetScope(.thisTitle)])
     }
@@ -217,10 +241,30 @@ final class TVPlayerPanelTests: XCTestCase, TVPlayerInputModelHarness {
     func test_resetRow_whenTheTitleHasItsOwn() {
         context.audioOffset = .init(canDecrease: true, canIncrease: true, hasTitleOffset: true, scope: .thisTitle)
         openAudio()
-        send(.down); send(.down); send(.down); send(.down)
+        press(.right)
+        send(.down)
         XCTAssertEqual(state.panel?.focus, .content(4))
         XCTAssertEqual(send(.select), [.resetAudioOffset])
         XCTAssertNotNil(state.panel, "Reset leaves the panel open")
+    }
+
+    func test_resetRow_skippedWithNothingToReset() {
+        context.audioOffset = offsetContext
+        openAudio()
+        press(.right)
+        send(.down)
+        XCTAssertEqual(state.panel?.focus, .content(3))
+    }
+
+    /// With All Titles there's no title offset to reset, so no Reset row.
+    func test_resetRow_absentUnderAllTitles() {
+        context.audioOffset = .init(canDecrease: true, canIncrease: true, hasTitleOffset: false, scope: .allTitles)
+        XCTAssertEqual(TVPlayerInputModel.contentCount(.audio, context), 4)
+        XCTAssertNil(TVPlayerInputModel.audioRow(at: 4, context))
+        openAudio()
+        press(.right)
+        send(.down)
+        XCTAssertEqual(state.panel?.focus, .content(3), "Down stops at the offset row")
     }
 
     /// Review Focus 5.
@@ -231,25 +275,29 @@ final class TVPlayerPanelTests: XCTestCase, TVPlayerInputModelHarness {
         openAudio()
         send(.down)
         XCTAssertEqual(state.panel?.focus, .content(0))
+        XCTAssertEqual(press(.right), [])
+        XCTAssertEqual(state.panel?.focus, .content(0), "No column to move to")
         XCTAssertNil(TVPlayerInputModel.audioRow(at: 1, context))
     }
 
-    func test_offsetOnly_oneTrack_downReachesTheOffsetRow() {
+    func test_oneTrack_isListed_andRightReachesTheOffset() {
         context.audioTrackIDs = [0]
         context.selectedAudioIndex = 0
         context.audioOffset = offsetContext
         openAudio()
-        send(.down)
-        XCTAssertEqual(state.panel?.focus, .content(1))
-        XCTAssertEqual(TVPlayerInputModel.audioRow(at: 1, context), .offset)
+        XCTAssertEqual(state.panel?.focus, .content(0))
+        press(.right)
+        XCTAssertEqual(state.panel?.focus, .content(2))
+        XCTAssertEqual(TVPlayerInputModel.audioRow(at: 1, context), .scope)
+        XCTAssertEqual(TVPlayerInputModel.audioRow(at: 2, context), .offset)
     }
 
     func test_accessible_adjustableRow_steps() {
         context.accessibleTransport = true
         context.audioOffset = offsetContext
-        state.panel = .init(tab: .audio, focus: .content(2), lastInputAt: now)
-        XCTAssertEqual(send(.control(.adjustPanelRow(2, .right))), [.stepAudioOffset(1)])
-        XCTAssertEqual(send(.control(.adjustPanelRow(2, .left))), [.stepAudioOffset(-1)])
-        XCTAssertEqual(send(.control(.panelRow(3))), [.setAudioOffsetScope(.allTitles)])
+        state.panel = .init(tab: .audio, focus: .content(3), lastInputAt: now)
+        XCTAssertEqual(send(.control(.adjustPanelRow(3, .right))), [.stepAudioOffset(1)])
+        XCTAssertEqual(send(.control(.adjustPanelRow(3, .left))), [.stepAudioOffset(-1)])
+        XCTAssertEqual(send(.control(.panelRow(2))), [.setAudioOffsetScope(.allTitles)])
     }
 }

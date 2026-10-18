@@ -496,7 +496,7 @@ enum TVPlayerInputModel {
             held.actedAsScan = true
             state.heldArrow = held
             state.panel?.lastInputAt = now
-            commands += audioArrow(held.direction, at: index, context) ?? []
+            commands += offsetStep(held.direction, context)
         }
         if var scrub = state.scrub, var scan = scrub.scan {
             let moved = scrub.previewTime + scanRate(level: scan.level) * (now - scan.lastTickAt)

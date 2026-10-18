@@ -22,17 +22,20 @@ extension TVPlayerInputModel {
             if count > 0 { panel.focus = .content(defaultIndex(panel.tab, context)) }
         case (.arrow(let direction), .tabs):
             panel.tab = neighbour(of: panel.tab, direction, in: availableTabs(context))
+        case (.up, .content(let index)) where panel.tab == .audio:
+            panel.focus = audioUp(from: index, context)
+        case (.down, .content(let index)) where panel.tab == .audio:
+            panel.focus = audioDown(from: index, context)
+        case (.arrow(let direction), .content(let index)) where panel.tab == .audio:
+            let (focus, commands) = audioArrow(direction, at: index, context)
+            panel.focus = focus
+            state.panel = panel
+            return commands
         case (.up, .content(let index)):
             panel.focus = panel.tab.isList && index > 0 ? .content(index - 1) : .tabs
         case (.down, .content(let index)):
-            if panel.tab.isList, index + 1 < count, isFocusable(panel.tab, index + 1, context) {
-                panel.focus = .content(index + 1)
-            }
+            if panel.tab.isList, index + 1 < count { panel.focus = .content(index + 1) }
         case (.arrow(let direction), .content(let index)):
-            if panel.tab == .audio, let commands = audioArrow(direction, at: index, context) {
-                state.panel = panel
-                return commands
-            }
             if panel.tab == .chapters, count > 0 {
                 panel.focus = .content(min(max(index + (direction == .left ? -1 : 1), 0), count - 1))
             }
@@ -72,45 +75,90 @@ extension TVPlayerInputModel {
         switch tab {
         case .info: 1
         case .chapters: context.chapterStarts.count
-        case .audio: context.audioTrackIDs.count + (context.audioOffset == nil ? 0 : 3)
+        case .audio: context.audioTrackIDs.count + offsetRowCount(context)
         case .subtitles: context.subtitleTrackIDs.count + 1
         }
     }
 
     /// The Audio tab's row at `index`: the tracks, then (while the offset can
-    /// apply) the offset, scope and Reset rows.
+    /// apply) the scope, offset and Reset rows (Benjamin, 2026-10-18: the
+    /// scope sits under the heading, above what it governs).
     static func audioRow(at index: Int, _ context: TVPlayerContext) -> TVAudioPanelRow? {
         let tracks = context.audioTrackIDs.count
         if index >= 0, index < tracks { return .track(index) }
         guard context.audioOffset != nil else { return nil }
         switch index - tracks {
-        case 0: return .offset
-        case 1: return .scope
-        case 2: return .reset
+        case 0: return .scope
+        case 1: return .offset
+        case 2: return offsetRowCount(context) == 3 ? .reset : nil
         default: return nil
         }
     }
 
+    /// Scope and offset, plus Reset only under This Title: with All Titles
+    /// there is no title offset to reset (Benjamin, 2026-10-18).
+    static func offsetRowCount(_ context: TVPlayerContext) -> Int {
+        guard let offset = context.audioOffset else { return 0 }
+        return offset.scope == .thisTitle ? 3 : 2
+    }
+
+    // MARK: Audio tab columns
+
+    // Two columns (Benjamin, 2026-10-18): the tracks on the left, and on the
+    // right the scope, offset and Reset rows, numbered on from the tracks.
+    // Up/Down stay in a column; Right from a track goes to the offset row;
+    // Left from the scope or Reset row comes back to the chosen track; on the
+    // offset row Left/Right step it.
+
     /// Reset takes focus only while the title has its own offset.
-    static func isFocusable(_ tab: TVPanelTab, _ index: Int, _ context: TVPlayerContext) -> Bool {
-        guard tab == .audio, audioRow(at: index, context) == .reset else { return true }
+    static func isFocusable(_ row: TVAudioPanelRow?, _ context: TVPlayerContext) -> Bool {
+        guard row == .reset else { return row != nil }
         return context.audioOffset?.hasTitleOffset == true
     }
 
-    /// Left/Right on the offset row step; on the scope row they choose a
-    /// side. `nil` for a track row, which ignores arrows.
-    static func audioArrow(_ direction: TVDirection, at index: Int, _ context: TVPlayerContext) -> [TVPlayerCommand]? {
-        guard let offset = context.audioOffset else { return nil }
+    static func audioUp(from index: Int, _ context: TVPlayerContext) -> TVPlayerInputState.Panel.Focus {
+        let tracks = context.audioTrackIDs.count
         switch audioRow(at: index, context) {
-        case .offset:
-            let up = direction == .right
-            return (up ? offset.canIncrease : offset.canDecrease) ? [.stepAudioOffset(up ? 1 : -1)] : []
-        case .scope:
-            let target: AudioOffsetScope = direction == .right ? .allTitles : .thisTitle
-            return target == offset.scope ? [] : [.setAudioOffsetScope(target)]
-        default:
-            return nil
+        case .track(let track): return track > 0 ? .content(track - 1) : .tabs
+        case .scope, nil: return .tabs
+        case .offset: return .content(tracks)
+        case .reset: return .content(tracks + 1)
         }
+    }
+
+    static func audioDown(from index: Int, _ context: TVPlayerContext) -> TVPlayerInputState.Panel.Focus {
+        let row = audioRow(at: index, context)
+        if case .track(let track) = row {
+            return .content(track + 1 < context.audioTrackIDs.count ? track + 1 : track)
+        }
+        let next = index + 1
+        return isFocusable(audioRow(at: next, context), context) ? .content(next) : .content(index)
+    }
+
+    /// Where an arrow leaves focus on the Audio tab, and what it does.
+    static func audioArrow(
+        _ direction: TVDirection, at index: Int, _ context: TVPlayerContext
+    ) -> (focus: TVPlayerInputState.Panel.Focus, commands: [TVPlayerCommand]) {
+        let tracks = context.audioTrackIDs.count
+        let chosenTrack = TVPlayerInputState.Panel.Focus.content(min(context.selectedAudioIndex ?? 0, max(tracks - 1, 0)))
+        switch audioRow(at: index, context) {
+        case .track:
+            guard direction == .right, context.audioOffset != nil else { return (.content(index), []) }
+            return (.content(tracks + 1), [])
+        case .scope, .reset:
+            return direction == .left && tracks > 0 ? (chosenTrack, []) : (.content(index), [])
+        case .offset:
+            return (.content(index), offsetStep(direction, context))
+        case nil:
+            return (.content(index), [])
+        }
+    }
+
+    /// A step of the offset row, or nothing at its limit.
+    static func offsetStep(_ direction: TVDirection, _ context: TVPlayerContext) -> [TVPlayerCommand] {
+        guard let offset = context.audioOffset else { return [] }
+        let up = direction == .right
+        return (up ? offset.canIncrease : offset.canDecrease) ? [.stepAudioOffset(up ? 1 : -1)] : []
     }
 
     /// Where Down lands: Restart, the current chapter, the chosen track (Off

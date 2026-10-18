@@ -571,6 +571,12 @@ enum A11yID {
             static func library(_ libraryID: String) -> String { "tv.sidebar.library.\(libraryID)" }
         }
         enum Player {
+            /// The Audio tab's offset rows (`TVPlayerPanelView.audioContent`).
+            static let audioTracksHeading = "tv.player.audioTracks.heading"
+            static let audioOffsetHeading = "tv.player.audioOffset.heading"
+            static let audioOffsetRow = "tv.player.audioOffset"
+            static let audioOffsetScope = "tv.player.audioOffset.scope"
+            static let audioOffsetReset = "tv.player.audioOffset.reset"
             static let transport = "tv.player.transport"
             static let titleBlock = "tv.player.title"
             static let elapsed = "tv.player.elapsed"

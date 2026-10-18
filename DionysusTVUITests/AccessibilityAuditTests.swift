@@ -246,6 +246,18 @@ final class AccessibilityAuditTests: TVUITestCase {
         try audit(app)
     }
 
+    func test_playerAudioPanel() throws {
+        let app = openPlayer(extraArguments: ["-UITestDisableControlAutoHide", "YES"])
+        press(.up)
+        press(.right)
+        XCTAssertTrue(waitForPlayerFocus(app, "icon.audio"))
+        press(.select)
+        XCTAssertTrue(waitForPlayerFocus(app, "content.audio.0"))
+        press(.right)
+        XCTAssertTrue(waitForPlayerFocus(app, "content.audio.3"))
+        try audit(app)
+    }
+
     func test_playerNextUp() throws {
         let app = launch(scenario: "earlyCredits", seedSession: true)
         waitForHomeThenFirstTile(app)

@@ -141,6 +141,10 @@ struct TVTransportOverlay: View {
         .defaultFocus($focusedControl, TVAccessibleTransportButton.playPause.id)
         // Closing the panel takes its rows away; focus goes to Play/Pause
         // rather than wherever tvOS lands (the leftmost button).
+        // The Audio tab's scope starts on This Title each time it opens.
+        .onChange(of: state.panel?.tab == .audio) { _, showsAudio in
+            if showsAudio { viewModel.audioOffset.panelDidOpen() } else { viewModel.audioOffset.flush() }
+        }
         .onChange(of: state.panel == nil) { _, closed in
             if accessible, closed { focusedControl = TVAccessibleTransportButton.playPause.id }
         }
