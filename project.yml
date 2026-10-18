@@ -359,10 +359,11 @@ targets:
           - CFBundleURLName: com.imbenjamin.dionysusplayer.deeplink
             CFBundleURLSchemes: [dionysus]
 
-  # The Top Shelf (M6): Continue Watching, Next Up and Recently Added as a
-  # `.details` carousel, fetched live with the app's stored session. Compiles
-  # the networking and model layers and the session stores, never
-  # AetherEngine or UI, to stay inside an extension's memory limit.
+  # The Top Shelf (M6): Continue Watching, Next Up and Recently Added as an
+  # `.actions` carousel with the text drawn into the art, fetched live with
+  # the app's stored session. Compiles the networking and model layers and
+  # the session stores, never AetherEngine or UI, to stay inside an
+  # extension's memory limit.
   DionysusTVTopShelf:
     type: tv-app-extension
     platform: tvOS
@@ -411,8 +412,7 @@ targets:
         keychain-access-groups:
           - $(AppIdentifierPrefix)com.imbenjamin.dionysusplayer
         # The composited art goes here for tvOS to read
-        # (TopShelfArtworkStore); the extension's own container isn't
-        # readable to it on the device (spike).
+        # (TopShelfArtworkStore), as Sodalite's does.
         com.apple.security.application-groups:
           - group.com.imbenjamin.dionysusplayer
     info:

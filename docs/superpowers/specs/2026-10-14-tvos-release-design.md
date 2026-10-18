@@ -256,6 +256,6 @@ in the parent spec marked done.
 
 ## Not in M6
 
-The logo in the Top Shelf; preview videos; sectioned Top Shelf content (rows of
+Preview videos; sectioned Top Shelf content (rows of
 posters); any change on iOS beyond the software-route Now Playing fallback, if
 the diagnosis calls for it.
