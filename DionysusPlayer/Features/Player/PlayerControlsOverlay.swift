@@ -191,8 +191,10 @@ struct PlayerControlsOverlay: View {
     /// A fixed cap rather than a measured fraction of the screen: reading the
     /// real height via `GeometryReader` or a `PreferenceKey` left the panel
     /// rendering nowhere, the dead end `estimatedHeight(for:)` also documents.
-    /// Sized for landscape iPhone, this player's primary orientation.
-    private static let trackPickerMaxHeight: CGFloat = 320
+    /// Sized for landscape iPhone, this player's primary orientation; taller
+    /// elsewhere, where the Audio page's offset section would otherwise
+    /// scroll on a screen with room for it.
+    private var trackPickerMaxHeight: CGFloat { isLandscape ? 320 : 480 }
     /// The panel's width, named alongside `trackPickerMaxHeight` rather than
     /// left as a literal on `trackPickerContent`'s frame.
     private static let trackPickerIdealWidth: CGFloat = 320
@@ -557,6 +559,10 @@ struct PlayerControlsOverlay: View {
         case root
         case audio
         case subtitle
+        /// Audio Offset, a page under Audio when there are tracks to choose
+        /// as well (Benjamin, 2026-10-18); with one track it's the Audio
+        /// page's whole content.
+        case audioOffset
     }
 
     @State private var trackPickerPage: TrackPickerPage = .root
@@ -599,17 +605,22 @@ struct PlayerControlsOverlay: View {
     /// bar together.
     private func navigateToTrackPickerPage(_ page: TrackPickerPage) {
         switch page {
-        case .audio: displayedLeafPage = .audio
+        case .audio:
+            displayedLeafPage = .audio
+            viewModel.audioOffset.panelDidOpen()
         case .subtitle: displayedLeafPage = .subtitle
+        case .audioOffset: viewModel.audioOffset.panelDidOpen()
         case .root: break
         }
         withAnimation(Self.trackPickerNavigationAnimation) {
             trackPickerPage = page
-            trackPickerHeight = min(estimatedHeight(for: page), Self.trackPickerMaxHeight)
+            trackPickerHeight = min(estimatedHeight(for: page), trackPickerMaxHeight)
         }
     }
 
     private var hasAudioChoice: Bool { viewModel.audioTracks.count > 1 }
+    /// The Audio page: a track choice, the offset, or both.
+    private var hasAudioPage: Bool { hasAudioChoice || viewModel.audioOffset.isAvailable }
     private var hasSubtitleChoice: Bool { !viewModel.subtitleTracks.isEmpty }
 
     /// Audio and subtitle track picker: a compact panel rather than a full
@@ -632,15 +643,16 @@ struct PlayerControlsOverlay: View {
     /// `.overlay(alignment:)` layer has nothing to desync against.
     @ViewBuilder
     private var trackSelectionButton: some View {
-        let hasAnyChoice = hasAudioChoice || hasSubtitleChoice
+        let hasAnyChoice = hasAudioPage || hasSubtitleChoice
 
         Button {
             onInteract()
-            if hasAudioChoice && hasSubtitleChoice {
+            if hasAudioPage && hasSubtitleChoice {
                 trackPickerPage = .root
-            } else if hasAudioChoice {
+            } else if hasAudioPage {
                 trackPickerPage = .audio
                 displayedLeafPage = .audio
+                viewModel.audioOffset.panelDidOpen()
             } else {
                 trackPickerPage = .subtitle
                 displayedLeafPage = .subtitle
@@ -648,7 +660,7 @@ struct PlayerControlsOverlay: View {
             // Set directly, not via `navigateToTrackPickerPage`: this is the
             // first page, appearing with the panel's own open transition rather
             // than a drill-down with anything to slide.
-            trackPickerHeight = min(estimatedHeight(for: trackPickerPage), Self.trackPickerMaxHeight)
+            trackPickerHeight = min(estimatedHeight(for: trackPickerPage), trackPickerMaxHeight)
             withAnimation(Self.trackPickerAnimation) { isShowingTrackPicker = true }
         } label: {
             Image(systemName: "captions.bubble")
@@ -681,9 +693,17 @@ struct PlayerControlsOverlay: View {
         case .root:
             return navigationRowHeight * 2 + Self.dividerHeight
         case .audio:
-            let count = viewModel.audioTracks.count
-            let rows = selectionRowHeight * CGFloat(count) + Self.dividerHeight * CGFloat(max(0, count - 1))
-            return leafHeaderHeight + Self.dividerHeight + rows
+            let count = hasAudioChoice ? viewModel.audioTracks.count : 0
+            var height = leafHeaderHeight + Self.dividerHeight
+                + selectionRowHeight * CGFloat(count) + Self.dividerHeight * CGFloat(max(0, count - 1))
+            if viewModel.audioOffset.isAvailable {
+                height += count > 0
+                    ? Self.dividerHeight + navigationRowHeight
+                    : sectionHeadingHeight + audioOffsetSectionHeight
+            }
+            return height
+        case .audioOffset:
+            return leafHeaderHeight + Self.dividerHeight + audioOffsetSectionHeight
         case .subtitle:
             // +1 for "Off", which isn't in `subtitleTracks`.
             let count = viewModel.subtitleTracks.count + 1
@@ -711,6 +731,21 @@ struct PlayerControlsOverlay: View {
     @ScaledMetric(relativeTo: .subheadline) private var leafHeaderHeight: CGFloat = 44
     /// Fixed, unlike the three above: a hairline rule, not text.
     private static let dividerHeight: CGFloat = 1
+    /// `sectionHeading`: 14pt top and 6pt bottom padding plus one `.footnote`
+    /// line.
+    @ScaledMetric(relativeTo: .footnote) private var sectionHeadingHeight: CGFloat = 38
+    /// The offset row: the "Offset" title over its value and hint, and the
+    /// − and + capsules.
+    @ScaledMetric(relativeTo: .subheadline) private var audioOffsetRowHeight: CGFloat = 64
+    /// The This Title | All Titles capsules.
+    @ScaledMetric(relativeTo: .subheadline) private var audioOffsetScopeHeight: CGFloat = 52
+
+    /// `audioOffsetSection` below its heading: Reset comes and goes with the
+    /// scope.
+    private var audioOffsetSectionHeight: CGFloat {
+        audioOffsetScopeHeight + Self.dividerHeight + audioOffsetRowHeight
+            + (viewModel.audioOffset.scope == .thisTitle ? Self.dividerHeight + leafHeaderHeight : 0)
+    }
 
     /// The root page's "Audio"/"Subtitles" navigation rows. Always mounted at a
     /// fixed height regardless of `trackPickerPage`, as a base layer rather than
@@ -744,7 +779,7 @@ struct PlayerControlsOverlay: View {
     /// of what made this read as a fade.
     private var leafPage: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if hasAudioChoice && hasSubtitleChoice {
+            if hasAudioPage && hasSubtitleChoice {
                 backRow(for: displayedLeafPage)
             } else {
                 leafTitleRow(for: displayedLeafPage)
@@ -755,10 +790,25 @@ struct PlayerControlsOverlay: View {
                 VStack(alignment: .leading, spacing: 0) {
                     switch displayedLeafPage {
                     case .audio:
-                        trackRows(viewModel.audioTracks, kind: "audio") { track in
-                            onInteract()
-                            viewModel.selectAudioTrack(id: track.id)
-                            withAnimation(Self.trackPickerAnimation) { isShowingTrackPicker = false }
+                        if hasAudioChoice {
+                            trackRows(viewModel.audioTracks, kind: "audio") { track in
+                                onInteract()
+                                viewModel.selectAudioTrack(id: track.id)
+                                withAnimation(Self.trackPickerAnimation) { isShowingTrackPicker = false }
+                            }
+                        }
+                        if viewModel.audioOffset.isAvailable {
+                            if hasAudioChoice {
+                                divider
+                                navigationRow(
+                                    systemImage: "arrow.left.arrow.right", title: String(localized: "Audio Offset"),
+                                    value: AudioOffsetFormat.value(viewModel.audioOffset.milliseconds),
+                                    identifier: A11yID.Player.trackNavigationRow("audioOffset")
+                                ) { navigateToTrackPickerPage(.audioOffset) }
+                            } else {
+                                sectionHeading("Audio Offset", id: A11yID.Player.audioOffsetHeading)
+                                audioOffsetSection
+                            }
                         }
 
                     case .subtitle:
@@ -782,7 +832,7 @@ struct PlayerControlsOverlay: View {
                 }
             }
         }
-        .frame(height: min(estimatedHeight(for: displayedLeafPage.page), Self.trackPickerMaxHeight))
+        .frame(height: min(estimatedHeight(for: displayedLeafPage.page), trackPickerMaxHeight))
         // Opaque, matching the panel's fill: otherwise both this leaf and
         // `rootPage` are transparent apart from their text, and root's rows show
         // through wherever this leaf's don't cover the same pixels mid-slide.
@@ -812,7 +862,12 @@ struct PlayerControlsOverlay: View {
                 // Alongside the panel's `.clipped()` below: without this the
                 // parked-off-screen leaf still intercepts taps meant for
                 // `rootPage`.
-                .allowsHitTesting(trackPickerPage != .root)
+                .allowsHitTesting(trackPickerPage != .root && trackPickerPage != .audioOffset)
+
+            // A third level, over the Audio page, the same way.
+            audioOffsetPage
+                .offset(x: trackPickerPage == .audioOffset ? 0 : Self.trackPickerSlideOffset)
+                .allowsHitTesting(trackPickerPage == .audioOffset)
         }
         .frame(idealWidth: Self.trackPickerIdealWidth, maxWidth: Self.trackPickerMaxWidth)
         .frame(height: trackPickerHeight, alignment: .top)
@@ -825,6 +880,35 @@ struct PlayerControlsOverlay: View {
                 .strokeBorder(Color.white.opacity(0.12))
         }
         .shadow(color: .black.opacity(0.4), radius: 20, y: 8)
+    }
+
+    /// Audio Offset under Audio, with a back row to it. Always mounted, like
+    /// `leafPage`; only reachable when there are tracks to choose as well.
+    private var audioOffsetPage: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                navigateToTrackPickerPage(.audio)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left")
+                    Text("Audio Offset")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(String(localized: "Back"))
+            .accessibilityIdentifier(A11yID.Player.audioOffsetBack)
+            divider
+            ScrollView {
+                if viewModel.audioOffset.isAvailable { audioOffsetSection }
+            }
+        }
+        .frame(height: min(estimatedHeight(for: .audioOffset), trackPickerMaxHeight))
+        .background(Color(white: 0.1))
     }
 
     private func backRow(for page: TrackPickerLeaf) -> some View {
@@ -957,7 +1041,128 @@ struct PlayerControlsOverlay: View {
     }
 
     private var currentAudioTrackTitle: String {
-        viewModel.audioTracks.first(where: \.isSelected)?.title ?? String(localized: "Default")
+        if !hasAudioChoice, viewModel.audioOffset.isAvailable {
+            return AudioOffsetFormat.value(viewModel.audioOffset.milliseconds)
+        }
+        return viewModel.audioTracks.first(where: \.isSelected)?.title ?? String(localized: "Default")
+    }
+
+    /// A section's name inside a leaf page, as the Apple TV's Audio tab
+    /// heads its two columns.
+    private func sectionHeading(_ title: LocalizedStringKey, id: String) -> some View {
+        Text(title)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.6))
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier(id)
+    }
+
+    /// Audio Offset (spec section 5, with the Apple TV's order: Benjamin,
+    /// 2026-10-18): the This Title | All Titles toggle, the Offset row, and
+    /// Reset to Global, shown only under This Title. On the Audio page under
+    /// its heading when there's one track, else on `audioOffsetPage`. Hand-built capsules, not
+    /// a system `Stepper`/`Picker`, whose light chrome breaks this dark panel
+    /// for the reasons `trackSelectionButton`'s doc comment gives.
+    private var audioOffsetSection: some View {
+        let offset = viewModel.audioOffset
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                scopeSegment("This Title", scope: .thisTitle, key: "thisTitle")
+                scopeSegment("All Titles", scope: .allTitles, key: "allTitles")
+            }
+            .padding(.horizontal, 16)
+            .frame(minHeight: audioOffsetScopeHeight)
+            divider
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Offset").font(.subheadline)
+                    Text(verbatim: "\(AudioOffsetFormat.value(offset.milliseconds)) · \(AudioOffsetFormat.hint(offset.milliseconds))")
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+                // One adjustable element for VoiceOver, named as the feature
+                // ("Offset" alone says nothing out of context).
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("Audio Offset"))
+                .accessibilityValue(Text(verbatim: AudioOffsetFormat.spoken(offset.milliseconds)))
+                .accessibilityAdjustableAction { direction in
+                    onInteract()
+                    switch direction {
+                    case .increment: offset.step(by: 1)
+                    case .decrement: offset.step(by: -1)
+                    @unknown default: break
+                    }
+                }
+                .accessibilityIdentifier(A11yID.Player.audioOffsetValue)
+                Spacer()
+                offsetStepButton("minus", steps: -1, enabled: offset.canDecrease,
+                                 label: "Decrease Audio Offset", id: A11yID.Player.audioOffsetDecrease)
+                offsetStepButton("plus", steps: 1, enabled: offset.canIncrease,
+                                 label: "Increase Audio Offset", id: A11yID.Player.audioOffsetIncrease)
+            }
+            .padding(.horizontal, 16)
+            .frame(minHeight: audioOffsetRowHeight)
+            if offset.scope == .thisTitle {
+                divider
+                Button {
+                    onInteract()
+                    offset.resetToGlobal()
+                } label: {
+                    Label("Reset to Global", systemImage: "arrow.uturn.backward")
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!offset.hasTitleOffset)
+                .opacity(offset.hasTitleOffset ? 1 : 0.4)
+                .accessibilityIdentifier(A11yID.Player.audioOffsetReset)
+            }
+        }
+    }
+
+    /// − or +, repeating while held. Named buttons as well as the adjustable
+    /// row, for Voice Control and Switch Control, which can't adjust.
+    private func offsetStepButton(_ symbol: String, steps: Int, enabled: Bool, label: LocalizedStringKey, id: String) -> some View {
+        Button {
+            onInteract()
+            viewModel.audioOffset.step(by: steps)
+        } label: {
+            Image(systemName: symbol)
+                .font(.subheadline.weight(.semibold))
+                .frame(width: 44, height: 36)
+                .background(Capsule().fill(Color.white.opacity(0.14)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .buttonRepeatBehavior(.enabled)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.4)
+        .accessibilityLabel(Text(label))
+        .accessibilityIdentifier(id)
+    }
+
+    private func scopeSegment(_ title: LocalizedStringKey, scope: AudioOffsetScope, key: String) -> some View {
+        let isOn = viewModel.audioOffset.scope == scope
+        return Button {
+            onInteract()
+            viewModel.audioOffset.setScope(scope)
+        } label: {
+            Text(title)
+                .font(.subheadline.weight(isOn ? .semibold : .regular))
+                .frame(maxWidth: .infinity, minHeight: 32)
+                .background(Capsule().fill(Color.white.opacity(isOn ? 0.24 : 0.06)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+        .accessibilityIdentifier(A11yID.Player.audioOffsetScope(key))
     }
 
     private var currentSubtitleTrackTitle: String {
@@ -1461,6 +1666,19 @@ struct PlayerControlsOverlay: View {
             guard isScrubbing, !isDraggingScrubber else { return }
             if abs(newTime - scrubTime) < 1.0 {
                 isScrubbing = false
+            }
+        }
+        // The offset settles before applying; closing the panel applies it
+        // at once (`AudioOffsetController.flush`).
+        .onChange(of: isShowingTrackPicker) { _, showing in
+            if !showing { viewModel.audioOffset.flush() }
+        }
+        // Reset comes and goes with the scope, so the Audio page's height
+        // follows it.
+        .onChange(of: viewModel.audioOffset.scope) {
+            guard trackPickerPage == .audio || trackPickerPage == .audioOffset else { return }
+            withAnimation(Self.trackPickerNavigationAnimation) {
+                trackPickerHeight = min(estimatedHeight(for: trackPickerPage), trackPickerMaxHeight)
             }
         }
         .onChange(of: viewModel.state) { oldState, newState in

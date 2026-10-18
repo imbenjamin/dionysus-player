@@ -333,6 +333,16 @@ enum A11yID {
         /// The subtitle leaf's "Off" row, which has no `PlaybackTrack` of
         /// its own to key `trackOption(_:_:)` off.
         static let subtitleOffOption = "player.trackPicker.option.subtitle.off"
+        /// The Audio page's offset section (`PlayerControlsOverlay.audioOffsetSection`).
+        static let audioOffsetHeading = "player.audioOffset.heading"
+        /// The Audio Offset page's back row, to the Audio page.
+        static let audioOffsetBack = "player.audioOffset.back"
+        static let audioOffsetValue = "player.audioOffset.value"
+        static let audioOffsetDecrease = "player.audioOffset.decrease"
+        static let audioOffsetIncrease = "player.audioOffset.increase"
+        /// `thisTitle` or `allTitles`.
+        static func audioOffsetScope(_ scope: String) -> String { "player.audioOffset.scope.\(scope)" }
+        static let audioOffsetReset = "player.audioOffset.reset"
 
         /// A `ChapterPickerOverlay` row, keyed by `Chapter.index` — stable
         /// across the online/offline model swap `Chapter.id`'s own doc

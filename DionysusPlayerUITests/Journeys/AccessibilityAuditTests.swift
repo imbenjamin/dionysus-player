@@ -258,6 +258,23 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen()
     }
 
+    func testAudioOffsetPageHasNoAccessibilityIssues() throws {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+        AssetDetailScreen(app: app).play()
+
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        player.tracksButton.tap()
+        player.trackNavigationRow("audio").tap()
+        player.trackNavigationRow("audioOffset").tap()
+        player.audioOffsetValue.awaitExistence("the Audio Offset page")
+
+        try auditCurrentScreen()
+    }
+
     // MARK: - Downloads and Profile
 
     func testDownloadsEmptyStateHasNoAccessibilityIssues() throws {
