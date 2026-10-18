@@ -3,9 +3,9 @@
 Loaded when working in `DionysusTV/`. The root `CLAUDE.md` has the target's
 shape (what it compiles, `#if DOWNLOADS`); `TESTING.md` has the tvOS suites
 and CI. Design, decisions and milestones:
-`docs/superpowers/specs/2026-09-29-tvos-app-design.md`. Facts marked with a
-tvOS version were measured there; tvOS 26 and 27 behave differently, and 26.0
-is the floor.
+`docs/superpowers/specs/2026-09-29-tvos-app-design.md` (all six milestones
+done, 2026-10-18). Facts marked with a tvOS version were measured there; tvOS
+26 and 27 behave differently, and 26.0 is the floor.
 
 **The icon can't be `dionysus.icon`**: actool compiles no tvOS icon from an
 Icon Composer file and wants an "App Icon & Top Shelf Image" brand-assets set.
@@ -468,29 +468,30 @@ footers.
 
 ## Top Shelf
 
-`DionysusTVTopShelf` (M6) fills the shelf above the app's icon with an
-`.actions` carousel: the **first 3 Continue Watching** items, then Next Up
-not already shown, then Recently Added, 10 at most, a show once and nothing
-without a backdrop up its chain (Benjamin, 2026-10-14;
-`TopShelfContentBuilder`). A show once means Latest's own entry for it too:
-Latest groups a TV library's new episodes into the Series, which has no
-`seriesId`, so the builder keys a show by the Series' id or an episode's
-`seriesId`. A source that fails is left out and the rest shown. **Recently Added draws on Home's libraries**, the
-first Movies and the first TV Shows library, each asked for by its id, newest
-first across both (Benjamin, 2026-10-16). A show Latest groups is dated by
-its newest episode (`DateLastMediaAdded`), not its own `DateCreated`, which
-is when the show was first added. Unscoped, `/Items/Latest` draws on every
-library, music and books included, and groups by whichever library comes
-first (by album when that's Music), so on the demo server it once answered
-four music albums and the shelf showed the static image. Its display action
-(Select, More Info) opens the title's page
-(`dionysus://item/<id>?server=<id>`), its play action (Play, Play/Pause)
-plays over that page (`dionysus://play/…`), so Menu lands on the page;
-`TVDeepLink`, `TVDeepLinkRouter` and `TVMainView.apply(_:)`. A link waits
-while the session restores and is dropped when signed out or for another
-server. Applying one takes a few awaits, and after each it stops unless the
-same user is still signed in (`TVDeepLinkRouter.canFinish`): returning after
-a while, tvOS can hand the app the link before Who's Watching? signs out.
+`DionysusTVTopShelf` fills the shelf above the app's icon with an `.actions`
+carousel: the **first 3 Continue Watching** items, then Next Up not already
+shown, then Recently Added, 10 at most, a show once and nothing without a
+backdrop up its chain (Benjamin, 2026-10-14; `TopShelfContentBuilder`). A
+source that fails is left out and the rest shown.
+
+- **A show once includes Latest's own entry for it**: Latest groups a TV
+  library's new episodes into the Series, which has no `seriesId`, so the
+  builder keys a show by the Series' id or an episode's `seriesId`.
+- **Recently Added draws on Home's libraries**: the first Movies and the first
+  TV Shows library, each asked for by its id, newest first across both
+  (Benjamin, 2026-10-16), a grouped show dated by its newest episode
+  (`DateLastMediaAdded`), not its own `DateCreated`. Unscoped,
+  `/Items/Latest` draws on every library, music and books included, and on
+  the demo server it once answered four music albums.
+- **Its actions are deep links** (`TVDeepLink`, `TVDeepLinkRouter`,
+  `TVMainView.apply(_:)`): the display action (Select, More Info) opens the
+  title's page (`dionysus://item/<id>?server=<id>`), the play action (Play,
+  Play/Pause) plays over that page (`dionysus://play/…`), so Menu lands on
+  the page. A link waits while the session restores and is dropped when
+  signed out or for another server. Applying one takes a few awaits, and
+  after each it stops unless the same user is still signed in
+  (`TVDeepLinkRouter.canFinish`): returning after a while, tvOS can hand the
+  app the link before Who's Watching? signs out.
 
 - **The text is drawn into the art.** tvOS 27 draws no text over a
   third-party carousel in either style (`.details` shows the bare image), so
@@ -516,7 +517,6 @@ a while, tvOS can hand the app the link before Who's Watching? signs out.
   (`TopShelfArtworkComposer`'s `Serial`): the app asks for a refresh on every
   return, and a second load during a render took its marker for a death. A
   load that found nothing leaves the cache alone.
-
 - **It shows whoever last used Dionysus, not the current Apple TV profile.**
   On Bedroom with two profiles the extension read the *default* profile's
   keychain on either, with or without the user-management entitlement
@@ -541,12 +541,9 @@ a while, tvOS can hand the app the link before Who's Watching? signs out.
   `loadTopShelfContent()` override doesn't compile under Swift 6, so the
   provider uses the completion-handler one. Art is set at `.screenScale2x`
   only, the scale Apple TV renders (Sodalite).
-- **Each target has its own privacy manifest**: the app's
-  `DionysusTV/Resources/PrivacyInfo.xcprivacy` (UserDefaults, and system boot
-  time for the player's `systemUptime` clocks), the extension's
-  `DionysusTVTopShelf/PrivacyInfo.xcprivacy` (UserDefaults). The iOS app's
-  isn't compiled for tvOS; a new required-reason API in tvOS code needs an
-  entry in the target's manifest.
+- **Each target has its own privacy manifest** (root `CLAUDE.md`): the app's
+  declares UserDefaults and system boot time (the player's `systemUptime`
+  clocks), the extension's UserDefaults.
 - **The extension stays UI-free:** it compiles `DionysusTV/TopShelf`,
   `Core/Networking` (less discovery and the image loader), `Core/Models`,
   `Chapter.swift` and the keychain and session files (`project.yml`). Code
@@ -683,8 +680,8 @@ Measured on the tvOS 26.5 Simulator, VoiceOver's speech read from its log
   with the header trait**, so `TVDetailHeader`'s title has none (the hero's
   and every detail title went unread). A grid's title is still never read:
   focus lands on a poster or a pill, and neither dropping the trait nor
-  naming the grid a container for it changed that (M5 review, 26.5). It passes over a header-trait heading
-  however it sits, so Profile's sections, its pickers, Advanced and Recent
+  naming the grid a container for it changed that (M5 review, 26.5). It
+  passes over a header-trait heading however it sits, so Profile's sections, its pickers, Advanced and Recent
   Searches are containers named for their headings, which also keeps the
   read-ahead inside them. (It still runs on into the collapsed rail after a
   section's last row and on arrival; sorting the rail first and making the
@@ -746,8 +743,8 @@ focus, so what changes is announced (`TVOnboardingSpeech`): a found server
 Connect code's expiry (focus then goes to Get New Code) and every sign-in
 error. Each Quick Connect code is announced with the screen's title and
 instructions (only its buttons take focus, so landing read "Use Password
-Instead" alone; Benjamin, on device), the code a digit at a time. Who's Watching?'s Change Server sits
-in a full-width focus section (or Down reached it only from a lockup above
+Instead" alone; Benjamin, on device), the code a digit at a time. Who's Watching?'s Change Server sits in a
+full-width focus section (or Down reached it only from a lockup above
 it). Under VoiceOver it isn't focusable while users load (or it was read
 first); otherwise it is, as the way off a slow server. A
 remembered lockup's value is "Signed in", and Forget This Account is also a
@@ -765,7 +762,7 @@ AVKit draws the native route and the software route has no AVPlayer
 (`TVPlayerSurfacePolicy`). And the engine is made with
 `ownsNowPlayingSession: false`: AVKit runs Now Playing, from the item's
 `externalMetadata`, which `setNowPlayingInfo` stages through the engine before
-`load()` (`NowPlayingMetadata`, M6, after Sodalite). AVKit publishes only with
+`load()` (`NowPlayingMetadata`, after Sodalite). AVKit publishes only with
 `showsPlaybackControls` on, so the chrome is hidden, not switched off; an
 `MPNowPlayingSession` of the app's own conflicts with AVKit's (Sodalite:
 CoreMediaErrorDomain -16046), and `updatesNowPlayingInfoCenter` doesn't exist
