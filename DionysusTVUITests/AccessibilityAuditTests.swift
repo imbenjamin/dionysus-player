@@ -183,6 +183,14 @@ final class AccessibilityAuditTests: TVUITestCase {
         try audit(app)
     }
 
+    func test_profileAudioOffset() throws {
+        let app = openProfile()
+        pressDown(until: app.buttons[A11yID.TV.Profile.audioOffset], presses: 16)
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Profile.audioOffsetIncrease]))
+        try audit(app)
+    }
+
     func test_profileQuickConnectApproval() throws {
         let app = openProfile()
         pressDown(until: app.buttons[A11yID.TV.Profile.approveQuickConnect])

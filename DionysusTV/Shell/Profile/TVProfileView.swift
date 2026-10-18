@@ -19,7 +19,7 @@ struct TVProfileView: View {
     /// accessibility identifiers on tvOS, nor a push, which would put the
     /// sidebar beside a page that belongs to Profile.
     private enum Cover: String, Identifiable {
-        case changeServer, signOut, quickConnect, nextUpCountdown, advanced, license, privacyPolicy
+        case changeServer, signOut, quickConnect, nextUpCountdown, audioOffset, advanced, license, privacyPolicy
         var id: String { rawValue }
     }
 
@@ -35,6 +35,9 @@ struct TVProfileView: View {
     /// nothing observes.
     @State private var followsAppleTVUsers = SessionScopeSetting.followsAppleTVUsers
     @State private var selectsUserEveryRelaunch = SessionScopeSetting.selectsUserEveryRelaunch
+    /// A copy of the stored global offset (`AudioOffsetStore`), which
+    /// nothing observes.
+    @State private var audioOffsetMilliseconds = AudioOffsetStore().globalOffsetMilliseconds
 
     private var user: UserDto? {
         TVProfileIdentity.user(currentUser: appState.currentUser, credentials: appState.sessionStore.credentials)
@@ -53,7 +56,7 @@ struct TVProfileView: View {
             // session, so it's only there while the first is off.
             + (followsAppleTVUsers ? [] : [A11yID.TV.Profile.selectsUserEveryRelaunch])
             + [A11yID.TV.Profile.autoCarousel, A11yID.TV.Profile.nextUpCountdown, A11yID.TV.Profile.chaptersInScrubber,
-               A11yID.TV.Profile.advanced, A11yID.TV.Profile.license, A11yID.TV.Profile.privacyPolicy]
+               A11yID.TV.Profile.audioOffset, A11yID.TV.Profile.advanced, A11yID.TV.Profile.license, A11yID.TV.Profile.privacyPolicy]
     }
 
     var body: some View {
@@ -100,6 +103,15 @@ struct TVProfileView: View {
                     label: \.displayName,
                     accessibilityLabel: \.accessibilityLabel
                 )
+            case .audioOffset:
+                TVAudioOffsetPage(milliseconds: Binding(
+                    get: { audioOffsetMilliseconds },
+                    set: { newValue in
+                        let store = AudioOffsetStore()
+                        store.globalOffsetMilliseconds = newValue
+                        audioOffsetMilliseconds = store.globalOffsetMilliseconds
+                    }
+                ))
             case .advanced:
                 TVAdvancedPlaybackView()
             case .license:
@@ -194,8 +206,16 @@ struct TVProfileView: View {
                     ) {
                         chaptersInScrubber.toggle()
                     }
+                    row(
+                        "Audio Offset", value: AudioOffsetFormat.value(audioOffsetMilliseconds),
+                        spokenValue: AudioOffsetFormat.spoken(audioOffsetMilliseconds),
+                        hint: "Delays or advances audio to correct lip sync for your TV or receiver.",
+                        opensPage: true, id: A11yID.TV.Profile.audioOffset
+                    ) {
+                        cover = .audioOffset
+                    }
                     row("Advanced", opensPage: true, id: A11yID.TV.Profile.advanced) { cover = .advanced }
-                    TVSettingsFooter(text: "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging.")
+                    TVSettingsFooter(text: "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel.")
                 }
 
                 section("about", "About") {

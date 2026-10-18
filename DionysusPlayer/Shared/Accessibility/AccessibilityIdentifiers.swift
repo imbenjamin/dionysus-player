@@ -547,6 +547,12 @@ enum A11yID {
             static let quickConnectAuthorize = "tv.profile.quickConnect.authorize"
             static let quickConnectMessage = "tv.profile.quickConnect.message"
             static let textPage = "tv.profile.textPage"
+            /// Profile → Playback → Audio Offset (`TVAudioOffsetPage`).
+            static let audioOffset = "tv.profile.audioOffset"
+            static let audioOffsetDecrease = "tv.profile.audioOffset.decrease"
+            static let audioOffsetIncrease = "tv.profile.audioOffset.increase"
+            static let audioOffsetValue = "tv.profile.audioOffset.value"
+            static let audioOffsetReset = "tv.profile.audioOffset.reset"
             /// A section's rows, one container named for its heading (M5).
             static func section(_ id: String) -> String { "tv.profile.section.\(id)" }
             static func sectionHeading(_ id: String) -> String { "tv.profile.section.\(id).heading" }
