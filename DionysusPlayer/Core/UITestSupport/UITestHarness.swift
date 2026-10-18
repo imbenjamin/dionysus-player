@@ -32,6 +32,11 @@ enum UITestHarness {
             seedLongSearchHistory()
         }
 
+        if UITestConfiguration.seedsMissingSearchHistory {
+            let hint = SearchHint(id: UITestFixtureIdentity.missingItemID, name: UITestFixtureIdentity.missingItemName, type: .movie, productionYear: 2019)
+            SearchHistoryStore().record(SearchResult(hint: hint), userID: UITestConfiguration.stubUserID)
+        }
+
         if UITestConfiguration.disablesAnimations {
             UIView.setAnimationsEnabled(false)
         }

@@ -20,14 +20,23 @@ enum JellyfinAPIError: Error, LocalizedError {
     /// i.e. pressing Delete without permission would log you out.
     case notPermitted
 
+    /// The server has no such item: deleted, or never there. Jellyfin answers
+    /// `GET /Users/{id}/Items/{id}` for a missing id with a 404.
+    var isNotFound: Bool {
+        if case .http(status: 404, message: _) = self { return true }
+        return false
+    }
+
     var errorDescription: String? {
         switch self {
         case .invalidServerAddress:
             String(localized: "That doesn't look like a valid server address.")
         case .invalidResponse:
             String(localized: "The server sent an unexpected response.")
-        case .http(let status, let message):
-            String(localized: "Server returned \(status)\(message.map { ": \($0)" } ?? "").")
+        // The body is never shown: a server (or a proxy in front of it) can
+        // answer an error with a whole HTML page, which read as raw markup.
+        case .http(let status, _):
+            String(localized: "Something went wrong (HTTP \(status)).")
         case .decoding:
             String(localized: "Couldn't understand the server's response.")
         case .notAuthenticated:

@@ -202,7 +202,7 @@ struct TVMainView: View {
         switch entry.route {
         case .assetDetail:
             if let model = detailModels[entry.id] {
-                TVDetailPage(viewModel: model, client: client, userID: userID, rememberedFocus: focus)
+                TVDetailPage(viewModel: model, client: client, userID: userID, rememberedFocus: focus, onBack: pop)
             }
         case .collection(let query):
             if let grid = pushedGrids[entry.id] {

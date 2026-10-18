@@ -937,6 +937,9 @@
     "gigabytes" : {
 
     },
+    "Go Back" : {
+
+    },
     "Hearing Impaired" : {
 
     },
@@ -968,6 +971,9 @@
 
     },
     "iOS interrupted this download several times and it couldn't be completed. Try downloading again." : {
+
+    },
+    "It may have been removed from the server." : {
 
     },
     "Item %lld of %lld" : {
@@ -1428,16 +1434,6 @@
     "Server Address" : {
 
     },
-    "Server returned %lld%@." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "Server returned %1$lld%2$@."
-          }
-        }
-      }
-    },
     "Servers found: %lld" : {
 
     },
@@ -1523,6 +1519,9 @@
 
     },
     "Skip Recap" : {
+
+    },
+    "Something went wrong (HTTP %lld)." : {
 
     },
     "Something went wrong authorizing this code. Try again." : {
@@ -1748,6 +1747,9 @@
 
     },
     "This text is unavailable." : {
+
+    },
+    "This Title Can't Be Found" : {
 
     },
     "This title's default subtitle track can't be included in offline downloads. The download will have no subtitles unless you choose one manually later." : {

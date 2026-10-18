@@ -44,6 +44,12 @@ enum UITestFixtureIdentity {
     static let quickConnectApprovableCode = "246810"
     static let quickConnectUsedCode = "135790"
 
+    /// A recent search for a movie since deleted from the server, which the
+    /// stub answers with a 404 and an HTML page, as a proxy in front of
+    /// Jellyfin can (`UITestConfiguration.seedsMissingSearchHistory`).
+    static let missingItemID = "movie-deleted-since"
+    static let missingItemName = "Gone Tomorrow"
+
     static let secondPlaylistID = "playlist-late-night"
     static let secondPlaylistName = "Late Night"
 

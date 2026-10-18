@@ -9,6 +9,8 @@ struct TVDetailPage: View {
     let client: JellyfinAPIClient
     let userID: String
     @Binding var rememberedFocus: String?
+    /// Pops this page: the way out of one whose item is gone from the server.
+    let onBack: () -> Void
     @Environment(\.tvPageIsOnShow) private var isOnShow
     @State private var isBelowHeader = false
     /// Set by a show's page, whose imagery follows the episode or season it
@@ -34,8 +36,8 @@ struct TVDetailPage: View {
         if let item = backdropItem ?? viewModel.item, item.backdropImageURL != nil { TVDetailBackdrop(item: item, isBlurred: isBelowHeader) }
     }
 
-    /// A failed load wins over a preloaded item: the tile's own copy is too
-    /// thin to stand in for the page.
+    /// A failed or not-found load wins over a preloaded item: the tile's own
+    /// copy is too thin to stand in for the page.
     @ViewBuilder
     private var content: some View {
         if case .failed(let message) = viewModel.loadState {
@@ -43,6 +45,14 @@ struct TVDetailPage: View {
                 title: String(localized: "Couldn't Load This Title"), message: message,
                 actionTitle: "Try Again", actionIdentifier: A11yID.TV.Detail.retry
             ) { Task { await viewModel.load() } }
+        } else if viewModel.loadState == .notFound {
+            // No Try Again: asking again gets the same 404. The page needs a
+            // button all the same, or focus would have nowhere to go.
+            TVPageMessage(
+                title: String(localized: "This Title Can't Be Found"),
+                message: String(localized: "It may have been removed from the server."),
+                actionTitle: "Go Back", actionIdentifier: A11yID.TV.Detail.back, action: onBack
+            )
         } else if let item = viewModel.item {
             switch item.kind {
             case .series, .season, .episode:

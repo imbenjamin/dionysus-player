@@ -9,6 +9,9 @@ final class AssetDetailViewModel {
         case loading
         case loaded
         case failed(String)
+        /// The server has no such item: deleted since it was listed, most
+        /// often a recent search. Unlike `.failed`, retrying can't help.
+        case notFound
     }
 
     /// What the detail views render as the page's hero, synopsis, metadata, Play
@@ -135,6 +138,7 @@ final class AssetDetailViewModel {
     private let client: JellyfinAPIClient
     private let userID: String
     private let versionPreferenceStore: MediaVersionPreferenceStore
+    private let searchHistoryStore: SearchHistoryStore
 
     /// Exposed read-only for `DownloadButton`'s call sites, which hold this view
     /// model but no `client` or `userID` of their own.
@@ -147,13 +151,15 @@ final class AssetDetailViewModel {
     /// list, so `load()` runs regardless and replaces it.
     init(
         client: JellyfinAPIClient, userID: String, itemID: String, preloadedItem: MediaItem? = nil,
-        versionPreferenceStore: MediaVersionPreferenceStore = MediaVersionPreferenceStore()
+        versionPreferenceStore: MediaVersionPreferenceStore = MediaVersionPreferenceStore(),
+        searchHistoryStore: SearchHistoryStore = SearchHistoryStore()
     ) {
         self.client = client
         self.userID = userID
         self.itemID = itemID
         self.item = preloadedItem
         self.versionPreferenceStore = versionPreferenceStore
+        self.searchHistoryStore = searchHistoryStore
     }
 
     /// The version a Resume tap continues with: whatever was chosen via the
@@ -200,7 +206,17 @@ final class AssetDetailViewModel {
         loadState = .loading
         do {
             let images = await client.makeImageURLBuilder()
-            let dto = try await client.item(userID: userID, itemID: itemID)
+            let dto: BaseItemDto
+            do {
+                dto = try await client.item(userID: userID, itemID: itemID)
+            } catch let error as JellyfinAPIError where error.isNotFound {
+                // Gone from the server. Only the item itself decides this: a
+                // 404 from a later, secondary fetch is an ordinary failure. A
+                // recent search for it can only lead back here, so it goes.
+                searchHistoryStore.remove(id: itemID, userID: userID)
+                loadState = .notFound
+                return
+            }
 
             // The one place that decides `item`, `seriesID`,
             // `preselectedSeasonID` and `displayedItemID`; see each for what a

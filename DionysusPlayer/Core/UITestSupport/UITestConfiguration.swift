@@ -247,6 +247,10 @@ enum UITestConfiguration {
     /// detail page.
     static var seedsLongSearchHistory: Bool { flag("UITestSeedLongSearchHistory") }
 
+    /// Seed one recent search for `UITestFixtureIdentity.missingItemID`, an
+    /// item the stub answers 404 for, as one deleted since it was opened.
+    static var seedsMissingSearchHistory: Bool { flag("UITestSeedMissingSearchHistory") }
+
     static var disablesAnimations: Bool { flag("UITestDisableAnimations") }
 
     /// `PlayerControlsOverlay` hides 3s after the last interaction except under
