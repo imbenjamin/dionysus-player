@@ -32,7 +32,8 @@ final class AssetDetailViewModelTests: XCTestCase {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
         return AssetDetailViewModel(
             client: client, userID: "user-1", itemID: itemID, preloadedItem: preloadedItem,
-            versionPreferenceStore: MediaVersionPreferenceStore(defaults: defaults)
+            versionPreferenceStore: MediaVersionPreferenceStore(defaults: defaults),
+            searchHistoryStore: SearchHistoryStore(defaults: defaults)
         )
     }
 
@@ -203,11 +204,52 @@ final class AssetDetailViewModelTests: XCTestCase {
 
     func test_load_serverError_setsFailedState() async {
         let viewModel = makeViewModel(itemID: "item-1")
-        MockURLProtocol.requestHandler = { request in MockURLProtocol.jsonResponse(for: request, status: 500, body: Data()) }
+        MockURLProtocol.requestHandler = { request in MockURLProtocol.jsonResponse(for: request, status: 500, body: Data("<html>Oops</html>".utf8)) }
 
         await viewModel.load()
 
-        guard case .failed = viewModel.loadState else { return XCTFail("Expected .failed, got \(viewModel.loadState)") }
+        XCTAssertEqual(viewModel.loadState, .failed("Something went wrong (HTTP 500)."), "The status, never the body")
+    }
+
+    /// An item deleted since it was listed (most often a recent search):
+    /// `.notFound` rather than a failure, and its recent search goes, since it
+    /// can only lead back here.
+    func test_load_itemNotFound_setsNotFound_andDropsItsRecentSearch() async {
+        let history = SearchHistoryStore(defaults: defaults)
+        history.record(SearchResult(hint: SearchHint(id: "movie-kept", name: "Arrival", type: .movie)), userID: "user-1")
+        history.record(SearchResult(hint: SearchHint(id: "movie-gone", name: "Gone", type: .movie)), userID: "user-1")
+        let viewModel = makeViewModel(itemID: "movie-gone", preloadedItem: MediaItem(dto: BaseItemDto(id: "movie-gone", name: "Gone", type: .movie), images: ImageURLBuilder(baseURL: baseURL, accessToken: "tok")))
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 404, body: Data("<html><body>404 Not Found</body></html>".utf8))
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.loadState, .notFound)
+        XCTAssertEqual(history.history(userID: "user-1").map(\.id), ["movie-kept"])
+    }
+
+    /// Only the item itself decides "gone": a 404 from a supplementary rail
+    /// leaves the page loaded and the recent search alone.
+    func test_load_similarNotFound_stillLoads_andKeepsTheRecentSearch() async {
+        let history = SearchHistoryStore(defaults: defaults)
+        history.record(SearchResult(hint: SearchHint(id: "movie-1", name: "Arrival", type: .movie)), userID: "user-1")
+        let viewModel = makeViewModel(itemID: "movie-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/movie-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie))
+            case "/Items/movie-1/Similar":
+                return MockURLProtocol.jsonResponse(for: request, status: 404, body: Data())
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(history.history(userID: "user-1").map(\.id), ["movie-1"])
     }
 
     /// `similar`/`collections`/`seasons` are all supplementary rails, not

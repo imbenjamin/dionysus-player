@@ -316,6 +316,14 @@ discovery reply's `SystemId` over `/System/Info/Public`, and nothing connects
 until the user confirms going unencrypted. Only certificate failures
 (`URLError.isCertificateFailure`) trigger it.
 
+**An HTTP error never shows the response body.** `JellyfinAPIError.http`
+reads "Something went wrong (HTTP 404)." whatever came back: a server, or a
+proxy in front of it, can answer with a whole HTML page. A detail page whose
+item answers 404 (deleted since it was listed, most often a recent search)
+shows "This Title Can't Be Found" with no retry (`LoadState.notFound`) and
+drops the item from search history; `SearchViewModel` follows the change
+through `SearchHistoryStore.didChange`.
+
 `ImageURLBuilder` is deliberately not actor-isolated: a struct snapshotted
 via `client.makeImageURLBuilder()`, so views build image URLs synchronously.
 

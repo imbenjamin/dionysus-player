@@ -91,4 +91,31 @@ final class SearchJourneyTests: UITestCase {
         SearchScreen(app: app).result(UITestFixtureIdentity.primaryMovieID)
             .awaitExistence("the persisted history row")
     }
+
+    /// A recent search for an item deleted from the server since: its page
+    /// says it can't be found, never the server's raw 404 page, and going back
+    /// finds the recent search gone.
+    func testARecentSearchForADeletedItemSaysSoAndIsRemoved() {
+        launch(extraArguments: ["-UITestSeedMissingSearchHistory", "YES"])
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).search.tap()
+
+        let search = SearchScreen(app: app)
+        let recent = search.result(UITestFixtureIdentity.missingItemID)
+        recent.awaitExistence("the recent search for the deleted item")
+        recent.tap()
+
+        app.descendants(matching: .any)[A11yID.AssetDetail.notFoundMessage]
+            .awaitExistence("the can't-be-found message")
+        XCTAssertFalse(
+            app.staticTexts.containing(NSPredicate(format: "label CONTAINS '<html'")).firstMatch.exists,
+            "The server's HTML page is shown."
+        )
+
+        app.navigationBackButton.tap()
+        XCTAssertTrue(
+            recent.waitForNonExistence(timeout: UITestCase.defaultTimeout),
+            "The recent search for the deleted item is still listed."
+        )
+    }
 }

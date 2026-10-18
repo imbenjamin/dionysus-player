@@ -148,6 +148,8 @@ Keychain as it's made.
   moving.
 - `-UITestScenario <name>` picks the stub's behaviour (below).
 - `-UITestSeedLongSearchHistory` fills Search's history to its cap (#244).
+- `-UITestSeedMissingSearchHistory` seeds one recent search for an item the
+  stub answers 404 (with an HTML page) for, as one deleted from the server.
 - `launch(resetsState: false)` relaunches without the reset, to check what
   survives a relaunch; `launch(extraArguments:)` can force a setting through
   `UserDefaults`' argument domain instead of driving the settings screen.

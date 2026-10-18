@@ -164,6 +164,8 @@ enum A11yID {
         static let favoriteButton = "assetDetail.favoriteButton"
         static let watchedButton = "assetDetail.watchedButton"
         static let unsupportedAudioMessage = "assetDetail.unsupportedAudioMessage"
+        /// The item is gone from the server (`AssetDetailViewModel.LoadState.notFound`).
+        static let notFoundMessage = "assetDetail.notFoundMessage"
         /// The About panel's synopsis line: the synopsis, or "No synopsis
         /// available." without one. The line is always there when the panel
         /// is, so its absence on a playlist without a description proves the
@@ -485,6 +487,8 @@ enum A11yID {
             static let favorite = "tv.detail.favorite"
             static let overview = "tv.detail.overview"
             static let retry = "tv.detail.retry"
+            /// Go Back, on the page for an item gone from the server.
+            static let back = "tv.detail.back"
             static func similar(_ itemID: String) -> String { "tv.detail.similar.\(itemID)" }
             static func cast(_ memberID: String) -> String { "tv.detail.cast.\(memberID)" }
             /// Cast & Crew, one container named for its heading (M5).

@@ -119,6 +119,30 @@ final class SearchJourneyTests: TVUITestCase {
         XCTAssertTrue(poll(timeout: 5) { !recent.exists })
     }
 
+    /// A recent search for an item deleted from the server since: its page
+    /// says it can't be found, never the server's raw 404 page, Go Back
+    /// returns to Search, and the recent search is gone.
+    func test_recentSearch_forADeletedItem_saysSo_andIsRemoved() {
+        let app = launch(seedSession: true, extraArguments: ["-UITestSeedMissingSearchHistory", "YES"])
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.heroPlay]))
+        _ = openSearch(app)
+        let recent = app.buttons[A11yID.TV.Search.recent(UITestFixtureIdentity.missingItemID)]
+        XCTAssertTrue(recent.waitForExistence(timeout: 10))
+        focus(recent)
+        press(.select)
+
+        let back = app.buttons[A11yID.TV.Detail.back]
+        XCTAssertTrue(waitForFocus(back), "The page says the title can't be found, with a way back")
+        XCTAssertFalse(
+            app.staticTexts.containing(NSPredicate(format: "label CONTAINS '<html'")).firstMatch.exists,
+            "The server's HTML page is shown"
+        )
+        press(.select)
+
+        XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(poll(timeout: 5) { !recent.exists }, "The recent search for the deleted item is gone")
+    }
+
     /// Search is the system's full-screen layout (Benjamin, 2026-10-04): the
     /// collapsed rail slides off the left edge, so the field starts at the
     /// screen's own margin and ends inside it.

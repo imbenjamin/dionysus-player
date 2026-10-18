@@ -20,9 +20,10 @@ final class SearchViewModel {
     private(set) var loadState: LoadState = .idle
     /// Recently *selected* search results (not just past query text),
     /// most-recent-first — shown on `SearchView`'s landing page, on-device
-    /// only via `SearchHistoryStore`. Loaded once at `init` and kept in
-    /// sync locally by `recordSelection`/`removeFromHistory`/`clearHistory`
-    /// rather than re-reading `UserDefaults` on every access.
+    /// only via `SearchHistoryStore`. Loaded at `init`, kept in sync locally
+    /// by `recordSelection`/`removeFromHistory`/`clearHistory`, and reloaded
+    /// when the history changes elsewhere (`SearchHistoryStore.didChange`): a
+    /// detail page drops an entry whose item is gone from the server.
     private(set) var history: [SearchResult] = []
 
     private let client: JellyfinAPIClient
@@ -35,11 +36,27 @@ final class SearchViewModel {
     /// which tears this ViewModel down and rebuilds it too). `nil` only
     /// briefly, between `init` and `loadImagesIfNeeded()` landing.
     private var imageURLBuilder: ImageURLBuilder?
+    /// `nonisolated(unsafe)` only so `deinit` can remove it; set once in `init`.
+    nonisolated(unsafe) private var historyObserver: (any NSObjectProtocol)?
 
     init(client: JellyfinAPIClient, userID: String, historyStore: SearchHistoryStore = SearchHistoryStore()) {
         self.client = client
         self.userID = userID
         self.historyStore = historyStore
+        history = historyStore.history(userID: userID)
+        historyObserver = NotificationCenter.default.addObserver(
+            forName: SearchHistoryStore.didChange, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard notification.userInfo?[SearchHistoryStore.userIDKey] as? String == userID else { return }
+            MainActor.assumeIsolated { self?.reloadHistory() }
+        }
+    }
+
+    deinit {
+        if let historyObserver { NotificationCenter.default.removeObserver(historyObserver) }
+    }
+
+    private func reloadHistory() {
         history = historyStore.history(userID: userID)
     }
 

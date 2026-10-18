@@ -284,6 +284,13 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
+        // An item deleted since it was listed, answered as a proxy in front of
+        // Jellyfin can: a 404 with an HTML page, which must never be shown.
+        if path.contains("/Items/\(UITestFixtureIdentity.missingItemID)") {
+            finish(.success((404, Data("<html><body><h1>404 Not Found</h1></body></html>".utf8), "text/html")))
+            return
+        }
+
         // Needs Jellyfin's 404 "permissions not found" for a refusal, which
         // `body(forPath:)` can't express — every route there answers 200.
         if path.contains("/Playlists/"), path.contains("/Users/") {
