@@ -27,6 +27,9 @@ extension TVPlayerInputModel {
             let (commands, closes) = activateRow(panel.tab, index, context)
             if closes { state.panel = nil }
             return commands
+        case .adjustPanelRow(let index, let direction):
+            guard let panel = state.panel, panel.tab == .audio else { return [] }
+            return audioArrow(direction, at: index, context) ?? []
         case .skipSegment:
             return context.skipSegment.map { [.skipSegment(id: $0.id)] } ?? []
         case .nextUp(let button):

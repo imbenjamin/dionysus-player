@@ -25,8 +25,14 @@ extension TVPlayerInputModel {
         case (.up, .content(let index)):
             panel.focus = panel.tab.isList && index > 0 ? .content(index - 1) : .tabs
         case (.down, .content(let index)):
-            if panel.tab.isList, index + 1 < count { panel.focus = .content(index + 1) }
+            if panel.tab.isList, index + 1 < count, isFocusable(panel.tab, index + 1, context) {
+                panel.focus = .content(index + 1)
+            }
         case (.arrow(let direction), .content(let index)):
+            if panel.tab == .audio, let commands = audioArrow(direction, at: index, context) {
+                state.panel = panel
+                return commands
+            }
             if panel.tab == .chapters, count > 0 {
                 panel.focus = .content(min(max(index + (direction == .left ? -1 : 1), 0), count - 1))
             }
@@ -66,8 +72,44 @@ extension TVPlayerInputModel {
         switch tab {
         case .info: 1
         case .chapters: context.chapterStarts.count
-        case .audio: context.audioTrackIDs.count
+        case .audio: context.audioTrackIDs.count + (context.audioOffset == nil ? 0 : 3)
         case .subtitles: context.subtitleTrackIDs.count + 1
+        }
+    }
+
+    /// The Audio tab's row at `index`: the tracks, then (while the offset can
+    /// apply) the offset, scope and Reset rows.
+    static func audioRow(at index: Int, _ context: TVPlayerContext) -> TVAudioPanelRow? {
+        let tracks = context.audioTrackIDs.count
+        if index >= 0, index < tracks { return .track(index) }
+        guard context.audioOffset != nil else { return nil }
+        switch index - tracks {
+        case 0: return .offset
+        case 1: return .scope
+        case 2: return .reset
+        default: return nil
+        }
+    }
+
+    /// Reset takes focus only while the title has its own offset.
+    static func isFocusable(_ tab: TVPanelTab, _ index: Int, _ context: TVPlayerContext) -> Bool {
+        guard tab == .audio, audioRow(at: index, context) == .reset else { return true }
+        return context.audioOffset?.hasTitleOffset == true
+    }
+
+    /// Left/Right on the offset row step; on the scope row they choose a
+    /// side. `nil` for a track row, which ignores arrows.
+    static func audioArrow(_ direction: TVDirection, at index: Int, _ context: TVPlayerContext) -> [TVPlayerCommand]? {
+        guard let offset = context.audioOffset else { return nil }
+        switch audioRow(at: index, context) {
+        case .offset:
+            let up = direction == .right
+            return (up ? offset.canIncrease : offset.canDecrease) ? [.stepAudioOffset(up ? 1 : -1)] : []
+        case .scope:
+            let target: AudioOffsetScope = direction == .right ? .allTitles : .thisTitle
+            return target == offset.scope ? [] : [.setAudioOffsetScope(target)]
+        default:
+            return nil
         }
     }
 
@@ -95,8 +137,17 @@ extension TVPlayerInputModel {
             guard context.chapterStarts.indices.contains(index) else { return ([], false) }
             return ([.seek(context.chapterStarts[index]), .play], true)
         case .audio:
-            guard context.audioTrackIDs.indices.contains(index) else { return ([], false) }
-            return ([.selectAudio(id: context.audioTrackIDs[index])], false)
+            switch audioRow(at: index, context) {
+            case .track(let track):
+                return ([.selectAudio(id: context.audioTrackIDs[track])], false)
+            case .scope:
+                let scope: AudioOffsetScope = context.audioOffset?.scope == .thisTitle ? .allTitles : .thisTitle
+                return ([.setAudioOffsetScope(scope)], false)
+            case .reset:
+                return context.audioOffset?.hasTitleOffset == true ? ([.resetAudioOffset], false) : ([], false)
+            case .offset, nil:
+                return ([], false)
+            }
         case .subtitles:
             if index == 0 { return ([.selectSubtitle(id: nil)], false) }
             guard context.subtitleTrackIDs.indices.contains(index - 1) else { return ([], false) }

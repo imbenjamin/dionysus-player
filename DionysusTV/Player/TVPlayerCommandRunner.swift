@@ -22,6 +22,9 @@ struct TVPlayerCommandRunner {
             case .dismissNextUp: viewModel.dismissNextUp()
             case .selectAudio(let id): viewModel.selectAudioTrack(id: id)
             case .selectSubtitle(let id): viewModel.selectSubtitleTrack(id: id)
+            case .stepAudioOffset(let steps): viewModel.audioOffset.step(by: steps)
+            case .setAudioOffsetScope(let scope): viewModel.audioOffset.setScope(scope)
+            case .resetAudioOffset: viewModel.audioOffset.resetToGlobal()
             case .close: close()
             }
         }

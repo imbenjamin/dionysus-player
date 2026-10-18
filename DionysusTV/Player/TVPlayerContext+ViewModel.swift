@@ -22,6 +22,10 @@ extension TVPlayerContext {
         skipSegment = viewModel.currentSkipSegment.map { SkipSegment(id: $0.id, endSeconds: $0.endSeconds) }
         nextUpSecondsRemaining = viewModel.nextUpSecondsRemaining
         closesWhenPlaybackEnds = viewModel.closesWhenPlaybackEnds
+        let offset = viewModel.audioOffset
+        audioOffset = offset.isAvailable
+            ? AudioOffset(canDecrease: offset.canDecrease, canIncrease: offset.canIncrease, hasTitleOffset: offset.hasTitleOffset, scope: offset.scope)
+            : nil
         #if DEBUG
         autoHideDisabled = UITestConfiguration.disablesControlAutoHide
         #endif

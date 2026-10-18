@@ -36,4 +36,32 @@ final class TVPlayerCommandRunnerTests: XCTestCase {
         XCTAssertEqual(advanced, 1)
         XCTAssertEqual(closed, 1)
     }
+
+    func test_audioOffsetCommands_reachTheController() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let engine = FakePlaybackEngine()
+        engine.isAudioOffsetAvailable = true
+        let viewModel = PlayerViewModel(
+            client: JellyfinAPIClient(baseURL: URL(string: "https://jellyfin.example.com")!, accessToken: "tok", session: MockURLProtocol.makeSession()),
+            userID: "user-1", itemID: "item-1", engine: engine,
+            trackPreferenceStore: TrackPreferenceStore(defaults: defaults),
+            nextUpPreferenceStore: NextUpPreferenceStore(defaults: defaults),
+            streamPreferenceStore: StreamPreferenceStore(defaults: defaults),
+            audioOffsetStore: AudioOffsetStore(defaults: defaults)
+        )
+        let runner = TVPlayerCommandRunner(viewModel: viewModel, close: {}, playNext: {})
+
+        runner.run([.stepAudioOffset(2)])
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(viewModel.audioOffset.milliseconds, 20)
+        XCTAssertTrue(viewModel.audioOffset.hasTitleOffset)
+
+        runner.run([.resetAudioOffset])
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertFalse(viewModel.audioOffset.hasTitleOffset)
+
+        runner.run([.setAudioOffsetScope(.allTitles)])
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(viewModel.audioOffset.scope, .allTitles)
+    }
 }

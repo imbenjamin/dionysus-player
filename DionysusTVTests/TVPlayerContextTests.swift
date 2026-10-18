@@ -48,4 +48,21 @@ final class TVPlayerContextTests: XCTestCase {
         XCTAssertTrue(context.statsButtonEnabled)
         XCTAssertFalse(context.chaptersInScrubber)
     }
+
+    func test_audioOffset_snapshot_nilWhenUnavailable() {
+        let engine = FakePlaybackEngine()
+        let viewModel = PlayerViewModel(
+            client: JellyfinAPIClient(baseURL: URL(string: "https://jellyfin.example.com")!, accessToken: "tok", session: MockURLProtocol.makeSession()),
+            userID: "user-1", itemID: "item-1", engine: engine,
+            trackPreferenceStore: TrackPreferenceStore(defaults: defaults),
+            nextUpPreferenceStore: NextUpPreferenceStore(defaults: defaults),
+            streamPreferenceStore: StreamPreferenceStore(defaults: defaults),
+            audioOffsetStore: AudioOffsetStore(defaults: defaults)
+        )
+        XCTAssertNil(TVPlayerContext(viewModel: viewModel, defaults: defaults).audioOffset)
+
+        engine.isAudioOffsetAvailable = true
+        let context = TVPlayerContext(viewModel: viewModel, defaults: defaults)
+        XCTAssertEqual(context.audioOffset, .init(canDecrease: true, canIncrease: true, hasTitleOffset: false, scope: .thisTitle))
+    }
 }
