@@ -4,8 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Dionysus Player is a native Jellyfin client for iPhone and iPad, with an
-Apple TV app in progress. It talks to a Jellyfin server over the plain
+Dionysus Player is a native Jellyfin client for iPhone, iPad and Apple TV
+(the Apple TV app in TestFlight since v1.2.0-alpha.4, not yet on the App
+Store). It talks to a Jellyfin server over the plain
 REST/JSON API (https://api.jellyfin.org/) and plays media through
 AetherEngine, a third-party FFmpeg + VideoToolbox engine (HDR10, HDR10+,
 Dolby Vision), pulled in as a Swift Package.

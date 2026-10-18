@@ -184,9 +184,10 @@ enum TopShelfArtworkRenderer {
     }
 }
 
-/// The composited art on disk, by `TopShelfEntry.artworkKey`. tvOS reads it
-/// from the App Group's container: a file in the extension's own container
-/// shows on the Simulator but not on the device (spike, 2026-10-14).
+/// The composited art on disk, by `TopShelfEntry.artworkKey`, in the App
+/// Group's container, where Sodalite keeps its own. Whether tvOS could read a
+/// file in the extension's own container on the device is unknown: the spike
+/// that said not drew with UIKit, which kills the extension there.
 struct TopShelfArtworkStore {
     static let appGroup = "group.com.imbenjamin.dionysusplayer"
 
