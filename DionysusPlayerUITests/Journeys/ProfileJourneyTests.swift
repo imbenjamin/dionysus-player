@@ -6,6 +6,26 @@ import XCTest
 /// way this suite doesn't yet absorb).
 final class ProfileJourneyTests: UITestCase {
     /// Approving another device's code signs it in and says so.
+    /// iPhone only: Profile is one scrolling list there (`ProfileScreen`'s
+    /// note on the iPad sidebar fork). The stepper steps 10 ms; Reset shows
+    /// only off 0 ms.
+    func testAudioOffsetStepperAndReset() {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).awaitLoaded()
+        let stepper = app.steppers[A11yID.Profile.audioOffsetStepper]
+        for _ in 0..<6 where !stepper.isHittable { app.swipeUp() }
+        stepper.awaitExistence("the audio offset stepper")
+        XCTAssertFalse(app.buttons[A11yID.Profile.audioOffsetReset].exists, "No reset at 0 ms")
+        stepper.buttons.element(boundBy: 1).tap() // increment
+        stepper.buttons.element(boundBy: 1).tap()
+        XCTAssertEqual(stepper.value as? String, "20 milliseconds, audio later")
+        app.buttons[A11yID.Profile.audioOffsetReset].tap()
+        XCTAssertEqual(stepper.value as? String, "0 milliseconds, in sync")
+        app.buttons[A11yID.Profile.audioOffsetReset].awaitDisappearance("Reset, back at 0 ms")
+    }
+
     func testQuickConnectApprovesACode() {
         launch()
         HomeScreen(app: app).awaitLoaded()

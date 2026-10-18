@@ -292,6 +292,18 @@ final class AccessibilityAuditTests: UITestCase {
         TabBar(app: app).profile.tap()
         ProfileScreen(app: app).awaitLoaded()
 
+        // Audited scrolled to the end: at the top, whichever paragraph
+        // straddles the glass tab bar's edge is read through the blur as
+        // "Potentially inaccessible text" with no element attached, so the
+        // result depended on how many rows sit above it. At the end the
+        // list's bottom inset keeps every line clear of the bar.
+        let lastRow = app.descendants(matching: .any)[A11yID.Profile.privacyPolicyLink]
+        for _ in 0..<8 {
+            let before = lastRow.exists ? lastRow.frame : .zero
+            app.swipeUp()
+            if lastRow.exists, lastRow.frame == before { break }
+        }
+
         try auditCurrentScreen()
     }
 

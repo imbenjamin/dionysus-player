@@ -87,6 +87,9 @@ struct ProfileView: View {
     /// Default `true`, matching `PlayerControlsOverlay`'s read of this key. See
     /// `chaptersInScrubberEnabledDefault` for what it does and doesn't gate.
     @AppStorage(chaptersInScrubberEnabledStorageKey) private var isChaptersInScrubberEnabled = chaptersInScrubberEnabledDefault
+    /// A copy of the stored global offset (`AudioOffsetStore`), which nothing
+    /// observes.
+    @State private var audioOffsetMilliseconds = AudioOffsetStore().globalOffsetMilliseconds
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showAccountDetails = false
     @State private var pendingAccountAction: AccountAction?
@@ -431,6 +434,29 @@ struct ProfileView: View {
             }
         }
         Toggle("Chapters in Scrubber", isOn: $isChaptersInScrubberEnabled)
+        Stepper(
+            value: Binding(
+                get: { audioOffsetMilliseconds },
+                set: { newValue in
+                    let store = AudioOffsetStore()
+                    store.globalOffsetMilliseconds = newValue
+                    audioOffsetMilliseconds = store.globalOffsetMilliseconds
+                }
+            ),
+            in: AudioOffset.range, step: AudioOffset.step
+        ) {
+            LabeledContent("Audio Offset", value: AudioOffsetFormat.value(audioOffsetMilliseconds))
+                .monospacedDigit()
+        }
+        .accessibilityValue(Text(verbatim: AudioOffsetFormat.spoken(audioOffsetMilliseconds)))
+        .accessibilityIdentifier(A11yID.Profile.audioOffsetStepper)
+        if audioOffsetMilliseconds != 0 {
+            Button("Reset to 0 ms") {
+                AudioOffsetStore().globalOffsetMilliseconds = 0
+                audioOffsetMilliseconds = 0
+            }
+            .accessibilityIdentifier(A11yID.Profile.audioOffsetReset)
+        }
         // Streaming mode/bitrate and the Playback Stats toggle live on their
         // own pushed screen — see `AdvancedPlaybackSettingsView`. "Advanced"
         // is also `DownloadsQualityLadderView`'s link text, so the identifier
@@ -442,7 +468,7 @@ struct ProfileView: View {
     }
 
     private var playbackFooter: some View {
-        Text("Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging.")
+        Text("Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel.")
             .readableSettingsFooter()
     }
 

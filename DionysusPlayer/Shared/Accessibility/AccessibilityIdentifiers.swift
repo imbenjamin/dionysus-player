@@ -367,6 +367,9 @@ enum A11yID {
 
     enum Profile {
         static let accountCard = "profile.accountCard"
+        /// Playback → Audio Offset's stepper, and Reset to 0 ms beside it.
+        static let audioOffsetStepper = "profile.audioOffset.stepper"
+        static let audioOffsetReset = "profile.audioOffset.reset"
         static let accountSheet = "profile.accountSheet"
         static let signOutButton = "profile.signOutButton"
         static let changeServerButton = "profile.changeServerButton"
