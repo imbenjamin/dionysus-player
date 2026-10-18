@@ -20,6 +20,10 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     var onPictureInPicturePossibleChange: ((Bool) -> Void)?
     var onPictureInPictureActiveChange: ((Bool) -> Void)?
     var onSourceTimeFollowsPictureChange: ((Bool) -> Void)?
+    var onAudioOffsetAvailabilityChange: ((Bool) -> Void)?
+    private(set) var isAudioOffsetAvailable = false
+    /// The last offset `load` or `setAudioOffset` was given, for previews.
+    private(set) var audioOffsetSeconds: TimeInterval = 0
 
     var audioTracks: [PlaybackTrack] = [
         PlaybackTrack(id: 0, kind: .audio, title: "Dolby Digital Plus Atmos 7.1", metadata: "DD+ · Atmos · 7.1 · Default", isSelected: true),
@@ -83,13 +87,16 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         frames: "0 dropped"
     )
 
-    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool) async throws {
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool, audioOffset: TimeInterval) async throws {
         if let simulatedFailure {
             onStateChange?(.failed(simulatedFailure))
             return
         }
         currentTime = 0
         isPlaying = true
+        audioOffsetSeconds = audioOffset
+        isAudioOffsetAvailable = UITestConfiguration.scenario != .audioOffsetUnavailable
+        onAudioOffsetAvailabilityChange?(isAudioOffsetAvailable)
         onStateChange?(.playing)
         onTimeUpdate?(currentTime, duration)
         startTickingIfNeeded()
@@ -146,6 +153,11 @@ final class PreviewPlaybackEngine: PlaybackEngine {
 
     func setNativeSubtitleCapture(_ active: Bool) {
         nativeSubtitleCaptureRequests.append(active)
+    }
+
+    func setAudioOffset(_ seconds: TimeInterval) {
+        guard isAudioOffsetAvailable else { return }
+        audioOffsetSeconds = seconds
     }
 
     func selectSubtitleTrack(id: Int?) {

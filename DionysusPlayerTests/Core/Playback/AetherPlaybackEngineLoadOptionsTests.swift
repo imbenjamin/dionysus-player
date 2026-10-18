@@ -31,4 +31,24 @@ final class AetherPlaybackEngineLoadOptionsTests: XCTestCase {
         XCTAssertTrue(options.prepareNativeSubtitles)
         XCTAssertFalse(options.isLive)
     }
+    func test_audioOffset_isPassedAsAudioDelaySeconds() {
+        let options = AetherPlaybackEngine.makeLoadOptions(
+            isRemoteHLS: false, externalSubtitles: [], display: .unknown, audioOffset: 0.04
+        )
+        XCTAssertEqual(options.audioDelaySeconds, 0.04, accuracy: 0.0001)
+    }
+
+    func test_audioOffset_defaultsToZero() {
+        let options = AetherPlaybackEngine.makeLoadOptions(isRemoteHLS: false, externalSubtitles: [], display: .unknown)
+        XCTAssertEqual(options.audioDelaySeconds, 0)
+    }
+
+    /// The offset applies where AetherEngine holds the timestamps.
+    func test_audioOffsetAvailability_perRoute() {
+        XCTAssertTrue(AetherPlaybackEngine.isAudioOffsetAvailable(on: .loopback))
+        XCTAssertTrue(AetherPlaybackEngine.isAudioOffsetAvailable(on: .software))
+        XCTAssertFalse(AetherPlaybackEngine.isAudioOffsetAvailable(on: .remoteBypass))
+        XCTAssertFalse(AetherPlaybackEngine.isAudioOffsetAvailable(on: .audio))
+        XCTAssertFalse(AetherPlaybackEngine.isAudioOffsetAvailable(on: .none))
+    }
 }

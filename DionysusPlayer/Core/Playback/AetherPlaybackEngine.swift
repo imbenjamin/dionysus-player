@@ -60,6 +60,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
     var onPictureInPicturePossibleChange: ((Bool) -> Void)?
     var onPictureInPictureActiveChange: ((Bool) -> Void)?
     var onSourceTimeFollowsPictureChange: ((Bool) -> Void)?
+    var onAudioOffsetAvailabilityChange: ((Bool) -> Void)?
+    /// Follows `engine.$videoRoute`; see `isAudioOffsetAvailable(on:)`.
+    private(set) var isAudioOffsetAvailable = false
 
     /// Built around `engine.nativePlayerLayer`, so the native AVPlayer route
     /// only. Rebuilt from the `engine.$currentAVPlayer` sink below, which
@@ -339,6 +342,19 @@ final class AetherPlaybackEngine: PlaybackEngine {
             }
             .store(in: &cancellables)
 
+        engine.$videoRoute
+            .map(Self.isAudioOffsetAvailable(on:))
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] available in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.isAudioOffsetAvailable = available
+                    self.onAudioOffsetAvailabilityChange?(available)
+                }
+            }
+            .store(in: &cancellables)
+
         // AetherEngine emits cues but paints nothing. This is the only place
         // they cross into the app, normalized to `SubtitleCueDisplay` so
         // nothing else touches AetherEngine's subtitle types.
@@ -478,7 +494,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// by test without an engine. `display` is `.unknown` on iOS, which keeps
     /// the engine's own defaults.
     nonisolated static func makeLoadOptions(
-        isRemoteHLS: Bool, externalSubtitles: [ExternalSubtitleTrack], display: DisplayContext
+        isRemoteHLS: Bool, externalSubtitles: [ExternalSubtitleTrack], display: DisplayContext, audioOffset: TimeInterval = 0
     ) -> LoadOptions {
         // Order matters here beyond just readability: `LoadOptions`' own
         // memberwise init takes ~40 named, defaulted parameters, but Swift
@@ -505,11 +521,22 @@ final class AetherPlaybackEngine: PlaybackEngine {
             // Gives `setNativeSubtitleRendering(_:)`, called on PiP entry and
             // exit below, a native WebVTT rendition to select.
             prepareNativeSubtitles: true,
-            externalSubtitles: externalSubtitles
+            externalSubtitles: externalSubtitles,
+            // AE#464. Positive delays audio. `AudioOffsetController` has
+            // already clamped it to ±0.5 s, inside the engine's ±2 s.
+            audioDelaySeconds: audioOffset
         )
     }
 
-    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool) async throws {
+    /// AetherEngine applies an offset where it holds the timestamps:
+    /// `.loopback` and `.software`. On `.remoteBypass` AVPlayer owns the
+    /// whole stream (a server transcode), and `.audio`/`.none` have no
+    /// picture to sync against (`AudioDelayPolicy`).
+    nonisolated static func isAudioOffsetAvailable(on route: VideoRoute) -> Bool {
+        route == .loopback || route == .software
+    }
+
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool, audioOffset: TimeInterval) async throws {
         // A fresh source carries its own playhead; the previous session's
         // stand-in must not leak into it.
         pausedRebuildAnchor = nil
@@ -518,7 +545,8 @@ final class AetherPlaybackEngine: PlaybackEngine {
         let options = Self.makeLoadOptions(
             isRemoteHLS: isRemoteHLS,
             externalSubtitles: externalSubtitles.map(Self.makeExternalSubtitleTrack),
-            display: DisplayContext.current()
+            display: DisplayContext.current(),
+            audioOffset: audioOffset
         )
         do {
             _ = try await engine.load(url: url, options: options)
@@ -740,6 +768,11 @@ final class AetherPlaybackEngine: PlaybackEngine {
         engine.selectAudioTrack(index: id)
         selectedAudioTrackID = id
         audioTracks = audioTracks.map { $0.selected($0.id == id) }
+    }
+
+    func setAudioOffset(_ seconds: TimeInterval) {
+        guard isAudioOffsetAvailable else { return }
+        engine.setAudioDelay(seconds)
     }
 
     func selectSubtitleTrack(id: Int?) {
