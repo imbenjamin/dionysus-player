@@ -38,6 +38,7 @@ final class PlayerViewModelTests: XCTestCase {
         trackPreferenceStore: TrackPreferenceStore? = nil,
         nextUpPreferenceStore: NextUpPreferenceStore? = nil,
         streamPreferenceStore: StreamPreferenceStore? = nil,
+        audioOffsetStore: AudioOffsetStore? = nil,
         playbackQueue: [MediaItem] = []
     ) -> (PlayerViewModel, FakePlaybackEngine) {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
@@ -47,6 +48,7 @@ final class PlayerViewModelTests: XCTestCase {
             trackPreferenceStore: trackPreferenceStore ?? TrackPreferenceStore(defaults: defaults),
             nextUpPreferenceStore: nextUpPreferenceStore ?? NextUpPreferenceStore(defaults: defaults),
             streamPreferenceStore: streamPreferenceStore ?? StreamPreferenceStore(defaults: defaults),
+            audioOffsetStore: audioOffsetStore ?? AudioOffsetStore(defaults: defaults),
             playbackQueue: playbackQueue
         )
         return (viewModel, engine)
@@ -1873,5 +1875,53 @@ final class PlayerViewModelTests: XCTestCase {
             engine: FakePlaybackEngine(), playbackQueue: []
         )
         XCTAssertFalse(viewModel.isOfflinePlayback)
+    }
+
+    // MARK: Audio offset
+
+    func test_start_loadsWithTheTitlesOffset() async {
+        let store = AudioOffsetStore(defaults: defaults)
+        store.globalOffsetMilliseconds = 30
+        store.setOffset(-60, forItem: "item-1")
+        let (viewModel, engine) = makeViewModel(audioOffsetStore: store)
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie), mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")])
+        await viewModel.start()
+        XCTAssertEqual(engine.loadedAudioOffsets.last ?? 99, -0.06, accuracy: 0.0001)
+    }
+
+    func test_start_loadsWithTheGlobal_whenTheTitleHasNone() async {
+        let store = AudioOffsetStore(defaults: defaults)
+        store.globalOffsetMilliseconds = 30
+        let (viewModel, engine) = makeViewModel(audioOffsetStore: store)
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie), mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")])
+        await viewModel.start()
+        XCTAssertEqual(engine.loadedAudioOffsets.last ?? 99, 0.03, accuracy: 0.0001)
+    }
+
+    /// Review Focus 2.
+    func test_availabilityFollowsTheEngine() {
+        let (viewModel, engine) = makeViewModel()
+        XCTAssertFalse(viewModel.audioOffset.isAvailable)
+        engine.isAudioOffsetAvailable = true
+        XCTAssertTrue(viewModel.audioOffset.isAvailable)
+        engine.isAudioOffsetAvailable = false
+        XCTAssertFalse(viewModel.audioOffset.isAvailable)
+    }
+
+    func test_aFlushedChange_reachesTheEngineInSeconds() {
+        let (viewModel, engine) = makeViewModel()
+        engine.isAudioOffsetAvailable = true
+        viewModel.audioOffset.step(by: 2)
+        viewModel.audioOffset.flush()
+        XCTAssertEqual(engine.audioOffsetRequests, [0.02])
+    }
+
+    func test_stop_dropsAPendingChange() async {
+        let (viewModel, engine) = makeViewModel()
+        engine.isAudioOffsetAvailable = true
+        viewModel.audioOffset.step(by: 1)
+        await viewModel.stop()
+        viewModel.audioOffset.flush()
+        XCTAssertEqual(engine.audioOffsetRequests, [])
     }
 }
