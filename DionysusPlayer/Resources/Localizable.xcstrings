@@ -35,6 +35,16 @@
     "%@ megabits per second" : {
 
     },
+    "%@ milliseconds, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ milliseconds, %2$@"
+          }
+        }
+      }
+    },
     "%@ of %@" : {
       "localizations" : {
         "en" : {
@@ -99,6 +109,17 @@
     },
     "%@'s security certificate isn't valid for %@." : {
 
+    },
+    "%@%@ ms" : {
+      "comment" : "Audio offset value, e.g. +40 ms",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@%2$@ ms"
+          }
+        }
+      }
     },
     "%lld" : {
 
@@ -342,6 +363,9 @@
     "All Studios" : {
 
     },
+    "All Titles" : {
+
+    },
     "Allow Transcoding" : {
 
     },
@@ -358,6 +382,9 @@
 
     },
     "Apple TV Users" : {
+
+    },
+    "Apply To" : {
 
     },
     "Approve Quick Connect Code" : {
@@ -388,6 +415,18 @@
 
     },
     "Audio and music playback aren't supported." : {
+
+    },
+    "Audio earlier" : {
+
+    },
+    "Audio later" : {
+
+    },
+    "Audio Offset" : {
+
+    },
+    "Audio Tracks" : {
 
     },
     "Audio, %@" : {
@@ -640,10 +679,22 @@
     "Decade" : {
 
     },
+    "Decrease" : {
+
+    },
+    "Decrease Audio Offset" : {
+
+    },
     "Default" : {
 
     },
     "Default: %lld Kbps" : {
+
+    },
+    "Delays or advances audio to correct lip sync for your TV or receiver." : {
+
+    },
+    "Delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel." : {
 
     },
     "Delete" : {
@@ -964,7 +1015,16 @@
     "Image-based subtitle tracks can't be included in offline downloads." : {
 
     },
+    "In sync" : {
+
+    },
     "Included In" : {
+
+    },
+    "Increase" : {
+
+    },
+    "Increase Audio Offset" : {
 
     },
     "Info" : {
@@ -1060,7 +1120,7 @@
     "Next Episode Countdown" : {
 
     },
-    "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging." : {
+    "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel." : {
 
     },
     "Next Item" : {
@@ -1124,6 +1184,9 @@
 
     },
     "Off keeps this playlist to yourself. On lets every user on your Jellyfin server see it." : {
+
+    },
+    "Offset" : {
 
     },
     "OK" : {
@@ -1334,6 +1397,12 @@
 
     },
     "Reset All to Defaults?" : {
+
+    },
+    "Reset to 0 ms" : {
+
+    },
+    "Reset to Global" : {
 
     },
     "Resolution" : {
@@ -1747,6 +1816,9 @@
 
     },
     "This text is unavailable." : {
+
+    },
+    "This Title" : {
 
     },
     "This Title Can't Be Found" : {

@@ -240,6 +240,7 @@ JSON, so a DTO change is a compile error rather than silent rot.
 | `librariesFailAtFirst` | `/Views` 500s for five seconds, then succeeds |
 | `thinDynamicRails` | Home's dynamic rails nearly all too thin, so it keeps loading |
 | `skipIntro` / `earlyCredits` | An intro from 0:00 to 83:20; credits from 0:05 (Next Up at once) |
+| `audioOffsetUnavailable` | The fake engine reports the audio offset unavailable (a server transcode's case), so the player hides its offset controls |
 
 ### The fake playback engine
 
