@@ -95,7 +95,11 @@ protocol PlaybackEngine: AnyObject {
     ///
     /// The overloads below default the arguments callers may have nothing to
     /// pass for.
-    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool) async throws
+    ///
+    /// `audioOffset` is the lip-sync offset in seconds, positive delaying
+    /// audio, passed as AetherEngine's `LoadOptions.audioDelaySeconds` so the
+    /// first frame plays in sync (`AudioOffsetController.loadSeconds`).
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool, audioOffset: TimeInterval) async throws
     func play()
     func pause()
     func togglePlayPause()
@@ -105,6 +109,16 @@ protocol PlaybackEngine: AnyObject {
     func selectAudioTrack(id: Int)
     /// `nil` disables subtitles.
     func selectSubtitleTrack(id: Int?)
+
+    /// Changes the audio offset while playing (`AetherEngine.setAudioDelay`).
+    /// A no-op where `isAudioOffsetAvailable` is false.
+    func setAudioOffset(_ seconds: TimeInterval)
+    /// Whether the offset can be applied on the current route: AetherEngine's
+    /// loopback and software routes, not a server transcode's AVPlayer bypass.
+    var isAudioOffsetAvailable: Bool { get }
+    /// Every change of `isAudioOffsetAvailable`, including AetherEngine's own
+    /// reroutes mid-session.
+    var onAudioOffsetAvailabilityChange: ((Bool) -> Void)? { get set }
 
     /// Whether AVKit should draw the selected subtitle track itself, as a
     /// native rendition, instead of leaving it to the app's own overlay.
@@ -155,17 +169,22 @@ extension PlaybackEngine {
     /// Protocol requirements can't carry default arguments, so these overloads
     /// stand in for them.
     func load(url: URL) async throws {
-        try await load(url: url, externalSubtitles: [], knownAtmosAudioTrackIndices: [], isRemoteHLS: false)
+        try await load(url: url, externalSubtitles: [], knownAtmosAudioTrackIndices: [], isRemoteHLS: false, audioOffset: 0)
     }
 
     /// External subtitles, no Atmos hints.
     func load(url: URL, externalSubtitles: [ExternalSubtitleSource]) async throws {
-        try await load(url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: [], isRemoteHLS: false)
+        try await load(url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: [], isRemoteHLS: false, audioOffset: 0)
     }
 
     /// No server-transcode hint: offline playback, and tests not exercising the
     /// transcode path.
     func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws {
-        try await load(url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: knownAtmosAudioTrackIndices, isRemoteHLS: false)
+        try await load(url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: knownAtmosAudioTrackIndices, isRemoteHLS: false, audioOffset: 0)
+    }
+
+    /// No audio offset: tests and callers not exercising it.
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool) async throws {
+        try await load(url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: knownAtmosAudioTrackIndices, isRemoteHLS: isRemoteHLS, audioOffset: 0)
     }
 }

@@ -83,6 +83,7 @@ enum UITestHarness {
         // a session in the keychain every Apple TV user shares.
         SessionScopeSetting.reset()
         ServerSessionStore(sessionScope: .allUsers).clearAll()
+        SharedKeychainAudioOffsetStorage().removeAll()
         #endif
         ServerSessionStore().clearAll()
 

@@ -333,6 +333,16 @@ enum A11yID {
         /// The subtitle leaf's "Off" row, which has no `PlaybackTrack` of
         /// its own to key `trackOption(_:_:)` off.
         static let subtitleOffOption = "player.trackPicker.option.subtitle.off"
+        /// The Audio page's offset section (`PlayerControlsOverlay.audioOffsetSection`).
+        static let audioOffsetHeading = "player.audioOffset.heading"
+        /// The Audio Offset page's back row, to the Audio page.
+        static let audioOffsetBack = "player.audioOffset.back"
+        static let audioOffsetValue = "player.audioOffset.value"
+        static let audioOffsetDecrease = "player.audioOffset.decrease"
+        static let audioOffsetIncrease = "player.audioOffset.increase"
+        /// `thisTitle` or `allTitles`.
+        static func audioOffsetScope(_ scope: String) -> String { "player.audioOffset.scope.\(scope)" }
+        static let audioOffsetReset = "player.audioOffset.reset"
 
         /// A `ChapterPickerOverlay` row, keyed by `Chapter.index` — stable
         /// across the online/offline model swap `Chapter.id`'s own doc
@@ -357,6 +367,9 @@ enum A11yID {
 
     enum Profile {
         static let accountCard = "profile.accountCard"
+        /// Playback → Audio Offset's stepper, and Reset to 0 ms beside it.
+        static let audioOffsetStepper = "profile.audioOffset.stepper"
+        static let audioOffsetReset = "profile.audioOffset.reset"
         static let accountSheet = "profile.accountSheet"
         static let signOutButton = "profile.signOutButton"
         static let changeServerButton = "profile.changeServerButton"
@@ -547,6 +560,12 @@ enum A11yID {
             static let quickConnectAuthorize = "tv.profile.quickConnect.authorize"
             static let quickConnectMessage = "tv.profile.quickConnect.message"
             static let textPage = "tv.profile.textPage"
+            /// Profile → Playback → Audio Offset (`TVAudioOffsetPage`).
+            static let audioOffset = "tv.profile.audioOffset"
+            static let audioOffsetDecrease = "tv.profile.audioOffset.decrease"
+            static let audioOffsetIncrease = "tv.profile.audioOffset.increase"
+            static let audioOffsetValue = "tv.profile.audioOffset.value"
+            static let audioOffsetReset = "tv.profile.audioOffset.reset"
             /// A section's rows, one container named for its heading (M5).
             static func section(_ id: String) -> String { "tv.profile.section.\(id)" }
             static func sectionHeading(_ id: String) -> String { "tv.profile.section.\(id).heading" }
@@ -571,6 +590,12 @@ enum A11yID {
             static func library(_ libraryID: String) -> String { "tv.sidebar.library.\(libraryID)" }
         }
         enum Player {
+            /// The Audio tab's offset rows (`TVPlayerPanelView.audioContent`).
+            static let audioTracksHeading = "tv.player.audioTracks.heading"
+            static let audioOffsetHeading = "tv.player.audioOffset.heading"
+            static let audioOffsetRow = "tv.player.audioOffset"
+            static let audioOffsetScope = "tv.player.audioOffset.scope"
+            static let audioOffsetReset = "tv.player.audioOffset.reset"
             static let transport = "tv.player.transport"
             static let titleBlock = "tv.player.title"
             static let elapsed = "tv.player.elapsed"

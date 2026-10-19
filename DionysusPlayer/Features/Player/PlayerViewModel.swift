@@ -151,6 +151,9 @@ final class PlayerViewModel {
     }
 
     let engine: PlaybackEngine
+    /// The lip-sync offset for this title: the Audio panel's value, scope and
+    /// Reset, and when a change reaches the engine (`AudioOffsetController`).
+    let audioOffset: AudioOffsetController
     let itemID: String
     let startFromBeginning: Bool
     /// A Playlist's ordered, audio-filtered members; empty for every ordinary
@@ -410,6 +413,7 @@ final class PlayerViewModel {
         trackPreferenceStore: TrackPreferenceStore = TrackPreferenceStore(),
         nextUpPreferenceStore: NextUpPreferenceStore = NextUpPreferenceStore(),
         streamPreferenceStore: StreamPreferenceStore = StreamPreferenceStore(),
+        audioOffsetStore: AudioOffsetStore = AudioOffsetStore(),
         playbackQueue: [MediaItem] = []
     ) {
         self.client = client
@@ -422,6 +426,9 @@ final class PlayerViewModel {
         self.nextUpPreferenceStore = nextUpPreferenceStore
         self.streamPreferenceStore = streamPreferenceStore
         self.playbackQueue = playbackQueue
+        self.audioOffset = AudioOffsetController(itemID: itemID, store: audioOffsetStore) { [weak engine] milliseconds in
+            engine?.setAudioOffset(AudioOffset.seconds(milliseconds))
+        }
 
         engine.onStateChange = { [weak self] state in
             guard let self else { return }
@@ -463,6 +470,8 @@ final class PlayerViewModel {
         engine.onPictureInPicturePossibleChange = { [weak self] possible in self?.isPictureInPicturePossible = possible }
         engine.onPictureInPictureActiveChange = { [weak self] active in self?.isPictureInPictureActive = active }
         engine.onSubtitleTrackChange = { [weak self] id in self?.handleSubtitleTrackChange(id) }
+        engine.onAudioOffsetAvailabilityChange = { [weak self] available in self?.audioOffset.isAvailable = available }
+        audioOffset.isAvailable = engine.isAudioOffsetAvailable
         // The render session is a plain object, so it pokes the view model to
         // re-run the overlay's body.
         assRenderSession.onFrameChange = { [weak self] in self?.assFrameGeneration &+= 1 }
@@ -477,6 +486,7 @@ final class PlayerViewModel {
         trackPreferenceStore: TrackPreferenceStore = TrackPreferenceStore(),
         nextUpPreferenceStore: NextUpPreferenceStore = NextUpPreferenceStore(),
         streamPreferenceStore: StreamPreferenceStore = StreamPreferenceStore(),
+        audioOffsetStore: AudioOffsetStore = AudioOffsetStore(),
         downloadedItem: DownloadedItem?,
         downloadStore: DownloadStore?,
         playbackQueue: [MediaItem] = []
@@ -487,6 +497,7 @@ final class PlayerViewModel {
             trackPreferenceStore: trackPreferenceStore,
             nextUpPreferenceStore: nextUpPreferenceStore,
             streamPreferenceStore: streamPreferenceStore,
+            audioOffsetStore: audioOffsetStore,
             playbackQueue: playbackQueue
         )
         self.downloadedItem = downloadedItem
@@ -606,7 +617,8 @@ final class PlayerViewModel {
 
             isRemoteHLSSession = isRemoteHLS
             try await engine.load(
-                url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: atmosAudioTrackIndices, isRemoteHLS: isRemoteHLS
+                url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: atmosAudioTrackIndices,
+                isRemoteHLS: isRemoteHLS, audioOffset: audioOffset.loadSeconds
             )
             applyStoredTrackSelection()
             // An explicit `resumeSeconds` wins over the server's last-known
@@ -707,7 +719,10 @@ final class PlayerViewModel {
 
         do {
             isRemoteHLSSession = false
-            try await engine.load(url: videoURL, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: [])
+            try await engine.load(
+                url: videoURL, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: [],
+                isRemoteHLS: false, audioOffset: audioOffset.loadSeconds
+            )
             applyStoredTrackSelection()
             if let resumeSeconds, resumeSeconds > 0 {
                 await engine.seek(to: resumeSeconds)
@@ -1495,6 +1510,8 @@ final class PlayerViewModel {
     /// one (the Apple TV's Next Up, `TVPlayerHostController`). Only the stop
     /// is reported.
     func stop(handingOff: Bool = false) async {
+        // Already saved; the next load reads it, so only the engine call goes.
+        audioOffset.cancelPending()
         progressReportTask?.cancel()
         #if DOWNLOADS
         if let downloadedItem {

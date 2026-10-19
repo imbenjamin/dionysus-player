@@ -82,8 +82,8 @@ sets (see [Store screenshots](#store-screenshots)).
   search, cast & crew, "Up Next"/continue-watching.
 - **Playback** — AetherEngine (FFmpeg + VideoToolbox), HDR10/HDR10+/Dolby
   Vision on supported source+device combinations, trickplay-thumbnail
-  scrubbing, subtitle/audio track selection, intro/outro skip segments,
-  Picture in Picture, Now Playing/lock-screen/Control Center integration,
+  scrubbing, subtitle/audio track selection, audio offset (lip sync, global
+  and per title), intro/outro skip segments, Picture in Picture, Now Playing/lock-screen/Control Center integration,
   a live "stats for nerds" overlay (codec, pixel format and colour
   description, bitrate, resolution, audio profile and sampling, dropped
   frames and throughput, streaming session info, offline-vs-live playback
@@ -142,7 +142,8 @@ playback and view models, with an interface built for the Siri Remote:
   title's dynamic range and frame rate (Dolby Vision, HDR10, HDR10+ and HLG
   read correctly on device); a transport of its own with scrubbing,
   skip-segment buttons and a Next Up countdown; a swipe-down panel for Info,
-  Audio and Subtitles; and Now Playing on a paired iPhone.
+  Audio (with the audio offset) and Subtitles; and Now Playing on a paired
+  iPhone.
 - **Accessibility** — VoiceOver throughout, including the player's
   controls, and Reduce Motion, Reduce Transparency and Increase Contrast
   honoured.

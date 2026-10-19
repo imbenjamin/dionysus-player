@@ -258,6 +258,23 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen()
     }
 
+    func testAudioOffsetPageHasNoAccessibilityIssues() throws {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+        AssetDetailScreen(app: app).play()
+
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        player.tracksButton.tap()
+        player.trackNavigationRow("audio").tap()
+        player.trackNavigationRow("audioOffset").tap()
+        player.audioOffsetValue.awaitExistence("the Audio Offset page")
+
+        try auditCurrentScreen()
+    }
+
     // MARK: - Downloads and Profile
 
     func testDownloadsEmptyStateHasNoAccessibilityIssues() throws {
@@ -274,6 +291,18 @@ final class AccessibilityAuditTests: UITestCase {
         HomeScreen(app: app).awaitLoaded()
         TabBar(app: app).profile.tap()
         ProfileScreen(app: app).awaitLoaded()
+
+        // Audited scrolled to the end: at the top, whichever paragraph
+        // straddles the glass tab bar's edge is read through the blur as
+        // "Potentially inaccessible text" with no element attached, so the
+        // result depended on how many rows sit above it. At the end the
+        // list's bottom inset keeps every line clear of the bar.
+        let lastRow = app.descendants(matching: .any)[A11yID.Profile.privacyPolicyLink]
+        for _ in 0..<8 {
+            let before = lastRow.exists ? lastRow.frame : .zero
+            app.swipeUp()
+            if lastRow.exists, lastRow.frame == before { break }
+        }
 
         try auditCurrentScreen()
     }

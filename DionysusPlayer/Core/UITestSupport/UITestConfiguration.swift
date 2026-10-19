@@ -205,6 +205,10 @@ enum UITestScenario: String {
     /// Every episode's credits start at 0:05, so Next Up shows as soon as an
     /// episode plays and counts down 10s.
     case earlyCredits
+    /// `.standard`, but the fake engine reports the audio offset unavailable,
+    /// standing in for a server transcode (AetherEngine's `.remoteBypass`),
+    /// so the player's offset controls are hidden.
+    case audioOffsetUnavailable
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a

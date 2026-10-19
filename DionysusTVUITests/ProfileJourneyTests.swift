@@ -30,10 +30,61 @@ final class ProfileJourneyTests: TVUITestCase {
         openProfile(app)
         for id in [A11yID.TV.Profile.approveQuickConnect, A11yID.TV.Profile.signOut, A11yID.TV.Profile.changeServer,
                    A11yID.TV.Profile.followsAppleTVUsers, A11yID.TV.Profile.autoCarousel, A11yID.TV.Profile.nextUpCountdown,
-                   A11yID.TV.Profile.chaptersInScrubber, A11yID.TV.Profile.advanced, A11yID.TV.Profile.license,
+                   A11yID.TV.Profile.chaptersInScrubber, A11yID.TV.Profile.audioOffset, A11yID.TV.Profile.advanced,
+                   A11yID.TV.Profile.license,
                    A11yID.TV.Profile.privacyPolicy] {
             pressDownThroughProfile(until: app.buttons[id])
         }
+    }
+
+    /// The global offset: − and + step 10 ms, Reset goes back to 0, and the
+    /// row shows the value on return.
+    func test_audioOffset_pageStepsAndResets() {
+        let app = launchAtHome()
+        openProfile(app)
+        let row = app.buttons[A11yID.TV.Profile.audioOffset]
+        pressDownThroughProfile(until: row)
+        press(.select)
+        let value = app.descendants(matching: .any)[A11yID.TV.Profile.audioOffsetValue]
+        XCTAssertTrue(value.waitForExistence(timeout: 5))
+        XCTAssertEqual(value.label, "0 milliseconds, in sync")
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Profile.audioOffsetIncrease]))
+        press(.select)
+        press(.select)
+        XCTAssertTrue(poll(timeout: 3) { value.label == "20 milliseconds, audio later" })
+        press(.down)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Profile.audioOffsetReset]))
+        press(.select)
+        XCTAssertTrue(poll(timeout: 3) { value.label == "0 milliseconds, in sync" })
+        press(.menu)
+        XCTAssertTrue(waitForFocus(row))
+        XCTAssertEqual(row.value as? String, "0 milliseconds, in sync")
+    }
+
+    /// Holding Select on + repeats the step after a moment, and letting go
+    /// stops it; − counts back the same way.
+    func test_audioOffset_holdingRepeats() {
+        let app = launchAtHome()
+        openProfile(app)
+        pressDownThroughProfile(until: app.buttons[A11yID.TV.Profile.audioOffset])
+        press(.select)
+        let value = app.descendants(matching: .any)[A11yID.TV.Profile.audioOffsetValue]
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Profile.audioOffsetIncrease]))
+        XCUIRemote.shared.press(.select, forDuration: 2)
+        let held = Self.milliseconds(value.label)
+        XCTAssertGreaterThanOrEqual(held, 60, "A two-second hold steps more than once: \(value.label)")
+        sleep(1)
+        XCTAssertEqual(Self.milliseconds(value.label), held, "Letting go stops the repeat")
+        press(.left)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Profile.audioOffsetDecrease]))
+        XCUIRemote.shared.press(.select, forDuration: 2)
+        XCTAssertLessThan(Self.milliseconds(value.label), held - 30, "Holding − counts back: \(value.label)")
+    }
+
+    /// "40 milliseconds, audio later" → 40; "audio earlier" is negative.
+    private static func milliseconds(_ spoken: String) -> Int {
+        let number = Int(spoken.prefix { $0.isNumber }) ?? 0
+        return spoken.contains("earlier") ? -number : number
     }
 
     /// Select on a value row cycles its value.

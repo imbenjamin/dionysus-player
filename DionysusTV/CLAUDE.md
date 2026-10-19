@@ -430,8 +430,14 @@ settings as rows on the right (`TVSettingsRow`), in iOS's sections minus
 Downloads, Theme and 3D Depth Effects: Account (Switch User, Approve Quick
 Connect Code while the server has it on, Sign Out, Change Server), Apple TV
 Users, Appearance (Auto Carousel), Playback (Next Episode Countdown, Chapters
-in Scrubber, Advanced) and About (License, Privacy Policy), with iOS's
-footers.
+in Scrubber, Audio Offset, Advanced) and About (License, Privacy Policy), with
+iOS's footers.
+
+- **Audio Offset opens a page of its own** (`TVAudioOffsetPage`): the value
+  large, − and +, Reset to 0 ms. **Holding Select on − or + repeats** (every
+  0.1 s after 0.4 s, Benjamin, 2026-10-18): a tvOS button doesn't repeat by
+  itself, so each sits under `onLongPressGesture(minimumDuration:perform:onPressingChanged:)`,
+  and the press that ends a hold doesn't add a step of its own.
 
 - **Select on an on/off row flips it; a setting with more choices opens a page
   of them** (`TVSettingsPicker`, Benjamin, 2026-10-05): the countdown,
@@ -829,6 +835,15 @@ state, so XCUITest reads it from a test-only marker
   episode's thumb or still, else the nearest ancestor's Thumb
   (`MediaItem.parentThumbImageURL`: Jellyfin 10.11 sends `ParentThumbItemId`/
   `ParentThumbImageTag` on an episode, never `SeriesThumbImageTag`).
+  **The Audio tab has two columns while the audio offset can apply**
+  (Benjamin, 2026-10-18): the tracks under "Audio Tracks" on the left; on the
+  right This Title | All Titles, the Offset row (Left/Right step 10 ms,
+  holding repeats) and Reset to Global (This Title only, skipped by focus
+  with no title offset). Up/Down stay in a column, Right from a track goes to
+  the Offset row, and Left from the scope or Reset returns to the chosen
+  track. `TVPlayerInputModel.audioRow(at:_:)` numbers the right column's rows
+  on from the tracks; in the accessible transport the Offset row is one
+  adjustable element. `Core/Playback/CLAUDE.md` has the rest.
   **The panel is laid out in screen coordinates** (title at 60, scrubber at
   440, tabs at 560) in an overlay of a screen-sized view: inside the safe area
   that layer started at the screen's top, and the chrome's gradients must

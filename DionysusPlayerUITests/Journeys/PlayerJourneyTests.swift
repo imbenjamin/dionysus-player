@@ -97,6 +97,68 @@ final class PlayerJourneyTests: UITestCase {
         player.subtitleOffOption.awaitDisappearance("the track picker after selecting a subtitle track")
     }
 
+    /// The offset, a page of its own under Audio when there's a track to
+    /// choose too: + steps 10 ms, Reset (shown only under This Title) goes
+    /// back to the global value, All Titles edits the global value, and a
+    /// title's own offset survives a relaunch.
+    func testAudioOffsetStepsScopesResetsAndIsRemembered() {
+        let player = openPlayer()
+        player.tracksButton.tap()
+        player.trackNavigationRow("audio").tap()
+        player.trackOption("audio", 1).awaitExistence("the Audio page's tracks")
+        // Parked beside the panel, the page is built but out of reach, as the
+        // leaf page is beside the root.
+        XCTAssertFalse(player.audioOffsetValue.isHittable, "The offset is a page of its own, not under the tracks")
+        player.trackNavigationRow("audioOffset").tap()
+        let value = player.audioOffsetValue
+        value.awaitExistence("the audio offset row")
+        XCTAssertEqual(value.value as? String, "0 milliseconds, in sync")
+        player.audioOffsetIncrease.tap()
+        player.audioOffsetIncrease.tap()
+        XCTAssertEqual(value.value as? String, "20 milliseconds, audio later")
+        XCTAssertTrue(player.audioOffsetReset.isEnabled)
+        player.audioOffsetReset.tap()
+        XCTAssertEqual(value.value as? String, "0 milliseconds, in sync")
+
+        player.audioOffsetScope("allTitles").tap()
+        player.audioOffsetReset.awaitDisappearance("Reset, which only This Title shows")
+        player.audioOffsetScope("thisTitle").tap()
+        player.audioOffsetReset.awaitExistence("Reset, back under This Title")
+        player.audioOffsetIncrease.tap()
+        XCTAssertEqual(value.value as? String, "10 milliseconds, audio later")
+        player.audioOffsetBack.tap()
+        player.trackOption("audio", 1).awaitExistence("the Audio page, back from Audio Offset")
+
+        app.terminate()
+        launch(resetsState: false)
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+        AssetDetailScreen(app: app).play()
+        let again = PlayerScreen(app: app)
+        again.awaitControls()
+        again.tracksButton.tap()
+        again.trackNavigationRow("audio").tap()
+        again.trackNavigationRow("audioOffset").tap()
+        again.audioOffsetValue.awaitExistence("the audio offset row after a relaunch")
+        XCTAssertEqual(again.audioOffsetValue.value as? String, "10 milliseconds, audio later", "The title kept its offset")
+    }
+
+    func testAudioOffsetHiddenWhenUnavailable() {
+        launch(scenario: "audioOffsetUnavailable")
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+        AssetDetailScreen(app: app).play()
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        player.tracksButton.tap()
+        player.trackNavigationRow("audio").tap()
+        player.trackOption("audio", 0).awaitExistence("the first audio track")
+        XCTAssertFalse(player.audioOffsetValue.exists)
+        XCTAssertFalse(player.trackNavigationRow("audioOffset").exists)
+    }
+
     /// Opens the chapter picker (the fixture movie has four, see
     /// `UITestFixtureLibrary.chapters(runtimeMinutes:)`) and selects one.
     func testChapterPickerOpensAndSelectingADismissesIt() {

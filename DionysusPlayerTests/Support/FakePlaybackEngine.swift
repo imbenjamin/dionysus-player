@@ -20,6 +20,11 @@ final class FakePlaybackEngine: PlaybackEngine {
     var onPictureInPicturePossibleChange: ((Bool) -> Void)?
     var onPictureInPictureActiveChange: ((Bool) -> Void)?
     var onSourceTimeFollowsPictureChange: ((Bool) -> Void)?
+    var onAudioOffsetAvailabilityChange: ((Bool) -> Void)?
+    /// Settable so a test can flip the route; reports through the callback.
+    var isAudioOffsetAvailable = false {
+        didSet { onAudioOffsetAvailabilityChange?(isAudioOffsetAvailable) }
+    }
 
     var audioTracks: [PlaybackTrack] = []
     var subtitleTracks: [PlaybackTrack] = []
@@ -63,6 +68,10 @@ final class FakePlaybackEngine: PlaybackEngine {
     /// `PlayerViewModel.start()` chose the right load path (a plain
     /// direct-play URL vs. a server-chosen HLS transcode).
     private(set) var loadedIsRemoteHLS: [Bool] = []
+    /// Recorded alongside each `loadedURLs` entry, same index — the
+    /// `audioOffset` `load(...)` was given.
+    private(set) var loadedAudioOffsets: [TimeInterval] = []
+    private(set) var audioOffsetRequests: [TimeInterval] = []
     private(set) var playCallCount = 0
     private(set) var pauseCallCount = 0
     private(set) var togglePlayPauseCallCount = 0
@@ -74,13 +83,16 @@ final class FakePlaybackEngine: PlaybackEngine {
     private(set) var stopPictureInPictureCallCount = 0
     private(set) var nowPlayingInfoCalls: [(title: String, subtitle: String?, artwork: UIImage?)] = []
 
-    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool) async throws {
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool, audioOffset: TimeInterval) async throws {
         if let loadError { throw loadError }
         loadedURLs.append(url)
         loadedExternalSubtitles.append(externalSubtitles)
         loadedAtmosAudioTrackIndices.append(knownAtmosAudioTrackIndices)
         loadedIsRemoteHLS.append(isRemoteHLS)
+        loadedAudioOffsets.append(audioOffset)
     }
+
+    func setAudioOffset(_ seconds: TimeInterval) { audioOffsetRequests.append(seconds) }
 
     func play() { playCallCount += 1 }
     func pause() { pauseCallCount += 1 }

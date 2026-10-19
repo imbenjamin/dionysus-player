@@ -20,6 +20,13 @@ final class TVAppLaunchTests: XCTestCase {
         XCTAssertEqual(ServerSessionStore.ServerLocation.platformDefault, .sharedKeychain)
     }
 
+    /// The audio offset corrects the Apple TV's audio chain, so every Apple TV
+    /// user shares it (spec: "per device, shared by every user on it"), and
+    /// tvOS's `UserDefaults` is per user; see `AudioOffsetStore`.
+    func test_audioOffset_isSharedAcrossAppleTVUsers() {
+        XCTAssertTrue(AudioOffsetStore.platformStorage is SharedKeychainAudioOffsetStorage)
+    }
+
     /// tvOS's user switching can launch the app as another Apple TV user, so
     /// accounts are remembered here; see `ServerSessionStore.RememberedAccounts`.
     func test_accounts_areRememberedOnAppleTV() {

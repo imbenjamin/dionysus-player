@@ -155,4 +155,22 @@ final class PlayerAccessibleTransportJourneyTests: TVUITestCase {
         // +20 -10, plus the seconds played meanwhile.
         XCTAssertGreaterThanOrEqual(elapsedSeconds(app) ?? 0, before + 9)
     }
+
+    func test_audioOffset_rowsAreReachable_andScopeIsAButton() {
+        let app = openPlayer(extraArguments: accessible)
+        XCTAssertTrue(waitForFocus(control(app, "playPause")))
+        let audio = app.buttons[A11yID.TV.Player.icon("audio")]
+        XCTAssertTrue(moveFocus(to: audio, pressing: .right, limit: 8))
+        press(.select)
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.panel].waitForExistence(timeout: 5))
+        let row = app.descendants(matching: .any)[A11yID.TV.Player.audioOffsetRow]
+        let scope = app.buttons[A11yID.TV.Player.audioOffsetScope]
+        // The offset is the right-hand column: the focus engine crosses to it.
+        press(.down)
+        XCTAssertTrue(moveFocus(to: row, pressing: .right, limit: 2) || moveFocus(to: row, pressing: .down, limit: 2))
+        XCTAssertEqual(row.value as? String, "0 milliseconds, in sync")
+        XCTAssertTrue(moveFocus(to: scope, pressing: .up, limit: 2))
+        press(.select)
+        XCTAssertTrue(poll(timeout: 3) { (scope.value as? String) == "All Titles" })
+    }
 }

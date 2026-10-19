@@ -787,6 +787,12 @@ struct PlayerScreen: Screen {
     }
 
     var subtitleOffOption: XCUIElement { app.descendants(matching: .any)[A11yID.Player.subtitleOffOption] }
+    var audioOffsetValue: XCUIElement { app.descendants(matching: .any)[A11yID.Player.audioOffsetValue] }
+    var audioOffsetDecrease: XCUIElement { app.buttons[A11yID.Player.audioOffsetDecrease] }
+    var audioOffsetIncrease: XCUIElement { app.buttons[A11yID.Player.audioOffsetIncrease] }
+    var audioOffsetReset: XCUIElement { app.buttons[A11yID.Player.audioOffsetReset] }
+    var audioOffsetBack: XCUIElement { app.descendants(matching: .any)[A11yID.Player.audioOffsetBack] }
+    func audioOffsetScope(_ key: String) -> XCUIElement { app.buttons[A11yID.Player.audioOffsetScope(key)] }
 
     /// The composited libass bitmap. Present only while an authored ASS
     /// track is selected AND libass has produced a frame, so its mere

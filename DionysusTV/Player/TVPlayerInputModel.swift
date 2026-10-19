@@ -17,6 +17,11 @@ enum TVPlayerIcon: CaseIterable, Equatable {
 
 /// The swipe-down panel's tabs, left to right. Stats is not one: it is a
 /// toggle on its icon (Benjamin, 2026-10-06).
+/// A row of the Audio tab: a track, or one of the offset rows after them.
+enum TVAudioPanelRow: Equatable {
+    case track(Int), offset, scope, reset
+}
+
 enum TVPanelTab: CaseIterable, Equatable {
     case info, chapters, audio, subtitles
 
@@ -59,6 +64,9 @@ enum TVPlayerControl: Equatable {
     case nextUp(TVNextUpButton)
     /// The hidden layer's Show Player Controls: Select, Up or Down.
     case showControls
+    /// The accessible transport's adjustable panel row (the audio offset):
+    /// swipe up is `.right`, swipe down `.left`.
+    case adjustPanelRow(Int, TVDirection)
 }
 
 /// What the remote did, as the host reports it.
@@ -86,6 +94,8 @@ enum TVPlayerCommand: Equatable {
     case skipSegment(id: String)
     case playNext, dismissNextUp
     case selectAudio(id: Int), selectSubtitle(id: Int?)
+    /// The Audio tab's offset rows (`AudioOffsetController`).
+    case stepAudioOffset(Int), setAudioOffsetScope(AudioOffsetScope), resetAudioOffset
     case close
 }
 
@@ -129,6 +139,16 @@ struct TVPlayerContext: Equatable {
     var audioTrackTitles: [String] = []
     var subtitleTrackTitles: [String] = []
 
+    struct AudioOffset: Equatable {
+        var canDecrease: Bool
+        var canIncrease: Bool
+        var hasTitleOffset: Bool
+        var scope: AudioOffsetScope
+    }
+
+    /// The Audio tab's offset rows; `nil` where the offset can't apply.
+    var audioOffset: AudioOffset?
+
     /// The icons with something to do, so none is a dead stop.
     var availableIcons: [TVPlayerIcon] {
         TVPlayerIcon.allCases.filter { icon in
@@ -157,6 +177,8 @@ struct TVPlayerInputState: Equatable {
         var isHold = false
         /// The hold entered or stepped a scan, so its release does nothing.
         var actedAsScan = false
+        /// When a hold on the audio offset row last stepped it.
+        var lastRepeatAt: TimeInterval?
     }
 
     /// Native-style scanning (Benjamin, 2026-10-06): a level from -4 to 4,
@@ -226,6 +248,8 @@ enum TVPlayerTiming {
     static let skipInterval: TimeInterval = 10
     /// The panel closes after this long without a press.
     static let panelTimeout: TimeInterval = 10
+    /// A held arrow on the audio offset row steps this often.
+    static let offsetRepeatInterval: TimeInterval = 0.1
     /// Real-time multiples for scan levels 1 to 4. The native transport (as
     /// Infuse uses it) has four levels, its third about our 64x and its fourth
     /// faster (Benjamin, Bedroom Apple TV, 2026-10-08). Its count is the
@@ -463,6 +487,16 @@ enum TVPlayerInputModel {
             held.isHold = true
             state.heldArrow = held
             commands += dispatch(.holdBegan(held.direction), &state, context: context, now: now)
+        }
+        if var held = state.heldArrow, held.isHold, let panel = state.panel, panel.tab == .audio,
+           case .content(let index) = panel.focus, audioRow(at: index, context) == .offset,
+           now - (held.lastRepeatAt ?? 0) >= TVPlayerTiming.offsetRepeatInterval {
+            held.lastRepeatAt = now
+            // Its release adds nothing, as a scan's doesn't.
+            held.actedAsScan = true
+            state.heldArrow = held
+            state.panel?.lastInputAt = now
+            commands += offsetStep(held.direction, context)
         }
         if var scrub = state.scrub, var scan = scrub.scan {
             let moved = scrub.previewTime + scanRate(level: scan.level) * (now - scan.lastTickAt)
