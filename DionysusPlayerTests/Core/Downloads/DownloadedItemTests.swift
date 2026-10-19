@@ -24,6 +24,24 @@ final class DownloadedItemTests: XCTestCase {
         XCTAssertEqual(item.estimatedTotalBytes, expected)
     }
 
+    // MARK: canResume
+
+    /// A rewatch stopped partway keeps `isPlayed` with a new position, and
+    /// offers Resume, as the streamed page does (Benjamin, 2026-10-14).
+    func test_canResume_playedWithPosition_isTrue() {
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        item.isPlayed = true
+        item.resumePositionTicks = 600_000_000
+        XCTAssertTrue(item.canResume)
+    }
+
+    func test_canResume_withoutPosition_isFalse() {
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        item.isPlayed = true
+        item.resumePositionTicks = 0
+        XCTAssertFalse(item.canResume)
+    }
+
     func test_estimatedTotalBytes_nilWithoutRuntime() {
         let item = DownloadTestHelpers.makeItem(itemID: "item-1")
         item.runtimeTicks = nil

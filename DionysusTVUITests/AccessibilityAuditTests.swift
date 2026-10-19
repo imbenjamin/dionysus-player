@@ -191,6 +191,22 @@ final class AccessibilityAuditTests: TVUITestCase {
         try audit(app)
     }
 
+    /// The Spatial Audio rows with both on, then a layout page.
+    func test_profileSpatialAudio() throws {
+        let app = openProfile()
+        for id in [A11yID.TV.Profile.spatialAtmos, A11yID.TV.Profile.spatialDTSX] {
+            pressDown(until: app.buttons[id], presses: 18)
+            press(.select)
+        }
+        let layoutRow = app.buttons[A11yID.TV.Profile.spatialDTSXLayout]
+        XCTAssertTrue(layoutRow.waitForExistence(timeout: 5))
+        try audit(app)
+        pressDown(until: layoutRow, presses: 4)
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Profile.option("7.1.4")]))
+        try audit(app)
+    }
+
     func test_profileQuickConnectApproval() throws {
         let app = openProfile()
         pressDown(until: app.buttons[A11yID.TV.Profile.approveQuickConnect])

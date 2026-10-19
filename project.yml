@@ -54,38 +54,13 @@ settings:
     STRING_CATALOG_GENERATE_SYMBOLS: YES
 
 packages:
-  # `version:` pins one specific tag — XcodeGen's spelling of SPM's `.exact`
-  # requirement — deliberately NOT `from:` (SPM's "up to next major" rule),
-  # which is what this used to be. `from:` meant a fresh package resolution
-  # (no prior `Package.resolved`/DerivedData SPM cache to reuse — see
-  # `.gitignore`'s blanket `*.xcodeproj` rule, which is why that resolved
-  # file is never committed) silently picked up whatever the
-  # newest available 6.x release was, with zero commit in this repo to
-  # review or even notice — confirmed live more than once (PR #147: CI
-  # resolved 6.54.0 against a checked-in 6.52.0 pin with no other
-  # AetherEngine-related change on the branch at all). An exact pin makes
-  # that structurally impossible: a cold resolve always lands on this exact
-  # version, so a build today and a build from the same commit in a year
-  # resolve identically.
-  #
-  # Bumping this is meant to be automatic but reviewed, not manual: the
-  # "Bump AetherEngine" workflow (`.github/workflows/aetherengine-bump.yml`)
-  # runs weekly, finds the newest release tag within the *current* major
-  # (what `from: <major>.0.0`'s "up to next major" rule would resolve, just
-  # scoped to a scheduled job instead of every build), and opens a PR
-  # bumping this line if one exists. A major bump (e.g. 8.0.0) is exactly where
-  # AetherEngine's public API is allowed to break per semver, so the
-  # workflow never proposes one — that stays a deliberate manual edit here.
-  # The last one, 6.x → 7.x (2026-09-23), renamed no public symbols but
-  # raised AetherEngine's platform floor to iOS 18, which is why every
-  # `deploymentTarget` in this file moved from 17.0 to 18.0 alongside it.
-  #
-  # This line is the only thing a bump edits. The "AetherEngine Version"
-  # row in `PlaybackStatsOverlay` reads `AetherEngine.version` from the
-  # linked engine, so there is no constant here to keep in step.
-  AetherEngine:
-    url: https://github.com/superuser404notfound/AetherEngine
-    version: 7.35.1
+  # AetherEngine, through a local package that switches on its two
+  # object-audio traits (TrueHD Atmos and DTS:X as Spatial Audio), since
+  # XcodeGen can't set a remote package's traits. **The exact AetherEngine
+  # pin lives in that package's `Package.swift`**, with why it's exact and how
+  # the weekly bump workflow edits it.
+  AetherEngineWithObjectAudio:
+    path: Packages/AetherEngineWithObjectAudio
   # A small (single-file), MIT-licensed, dependency-free view modifier
   # (`.shimmering()`) — used by `MediaPlaceholderBox` for the "still
   # loading" placeholder animation. Purely a rendering effect — no
@@ -134,8 +109,8 @@ targets:
       - path: DionysusPlayer/Resources/THIRD-PARTY-NOTICES
         buildPhase: resources
     dependencies:
-      - package: AetherEngine
-        product: AetherEngine
+      - package: AetherEngineWithObjectAudio
+        product: AetherEngineWithObjectAudio
       - package: SwiftUIShimmer
         product: Shimmer
       - package: SwiftAssRenderer
@@ -298,8 +273,8 @@ targets:
       - path: DionysusPlayer/Resources/PRIVACY.md
         buildPhase: resources
     dependencies:
-      - package: AetherEngine
-        product: AetherEngine
+      - package: AetherEngineWithObjectAudio
+        product: AetherEngineWithObjectAudio
       - package: SwiftUIShimmer
         product: Shimmer
       - package: SwiftAssRenderer

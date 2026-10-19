@@ -214,11 +214,12 @@ struct MediaItem: Identifiable {
         episodeLabelAccessibilityText.map { "\($0), \(name)" } ?? name
     }
 
-    /// First line under a poster card. Episodes show their series name, so
-    /// Continue Watching reads as show titles rather than episode titles.
+    /// First line under a poster card. Episodes and seasons show their series
+    /// name, so Continue Watching reads as show titles rather than episode
+    /// titles, and a season isn't just "Season 13".
     var railTitle: String {
         switch dto.type {
-        case .episode: return dto.seriesName ?? name
+        case .episode, .season: return dto.seriesName ?? name
         default:       return name
         }
     }
@@ -229,6 +230,8 @@ struct MediaItem: Identifiable {
     /// - Episodes: `S1:E4 · Episode Name` (falls back to the episode name
     ///   alone when the numbering isn't present).
     /// - Series: release year range from `yearText`.
+    /// - Seasons: the season's own name ("Season 13"), under its show's; nil
+    ///   when the title already fell back to it.
     var railSubtitle: String? {
         switch dto.type {
         case .movie:
@@ -238,6 +241,8 @@ struct MediaItem: Identifiable {
             return numberedEpisodeName
         case .series:
             return yearText
+        case .season:
+            return dto.seriesName == nil ? nil : name
         default:
             return nil
         }
@@ -329,10 +334,15 @@ struct MediaItem: Identifiable {
     /// Not `dto.childCount`, which on a Series counts seasons.
     var episodeCount: Int? { dto.recursiveItemCount }
 
-    /// Started but not finished: a mid-playback position for a movie, some but
-    /// not all episodes watched for a show. Jellyfin reports both as
-    /// `playedPercentage`.
-    var isPartWatched: Bool {
+    /// Whether Play becomes Resume: a saved position, or for a show some but
+    /// not all episodes watched (Jellyfin reports both as `playedPercentage`).
+    ///
+    /// A saved position resumes even on a played item: a rewatch stopped
+    /// partway keeps `Played` and stores the new position (Benjamin,
+    /// 2026-10-14). A Series or Season has no position of its own, so a played
+    /// one stays Play.
+    var canResume: Bool {
+        if dto.type != .series, dto.type != .season, (resumePositionSeconds ?? 0) > 0 { return true }
         guard !isPlayed, let fraction = playedFraction else { return false }
         return fraction > 0 && fraction < 1
     }

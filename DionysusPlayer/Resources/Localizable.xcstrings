@@ -23,6 +23,9 @@
     "%@ (Previously selected)" : {
 
     },
+    "%@ (Recommended for AirPods)" : {
+
+    },
     "%@ available" : {
 
     },
@@ -66,6 +69,9 @@
       }
     },
     "%@ remaining" : {
+
+    },
+    "%@ speakers" : {
 
     },
     "%@, %@" : {
@@ -133,6 +139,28 @@
     "%lld episodes couldn't be downloaded." : {
 
     },
+    "%lld height channels" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld height channel"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld height channels"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld items" : {
       "localizations" : {
         "en" : {
@@ -160,6 +188,38 @@
     },
     "%lld min left" : {
 
+    },
+    "%lld objects, %lld overhead" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@objects@, %2$lld overhead"
+          },
+          "substitutions" : {
+            "objects" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg object"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg objects"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "%lld results" : {
       "localizations" : {
@@ -807,6 +867,12 @@
     "Display" : {
 
     },
+    "Dolby Atmos as Spatial Audio" : {
+
+    },
+    "Dolby Atmos Speaker Layout" : {
+
+    },
     "Dolby Digital" : {
 
     },
@@ -868,6 +934,12 @@
 
     },
     "Downloads, %@" : {
+
+    },
+    "DTS:X as Spatial Audio" : {
+
+    },
+    "DTS:X Speaker Layout" : {
 
     },
     "Duration: %@" : {
@@ -1043,6 +1115,15 @@
 
     },
     "Kbps" : {
+
+    },
+    "Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for Spatial Audio on AirPods. The audio is re-encoded, so it isn't lossless." : {
+
+    },
+    "Keeps the height channels of Dolby TrueHD Atmos tracks for a receiver with height speakers. The audio is re-encoded, so it isn't lossless." : {
+
+    },
+    "Keeps the height channels of DTS:X tracks for a receiver with height speakers. The audio is re-encoded, so it isn't lossless." : {
 
     },
     "kilobytes" : {
@@ -1606,6 +1687,9 @@
 
     },
     "Sort Options" : {
+
+    },
+    "Spatial Audio" : {
 
     },
     "Starring" : {

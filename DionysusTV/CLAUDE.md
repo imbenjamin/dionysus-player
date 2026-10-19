@@ -443,8 +443,16 @@ settings as rows on the right (`TVSettingsRow`), in iOS's sections minus
 Downloads, Theme and 3D Depth Effects: Account (Switch User, Approve Quick
 Connect Code while the server has it on, Sign Out, Change Server), Apple TV
 Users, Appearance (Auto Carousel), Playback (Next Episode Countdown, Chapters
-in Scrubber, Audio Offset, Advanced) and About (License, Privacy Policy), with
-iOS's footers.
+in Scrubber, Audio Offset, Advanced), Spatial Audio and About (License,
+Privacy Policy), with iOS's footers.
+
+- **Spatial Audio is a section of its own under Playback, as on iOS**
+  (Benjamin, 2026-10-19): Dolby Atmos and DTS:X as Spatial Audio, each an
+  on/off row, and while on a "Dolby Atmos Speaker Layout" / "DTS:X Speaker
+  Layout" row (named apart, never two rows with one label) opening a
+  `TVSettingsPicker` page of that format's layouts. Plain names here; iOS
+  marks 7.1.4 "Recommended for AirPods". Stored in the shared keychain like
+  the audio offset. `Core/Playback/CLAUDE.md` has how it plays.
 
 - **Audio Offset opens a page of its own** (`TVAudioOffsetPage`): the value
   large, − and +, Reset to 0 ms. **Holding Select on − or + repeats** (every
@@ -977,4 +985,6 @@ picture's transfer function once a second:
 - Not checked: the software route with HDR (no AV1 or VP9 HDR title).
 - Audio: DD+ Atmos is stream-copied with JOC intact; TrueHD is decoded and
   re-encoded to 5.1 E-AC-3, losing Atmos. End-to-end Atmos wasn't confirmed
-  (the TV said "Dolby Audio" for both).
+  (the TV said "Dolby Audio" for both). With Profile → Spatial Audio on
+  (2026-10-19), TrueHD Atmos and DTS:X instead play as APAC with their
+  heights, sent to the receiver as Dolby MAT; not yet checked on Living Room.

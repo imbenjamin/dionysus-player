@@ -1,8 +1,9 @@
 name: Bump AetherEngine
 
 # Weekly check for a newer AetherEngine release within the currently-pinned
-# major version. `project.yml` pins AetherEngine with `version:` — XcodeGen's
-# spelling of an exact/SPM `.exact` requirement (see that file's own
+# major version. `Packages/AetherEngineWithObjectAudio/Package.swift` pins
+# AetherEngine with `exact:` (the app reaches the engine through that local
+# package, which switches on its object-audio traits; see that file's own
 # comment, and CLAUDE.md's "Pinning AetherEngine") — specifically so a cold
 # package resolve can never pick up a new release by surprise — this
 # workflow is the deliberate, reviewable replacement for that: it discovers
@@ -11,7 +12,7 @@ name: Bump AetherEngine
 #
 # Never proposes a major-version bump (8.0.0) — that's exactly where
 # AetherEngine's public API is allowed to break per semver, so it stays a
-# deliberate manual edit to `project.yml`. The discovery step below can't
+# deliberate manual edit to that `Package.swift`. The discovery step below can't
 # cross that boundary: it only considers `<current-major>.x.y` tags.
 on:
   schedule:
@@ -63,9 +64,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          CURRENT=$(awk '/^  AetherEngine:/{f=1; next} f && /version:/{print $2; exit}' project.yml)
+          MANIFEST=Packages/AetherEngineWithObjectAudio/Package.swift
+          CURRENT=$(sed -n 's/^ *exact: "\([0-9][0-9.]*\)",*$/\1/p' "$MANIFEST" | head -1)
           if [ -z "$CURRENT" ]; then
-            echo "::error::couldn't find AetherEngine's version: pin in project.yml" >&2
+            echo "::error::couldn't find AetherEngine's exact: pin in $MANIFEST" >&2
             exit 1
           fi
           MAJOR=${CURRENT%%.*}
@@ -112,9 +114,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
 
-          sed -i "s/version: $CURRENT/version: $LATEST/" project.yml
+          sed -i "s/exact: \"$CURRENT\"/exact: \"$LATEST\"/" "$MANIFEST"
 
-          git add project.yml
+          git add "$MANIFEST"
           git commit \
             -m "Bump pinned AetherEngine version to $LATEST" \
             -m "Discovered by the weekly Bump AetherEngine workflow: the newest release within the currently-pinned major (${MAJOR}.x) is $LATEST, vs. the previously-pinned $CURRENT."

@@ -99,7 +99,20 @@ protocol PlaybackEngine: AnyObject {
     /// `audioOffset` is the lip-sync offset in seconds, positive delaying
     /// audio, passed as AetherEngine's `LoadOptions.audioDelaySeconds` so the
     /// first frame plays in sync (`AudioOffsetController.loadSeconds`).
-    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool, audioOffset: TimeInterval) async throws
+    ///
+    /// `spatialAudio` is AetherEngine's `objectAudioRendering`: one value for
+    /// the session and for both TrueHD Atmos and DTS:X, which is why
+    /// `PlayerViewModel` predicts the track it will play before loading.
+    func load(
+        url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>,
+        isRemoteHLS: Bool, audioOffset: TimeInterval, spatialAudio: SpatialAudioRendering
+    ) async throws
+    /// What the session was loaded (or last rebuilt) with.
+    var spatialAudio: SpatialAudioRendering { get }
+    /// Rebuilds the session at the current position with another rendering,
+    /// keeping the selected audio track and play/pause state
+    /// (`reloadAtCurrentPosition(applying:)`). A no-op when it's unchanged.
+    func setSpatialAudio(_ rendering: SpatialAudioRendering) async throws
     func play()
     func pause()
     func togglePlayPause()
@@ -181,6 +194,15 @@ extension PlaybackEngine {
     /// transcode path.
     func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>) async throws {
         try await load(url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: knownAtmosAudioTrackIndices, isRemoteHLS: false, audioOffset: 0)
+    }
+
+    /// No Spatial Audio: offline playback (downloads are always transcoded,
+    /// never TrueHD or DTS-HD), and callers not exercising it.
+    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool, audioOffset: TimeInterval) async throws {
+        try await load(
+            url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: knownAtmosAudioTrackIndices,
+            isRemoteHLS: isRemoteHLS, audioOffset: audioOffset, spatialAudio: .off
+        )
     }
 
     /// No audio offset: tests and callers not exercising it.

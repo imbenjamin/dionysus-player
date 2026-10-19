@@ -28,9 +28,7 @@ struct DownloadedPlayResumeButtonRow: View {
     @State private var isShowingRetryError = false
     @State private var retryErrorMessage = ""
 
-    private var isPartWatched: Bool {
-        !item.isPlayed && item.resumePositionTicks > 0
-    }
+    private var isPartWatched: Bool { item.canResume }
 
     /// "Play"/"Resume"/"Play Again", with an "SXX:EYY" suffix whenever
     /// `item.episodeLabel` is set — same idea as `PlayResumeButtonRow
@@ -40,11 +38,11 @@ struct DownloadedPlayResumeButtonRow: View {
     /// title doesn't appear elsewhere as plain text).
     private var buttonTitle: String {
         guard let label = item.episodeLabel else {
-            if item.isPlayed { return String(localized: "Play Again") }
-            return isPartWatched ? String(localized: "Resume") : String(localized: "Play")
+            if isPartWatched { return String(localized: "Resume") }
+            return item.isPlayed ? String(localized: "Play Again") : String(localized: "Play")
         }
-        if item.isPlayed { return String(localized: "Play Again \(label)") }
-        return isPartWatched ? String(localized: "Resume \(label)") : String(localized: "Play \(label)")
+        if isPartWatched { return String(localized: "Resume \(label)") }
+        return item.isPlayed ? String(localized: "Play Again \(label)") : String(localized: "Play \(label)")
     }
 
     /// See `PlayResumeButtonRow.accessibilityLabelText`'s identical

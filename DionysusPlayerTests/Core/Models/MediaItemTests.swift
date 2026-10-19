@@ -149,6 +149,36 @@ final class MediaItemTests: XCTestCase {
         XCTAssertEqual(makeEpisode(seriesName: nil, name: "Old Cases").railTitle, "Old Cases")
     }
 
+    // MARK: season tiles
+
+    /// A season tile once read "13" alone ("13, Button" under VoiceOver):
+    /// it names its show, with the season beneath.
+    private func makeSeason(seriesName: String? = "American Horror Story", name: String = "Season 13") -> MediaItem {
+        var dto = BaseItemDto(id: "season-13", name: name, type: .season)
+        dto.seriesName = seriesName
+        return MediaItem(dto: dto, images: images)
+    }
+
+    func test_railTitle_season_isSeriesName() {
+        XCTAssertEqual(makeSeason().railTitle, "American Horror Story")
+    }
+
+    func test_railSubtitle_season_isSeasonName() {
+        XCTAssertEqual(makeSeason().railSubtitle, "Season 13")
+    }
+
+    func test_accessibilityDescription_season_readsShowThenSeason() {
+        XCTAssertEqual(makeSeason().accessibilityDescription, "American Horror Story, Season 13")
+    }
+
+    /// Review Focus 4: a server that omits `SeriesName` keeps a one-line
+    /// caption with the season's own name, never an empty title.
+    func test_season_withoutSeriesName_isOneLine() {
+        let season = makeSeason(seriesName: nil)
+        XCTAssertEqual(season.railTitle, "Season 13")
+        XCTAssertNil(season.railSubtitle)
+    }
+
     func test_railTitle_movie_usesOwnName() {
         XCTAssertEqual(makeMovie().railTitle, "Arrival")
     }
@@ -205,7 +235,7 @@ final class MediaItemTests: XCTestCase {
         XCTAssertEqual(item.accessibilityDescription, "The Wire, S1:E4 \u{00B7} Old Cases")
     }
 
-    // MARK: resumePositionSeconds / playedFraction / isPlayed / isPartWatched
+    // MARK: resumePositionSeconds / playedFraction / isPlayed / canResume
 
     func test_resumePositionSeconds_convertsTicksToSeconds() {
         let userData = UserItemDataDto(playbackPositionTicks: 30 * 10_000_000)
@@ -244,15 +274,44 @@ final class MediaItemTests: XCTestCase {
         XCTAssertFalse(makeMovie(userData: nil).isFavorite)
     }
 
-    func test_isPartWatched_trueOnlyBetweenZeroAndOneAndNotPlayed() {
+    func test_canResume_trueOnlyBetweenZeroAndOneAndNotPlayed_withoutAPosition() {
         let midway = UserItemDataDto(playedPercentage: 50, played: false)
-        XCTAssertTrue(makeMovie(userData: midway).isPartWatched)
+        XCTAssertTrue(makeMovie(userData: midway).canResume)
 
         let finished = UserItemDataDto(playedPercentage: 100, played: true)
-        XCTAssertFalse(makeMovie(userData: finished).isPartWatched)
+        XCTAssertFalse(makeMovie(userData: finished).canResume)
 
         let untouched = UserItemDataDto(playedPercentage: 0, played: false)
-        XCTAssertFalse(makeMovie(userData: untouched).isPartWatched)
+        XCTAssertFalse(makeMovie(userData: untouched).canResume)
+    }
+
+    /// A rewatch stopped partway: Jellyfin keeps `Played` and stores the new
+    /// position (Benjamin, 2026-10-14).
+    func test_canResume_playedWithPosition_isTrue() {
+        let rewatched = UserItemDataDto(playbackPositionTicks: 60 * 10_000_000, playedPercentage: 10, played: true)
+        XCTAssertTrue(makeMovie(userData: rewatched).canResume)
+    }
+
+    func test_canResume_playedWithoutPosition_isFalse() {
+        let finished = UserItemDataDto(playbackPositionTicks: 0, played: true)
+        XCTAssertFalse(makeMovie(userData: finished).canResume)
+    }
+
+    func test_canResume_unplayedWithPosition_isTrue() {
+        let started = UserItemDataDto(playbackPositionTicks: 60 * 10_000_000, played: false)
+        XCTAssertTrue(makeMovie(userData: started).canResume)
+    }
+
+    /// A Series has no position of its own: `playedPercentage` counts its
+    /// watched episodes, and a played Series stays Play.
+    func test_canResume_series_followsPlayedPercentage() {
+        var played = BaseItemDto(id: "series-1", name: "The Wire", type: .series)
+        played.userData = UserItemDataDto(playedPercentage: 40, played: true)
+        XCTAssertFalse(MediaItem(dto: played, images: images).canResume)
+
+        var started = BaseItemDto(id: "series-1", name: "The Wire", type: .series)
+        started.userData = UserItemDataDto(playedPercentage: 40, played: false)
+        XCTAssertTrue(MediaItem(dto: started, images: images).canResume)
     }
 
     // MARK: playbackProgressIdentity

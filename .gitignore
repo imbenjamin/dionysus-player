@@ -119,7 +119,10 @@ fastlane/test_output
 iOSInjectionProject/
 
 ### SwiftPackageManager ###
-Packages
+# Except the app's own local package, which pins AetherEngine with its
+# object-audio traits on (CLAUDE.md, "Pinning AetherEngine").
+Packages/*
+!Packages/AetherEngineWithObjectAudio/
 xcuserdata
 *.xcodeproj
 

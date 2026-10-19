@@ -98,11 +98,18 @@ OS, so changing either means updating both rulesets in the same change
 
 ### Pinning AetherEngine
 
-**`project.yml` pins AetherEngine with `version:`** (XcodeGen's spelling of
-SPM's `.exact`), never a `from:` range. `Package.resolved` is gitignored with
-the generated project, so every CI run resolves cold, and a range let CI land
-on whatever release was newest with no commit here (PR #147: `6.54.0`
-resolved against a `6.52.0` pin).
+**The app reaches AetherEngine through a local package,
+`Packages/AetherEngineWithObjectAudio`, and its `Package.swift` is where the
+engine is pinned**, with `exact:`, never a `from:` range. The package exists to
+switch on AetherEngine's `TrueHDObjectAudio` and `DTSXObjectAudio` traits
+(TrueHD Atmos and DTS:X as Spatial Audio; off by default since 7.39.0), which
+XcodeGen can't set: 2.45.4 drops a `traits:` key silently. It re-exports the
+engine, so `import AetherEngine` works as before. `Package.resolved` is
+gitignored with the generated project, so every CI run resolves cold, and a
+range let CI land on whatever release was newest with no commit here (PR #147:
+`6.54.0` resolved against a `6.52.0` pin). A cold resolve after changing the
+pin can fail with "enables traits on package … that declares no traits": a
+cached older checkout was read; resolve into fresh DerivedData.
 
 The weekly "Bump AetherEngine" workflow (`aetherengine-bump.yml`) opens a PR
 bumping the pin to the newest release in the current major, which goes

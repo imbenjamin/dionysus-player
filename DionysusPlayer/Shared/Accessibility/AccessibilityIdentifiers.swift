@@ -370,6 +370,10 @@ enum A11yID {
         /// Playback → Audio Offset's stepper, and Reset to 0 ms beside it.
         static let audioOffsetStepper = "profile.audioOffset.stepper"
         static let audioOffsetReset = "profile.audioOffset.reset"
+        static let spatialAtmosToggle = "profile.spatialAudio.atmos.toggle"
+        static let spatialAtmosLayout = "profile.spatialAudio.atmos.layout"
+        static let spatialDTSXToggle = "profile.spatialAudio.dtsx.toggle"
+        static let spatialDTSXLayout = "profile.spatialAudio.dtsx.layout"
         static let accountSheet = "profile.accountSheet"
         static let signOutButton = "profile.signOutButton"
         static let changeServerButton = "profile.changeServerButton"
@@ -562,6 +566,10 @@ enum A11yID {
             static let textPage = "tv.profile.textPage"
             /// Profile → Playback → Audio Offset (`TVAudioOffsetPage`).
             static let audioOffset = "tv.profile.audioOffset"
+            static let spatialAtmos = "tv.profile.spatialAudio.atmos"
+            static let spatialAtmosLayout = "tv.profile.spatialAudio.atmos.layout"
+            static let spatialDTSX = "tv.profile.spatialAudio.dtsx"
+            static let spatialDTSXLayout = "tv.profile.spatialAudio.dtsx.layout"
             static let audioOffsetDecrease = "tv.profile.audioOffset.decrease"
             static let audioOffsetIncrease = "tv.profile.audioOffset.increase"
             static let audioOffsetValue = "tv.profile.audioOffset.value"

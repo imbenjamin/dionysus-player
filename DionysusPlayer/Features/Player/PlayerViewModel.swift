@@ -203,6 +203,13 @@ final class PlayerViewModel {
     private let trackPreferenceStore: TrackPreferenceStore
     private let nextUpPreferenceStore: NextUpPreferenceStore
     private let streamPreferenceStore: StreamPreferenceStore
+    private let spatialAudioStore: SpatialAudioStore
+    /// The Spatial Audio settings this session was loaded with, read once at
+    /// `start()` (a change applies from the next title). Nil where the
+    /// engine never renders: a server transcode and offline.
+    private var sessionSpatialAudio: SpatialAudioSettings?
+    /// The rebuild an audio switch asked for, if one is running.
+    private var spatialAudioCorrection: Task<Void, Never>?
     #if DOWNLOADS
     /// Set via the download-taking convenience `init`. When non-nil, `start()`,
     /// `stop()` and progress reporting route through the local-only offline
@@ -414,9 +421,11 @@ final class PlayerViewModel {
         nextUpPreferenceStore: NextUpPreferenceStore = NextUpPreferenceStore(),
         streamPreferenceStore: StreamPreferenceStore = StreamPreferenceStore(),
         audioOffsetStore: AudioOffsetStore = AudioOffsetStore(),
+        spatialAudioStore: SpatialAudioStore = SpatialAudioStore(),
         playbackQueue: [MediaItem] = []
     ) {
         self.client = client
+        self.spatialAudioStore = spatialAudioStore
         self.userID = userID
         self.itemID = itemID
         self.engine = engine
@@ -487,6 +496,7 @@ final class PlayerViewModel {
         nextUpPreferenceStore: NextUpPreferenceStore = NextUpPreferenceStore(),
         streamPreferenceStore: StreamPreferenceStore = StreamPreferenceStore(),
         audioOffsetStore: AudioOffsetStore = AudioOffsetStore(),
+        spatialAudioStore: SpatialAudioStore = SpatialAudioStore(),
         downloadedItem: DownloadedItem?,
         downloadStore: DownloadStore?,
         playbackQueue: [MediaItem] = []
@@ -498,6 +508,7 @@ final class PlayerViewModel {
             nextUpPreferenceStore: nextUpPreferenceStore,
             streamPreferenceStore: streamPreferenceStore,
             audioOffsetStore: audioOffsetStore,
+            spatialAudioStore: spatialAudioStore,
             playbackQueue: playbackQueue
         )
         self.downloadedItem = downloadedItem
@@ -512,6 +523,7 @@ final class PlayerViewModel {
     func start(resumeSeconds: TimeInterval? = nil) async {
         errorMessage = nil
         failureCategory = nil
+        cancelSpatialAudioCorrection()
         #if DOWNLOADS
         if let downloadedItem {
             await startOffline(downloadedItem, resumeSeconds: resumeSeconds)
@@ -614,13 +626,32 @@ final class PlayerViewModel {
             self.assFontTask = nil
             self.fetchedASSFonts = []
             let atmosAudioTrackIndices = Self.atmosAudioTrackIndices(from: source?.mediaStreams ?? [])
+            // AetherEngine renders object audio for the whole session in one
+            // layout, so the track that will play is predicted first and the
+            // rendering corrected once it's known (below).
+            sessionSpatialAudio = isRemoteHLS ? nil : spatialAudioStore.settings
+            let spatialAudio = sessionSpatialAudio.map { settings in
+                SpatialAudioRules.rendering(
+                    for: SpatialAudioRules.predictedAudioStream(
+                        in: mediaStreams,
+                        rememberedTrackID: trackPreferenceStore.selection(forItem: itemID, userID: userID)?.audioTrack
+                            .flatMap { Self.audioStream(forEngineTrackID: $0.id, in: mediaStreams) }?.index,
+                        settings: settings
+                    ),
+                    settings: settings
+                )
+            } ?? .off
 
             isRemoteHLSSession = isRemoteHLS
             try await engine.load(
                 url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: atmosAudioTrackIndices,
-                isRemoteHLS: isRemoteHLS, audioOffset: audioOffset.loadSeconds
+                isRemoteHLS: isRemoteHLS, audioOffset: audioOffset.loadSeconds, spatialAudio: spatialAudio
             )
-            applyStoredTrackSelection()
+            let restoredAudioTrackID = applyStoredTrackSelection()
+            // Before the resume seek, so a rebuild doesn't follow it.
+            await correctSpatialAudio(
+                forEngineTrackID: restoredAudioTrackID ?? engine.audioTracks.first(where: \.isSelected)?.id
+            )
             // An explicit `resumeSeconds` wins over the server's last-known
             // position and ignores `startFromBeginning`: this recovers an
             // already-started session rather than honouring a play-from-the-top
@@ -719,6 +750,8 @@ final class PlayerViewModel {
 
         do {
             isRemoteHLSSession = false
+            // Downloads are always transcoded to HEVC/MP4: nothing to render.
+            sessionSpatialAudio = nil
             try await engine.load(
                 url: videoURL, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: [],
                 isRemoteHLS: false, audioOffset: audioOffset.loadSeconds
@@ -1380,13 +1413,48 @@ final class PlayerViewModel {
     /// numbers it. Subtracting the count of preceding external streams recovers
     /// the physical index.
     static func atmosAudioTrackIndices(from mediaStreams: [MediaStream]) -> Set<Int> {
-        let externalIndices = mediaStreams.filter { $0.isExternal == true }.map(\.index)
-        func physicalIndex(_ index: Int) -> Int {
-            index - externalIndices.filter { $0 < index }.count
-        }
-        return Set(mediaStreams
+        Set(mediaStreams
             .filter { $0.type == "Audio" && $0.audioSpatialFormat == "DolbyAtmos" }
-            .map { physicalIndex($0.index) })
+            .map { physicalIndex(of: $0.index, in: mediaStreams) })
+    }
+
+    /// A stream's position in the container AetherEngine demuxes, which is its
+    /// engine track id: Jellyfin numbers external streams into the same
+    /// sequence, so each one before it shifts `index` one higher.
+    static func physicalIndex(of index: Int, in mediaStreams: [MediaStream]) -> Int {
+        index - mediaStreams.filter { $0.isExternal == true && $0.index < index }.count
+    }
+
+    /// The audio `MediaStream` an engine track id names.
+    static func audioStream(forEngineTrackID id: Int, in mediaStreams: [MediaStream]) -> MediaStream? {
+        mediaStreams.first { $0.type == "Audio" && $0.isExternal != true && physicalIndex(of: $0.index, in: mediaStreams) == id }
+    }
+
+    /// Rebuilds the session with the rendering the playing track needs, when
+    /// the loaded one differs: a mispredicted track at start, or an audio
+    /// switch between formats. A failure keeps playing as loaded.
+    private func correctSpatialAudio(forEngineTrackID id: Int?) async {
+        guard let settings = sessionSpatialAudio else { return }
+        let needed = SpatialAudioRules.rendering(
+            for: id.flatMap { Self.audioStream(forEngineTrackID: $0, in: mediaStreams) }, settings: settings
+        )
+        guard needed != engine.spatialAudio, !Task.isCancelled else { return }
+        do {
+            try await engine.setSpatialAudio(needed)
+        } catch {
+            Self.logger.error("Spatial Audio rebuild failed, playing as loaded: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// For tests: waits for the rebuild an audio switch started.
+    func awaitSpatialAudioCorrection() async {
+        await spatialAudioCorrection?.value
+    }
+
+    /// A rebuild queued for one session mustn't run against the next.
+    private func cancelSpatialAudioCorrection() {
+        spatialAudioCorrection?.cancel()
+        spatialAudioCorrection = nil
     }
 
     /// Restores the tracks last explicitly picked for this item, overriding what
@@ -1399,11 +1467,16 @@ final class PlayerViewModel {
     /// exists: ids are physical container positions, so the same id can point at
     /// a different track after a layout change. A mismatch is skipped rather than
     /// passed through.
-    private func applyStoredTrackSelection() {
-        guard let selection = trackPreferenceStore.selection(forItem: itemID, userID: userID) else { return }
+    ///
+    /// Returns the audio track id it selected, if it selected one.
+    @discardableResult
+    private func applyStoredTrackSelection() -> Int? {
+        guard let selection = trackPreferenceStore.selection(forItem: itemID, userID: userID) else { return nil }
+        var restoredAudioTrackID: Int?
         if let audioTrack = selection.audioTrack,
            engine.audioTracks.contains(where: { $0.id == audioTrack.id && $0.title == audioTrack.title }) {
             engine.selectAudioTrack(id: audioTrack.id)
+            restoredAudioTrackID = audioTrack.id
         }
         switch selection.subtitlePreference {
         case .unset:
@@ -1415,6 +1488,7 @@ final class PlayerViewModel {
                 engine.selectSubtitleTrack(id: subtitleTrack.id)
             }
         }
+        return restoredAudioTrackID
     }
 
     func togglePlayPause() {
@@ -1441,7 +1515,19 @@ final class PlayerViewModel {
     }
 
     func selectAudioTrack(id: Int) {
-        engine.selectAudioTrack(id: id)
+        // A switch between formats whose settings differ (Atmos ↔ DTS:X, or
+        // to a format that's off) needs another rendering, and it goes
+        // first: AetherEngine's switch is a rebuild of its own that a later
+        // rebuild cancels, keeping the old track, while one that follows the
+        // rendering's rebuild carries the new rendering with it.
+        let previous = spatialAudioCorrection
+        spatialAudioCorrection = Task { [weak self] in
+            await previous?.value
+            guard let self, !Task.isCancelled else { return }
+            await self.correctSpatialAudio(forEngineTrackID: id)
+            guard !Task.isCancelled else { return }
+            self.engine.selectAudioTrack(id: id)
+        }
         guard let track = engine.audioTracks.first(where: { $0.id == id }) else { return }
         trackPreferenceStore.recordAudioSelection(
             TrackPreferenceStore.TrackChoice(id: track.id, title: track.title), forItem: itemID, userID: userID
@@ -1513,6 +1599,7 @@ final class PlayerViewModel {
         // Already saved; the next load reads it, so only the engine call goes.
         audioOffset.cancelPending()
         progressReportTask?.cancel()
+        cancelSpatialAudioCorrection()
         #if DOWNLOADS
         if let downloadedItem {
             // Captured before `engine.stop()`, which synchronously zeroes

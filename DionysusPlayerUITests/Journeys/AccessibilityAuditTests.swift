@@ -307,6 +307,23 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen()
     }
 
+    /// The Spatial Audio section with both toggles on, so its layout pickers
+    /// are audited too.
+    func testSpatialAudioSettingsHaveNoAccessibilityIssues() throws {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).awaitLoaded()
+        for toggleID in [A11yID.Profile.spatialAtmosToggle, A11yID.Profile.spatialDTSXToggle] {
+            let toggle = app.switches[toggleID]
+            for _ in 0..<8 where !toggle.isHittable { app.swipeUp() }
+            toggle.switches.firstMatch.tap()
+        }
+        app.buttons[A11yID.Profile.spatialDTSXLayout].awaitExistence("the DTS:X layout picker")
+
+        try auditCurrentScreen()
+    }
+
     func testQuickConnectApprovalHasNoAccessibilityIssues() throws {
         launch()
         HomeScreen(app: app).awaitLoaded()

@@ -26,6 +26,21 @@ final class PlaybackStatsReportTests: XCTestCase {
         XCTAssertEqual(section.rows.first?.id, "Audio Decoder")
     }
 
+    /// The one in-app sign Spatial Audio was taken: a row after Output
+    /// Channels while the engine renders object audio, none otherwise.
+    func test_audio_spatialAudioRow_whenRendering() {
+        var rendering = stats
+        rendering.spatialAudio = "7.1.4 · 13 objects, 4 overhead"
+        let rows = PlaybackStatsReport.audio(rendering, sourceAudioStream: nil, readings: .init()).rows
+        XCTAssertEqual(rows.last?.label, "Spatial Audio")
+        XCTAssertEqual(rows.last?.value, "7.1.4 · 13 objects, 4 overhead")
+    }
+
+    func test_audio_noSpatialAudioRow_otherwise() {
+        let rows = PlaybackStatsReport.audio(stats, sourceAudioStream: nil, readings: .init()).rows
+        XCTAssertFalse(rows.contains { $0.label == "Spatial Audio" })
+    }
+
     func test_playback_omitsZoomWhereThereIsNone() {
         XCTAssertTrue(PlaybackStatsReport.playback(stats, state: .playing, zoomMode: .fit).rows.contains { $0.label == "Zoom" })
         XCTAssertFalse(PlaybackStatsReport.playback(stats, state: .playing, zoomMode: nil).rows.contains { $0.label == "Zoom" })

@@ -26,6 +26,33 @@ final class ProfileJourneyTests: UITestCase {
         app.buttons[A11yID.Profile.audioOffsetReset].awaitDisappearance("Reset, back at 0 ms")
     }
 
+    /// Each Spatial Audio toggle shows its layout picker while it's on, at
+    /// 7.1.4 first.
+    func testSpatialAudioTogglesRevealTheirLayoutPickers() {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).awaitLoaded()
+        for (toggleID, layoutID) in [
+            (A11yID.Profile.spatialAtmosToggle, A11yID.Profile.spatialAtmosLayout),
+            (A11yID.Profile.spatialDTSXToggle, A11yID.Profile.spatialDTSXLayout),
+        ] {
+            let toggle = app.switches[toggleID]
+            for _ in 0..<8 where !toggle.isHittable { app.swipeUp() }
+            toggle.awaitExistence("the \(toggleID) toggle")
+            XCTAssertEqual(toggle.value as? String, "0", "Off by default")
+            let picker = app.buttons[layoutID]
+            XCTAssertFalse(picker.exists, "No layout while it's off")
+            toggle.switches.firstMatch.tap()
+            picker.awaitExistence("the \(layoutID) picker")
+            XCTAssertTrue(
+                "\(picker.value ?? "") \(picker.label)".contains("7.1.4"), "7.1.4 is the default layout"
+            )
+            toggle.switches.firstMatch.tap()
+            picker.awaitDisappearance("the layout picker, toggle off")
+        }
+    }
+
     func testQuickConnectApprovesACode() {
         launch()
         HomeScreen(app: app).awaitLoaded()

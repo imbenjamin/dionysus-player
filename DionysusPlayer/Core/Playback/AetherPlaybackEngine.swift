@@ -63,6 +63,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
     var onAudioOffsetAvailabilityChange: ((Bool) -> Void)?
     /// Follows `engine.$videoRoute`; see `isAudioOffsetAvailable(on:)`.
     private(set) var isAudioOffsetAvailable = false
+    private(set) var spatialAudio: SpatialAudioRendering = .off
 
     /// Built around `engine.nativePlayerLayer`, so the native AVPlayer route
     /// only. Rebuilt from the `engine.$currentAVPlayer` sink below, which
@@ -188,7 +189,8 @@ final class AetherPlaybackEngine: PlaybackEngine {
             },
             liveBitrate: telemetry.flatMap(Self.describeLiveBitrate),
             networkThroughput: telemetry?.networkThroughputMbps.map { String(format: "%.1f Mbps", $0) },
-            frames: telemetry.flatMap(Self.describeFrames)
+            frames: telemetry.flatMap(Self.describeFrames),
+            spatialAudio: telemetry?.objectAudio.map(Self.describeObjectAudio)
         )
     }
 
@@ -494,13 +496,14 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// by test without an engine. `display` is `.unknown` on iOS, which keeps
     /// the engine's own defaults.
     nonisolated static func makeLoadOptions(
-        isRemoteHLS: Bool, externalSubtitles: [ExternalSubtitleTrack], display: DisplayContext, audioOffset: TimeInterval = 0
+        isRemoteHLS: Bool, externalSubtitles: [ExternalSubtitleTrack], display: DisplayContext, audioOffset: TimeInterval = 0,
+        spatialAudio: SpatialAudioRendering = .off
     ) -> LoadOptions {
         // Order matters here beyond just readability: `LoadOptions`' own
         // memberwise init takes ~40 named, defaulted parameters, but Swift
         // still requires whichever ones a call site does supply to appear
         // in the init's own declared order, even with keyword syntax.
-        LoadOptions(
+        var options = LoadOptions(
             // The engine stays the only display-criteria writer; the tvOS
             // host turns AVKit's automatic criteria off for the same reason.
             suppressDisplayCriteria: false,
@@ -526,6 +529,41 @@ final class AetherPlaybackEngine: PlaybackEngine {
             // already clamped it to ±0.5 s, inside the engine's ±2 s.
             audioDelaySeconds: audioOffset
         )
+        // TrueHD Atmos and DTS:X keep their heights as APAC in this build's
+        // `TrueHDObjectAudio`/`DTSXObjectAudio` traits; `.off` keeps today's
+        // Dolby Digital Plus bridge. Set after the init, out of its order.
+        options.objectAudioRendering = engineRendering(spatialAudio)
+        return options
+    }
+
+    nonisolated static func engineRendering(_ rendering: SpatialAudioRendering) -> ObjectAudioRendering {
+        switch rendering {
+        case .off: return .off
+        case .layout(let layout): return .apac(engineLayout(layout))
+        }
+    }
+
+    /// The engine's layout of the same name. Every `SpeakerLayout` has one
+    /// (pinned by `AetherPlaybackEngineLoadOptionsTests`).
+    nonisolated static func engineLayout(_ layout: SpeakerLayout) -> SpatialSpeakerLayout {
+        switch layout {
+        case .l512: return .l512
+        case .l514: return .l514
+        case .l712: return .l712
+        case .l714: return .l714
+        case .l916: return .l916
+        }
+    }
+
+    /// Playback Stats' "Spatial Audio" reading, from the engine's 1 Hz
+    /// `LiveTelemetry.objectAudio`. DTS:X plays its standard presentation, so
+    /// it has heights and no objects.
+    nonisolated static func describeObjectAudio(_ activity: ObjectAudioActivity) -> String {
+        guard activity.objects > 0 else {
+            return "\(activity.layout.rawValue) · " + String(localized: "\(activity.heightChannels) height channels")
+        }
+        return "\(activity.layout.rawValue) · "
+            + String(localized: "\(activity.activeObjects) objects, \(activity.elevatedObjects) overhead")
     }
 
     /// AetherEngine applies an offset where it holds the timestamps:
@@ -547,17 +585,22 @@ final class AetherPlaybackEngine: PlaybackEngine {
         route == .none ? nil : isAudioOffsetAvailable(on: route)
     }
 
-    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool, audioOffset: TimeInterval) async throws {
+    func load(
+        url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>,
+        isRemoteHLS: Bool, audioOffset: TimeInterval, spatialAudio: SpatialAudioRendering
+    ) async throws {
         // A fresh source carries its own playhead; the previous session's
         // stand-in must not leak into it.
         pausedRebuildAnchor = nil
         hasSessionBeenReady = false
         self.knownAtmosAudioTrackIndices = knownAtmosAudioTrackIndices
+        self.spatialAudio = spatialAudio
         let options = Self.makeLoadOptions(
             isRemoteHLS: isRemoteHLS,
             externalSubtitles: externalSubtitles.map(Self.makeExternalSubtitleTrack),
             display: DisplayContext.current(),
-            audioOffset: audioOffset
+            audioOffset: audioOffset,
+            spatialAudio: spatialAudio
         )
         do {
             _ = try await engine.load(url: url, options: options)
@@ -779,6 +822,18 @@ final class AetherPlaybackEngine: PlaybackEngine {
         engine.selectAudioTrack(index: id)
         selectedAudioTrackID = id
         audioTracks = audioTracks.map { $0.selected($0.id == id) }
+    }
+
+    /// The rebuild keeps the selected audio track (the engine carries the
+    /// session's pick through it) and replays the session's other options.
+    /// `objectAudioRendering` is a field AetherEngine lets a correction change
+    /// (AE#460). Called right after load, before the resume seek, or on an
+    /// audio switch that needs another rendering.
+    func setSpatialAudio(_ rendering: SpatialAudioRendering) async throws {
+        guard rendering != spatialAudio else { return }
+        let engineRendering = Self.engineRendering(rendering)
+        try await engine.reloadAtCurrentPosition { $0.objectAudioRendering = engineRendering }
+        spatialAudio = rendering
     }
 
     func setAudioOffset(_ seconds: TimeInterval) {

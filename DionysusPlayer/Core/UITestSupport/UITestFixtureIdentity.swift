@@ -82,7 +82,8 @@ enum UITestFixtureIdentity {
     static let primaryMovieID = movieID(1)
     static let primaryMovieTitle = "The Quiet Ascent"
 
-    /// The one part-watched movie, so the detail page shows Resume with a
+    /// The one part-watched movie: played, with a position, as a rewatch
+    /// stopped partway leaves it, so the detail page shows Resume with a
     /// Restart button beside it.
     static let partWatchedMovieID = movieID(2)
 

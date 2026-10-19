@@ -1556,7 +1556,7 @@ final class AssetDetailViewModelTests: XCTestCase {
     /// an in-progress episode (Jellyfin's own resume-in-place semantics —
     /// see `showPlaybackEpisode`'s doc comment) has to carry that episode's
     /// *own* `userData` through into `showPlaybackEpisode`, not just its id
-    /// — `PlayResumeButtonRow` reads `effectiveItem.isPartWatched` straight
+    /// — `PlayResumeButtonRow` reads `effectiveItem.canResume` straight
     /// off it to decide "Resume SXX:EYY" vs. "Play SXX:EYY".
     func test_load_seriesDirect_showPlaybackEpisode_carriesThroughItsOwnWatchedState() async {
         let inProgressEpisode = BaseItemDto(
@@ -1566,7 +1566,7 @@ final class AssetDetailViewModelTests: XCTestCase {
         let viewModel = await loadedSeriesViewModel(nextUpItems: [inProgressEpisode], episodesItems: [])
 
         XCTAssertEqual(viewModel.showPlaybackEpisode?.id, "ep-5")
-        XCTAssertTrue(viewModel.showPlaybackEpisode?.isPartWatched ?? false)
+        XCTAssertTrue(viewModel.showPlaybackEpisode?.canResume ?? false)
     }
 
     /// A Season tapped directly always targets *that season's own* first

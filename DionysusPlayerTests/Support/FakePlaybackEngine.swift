@@ -83,8 +83,35 @@ final class FakePlaybackEngine: PlaybackEngine {
     private(set) var stopPictureInPictureCallCount = 0
     private(set) var nowPlayingInfoCalls: [(title: String, subtitle: String?, artwork: UIImage?)] = []
 
-    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool, audioOffset: TimeInterval) async throws {
+    /// Recorded alongside each `loadedURLs` entry, same index.
+    private(set) var loadedSpatialAudio: [SpatialAudioRendering] = []
+    /// Every `setSpatialAudio(_:)` that changed the value: the rebuilds.
+    private(set) var spatialAudioReloads: [SpatialAudioRendering] = []
+    private(set) var spatialAudio: SpatialAudioRendering = .off
+    /// Audio switches and rebuilds in the order they reached the engine: on
+    /// AetherEngine a switch is itself a rebuild, which a rebuild started
+    /// after it cancels, so the order is what a test pins.
+    private(set) var audioEvents: [AudioEvent] = []
+
+    enum AudioEvent: Equatable {
+        case selectAudioTrack(Int)
+        case setSpatialAudio(SpatialAudioRendering)
+    }
+
+    func setSpatialAudio(_ rendering: SpatialAudioRendering) async throws {
+        guard rendering != spatialAudio else { return }
+        spatialAudio = rendering
+        spatialAudioReloads.append(rendering)
+        audioEvents.append(.setSpatialAudio(rendering))
+    }
+
+    func load(
+        url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>,
+        isRemoteHLS: Bool, audioOffset: TimeInterval, spatialAudio: SpatialAudioRendering
+    ) async throws {
         if let loadError { throw loadError }
+        loadedSpatialAudio.append(spatialAudio)
+        self.spatialAudio = spatialAudio
         loadedURLs.append(url)
         loadedExternalSubtitles.append(externalSubtitles)
         loadedAtmosAudioTrackIndices.append(knownAtmosAudioTrackIndices)
@@ -105,7 +132,10 @@ final class FakePlaybackEngine: PlaybackEngine {
         onSeek?()
     }
     func stop() { stopCallCount += 1 }
-    func selectAudioTrack(id: Int) { selectedAudioTrackIDs.append(id) }
+    func selectAudioTrack(id: Int) {
+        selectedAudioTrackIDs.append(id)
+        audioEvents.append(.selectAudioTrack(id))
+    }
     func selectSubtitleTrack(id: Int?) { selectedSubtitleTrackIDs.append(id) }
     /// Recorded rather than acted on: there is no AVPlayer here to hand the
     /// drawing to. Lets a test assert that libass taking over the paint also

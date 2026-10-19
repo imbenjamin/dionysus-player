@@ -87,7 +87,22 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         frames: "0 dropped"
     )
 
-    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool, audioOffset: TimeInterval) async throws {
+    /// What the last `load(...)` or `setSpatialAudio(_:)` asked for, for UI
+    /// tests to read (nothing renders here).
+    private(set) var spatialAudio: SpatialAudioRendering = .off
+    private(set) var spatialAudioReloads: [SpatialAudioRendering] = []
+
+    func setSpatialAudio(_ rendering: SpatialAudioRendering) async throws {
+        guard rendering != spatialAudio else { return }
+        spatialAudio = rendering
+        spatialAudioReloads.append(rendering)
+    }
+
+    func load(
+        url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>,
+        isRemoteHLS: Bool, audioOffset: TimeInterval, spatialAudio: SpatialAudioRendering
+    ) async throws {
+        self.spatialAudio = spatialAudio
         if let simulatedFailure {
             onStateChange?(.failed(simulatedFailure))
             return
