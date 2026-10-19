@@ -56,7 +56,10 @@ struct TVPosterCollection: UIViewRepresentable {
     @Environment(\.isEnabled) private var isEnabled
 
     static let columnSpacing: CGFloat = 44
-    static let rowSpacing: CGFloat = 60
+    /// About 58pt from a caption to the row below, with the cell's room
+    /// under its caption; at 60 it was 88, mostly dead space (Benjamin,
+    /// 2026-10-19). A focused poster grows 20pt into it.
+    static let rowSpacing: CGFloat = 30
 
     /// A tile and its two-line caption.
     static func cellSize(_ shape: TVTileShape) -> CGSize {
@@ -432,7 +435,13 @@ final class TVPosterCell: UICollectionViewCell {
 
     private static func standIn(_ size: CGSize) -> UIImage {
         if let image = standIns[size] { return image }
-        let image = UIGraphicsImageRenderer(size: size).image { _ in }
+        // 32 bits a pixel: left to choose, the renderer drew this clear image
+        // at 16, and the poster's focus shadow reads its image as 32-bit
+        // ARGB, so it read past the end and could crash (EXC_BAD_ACCESS in
+        // vImageConvert_ARGB8888toPlanar8, measured on 26.5, 2026-10-19).
+        let format = UIGraphicsImageRendererFormat.preferred()
+        format.preferredRange = .standard
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in }
         standIns[size] = image
         return image
     }
@@ -573,10 +582,14 @@ final class TVCaptionedPosterView: TVPosterView {
 /// The poster's footer with its labels laid along its leading edge across
 /// its full width; the system centres each label on its own text.
 final class TVLeadingCaptionFooter: TVLockupHeaderFooterView {
+    /// Lowered a little more than the system places them: a focused poster
+    /// tilted fully down touched its title (Benjamin, on device, 2026-10-19).
+    static let extraTopMargin: CGFloat = 6
+
     override func layoutSubviews() {
         super.layoutSubviews()
         for label in [titleLabel, subtitleLabel].compactMap({ $0 }) {
-            label.frame = CGRect(x: 0, y: label.frame.minY, width: bounds.width, height: label.frame.height)
+            label.frame = CGRect(x: 0, y: label.frame.minY + Self.extraTopMargin, width: bounds.width, height: label.frame.height)
         }
     }
 }

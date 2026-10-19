@@ -314,7 +314,20 @@ always shown (Benjamin, 2026-10-02).
   its artwork uninset and the focused poster ran over its caption, on every
   return to a cached grid. **Until artwork arrives, or with none, a clear
   stand-in image is set the same way** (`showStandIn`): with no image the
-  system draws the artwork uninset, larger than its neighbours.
+  system draws the artwork uninset, larger than its neighbours. The stand-in
+  is drawn at 32 bits a pixel: left to choose, the renderer drew it at 16,
+  which the poster's focus shadow reads past the end of (a crash, 2026-10-19).
+- **The poster's size is chosen for the art's shape, not the tile's**
+  (`TVTileMetrics.gridPoster`/`gridLandscape`). `contentSize`'s width is the
+  focused artwork's, its height the unfocused artwork's; the artwork grows
+  40pt on its longer side on focus, so at rest it's narrower than the width,
+  and filled. At 382 × 215 a show's thumb drew 342 × 215 and its logo lost
+  its ends (Benjamin, 2026-10-19), so landscape is 382 × 192 (342 × 192 at
+  rest, 16:9) and posters 240 × 320 (about 213 × 320, 2:3). Measured,
+  `TVPosterCellTests`. The captions sit 6pt below where the system puts them
+  (`TVLeadingCaptionFooter.extraTopMargin`), since a focused poster tilted
+  fully down touched its title, and rows are 30pt apart (about 58pt from a
+  caption to the next row; Benjamin, 2026-10-19).
 - **The posters follow ancestor focus, and SwiftUI focus counts as an
   ancestor's** (`TVPosterCollectionView.didUpdateFocus`, measured
   2026-10-12). While SwiftUI holds focus (the sidebar, the pills, a page

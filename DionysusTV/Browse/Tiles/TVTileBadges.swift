@@ -4,11 +4,20 @@ import SwiftUI
 /// `.land-s`).
 enum TVTileMetrics {
     static let poster = CGSize(width: 250, height: 375)
-    /// Six to a row in a collection grid.
-    static let gridPoster = CGSize(width: 240, height: 360)
+    /// Six to a row in a collection grid. The grid's system poster
+    /// (`TVPosterCell`) takes a size whose width is the focused artwork's and
+    /// whose height is the unfocused artwork's. The artwork grows 40pt on its
+    /// longer side on focus, so at rest it's drawn narrower than the width,
+    /// at that height, and filled (measured, `TVPosterCellTests`). So the
+    /// height is chosen to keep the art's own shape, 2:3 here (about
+    /// 213 × 320, 240 × 360 focused); at 360 the system drew it 216 × 360 and
+    /// the fill cropped its sides.
+    static let gridPoster = CGSize(width: 240, height: 320)
     /// Four to a row in a grid of landscape thumbs, across the six posters'
-    /// width: (6 × 240 + 5 × 44 − 3 × 44) / 4, at 16:9.
-    static let gridLandscape = CGSize(width: 382, height: 215)
+    /// width: (6 × 240 + 5 × 44 − 3 × 44) / 4. 342 × 192 unfocused, 16:9 (as
+    /// `gridPoster`); at 215 the thumb drew 342 × 215 and a logo across it lost
+    /// its ends (Benjamin, 2026-10-19).
+    static let gridLandscape = CGSize(width: 382, height: 192)
     /// Four to a rail beside the sidebar (Benjamin, 2026-10-06; 500pt showed
     /// three): 200 + 4 × 370 + 3 × 48 = 1824, inside the 80pt safe area on the
     /// right with room for the fourth's focus lift, at 16:9.
