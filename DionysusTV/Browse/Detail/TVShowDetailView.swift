@@ -113,7 +113,7 @@ struct TVShowDetailView: View {
                     // with the season's episodes, after the page has loaded.
                     TVDetailHeader(item: viewModel.seriesItem ?? item, logoSource: artItem, badgeSource: badgeSource, isLoading: true)
                     if isEpisode {
-                        Text(verbatim: item.numberedEpisodeName).font(.title3.weight(.semibold))
+                        Text(verbatim: item.numberedEpisodeName).font(.headline.weight(.semibold))
                     }
                     // Reserved while loading, as on the movie page: a tile's
                     // copy of the item can arrive without its overview.
