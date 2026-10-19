@@ -147,6 +147,18 @@ final class AudioOffsetControllerTests: XCTestCase {
         XCTAssertEqual(applied, [])
     }
 
+    /// A change that settles while the route is away is kept, and reaches the
+    /// engine when the route comes back, not at the next load.
+    func test_aChangeWhileUnavailable_appliesWhenAvailableAgain() {
+        let controller = make()
+        controller.step(by: 4)
+        controller.isAvailable = false
+        scheduler.fire()
+        XCTAssertEqual(applied, [])
+        controller.isAvailable = true
+        XCTAssertEqual(applied, [40])
+    }
+
     func test_panelDidOpen_resetsTheScope() {
         let controller = make()
         controller.setScope(.allTitles)

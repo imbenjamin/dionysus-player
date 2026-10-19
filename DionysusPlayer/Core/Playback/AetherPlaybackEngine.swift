@@ -343,7 +343,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
             .store(in: &cancellables)
 
         engine.$videoRoute
-            .map(Self.isAudioOffsetAvailable(on:))
+            .compactMap(Self.audioOffsetAvailability(on:))
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] available in
@@ -534,6 +534,17 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// picture to sync against (`AudioDelayPolicy`).
     nonisolated static func isAudioOffsetAvailable(on route: VideoRoute) -> Bool {
         route == .loopback || route == .software
+    }
+
+    /// What a route change says about the offset, or nil for `.none`: the
+    /// route reads `.none` while a session is rebuilt (each offset change on
+    /// `.loopback`, a track switch, a return from the background), which is
+    /// the absence of a route, not one that can't carry an offset
+    /// (AetherEngine's own reading, `AetherEngine+AudioDelay.swift`).
+    /// Answering false there hid the controls for the rebuild and pulled
+    /// focus off them. A new `load` reports its own route.
+    nonisolated static func audioOffsetAvailability(on route: VideoRoute) -> Bool? {
+        route == .none ? nil : isAudioOffsetAvailable(on: route)
     }
 
     func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool, audioOffset: TimeInterval) async throws {

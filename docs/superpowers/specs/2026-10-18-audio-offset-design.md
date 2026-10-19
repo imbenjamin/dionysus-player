@@ -85,8 +85,10 @@ New, `Core/Persistence/AudioOffsetStore.swift`, compiled for both apps.
   and step live in one place (`AudioOffset.range`, `AudioOffset.step`) that
   the store, view model and both UIs read.
 - No cap on entries: each is a few bytes, and only Reset clears one.
-- tvOS uses plain `UserDefaults`, shared across the device, which is the
-  per-device ownership agreed.
+- tvOS keeps it in the keychain every Apple TV user shares
+  (`KeychainStore.Scope.allUsers`), not `UserDefaults`: the app runs as the
+  current Apple TV user, so its `UserDefaults` is per user. (Corrected after
+  the final review, 2026-10-19; the first draft assumed it was device-wide.)
 
 ## 2. Engine
 

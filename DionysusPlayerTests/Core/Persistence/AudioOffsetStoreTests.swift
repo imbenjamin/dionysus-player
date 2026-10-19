@@ -43,6 +43,22 @@ final class AudioOffsetStoreTests: XCTestCase {
         XCTAssertEqual(store.offset(forItem: "item-1"), -500)
     }
 
+    /// tvOS keeps the offset in the keychain every Apple TV user shares
+    /// (final review, Important 2); this checks that storage round-trips.
+    func test_sharedKeychainStorage_roundTrips() {
+        let storage = SharedKeychainAudioOffsetStorage(keyPrefix: "tests.AudioOffsetStoreTests.")
+        defer { storage.removeAll() }
+        let keychainStore = AudioOffsetStore(storage: storage)
+        keychainStore.globalOffsetMilliseconds = 40
+        keychainStore.setOffset(-20, forItem: "item-1")
+
+        let reread = AudioOffsetStore(storage: SharedKeychainAudioOffsetStorage(keyPrefix: "tests.AudioOffsetStoreTests."))
+        XCTAssertEqual(reread.globalOffsetMilliseconds, 40)
+        XCTAssertEqual(reread.offset(forItem: "item-1"), -20)
+        reread.removeOffset(forItem: "item-1")
+        XCTAssertNil(keychainStore.offset(forItem: "item-1"))
+    }
+
     /// Review Focus 4: a value written by another build, out of range or off-step.
     func test_readsClampAndRoundWhatIsStored() {
         defaults.set(723, forKey: AudioOffsetStore.globalKey)
@@ -50,5 +66,17 @@ final class AudioOffsetStoreTests: XCTestCase {
         XCTAssertEqual(store.globalOffsetMilliseconds, 500)
         XCTAssertEqual(store.offset(forItem: "item-1"), 500)
         XCTAssertEqual(store.offset(forItem: "item-2"), -30)
+    }
+
+    /// One malformed entry (another build's 12.5, a corrupted string) costs
+    /// that entry only: the next write must not wipe every other title.
+    func test_aMalformedEntry_keepsTheRest() {
+        defaults.set(["item-1": 12.5, "item-2": -40, "item-3": "x"], forKey: AudioOffsetStore.titlesKey)
+        XCTAssertEqual(store.offset(forItem: "item-1"), 10)
+        XCTAssertEqual(store.offset(forItem: "item-2"), -40)
+        XCTAssertNil(store.offset(forItem: "item-3"))
+        store.setOffset(20, forItem: "item-4")
+        XCTAssertEqual(store.offset(forItem: "item-2"), -40)
+        XCTAssertEqual(store.offset(forItem: "item-4"), 20)
     }
 }

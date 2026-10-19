@@ -51,4 +51,13 @@ final class AetherPlaybackEngineLoadOptionsTests: XCTestCase {
         XCTAssertFalse(AetherPlaybackEngine.isAudioOffsetAvailable(on: .audio))
         XCTAssertFalse(AetherPlaybackEngine.isAudioOffsetAvailable(on: .none))
     }
+
+    /// Final review, Important 1: a native-route change reloads the session,
+    /// and the route reads `.none` while it's rebuilt. That says nothing about
+    /// the offset, so the controls must not blink out with it.
+    func test_audioOffsetAvailability_ignoresTheRebuildGap() {
+        XCTAssertNil(AetherPlaybackEngine.audioOffsetAvailability(on: .none))
+        XCTAssertEqual(AetherPlaybackEngine.audioOffsetAvailability(on: .loopback), true)
+        XCTAssertEqual(AetherPlaybackEngine.audioOffsetAvailability(on: .remoteBypass), false)
+    }
 }

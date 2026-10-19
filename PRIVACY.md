@@ -47,6 +47,10 @@ storage, and is never sent anywhere except where noted:
 - **Playback preferences** — your chosen audio/subtitle tracks, media
   version selections, download settings, and recent search history, scoped
   to your Jellyfin account and never sent to the server.
+- **Audio offset** — the lip-sync correction you set, overall and for
+  individual titles (by their Jellyfin item ID), in milliseconds. It belongs
+  to the device rather than your account: on Apple TV it is kept in the
+  Keychain every user of that Apple TV shares. Never sent to the server.
 - **Downloaded content** — video, subtitles, subtitle fonts, and artwork you
   choose to download for offline playback, stored in the app's local storage
   and excluded from iCloud/iTunes backups.

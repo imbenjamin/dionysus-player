@@ -43,8 +43,14 @@ final class AudioOffsetController {
 
     private(set) var milliseconds: Int
     private(set) var scope: AudioOffsetScope = .thisTitle
-    /// From the engine's route; false hides every control.
-    var isAvailable = false
+    /// From the engine's route; false hides every control. A change that
+    /// settled while it was false is applied when it comes back.
+    var isAvailable = false {
+        didSet {
+            guard isAvailable, !oldValue, hasPending, !hasScheduledApply else { return }
+            applyNow()
+        }
+    }
     private(set) var hasTitleOffset: Bool
 
     var canDecrease: Bool { milliseconds > AudioOffset.range.lowerBound }
@@ -58,7 +64,10 @@ final class AudioOffsetController {
     private let apply: @MainActor (Int) -> Void
     /// The value the engine has, so an unchanged value isn't re-applied.
     private var appliedMilliseconds: Int
+    /// A change saved but not yet given to the engine.
     private var hasPending = false
+    /// The settle is still running for it.
+    private var hasScheduledApply = false
 
     init(
         itemID: String, store: AudioOffsetStore,
@@ -110,12 +119,14 @@ final class AudioOffsetController {
     func flush() {
         guard hasPending else { return }
         scheduler.cancel()
+        hasScheduledApply = false
         applyNow()
     }
 
     /// Drops a waiting engine call; the value is already saved.
     func cancelPending() {
         scheduler.cancel()
+        hasScheduledApply = false
         hasPending = false
     }
 
@@ -130,12 +141,18 @@ final class AudioOffsetController {
 
     private func scheduleApply() {
         hasPending = true
-        scheduler.schedule(after: Self.settleDelay) { [weak self] in self?.applyNow() }
+        hasScheduledApply = true
+        scheduler.schedule(after: Self.settleDelay) { [weak self] in
+            self?.hasScheduledApply = false
+            self?.applyNow()
+        }
     }
 
+    /// While unavailable the change stays pending for `isAvailable`.
     private func applyNow() {
+        guard isAvailable else { return }
         hasPending = false
-        guard isAvailable, milliseconds != appliedMilliseconds else { return }
+        guard milliseconds != appliedMilliseconds else { return }
         appliedMilliseconds = milliseconds
         apply(milliseconds)
     }

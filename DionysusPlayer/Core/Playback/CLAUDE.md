@@ -56,14 +56,20 @@ time out, and every close control looked dead for 20 seconds.
 
 A global lip-sync offset (Profile → Playback) and a per-title override (the
 player's Audio panel), −500…+500 ms in 10 ms steps, in `AudioOffsetStore`
-(device-wide, not per user: it corrects the device's audio chain) and applied
+(device-wide, not per user: it corrects the device's audio chain; on tvOS
+that means the keychain every Apple TV user shares, since `UserDefaults` is
+per user there) and applied
 by `AudioOffsetController` (`viewModel.audioOffset`), which both players'
 panels draw from. The load passes it as `audioDelaySeconds`, so the first
 frame is in sync; a live change calls `setAudioDelay`.
 
 - **Where it applies:** AetherEngine's `.loopback` and `.software` routes
   (`AetherPlaybackEngine.isAudioOffsetAvailable(on:)`), following
-  `$videoRoute` through mid-session reroutes. **Not on a server transcode**:
+  `$videoRoute` through mid-session reroutes. `.none` is skipped
+  (`audioOffsetAvailability(on:)`): the route reads it while a session is
+  rebuilt, including by each offset change, and treating it as "unavailable"
+  made the controls blink out and took focus off them. A change that settles
+  while unavailable waits and applies when the route returns. **Not on a server transcode**:
   AVPlayer owns `.remoteBypass` and offers no audio delay (an `AVAudioMix`
   needs an `AVAssetTrack`, which HLS doesn't vend), Jellyfin's transcode
   request has no offset parameter, and AetherEngine sends only
