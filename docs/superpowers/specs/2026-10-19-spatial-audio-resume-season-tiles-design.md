@@ -3,6 +3,13 @@
 Agreed with Benjamin on 2026-10-19. iOS and Apple TV. Three independent
 parts, one plan, ahead of the 1.2.0 App Store submission.
 
+> **Update, 2026-10-20:** the PR shipped on AetherEngine 7.44.0, not
+> 7.42.0. 7.44.0 decodes DTS:X with FFmpeg's own `dca` decoder (FFmpegBuild
+> 3.9.0's height patch) and drops LibDTSX, whose LGPL-3.0 `DTSX.framework`
+> couldn't ship in an App Store app. What this spec says about LibDTSX, its
+> notices and `DTSX.framework` no longer applies; FFmpeg's notices cover the
+> decoder.
+
 ## 1. Resume after a rewatch
 
 **The bug** (Benjamin, 2026-10-14). Rewatching a title and stopping partway

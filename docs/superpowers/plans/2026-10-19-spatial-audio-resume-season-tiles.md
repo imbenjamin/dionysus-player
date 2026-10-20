@@ -10,6 +10,11 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-19-spatial-audio-resume-season-tiles-design.md`
 
+> **Update, 2026-10-20:** executed, then bumped to AetherEngine 7.44.0,
+> which decodes DTS:X with FFmpeg and drops LibDTSX. The steps below that
+> pin 7.42.0 or add LibDTSX's notices, its `LicenseDocumentTests` entry or
+> `DTSX.framework` were undone by that bump (see the spec's update note).
+
 ## Global Constraints
 
 - iOS floor 18, tvOS floor 26. Spatial Audio settings are hidden on iOS below 26 and wherever the engine component isn't built in.
