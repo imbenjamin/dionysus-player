@@ -125,6 +125,19 @@ jobs:
       - name: Set up iOS project
         uses: ./.github/actions/setup-ios-project
 
+      # Outside CodeQL's tracer. On the xcode-27 image, SwiftPM run under
+      # the tracer can't launch any package's compiled manifest ("Bad CPU
+      # type in executable (86)"), so every develop push failed at Build
+      # from the move to that image (#365, 2026-10-20). Resolving here
+      # evaluates the manifests untraced; the traced build below reuses
+      # them and doesn't resolve again.
+      - name: Resolve package dependencies
+        shell: bash
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project DionysusPlayer.xcodeproj \
+            -scheme DionysusPlayer
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
@@ -148,6 +161,7 @@ jobs:
             -project DionysusPlayer.xcodeproj \
             -scheme DionysusPlayer \
             -destination 'generic/platform=iOS' \
+            -disableAutomaticPackageResolution \
             CODE_SIGNING_ALLOWED=NO \
             | xcbeautify --renderer github-actions
 
