@@ -2,7 +2,8 @@ import SwiftUI
 import UIKit
 
 /// Picks the tab bar's selected-item tint from the artwork currently behind
-/// the bar.
+/// the bar. Regular width only (`MainTabView`): an iPhone's bar sits at the
+/// bottom, never over the hero, and keeps `dionysusPrimary`.
 ///
 /// On iPadOS 26 the floating tab bar is Liquid Glass: its selection pill
 /// takes its tone from whatever is behind it while the selected label is
@@ -47,7 +48,9 @@ final class TabBarTintModel {
 
     /// Mean relative luminance (0...1) of the strip of artwork the tab
     /// bar sits over, or `nil` when nothing is on screen behind it (any
-    /// tab other than Home, or Home before its hero has loaded).
+    /// tab other than Home, a page pushed over Home, or Home before its
+    /// hero has loaded). `HeroRailView` resets it whenever the hero stops
+    /// being visible.
     private(set) var backdropLuminance: Double?
 
     /// Below this, the backdrop is dark enough that the pill goes dark
