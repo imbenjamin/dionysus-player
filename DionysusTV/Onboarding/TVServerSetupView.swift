@@ -195,11 +195,11 @@ struct TVServerSetupView: View {
     }
 }
 
-/// The brand pane's radar. While a scan runs, gold pings ripple out from the
-/// glyph under a turning sweep, so the screen itself says it's still looking;
-/// when the scan ends the gold cross-fades into three still grey rings, which
-/// mean "stopped". The two never show together. Decorative, so hidden from
-/// accessibility. The motion stays off under Reduce Motion and under the
+/// The brand pane's radar. While a scan runs, rose gold pings ripple out from
+/// the glyph under a turning sweep, so the screen itself says it's still
+/// looking; when the scan ends the rose gold cross-fades into three still grey
+/// rings, which mean "stopped". The two never show together. Decorative, so
+/// hidden from accessibility. The motion stays off under Reduce Motion and under the
 /// UI-test harness, whose accessibility tree a continuously redrawing view
 /// keeps in motion; there the grey rings show throughout.
 private struct TVScanRadar: View {
@@ -265,7 +265,7 @@ private struct TVScanRadar: View {
                     stops: [
                         .init(color: .clear, location: 0),
                         .init(color: .clear, location: 0.72),
-                        .init(color: .dionysusGold.opacity(0.32), location: 1)
+                        .init(color: .dionysusRoseGoldLight.opacity(0.32), location: 1)
                     ],
                     center: .center
                 ))
@@ -274,7 +274,7 @@ private struct TVScanRadar: View {
                 let offset = Double(index) / Double(Self.pingCount)
                 let progress = (time / Self.pingPeriod + offset).truncatingRemainder(dividingBy: 1)
                 Circle()
-                    .stroke(Color.dionysusGold.opacity(0.55 * (1 - progress)), lineWidth: 3)
+                    .stroke(Color.dionysusRoseGoldLight.opacity(0.55 * (1 - progress)), lineWidth: 3)
                     .scaleEffect(start + (1 - start) * progress)
             }
         }

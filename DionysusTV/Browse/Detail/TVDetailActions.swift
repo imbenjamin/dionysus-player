@@ -51,11 +51,7 @@ struct TVDetailActions: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(verbatim: title)
                             if hasResume, let playTarget, let left = TVDetailFormat.timeLeft(runTimeTicks: playTarget.dto.runTimeTicks, resumeSeconds: playTarget.resumePositionSeconds) {
-                                HStack(spacing: 12) {
-                                    ProgressView(value: playTarget.playedFraction ?? 0).tint(.dionysusHighlight).frame(width: 120)
-                                    Text(verbatim: left).font(.caption.weight(.semibold))
-                                }
-                                .opacity(0.8)
+                                TVResumeRow(fraction: playTarget.playedFraction ?? 0, timeLeft: left)
                             }
                         }
                     }
@@ -101,5 +97,28 @@ struct TVDetailActions: View {
         // well to the right of Favorite, where tvOS found nothing above.
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
+    }
+}
+
+/// The resume bar and time left inside Play. Rose gold reads on the resting
+/// glass, but on the focused button's near-white platter it drew about 1.9:1
+/// (measured, the row being at 80% opacity), and even the deeper
+/// `dionysusRoseGoldHighContrast`, opaque, only 2.6:1 against the track, the
+/// focused platter lightening what it draws. So in focus the row is opaque
+/// and the bar burgundy, as the iOS Play button's is in light mode
+/// (Benjamin, 2026-10-20).
+private struct TVResumeRow: View {
+    let fraction: Double
+    let timeLeft: String
+    @Environment(\.isFocused) private var isFocused
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ProgressView(value: fraction)
+                .tint(isFocused ? Color.dionysusBurgundy : Color.dionysusHighlight)
+                .frame(width: 120)
+            Text(verbatim: timeLeft).font(.caption.weight(.semibold))
+        }
+        .opacity(isFocused ? 1 : 0.8)
     }
 }
