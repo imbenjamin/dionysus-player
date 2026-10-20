@@ -339,7 +339,23 @@ struct HeroRailView: View {
                 // can pick a legible tint. Keyed on `currentIndex` to re-run on
                 // every advance. The hero just displayed the image, so this is a
                 // cache hit and a one-pixel downsample rather than a fetch.
-                .task(id: currentIndex) { await publishBackdropLuminance() }
+                // Only while the hero is visible: the tint is app-wide, and
+                // left set by a dark hero it painted the light pink label on
+                // Search's, Downloads', Profile's and a pushed page's light
+                // pill (about 2.6:1, Benjamin, 2026-10-20). Leaving resets it
+                // in `onDisappear` and `onChange(of: isTabActive)`, not here:
+                // a `.task` doesn't start for a view that has disappeared.
+                .task(id: currentIndex) {
+                    guard isVisible else { return }
+                    await publishBackdropLuminance()
+                }
+                .onChange(of: isTabActive) { _, active in
+                    if active {
+                        Task { await publishBackdropLuminance() }
+                    } else {
+                        TabBarTintModel.shared.update(backdropLuminance: nil)
+                    }
+                }
                 .onReceive(tickTimer) { _ in tick() }
 
                 // Reduce Motion only. Sits directly above the ScrollView at one
@@ -398,7 +414,10 @@ struct HeroRailView: View {
                 isOnScreen = true
                 resyncScrollPosition(using: scrollProxy)
             }
-            .onDisappear { isOnScreen = false }
+            .onDisappear {
+                isOnScreen = false
+                TabBarTintModel.shared.update(backdropLuminance: nil)
+            }
         }
     }
 
