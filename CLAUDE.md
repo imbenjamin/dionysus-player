@@ -21,6 +21,12 @@ AetherEngine 7.x, whose 7.0.0 raised its own floor). iOS 17 devices keep
 v1.0.0. Read AetherEngine's floor from `Package.swift` at the tag, never from
 its release notes: 7.13.0's notes said "iOS 17" while its manifest said 18.
 
+**Both apps build with Xcode 27.1**, locally and in every CI job (GitHub's
+`xcode-27` image, since 2026-10-20). AetherEngine is built and tested only
+with Xcode 27, and 7.43.0 stopped compiling with Xcode 26, so no job can go
+back to an older image. The iOS 18.6 floor is still tested in CI, from a
+runtime cached off `macos-15` (`TESTING.md`, "Where they run in CI").
+
 **Where the rest of the guidance lives.** Claude Code loads a folder's own
 `CLAUDE.md` when working in it:
 

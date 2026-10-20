@@ -195,7 +195,7 @@ yet.
 ## Status
 
 Navigation, screens, and the networking/playback plumbing are in place with
-placeholder content where noted. With Xcode 26.6, the app builds clean end
+placeholder content where noted. With Xcode 27.1, the app builds clean end
 to end — package resolution (AetherEngine and its dependencies),
 compilation, and linking all succeed with no errors — and both the unit and
 UI test suites pass (see [Testing](#testing)). Real device testing (see

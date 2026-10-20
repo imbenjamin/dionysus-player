@@ -386,8 +386,9 @@ string isn't user-visible anyway.
   iPhone simulator`, and both branch rulesets require that exact string.
   GitHub keys required checks on the **job** name, not the workflow name or
   filename — renaming the job without updating both rulesets first makes every
-  PR hang on a check that never reports. The same applies to the two UI smoke
-  checks (`UI smoke tests / iPhone, iOS 26.5` and `… / iPad, iOS 26.5`) and
+  PR hang on a check that never reports. The same applies to the four UI
+  smoke checks (`UI smoke tests / iPhone, iOS 27.0`, `… / iPad, iOS 27.0` and
+  the same two on iOS 18.6) and
   `tvOS build and unit tests`, which both rulesets require, and to the four
   `Full UI tests / …` checks, which `stable`'s requires. Those four come from
   the `ui-full` job, which runs the full UI suite on PRs into `stable` only —

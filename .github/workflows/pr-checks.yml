@@ -36,7 +36,8 @@ jobs:
     # longer reports, including the PR doing the rename. The name is
     # starter-template boilerplate and reads oddly; it stays anyway.
     name: Build and Test default scheme using any available iPhone simulator
-    runs-on: macos-26
+    # Xcode 27.1, setup-ios-project's default (see there for why).
+    runs-on: xcode-27
     timeout-minutes: 45
 
     steps:
@@ -73,7 +74,8 @@ jobs:
     # a step in `build`, for the same reason `ui-smoke` is one (see below).
     # Required by both branch rulesets.
     name: Release configuration compiles
-    runs-on: macos-26
+    # Xcode 27.1, setup-ios-project's default (see there for why).
+    runs-on: xcode-27
     timeout-minutes: 30
 
     steps:
@@ -125,8 +127,6 @@ jobs:
 
       - name: Set up iOS project
         uses: ./.github/actions/setup-ios-project
-        with:
-          xcode-version: "27.1"
 
       - name: List tvOS runtimes
         run: xcrun simctl list runtimes | grep -i tvos || (echo "::error::No tvOS runtime on this image" && exit 1)
@@ -154,21 +154,23 @@ jobs:
     # grow a second responsibility or change shape.
     #
     # Runs the smoke plan only — a handful of journeys, no per-feature
-    # coverage — on one iPhone and one iPad, latest iOS only. The full suite,
-    # on every supported iOS version, runs nightly (nightly-ui-tests.yml) and
+    # coverage — on one iPhone and one iPad, on the latest iOS and on the
+    # iOS 18.6 floor (since 2026-10-20: a break in the pre-26 branch of an
+    # `#available(iOS 26, *)` check used to reach `develop` and surface only
+    # at the nightly). The full suite runs nightly (nightly-ui-tests.yml) and
     # on release tags. The split exists because UI tests are slow and a shared
     # runner is variable; the point of this job is fast pre-merge feedback on
     # the paths that stop the app being usable at all.
     #
-    # ⚠️ Both rulesets require the two checks this reports, by their full
-    # names: "UI smoke tests / iPhone, iOS 26.5" and "UI smoke tests / iPad,
-    # iOS 26.5". Renaming this job, or changing the latest iOS version in
-    # ui-tests.yml, changes those names — update both rulesets in step.
+    # ⚠️ Both rulesets require the four checks this reports, by their full
+    # names: "UI smoke tests / iPhone, iOS 27.0", "UI smoke tests / iPad,
+    # iOS 27.0" and the same two on iOS 18.6. Renaming this job, or changing
+    # an iOS version in ui-tests.yml, changes those names — update both
+    # rulesets in step.
     name: UI smoke tests
     uses: ./.github/workflows/ui-tests.yml
     with:
       test-plan: UITests-Smoke
-      latest-only: true
       timeout-minutes: 30
 
   tv-ui-smoke:

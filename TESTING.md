@@ -410,15 +410,23 @@ which owns the matrix: an **iPhone 16** and an **iPad (A16)** on
 
 | iOS | Why | PR smoke | Full plan (PRs into `stable`, nightly, release) |
 | --- | --- | --- | --- |
-| 26.5 | Latest runtime for the pinned Xcode (26.6) | ✓ | ✓ |
-| 18.6 | The previous major and the deployment floor | | ✓ |
+| 27.0 | The `xcode-27` image's only iOS runtime | ✓ | ✓ |
+| 18.6 | The deployment floor | ✓ | ✓ |
+
+Every leg builds with **Xcode 27.1 on GitHub's `xcode-27` image**, as every
+other job here does (2026-10-20): AetherEngine 7.43.0 and later don't compile
+with Xcode 26 ("sending 'codecpar' risks causing data races"), and the engine
+is built and tested only with Xcode 27.
 
 iOS 18 is the only place the pre-26 branch of an `#available(iOS 26, *)` check
-runs. No image has both runtimes and Xcode won't download an iOS 18 one, so
-26.5 runs on `macos-26` with Xcode 26.6 and 18.6 on `macos-15` with Xcode 26.3
-(it tests the OS, not the toolchain). The models are the same on both
-versions (the 16, since the 17 can't run iOS 18), so a failure on one OS isn't
-a screen-size difference. Locally, Apple offers an iOS 18.2 runtime (`xcrun
+runs, so it gates `develop` PRs too. The `xcode-27` image carries no iOS 18
+runtime and Xcode won't download one (`-downloadPlatform` answers "not
+available", exit 70), but `macos-15` carries 18.6: `ui-tests.yml`'s
+`floor-runtime` job copies that runtime image (about 8.5 GB) into the Actions
+cache, once, and the floor jobs install it with `xcodebuild -importPlatform`
+before building. Xcode 27.1 runs an iOS 18.6 Simulator. The models are the
+same on both versions (the 16, since the 17 can't run iOS 18), so a failure on
+one OS isn't a screen-size difference. Locally, Apple offers an iOS 18.2 runtime (`xcrun
 simctl runtime add <dmg>`); iPad (A16) needs 18.3, so use iPad (10th
 generation), the same 820×1180pt screen. Each environment runs with
 `fail-fast: false` and uploads a failed `.xcresult` as
@@ -432,7 +440,7 @@ one job per tvOS version. `TVUITests-Smoke` runs on tvOS 27.0 on every PR;
 the same Xcode and image, so what's tested is what ships: built with Xcode
 26.6, the app got tvOS 26's focus rendering on tvOS 27, light labels on a
 focused button's white platter. `pr-checks.yml`'s Release build compiles the
-Apple TV app and its extension as well as iOS, with Xcode 26.6. A failed job uploads
+Apple TV app and its extension as well as iOS, with the same Xcode 27.1. A failed job uploads
 `tv-ui-test-results-<plan>-tvOS-<version>-part-<n>`.
 
 The full plan runs as **four parallel jobs** (`shards: 4`), split by test class
@@ -469,8 +477,8 @@ plan selects single tests and stays one job.
   90-minute limit no room for retries (`v1.2.0-alpha.3` ran out).
 
 **Required checks.** `develop` requires the iOS build and unit tests, the
-Release compile, GitGuardian, both `UI smoke tests / <device>, iOS 26.5`
-checks, `tvOS build and unit tests` and `tvOS UI smoke tests / Apple TV 4K,
+Release compile, GitGuardian, the four `UI smoke tests / <device>, iOS
+<version>` checks (iPhone and iPad, iOS 27.0 and 18.6), `tvOS build and unit tests` and `tvOS UI smoke tests / Apple TV 4K,
 tvOS 27.0`. `stable` requires the same, plus the two CodeQL "Analyze" checks,
 the four `Full UI tests / <device>, iOS <version>` checks and `Full tvOS UI
 tests / Apple TV 4K, tvOS 27.0` (added 2026-10-15), which is why a PR into

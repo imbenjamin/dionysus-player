@@ -1,31 +1,33 @@
 name: UI tests
 
 # The UI-test device/OS matrix, in one place. Called by pr-checks.yml (smoke
-# plan, latest iOS only), nightly-ui-tests.yml and release.yml (full plan,
-# every environment) — so the nightly run exercises exactly what gates a
-# release, and a manual nightly dispatch on a branch is a dry run of the
-# release's UI stage.
+# plan), nightly-ui-tests.yml and release.yml (full plan) — so the nightly run
+# exercises exactly what gates a release, and a manual nightly dispatch on a
+# branch is a dry run of the release's UI stage.
 #
 # The matrix is one iPhone and one iPad on:
-#   - the latest iOS the pinned Xcode ships a runtime for (26.5 on Xcode 26.6)
-#   - the previous major, which today is also the deployment floor: Apple went
-#     from iOS 18 straight to 26, and project.yml's target is 18.0. This is the
-#     only place the pre-26 branch of every `#available(iOS 26, *)` check runs.
+#   - the latest iOS on the `xcode-27` image (27.0, its only iOS runtime)
+#   - the deployment floor, iOS 18.6 (project.yml's target is 18.0). This is
+#     the only place the pre-26 branch of every `#available(iOS 26, *)` check
+#     runs.
 #
-# Each OS version carries its own runner image and Xcode, because no single
-# image has both. `macos-26` has only iOS 26.x runtimes, and Xcode won't
-# download an iOS 18 one — `xcodebuild -downloadPlatform iOS -buildVersion
-# 18.6` answers "not available for download" (exit 70) for every 18.x version
-# and build number, on Xcode 26.6 and 27.1 alike. So iOS 18.6 runs on
-# `macos-15`, whose newest Xcode is 26.3. That leg is therefore built with a
-# slightly older Xcode than the one that archives the release; it's testing
-# the OS, not the toolchain, and 26.x is the same major.
+# Every leg builds with Xcode 27.1 on `xcode-27`, the Xcode release.yml
+# archives with and the one AetherEngine is built and tested with: 7.43.0 and
+# later don't compile with Xcode 26 (2026-10-20, "sending 'codecpar' risks
+# causing data races"), which is what moved iOS off `macos-26`.
+#
+# The floor needs an iOS 18.6 runtime, which the image doesn't carry and Xcode
+# won't download (`xcodebuild -downloadPlatform iOS -buildVersion 18.6`
+# answers "not available for download", exit 70, on Xcode 26.6 and 27.1
+# alike). `macos-15` does carry it, so the `floor-runtime` job below copies its
+# runtime image into the Actions cache (once: a later run finds it there) and
+# the floor jobs install it from the cache before building. Xcode 27.1 runs
+# an iOS 18.6 Simulator (checked on a Mac, 2026-10-20). Building on `macos-15`
+# instead isn't possible: its newest Xcode, 26.3, can't compile AetherEngine.
 #
 # When CI moves to a new Xcode, update the list below together with
-# setup-ios-project's default and release.yml's `runs-on`. On the move to
-# Xcode 27, iOS 26 becomes the previous major and 18 stays as the floor, so
-# the full list grows to three versions — and if the macos-15 image is retired
-# first, the iOS 18 leg needs a new home before then.
+# setup-ios-project's default and the `runs-on` labels (pr-checks.yml,
+# codeql.yml, release.yml).
 #
 # The device models are the same on every OS, so a failure on only one OS
 # can't be a screen-size difference. iPhone 16 rather than 17 because the 17
@@ -61,14 +63,78 @@ permissions:
   contents: read
 
 jobs:
+  floor-runtime:
+    # Puts macos-15's iOS 18.6 Simulator runtime in the Actions cache for the
+    # floor jobs (see the top of this file). Only a lookup when it's already
+    # there, which after the first run on `develop` it is for every branch:
+    # a PR reads its base branch's caches. The image is about 8.5 GB of the
+    # repository's 10 GB cache.
+    #
+    # It never checks out the repository, so nothing a PR changes runs before
+    # the save: the cache can hold only what the image itself carries.
+    name: iOS 18.6 runtime
+    if: ${{ !inputs.latest-only }}
+    runs-on: macos-15
+    timeout-minutes: 30
+    outputs:
+      key: ${{ steps.locate.outputs.key }}
+    steps:
+      - name: Locate the runtime
+        id: locate
+        shell: bash
+        run: |
+          # The image a runtime was installed from: a cryptex runtime's
+          # downloaded bundle (`parentImagePath`) or a plain disk image
+          # (`path`). Either is what `xcodebuild -importPlatform` takes.
+          entry=$(xcrun simctl runtime list -j \
+            | jq -c '[.[] | select(.version == "18.6" and .platformIdentifier == "com.apple.platform.iphonesimulator")] | first // empty')
+          if [ -z "$entry" ]; then
+            echo "::error::macos-15 no longer carries an iOS 18.6 runtime; the floor leg needs a new source (see ui-tests.yml)." >&2
+            xcrun simctl runtime list
+            exit 1
+          fi
+          echo "$entry" | jq .
+          image=$(echo "$entry" | jq -r '.parentImagePath // .path')
+          build=$(echo "$entry" | jq -r '.build')
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "key=ios-simulator-runtime-18.6-$build" >> "$GITHUB_OUTPUT"
+
+      - name: Look it up in the cache
+        id: lookup
+        uses: actions/cache/restore@v4
+        with:
+          path: ios-runtime
+          key: ${{ steps.locate.outputs.key }}
+          lookup-only: true
+
+      - name: Copy the runtime image
+        if: steps.lookup.outputs.cache-hit != 'true'
+        shell: bash
+        env:
+          IMAGE: ${{ steps.locate.outputs.image }}
+        run: |
+          mkdir -p ios-runtime
+          cp "$IMAGE" ios-runtime/iOS-18.6.dmg
+          ls -lh ios-runtime
+
+      - name: Save it to the cache
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ios-runtime
+          key: ${{ steps.locate.outputs.key }}
+
   ui-tests:
     # ⚠️ This name is part of a required status check. For a reusable
     # workflow GitHub reports each job as "<caller job name> / <this name>" —
-    # e.g. "UI smoke tests / iPhone, iOS 26.5" — and both branch rulesets
+    # e.g. "UI smoke tests / iPhone, iOS 27.0" — and both branch rulesets
     # require the smoke ones by that exact string. Renaming it, or changing a
-    # device or the latest OS below, means updating both rulesets in the same
-    # breath, or every PR waits forever on a check that no longer reports.
+    # device or an OS below, means updating both rulesets in the same breath,
+    # or every PR waits forever on a check that no longer reports.
     name: ${{ matrix.family }}, iOS ${{ matrix.os.version }}
+    needs: floor-runtime
+    # Runs when the runtime job succeeded, or was skipped (`latest-only`).
+    if: ${{ !cancelled() && needs.floor-runtime.result != 'failure' }}
     runs-on: ${{ matrix.os.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
 
@@ -82,12 +148,13 @@ jobs:
         # Objects rather than a version list plus `include:` entries for the
         # runner and Xcode: an `include:` entry that matches no combination is
         # added as a job of its own, so with `latest-only` the 18.6 entry
-        # would become a stray job with no device.
+        # would become a stray job with no device. `cached-runtime` marks the
+        # leg whose runtime comes from `floor-runtime`.
         os: >-
           ${{ fromJSON(inputs.latest-only
-            && '[{"version": "26.5", "runner": "macos-26", "xcode": "26.6"}]'
-            || '[{"version": "26.5", "runner": "macos-26", "xcode": "26.6"},
-                 {"version": "18.6", "runner": "macos-15", "xcode": "26.3"}]') }}
+            && '[{"version": "27.0", "runner": "xcode-27", "xcode": "27.1", "cached-runtime": false}]'
+            || '[{"version": "27.0", "runner": "xcode-27", "xcode": "27.1", "cached-runtime": false},
+                 {"version": "18.6", "runner": "xcode-27", "xcode": "27.1", "cached-runtime": true}]') }}
         family: [iPhone, iPad]
         include:
           - family: iPhone
@@ -108,6 +175,57 @@ jobs:
         uses: ./.github/actions/setup-ios-project
         with:
           xcode-version: ${{ matrix.os.xcode }}
+
+      - name: Make room for the iOS 18.6 runtime
+        # Restoring the 8.5 GB image and importing it (which copies it) need
+        # about 17 GB, more than the image leaves free: the first run failed
+        # with "Cannot copy the image because the disk is almost full". The
+        # image's other Xcodes (27.0, the 27.2 beta) are unused here.
+        if: matrix.os.cached-runtime
+        shell: bash
+        run: |
+          df -h /
+          selected=$(cd "$(xcode-select -p)/../.." && pwd -P)
+          for app in /Applications/Xcode*.app; do
+            [ -L "$app" ] && continue
+            if [ "$(cd "$app" && pwd -P)" != "$selected" ]; then
+              echo "Removing $app"
+              sudo rm -rf "$app"
+            fi
+          done
+          df -h /
+
+      - name: Restore the iOS 18.6 runtime
+        if: matrix.os.cached-runtime
+        uses: actions/cache/restore@v4
+        with:
+          path: ios-runtime
+          key: ${{ needs.floor-runtime.outputs.key }}
+          fail-on-cache-miss: true
+
+      - name: Install the iOS 18.6 runtime
+        if: matrix.os.cached-runtime
+        shell: bash
+        run: |
+          # `-importPlatform` takes a downloaded runtime bundle; a plain disk
+          # image goes through `simctl runtime add`. The image is deleted once
+          # imported: the runner's disk holds the build too.
+          if ! xcodebuild -importPlatform ios-runtime/iOS-18.6.dmg; then
+            echo "::notice::-importPlatform refused the image; trying simctl runtime add."
+            xcrun simctl runtime add ios-runtime/iOS-18.6.dmg
+          fi
+          rm -rf ios-runtime
+          for _ in $(seq 1 60); do
+            if xcrun simctl list runtimes available -j \
+              | jq -e '.runtimes[] | select(.platform == "iOS" and .version == "18.6")' >/dev/null; then
+              xcrun simctl list runtimes
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::The iOS 18.6 runtime didn't become available within 10 minutes." >&2
+          xcrun simctl runtime list
+          exit 1
 
       - name: Shut down all simulators
         # A simulator left booted by the image (or by a previous step) is the

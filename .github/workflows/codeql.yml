@@ -101,7 +101,9 @@ jobs:
 
   analyze-swift:
     name: Analyze (swift)
-    runs-on: macos-26
+    # Xcode 27.1, setup-ios-project's default: the Swift it analyses has to
+    # compile, and AetherEngine 7.43.0 and later don't with Xcode 26.
+    runs-on: xcode-27
     # 45 was sized against the default query suite's own ~43-minute
     # baseline (PR #166's first live run, see the header comment above) —
     # comfortable at the time, but `security-extended` (added on top for
