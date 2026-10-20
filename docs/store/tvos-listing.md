@@ -8,14 +8,15 @@ to the `APP_APPLE_TV` set in order.
 
 ## Promotional text
 
-Your Jellyfin library, native on Apple TV: HDR playback, Top Shelf, one-press Quick Connect sign-in and a player made for the Siri Remote.
+Your Jellyfin library, native on Apple TV: Dolby Vision and HDR, Dolby Atmos and DTS:X with their height channels, Top Shelf and a player made for the Siri Remote.
 
 ## Keywords
 
-`server,client,media,video,tv,shows,movies,apple tv,top shelf,4k,dolby,hdr,streaming,home`
+`server,client,media,video,tv,shows,movies,apple tv,top shelf,4k,dolby,hdr,streaming,home,atmos,dts`
 
 iOS's list with `download` and `offline` (the Apple TV has no downloads)
-replaced by `apple tv` and `top shelf`; 88 of 100 characters.
+replaced by `apple tv` and `top shelf`, plus `atmos` and `dts` for Spatial
+Audio; 98 of 100 characters.
 
 ## Description
 
@@ -23,6 +24,9 @@ Dionysus is a native Apple TV client for Jellyfin, the free and open-source medi
 
 REAL HDR PLAYBACK
 Dionysus decodes Dolby Vision, HDR10, HDR10+ and HLG video. It is not a downscaled or tone-mapped approximation. It works with your Apple TV's Match Content settings, so your TV switches to the right mode for each title. When your server and network support it, you get the same picture quality as the original file, untouched.
+
+DOLBY ATMOS AND DTS:X, HEIGHTS INCLUDED
+Apple TV can't send Dolby TrueHD or DTS-HD Master Audio to a receiver, so most apps play Atmos and DTS:X films as a flat 5.1 mix and lose the overhead channels. Dionysus can decode the height channels and objects and re-encode them as Apple's Spatial Audio, which your Apple TV sends to an Atmos receiver or soundbar as Dolby Atmos. Choose your speaker layout, from 5.1.2 to 9.1.6. Turn it on in Settings → Spatial Audio.
 
 SMART, SERVER-AWARE STREAMING
 The app negotiates with your Jellyfin server every time you press play. It uses Direct Play when your Apple TV can handle the source natively, or a transcode when it can't. The app chooses automatically, or you can force Direct Play if you'd rather control it yourself.

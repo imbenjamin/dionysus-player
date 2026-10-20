@@ -598,11 +598,14 @@ capture-then-render workflow. What the scripts don't say:
   shared account). The store set has no Top Shelf slide: when it was made
   the shelf showed the static image, and its Recently Added fix (#351) hasn't
   been checked against the demo. Never capture it against a personal server.
-- **The Apple TV player slide claims HDR formats only**: TrueHD Atmos
-  and DTS:X reach a receiver as Atmos only with Spatial Audio turned on
-  (`DionysusTV/CLAUDE.md`, "HDR and audio"), and the demo server has no
-  such tracks. Avoid frames with burnt-in on-screen text behind the
-  player's panel.
+- **The Apple TV player slide's subtitle names capabilities, not what's
+  on screen**: Dolby Vision, HDR10+, Dolby Atmos and DTS:X (2026-10-20,
+  after Spatial Audio shipped in #364). The frame is plain SDR, since the
+  demo server has no such tracks; the subtitle is the claim, so never fake
+  it in the picture. Atmos and DTS:X reach a receiver as Atmos only with
+  Spatial Audio turned on (`DionysusTV/CLAUDE.md`, "HDR and audio"), which
+  the listing's description says. Avoid frames with burnt-in on-screen
+  text behind the player's panel.
 
 ## Commit messages and pull request descriptions
 
