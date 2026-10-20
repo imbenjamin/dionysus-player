@@ -429,6 +429,7 @@ targets:
           - "Features/Player/SubtitleOverlayLayoutTests.swift"
           - "Features/Player/PlaybackStatsReportTests.swift"
           - "Shared/AppVersionInfoTests.swift"
+          - "Shared/BrandColorsTests.swift"
         excludes:
           - "Core/Persistence/Download*.swift"
       # TV-only unit tests.

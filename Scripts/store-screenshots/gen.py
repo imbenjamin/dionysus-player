@@ -14,7 +14,7 @@ import os, sys
 # Brand palette, straight from DionysusPlayer/Shared/BrandColors.swift.
 # Update these if that palette changes.
 MAGENTA = "#D60D66"
-AMBER = "#F08C00"
+ROSE_GOLD = "#F2A38C"
 
 # Per-slide background: same magenta/burgundy hue family, lightness walks
 # down the set so the slides read as one series rather than unrelated
@@ -88,7 +88,7 @@ def build_tv(idx, slide, W, H, outdir):
     height:{shot_top - round(H*0.045) - round(H*0.035)}px}}
   .rule{{
     width:{round(W*0.045)}px;height:{max(6,round(H*0.0075))}px;margin-bottom:{round(H*0.018)}px;
-    border-radius:99px;background:linear-gradient(90deg,{MAGENTA},{AMBER});
+    border-radius:99px;background:linear-gradient(90deg,{MAGENTA},{ROSE_GOLD});
   }}
   .copy h1{{
     font-size:{head_size}px;font-weight:800;line-height:1.08;color:#fff;
@@ -195,7 +195,7 @@ def build(idx, slide, kind, W, H, outdir):
   .copy{{margin-top:{copy_top}px;text-align:center;padding:0 {round(W*0.075)}px;position:relative;z-index:2}}
   .rule{{
     width:{round(W*0.115)}px;height:{max(8,round(W*0.0075))}px;margin:0 auto {round(W*0.040)}px;
-    border-radius:99px;background:linear-gradient(90deg,{MAGENTA},{AMBER});
+    border-radius:99px;background:linear-gradient(90deg,{MAGENTA},{ROSE_GOLD});
   }}
   .copy h1{{
     font-size:{head_size}px;font-weight:800;line-height:1.10;color:#fff;

@@ -173,7 +173,7 @@ struct TVPlayerPanelView: View {
                 let progress = chapterProgress(index)
                 if progress > 0 {
                     GeometryReader { geo in
-                        Rectangle().fill(Color.dionysusAmber)
+                        Rectangle().fill(Color.dionysusRoseGold)
                             .frame(width: geo.size.width * progress, height: 8)
                             .frame(maxHeight: .infinity, alignment: .bottom)
                     }
@@ -192,7 +192,7 @@ struct TVPlayerPanelView: View {
                         .foregroundStyle(Color(red: 0.08, green: 0.03, blue: 0.06))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 4)
-                        .background(Color.dionysusAmber, in: Capsule())
+                        .background(Color.dionysusRoseGold, in: Capsule())
                 }
             }
             Text(TVPlaybackTimeFormat.string(chapter.startSeconds)).font(.caption2).foregroundStyle(.secondary)

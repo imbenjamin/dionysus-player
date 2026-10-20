@@ -224,7 +224,8 @@ struct TVLoginView: View {
         Image(systemName: "checkmark.circle.fill")
             .font(.system(size: 54))
             .symbolRenderingMode(.palette)
-            .foregroundStyle(.white, Color.dionysusHighlight)
+            // Burgundy, not white: white on rose gold is 2.0:1.
+            .foregroundStyle(Color.dionysusBurgundy, Color.dionysusHighlight)
             .accessibilityHidden(true)
     }
 
