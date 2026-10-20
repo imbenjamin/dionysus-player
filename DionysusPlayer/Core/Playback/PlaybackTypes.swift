@@ -148,6 +148,9 @@ struct PlaybackStats: Equatable {
     /// "0 dropped", or "23.9 fps · 0 dropped" on the software route, the only
     /// one that measures a rendered rate.
     var frames: String? = nil
+    /// While TrueHD Atmos or DTS:X plays as Spatial Audio: "7.1.4 · 13 objects,
+    /// 4 overhead", or "7.1.4 · 4 height channels" for DTS:X. Nil otherwise.
+    var spatialAudio: String? = nil
 }
 
 /// A selectable audio or subtitle track, normalized from whatever track

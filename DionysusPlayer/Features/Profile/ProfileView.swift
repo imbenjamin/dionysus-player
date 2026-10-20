@@ -90,6 +90,9 @@ struct ProfileView: View {
     /// A copy of the stored global offset (`AudioOffsetStore`), which nothing
     /// observes.
     @State private var audioOffsetMilliseconds = AudioOffsetStore().globalOffsetMilliseconds
+    /// A copy of the stored Spatial Audio settings (`SpatialAudioStore`),
+    /// written back on every change.
+    @State private var spatialAudio = SpatialAudioStore().settings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showAccountDetails = false
     @State private var pendingAccountAction: AccountAction?
@@ -218,6 +221,8 @@ struct ProfileView: View {
                     playbackFooter
                 }
 
+                spatialAudioSection
+
                 Section { downloadsRow }
 
                 Section("About") { aboutRows }
@@ -315,6 +320,7 @@ struct ProfileView: View {
                 } footer: {
                     playbackFooter
                 }
+                spatialAudioSection
             }
             .navigationTitle("Playback")
         case .downloads:
@@ -465,6 +471,64 @@ struct ProfileView: View {
             AdvancedPlaybackSettingsView()
         }
         .accessibilityIdentifier(A11yID.Profile.advancedPlaybackLink)
+    }
+
+    /// TrueHD Atmos and DTS:X as Spatial Audio (Benjamin, 2026-10-19): a
+    /// toggle each, and while one is on, its speaker layout. Hidden below
+    /// iOS 26, where AetherEngine has no APAC encoder.
+    @ViewBuilder
+    private var spatialAudioSection: some View {
+        let formats = SpatialAudioFormat.allCases.filter(SpatialAudioSupport.isOffered)
+        if !formats.isEmpty {
+            Section {
+                ForEach(formats, id: \.self) { format in
+                    spatialAudioRows(for: format)
+                }
+            } header: {
+                Text("Spatial Audio")
+            } footer: {
+                Text("Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for Spatial Audio on AirPods. The audio is re-encoded, so it isn't lossless, and a receiver shows it as Dolby Atmos, DTS:X included. For AirPods, 7.1.4 is recommended.")
+                    .readableSettingsFooter()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func spatialAudioRows(for format: SpatialAudioFormat) -> some View {
+        let isAtmos = format == .dolbyAtmos
+        let enabled: WritableKeyPath<SpatialAudioSettings, Bool> = isAtmos ? \.atmosEnabled : \.dtsXEnabled
+        let layout: WritableKeyPath<SpatialAudioSettings, SpeakerLayout> = isAtmos ? \.atmosLayout : \.dtsXLayout
+        // Two `Text`s, not a ternary of literals, which would be a plain
+        // `String` and skip the String Catalog.
+        Toggle(isOn: spatialAudioBinding(enabled)) {
+            isAtmos ? Text("Dolby Atmos as Spatial Audio") : Text("DTS:X as Spatial Audio")
+        }
+            .accessibilityIdentifier(isAtmos ? A11yID.Profile.spatialAtmosToggle : A11yID.Profile.spatialDTSXToggle)
+        if spatialAudio[keyPath: enabled] {
+            // Named for its format, so the two rows don't share a label
+            // (Benjamin, 2026-10-19).
+            Picker(selection: spatialAudioBinding(layout)) {
+                ForEach(format.layouts, id: \.self) { option in
+                    Text(verbatim: option.optionLabel).tag(option)
+                }
+            } label: {
+                isAtmos ? Text("Dolby Atmos Speaker Layout") : Text("DTS:X Speaker Layout")
+            }
+            .accessibilityIdentifier(isAtmos ? A11yID.Profile.spatialAtmosLayout : A11yID.Profile.spatialDTSXLayout)
+        }
+    }
+
+    private func spatialAudioBinding<Value>(_ keyPath: WritableKeyPath<SpatialAudioSettings, Value>) -> Binding<Value> {
+        Binding(
+            get: { spatialAudio[keyPath: keyPath] },
+            set: { newValue in
+                let store = SpatialAudioStore()
+                var settings = store.settings
+                settings[keyPath: keyPath] = newValue
+                store.settings = settings
+                spatialAudio = store.settings
+            }
+        )
     }
 
     private var playbackFooter: some View {

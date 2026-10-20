@@ -19,7 +19,7 @@ struct TVProfileView: View {
     /// accessibility identifiers on tvOS, nor a push, which would put the
     /// sidebar beside a page that belongs to Profile.
     private enum Cover: String, Identifiable {
-        case changeServer, signOut, quickConnect, nextUpCountdown, audioOffset, advanced, license, privacyPolicy
+        case changeServer, signOut, quickConnect, nextUpCountdown, audioOffset, atmosLayout, dtsXLayout, advanced, license, privacyPolicy
         var id: String { rawValue }
     }
 
@@ -38,6 +38,9 @@ struct TVProfileView: View {
     /// A copy of the stored global offset (`AudioOffsetStore`), which
     /// nothing observes.
     @State private var audioOffsetMilliseconds = AudioOffsetStore().globalOffsetMilliseconds
+    /// A copy of the stored Spatial Audio settings (`SpatialAudioStore`, the
+    /// keychain every Apple TV user shares).
+    @State private var spatialAudio = SpatialAudioStore().settings
 
     private var user: UserDto? {
         TVProfileIdentity.user(currentUser: appState.currentUser, credentials: appState.sessionStore.credentials)
@@ -56,7 +59,37 @@ struct TVProfileView: View {
             // session, so it's only there while the first is off.
             + (followsAppleTVUsers ? [] : [A11yID.TV.Profile.selectsUserEveryRelaunch])
             + [A11yID.TV.Profile.autoCarousel, A11yID.TV.Profile.nextUpCountdown, A11yID.TV.Profile.chaptersInScrubber,
-               A11yID.TV.Profile.audioOffset, A11yID.TV.Profile.advanced, A11yID.TV.Profile.license, A11yID.TV.Profile.privacyPolicy]
+               A11yID.TV.Profile.audioOffset, A11yID.TV.Profile.advanced]
+            + spatialAudioFocusIDs
+            + [A11yID.TV.Profile.license, A11yID.TV.Profile.privacyPolicy]
+    }
+
+    /// Each format's toggle, and its layout row while it's on.
+    private var spatialAudioFocusIDs: [String] {
+        var ids: [String] = []
+        if SpatialAudioSupport.isOffered(.dolbyAtmos) {
+            ids.append(A11yID.TV.Profile.spatialAtmos)
+            if spatialAudio.atmosEnabled { ids.append(A11yID.TV.Profile.spatialAtmosLayout) }
+        }
+        if SpatialAudioSupport.isOffered(.dtsX) {
+            ids.append(A11yID.TV.Profile.spatialDTSX)
+            if spatialAudio.dtsXEnabled { ids.append(A11yID.TV.Profile.spatialDTSXLayout) }
+        }
+        return ids
+    }
+
+    /// Reads and writes one Spatial Audio setting through the store.
+    private func spatialAudioBinding<Value>(_ keyPath: WritableKeyPath<SpatialAudioSettings, Value>) -> Binding<Value> {
+        Binding(
+            get: { spatialAudio[keyPath: keyPath] },
+            set: { newValue in
+                let store = SpatialAudioStore()
+                var settings = store.settings
+                settings[keyPath: keyPath] = newValue
+                store.settings = settings
+                spatialAudio = store.settings
+            }
+        )
     }
 
     var body: some View {
@@ -112,6 +145,18 @@ struct TVProfileView: View {
                         audioOffsetMilliseconds = store.globalOffsetMilliseconds
                     }
                 ))
+            case .atmosLayout:
+                TVSettingsPicker(
+                    title: "Dolby Atmos Speaker Layout", options: SpatialAudioFormat.dolbyAtmos.layouts,
+                    selection: spatialAudioBinding(\.atmosLayout), id: \.rawValue, label: \.optionLabel,
+                    accessibilityLabel: \.accessibilityLabel
+                )
+            case .dtsXLayout:
+                TVSettingsPicker(
+                    title: "DTS:X Speaker Layout", options: SpatialAudioFormat.dtsX.layouts,
+                    selection: spatialAudioBinding(\.dtsXLayout), id: \.rawValue, label: \.optionLabel,
+                    accessibilityLabel: \.accessibilityLabel
+                )
             case .advanced:
                 TVAdvancedPlaybackView()
             case .license:
@@ -218,6 +263,12 @@ struct TVProfileView: View {
                     TVSettingsFooter(text: "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel.")
                 }
 
+                // A section of its own under Playback, as on iOS (Benjamin,
+                // 2026-10-19).
+                if !spatialAudioFocusIDs.isEmpty {
+                    section("spatialAudio", "Spatial Audio") { spatialAudioRows }
+                }
+
                 section("about", "About") {
                     row("License", opensPage: true, id: A11yID.TV.Profile.license) { cover = .license }
                     row("Privacy Policy", opensPage: true, id: A11yID.TV.Profile.privacyPolicy) { cover = .privacyPolicy }
@@ -229,6 +280,47 @@ struct TVProfileView: View {
         }
         .tvScrollsToTop(on: topRequest, isScrolled: $rowsScrolled)
         .scrollClipDisabled()
+    }
+
+    /// Each format's toggle, its Speaker Layout row while it's on, and the
+    /// footer iOS's section has.
+    @ViewBuilder
+    private var spatialAudioRows: some View {
+        if SpatialAudioSupport.isOffered(.dolbyAtmos) {
+            row(
+                "Dolby Atmos as Spatial Audio", value: onOff(spatialAudio.atmosEnabled),
+                hint: "Keeps the height channels of Dolby TrueHD Atmos tracks for a receiver with height speakers. The audio is re-encoded, so it isn't lossless.",
+                id: A11yID.TV.Profile.spatialAtmos
+            ) {
+                spatialAudioBinding(\.atmosEnabled).wrappedValue.toggle()
+            }
+            if spatialAudio.atmosEnabled {
+                row(
+                    "Dolby Atmos Speaker Layout", value: spatialAudio.atmosLayout.rawValue, opensPage: true,
+                    id: A11yID.TV.Profile.spatialAtmosLayout
+                ) {
+                    cover = .atmosLayout
+                }
+            }
+        }
+        if SpatialAudioSupport.isOffered(.dtsX) {
+            row(
+                "DTS:X as Spatial Audio", value: onOff(spatialAudio.dtsXEnabled),
+                hint: "Keeps the height channels of DTS:X tracks for a receiver with height speakers. The audio is re-encoded, so it isn't lossless, and the receiver shows it as Dolby Atmos, not DTS:X.",
+                id: A11yID.TV.Profile.spatialDTSX
+            ) {
+                spatialAudioBinding(\.dtsXEnabled).wrappedValue.toggle()
+            }
+            if spatialAudio.dtsXEnabled {
+                row(
+                    "DTS:X Speaker Layout", value: spatialAudio.dtsXLayout.rawValue, opensPage: true,
+                    id: A11yID.TV.Profile.spatialDTSXLayout
+                ) {
+                    cover = .dtsXLayout
+                }
+            }
+        }
+        TVSettingsFooter(text: "Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for Spatial Audio on AirPods. The audio is re-encoded, so it isn't lossless, and a receiver shows it as Dolby Atmos, DTS:X included. For AirPods, 7.1.4 is recommended.")
     }
 
     private static let followFooter: LocalizedStringKey = "Attempts to match Jellyfin users to this Apple TV's users. Turn off to keep user switching inside the app, and when users become out of sync."

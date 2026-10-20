@@ -7,7 +7,7 @@ enum TVDetailFormat {
     /// episodes yet, where the page draws no Play button at all.
     static func playTitle(target: MediaItem?, isShow: Bool) -> String? {
         guard let target else { return nil }
-        let verb = (target.resumePositionSeconds ?? 0) > 0 && !target.isPlayed
+        let verb = target.canResume
             ? String(localized: "Resume") : String(localized: "Play")
         // "S1:E3" is a formatted label, not translated (see `MediaItem.episodeLabel`).
         if isShow, let label = target.episodeLabel { return "\(verb) \(label)" }

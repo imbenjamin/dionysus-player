@@ -37,6 +37,14 @@ fully-offline browsing UI, and local watch-progress that syncs back once
 you're reconnected. See [Downloads](#downloads) below for what that covers
 today.
 
+The other is **Dolby Atmos and DTS:X that keep their height channels** on a
+home-theatre receiver. Apple devices can't pass a TrueHD or DTS-HD MA
+bitstream through, so a Blu-ray remux's Atmos or DTS:X track usually plays
+as plain 5.1 or 7.1 and the overhead speakers go quiet.
+Dionysus can render the heights into the speaker layout you have, from 5.1.2
+to 9.1.6, and hand them to the receiver as Atmos, or to AirPods as Spatial
+Audio. See [Spatial Audio](#spatial-audio) below.
+
 On the Apple TV it aims for the same standard on the big screen: a
 remote-first interface of its own over the iOS app's core, a Top Shelf that
 picks up where you left off, and a profile for everyone in the house.
@@ -83,7 +91,7 @@ sets (see [Store screenshots](#store-screenshots)).
 - **Playback** — AetherEngine (FFmpeg + VideoToolbox), HDR10/HDR10+/Dolby
   Vision on supported source+device combinations, trickplay-thumbnail
   scrubbing, subtitle/audio track selection, audio offset (lip sync, global
-  and per title), intro/outro skip segments, Picture in Picture, Now Playing/lock-screen/Control Center integration,
+  and per title), Atmos and DTS:X heights as Spatial Audio (see below), intro/outro skip segments, Picture in Picture, Now Playing/lock-screen/Control Center integration,
   a live "stats for nerds" overlay (codec, pixel format and colour
   description, bitrate, resolution, audio profile and sampling, dropped
   frames and throughput, streaming session info, offline-vs-live playback
@@ -108,6 +116,8 @@ sets (see [Store screenshots](#store-screenshots)).
   original file untouched, no negotiation) is also available for anyone
   who'd rather force it.
 - **Downloads** — see below; this is the differentiator.
+- **Spatial Audio** — TrueHD Atmos and DTS:X with their height channels;
+  see below.
 - **Playlist editing** — add a movie, episode, season or whole show to a
   playlist from its detail page (or start a new, private one there), and
   remove an item with a long press in the playlist. The add list shows only
@@ -142,8 +152,9 @@ playback and view models, with an interface built for the Siri Remote:
   title's dynamic range and frame rate (Dolby Vision, HDR10, HDR10+ and HLG
   read correctly on device); a transport of its own with scrubbing,
   skip-segment buttons and a Next Up countdown; a swipe-down panel for Info,
-  Audio (with the audio offset) and Subtitles; and Now Playing on a paired
-  iPhone.
+  Audio (with the audio offset) and Subtitles; Atmos and DTS:X heights to
+  an Atmos receiver ([Spatial Audio](#spatial-audio)); and Now Playing on a
+  paired iPhone.
 - **Accessibility** — VoiceOver throughout, including the player's
   controls, and Reduce Motion, Reduce Transparency and Increase Contrast
   honoured.
@@ -191,6 +202,40 @@ Downloads are an iPhone and iPad feature; the Apple TV app has none.
 See `Core/Downloads`/`Features/Downloads` for the implementation, and
 [Known limitations](#known-limitations) below for what this doesn't cover
 yet.
+
+### Spatial Audio
+
+On iPhone, iPad and Apple TV (iOS and tvOS 26 or later), in Profile →
+Spatial Audio.
+
+- **Height channels kept.** No Apple device can send a TrueHD or DTS-HD MA
+  bitstream to a receiver, so a TrueHD Atmos or DTS:X track normally plays
+  as a re-encoded 5.1 or 7.1 bed, its heights folded down or lost.
+  Dionysus can instead decode the Atmos objects or the DTS:X heights,
+  render them into your speaker layout and deliver Apple's Spatial Audio
+  format: the Apple TV sends it to an Atmos receiver or soundbar as Dolby
+  MAT, so the overhead speakers play, and iPhone and iPad play it as
+  Spatial Audio on AirPods.
+- **The receiver shows Dolby Atmos, DTS:X included.** Both formats leave the
+  Apple TV as the same Dolby MAT stream, so a receiver or soundbar lights its
+  Dolby Atmos indicator for a DTS:X film too. That's expected: the heights
+  are there, carried as Atmos rather than as DTS.
+- **Your speaker layout.** Dolby Atmos renders into 5.1.2, 5.1.4, 7.1.2,
+  7.1.4 or 9.1.6; DTS:X into 7.1.4 or 9.1.6, the layouts that carry its
+  four heights one to one. 7.1.4 is the default, and the one recommended
+  for AirPods.
+- **A choice per format, off by default.** The rendered audio is re-encoded
+  (lossy), so it only helps a system with height speakers or Spatial Audio
+  headphones; Dolby Atmos and DTS:X each have their own switch.
+- **Where it applies.** Direct play of a TrueHD Atmos or DTS:X track.
+  Dolby Digital Plus Atmos already reaches a receiver with its objects and
+  needs none of this; a server transcode, a download, or a title on the
+  engine's software route plays as before. Playback Stats shows the layout
+  and how many objects play overhead (for DTS:X, its height channels) while
+  it's working.
+- Rendered by [AetherEngine](https://github.com/superuser404notfound/AetherEngine)'s
+  object-audio components: LibTrueHD for TrueHD Atmos, and FFmpeg's own
+  DTS decoder for DTS:X.
 
 ## Status
 
@@ -479,7 +524,9 @@ carry their own licences (libass ISC, HarfBuzz MIT, FreeType FTL, fontconfig
 MIT, libpng, and FriBidi LGPL-2.1+ — all GPLv3-compatible).
 [LibTrueHD](https://github.com/superuser404notfound/LibTrueHD), which
 AetherEngine pulls in for TrueHD Atmos, is MIT with Apache-2.0 crates
-compiled in. Every library that ships in the app has its notices in
+compiled in; DTS:X is decoded by FFmpeg itself (FFmpegBuild patches its
+DTS decoder to read the height channels), under FFmpeg's LGPL-2.1-or-later.
+Every library that ships in the app has its notices in
 [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES): AetherEngine; FFmpeg, dav1d,
 zimg and libzvbi (through FFmpegBuild); libdovi; LibTrueHD; the six native
 subtitle libraries; and the Swift packages. The License page shows them

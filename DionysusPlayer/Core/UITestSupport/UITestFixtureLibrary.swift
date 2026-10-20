@@ -91,13 +91,11 @@ enum UITestFixtureLibrary {
             item.userData = UserItemDataDto(
                 playbackPositionTicks: index == 1 ? ticks(minutes: 20) : 0,
                 playedPercentage: index == 1 ? 21 : (spec.watched ? 100 : 0),
-                // The part-watched fixture is forced unplayed regardless of its
-                // own `spec.watched`: `MediaItem.isPartWatched` requires
-                // `!isPlayed`, so a fixture claiming both a mid-film position
-                // and full watched state reads as neither part-watched nor
-                // eligible for Restart, and the detail page renders a bare
-                // "Play".
-                played: index == 1 ? false : spec.watched,
+                // The part-watched fixture is a rewatch stopped partway: played
+                // (its `spec.watched`) with a position, as Jellyfin leaves it.
+                // `MediaItem.canResume` offers Resume and Restart for it
+                // (Benjamin, 2026-10-14), which the detail journeys pin.
+                played: spec.watched,
                 isFavorite: spec.favorite
             )
             item.mediaSources = [mediaSource(for: item)]

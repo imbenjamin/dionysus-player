@@ -290,6 +290,10 @@ final class DownloadedItem: Identifiable {
         return Int(runtimeTicks / 10_000_000 / 60)
     }
 
+    /// Whether Play becomes Resume: any saved position, played or not, as
+    /// `MediaItem.canResume` (a rewatch stopped partway keeps `isPlayed`).
+    var canResume: Bool { resumePositionTicks > 0 }
+
     /// `resumePositionTicks` worded out for VoiceOver; `nil` with nothing to
     /// resume from.
     var resumePositionAccessibilityText: String? {

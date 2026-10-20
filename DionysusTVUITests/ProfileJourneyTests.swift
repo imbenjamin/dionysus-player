@@ -143,6 +143,55 @@ final class ProfileJourneyTests: TVUITestCase {
         XCTAssertFalse(sixty.exists)
     }
 
+    /// Spatial Audio's toggle shows its layout row, which picks from the
+    /// format's layouts, 7.1.4 first chosen.
+    func test_spatialAudio_toggleRevealsLayout_andPickerChooses() {
+        let app = launchAtHome()
+        openProfile(app)
+        let toggle = app.buttons[A11yID.TV.Profile.spatialAtmos]
+        let layoutRow = app.buttons[A11yID.TV.Profile.spatialAtmosLayout]
+        pressDownThroughProfile(until: toggle)
+        XCTAssertFalse(layoutRow.exists, "No layout while it's off")
+        let before = toggle.value as? String
+        press(.select)
+        XCTAssertTrue(poll(timeout: 3) { toggle.value as? String != before }, "Select flips it")
+        XCTAssertTrue(layoutRow.waitForExistence(timeout: 5))
+        XCTAssertEqual(layoutRow.value as? String, "7.1.4")
+        pressDown(until: layoutRow)
+        press(.select)
+        let current = app.buttons[A11yID.TV.Profile.option("7.1.4")]
+        XCTAssertTrue(current.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForFocus(current), "The current layout takes focus")
+        for layout in ["5.1.2", "5.1.4", "7.1.2", "9.1.6"] {
+            XCTAssertTrue(app.buttons[A11yID.TV.Profile.option(layout)].exists, "Atmos offers \(layout)")
+        }
+        let largest = app.buttons[A11yID.TV.Profile.option("9.1.6")]
+        pressDown(until: largest)
+        press(.select)
+        XCTAssertTrue(waitForFocus(layoutRow), "Choosing returns to the row")
+        XCTAssertEqual(layoutRow.value as? String, "9.1.6")
+    }
+
+    /// DTS:X renders into 7.1.4 and 9.1.6 only, so its picker offers no other.
+    func test_spatialAudio_dtsXPickerOffersTwoLayouts() {
+        let app = launchAtHome()
+        openProfile(app)
+        let toggle = app.buttons[A11yID.TV.Profile.spatialDTSX]
+        pressDownThroughProfile(until: toggle)
+        press(.select)
+        let layoutRow = app.buttons[A11yID.TV.Profile.spatialDTSXLayout]
+        XCTAssertTrue(layoutRow.waitForExistence(timeout: 5))
+        pressDown(until: layoutRow)
+        press(.select)
+        XCTAssertTrue(app.buttons[A11yID.TV.Profile.option("7.1.4")].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons[A11yID.TV.Profile.option("9.1.6")].exists)
+        for layout in ["5.1.2", "5.1.4", "7.1.2"] {
+            XCTAssertFalse(app.buttons[A11yID.TV.Profile.option(layout)].exists, "DTS:X can't render \(layout)")
+        }
+        press(.menu)
+        XCTAssertTrue(waitForFocus(layoutRow))
+    }
+
     /// Menu leaves the list without changing the setting.
     func test_picker_menuLeavesTheSettingAsItWas() {
         let app = launchAtHome()

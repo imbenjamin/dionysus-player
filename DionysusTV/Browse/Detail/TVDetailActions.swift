@@ -28,7 +28,7 @@ struct TVDetailActions: View {
 
     private static func hasResume(_ target: MediaItem?) -> Bool {
         guard let target else { return false }
-        return (target.resumePositionSeconds ?? 0) > 0 && !target.isPlayed
+        return target.canResume
     }
 
     /// The ids in the order drawn, for the page's `tvClaimsFocus`.

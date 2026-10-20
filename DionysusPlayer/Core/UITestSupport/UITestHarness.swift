@@ -84,6 +84,7 @@ enum UITestHarness {
         SessionScopeSetting.reset()
         ServerSessionStore(sessionScope: .allUsers).clearAll()
         SharedKeychainAudioOffsetStorage().removeAll()
+        SpatialAudioStore(storage: SharedKeychainAudioOffsetStorage()).removeAll()
         #endif
         ServerSessionStore().clearAll()
 

@@ -39,6 +39,7 @@ final class PlayerViewModelTests: XCTestCase {
         nextUpPreferenceStore: NextUpPreferenceStore? = nil,
         streamPreferenceStore: StreamPreferenceStore? = nil,
         audioOffsetStore: AudioOffsetStore? = nil,
+        spatialAudioStore: SpatialAudioStore? = nil,
         playbackQueue: [MediaItem] = []
     ) -> (PlayerViewModel, FakePlaybackEngine) {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
@@ -49,9 +50,155 @@ final class PlayerViewModelTests: XCTestCase {
             nextUpPreferenceStore: nextUpPreferenceStore ?? NextUpPreferenceStore(defaults: defaults),
             streamPreferenceStore: streamPreferenceStore ?? StreamPreferenceStore(defaults: defaults),
             audioOffsetStore: audioOffsetStore ?? AudioOffsetStore(defaults: defaults),
+            spatialAudioStore: spatialAudioStore ?? SpatialAudioStore(storage: defaults),
             playbackQueue: playbackQueue
         )
         return (viewModel, engine)
+    }
+
+    // MARK: Spatial Audio
+
+    /// A store with the given formats on (nil leaves one off).
+    private func spatialStore(atmos: SpeakerLayout? = nil, dtsX: SpeakerLayout? = nil) -> SpatialAudioStore {
+        let store = SpatialAudioStore(storage: defaults)
+        var settings = SpatialAudioSettings()
+        if let atmos { settings.atmosEnabled = true; settings.atmosLayout = atmos }
+        if let dtsX { settings.dtsXEnabled = true; settings.dtsXLayout = dtsX }
+        store.settings = settings
+        return store
+    }
+
+    /// A film with a default TrueHD Atmos track (engine id 1) and a DTS:X
+    /// track (engine id 2), as the engine and Jellyfin both list them.
+    private func stubAtmosAndDTSX(engine: FakePlaybackEngine, selected: Int = 1) {
+        engine.audioTracks = [
+            PlaybackTrack(id: 1, kind: .audio, title: "TrueHD Atmos", metadata: nil, isSelected: selected == 1),
+            PlaybackTrack(id: 2, kind: .audio, title: "DTS:X", metadata: nil, isSelected: selected == 2),
+        ]
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Dune", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mkv", mediaStreams: [
+                MediaStream(index: 0, type: "Video"),
+                MediaStream(index: 1, type: "Audio", codec: "truehd", language: "eng", isDefault: true, audioSpatialFormat: "DolbyAtmos"),
+                MediaStream(index: 2, type: "Audio", codec: "dts", language: "eng", audioSpatialFormat: "DTSX"),
+            ])]
+        )
+    }
+
+    func test_start_predictsAtmosTrack_loadsWithAtmosLayout() async {
+        let engine = FakePlaybackEngine()
+        stubAtmosAndDTSX(engine: engine)
+        let (viewModel, _) = makeViewModel(engine: engine, spatialAudioStore: spatialStore(atmos: .l514))
+
+        await viewModel.start()
+
+        XCTAssertEqual(engine.loadedSpatialAudio, [.layout(.l514)])
+        XCTAssertEqual(engine.spatialAudioReloads, [])
+    }
+
+    func test_start_rememberedDTSX_loadsWithDTSXLayout() async {
+        let engine = FakePlaybackEngine()
+        stubAtmosAndDTSX(engine: engine)
+        let tracks = TrackPreferenceStore(defaults: defaults)
+        tracks.recordAudioSelection(.init(id: 2, title: "DTS:X"), forItem: "item-1", userID: "user-1")
+        let (viewModel, _) = makeViewModel(
+            engine: engine, trackPreferenceStore: tracks, spatialAudioStore: spatialStore(atmos: .l514, dtsX: .l916)
+        )
+
+        await viewModel.start()
+
+        XCTAssertEqual(engine.loadedSpatialAudio, [.layout(.l916)])
+        XCTAssertEqual(engine.spatialAudioReloads, [])
+    }
+
+    /// Review Focus 1: the prediction said Atmos, but the track that plays is
+    /// the DTS:X one (here the engine picked it itself): exactly one rebuild,
+    /// to the DTS:X layout, never a loop.
+    func test_start_mispredicted_reloadsOnce() async {
+        let engine = FakePlaybackEngine()
+        stubAtmosAndDTSX(engine: engine, selected: 2)
+        let (viewModel, _) = makeViewModel(engine: engine, spatialAudioStore: spatialStore(atmos: .l514, dtsX: .l916))
+
+        await viewModel.start()
+
+        XCTAssertEqual(engine.loadedSpatialAudio, [.layout(.l514)])
+        XCTAssertEqual(engine.spatialAudioReloads, [.layout(.l916)])
+    }
+
+    /// Review Focus 2: Atmos on, DTS:X off; switching to the DTS:X track
+    /// must play it on today's path, not inherit the Atmos layout.
+    func test_selectAudioTrack_atmosToDTSXWithDTSXOff_reloadsOff() async {
+        let engine = FakePlaybackEngine()
+        stubAtmosAndDTSX(engine: engine)
+        let (viewModel, _) = makeViewModel(engine: engine, spatialAudioStore: spatialStore(atmos: .l714))
+        await viewModel.start()
+
+        viewModel.selectAudioTrack(id: 2)
+        await viewModel.awaitSpatialAudioCorrection()
+
+        XCTAssertEqual(engine.spatialAudioReloads, [.off])
+    }
+
+    /// AetherEngine's audio switch is a rebuild of its own, which a rebuild
+    /// started after it cancels, leaving the old track playing. The rendering
+    /// goes first; the switch's own rebuild then carries it.
+    func test_selectAudioTrack_renderingChange_rebuildsBeforeSwitching() async {
+        let engine = FakePlaybackEngine()
+        stubAtmosAndDTSX(engine: engine)
+        let (viewModel, _) = makeViewModel(engine: engine, spatialAudioStore: spatialStore(atmos: .l714))
+        await viewModel.start()
+
+        viewModel.selectAudioTrack(id: 2)
+        await viewModel.awaitSpatialAudioCorrection()
+
+        XCTAssertEqual(engine.audioEvents, [.setSpatialAudio(.off), .selectAudioTrack(2)])
+    }
+
+    /// A rebuild queued as the player closes mustn't run against whatever
+    /// session follows.
+    func test_stop_cancelsAPendingSpatialAudioRebuild() async {
+        let engine = FakePlaybackEngine()
+        stubAtmosAndDTSX(engine: engine)
+        let (viewModel, _) = makeViewModel(engine: engine, spatialAudioStore: spatialStore(atmos: .l714))
+        await viewModel.start()
+
+        MockURLProtocol.requestHandler = { MockURLProtocol.jsonResponse(for: $0, status: 204, body: Data()) }
+        viewModel.selectAudioTrack(id: 2)
+        await viewModel.stop()
+        await viewModel.awaitSpatialAudioCorrection()
+
+        XCTAssertEqual(engine.spatialAudioReloads, [])
+    }
+
+    func test_selectAudioTrack_sameRenderingNeeded_noReload() async {
+        let engine = FakePlaybackEngine()
+        stubAtmosAndDTSX(engine: engine)
+        let (viewModel, _) = makeViewModel(engine: engine, spatialAudioStore: spatialStore(atmos: .l714, dtsX: .l714))
+        await viewModel.start()
+
+        viewModel.selectAudioTrack(id: 2)
+        await viewModel.awaitSpatialAudioCorrection()
+
+        XCTAssertEqual(engine.loadedSpatialAudio, [.layout(.l714)])
+        XCTAssertEqual(engine.spatialAudioReloads, [])
+    }
+
+    /// Review Focus 5: a server transcode never sees the source's tracks, so
+    /// it loads with rendering off and is never rebuilt for it.
+    func test_transcode_loadsOff_neverReloads() async {
+        let engine = FakePlaybackEngine()
+        engine.audioTracks = [PlaybackTrack(id: 0, kind: .audio, title: "AAC", metadata: nil, isSelected: true)]
+        var source = MediaSourceInfo(id: "src-1", container: "mkv", mediaStreams: [
+            MediaStream(index: 1, type: "Audio", codec: "truehd", language: "eng", isDefault: true, audioSpatialFormat: "DolbyAtmos"),
+        ])
+        source.transcodingUrl = "/videos/item-1/master.m3u8?x=1"
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Dune", type: .movie), mediaSources: [source])
+        let (viewModel, _) = makeViewModel(engine: engine, spatialAudioStore: spatialStore(atmos: .l714))
+
+        await viewModel.start()
+
+        XCTAssertEqual(engine.loadedSpatialAudio, [.off])
+        XCTAssertEqual(engine.spatialAudioReloads, [])
     }
 
     /// A `MediaItem` wrapping a bare `BaseItemDto` — enough for
@@ -996,10 +1143,12 @@ final class PlayerViewModelTests: XCTestCase {
         try await waitUntil { engine.seekedTimes.contains(42) }
     }
 
-    func test_selectAudioAndSubtitleTracks_delegateToEngine() {
+    func test_selectAudioAndSubtitleTracks_delegateToEngine() async {
         let (viewModel, engine) = makeViewModel()
         viewModel.selectAudioTrack(id: 2)
         viewModel.selectSubtitleTrack(id: nil)
+        // The audio switch waits on any Spatial Audio rebuild it needs.
+        await viewModel.awaitSpatialAudioCorrection()
         XCTAssertEqual(engine.selectedAudioTrackIDs, [2])
         XCTAssertEqual(engine.selectedSubtitleTrackIDs, [nil])
     }

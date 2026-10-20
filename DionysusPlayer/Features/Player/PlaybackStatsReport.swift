@@ -117,7 +117,7 @@ extension PlaybackStatsReport {
         // another track's.
         let engineKnowsTrack = stats.audioChannels != nil
         let fallback = engineKnowsTrack ? nil : sourceAudioStream
-        return Section(title: String(localized: "Audio"), rows: [
+        var rows = [
             Row("Decoder", stats.audioDecoder ?? "—", id: "Audio Decoder"),
             // Same probe-never-runs gap as the video section — falls back to
             // `sourceAudioStream`, Jellyfin's probe of the default audio track.
@@ -126,7 +126,13 @@ extension PlaybackStatsReport {
             Row("Sampling", stats.audioSampling ?? StreamFormatDescription.audioSampling(fallback) ?? "—"),
             Row("Output Route", readings.audioOutputRoute ?? "—"),
             Row("Output Channels", describeChannelCount(readings.audioOutputChannelCount))
-        ])
+        ]
+        // Only while TrueHD Atmos or DTS:X plays as Spatial Audio: the one
+        // in-app sign the route was taken.
+        if let spatialAudio = stats.spatialAudio {
+            rows.append(Row("Spatial Audio", spatialAudio))
+        }
+        return Section(title: String(localized: "Audio"), rows: rows)
     }
 
     /// `zoomMode` is `nil` on the Apple TV, which has no zoom.

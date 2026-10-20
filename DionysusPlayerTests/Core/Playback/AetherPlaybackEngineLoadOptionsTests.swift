@@ -31,6 +31,46 @@ final class AetherPlaybackEngineLoadOptionsTests: XCTestCase {
         XCTAssertTrue(options.prepareNativeSubtitles)
         XCTAssertFalse(options.isLive)
     }
+    // MARK: Spatial Audio
+
+    func test_spatialAudio_defaultsToOff() {
+        let options = AetherPlaybackEngine.makeLoadOptions(isRemoteHLS: false, externalSubtitles: [], display: .unknown)
+        XCTAssertEqual(options.objectAudioRendering, .off)
+    }
+
+    func test_spatialAudio_layout714_isApac714() {
+        let options = AetherPlaybackEngine.makeLoadOptions(
+            isRemoteHLS: false, externalSubtitles: [], display: .unknown, spatialAudio: .layout(.l714)
+        )
+        XCTAssertEqual(options.objectAudioRendering, .apac(.l714))
+    }
+
+    /// Every app layout names one of the engine's, by the same raw value.
+    func test_everySpeakerLayout_mapsToTheEngines() {
+        for layout in SpeakerLayout.allCases {
+            XCTAssertEqual(AetherPlaybackEngine.engineLayout(layout).rawValue, layout.rawValue)
+        }
+    }
+
+    func test_spatialAudioStats_atmos_countsObjects() {
+        let activity = ObjectAudioActivity(layout: .l714, objects: 15, activeObjects: 13, elevatedObjects: 4, heightChannels: 0)
+        XCTAssertEqual(AetherPlaybackEngine.describeObjectAudio(activity), "7.1.4 · 13 objects, 4 overhead")
+    }
+
+    /// DTS:X plays its standard presentation: heights, no objects.
+    func test_spatialAudioStats_dtsX_countsHeights() {
+        let activity = ObjectAudioActivity(layout: .l916, objects: 0, activeObjects: 0, elevatedObjects: 0, heightChannels: 4)
+        XCTAssertEqual(AetherPlaybackEngine.describeObjectAudio(activity), "9.1.6 · 4 height channels")
+    }
+
+    /// One of each reads in the singular (the String Catalog's plural variants).
+    func test_spatialAudioStats_singularCounts() {
+        let object = ObjectAudioActivity(layout: .l714, objects: 1, activeObjects: 1, elevatedObjects: 1, heightChannels: 0)
+        XCTAssertEqual(AetherPlaybackEngine.describeObjectAudio(object), "7.1.4 · 1 object, 1 overhead")
+        let height = ObjectAudioActivity(layout: .l916, objects: 0, activeObjects: 0, elevatedObjects: 0, heightChannels: 1)
+        XCTAssertEqual(AetherPlaybackEngine.describeObjectAudio(height), "9.1.6 · 1 height channel")
+    }
+
     func test_audioOffset_isPassedAsAudioDelaySeconds() {
         let options = AetherPlaybackEngine.makeLoadOptions(
             isRemoteHLS: false, externalSubtitles: [], display: .unknown, audioOffset: 0.04

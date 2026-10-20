@@ -34,8 +34,9 @@ final class AssetDetailJourneyTests: UITestCase {
     }
 
     /// The one part-watched fixture movie shows Resume (not Play) alongside
-    /// a Restart button — `PlayResumeButtonRow`'s branch for
-    /// `playedFraction > 0`.
+    /// a Restart button — `PlayResumeButtonRow`'s `canResume` branch. The
+    /// fixture is played with a position (a rewatch stopped partway), which
+    /// once read Play.
     func testPartWatchedMovieShowsResumeAndRestart() {
         launch()
         let home = HomeScreen(app: app)

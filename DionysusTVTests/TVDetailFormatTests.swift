@@ -37,6 +37,23 @@ final class TVDetailFormatTests: XCTestCase {
         XCTAssertEqual(TVDetailFormat.playTitle(target: item(dto), isShow: false), "Resume")
     }
 
+    /// A rewatch stopped partway keeps `Played` with a new position, and
+    /// offers Resume and Restart (Benjamin, 2026-10-14).
+    func test_playTitle_playedWithPosition_saysResume() {
+        var dto = BaseItemDto(id: "m", name: "Arrival", type: .movie)
+        dto.runTimeTicks = 95 * 600_000_000
+        dto.userData = UserItemDataDto(playbackPositionTicks: 48 * 600_000_000, played: true)
+        XCTAssertEqual(TVDetailFormat.playTitle(target: item(dto), isShow: false), "Resume")
+        XCTAssertTrue(TVDetailActions.focusIDs(playTarget: item(dto)).contains(TVDetailFocus.restart))
+    }
+
+    func test_playTitle_playedWithoutPosition_saysPlay() {
+        var dto = BaseItemDto(id: "m", name: "Arrival", type: .movie)
+        dto.userData = UserItemDataDto(playbackPositionTicks: 0, played: true)
+        XCTAssertEqual(TVDetailFormat.playTitle(target: item(dto), isShow: false), "Play")
+        XCTAssertFalse(TVDetailActions.focusIDs(playTarget: item(dto)).contains(TVDetailFocus.restart))
+    }
+
     func test_playTitle_forAShow_namesTheEpisode() {
         var dto = BaseItemDto(id: "e", name: "Alone in the Night", type: .episode)
         dto.parentIndexNumber = 1

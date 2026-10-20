@@ -89,6 +89,54 @@ frame is in sync; a live change calls `setAudioDelay`.
   2026-10-18), the reason this exists; the upstream report waits on a
   measured value.
 
+## Spatial Audio (TrueHD Atmos and DTS:X)
+
+Apple platforms can't bitstream TrueHD or DTS-HD, so AetherEngine decodes
+them and, in the app's bridge mode (the engine default, `.surroundCompat`),
+re-encodes to Dolby Digital Plus: the height channels are lost. Two settings
+(Profile → Spatial Audio, both off by default, per device like the audio
+offset: `SpatialAudioStore`) render them instead as Apple Positional Audio
+(`LoadOptions.objectAudioRendering = .apac(layout)`), which tvOS sends to an
+Atmos receiver as Dolby MAT and iOS plays as Spatial Audio. It's lossy, and
+it needs the `TrueHDObjectAudio`/`DTSXObjectAudio` traits
+(`Packages/AetherEngineWithObjectAudio`, root `CLAUDE.md`). Design:
+`docs/superpowers/specs/2026-10-19-spatial-audio-resume-season-tiles-design.md`.
+
+- **One rendering per session, for both formats.** `objectAudioRendering` is
+  `.off` or `.apac(layout)` and applies to TrueHD Atmos and DTS:X alike, so
+  two toggles with their own layouts need the format known before load.
+  `PlayerViewModel.start()` predicts the track (`SpatialAudioRules`: the
+  remembered choice, else the default, swapped for a same-language
+  Atmos/DTS:X track when rendering would be on for it, as the engine's own
+  pick does), loads with that format's layout, and once the remembered track
+  is applied rebuilds once if the playing track needs another
+  (`setSpatialAudio`, `reloadAtCurrentPosition(applying:)`, before the resume
+  seek). An audio switch to a track needing another rendering rebuilds the
+  same way first; the switch itself then replays the loaded options.
+- **The rendering's rebuild goes before the audio switch, never after.** The
+  reload keeps the playing track by itself (`LoadOptions` has no public track
+  override), and AetherEngine's `selectAudioTrack` is a rebuild of its own on
+  a task: a reload started while it's pending cancels it and rebuilds on the
+  old track. So `PlayerViewModel.selectAudioTrack` queues the switch behind
+  the rebuild (two rebuilds for a switch that changes the rendering), and
+  `stop()`/`start()` cancel one still queued. `FakePlaybackEngine.audioEvents`
+  pins the order.
+- **Engine track ids aren't `MediaStream.index`**: external streams shift
+  Jellyfin's numbering. `PlayerViewModel.physicalIndex(of:in:)` and
+  `audioStream(forEngineTrackID:in:)` translate, shared with the Atmos hint.
+- **Where it can't apply, nothing is rendered or rebuilt**: a server
+  transcode (AVPlayer never sees the track), offline (downloads are
+  HEVC/MP4), and the engine's own refusals (software route, non-48 kHz,
+  DTS:X's object presentations, OS below 26), which keep the bridge with the
+  audio intact. DTS:X renders into 7.1.4 and 9.1.6 only, so its picker offers
+  nothing else. The settings are hidden below iOS 26 and where a trait isn't
+  built in (`SpatialAudioSupport`).
+- **Playback Stats shows a "Spatial Audio" row while it plays**, from
+  `LiveTelemetry.objectAudio` ("7.1.4 · 13 objects, 4 overhead"; DTS:X shows
+  its height channels): the one in-app sign the route was taken. tvOS's
+  engine loops a silent Atmos stream so soundbars light their indicator
+  (`AtmosOutputActivator`); nothing to do in the app.
+
 ## After the app comes back from the background
 
 AetherEngine releases a paused session's decode pipeline after its
