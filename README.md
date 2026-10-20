@@ -216,6 +216,10 @@ Spatial Audio.
   format: the Apple TV sends it to an Atmos receiver or soundbar as Dolby
   MAT, so the overhead speakers play, and iPhone and iPad play it as
   Spatial Audio on AirPods.
+- **The receiver shows Dolby Atmos, DTS:X included.** Both formats leave the
+  Apple TV as the same Dolby MAT stream, so a receiver or soundbar lights its
+  Dolby Atmos indicator for a DTS:X film too. That's expected: the heights
+  are there, carried as Atmos rather than as DTS.
 - **Your speaker layout.** Dolby Atmos renders into 5.1.2, 5.1.4, 7.1.2,
   7.1.4 or 9.1.6; DTS:X into 7.1.4 or 9.1.6, the layouts that carry its
   four heights one to one. 7.1.4 is the default, and the one recommended
@@ -227,7 +231,8 @@ Spatial Audio.
   Dolby Digital Plus Atmos already reaches a receiver with its objects and
   needs none of this; a server transcode, a download, or a title on the
   engine's software route plays as before. Playback Stats shows the layout
-  and how many objects play overhead while it's working.
+  and how many objects play overhead (for DTS:X, its height channels) while
+  it's working.
 - Rendered by [AetherEngine](https://github.com/superuser404notfound/AetherEngine)'s
   object-audio components (LibTrueHD and LibDTSX).
 

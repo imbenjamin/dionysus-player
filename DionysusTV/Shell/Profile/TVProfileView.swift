@@ -306,7 +306,7 @@ struct TVProfileView: View {
         if SpatialAudioSupport.isOffered(.dtsX) {
             row(
                 "DTS:X as Spatial Audio", value: onOff(spatialAudio.dtsXEnabled),
-                hint: "Keeps the height channels of DTS:X tracks for a receiver with height speakers. The audio is re-encoded, so it isn't lossless.",
+                hint: "Keeps the height channels of DTS:X tracks for a receiver with height speakers. The audio is re-encoded, so it isn't lossless, and the receiver shows it as Dolby Atmos, not DTS:X.",
                 id: A11yID.TV.Profile.spatialDTSX
             ) {
                 spatialAudioBinding(\.dtsXEnabled).wrappedValue.toggle()
@@ -320,7 +320,7 @@ struct TVProfileView: View {
                 }
             }
         }
-        TVSettingsFooter(text: "Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for Spatial Audio on AirPods. The audio is re-encoded, so it isn't lossless.")
+        TVSettingsFooter(text: "Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for Spatial Audio on AirPods. The audio is re-encoded, so it isn't lossless, and a receiver shows it as Dolby Atmos, DTS:X included.")
     }
 
     private static let followFooter: LocalizedStringKey = "Attempts to match Jellyfin users to this Apple TV's users. Turn off to keep user switching inside the app, and when users become out of sync."

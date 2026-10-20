@@ -598,10 +598,11 @@ capture-then-render workflow. What the scripts don't say:
   shared account). The store set has no Top Shelf slide: when it was made
   the shelf showed the static image, and its Recently Added fix (#351) hasn't
   been checked against the demo. Never capture it against a personal server.
-- **The Apple TV player slide claims HDR formats only**: Atmos end to end was
-  never confirmed on the TV, and TrueHD Atmos is decoded to 5.1
-  (`DionysusTV/CLAUDE.md`, "HDR and audio"). Avoid frames with burnt-in
-  on-screen text behind the player's panel.
+- **The Apple TV player slide claims HDR formats only**: TrueHD Atmos
+  and DTS:X reach a receiver as Atmos only with Spatial Audio turned on
+  (`DionysusTV/CLAUDE.md`, "HDR and audio"), and the demo server has no
+  such tracks. Avoid frames with burnt-in on-screen text behind the
+  player's panel.
 
 ## Commit messages and pull request descriptions
 

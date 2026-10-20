@@ -987,4 +987,6 @@ picture's transfer function once a second:
   re-encoded to 5.1 E-AC-3, losing Atmos. End-to-end Atmos wasn't confirmed
   (the TV said "Dolby Audio" for both). With Profile → Spatial Audio on
   (2026-10-19), TrueHD Atmos and DTS:X instead play as APAC with their
-  heights, sent to the receiver as Dolby MAT; not yet checked on Living Room.
+  heights, sent to the receiver as Dolby MAT. Confirmed on Living Room
+  (2026-10-20): Gravity (TrueHD Atmos) and Apollo 13 (DTS:X) both rendered
+  to APAC 7.1.4, and the receiver showed Dolby Atmos for each, DTS:X too.
