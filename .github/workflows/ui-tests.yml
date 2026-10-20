@@ -176,6 +176,25 @@ jobs:
         with:
           xcode-version: ${{ matrix.os.xcode }}
 
+      - name: Make room for the iOS 18.6 runtime
+        # Restoring the 8.5 GB image and importing it (which copies it) need
+        # about 17 GB, more than the image leaves free: the first run failed
+        # with "Cannot copy the image because the disk is almost full". The
+        # image's other Xcodes (27.0, the 27.2 beta) are unused here.
+        if: matrix.os.cached-runtime
+        shell: bash
+        run: |
+          df -h /
+          selected=$(cd "$(xcode-select -p)/../.." && pwd -P)
+          for app in /Applications/Xcode*.app; do
+            [ -L "$app" ] && continue
+            if [ "$(cd "$app" && pwd -P)" != "$selected" ]; then
+              echo "Removing $app"
+              sudo rm -rf "$app"
+            fi
+          done
+          df -h /
+
       - name: Restore the iOS 18.6 runtime
         if: matrix.os.cached-runtime
         uses: actions/cache/restore@v4
