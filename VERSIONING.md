@@ -148,7 +148,7 @@ either, so neither `gh pr merge --admin` nor `--auto` could get around
 it — the rule itself had to change, not the merge command. Fixed by
 removing the `code_scanning` rule from `develop protection` entirely;
 `stable`'s ruleset needs no equivalent fix since `analyze-swift` actually
-runs — and blocks — there. If a `code_scanning` rule ever gets added back
+runs — and blocks — there (while it isn't paused; see below). If a `code_scanning` rule ever gets added back
 to a branch's ruleset, check first that every CodeQL job it depends on
 actually runs on every PR into that branch; one keyed to a config that
 branch's own PRs never trigger can never be satisfied, by any PR, ever.
@@ -439,6 +439,10 @@ string isn't user-visible anyway.
   `develop` it runs non-blocking instead, via the `push`/weekly-schedule
   triggers rather than `pull_request`, surfacing anything it finds as a
   Security-tab alert rather than holding up the PR that introduced it.
+  **`analyze-swift` is paused (2026-10-20)** and off `stable`'s ruleset:
+  CodeQL's build tracer can't trace an Xcode 27 build (github/codeql#22742),
+  and Xcode 26 can't build AetherEngine 7.43+. `codeql.yml`'s comment on
+  the job says how to resume it.
   GitHub's own code-scanning **default setup** was disabled for this repo
   once this workflow was added — the two can't coexist for the same
   language; GitHub rejects the advanced-setup SARIF upload if default setup

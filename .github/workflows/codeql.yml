@@ -114,10 +114,19 @@ jobs:
     # it's close; a hung job still gets killed well short of wasting a
     # full workday of runner time.
     timeout-minutes: 90
-    # Skip only when this is a pull_request into develop — see header.
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.base.ref == 'stable'
+    # Paused (2026-10-20): CodeQL's build tracer can't trace an Xcode 27
+    # build. Apple dropped the Intel slices the tracer relies on, so under
+    # it SwiftPM couldn't launch /usr/bin/sandbox-exec for any manifest, and
+    # with the manifest sandbox off swift-plugin-server failed the same way
+    # ("Bad CPU type in executable"). GitHub won't support Swift 6.4 / Xcode
+    # 27 tracing (github/codeql#22742), and Xcode 26 can't build AetherEngine
+    # 7.43+, so there is nothing to run it on. "Analyze (swift)" was taken off
+    # the stable ruleset at the same time. To resume once CodeQL supports
+    # Xcode 27, restore this condition (skip only PRs into develop, see
+    # header) and add the check back to the stable ruleset:
+    #   github.event_name != 'pull_request' ||
+    #   github.event.pull_request.base.ref == 'stable'
+    if: false
     steps:
       - name: Checkout
         uses: actions/checkout@v7

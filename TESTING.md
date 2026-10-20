@@ -479,7 +479,8 @@ plan selects single tests and stays one job.
 **Required checks.** `develop` requires the iOS build and unit tests, the
 Release compile, GitGuardian, the four `UI smoke tests / <device>, iOS
 <version>` checks (iPhone and iPad, iOS 27.0 and 18.6), `tvOS build and unit tests` and `tvOS UI smoke tests / Apple TV 4K,
-tvOS 27.0`. `stable` requires the same, plus the two CodeQL "Analyze" checks,
+tvOS 27.0`. `stable` requires the same, plus CodeQL's `Analyze (actions)` (`Analyze (swift)`
+is paused and off the ruleset, see `codeql.yml`),
 the four `Full UI tests / <device>, iOS <version>` checks and `Full tvOS UI
 tests / Apple TV 4K, tvOS 27.0` (added 2026-10-15), which is why a PR into
 `stable` runs both full plans (`pr-checks.yml`'s `ui-full` and `tv-ui-full`
