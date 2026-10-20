@@ -219,7 +219,9 @@ jobs:
   ios-release:
     name: iOS build, test, archive and upload
     needs: [ui-tests, prepare]
-    runs-on: macos-26
+    # Xcode 27.1 on the xcode-27 image, like every job (setup-ios-project's
+    # default; AetherEngine 7.43.0 and later don't compile with Xcode 26).
+    runs-on: xcode-27
     timeout-minutes: 60
 
     steps:
@@ -385,8 +387,8 @@ jobs:
   tvos-release:
     name: tvOS build, test, archive and upload
     needs: [tv-ui-tests, prepare]
-    # Xcode 27.1 on the xcode-27 image, as tv-ui-tests.yml, not ios-release's
-    # 26.6: an app built against the tvOS 26 SDK runs on tvOS 27 with the
+    # Xcode 27.1 on the xcode-27 image, as tv-ui-tests.yml. Why it moved first,
+    # before iOS: an app built against the tvOS 26 SDK runs on tvOS 27 with the
     # old focus rendering, where a focused button's label is drawn light on
     # its white platter (v1.2.0-alpha.4 and alpha.5; the same commit built
     # with 27.1 drew it black on the same Apple TV, 2026-10-17).

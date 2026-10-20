@@ -11,7 +11,7 @@ inputs:
       Exact Xcode version to select. Every job defaults to the same one, so
       the build a test job checks is the build release.yml archives.
     required: false
-    default: "26.6"
+    default: "27.1"
 
 runs:
   using: composite
@@ -23,13 +23,11 @@ runs:
       # SWIFT_VERSION 6.0 against an iOS 18 deployment target, AetherEngine is
       # resolved fresh (uncached) on every run, and the UI-test matrix
       # (ui-tests.yml) names simulator runtimes that only this Xcode's image
-      # carries. The callers pin `runs-on: macos-26` for the same reason: this
-      # version exists on that image. (ui-tests.yml's iOS 18 leg is the one
-      # exception: it runs on macos-15 and passes 26.3 — see that file. The
-      # Apple TV app is the other: tv-ui-tests.yml, pr-checks.yml's tvOS unit
-      # tests and release.yml's tvos-release run on the xcode-27 image and
-      # pass 27.1, for the reasons those files give. The Release-configuration
-      # compile check still builds it with 26.6.)
+      # carries. The callers pin `runs-on: xcode-27` for the same reason: this
+      # version exists on that image. Every job, iOS and Apple TV, builds with
+      # 27.1 (2026-10-20): AetherEngine 7.43.0 and later don't compile with
+      # Xcode 26, and the Apple TV app needs the tvOS 27 SDK (release.yml's
+      # tvos-release says why).
       # Moving to a new Xcode is a deliberate edit here, alongside the runner
       # labels and ui-tests.yml's OS list.
       uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1

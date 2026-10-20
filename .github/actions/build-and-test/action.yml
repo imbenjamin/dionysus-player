@@ -43,11 +43,12 @@ inputs:
     default: iPhone 16
   ios-version:
     description: >-
-      Runtime version of `platform`, e.g. "26.5". The runner image must already carry
-      it — there's no download fallback, because Xcode won't download an iOS
-      18 runtime at all (see ui-tests.yml), so pick the image instead.
+      Runtime version of `platform`, e.g. "27.0". The runner must already
+      carry it: there's no download fallback here, because Xcode won't
+      download an iOS 18 runtime at all. ui-tests.yml installs the floor's
+      from the Actions cache before calling this.
     required: false
-    default: "26.5"
+    default: "27.0"
   retry-tests-on-failure:
     description: >-
       Pass `-retry-tests-on-failure` on top of the plan's own repetition
@@ -99,7 +100,7 @@ runs:
         #
         # The image's own device is preferred when it has one — it's what the
         # suite ran on before this action created devices — and a new one is
-        # created only when it doesn't (e.g. iPhone 16 on iOS 26.5). Either
+        # created only when it doesn't (e.g. iPhone 16 on iOS 27.0). Either
         # behaves the same as far as measured: PR #258 briefly blamed three
         # iPad audit failures on freshly created devices, but they failed on
         # the image's own iPad too, and turned out to have failed every night

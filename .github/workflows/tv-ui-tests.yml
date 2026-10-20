@@ -4,8 +4,8 @@ name: tvOS UI tests
 # ui-tests.yml. Called by pr-checks.yml (smoke plan, tvOS 27.0) and
 # nightly-ui-tests.yml (full plan on tvOS 27.0, smoke plan on tvOS 26.5).
 #
-# An Apple TV 4K (3rd generation), on GitHub's `xcode-27` image (macOS 27,
-# a preview image) rather than `macos-26` with every other job. On tvOS
+# An Apple TV 4K (3rd generation), on GitHub's `xcode-27` image (macOS 27),
+# which every job has used since 2026-10-20; tvOS moved first. On tvOS
 # 26.x in CI the app's accessibility tree never showed a page opened after
 # launch (a detail page, a library, Search), so XCUITest kept seeing Home
 # and every journey that opened one failed, though the screen recording
@@ -95,7 +95,7 @@ jobs:
   shard:
     name: Apple TV 4K, tvOS ${{ matrix.tvos }}, part ${{ matrix.shard.index }} of ${{ matrix.shard.count }}
     needs: plan
-    # See the top of this file for why not macos-26.
+    # See the top of this file for the image.
     runs-on: xcode-27
     timeout-minutes: ${{ inputs.timeout-minutes }}
     continue-on-error: ${{ inputs.allow-failure }}
