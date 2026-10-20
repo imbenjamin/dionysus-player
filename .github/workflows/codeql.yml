@@ -114,36 +114,25 @@ jobs:
     # it's close; a hung job still gets killed well short of wasting a
     # full workday of runner time.
     timeout-minutes: 90
-    # Skip only when this is a pull_request into develop — see header.
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.base.ref == 'stable'
+    # Paused (2026-10-20): CodeQL's build tracer can't trace an Xcode 27
+    # build. Apple dropped the Intel slices the tracer relies on, so under
+    # it SwiftPM couldn't launch /usr/bin/sandbox-exec for any manifest, and
+    # with the manifest sandbox off swift-plugin-server failed the same way
+    # ("Bad CPU type in executable"). GitHub won't support Swift 6.4 / Xcode
+    # 27 tracing (github/codeql#22742), and Xcode 26 can't build AetherEngine
+    # 7.43+, so there is nothing to run it on. "Analyze (swift)" was taken off
+    # the stable ruleset at the same time. To resume once CodeQL supports
+    # Xcode 27, restore this condition (skip only PRs into develop, see
+    # header) and add the check back to the stable ruleset:
+    #   github.event_name != 'pull_request' ||
+    #   github.event.pull_request.base.ref == 'stable'
+    if: false
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
       - name: Set up iOS project
         uses: ./.github/actions/setup-ios-project
-
-      # Outside CodeQL's tracer. On the xcode-27 image, SwiftPM run under
-      # the tracer can't launch any package's compiled manifest ("Bad CPU
-      # type in executable (86)"), so every develop push failed at Build
-      # from the move to that image (#365, 2026-10-20). Resolving here
-      # evaluates the manifests untraced; the traced build below reuses
-      # them and doesn't resolve again.
-      # Experiment: what fails to launch is /usr/bin/sandbox-exec, which
-      # SwiftPM wraps each manifest in. Installing Rosetta didn't help, so
-      # skip the manifest sandbox on this throwaway runner instead.
-      - name: Turn off SwiftPM's manifest sandbox
-        shell: bash
-        run: defaults write com.apple.dt.Xcode IDEPackageSupportDisableManifestSandbox -bool YES
-
-      - name: Resolve package dependencies
-        shell: bash
-        run: |
-          xcodebuild -resolvePackageDependencies \
-            -project DionysusPlayer.xcodeproj \
-            -scheme DionysusPlayer
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -168,7 +157,6 @@ jobs:
             -project DionysusPlayer.xcodeproj \
             -scheme DionysusPlayer \
             -destination 'generic/platform=iOS' \
-            -disableAutomaticPackageResolution \
             CODE_SIGNING_ALLOWED=NO \
             | xcbeautify --renderer github-actions
 
