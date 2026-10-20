@@ -131,12 +131,12 @@ jobs:
       # from the move to that image (#365, 2026-10-20). Resolving here
       # evaluates the manifests untraced; the traced build below reuses
       # them and doesn't resolve again.
-      # Experiment: error 86 (EBADARCH) on an arm64 runner suggests the
-      # traced manifest builds come out x86_64 and need Rosetta, which the
-      # xcode-27 image may not ship (macos-15's did).
-      - name: Install Rosetta
+      # Experiment: what fails to launch is /usr/bin/sandbox-exec, which
+      # SwiftPM wraps each manifest in. Installing Rosetta didn't help, so
+      # skip the manifest sandbox on this throwaway runner instead.
+      - name: Turn off SwiftPM's manifest sandbox
         shell: bash
-        run: sudo softwareupdate --install-rosetta --agree-to-license
+        run: defaults write com.apple.dt.Xcode IDEPackageSupportDisableManifestSandbox -bool YES
 
       - name: Resolve package dependencies
         shell: bash
