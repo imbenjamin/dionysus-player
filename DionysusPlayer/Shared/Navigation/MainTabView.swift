@@ -16,6 +16,9 @@ private enum MainTab: Hashable {
 /// each with its own navigation stack.
 struct MainTabView: View {
     @Environment(AppState.self) private var appState
+    /// Regular width is where the tab bar floats at the top, over Home's
+    /// hero; compact puts it at the bottom, which the hero never reaches.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var profileTabIcon: UIImage?
     /// Bound (rather than the plain declarative `NavigationLink(value:)` the
     /// other two tabs use) so `SearchView` can push a result from inside a
@@ -168,7 +171,11 @@ struct MainTabView: View {
         // toast outlives the thing that raised it — adding to a playlist
         // confirms *after* its own sheet has closed. See `ToastHost`.
         .overlay { ToastHost() }
-        .tint(TabBarTintModel.shared.tint)
+        // Per-hero only where the bar sits over the hero (regular width, the
+        // floating bar at the top). At the bottom of an iPhone it sits over
+        // the rails, so a dark hero's light tint landed on a light pill
+        // there, about 2.6:1 (Benjamin, 2026-10-20).
+        .tint(horizontalSizeClass == .regular ? TabBarTintModel.shared.tint : Color.dionysusPrimary)
         .task(id: appState.currentUser?.id) { await loadProfileTabIcon() }
         // Cold launch can reach `.main` with `currentUser` still `nil` —
         // resumed from a cached session because the server was
