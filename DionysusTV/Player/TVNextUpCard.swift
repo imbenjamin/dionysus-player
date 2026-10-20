@@ -38,7 +38,7 @@ struct TVNextUpCard: View {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Rectangle().fill(Color.white.opacity(0.25))
-                        Rectangle().fill(Color.dionysusAmber).frame(width: geo.size.width * (barFraction ?? fraction(secondsRemaining + 1)))
+                        Rectangle().fill(Color.dionysusRoseGold).frame(width: geo.size.width * (barFraction ?? fraction(secondsRemaining + 1)))
                     }
                     .frame(height: 8)
                     .frame(maxHeight: .infinity, alignment: .bottom)

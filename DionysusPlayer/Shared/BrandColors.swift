@@ -4,8 +4,17 @@ import UIKit
 /// Dionysus brand palette. Reference these instead of raw `Color` literals so
 /// palette changes stay in one place.
 extension Color {
-    static let dionysusGold = Color(red: 1.00, green: 0.88, blue: 0.10)
-    static let dionysusAmber = Color(red: 0.94, green: 0.55, blue: 0.00)
+    /// The palette's warm accent, a rose gold (`#F2A38C`) that sits in the
+    /// magenta family rather than against it. It replaced amber `#F08C00`
+    /// (Benjamin, 2026-10-20). Measures 8.3:1 on burgundy and 8.4:1 on dark
+    /// mode's `#1C1C1E`, but only 2.0:1 on white, hence
+    /// `dionysusRoseGoldHighContrast`.
+    static let dionysusRoseGold = Color(red: 0xF2 / 255, green: 0xA3 / 255, blue: 0x8C / 255)
+    /// A paler rose gold (`#F7C2A8`) for small accents on the Apple TV's dark
+    /// screens (rating star, welcome icons, Quick Connect dot, scan glow),
+    /// which want more brightness than `dionysusRoseGold`. It replaced
+    /// yellow gold `#FFE01A`.
+    static let dionysusRoseGoldLight = Color(red: 0xF7 / 255, green: 0xC2 / 255, blue: 0xA8 / 255)
     static let dionysusMagenta = Color(red: 0.84, green: 0.05, blue: 0.40)
     static let dionysusBurgundy = Color(red: 0.26, green: 0.00, blue: 0.12)
 
@@ -19,11 +28,11 @@ extension Color {
     /// the line, without leaving the magenta hue family.
     static let dionysusMagentaHighContrast = Color(red: 0.95, green: 0.35, blue: 0.55)
 
-    /// Increase Contrast variant of `dionysusAmber`, same reasoning as
-    /// `dionysusMagentaHighContrast` above — plain `dionysusAmber` measures
-    /// only ~2.5:1 against a white light-mode background (well under 4.5:1);
-    /// this deeper/more saturated amber measures ~5.5:1.
-    static let dionysusAmberHighContrast = Color(red: 0.65, green: 0.32, blue: 0.00)
+    /// Increase Contrast variant of `dionysusRoseGold`, same reasoning as
+    /// `dionysusMagentaHighContrast` above: plain `dionysusRoseGold` measures
+    /// only 2.0:1 against a white light-mode background (well under 4.5:1);
+    /// this deeper copper (`#A8513C`) measures 5.4:1.
+    static let dionysusRoseGoldHighContrast = Color(red: 0xA8 / 255, green: 0x51 / 255, blue: 0x3C / 255)
 
     /// The tab bar's selected-item tint when the artwork behind the bar
     /// is dark — see `TabBarTintModel`, which chooses between this and
@@ -42,16 +51,17 @@ extension Color {
     /// Deliberately past the line rather than on it — HSL lightness 0.67
     /// lands on exactly 4.50:1 with no margin.
     ///
-    /// Magenta rather than the amber or gold that clear the bar more
-    /// easily (5.5:1 and 9.7:1): see `dionysusHighlight` for the palette's
-    /// standing "no amber in dark" rule, and a glass pill over a
-    /// near-black hero is a dark context.
+    /// Magenta rather than the warm accent (then amber, now rose gold),
+    /// which would clear the bar more easily: the tab bar's tint is the
+    /// primary colour, magenta in dark (`dionysusPrimary`), and a glass pill
+    /// over a near-black hero is a dark context.
     static let dionysusMagentaOnGlass = Color(red: 0.97, green: 0.49, blue: 0.70)
 
     /// Primary brand action colour. Burgundy on light backgrounds; magenta in
-    /// dark (amber-in-dark reads as Plex-adjacent, so the palette leans on
-    /// magenta + burgundy to stand out). Backed by a dynamic `UIColor` so any
-    /// element rendered through UIKit adapts on trait changes too.
+    /// dark (the palette leans on magenta + burgundy to stand out; the old
+    /// amber accent in dark read as Plex-adjacent). Backed by a dynamic
+    /// `UIColor` so any element rendered through UIKit adapts on trait
+    /// changes too.
     ///
     /// `traits.accessibilityContrast == .high` (the system's Increase
     /// Contrast setting) swaps in `dionysusMagentaHighContrast` for the dark
@@ -66,11 +76,11 @@ extension Color {
         return UIColor(traits.accessibilityContrast == .high ? Color.dionysusMagentaHighContrast : Color.dionysusMagenta)
     })
 
-    /// Inverse of `dionysusPrimary`: amber on light, burgundy on dark. Used
+    /// Inverse of `dionysusPrimary`: rose gold on light, burgundy on dark. Used
     /// for elements that need to contrast against a `dionysusPrimary` surface
     /// (e.g. a progress bar sitting on top of the primary Play button) —
     /// always composited on that surface, never bare against a plain system
-    /// background, which is why only the light (amber) branch gets its own
+    /// background, which is why only the light (rose gold) branch gets its own
     /// Increase Contrast swap below. The dark (burgundy) branch doesn't need
     /// one: burgundy-on-`dionysusPrimary` already measures ~3.3:1, but
     /// automatically becomes ~5.3:1 once `dionysusPrimary`'s own dark value
@@ -79,22 +89,22 @@ extension Color {
         guard traits.userInterfaceStyle != .dark else {
             return UIColor(Color.dionysusBurgundy)
         }
-        return UIColor(traits.accessibilityContrast == .high ? Color.dionysusAmberHighContrast : Color.dionysusAmber)
+        return UIColor(traits.accessibilityContrast == .high ? Color.dionysusRoseGoldHighContrast : Color.dionysusRoseGold)
     })
 
     /// Highlight colour for accents sitting over media artwork (e.g. the
-    /// rail-item progress bar over a poster). Amber in light, magenta in
-    /// dark — the "no amber in dark" rule applies here too. Reuses the same
-    /// Increase Contrast swaps as `dionysusPrimary`/`dionysusProgress` above
-    /// (same underlying colours, just cross-wired by appearance) rather than
-    /// introducing a third pair of high-contrast constants for what's
-    /// already the same two colours.
+    /// rail-item progress bar over a poster): rose gold in both appearances,
+    /// so an item's progress reads the same on iOS, in dark mode and on the
+    /// Apple TV (Benjamin, 2026-10-20; it was magenta in dark, a rule made
+    /// against amber). Increase Contrast moves it away from the background:
+    /// `dionysusRoseGoldHighContrast` in light, `dionysusRoseGoldLight`
+    /// (10.7:1 on `#1C1C1E`) in dark.
     static let dionysusHighlight = Color(UIColor { traits in
         let highContrast = traits.accessibilityContrast == .high
         if traits.userInterfaceStyle == .dark {
-            return UIColor(highContrast ? Color.dionysusMagentaHighContrast : Color.dionysusMagenta)
+            return UIColor(highContrast ? Color.dionysusRoseGoldLight : Color.dionysusRoseGold)
         }
-        return UIColor(highContrast ? Color.dionysusAmberHighContrast : Color.dionysusAmber)
+        return UIColor(highContrast ? Color.dionysusRoseGoldHighContrast : Color.dionysusRoseGold)
     })
 
     /// Favorite (heart) icon colour: Jellyfin's own favourite red, the same in

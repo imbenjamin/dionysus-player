@@ -67,7 +67,7 @@ struct TVDetailHeader: View {
                 if let rating = item.communityRating {
                     Text(verbatim: "·").foregroundStyle(.tertiary).accessibilityHidden(true)
                     Text(verbatim: "★ " + String(format: "%.1f", rating))
-                        .foregroundStyle(Color.dionysusGold)
+                        .foregroundStyle(Color.dionysusRoseGoldLight)
                         .accessibilityLabel(String(localized: "Rated: \(String(format: "%.1f", rating)) stars"))
                 }
             }

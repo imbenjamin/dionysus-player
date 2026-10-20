@@ -586,7 +586,7 @@ capture-then-render workflow. What the scripts don't say:
   and wait real time before capturing the Downloads slide.
 - **The demo server's transcodes restart mid-download** for larger titles;
   wait out another cycle or pick a shorter title.
-- `gen.py`'s `MAGENTA`/`AMBER` are copies of `BrandColors.swift`; update both
+- `gen.py`'s `MAGENTA`/`ROSE_GOLD` are copies of `BrandColors.swift`; update both
   if the palette changes.
 - **The Apple TV set** (`appstore-appletv`, `gen.py`'s `TV_SLIDES`, no device
   frame) is captured with `xcrun simctl io <udid> screenshot`, which works on

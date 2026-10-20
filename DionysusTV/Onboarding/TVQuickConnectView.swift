@@ -111,7 +111,7 @@ struct TVQuickConnectView: View {
                 .accessibilityRepresentation { Text(verbatim: TVOnboardingSpeech.spokenCode(code)) }
                 .accessibilityIdentifier(A11yID.TV.Onboarding.quickConnectCode)
                 HStack(spacing: 14) {
-                    Circle().fill(Color.dionysusGold).frame(width: 14, height: 14)
+                    Circle().fill(Color.dionysusRoseGoldLight).frame(width: 14, height: 14)
                         .accessibilityHidden(true)
                     Text("Waiting for approval").foregroundStyle(.secondary)
                 }

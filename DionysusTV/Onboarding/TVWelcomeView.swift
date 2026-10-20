@@ -63,7 +63,7 @@ struct TVWelcomeView: View {
                             HStack(alignment: .top, spacing: 30) {
                                 Image(systemName: feature.systemImage)
                                     .font(.system(size: 40))
-                                    .foregroundStyle(Color.dionysusGold)
+                                    .foregroundStyle(Color.dionysusRoseGoldLight)
                                     .frame(width: 88, height: 88)
                                     .glassEffect(.regular, in: .circle)
                                     .accessibilityHidden(true)
