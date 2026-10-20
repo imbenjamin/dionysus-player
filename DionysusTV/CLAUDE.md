@@ -450,8 +450,9 @@ Privacy Policy), with iOS's footers.
   (Benjamin, 2026-10-19): Dolby Atmos and DTS:X as Spatial Audio, each an
   on/off row, and while on a "Dolby Atmos Speaker Layout" / "DTS:X Speaker
   Layout" row (named apart, never two rows with one label) opening a
-  `TVSettingsPicker` page of that format's layouts. Plain names here; iOS
-  marks 7.1.4 "Recommended for AirPods". Stored in the shared keychain like
+  `TVSettingsPicker` page of that format's layouts. Both pickers mark 7.1.4
+  "(Default)" (`SpeakerLayout.optionLabel`; Benjamin, 2026-10-20), and the
+  section footer recommends it for AirPods. Stored in the shared keychain like
   the audio offset. `Core/Playback/CLAUDE.md` has how it plays.
 
 - **Audio Offset opens a page of its own** (`TVAudioOffsetPage`): the value

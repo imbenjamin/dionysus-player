@@ -11,9 +11,18 @@ enum SpeakerLayout: String, CaseIterable, Codable, Sendable {
     case l714 = "7.1.4"
     case l916 = "9.1.6"
 
-    /// What VoiceOver reads: the bare numbers say nothing of what they count.
+    private var isDefault: Bool { self == SpatialAudioFormat.defaultLayout }
+
+    /// A layout picker's option, the default marked as such on both
+    /// platforms (Benjamin, 2026-10-20).
+    var optionLabel: String {
+        isDefault ? String(localized: "\(rawValue) (Default)") : rawValue
+    }
+
+    /// What VoiceOver reads for an option: the bare numbers say nothing of
+    /// what they count.
     var accessibilityLabel: String {
-        String(localized: "\(rawValue) speakers")
+        isDefault ? String(localized: "\(rawValue) speakers (Default)") : String(localized: "\(rawValue) speakers")
     }
 }
 

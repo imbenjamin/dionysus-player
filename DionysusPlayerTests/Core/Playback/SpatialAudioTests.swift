@@ -35,8 +35,14 @@ final class SpatialAudioTests: XCTestCase {
 
     /// "7.1.4" alone has no words, which the accessibility audit rejects.
     func test_layout_accessibilityLabel_namesSpeakers() {
-        XCTAssertEqual(SpeakerLayout.l714.accessibilityLabel, "7.1.4 speakers")
         XCTAssertEqual(SpeakerLayout.l916.accessibilityLabel, "9.1.6 speakers")
+        XCTAssertEqual(SpeakerLayout.l714.accessibilityLabel, "7.1.4 speakers (Default)")
+    }
+
+    /// Both pickers, on both platforms, mark the default (Benjamin, 2026-10-20).
+    func test_layout_optionLabel_marksTheDefault() {
+        XCTAssertEqual(SpeakerLayout.l714.optionLabel, "7.1.4 (Default)")
+        XCTAssertEqual(SpeakerLayout.l916.optionLabel, "9.1.6")
     }
 
     func test_settings_defaultOff_at714() {

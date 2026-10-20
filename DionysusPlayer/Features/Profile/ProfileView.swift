@@ -487,7 +487,7 @@ struct ProfileView: View {
             } header: {
                 Text("Spatial Audio")
             } footer: {
-                Text("Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for Spatial Audio on AirPods. The audio is re-encoded, so it isn't lossless, and a receiver shows it as Dolby Atmos, DTS:X included.")
+                Text("Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for Spatial Audio on AirPods. The audio is re-encoded, so it isn't lossless, and a receiver shows it as Dolby Atmos, DTS:X included. For AirPods, 7.1.4 is recommended.")
                     .readableSettingsFooter()
             }
         }
@@ -509,19 +509,13 @@ struct ProfileView: View {
             // (Benjamin, 2026-10-19).
             Picker(selection: spatialAudioBinding(layout)) {
                 ForEach(format.layouts, id: \.self) { option in
-                    Text(verbatim: Self.layoutName(option)).tag(option)
+                    Text(verbatim: option.optionLabel).tag(option)
                 }
             } label: {
                 isAtmos ? Text("Dolby Atmos Speaker Layout") : Text("DTS:X Speaker Layout")
             }
             .accessibilityIdentifier(isAtmos ? A11yID.Profile.spatialAtmosLayout : A11yID.Profile.spatialDTSXLayout)
         }
-    }
-
-    /// "7.1.4" is formatted data; the AirPods note is copy.
-    private static func layoutName(_ layout: SpeakerLayout) -> String {
-        guard layout == SpatialAudioFormat.defaultLayout else { return layout.rawValue }
-        return String(localized: "\(layout.rawValue) (Recommended for AirPods)")
     }
 
     private func spatialAudioBinding<Value>(_ keyPath: WritableKeyPath<SpatialAudioSettings, Value>) -> Binding<Value> {

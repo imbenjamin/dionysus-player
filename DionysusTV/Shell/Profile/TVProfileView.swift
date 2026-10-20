@@ -148,13 +148,13 @@ struct TVProfileView: View {
             case .atmosLayout:
                 TVSettingsPicker(
                     title: "Dolby Atmos Speaker Layout", options: SpatialAudioFormat.dolbyAtmos.layouts,
-                    selection: spatialAudioBinding(\.atmosLayout), id: \.rawValue, label: \.rawValue,
+                    selection: spatialAudioBinding(\.atmosLayout), id: \.rawValue, label: \.optionLabel,
                     accessibilityLabel: \.accessibilityLabel
                 )
             case .dtsXLayout:
                 TVSettingsPicker(
                     title: "DTS:X Speaker Layout", options: SpatialAudioFormat.dtsX.layouts,
-                    selection: spatialAudioBinding(\.dtsXLayout), id: \.rawValue, label: \.rawValue,
+                    selection: spatialAudioBinding(\.dtsXLayout), id: \.rawValue, label: \.optionLabel,
                     accessibilityLabel: \.accessibilityLabel
                 )
             case .advanced:
@@ -320,7 +320,7 @@ struct TVProfileView: View {
                 }
             }
         }
-        TVSettingsFooter(text: "Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for Spatial Audio on AirPods. The audio is re-encoded, so it isn't lossless, and a receiver shows it as Dolby Atmos, DTS:X included.")
+        TVSettingsFooter(text: "Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for Spatial Audio on AirPods. The audio is re-encoded, so it isn't lossless, and a receiver shows it as Dolby Atmos, DTS:X included. For AirPods, 7.1.4 is recommended.")
     }
 
     private static let followFooter: LocalizedStringKey = "Attempts to match Jellyfin users to this Apple TV's users. Turn off to keep user switching inside the app, and when users become out of sync."
