@@ -51,7 +51,7 @@ TV_SLIDES = [
     dict(shot="02-grid.png",          head="Find it in seconds",                          sub="Genre, studio, decade — stacked"),
     dict(shot="03-movie.png",         head="Every detail, at a glance",                   sub="Cast, ratings and where you left off"),
     dict(shot="04-show.png",          head="Episode by episode",                          sub="Pick up the next one in a click"),
-    dict(shot="05-player.png",        head="Plays what others can’t",                     sub="Dolby Vision · HDR10 · HDR10+ · HLG"),
+    dict(shot="05-player.png",        head="Plays what others can’t",                     sub="Dolby Vision · HDR10+ · Dolby Atmos · DTS:X"),
     dict(shot="06-search.png",        head="Ask for it by name",                          sub="Movies, shows and episodes as you type"),
     dict(shot="07-whos-watching.png", head="A profile for everyone",                      sub="Who’s Watching? for the whole household"),
 ]
