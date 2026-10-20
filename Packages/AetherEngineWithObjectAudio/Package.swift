@@ -28,9 +28,10 @@ import PackageDescription
 // from the linked engine, so there is no constant elsewhere to keep in step.
 //
 // The components may be subject to third-party patent licensing (AetherEngine
-// 7.39.0's notes); Benjamin accepted that on 2026-10-19. LibTrueHD and
-// LibDTSX's notices are in THIRD-PARTY-NOTICES. LibDTSX arrives as the
-// dynamic `DTSX.framework` (LGPL), embedded beside the FFmpeg frameworks.
+// 7.39.0's notes); Benjamin accepted that on 2026-10-19. LibTrueHD's notices
+// are in THIRD-PARTY-NOTICES. DTS:X is decoded by FFmpeg's own `dca` decoder
+// (FFmpegBuild 3.9.0's height patch) since AetherEngine 7.44.0, which dropped
+// LibDTSX: its LGPL-3.0 `DTSX.framework` couldn't ship in an App Store app.
 let package = Package(
     name: "AetherEngineWithObjectAudio",
     platforms: [
@@ -43,7 +44,7 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/superuser404notfound/AetherEngine",
-            exact: "7.42.0",
+            exact: "7.44.0",
             traits: ["TrueHDObjectAudio", "DTSXObjectAudio"]
         ),
     ],

@@ -20,7 +20,7 @@ final class LicenseDocumentTests: XCTestCase {
     /// isn't one: only AetherEngine's `AetherEngineSMB` product uses it.
     func test_everyShippedLibrary_hasItsNotices() {
         XCTAssertEqual(LicenseDocument.components().map(\.name), [
-            "AetherEngine", "FFmpeg", "dav1d", "zimg", "libzvbi", "libdovi", "LibTrueHD", "LibDTSX",
+            "AetherEngine", "FFmpeg", "dav1d", "zimg", "libzvbi", "libdovi", "LibTrueHD",
             "libass", "fontconfig", "FreeType", "HarfBuzz", "FriBidi", "libpng",
             "swift-ass-renderer", "swift-libass", "SwiftUI-Shimmer",
             "swift-issue-reporting", "combine-schedulers", "swift-concurrency-extras"

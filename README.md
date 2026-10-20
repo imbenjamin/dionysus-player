@@ -234,7 +234,8 @@ Spatial Audio.
   and how many objects play overhead (for DTS:X, its height channels) while
   it's working.
 - Rendered by [AetherEngine](https://github.com/superuser404notfound/AetherEngine)'s
-  object-audio components (LibTrueHD and LibDTSX).
+  object-audio components: LibTrueHD for TrueHD Atmos, and FFmpeg's own
+  DTS decoder for DTS:X.
 
 ## Status
 
@@ -523,11 +524,11 @@ carry their own licences (libass ISC, HarfBuzz MIT, FreeType FTL, fontconfig
 MIT, libpng, and FriBidi LGPL-2.1+ — all GPLv3-compatible).
 [LibTrueHD](https://github.com/superuser404notfound/LibTrueHD), which
 AetherEngine pulls in for TrueHD Atmos, is MIT with Apache-2.0 crates
-compiled in; [LibDTSX](https://github.com/superuser404notfound/LibDTSX), for
-DTS:X, ships as a separate dynamic framework under the LGPL-3.0-or-later.
+compiled in; DTS:X is decoded by FFmpeg itself (FFmpegBuild patches its
+DTS decoder to read the height channels), under FFmpeg's LGPL-2.1-or-later.
 Every library that ships in the app has its notices in
 [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES): AetherEngine; FFmpeg, dav1d,
-zimg and libzvbi (through FFmpegBuild); libdovi; LibTrueHD; LibDTSX; the six native
+zimg and libzvbi (through FFmpegBuild); libdovi; LibTrueHD; the six native
 subtitle libraries; and the Swift packages. The License page shows them
 after the app's own licence, each under the library's name.
 
