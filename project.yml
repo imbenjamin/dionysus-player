@@ -245,6 +245,7 @@ targets:
           - "AppVersionInfo.swift"
           - "Accessibility/**"
           - "Components/AsyncRemoteImage.swift"
+          - "Components/Toast.swift"
           - "Components/LogoImageView.swift"
           - "Components/MediaPlaceholderBox.swift"
           - "Components/ArtworkShape.swift"
@@ -253,6 +254,7 @@ targets:
       - path: DionysusPlayer/Features
         includes:
           - "**/*ViewModel.swift"
+          - "AssetDetails/AssetActionTargets.swift"
           - "Home/DynamicRailCandidate.swift"
           - "Player/PlaybackSessionOutcome.swift"
           - "Player/PlaybackRequest.swift"

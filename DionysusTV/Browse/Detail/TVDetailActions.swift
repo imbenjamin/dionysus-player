@@ -5,11 +5,12 @@ enum TVDetailFocus {
     static let restart = "action.restart"
     static let watched = "action.watched"
     static let favorite = "action.favorite"
+    static let more = "action.more"
     static let overview = "overview"
 }
 
-/// Play or Resume, Restart, Watched and Favorite. There is no More button:
-/// M3 has nothing to put in it.
+/// Play or Resume, Restart, Watched, Favorite and More Actions
+/// (`TVMoreActionsButton`: Add to Playlist and Delete).
 ///
 /// `playTarget` is what plays (the movie, or the show's resolved episode;
 /// `nil` when a show has nothing to play, where the Play button isn't
@@ -23,6 +24,8 @@ struct TVDetailActions: View {
     /// A show's episode is still being resolved: Play is drawn already, so
     /// focus has somewhere to land and the row doesn't shift when it arrives.
     var isResolving = false
+    /// What More Actions offers; `nil` draws no More button.
+    var moreTargets: AssetActionTargets?
     let focus: FocusState<String?>.Binding
     let play: (PlaybackRequest) -> Void
 
@@ -32,9 +35,10 @@ struct TVDetailActions: View {
     }
 
     /// The ids in the order drawn, for the page's `tvClaimsFocus`.
-    static func focusIDs(playTarget: MediaItem?, isResolving: Bool = false) -> [String] {
-        guard playTarget != nil || isResolving else { return [TVDetailFocus.watched, TVDetailFocus.favorite] }
-        return [TVDetailFocus.play] + (hasResume(playTarget) ? [TVDetailFocus.restart] : []) + [TVDetailFocus.watched, TVDetailFocus.favorite]
+    static func focusIDs(playTarget: MediaItem?, isResolving: Bool = false, hasMore: Bool = false) -> [String] {
+        let status = [TVDetailFocus.watched, TVDetailFocus.favorite] + (hasMore ? [TVDetailFocus.more] : [])
+        guard playTarget != nil || isResolving else { return status }
+        return [TVDetailFocus.play] + (hasResume(playTarget) ? [TVDetailFocus.restart] : []) + status
     }
 
     var body: some View {
@@ -91,6 +95,10 @@ struct TVDetailActions: View {
             .focused(focus, equals: TVDetailFocus.favorite)
             .accessibilityLabel(statusTarget.isFavorite ? String(localized: "Remove from Favorites") : String(localized: "Add to Favorites"))
             .accessibilityIdentifier(A11yID.TV.Detail.favorite)
+
+            if let moreTargets {
+                TVMoreActionsButton(viewModel: viewModel, targets: moreTargets, focus: focus)
+            }
         }
         // The section spans the page's width, not just the buttons': Up
         // from anything below then reaches the row, even from a cast member

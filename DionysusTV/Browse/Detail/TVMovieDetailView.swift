@@ -19,7 +19,7 @@ struct TVMovieDetailView: View {
     @State private var topRequest = 0
 
     private var focusIDs: [String] {
-        TVDetailActions.focusIDs(playTarget: item)
+        TVDetailActions.focusIDs(playTarget: item, hasMore: true)
             + (item.hasDescription ? [TVDetailFocus.overview] : [])
             + item.cast.map { "cast.\($0.id)" }
             + viewModel.similar.map { "similar.\($0.id)" }
@@ -76,7 +76,10 @@ struct TVMovieDetailView: View {
                             .lineLimit(2, reservesSpace: true)
                             .frame(width: 900, alignment: .leading)
                     }
-                    TVDetailActions(viewModel: viewModel, playTarget: item, statusTarget: item, isShow: false, focus: $focus, play: play)
+                    TVDetailActions(
+                        viewModel: viewModel, playTarget: item, statusTarget: item, isShow: false,
+                        moreTargets: AssetActionTargets(viewModel: viewModel, selectedSeasonID: nil), focus: $focus, play: play
+                    )
                         .padding(.top, 16)
                 }
                 // The first screen: Cast & Crew peeks at its foot.

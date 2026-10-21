@@ -118,6 +118,50 @@ final class TVShellNavigationTests: XCTestCase {
         XCTAssertEqual(nav.path.count, 3)
     }
 
+    /// Deleting a show's last episode leaves nothing beneath to go back to
+    /// (`AssetDetailViewModel.DeletionOutcome.popToRoot`).
+    func test_popToRoot_dropsEveryEntry() {
+        var nav = TVShellNavigation()
+        _ = nav.select(.library("l1"))
+        let first = nav.push(movie)
+        let second = nav.push(other)
+        let third = nav.push(movie)
+        XCTAssertEqual(nav.popToRoot(), [third, second, first], "Deepest first")
+        XCTAssertTrue(nav.path.isEmpty)
+        XCTAssertEqual(nav.destination, .library("l1"))
+    }
+
+    func test_popToRoot_onTheRoot_returnsNothing() {
+        var nav = TVShellNavigation()
+        XCTAssertEqual(nav.popToRoot(), [])
+    }
+
+    /// A delete that lands after its page was left pops nothing: Menu had
+    /// already taken the user elsewhere.
+    func test_popEntry_popsOnlyWhileItIsOnTop() {
+        var nav = TVShellNavigation()
+        let asking = nav.push(movie)
+        let above = nav.push(other)
+        XCTAssertNil(nav.pop(asking.id), "Not on top")
+        XCTAssertEqual(nav.path, [asking, above])
+        XCTAssertEqual(nav.pop(above.id), above)
+        XCTAssertEqual(nav.path, [asking])
+    }
+
+    func test_popToRootFromEntry_dropsEverythingOnlyWhileItIsInThePath() {
+        var nav = TVShellNavigation()
+        let asking = nav.push(movie)
+        _ = nav.pop()
+        let elsewhere = nav.push(other)
+        XCTAssertEqual(nav.popToRoot(from: asking.id), [], "Already gone")
+        XCTAssertEqual(nav.path, [elsewhere])
+
+        let beneath = nav.push(movie)
+        let top = nav.push(other)
+        XCTAssertEqual(nav.popToRoot(from: beneath.id), [top, beneath, elsewhere], "Deepest first")
+        XCTAssertTrue(nav.path.isEmpty)
+    }
+
     func test_pop_removesTheTop_andReturnsIt() {
         var nav = TVShellNavigation()
         _ = nav.push(movie)

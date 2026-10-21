@@ -44,6 +44,24 @@ final class TVSeasonEpisodesModelTests: XCTestCase {
         XCTAssertEqual(requests, 2)
     }
 
+    /// After a deletion every other season's list may be stale, so only the
+    /// seasons kept stay cached; the rest are fetched again when next on show.
+    func test_retain_dropsEverySeasonButThoseKept() async throws {
+        nonisolated(unsafe) var requests = 0
+        MockURLProtocol.requestHandler = { request in
+            requests += 1
+            return try Self.episodesResponse(request, ["e"])
+        }
+        let model = makeModel()
+        await model.load(seasonID: "s1")
+        await model.load(seasonID: "s2")
+        await model.load(seasonID: "s3")
+        model.retain(["s2"])
+        XCTAssertEqual(Set(model.episodes.keys), ["s2"])
+        await model.load(seasonID: "s1")
+        XCTAssertEqual(requests, 4, "A dropped season is fetched again")
+    }
+
     /// A season that exists with no episodes is an empty list, not a failure.
     func test_emptySeason_isLoadedAndEmpty() async throws {
         MockURLProtocol.requestHandler = { request in try Self.episodesResponse(request, []) }

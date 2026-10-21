@@ -443,9 +443,9 @@ scan, so the page drops it itself. A season with a folder is one request.
 ### Transient confirmations (`Shared/Components/Toast.swift`)
 
 `ToastCenter.shared.post(Toast(message:))` shows a brief self-dismissing
-capsule, rendered by one `ToastHost` overlay in `MainTabView` so it outlives
-whatever raised it (adding to a playlist dismisses its own sheet in the same
-frame). **Use it for "that worked" on an action whose own UI has already
+capsule, rendered by one `ToastHost` overlay in `MainTabView` (on the Apple
+TV, `TVMainView`) so it outlives whatever raised it (adding to a playlist
+dismisses its own sheet in the same frame). **Use it for "that worked" on an action whose own UI has already
 gone**, not as a notification channel: only a tap or its timer dismisses it,
 and a second post replaces the first. A haptic may go with it, never instead
 of it. Posting also makes a VoiceOver announcement.
@@ -453,8 +453,9 @@ of it. Posting also makes a VoiceOver announcement.
 ### Playlist editing, and what Jellyfin actually gates
 
 The app adds items to a playlist (`AssetActionsButton` →
-`AddToPlaylistSheet`) and removes them (`PlaylistItemList`'s long-press
-menu). From `PlaylistsController.cs`/`PlaylistManager.cs`, cross-checked with
+`AddToPlaylistSheet`; on the Apple TV, More Actions →
+`TVAddToPlaylistPage`, both on `AddToPlaylistViewModel`) and removes them
+(`PlaylistItemList`'s long-press menu, iOS only). From `PlaylistsController.cs`/`PlaylistManager.cs`, cross-checked with
 `jellyfin-web`:
 
 - **Creating a playlist has no permission gate.** `POST /Playlists` is

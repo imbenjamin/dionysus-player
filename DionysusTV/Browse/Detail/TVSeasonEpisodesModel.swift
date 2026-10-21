@@ -20,6 +20,13 @@ final class TVSeasonEpisodesModel {
         self.seriesID = seriesID
     }
 
+    /// Drops every season but `seasonIDs`, so the rest are fetched again
+    /// when next on show: after a deletion any of them may be stale.
+    func retain(_ seasonIDs: Set<String>) {
+        episodes = episodes.filter { seasonIDs.contains($0.key) }
+        failedSeasons.formIntersection(seasonIDs)
+    }
+
     /// Fetches a season once; `force` refetches it after playback or a
     /// watched change, keeping what's shown until the new list lands.
     func load(seasonID: String, force: Bool = false) async {

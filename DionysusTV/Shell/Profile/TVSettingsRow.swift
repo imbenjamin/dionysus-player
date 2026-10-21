@@ -6,10 +6,10 @@ import SwiftUI
 /// 2026-10-05). A setting with more choices than on and off keeps its value
 /// beside the chevron and is picked on a `TVSettingsPicker`.
 struct TVSettingsRow: View {
-    let title: LocalizedStringKey
+    let title: Text
     /// The title as VoiceOver reads it, where the shown one ends in
     /// "Button", which VoiceOver then said twice (M5).
-    var spokenTitle: LocalizedStringKey?
+    var spokenTitle: Text?
     var value: String?
     /// The value as VoiceOver reads it, when the row abbreviates it ("30s").
     var spokenValue: String?
@@ -21,10 +21,40 @@ struct TVSettingsRow: View {
     let identifier: String
     let action: () -> Void
 
+    init(
+        title: LocalizedStringKey, spokenTitle: LocalizedStringKey? = nil, value: String? = nil,
+        spokenValue: String? = nil, hint: LocalizedStringKey? = nil, opensPage: Bool = false,
+        role: ButtonRole? = nil, identifier: String, action: @escaping () -> Void
+    ) {
+        self.title = Text(title)
+        self.spokenTitle = spokenTitle.map { Text($0) }
+        self.value = value
+        self.spokenValue = spokenValue
+        self.hint = hint
+        self.opensPage = opensPage
+        self.role = role
+        self.identifier = identifier
+        self.action = action
+    }
+
+    /// A row titled with server content (a show's or a playlist's name),
+    /// which isn't looked up in the String Catalog.
+    init(
+        verbatimTitle: String, value: String? = nil, hint: LocalizedStringKey? = nil,
+        role: ButtonRole? = nil, identifier: String, action: @escaping () -> Void
+    ) {
+        self.title = Text(verbatim: verbatimTitle)
+        self.value = value
+        self.hint = hint
+        self.role = role
+        self.identifier = identifier
+        self.action = action
+    }
+
     var body: some View {
         Button(role: role, action: action) {
             HStack {
-                Text(title)
+                title
                 Spacer()
                 if let value {
                     Text(verbatim: value).foregroundStyle(.secondary)
@@ -40,7 +70,7 @@ struct TVSettingsRow: View {
         .modifier(TVDestructiveRowLook(isDestructive: role == .destructive))
         // The title alone: the button joined it with the value, which was
         // then read again as the value (M5).
-        .accessibilityLabel(Text(spokenTitle ?? title))
+        .accessibilityLabel(spokenTitle ?? title)
         .accessibilityValue(spokenValue ?? value ?? "")
         .accessibilityHint(hint.map { Text($0) } ?? Text(verbatim: ""))
         .accessibilityIdentifier(identifier)

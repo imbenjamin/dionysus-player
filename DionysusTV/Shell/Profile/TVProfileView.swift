@@ -108,18 +108,22 @@ struct TVProfileView: View {
         .fullScreenCover(item: $cover) { cover in
             switch cover {
             case .changeServer:
+                // Change Server forgets the server for every Apple TV user:
+                // their stored sign-ins then fail the server check at
+                // launch, so they all start again.
                 TVConfirmation(
-                    title: "Change Server?",
-                    message: "Everyone on this Apple TV will need to find a server and sign in again.",
-                    action: "Change Server",
+                    title: Text("Change Server?"),
+                    message: Text("Everyone on this Apple TV will need to find a server and sign in again."),
+                    action: Text("Change Server"),
                     actionIdentifier: A11yID.TV.Profile.changeServerConfirm
                 ) { appState.changeServer() }
             case .signOut:
-                // iOS's title: you sign out *of* a server.
+                // iOS's title: you sign out *of* a server. Sign Out forgets
+                // the account on this Apple TV (Benjamin, 2026-10-05).
                 TVConfirmation(
-                    title: "Sign out of \(appState.sessionStore.serverConfiguration?.name ?? String(localized: "your server"))?",
-                    message: "This Apple TV will forget the account, so signing in again needs its password or a new Quick Connect code.",
-                    action: "Sign Out",
+                    title: Text("Sign out of \(appState.sessionStore.serverConfiguration?.name ?? String(localized: "your server"))?"),
+                    message: Text("This Apple TV will forget the account, so signing in again needs its password or a new Quick Connect code."),
+                    action: Text("Sign Out"),
                     actionIdentifier: A11yID.TV.Profile.signOutConfirm
                 ) { appState.signOutForgettingAccount() }
             case .quickConnect:
@@ -340,48 +344,5 @@ struct TVProfileView: View {
     ) -> some View {
         TVSettingsRow(title: title, value: value, spokenValue: spokenValue, hint: hint, opensPage: opensPage, role: role, identifier: id, action: action)
             .focused($focus, equals: id)
-    }
-}
-
-/// Asks before a destructive account action. Change Server forgets the
-/// server for every Apple TV user: their stored sign-ins then fail the server
-/// check at launch, so they all start again. Sign Out forgets the account on
-/// this Apple TV (Benjamin, 2026-10-05). Cancel takes focus, so a stray
-/// Select changes nothing.
-private struct TVConfirmation: View {
-    @Environment(\.dismiss) private var dismiss
-    let title: LocalizedStringKey
-    let message: LocalizedStringKey
-    let action: LocalizedStringKey
-    let actionIdentifier: String
-    let onConfirm: () -> Void
-    @FocusState private var cancelFocused: Bool
-
-    var body: some View {
-        VStack(spacing: 40) {
-            Text(title).font(.title2.bold())
-            Text(message)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 900)
-            VStack(spacing: 24) {
-                Button(role: .destructive) {
-                    dismiss()
-                    onConfirm()
-                } label: {
-                    Text(action).frame(width: 500)
-                }
-                .accessibilityIdentifier(actionIdentifier)
-                Button(role: .cancel) { dismiss() } label: {
-                    Text("Cancel").frame(width: 500)
-                }
-                .focused($cancelFocused)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Opaque enough that Profile's own text and buttons don't read
-        // through as part of the question.
-        .background { Rectangle().fill(.ultraThickMaterial).ignoresSafeArea() }
-        .defaultFocus($cancelFocused, true)
     }
 }

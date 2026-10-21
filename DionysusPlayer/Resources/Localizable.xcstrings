@@ -526,18 +526,6 @@
     "Build" : {
 
     },
-    "Found %lld servers" : {
-
-    },
-    "Found a server" : {
-
-    },
-    "Recently Added" : {
-
-    },
-    "Rescan" : {
-
-    },
     "bytes" : {
 
     },
@@ -677,6 +665,9 @@
 
     },
     "Couldn't load this title." : {
+
+    },
+    "Couldn't load your playlists." : {
 
     },
     "Couldn't reach %@." : {
@@ -1021,6 +1012,12 @@
 
     },
     "Forward 10 seconds" : {
+
+    },
+    "Found %lld servers" : {
+
+    },
+    "Found a server" : {
 
     },
     "Frame Rate" : {
@@ -1426,6 +1423,9 @@
     "Recent Searches" : {
 
     },
+    "Recently Added" : {
+
+    },
     "Recently Added Movies" : {
 
     },
@@ -1463,6 +1463,9 @@
 
     },
     "Requesting a code" : {
+
+    },
+    "Rescan" : {
 
     },
     "Reset" : {
@@ -1524,6 +1527,12 @@
 
     },
     "Scan Again" : {
+
+    },
+    "Scan stopped" : {
+
+    },
+    "Scanning" : {
 
     },
     "Search" : {
@@ -1839,13 +1848,13 @@
     "This App: %@" : {
 
     },
+    "This Apple TV will forget the account, so signing in again needs its password or a new Quick Connect code." : {
+
+    },
     "This clears every custom bitrate you've set above. It can't be undone." : {
 
     },
     "This code has expired." : {
-
-    },
-    "This Apple TV will forget the account, so signing in again needs its password or a new Quick Connect code." : {
 
     },
     "This collection is empty." : {

@@ -537,7 +537,32 @@ enum A11yID {
             static let badges = "tv.detail.badges"
             /// The poster or still beside the title, for a title with no backdrop.
             static let headerArt = "tv.detail.headerArt"
+            /// More Actions, after Favorite.
+            static let more = "tv.detail.more"
         }
+        /// A detail page's More Actions: its menu's rows, the playlist
+        /// picker and the new-playlist form.
+        enum Actions {
+            /// Add to Playlist and Delete rows, keyed by the target's id.
+            static func addToPlaylist(_ itemID: String) -> String { "tv.actions.addToPlaylist.\(itemID)" }
+            static func delete(_ itemID: String) -> String { "tv.actions.delete.\(itemID)" }
+            /// The submenus offered when there are several targets.
+            static let addSubmenu = "tv.actions.addToPlaylist"
+            static let deleteSubmenu = "tv.actions.delete"
+            static let deleteConfirm = "tv.actions.delete.confirm"
+            static let newPlaylist = "tv.actions.newPlaylist"
+            /// An existing playlist the user may edit, keyed by its id.
+            static func playlistRow(_ playlistID: String) -> String { "tv.actions.playlist.\(playlistID)" }
+            static let emptyState = "tv.actions.playlists.empty"
+            static let playlistsRetry = "tv.actions.playlists.retry"
+            static let addConfirm = "tv.actions.add.confirm"
+            static let nameField = "tv.actions.newPlaylist.name"
+            static let visibilityToggle = "tv.actions.newPlaylist.visibility"
+            static let create = "tv.actions.newPlaylist.create"
+            static let createConfirm = "tv.actions.newPlaylist.create.confirm"
+        }
+        /// `TVConfirmation`'s Cancel, wherever it asks.
+        static let confirmationCancel = "tv.confirmation.cancel"
         enum Profile {
             static let name = "tv.profile.name"
             static let server = "tv.profile.server"
