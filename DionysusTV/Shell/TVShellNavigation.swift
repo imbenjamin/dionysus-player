@@ -57,12 +57,14 @@ struct TVShellNavigation: Equatable {
     /// A page pushed from Search sits beside the rail as any other does.
     var hidesCollapsedRail: Bool { destination == .search && path.isEmpty }
 
-    /// Whether choosing `row` leaves Search for another page, after which
-    /// Search starts fresh (Benjamin, 2026-10-04): empty field, no results.
-    /// Folding the Libraries group and choosing Search again stay on it; a
-    /// detail page pushed from Search keeps the query, as Menu returns to it.
-    func selectionLeavesSearch(_ row: Row) -> Bool {
-        destination == .search && row != .search && row != .librariesGroup
+    /// The page choosing `row` leaves for another, which starts fresh when
+    /// it's next chosen (Benjamin, 2026-10-04 for Search, 2026-10-20 for every
+    /// page): Search with an empty field, a library unfiltered at its top,
+    /// Home on the hero with a hard refresh. Folding the Libraries group and
+    /// choosing the page's own row stay on it (from a pushed page, that only
+    /// drops the path: a return, as Menu's is).
+    func pageLeft(choosing row: Row) -> Row? {
+        row == destination || row == .librariesGroup ? nil : destination
     }
 
     /// A chevron at the middle of the left edge says where the rail went

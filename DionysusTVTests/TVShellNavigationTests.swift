@@ -178,16 +178,31 @@ final class TVShellNavigationTests: XCTestCase {
         XCTAssertFalse(nav.showsEdgeChevron(isExpanded: false))
     }
 
-    /// Choosing another page leaves Search, which then starts fresh when
-    /// chosen again (Benjamin, 2026-10-04). Folding the Libraries group or
-    /// choosing Search again stays on it; a pushed page isn't a choice at all.
-    func test_choosingAnotherPage_leavesSearch() {
+    /// Choosing another row leaves the page on show, which starts fresh when
+    /// chosen again (Benjamin, 2026-10-04 for Search, 2026-10-20 for every
+    /// page). Folding the Libraries group or choosing the page's own row stays
+    /// on it; a pushed page isn't a choice at all.
+    func test_choosingAnotherRow_leavesThePageOnShow() {
         var nav = TVShellNavigation()
-        XCTAssertFalse(nav.selectionLeavesSearch(.profile), "Not on Search")
+        XCTAssertEqual(nav.pageLeft(choosing: .search), .home)
+        XCTAssertEqual(nav.pageLeft(choosing: .library("l1")), .home)
+        XCTAssertNil(nav.pageLeft(choosing: .home), "Its own row")
+        XCTAssertNil(nav.pageLeft(choosing: .librariesGroup), "Folding the group stays put")
         _ = nav.select(.search)
-        XCTAssertTrue(nav.selectionLeavesSearch(.home))
-        XCTAssertTrue(nav.selectionLeavesSearch(.library("l1")))
-        XCTAssertFalse(nav.selectionLeavesSearch(.search))
-        XCTAssertFalse(nav.selectionLeavesSearch(.librariesGroup))
+        XCTAssertEqual(nav.pageLeft(choosing: .home), .search)
+        XCTAssertEqual(nav.pageLeft(choosing: .profile), .search)
+        XCTAssertNil(nav.pageLeft(choosing: .search))
+        _ = nav.select(.library("l1"))
+        XCTAssertEqual(nav.pageLeft(choosing: .library("l2")), .library("l1"))
+        XCTAssertNil(nav.pageLeft(choosing: .library("l1")))
+    }
+
+    /// Home's row from a page pushed over Home only drops the path: Home is
+    /// still the root beneath, so it's a return (a soft refresh), not a page
+    /// left and chosen again.
+    func test_theRootsOwnRow_fromAPushedPage_leavesNothing() {
+        var nav = TVShellNavigation()
+        nav.push(.assetDetail(itemID: "m1", preloadedItem: nil))
+        XCTAssertNil(nav.pageLeft(choosing: .home))
     }
 }
