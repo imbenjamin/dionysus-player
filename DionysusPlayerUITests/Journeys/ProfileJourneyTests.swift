@@ -26,6 +26,27 @@ final class ProfileJourneyTests: UITestCase {
         app.buttons[A11yID.Profile.audioOffsetReset].awaitDisappearance("Reset, back at 0 ms")
     }
 
+    /// Advanced's Read-Ahead Buffer steps 30 s from 5 min. iPhone only, as
+    /// above.
+    func testReadAheadBufferStepsThirtySeconds() {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).awaitLoaded()
+        let advanced = app.buttons[A11yID.Profile.advancedPlaybackLink]
+        for _ in 0..<8 where !advanced.isHittable { app.swipeUp() }
+        advanced.tap()
+        let stepper = app.steppers[A11yID.Profile.readAheadBufferStepper]
+        for _ in 0..<4 where !stepper.isHittable { app.swipeUp() }
+        stepper.awaitExistence("the Read-Ahead Buffer stepper")
+        XCTAssertEqual(stepper.value as? String, "5 minutes", "Five minutes by default")
+        stepper.buttons.element(boundBy: 1).tap() // increment
+        XCTAssertEqual(stepper.value as? String, "5 minutes, 30 seconds")
+        stepper.buttons.element(boundBy: 0).tap()
+        stepper.buttons.element(boundBy: 0).tap()
+        XCTAssertEqual(stepper.value as? String, "4 minutes, 30 seconds")
+    }
+
     /// Each Spatial Audio toggle shows its layout picker while it's on, at
     /// 7.1.4 first.
     func testSpatialAudioTogglesRevealTheirLayoutPickers() {

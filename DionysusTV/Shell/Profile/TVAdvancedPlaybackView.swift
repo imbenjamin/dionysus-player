@@ -9,11 +9,12 @@ struct TVAdvancedPlaybackView: View {
     @AppStorage(streamingMaxBitrateStorageKey) private var streamingMaxBitrate: StreamingMaxBitrate = .unlimited
     @AppStorage(styledASSSubtitlesEnabledStorageKey) private var isStyledASSEnabled = styledASSSubtitlesEnabledDefault
     @AppStorage(showPlaybackStatsButtonEnabledStorageKey) private var showsStatsButton = showPlaybackStatsButtonEnabledDefault
+    @AppStorage(readAheadBufferSecondsStorageKey) private var readAheadSeconds = ReadAheadBufferStore.defaultSeconds
     @FocusState private var focus: String?
     @State private var picker: Picker?
 
     private enum Picker: String, Identifiable {
-        case streaming, maxBitrate
+        case streaming, maxBitrate, readAheadBuffer
         var id: String { rawValue }
     }
 
@@ -49,12 +50,31 @@ struct TVAdvancedPlaybackView: View {
                     label: \.displayName,
                     accessibilityLabel: \.accessibilityLabel
                 )
+            case .readAheadBuffer:
+                TVStepperPage(
+                    title: "Read-Ahead Buffer",
+                    value: $readAheadSeconds,
+                    range: ReadAheadBufferStore.options.first!...ReadAheadBufferStore.options.last!,
+                    step: 30,
+                    display: ReadAheadBufferStore.displayName(seconds:),
+                    spoken: ReadAheadBufferStore.accessibilityLabel(seconds:),
+                    resetTitle: "Reset to 5 min",
+                    resetValue: ReadAheadBufferStore.defaultSeconds,
+                    footer: Self.readAheadFooter,
+                    ids: .init(
+                        value: A11yID.TV.Profile.readAheadBufferValue,
+                        decrease: A11yID.TV.Profile.readAheadBufferDecrease,
+                        increase: A11yID.TV.Profile.readAheadBufferIncrease,
+                        reset: A11yID.TV.Profile.readAheadBufferReset
+                    )
+                )
             }
         }
     }
 
     private static let transcodingFooter: LocalizedStringKey = "Allow Transcoding asks the server to decide, transcoding when necessary — including to keep the stream under the Max Streaming Bitrate cap, even for a file that could otherwise play untouched."
     private static let directPlayFooter: LocalizedStringKey = "Direct Play Always sends the original file untouched — best quality, but may fail if your device or network can't handle it."
+    private static let readAheadFooter: LocalizedStringKey = "How far ahead a file playing directly is loaded. Raise it if playback stops to buffer on a slow network; it uses more of this device's storage while playing. Not used when the server transcodes."
     private static let stylingFooter: LocalizedStringKey = "Renders the fonts, colours and on-screen positioning authored into ASS and SSA subtitles. Turn this off to show them as plain text instead. Other subtitle formats are unaffected."
     private static let statsFooter: LocalizedStringKey = "Shows a button on the player screen for viewing technical playback details."
 
@@ -82,6 +102,15 @@ struct TVAdvancedPlaybackView: View {
         } else {
             TVSettingsFooter(text: Self.directPlayFooter)
         }
+        TVSettingsRow(
+            title: "Read-Ahead Buffer", value: ReadAheadBufferStore.displayName(seconds: readAheadSeconds),
+            spokenValue: ReadAheadBufferStore.accessibilityLabel(seconds: readAheadSeconds), hint: Self.readAheadFooter,
+            opensPage: true, identifier: A11yID.TV.Profile.readAheadBuffer
+        ) {
+            picker = .readAheadBuffer
+        }
+        .padding(.top, 24)
+        TVSettingsFooter(text: Self.readAheadFooter)
         TVSettingsRow(title: "Subtitle Styling", value: onOff(isStyledASSEnabled), hint: Self.stylingFooter, identifier: A11yID.TV.Profile.subtitleStyling) {
             isStyledASSEnabled.toggle()
         }

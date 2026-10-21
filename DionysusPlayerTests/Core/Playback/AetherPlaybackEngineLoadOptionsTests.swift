@@ -31,6 +31,22 @@ final class AetherPlaybackEngineLoadOptionsTests: XCTestCase {
         XCTAssertTrue(options.prepareNativeSubtitles)
         XCTAssertFalse(options.isLive)
     }
+    /// A direct-play remux has one fixed bitrate, so the read-ahead is its
+    /// only cushion: five minutes by default (75 of the engine's ~4 s
+    /// segments), not the engine's ~40 s (Benjamin, 2026-10-21).
+    func test_forwardBuffer_defaultsToFiveMinutes() {
+        let options = AetherPlaybackEngine.makeLoadOptions(isRemoteHLS: false, externalSubtitles: [], display: .unknown)
+        XCTAssertEqual(options.forwardBufferSegments, 75)
+    }
+
+    /// The Read-Ahead Buffer setting reaches the engine.
+    func test_forwardBuffer_followsTheSetting() {
+        let options = AetherPlaybackEngine.makeLoadOptions(
+            isRemoteHLS: false, externalSubtitles: [], display: .unknown, readAheadSeconds: 30
+        )
+        XCTAssertEqual(options.forwardBufferSegments, 8)
+    }
+
     // MARK: Spatial Audio
 
     func test_spatialAudio_defaultsToOff() {
