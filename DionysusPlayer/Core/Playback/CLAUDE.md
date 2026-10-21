@@ -137,6 +137,22 @@ it needs the `TrueHDObjectAudio`/`DTSXObjectAudio` traits
   engine loops a silent Atmos stream so soundbars light their indicator
   (`AtmosOutputActivator`); nothing to do in the app.
 
+## Read-Ahead Buffer
+
+**How far ahead a direct-play file is loaded is a setting** (Profile →
+Playback → Advanced, both apps; `ReadAheadBufferStore`): 30 s to 10 min in
+30 s steps, 5 min by default, read at each load and passed as
+`LoadOptions.forwardBufferSegments` (the engine's segments are ~4 s, so 5 min
+is 75). AetherEngine's own default, about 40 s, ran dry on a 4K remux over
+powerline and Wi-Fi (Benjamin, 2026-10-21): a direct-play remux has one fixed
+bitrate, so the buffer is its only cushion, where a streaming service drops
+quality instead. Players for local libraries buffer in minutes (Infuse,
+Kodi's raised caches); ExoPlayer's 50 s and AVPlayer's own are tuned for
+adaptive streams. Segments are disk-backed (~750 MB for 5 min of 4K) and the
+engine caps the window at a quarter of free space. It does nothing on a
+server transcode (`nativeRemoteHLS`), where AVPlayer buffers against the
+server itself.
+
 ## After the app comes back from the background
 
 AetherEngine releases a paused session's decode pipeline after its

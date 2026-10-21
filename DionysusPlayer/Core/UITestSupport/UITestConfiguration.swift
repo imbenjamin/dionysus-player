@@ -209,6 +209,10 @@ enum UITestScenario: String {
     /// standing in for a server transcode (AetherEngine's `.remoteBypass`),
     /// so the player's offset controls are hidden.
     case audioOffsetUnavailable
+    /// `.standard`, but the fake engine stalls 2 s into playback, reporting
+    /// `.buffering` for 3 s before playing on: a mid-play rebuffer, as a
+    /// remux on a slow link has.
+    case rebuffering
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a

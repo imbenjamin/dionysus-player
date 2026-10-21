@@ -867,6 +867,15 @@ So the reducer flashes the pause glyph and brings the transport up on any
 playing-to-paused change it didn't cause (`TVPlayerInputModel.tick`), and
 skips it for its own Play/Pause and a scan.
 
+**A stall shows a spinner** (`TVTransportOverlay.spinnerDelay`): at once
+while loading, and after half a second of a mid-play rebuffer or a dropped
+connection, with or without the transport, so a catch shorter than that
+doesn't flash it. It used to show nothing at all (Benjamin, 2026-10-21, a 4K
+remux over powerline and Wi-Fi). It's UIKit's white indicator on a dark
+plate: SwiftUI's `ProgressView` draws grey on tvOS and ignores `tint`.
+`TVPlayerContext` still maps `.buffering` to `.playing`, which is about the
+input the player accepts, not what it draws.
+
 **The player doesn't use the focus engine** (Benjamin, 2026-10-06, as
 Sodalite does). The host's recognizers take every press and swipe and hand
 them to `TVPlayerInputModel`, a pure reducer over `TVPlayerInputState` that

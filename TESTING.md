@@ -241,6 +241,7 @@ JSON, so a DTO change is a compile error rather than silent rot.
 | `thinDynamicRails` | Home's dynamic rails nearly all too thin, so it keeps loading |
 | `skipIntro` / `earlyCredits` | An intro from 0:00 to 83:20; credits from 0:05 (Next Up at once) |
 | `audioOffsetUnavailable` | The fake engine reports the audio offset unavailable (a server transcode's case), so the player hides its offset controls |
+| `rebuffering` | The fake engine stalls 2 s into playback, reporting `.buffering` for 3 s (the Apple TV's stall spinner) |
 
 ### The fake playback engine
 
@@ -622,6 +623,7 @@ the detail.
 | `Core/Persistence/MediaVersionPreferenceStoreTests` | The remembered media version |
 | `Core/Persistence/SearchHistoryStoreTests` | Search history and its cap |
 | `Core/Persistence/ServerSessionStoreTests` | Server and credentials storage; tvOS's remembered accounts and `moveSession` merges |
+| `Core/Persistence/ReadAheadBufferStoreTests` | The Read-Ahead Buffer's steps, default, snapping and segments |
 | `Core/Persistence/StreamPreferenceStoreTests` | Streaming mode and bitrate defaults |
 | `Core/Persistence/TrackPreferenceStoreTests` | Remembered audio and subtitle choices |
 | `Core/Playback/ASSSeekHoldTests` | Holding libass back until the engine re-measures after a seek |
@@ -682,6 +684,7 @@ the detail.
 | `TVPlaybackTimeFormatTests` | Player times |
 | `TVPlayerAccessibleTransportTests` | The reducer in the accessible mode |
 | `TVPlayerCommandRunnerTests` | Commands reaching the engine through the view model |
+| `TVBufferingSpinnerTests` | When the player's stall spinner shows |
 | `TVPlayerContextTests` | What the player accepts input in |
 | `TVPlayerFlashTests` | The play, pause and skip glyphs; the scrubber's knob |
 | `TVPlayerFocusIDTests` | The player's focus marker |

@@ -497,7 +497,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// the engine's own defaults.
     nonisolated static func makeLoadOptions(
         isRemoteHLS: Bool, externalSubtitles: [ExternalSubtitleTrack], display: DisplayContext, audioOffset: TimeInterval = 0,
-        spatialAudio: SpatialAudioRendering = .off
+        spatialAudio: SpatialAudioRendering = .off, readAheadSeconds: Int = ReadAheadBufferStore.defaultSeconds
     ) -> LoadOptions {
         // Order matters here beyond just readability: `LoadOptions`' own
         // memberwise init takes ~40 named, defaulted parameters, but Swift
@@ -533,6 +533,10 @@ final class AetherPlaybackEngine: PlaybackEngine {
         // `TrueHDObjectAudio`/`DTSXObjectAudio` traits; `.off` keeps today's
         // Dolby Digital Plus bridge. Set after the init, out of its order.
         options.objectAudioRendering = engineRendering(spatialAudio)
+        // The Read-Ahead Buffer setting (`ReadAheadBufferStore`). Segments
+        // are disk-backed (~750 MB for five minutes of 4K), and the engine
+        // caps the window at a quarter of free space.
+        options.forwardBufferSegments = ReadAheadBufferStore.segments(forSeconds: readAheadSeconds)
         return options
     }
 
@@ -600,7 +604,8 @@ final class AetherPlaybackEngine: PlaybackEngine {
             externalSubtitles: externalSubtitles.map(Self.makeExternalSubtitleTrack),
             display: DisplayContext.current(),
             audioOffset: audioOffset,
-            spatialAudio: spatialAudio
+            spatialAudio: spatialAudio,
+            readAheadSeconds: ReadAheadBufferStore.seconds()
         )
         do {
             _ = try await engine.load(url: url, options: options)

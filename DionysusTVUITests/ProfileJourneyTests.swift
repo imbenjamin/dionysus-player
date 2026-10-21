@@ -235,6 +235,35 @@ final class ProfileJourneyTests: TVUITestCase {
         XCTAssertTrue(bitrate.waitForExistence(timeout: 5))
     }
 
+    /// Read-Ahead Buffer: 5 min by default, stepped 30 s with − and +, as
+    /// Audio Offset is.
+    func test_advanced_readAheadBuffer_stepsThirtySeconds() {
+        let app = launchAtHome()
+        openProfile(app)
+        pressDownThroughProfile(until: app.buttons[A11yID.TV.Profile.advanced])
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Profile.streamingMode]))
+        let row = app.buttons[A11yID.TV.Profile.readAheadBuffer]
+        pressDown(until: row)
+        // The row's value is what VoiceOver reads (`spokenValue`).
+        XCTAssertEqual(row.value as? String, "5 minutes")
+        press(.select)
+        let value = app.descendants(matching: .any)[A11yID.TV.Profile.readAheadBufferValue]
+        XCTAssertTrue(value.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Profile.readAheadBufferIncrease]), "The page opens on +")
+        XCTAssertFalse(app.buttons[A11yID.TV.Profile.readAheadBufferReset].isEnabled, "Nothing to reset at 5 min")
+        press(.select)
+        XCTAssertTrue(poll(timeout: 3) { value.label == "5 minutes, 30 seconds" })
+        press(.left)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Profile.readAheadBufferDecrease]))
+        press(.select)
+        press(.select)
+        XCTAssertTrue(poll(timeout: 3) { value.label == "4 minutes, 30 seconds" })
+        press(.menu)
+        XCTAssertTrue(waitForFocus(row))
+        XCTAssertEqual(row.value as? String, "4 minutes, 30 seconds")
+    }
+
     /// `StreamDecisionMode`'s raw values (the UI-test target can't see the
     /// app's types).
     private enum StreamDecisionModeID {

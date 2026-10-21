@@ -90,4 +90,15 @@ final class PlayerJourneyTests: TVUITestCase {
         XCTAssertEqual(elapsed.label, pausedAt, "Nothing should play while paused")
     }
 
+    /// A mid-play rebuffer shows a spinner, with the transport hidden too,
+    /// and clears it once playback resumes (Benjamin, 2026-10-21: a stall on
+    /// a slow link showed nothing). The `rebuffering` fake engine stalls for
+    /// 3 s, 2 s in.
+    func test_rebuffer_showsASpinner_untilPlaybackResumes() {
+        let app = openPlayer(scenario: "rebuffering", extraArguments: [])
+        let spinner = app.descendants(matching: .any)[A11yID.TV.Player.buffering]
+        XCTAssertTrue(spinner.waitForExistence(timeout: 8), "A rebuffer shows the spinner")
+        XCTAssertTrue(poll(timeout: 8) { !spinner.exists }, "It clears when playback resumes")
+    }
+
 }

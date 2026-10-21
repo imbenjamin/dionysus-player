@@ -10,6 +10,8 @@ struct TVTransportOverlay: View {
     @State private var isLogoFallbackVisible = false
     @AppStorage(chaptersInScrubberEnabledStorageKey) private var chaptersInScrubber = chaptersInScrubberEnabledDefault
     @State private var bufferedSeconds: Double?
+    /// Set once `spinnerDelay(for:)` has passed in the current state.
+    @State private var showsSpinner = false
     @State private var thumbnails: TVScrubThumbnailLoader
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -32,10 +34,38 @@ struct TVTransportOverlay: View {
     /// The preview's time while scrubbing, else the playhead.
     private var shownTime: TimeInterval { state.scrub?.previewTime ?? viewModel.currentTime }
 
+    /// How long a state lasts before the spinner shows, or `nil` for none.
+    /// Loading shows it at once; a rebuffer or a dropped connection after
+    /// half a second, so a catch shorter than that doesn't flash it. A scrub
+    /// has its own preview.
+    static func spinnerDelay(for state: PlaybackState) -> Duration? {
+        switch state {
+        case .loading: .zero
+        case .buffering, .reconnecting: .milliseconds(500)
+        default: nil
+        }
+    }
+
+    private var spinner: some View {
+        // White on a dark plate, as iOS's is white: tvOS's grey `ProgressView`
+        // (which ignores `tint`) all but vanished over dark video.
+        VStack(spacing: 20) {
+            TVWhiteSpinner()
+            if viewModel.state == .reconnecting {
+                Text("Reconnecting…").font(.callout).foregroundStyle(.white)
+            }
+        }
+        .padding(36)
+        .background(.black.opacity(0.55), in: .rect(cornerRadius: 24))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(viewModel.state == .reconnecting ? Text("Reconnecting…") : Text("Loading"))
+        .accessibilityIdentifier(A11yID.TV.Player.buffering)
+    }
+
     var body: some View {
         ZStack {
-            if viewModel.state == .loading {
-                ProgressView().controlSize(.large)
+            if showsSpinner {
+                spinner
             }
             if let error = viewModel.errorMessage {
                 Text(error)
@@ -50,6 +80,20 @@ struct TVTransportOverlay: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.easeInOut(duration: 0.25), value: showsChrome)
+        // A stall used to show nothing at all (Benjamin, 2026-10-21, a 4K
+        // remux on a slow link): it now shows the spinner, with or without
+        // the transport, after `spinnerDelay(for:)`.
+        .task(id: viewModel.state) {
+            guard let delay = Self.spinnerDelay(for: viewModel.state) else {
+                showsSpinner = false
+                return
+            }
+            if delay > .zero {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+            }
+            showsSpinner = true
+        }
         // `PlaybackStats.bufferedSeconds` is polled, not pushed; once a
         // second is plenty for a fill nobody reads to the second.
         .task(id: showsChrome) {
@@ -423,4 +467,17 @@ private extension View {
             }
         )
     }
+}
+
+/// UIKit's large activity indicator in white: SwiftUI's `ProgressView` on
+/// tvOS draws grey and ignores `tint`.
+private struct TVWhiteSpinner: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIActivityIndicatorView {
+        let view = UIActivityIndicatorView(style: .large)
+        view.color = .white
+        view.startAnimating()
+        return view
+    }
+
+    func updateUIView(_ view: UIActivityIndicatorView, context: Context) {}
 }

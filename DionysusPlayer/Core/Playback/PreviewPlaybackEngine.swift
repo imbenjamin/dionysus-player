@@ -115,6 +115,21 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         onStateChange?(.playing)
         onTimeUpdate?(currentTime, duration)
         startTickingIfNeeded()
+        if UITestConfiguration.scenario == .rebuffering { simulateRebuffer() }
+    }
+
+    /// The `rebuffering` scenario's stall: 2 s in, `.buffering` for 3 s with
+    /// the clock stopped, then playing on.
+    private func simulateRebuffer() {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, self.isPlaying else { return }
+            self.stopTicking()
+            self.onStateChange?(.buffering)
+            try? await Task.sleep(for: .seconds(3))
+            guard self.isPlaying else { return }
+            self.play()
+        }
     }
 
     func play() {

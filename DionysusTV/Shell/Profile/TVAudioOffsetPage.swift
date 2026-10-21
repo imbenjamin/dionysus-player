@@ -1,14 +1,62 @@
 import SwiftUI
 
 /// Profile → Playback → Audio Offset: the global lip-sync offset, stepped
-/// 10 ms at a time with − and +, on a cover like `TVSettingsPicker`'s. Titles
-/// override it from the player's Audio tab (`AudioOffsetController`).
+/// 10 ms at a time with − and + (`TVStepperPage`). Titles override it from
+/// the player's Audio tab (`AudioOffsetController`).
+struct TVAudioOffsetPage: View {
+    @Binding var milliseconds: Int
+
+    var body: some View {
+        TVStepperPage(
+            title: "Audio Offset",
+            value: $milliseconds,
+            range: AudioOffset.range,
+            step: AudioOffset.step,
+            display: AudioOffsetFormat.value,
+            caption: AudioOffsetFormat.hint,
+            spoken: AudioOffsetFormat.spoken,
+            resetTitle: "Reset to 0 ms",
+            resetValue: 0,
+            footer: "Delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel.",
+            ids: .init(
+                value: A11yID.TV.Profile.audioOffsetValue,
+                decrease: A11yID.TV.Profile.audioOffsetDecrease,
+                increase: A11yID.TV.Profile.audioOffsetIncrease,
+                reset: A11yID.TV.Profile.audioOffsetReset
+            )
+        )
+    }
+}
+
+/// A number stepped with − and +, on a cover like `TVSettingsPicker`'s: the
+/// value large in the middle, Reset below, the setting's explanation at the
+/// foot. Audio Offset and Read-Ahead Buffer (Benjamin, 2026-10-21: a stepper,
+/// not a twenty-row list).
 ///
 /// Holding Select on − or + repeats the step every 0.1 s after 0.4 s, as the
 /// player's Offset row does with Left/Right: a tvOS button doesn't repeat by
 /// itself.
-struct TVAudioOffsetPage: View {
-    @Binding var milliseconds: Int
+struct TVStepperPage: View {
+    struct IDs {
+        let value: String
+        let decrease: String
+        let increase: String
+        let reset: String
+    }
+
+    let title: LocalizedStringKey
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    let step: Int
+    let display: (Int) -> String
+    /// A line under the value ("audio later"), if the setting has one.
+    var caption: ((Int) -> String)?
+    let spoken: (Int) -> String
+    let resetTitle: LocalizedStringKey
+    let resetValue: Int
+    let footer: LocalizedStringKey
+    let ids: IDs
+
     @FocusState private var focused: String?
     @State private var repeatTask: Task<Void, Never>?
     /// The hold stepped at least once, so the button's own action, which
@@ -20,32 +68,32 @@ struct TVAudioOffsetPage: View {
 
     var body: some View {
         VStack(spacing: 40) {
-            Text("Audio Offset")
+            Text(title)
                 .font(.title2.bold())
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier(A11yID.TV.Profile.pageTitle)
             VStack(spacing: 8) {
-                Text(verbatim: AudioOffsetFormat.value(milliseconds))
+                Text(verbatim: display(value))
                     .font(.system(size: 96, weight: .bold).monospacedDigit())
-                Text(verbatim: AudioOffsetFormat.hint(milliseconds))
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
+                if let caption {
+                    Text(verbatim: caption(value))
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(verbatim: AudioOffsetFormat.spoken(milliseconds)))
-            .accessibilityIdentifier(A11yID.TV.Profile.audioOffsetValue)
+            .accessibilityLabel(Text(verbatim: spoken(value)))
+            .accessibilityIdentifier(ids.value)
             HStack(spacing: 40) {
-                stepButton("minus", steps: -1, enabled: milliseconds > AudioOffset.range.lowerBound,
-                           id: A11yID.TV.Profile.audioOffsetDecrease, label: "Decrease")
-                stepButton("plus", steps: 1, enabled: milliseconds < AudioOffset.range.upperBound,
-                           id: A11yID.TV.Profile.audioOffsetIncrease, label: "Increase")
+                stepButton("minus", steps: -1, enabled: value > range.lowerBound, id: ids.decrease, label: "Decrease")
+                stepButton("plus", steps: 1, enabled: value < range.upperBound, id: ids.increase, label: "Increase")
             }
             .focusSection()
-            Button("Reset to 0 ms") { milliseconds = 0 }
-                .disabled(milliseconds == 0)
-                .focused($focused, equals: A11yID.TV.Profile.audioOffsetReset)
-                .accessibilityIdentifier(A11yID.TV.Profile.audioOffsetReset)
-            Text("Delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel.")
+            Button(resetTitle) { value = resetValue }
+                .disabled(value == resetValue)
+                .focused($focused, equals: ids.reset)
+                .accessibilityIdentifier(ids.reset)
+            Text(footer)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -53,7 +101,7 @@ struct TVAudioOffsetPage: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { Rectangle().fill(.ultraThickMaterial).ignoresSafeArea() }
-        .defaultFocus($focused, A11yID.TV.Profile.audioOffsetIncrease)
+        .defaultFocus($focused, ids.increase)
         .onDisappear { stopRepeating() }
     }
 
@@ -62,7 +110,7 @@ struct TVAudioOffsetPage: View {
             if holdRepeated {
                 holdRepeated = false
             } else {
-                step(steps)
+                stepBy(steps)
             }
         } label: {
             Image(systemName: symbol)
@@ -78,8 +126,8 @@ struct TVAudioOffsetPage: View {
         .accessibilityIdentifier(id)
     }
 
-    private func step(_ steps: Int) {
-        milliseconds = AudioOffset.normalized(milliseconds + steps * AudioOffset.step)
+    private func stepBy(_ steps: Int) {
+        value = min(max(value + steps * step, range.lowerBound), range.upperBound)
     }
 
     private func startRepeating(_ steps: Int) {
@@ -89,7 +137,7 @@ struct TVAudioOffsetPage: View {
             try? await Task.sleep(for: Self.repeatDelay)
             while !Task.isCancelled {
                 holdRepeated = true
-                step(steps)
+                stepBy(steps)
                 try? await Task.sleep(for: Self.repeatInterval)
             }
         }

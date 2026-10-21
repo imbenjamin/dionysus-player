@@ -381,6 +381,7 @@ enum A11yID {
         static let quickConnectRow = "profile.quickConnectRow"
         static let advancedPlaybackLink = "profile.advancedPlaybackLink"
         static let styledSubtitlesToggle = "profile.styledSubtitlesToggle"
+        static let readAheadBufferStepper = "profile.readAheadBuffer.stepper"
         static let downloadsSettingsLink = "profile.downloadsSettingsLink"
         static let qualityLadderLink = "profile.qualityLadderLink"
         static let licenseLink = "profile.licenseLink"
@@ -607,6 +608,11 @@ enum A11yID {
             static let pageTitle = "tv.profile.pageTitle"
             static let pickerOptions = "tv.profile.picker.options"
             static let advancedRows = "tv.profile.advanced.rows"
+            static let readAheadBuffer = "tv.profile.readAheadBuffer"
+            static let readAheadBufferValue = "tv.profile.readAheadBuffer.value"
+            static let readAheadBufferDecrease = "tv.profile.readAheadBuffer.decrease"
+            static let readAheadBufferIncrease = "tv.profile.readAheadBuffer.increase"
+            static let readAheadBufferReset = "tv.profile.readAheadBuffer.reset"
             /// A choice on a setting's picker page, by the option's id
             /// (`StreamDecisionMode.rawValue`, a countdown's seconds…).
             static func option(_ id: String) -> String { "tv.profile.option.\(id)" }
@@ -638,6 +644,8 @@ enum A11yID {
             static let bufferedRange = "tv.player.buffered"
             static let scanIndicator = "tv.player.scan"
             static let actionFlash = "tv.player.flash"
+            /// The spinner drawn while playback loads or rebuffers.
+            static let buffering = "tv.player.buffering"
             static let skipButton = "tv.player.skip"
             static let nextUpCard = "tv.player.nextUp"
             static let nextUpPlayNow = "tv.player.nextUp.playNow"
