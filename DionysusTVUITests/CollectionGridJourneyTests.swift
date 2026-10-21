@@ -265,6 +265,38 @@ final class CollectionGridJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(neighbour), "Focus is on the tile beside where it was")
     }
 
+    /// Another page chosen from the sidebar, then the library again: a fresh
+    /// grid, with no filter set and every title back (Benjamin, 2026-10-20).
+    func test_leavingForAnotherPage_andComingBack_startsFresh() {
+        let app = launchAtHome()
+        let movies = openMovies(app)
+        let tiles = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tv.library.tile."))
+        let all = tiles.count
+        let genre = app.buttons[A11yID.TV.Library.filter("genre")]
+        let reset = app.buttons[A11yID.TV.Library.resetFilters]
+        press(.up)
+        XCTAssertTrue(waitForFocus(genre))
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Library.option("genre", "all")]))
+        press(.down)
+        press(.select)
+        XCTAssertTrue(poll(timeout: 5) { tiles.count > 0 && tiles.count < all }, "The filter narrowed the grid")
+        XCTAssertTrue(reset.waitForExistence(timeout: 5))
+
+        press(.menu)
+        XCTAssertTrue(waitForFocus(movies))
+        press(.up)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Sidebar.search]))
+        press(.up)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Sidebar.home]))
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.heroPlay]))
+
+        _ = openMovies(app)
+        XCTAssertTrue(poll(timeout: 5) { tiles.count == all }, "The library starts fresh, every title back")
+        XCTAssertFalse(reset.exists, "…with no filter set")
+    }
+
     func test_failedLibrary_showsRetry() {
         let app = launchAtHome(scenario: "failingLibrary")
         openRailFromHome(app)

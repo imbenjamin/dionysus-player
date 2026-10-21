@@ -12,8 +12,9 @@ import UIKit
 /// `TVShellNavigation`.
 ///
 /// Only the page on show is built (the app is image heavy): choosing another
-/// tears the old one down. The shell keeps each page's data and the item that
-/// last had focus, so a rebuilt page comes back as it was. The player is the
+/// tears the old one down, and it starts fresh when it's next chosen
+/// (`startFresh`). The shell owns Home's and Search's view models, so a fresh
+/// Home refreshes in place rather than loading again. The player is the
 /// exception: it's laid over the page, which stays as it is beneath.
 struct TVMainView: View {
     @Environment(AppState.self) private var appState
@@ -381,14 +382,11 @@ struct TVMainView: View {
     }
 
     private func select(_ row: TVSidebarLayout.Row) {
+        let pageLeft = nav.pageLeft(choosing: row)
+        if let pageLeft { startFresh(pageLeft) }
         if case .library(let id) = row, libraryGrids[id] == nil,
            let library = libraries.first(where: { $0.id == id }) {
             libraryGrids[id] = CollectionGridViewModel(client: client, userID: userID, query: TVSidebarLayout.query(for: library))
-        }
-        if nav.selectionLeavesSearch(row) {
-            search.query = ""
-            search.queryChanged()
-            rememberedSearchResult = nil
         }
         if row != .librariesGroup {
             detailModels.values.forEach { $0.cancelBackgroundWork() }
@@ -398,7 +396,49 @@ struct TVMainView: View {
         }
         let selection = withAnimation(TVMotion.moving(.easeOut(duration: 0.2), reduceMotion: reduceMotion)) { nav.select(row) }
         guard selection == .navigated else { return }
+        // Chosen from another page, Home gets everything again, the hero's
+        // picks and the dynamic rails included (Benjamin, 2026-10-20), in
+        // place, without its spinner. Back on show beneath a popped page it
+        // refreshes only its curated rails (`TVHomeView`).
+        if row == .home, pageLeft != nil { Task { await home.hardRefresh() } }
+        // A library's fresh view model has loaded since it was left
+        // (`startFresh`): it reloads in place, so watched state is current.
+        // Still loading, its grid's own `loadIfNeeded()` joins that load.
+        if case .library(let id) = row, pageLeft != nil, let grid = libraryGrids[id], !grid.items.isEmpty {
+            Task { await grid.load() }
+        }
         handFocusToPage(choosingRow: true)
+    }
+
+    /// Forgets what a page kept, so it starts fresh when it's next chosen
+    /// (`TVShellNavigation.pageLeft(choosing:)`): Search with an empty field,
+    /// a library with a new view model (default sort, no filters, its top),
+    /// Home on the hero's Play.
+    ///
+    /// A library's new view model starts loading as the page is left, not
+    /// when it's chosen again: built then, the page showed its spinner while
+    /// the sidebar closed, and the grid arrived after the page had slid into
+    /// place, so the slide went unseen (Benjamin, on Bedroom, 2026-10-21).
+    private func startFresh(_ page: TVSidebarLayout.Row) {
+        switch page {
+        case .search:
+            search.query = ""
+            search.queryChanged()
+            rememberedSearchResult = nil
+        case .home:
+            rememberedHomeTile = nil
+        case .library(let id):
+            rememberedLibraryItems[id] = nil
+            guard let library = libraries.first(where: { $0.id == id }) else {
+                libraryGrids[id] = nil
+                return
+            }
+            let grid = CollectionGridViewModel(client: client, userID: userID, query: TVSidebarLayout.query(for: library))
+            libraryGrids[id] = grid
+            Task { await grid.loadIfNeeded() }
+        default:
+            break
+        }
     }
 
     /// Holds the sidebar and asks the focus system for the page, which with

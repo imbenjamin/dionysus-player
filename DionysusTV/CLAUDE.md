@@ -52,8 +52,17 @@ screenshot.
 
 **Only the page on show is built, and the player is laid over it** (Benjamin,
 2026-10-01, the app being image heavy). Choosing another page tears the old
-one down; the shell owns Home's, Search's and each library's view model, and
-each page remembers its focused item, so it comes back as it was.
+one down, and **a page left from the sidebar starts fresh when it's next
+chosen** (Benjamin, 2026-10-20; `TVShellNavigation.pageLeft(choosing:)`,
+`TVMainView.startFresh`): Search with an empty field, a library with a new
+view model (default sort, no filters, at its top; loaded as it's left, so
+the grid, not a spinner, slides in as the sidebar closes, and reloaded in
+place on return), Home on the hero's Play
+with a hard refresh in place (new hero picks and dynamic rails, no spinner).
+Choosing the page's own row isn't leaving it: from a page pushed over Home
+it only drops the path, and Home, back on show, does a soft refresh (the
+curated rails), as after Menu. On iOS a tab keeps its state across switches;
+this is tvOS's own call.
 `TVPlayerPresenter` presents the player over the page, which stays alive
 beneath, so leaving it is immediate with scroll and focus intact. It refuses a
 second player while one is anywhere in the presented chain
@@ -413,9 +422,8 @@ Your Library" placeholder. **The recent rails are keyed apart from the
 results'** (`recentKey`): sharing ids, the lazy stack kept a results rail on
 screen once the field was emptied. Its tiles have no badges (search hints
 carry no user data). **Choosing another page from the sidebar leaves Search,
-which starts fresh** (Benjamin, 2026-10-04;
-`TVShellNavigation.selectionLeavesSearch`); a detail page pushed from Search
-keeps the query.
+which starts fresh** (Benjamin, 2026-10-04; every page does, see "The shell");
+a detail page pushed from Search keeps the query.
 
 **Limitation: the system search UI must be full screen** (Benjamin,
 2026-10-04). `.searchable`'s field, keyboard and hint are laid out for the

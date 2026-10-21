@@ -179,6 +179,29 @@ final class HomeJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(seeAll))
     }
 
+    /// Another page chosen from the sidebar, then Home again: a fresh Home,
+    /// focus on the hero's Play rather than the tile it was left on
+    /// (Benjamin, 2026-10-20).
+    func test_leavingForAnotherPage_andComingBack_landsOnTheHero() {
+        let app = launchAtHome()
+        let tile = focusFirstRailTile(app)
+        press(.left)
+        let search = app.buttons[A11yID.TV.Sidebar.search]
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Sidebar.home]), "Left from a rail's first tile opens the rail")
+        press(.down)
+        XCTAssertTrue(waitForFocus(search))
+        press(.select)
+        XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: 5))
+
+        press(.menu)
+        XCTAssertTrue(waitForFocus(search))
+        press(.up)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Sidebar.home]))
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.heroPlay]), "Home starts fresh, on the hero")
+        XCTAssertFalse(tile.hasFocus)
+    }
+
     /// No Libraries rail: the sidebar already lists every library
     /// (Benjamin, 2026-10-05).
     func test_home_hasNoLibrariesRail() {
