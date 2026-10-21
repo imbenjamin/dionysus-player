@@ -283,6 +283,53 @@ chooses by kind), all on `AssetDetailViewModel`.
   library): with nothing focused, Menu reaches nothing, and the shell's
   three-second fallback opened the sidebar, where Menu left the app.
 
+**More Actions (`TVMoreActionsButton`, ⋯ after Favorite on a movie's and a
+show's page) is iOS's Add to Playlist and Delete** (Benjamin, 2026-10-21),
+offering the same targets in the same words (`AssetActionTargets`, shared
+with iOS's `AssetActionsButton`) on the shared `AssetDetailViewModel` and
+`AddToPlaylistViewModel`.
+
+- **A system `Menu`, then the app's own pages**: Benjamin chose this hybrid
+  over a full-screen list and over menus throughout. The menu has iOS's
+  shape (one target a row, several a submenu naming each, Delete last below
+  a divider). Add to Playlist opens `TVAddToPlaylistPage` and Delete its
+  question (`TVConfirmation`), each a full-screen cover Menu closes onto ⋯.
+- **The menu gives focus back about 1.3 s after it closes** (1.28 s on the
+  tvOS 27 Simulator, against 0.61 s for a cover), nothing focused between;
+  accepted for the native look. The UI-test harness turns animations off,
+  which hides it (0.27 s for both): measure without
+  `-UITestDisableAnimations`.
+- **On a show the targets are built from the page's own item**, not
+  `viewModel.item`: an episode chosen in place lives in `chosenEpisodeID`.
+  On the series: the show and the season on show, never the episode Play
+  would start; on an episode: show, season, episode. Deleting an episode
+  chosen in place stays on the show with focus on ⋯; deleting the season on
+  show moves the tabs to one that's left. Deleting the page's own title pops
+  it (`tvPopPage`), and deleting a show's last episode or season pops to the
+  root (`tvPopToRoot`; Jellyfin drops the emptied show), as
+  `DeletionOutcome` says.
+- **Both pops are bound to the page that asked** (`TVMainView` sets them per
+  pushed page): a slow delete (a folderless season goes episode by episode)
+  can land after Menu has left the page, and popping whatever was on top
+  then took the user off a page they'd since opened.
+- **After a deletion the show page keeps only the seasons that still exist**
+  (`TVSeasonEpisodesModel.retain`): the one on show and the chosen episode's,
+  refetched. The chosen episode can sit in another tab's season, and a
+  deleted season's cached list kept it found, so the page stayed on an
+  episode that was gone.
+- **Confirmed work runs from the question cover's `onDismiss`**, so nothing
+  closes or pops a cover while the question's own is still going.
+- **The toast is iOS's** (`ToastHost`, hosted by `TVMainView` above the
+  pages), so "Added to …" outlives the cover it closes.
+- **The picker's scroll view doesn't clip** (`.scrollClipDisabled()`): a
+  focused row grows past the 900pt column, and clipped, its rounded ends were
+  cut off (Benjamin, 2026-10-21).
+- **In XCUITest a `Menu` reports focus on an unnamed child, and a menu row's
+  focus on the `Cell` around it; on tvOS 27 a submenu's rows have no
+  identifiers** (set on the Button or its Label alike; tvOS 26.5 keeps them),
+  only their labels. `MoreActionsJourneyTests` reads focus through
+  `isFocused` and finds submenu rows by identifier or the stub's titles.
+
 **A title with no backdrop shows its poster or thumb beside the title**
 (Benjamin, 2026-10-02; `TVDetailHeaderArt`): a movie's, box set's or
 playlist's poster; a show's or episode's thumb, failing that an episode's

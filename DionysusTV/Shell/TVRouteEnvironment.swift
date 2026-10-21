@@ -4,6 +4,16 @@ extension EnvironmentValues {
     /// Pushes a detail page or a See All grid onto the shell's path.
     @Entry var tvOpenRoute: @MainActor (AppRoute) -> Void = { _ in }
 
+    /// Pops this page, if it's still on top: where deleting the title a page
+    /// shows lands (`AssetDetailViewModel.DeletionOutcome.popOneLevel`).
+    /// Bound per pushed page by `TVMainView`.
+    @Entry var tvPopPage: @MainActor () -> Void = {}
+
+    /// Drops every pushed page, back to the sidebar's destination, if this
+    /// page is still among them: deleting a show's last episode leaves
+    /// nothing beneath (`.popToRoot`).
+    @Entry var tvPopToRoot: @MainActor () -> Void = {}
+
     /// Pushes an item's detail page beneath the player about to open, so
     /// leaving the player lands there (Home's hero, Benjamin, 2026-10-04).
     /// Returns what to call with where the player stopped, which that page

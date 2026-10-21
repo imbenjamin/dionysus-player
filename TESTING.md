@@ -339,6 +339,13 @@ and launch arguments (`TVUITestCase.launch`); selectors live under
   since the player draws focus from its own state, not the focus engine.
   Transport journeys pass `-UITestDisableControlAutoHide YES` unless checking
   the fade. The logo fallback is read from `A11yID.Media.heroLogoFallbackVisible`.
+- **A SwiftUI `Menu` doesn't report focus where a journey looks**: the
+  button's focus is on an unnamed child, a row's on the `Cell` around it,
+  and on tvOS 27 a submenu's rows lose their identifiers (on the Button and
+  its Label alike; 26.5 keeps them), keeping only their labels.
+  `MoreActionsJourneyTests` reads focus through `isFocused` and finds
+  submenu rows by identifier or by the stub's titles, which aren't localized
+  copy.
 - **What XCUITest can't do on tvOS**: type reliably into a `SecureField`
   (journeys stop at the password field; sign-in is `LoginViewModelTests`'),
   drive the alphabet index (it needs a held scroll), read a hint or an
@@ -622,6 +629,7 @@ the detail.
 | `Core/Playback/AetherPlaybackEngineClassificationTests` | Playback errors classified as refused, rate-limited or transient |
 | `Core/Playback/AetherPlaybackEngineLoadOptionsTests` | The display context passed to the engine |
 | `Core/Playback/StreamFormatDescriptionTests` | Stream format labels for Playback Stats |
+| `Features/AssetDetails/AssetActionTargetsTests` | What Add to Playlist and Delete offer on a detail page, and their words (iOS and the Apple TV) |
 | `Features/AssetDetails/AddToPlaylistViewModelTests` | The Add to Playlist picker: editable destinations, adds, creating one |
 | `Features/AssetDetails/AssetDetailViewModelTests` | Detail pages by kind: loading, play targets, seasons, watched and favourite, deletion, playlists |
 | `Features/Collection/CollectionGridViewModelTests` | Grid queries, sorting and the cascading filters |
@@ -693,7 +701,7 @@ the detail.
 | `TVSearchGroupingTests` | Search's rails and its announcements |
 | `TVSeasonEpisodesModelTests` | A show's episodes a season at a time |
 | `TVSettingsRowTests` | A destructive row's look at rest and in focus |
-| `TVShellNavigationTests` | Where the shell is and which rows take focus |
+| `TVShellNavigationTests` | Where the shell is, which rows take focus, popping to the root |
 | `TVShowArtTests` | Whose imagery a show's page draws |
 | `TVSidebarLayoutTests` | The sidebar's rows, the fold, icons, hidden rows |
 | `TVSidebarModelTests` | The sidebar's library load |
@@ -739,6 +747,7 @@ the detail.
 | `LaunchJourneyTests` | First launch to Welcome and Find Your Server |
 | `LoadingJourneyTests` | Home and a library loading slowly keep focus off the sidebar |
 | `MenuToLandingJourneyTests` | Menu back to a page's landing view |
+| `MoreActionsJourneyTests` | A detail page's ⋯: its menu, Add to Playlist, New Playlist, Delete and where each lands |
 | `OnboardingJourneyTests` | Find Your Server, Who's Watching?, Quick Connect, the password screen |
 | `PlayerAccessibleTransportJourneyTests` | The accessible transport, forced on |
 | `PlayerJourneyTests` | The player opens, takes the remote and closes, loading too |

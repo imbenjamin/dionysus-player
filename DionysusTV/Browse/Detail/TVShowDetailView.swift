@@ -82,11 +82,23 @@ struct TVShowDetailView: View {
     private var detailsItem: MediaItem { isEpisode ? item : (badgeSource ?? item) }
 
     private var seasonID: String? { selectedSeasonID ?? viewModel.initialSeasonID }
+
+    /// What More Actions offers: the show, the season on show (as iOS's
+    /// picker selection), and the episode when the page is on one. Built
+    /// from the page's own `item`, not the view model's: an episode chosen
+    /// from the rail is this view's (`chosenEpisodeID`), and the view model
+    /// stays on the series.
+    private var moreTargets: AssetActionTargets {
+        AssetActionTargets(
+            item: item, seriesItem: viewModel.seriesItem, seasons: viewModel.seasons,
+            selectedSeasonID: seasonID, canDeleteSeason: viewModel.canDelete(season:)
+        )
+    }
     private var seasonEpisodes: [MediaItem] { seasonID.flatMap { episodes?.episodes[$0] } ?? [] }
     private var showsSeasonTabs: Bool { viewModel.seasons.count > 1 }
 
     private var focusIDs: [String] {
-        TVDetailActions.focusIDs(playTarget: playTarget, isResolving: isResolving)
+        TVDetailActions.focusIDs(playTarget: playTarget, isResolving: isResolving, hasMore: true)
             + (item.hasDescription ? [TVDetailFocus.overview] : [])
             + (showsSeasonTabs ? viewModel.seasons.map { "season.\($0.id)" } : [])
             + seasonEpisodes.map { "episode.\($0.id)" }
@@ -131,7 +143,9 @@ struct TVShowDetailView: View {
                     }
                     TVDetailActions(
                         viewModel: viewModel, playTarget: playTarget, statusTarget: viewModel.seriesItem ?? item,
-                        isShow: true, isResolving: isResolving, focus: $focus, play: play
+                        isShow: true, isResolving: isResolving,
+                        moreTargets: moreTargets,
+                        focus: $focus, play: play
                     )
                     .padding(.top, 16)
                 }
@@ -193,13 +207,7 @@ struct TVShowDetailView: View {
         // system's own move can come after ours.
         .onChange(of: isResolving) { _, resolving in
             guard !resolving, playTarget == nil, focus == TVDetailFocus.play || focus == nil else { return }
-            Task { @MainActor in
-                for _ in 0..<10 {
-                    focus = TVDetailFocus.watched
-                    try? await Task.sleep(for: .milliseconds(50))
-                    if focus == TVDetailFocus.watched { break }
-                }
-            }
+            holdFocus(on: TVDetailFocus.watched)
         }
         .fullScreenCover(isPresented: $showsFullOverview) {
             TVFullOverview(title: item.name, overview: item.overview ?? "")
@@ -211,10 +219,55 @@ struct TVShowDetailView: View {
         .task(id: "\(seasonID ?? "")-\(episodes == nil)") {
             if let seasonID { await episodes?.load(seasonID: seasonID) }
         }
-        // Bumped by `refreshItem()` after playback or a watched change.
+        // Bumped by `refreshItem()` after playback or a watched change, and
+        // after a deletion the page stays on (`seasons` already updated). An
+        // episode chosen from the rail that's gone (deleted from More, alone
+        // or with its season) gives the page back to the series, as iOS's
+        // hero does, and focus to More, where it was. Only the season on show
+        // and the chosen episode's are kept and refetched, and only while
+        // they still exist: the chosen one can be in another tab's season, and
+        // a deleted season's cache would otherwise keep it found.
         .onChange(of: viewModel.episodeListRefreshToken) {
+            guard let episodes else { return }
+            let chosenSeasonID = chosenEpisodeID.flatMap { id in
+                episodes.episodes.first { $0.value.contains { $0.id == id } }?.key
+            }
+            let kept = Set([seasonID, chosenSeasonID].compactMap { $0 })
+                .intersection(viewModel.seasons.map(\.id))
+            episodes.retain(kept)
+            Task {
+                for id in kept { await episodes.load(seasonID: id, force: true) }
+                if let chosen = chosenEpisodeID, !loadedEpisodes.contains(where: { $0.id == chosen }) {
+                    chosenEpisodeID = nil
+                    if focus == nil || focus == "episode.\(chosen)" { holdFocus(on: TVDetailFocus.more) }
+                }
+            }
+        }
+        // Whether a folderless season can be offered for deletion depends on
+        // its episodes (`AssetDetailViewModel.loadSeasonDeletability`). Keyed
+        // on the season list too, since the season can be known before it.
+        .task(id: [seasonID ?? ""] + viewModel.seasons.map(\.id)) {
             guard let seasonID else { return }
-            Task { await episodes?.load(seasonID: seasonID, force: true) }
+            await viewModel.loadSeasonDeletability(seasonID: seasonID)
+        }
+        // Moves the tabs off a season that's gone, which only deleting it
+        // does: left on its id, the rail re-fetched it and showed it empty
+        // under the next season's name (iOS's `ShowDetailView` has the same).
+        .onChange(of: viewModel.seasons.map(\.id)) { _, seasonIDs in
+            guard let selected = selectedSeasonID, !seasonIDs.contains(selected) else { return }
+            selectedSeasonID = viewModel.preselectedSeasonID ?? seasonIDs.first
+        }
+    }
+
+    /// Sets focus until it holds, since the system's own move can come after
+    /// ours.
+    private func holdFocus(on id: String) {
+        Task { @MainActor in
+            for _ in 0..<10 {
+                focus = id
+                try? await Task.sleep(for: .milliseconds(50))
+                if focus == id { break }
+            }
         }
     }
 

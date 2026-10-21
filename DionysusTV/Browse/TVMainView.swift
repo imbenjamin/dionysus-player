@@ -115,6 +115,9 @@ struct TVMainView: View {
                 if direction == .right, isExpanded, nav.hidesCollapsedRail { handFocusToPage() }
             }
         }
+        // "That worked" for an action whose own UI has gone (adding to a
+        // playlist), as on iOS: over every page, beneath the player.
+        .overlay(alignment: .top) { ToastHost() }
         .environment(\.tvSidebarExpanded, isExpanded)
         .environment(\.tvFocusHandoff, focusHandoff)
         .environment(\.tvRailReturn, railReturn)
@@ -174,7 +177,13 @@ struct TVMainView: View {
                 .transition(.asymmetric(insertion: .opacity, removal: .identity))
             ForEach(Array(nav.path.enumerated()), id: \.element.id) { index, entry in
                 if live.contains(index + 1) {
-                    level(index + 1) { pushedPage(entry) }
+                    level(index + 1) {
+                        // Bound to the page, so a deletion landing after
+                        // the user has left pops nothing it shouldn't.
+                        pushedPage(entry)
+                            .environment(\.tvPopPage) { pop(entry.id) }
+                            .environment(\.tvPopToRoot) { popToRoot(from: entry.id) }
+                    }
                 }
             }
         }
@@ -289,11 +298,29 @@ struct TVMainView: View {
 
     private func pop() {
         guard let entry = nav.pop() else { return }
+        forget(entry)
+        holdRail()
+    }
+
+    private func pop(_ entryID: UUID) {
+        guard let entry = nav.pop(entryID) else { return }
+        forget(entry)
+        holdRail()
+    }
+
+    private func popToRoot(from entryID: UUID) {
+        let removed = nav.popToRoot(from: entryID)
+        guard !removed.isEmpty else { return }
+        removed.forEach(forget)
+        holdRail()
+    }
+
+    /// Lets go of a popped page's view model and remembered focus.
+    private func forget(_ entry: TVPathEntry) {
         detailModels[entry.id]?.cancelBackgroundWork()
         detailModels[entry.id] = nil
         pushedGrids[entry.id] = nil
         rememberedPushedFocus[entry.id] = nil
-        holdRail()
     }
 
     /// The root page, built only while its row is the destination.

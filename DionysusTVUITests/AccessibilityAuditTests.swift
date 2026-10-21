@@ -36,6 +36,47 @@ final class AccessibilityAuditTests: TVUITestCase {
         try audit(app)
     }
 
+    /// More Actions' menu, open on a movie's page. Its delete question is
+    /// `TVConfirmation`, audited from Profile (`test_profileConfirmation`).
+    func test_moreActionsMenu() throws {
+        let app = openMoreActionsMenu()
+        try audit(app)
+    }
+
+    func test_addToPlaylistPicker() throws {
+        let app = openMoreActionsMenu()
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Actions.newPlaylist], timeout: 10))
+        try audit(app)
+    }
+
+    func test_newPlaylistForm() throws {
+        let app = openMoreActionsMenu()
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Actions.newPlaylist], timeout: 10))
+        press(.select)
+        XCTAssertTrue(app.textFields[A11yID.TV.Actions.nameField].waitForExistence(timeout: 5))
+        try audit(app)
+    }
+
+    /// A movie's page with More's menu open on Add to Playlist.
+    private func openMoreActionsMenu() -> XCUIApplication {
+        let app = launchAtHomeTile()
+        openDetailFromFocusedTile(app)
+        let more = app.descendants(matching: .any)[A11yID.TV.Detail.more]
+        XCTAssertTrue(more.waitForExistence(timeout: 10))
+        for _ in 0..<6 where !app.buttons[A11yID.TV.Detail.favorite].hasFocus {
+            press(.right)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
+        press(.right)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        press(.select)
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Actions.addToPlaylist(UITestFixtureIdentity.partWatchedMovieID)].waitForExistence(timeout: 5))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        return app
+    }
+
     func test_showPage() throws {
         let app = launchAtHome()
         openRailFromHome(app)

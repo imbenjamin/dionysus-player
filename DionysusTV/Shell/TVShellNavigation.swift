@@ -50,6 +50,26 @@ struct TVShellNavigation: Equatable {
         path.popLast()
     }
 
+    /// Drops every pushed page, returning them deepest first: deleting a
+    /// show's last episode leaves nothing beneath to go back to
+    /// (`AssetDetailViewModel.DeletionOutcome.popToRoot`).
+    mutating func popToRoot() -> [TVPathEntry] {
+        defer { path = [] }
+        return path.reversed()
+    }
+
+    /// Pops `entryID`'s page only while it's on top. A deletion's outcome
+    /// lands after its request, by when Menu may have taken the user
+    /// elsewhere; popping whatever was on top then left the wrong page.
+    mutating func pop(_ entryID: UUID) -> TVPathEntry? {
+        path.last?.id == entryID ? path.popLast() : nil
+    }
+
+    /// `popToRoot()`, only while `entryID`'s page is still in the path.
+    mutating func popToRoot(from entryID: UUID) -> [TVPathEntry] {
+        path.contains { $0.id == entryID } ? popToRoot() : []
+    }
+
     /// Search is the system's own full-screen layout (Benjamin, 2026-10-04):
     /// its keyboard and field are laid out for the whole width, and beside
     /// the rail the field's hint ran off the screen. So there the collapsed

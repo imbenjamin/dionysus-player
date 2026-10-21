@@ -72,52 +72,14 @@ struct AssetActionsButton: View {
     /// as `confirmationBinding` below.
     @State private var playlistTarget: MediaItem?
 
-    private var item: MediaItem? { viewModel.item }
-    private var isEpisodeContent: Bool { viewModel.item?.kind == .episode }
     private var isPending: Bool { !viewModel.deletingItemIDs.isEmpty }
 
-    /// Every entity this page could offer to delete, most specific last.
-    ///
-    /// Mirrors `FavoriteWatchedShowScope` with one difference: the episode row is
-    /// offered only when the page is genuinely showing an episode, never for
-    /// `viewModel.showPlaybackEpisode`. Getting favorite/watched wrong costs a
-    /// toggle; offering to delete an episode the user never selected destroys a
-    /// file.
-    private var deletableTargets: [MediaItem] {
-        guard let item else { return [] }
-        guard let show = viewModel.seriesItem else {
-            // Movie or other standalone content: one possible target.
-            return [item].filter(\.canDelete)
-        }
-        let season = viewModel.seasons.first { $0.id == selectedSeasonID }
-        let episode = isEpisodeContent ? item : nil
-        // A season goes through `canDelete(season:)`: one with no folder of its
-        // own is never deletable as a unit, and is offered when its episodes are.
-        return [show, season, episode].compactMap { $0 }.filter { target in
-            target.kind == .season ? viewModel.canDelete(season: target) : target.canDelete
-        }
+    /// What the menu offers; see `AssetActionTargets`.
+    private var targets: AssetActionTargets {
+        AssetActionTargets(viewModel: viewModel, selectedSeasonID: selectedSeasonID)
     }
-
-    /// Every entity this page could offer to add to a playlist, most specific
-    /// last.
-    ///
-    /// The same shape as `deletableTargets`, including its restriction to genuine
-    /// episode content. That restriction is destructive-only in origin, but both
-    /// menus sit inside one overflow and must agree on what "this episode"
-    /// means.
-    ///
-    /// No permission filter, unlike `deletableTargets`' `.filter(\.canDelete)`:
-    /// every target is addable somewhere, since a user with no editable playlist
-    /// can create one.
-    private var playlistTargets: [MediaItem] {
-        guard let item else { return [] }
-        guard let show = viewModel.seriesItem else {
-            return [item]
-        }
-        let season = viewModel.seasons.first { $0.id == selectedSeasonID }
-        let episode = isEpisodeContent ? item : nil
-        return [show, season, episode].compactMap { $0 }
-    }
+    private var deletableTargets: [MediaItem] { targets.deletable }
+    private var playlistTargets: [MediaItem] { targets.addable }
 
     var body: some View {
         if !deletableTargets.isEmpty || !playlistTargets.isEmpty {
@@ -137,7 +99,7 @@ struct AssetActionsButton: View {
                 ) { target in
                     confirmationActions(for: target)
                 } message: { target in
-                    Text(confirmationMessage(for: target))
+                    Text(AssetActionTargets.deleteConfirmationMessage(for: target))
                 }
                 .alert(
                     "Couldn't delete",
@@ -182,7 +144,7 @@ struct AssetActionsButton: View {
             Button(role: .destructive) {
                 pendingTarget = only
             } label: {
-                Label(deleteActionLabel(for: only), systemImage: "trash")
+                Label(AssetActionTargets.deleteActionLabel(for: only), systemImage: "trash")
             }
             .disabled(isPending)
             .accessibilityIdentifier(A11yID.AssetDetail.deleteButton)
@@ -203,7 +165,7 @@ struct AssetActionsButton: View {
                 pendingTarget = target
             } label: {
                 Label {
-                    Text(menuRowLabel(for: target))
+                    Text(AssetActionTargets.rowLabel(for: target))
                 } icon: {
                     Image(systemName: "trash")
                 }
@@ -241,7 +203,7 @@ struct AssetActionsButton: View {
                 playlistTarget = target
             } label: {
                 Label {
-                    Text(menuRowLabel(for: target))
+                    Text(AssetActionTargets.rowLabel(for: target))
                 } icon: {
                     Image(systemName: "text.badge.plus")
                 }
@@ -331,55 +293,6 @@ struct AssetActionsButton: View {
 
     private var confirmationTitle: String {
         guard let target = pendingTarget else { return String(localized: "Delete") }
-        return deleteActionLabel(for: target)
-    }
-
-    /// The action's name, used for the dialog title and the collapsed button's
-    /// VoiceOver label.
-    private func deleteActionLabel(for target: MediaItem) -> String {
-        switch target.kind {
-        case .series: return String(localized: "Delete Show")
-        case .season: return String(localized: "Delete Season")
-        case .episode: return String(localized: "Delete Episode")
-        default: return String(localized: "Delete")
-        }
-    }
-
-    /// Menu rows name the specific entity, not just its type: the menu exists to
-    /// tell similar targets apart.
-    private func menuRowLabel(for target: MediaItem) -> String {
-        switch target.kind {
-        case .series, .season:
-            return target.name
-        case .episode:
-            return target.numberedEpisodeName
-        default:
-            return target.name
-        }
-    }
-
-    /// Spells out that the file leaves the server and isn't recoverable: this
-    /// deletes from the filesystem, not just the library (see
-    /// `JellyfinAPIClient.deleteItem`).
-    ///
-    /// The show and season variants are separate literals with the noun written
-    /// into each rather than one string interpolating it. The English is
-    /// identical, but a substituted bare noun can't be translated into languages
-    /// where the surrounding words inflect for it.
-    private func confirmationMessage(for target: MediaItem) -> String {
-        switch target.kind {
-        case .series:
-            if let count = target.episodeCount, count > 0 {
-                return String(localized: "Deleting this show will delete all \(count) episodes from the Jellyfin server. This cannot be undone.")
-            }
-            return String(localized: "Deleting this show will delete all of its episodes from the Jellyfin server. This cannot be undone.")
-        case .season:
-            if let count = target.episodeCount, count > 0 {
-                return String(localized: "Deleting this season will delete all \(count) episodes from the Jellyfin server. This cannot be undone.")
-            }
-            return String(localized: "Deleting this season will delete all of its episodes from the Jellyfin server. This cannot be undone.")
-        default:
-            return String(localized: "Deleting \"\(target.name)\" will remove it from the Jellyfin server. This cannot be undone.")
-        }
+        return AssetActionTargets.deleteActionLabel(for: target)
     }
 }
