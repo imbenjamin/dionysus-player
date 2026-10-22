@@ -111,6 +111,16 @@ class UITestCase: XCTestCase {
         self.app = app
         return app
     }
+
+    /// Profile's Spatial Audio section is hidden below iOS 26
+    /// (`SpatialAudioSupport.isOffered`), so the floor leg has nothing to
+    /// drive. The test runner shares the app's Simulator, so its own OS check
+    /// answers for the app.
+    func skipBelowiOS26ForSpatialAudio() throws {
+        guard #available(iOS 26, *) else {
+            throw XCTSkip("Spatial Audio settings are hidden below iOS 26.")
+        }
+    }
 }
 
 @MainActor
@@ -131,6 +141,22 @@ extension XCUIElement {
             file: file, line: line
         )
         return self
+    }
+
+    /// Waits until the element's frame holds still across two reads, then
+    /// returns. A tap resolves the element when it's issued, so one still
+    /// moving lands where it was: on iPadOS 27 a form sheet slides up to
+    /// clear the keyboard after typing, and a Create tap issued then fell
+    /// outside the sheet and dismissed it. Gives up quietly after `timeout`.
+    func awaitStableFrame(timeout: TimeInterval = 3) {
+        var previous = exists ? frame : .zero
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.25)
+            let current = exists ? frame : .zero
+            if current == previous, current != .zero { return }
+            previous = current
+        }
     }
 
     /// Taps an element whose job is to navigate away, tapping again if the
@@ -198,10 +224,14 @@ extension XCUIApplication {
     /// all, only a label, which is localized and so off-limits here (see
     /// `A11yID`). There it's the bar's leading button with no identifier,
     /// found by position: every toolbar item this app adds carries an
-    /// identifier, and none sits at the leading edge.
+    /// identifier, and none sits at the leading edge. iPadOS 27 can draw it
+    /// outside any `NavigationBar` element (seen on a detail page under the
+    /// floating tab bar), so the identifier is also looked for app-wide.
     var navigationBackButton: XCUIElement {
         let identified = navigationBars.buttons["BackButton"]
         if identified.exists { return identified }
+        let floating = buttons.matching(identifier: "BackButton").firstMatch
+        if floating.exists { return floating }
 
         let unidentified = navigationBars.buttons.matching(NSPredicate(format: "identifier == ''"))
         for index in 0..<unidentified.count {
