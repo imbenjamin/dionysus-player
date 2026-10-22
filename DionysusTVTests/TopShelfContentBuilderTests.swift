@@ -151,7 +151,7 @@ final class TopShelfContentBuilderTests: XCTestCase {
     func test_mediaOptions_comeFromTheDefaultSource() throws {
         var dto = movie("r1")
         dto.mediaSources = [MediaSourceInfo(id: "src", mediaStreams: [
-            MediaStream(index: 0, type: "Video", width: 3840, videoRangeType: "DOVIWithHDR10"),
+            MediaStream(index: 0, type: "Video", width: 3840, height: 2160, videoRangeType: "DOVIWithHDR10"),
             MediaStream(index: 1, type: "Audio", codec: "eac3", audioSpatialFormat: "DolbyAtmos"),
             MediaStream(index: 2, type: "Subtitle", isForced: false)
         ])]

@@ -136,6 +136,15 @@ it needs the `TrueHDObjectAudio`/`DTSXObjectAudio` traits
   its height channels): the one in-app sign the route was taken. tvOS's
   engine loops a silent Atmos stream so soundbars light their indicator
   (`AtmosOutputActivator`); nothing to do in the app.
+- **The section is headed "Spatial Audio (beta)" on both apps** (Benjamin,
+  2026-10-22) because of AetherEngine #850: on the A15 Apple TV the TrueHD
+  decode and APAC encode run the engine's segment producer at only ~1.2x real
+  time, and the engine's QoS retune drops it to `.utility` at 16 s of lead,
+  where it runs below real time. The lead never grows, AVPlayer stalls every
+  few minutes on a 4K remux, and worse as the box heats (thermal state
+  Serious, stalls every ~20 s by 20 minutes in). The Read-Ahead Buffer can't
+  help: the producer is the limit, not the network. Drop "(beta)" once a fix
+  is verified on the Living Room box.
 
 ## Read-Ahead Buffer
 
@@ -151,7 +160,10 @@ Kodi's raised caches); ExoPlayer's 50 s and AVPlayer's own are tuned for
 adaptive streams. Segments are disk-backed (~750 MB for 5 min of 4K) and the
 engine caps the window at a quarter of free space. It does nothing on a
 server transcode (`nativeRemoteHLS`), where AVPlayer buffers against the
-server itself.
+server itself. Playback Stats' "Buffered" KB counts every segment the
+engine keeps, already-watched ones included (kept for seeking back), so it is
+not how much lies ahead; the seconds figure is AVPlayer's own, only a few
+segments.
 
 ## After the app comes back from the background
 

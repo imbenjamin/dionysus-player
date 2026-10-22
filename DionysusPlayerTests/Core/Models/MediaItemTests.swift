@@ -536,11 +536,53 @@ final class MediaItemTests: XCTestCase {
 
     /// A letterboxed, very-wide-aspect release (e.g. 2.39:1) has a reduced
     /// height for a genuinely 4K-width source — classifying by height would
-    /// misidentify this as 1440p or lower.
-    func test_technicalDetails_resolutionClassifiesByWidthNotHeightForLetterboxedVideo() {
+    /// misidentify this as 1080p or lower.
+    func test_technicalDetails_resolutionKeepsLetterboxedVideoAt4K() {
         let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", width: 3840, height: 1606)])
         let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
         XCTAssertEqual(MediaItem(dto: dto, images: images).technicalDetails?.resolution, "3840\u{00D7}1606 (4K)")
+    }
+
+    /// Files from Benjamin's library, each against the name Jellyfin's own
+    /// `DisplayTitle` gives it (2026-10-22). Classed by width alone, every
+    /// 1080p one here read 720p and both 4K ones 1440p.
+    func test_resolutionCommonName_matchesJellyfin() {
+        let cases: [(String, Int, Int, String)] = [
+            ("Pirates of the Caribbean (cropped letterbox)", 1916, 800, "1080p"),
+            ("Harry Potter and the Chamber of Secrets", 1918, 802, "1080p"),
+            ("Shaun of the Dead", 1880, 820, "1080p"),
+            ("Poor Things", 1792, 1080, "1080p"),
+            ("A Close Shave", 1792, 1072, "1080p"),
+            ("Casablanca (4:3)", 1440, 1080, "1080p"),
+            ("The French Dispatch", 1416, 1036, "1080p"),
+            ("The Lighthouse (1.19:1)", 1296, 1080, "1080p"),
+            ("Spider-Man: Brand New Day (cropped letterbox)", 3832, 1600, "4K"),
+            ("Obsession", 3240, 2160, "4K"),
+            ("Full-frame 1080p", 1920, 1080, "1080p"),
+            ("Ultrawide 21:9", 2560, 1080, "1080p"),
+            ("720p", 1280, 720, "720p"),
+            ("DVD PAL", 720, 576, "576p"),
+            ("DVD NTSC", 720, 480, "480p"),
+            ("UHD", 3840, 2160, "4K"),
+            ("DCI 4K", 4096, 2160, "4K"),
+        ]
+        for (name, width, height, expected) in cases {
+            XCTAssertEqual(MediaItem.resolutionCommonName(width: width, height: height), expected, name)
+        }
+    }
+
+    func test_technicalDetails_letterboxedCropped1080pReads1080p() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", width: 1916, height: 800)])
+        let dto = BaseItemDto(id: "movie-1", name: "Pirates of the Caribbean", type: .movie, mediaSources: [source])
+        let item = MediaItem(dto: dto, images: images)
+        XCTAssertEqual(item.technicalDetails?.resolution, "1916\u{00D7}800 (1080p)")
+        XCTAssertTrue(item.metadataBadges.contains("HD"))
+    }
+
+    func test_metadataBadges_croppedLetterboxed4KIs4K() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", width: 3832, height: 1600)])
+        let dto = BaseItemDto(id: "movie-1", name: "Spider-Man", type: .movie, mediaSources: [source])
+        XCTAssertTrue(MediaItem(dto: dto, images: images).metadataBadges.contains("4K"))
     }
 
     func test_technicalDetails_dolbyVisionWithHDR10PlusLayer() {

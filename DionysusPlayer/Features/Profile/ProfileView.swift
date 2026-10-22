@@ -485,7 +485,7 @@ struct ProfileView: View {
                     spatialAudioRows(for: format)
                 }
             } header: {
-                Text("Spatial Audio")
+                Text("Spatial Audio (beta)")
             } footer: {
                 Text("Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for Spatial Audio on AirPods. The audio is re-encoded, so it isn't lossless, and a receiver shows it as Dolby Atmos, DTS:X included. For AirPods, 7.1.4 is recommended.")
                     .readableSettingsFooter()
