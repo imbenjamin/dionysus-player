@@ -21,6 +21,11 @@ final class PlayerStatsJourneyTests: TVUITestCase {
         let codec = app.descendants(matching: .any)[A11yID.TV.Player.statsValue("Codec")]
         XCTAssertTrue(codec.waitForExistence(timeout: 3))
         XCTAssertEqual(codec.value as? String, "HEVC Main 10")
+        // Pixels first, then the UI's points: on its own, "1920×1080 pt"
+        // read as a 1080p output on a 4K TV.
+        let screen = app.descendants(matching: .any)[A11yID.TV.Player.statsValue("Screen")]
+        XCTAssertTrue(poll(timeout: 3) { screen.value as? String == "3840×2160 (UI: 1920×1080 pt)" },
+                      "Screen read \(String(describing: screen.value))")
         XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.icon("stats")].isSelected, "The icon shows it's on")
         press(.menu)
         XCTAssertTrue(waitForPlayerFocus(app, "scrubber"))

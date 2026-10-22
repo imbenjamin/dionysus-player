@@ -482,10 +482,11 @@ struct MediaItem: Identifiable {
 
         var badges: [String] = []
 
-        if let width = videoStream?.width, let commonName = Self.resolutionCommonName(width: width) {
-            if commonName == "4K" {
-                badges.append("4K")
-            } else if ["1440p", "1080p", "720p"].contains(commonName) {
+        if let width = videoStream?.width, let height = videoStream?.height,
+           let commonName = Self.resolutionCommonName(width: width, height: height) {
+            if commonName == "4K" || commonName == "8K" {
+                badges.append(commonName)
+            } else if commonName == "1080p" || commonName == "720p" {
                 badges.append("HD")
             }
         }
@@ -533,7 +534,8 @@ struct MediaItem: Identifiable {
     private static func versionLabel(for source: MediaSourceInfo, fallbackIndex: Int) -> String {
         let videoStream = (source.mediaStreams ?? []).first { $0.type == "Video" }
         var parts: [String] = []
-        if let width = videoStream?.width, let commonName = resolutionCommonName(width: width) {
+        if let width = videoStream?.width, let height = videoStream?.height,
+           let commonName = resolutionCommonName(width: width, height: height) {
             parts.append(commonName)
         }
         if let dynamicRangeType = videoStream?.videoRangeType ?? videoStream?.videoRange,
@@ -667,20 +669,34 @@ struct MediaItem: Identifiable {
     /// show the same resolution two different ways.
     static func resolutionLabel(width: Int, height: Int) -> String {
         let dimensions = "\(width)\u{00D7}\(height)"
-        return resolutionCommonName(width: width).map { "\(dimensions) (\($0))" } ?? dimensions
+        return resolutionCommonName(width: width, height: height).map { "\(dimensions) (\($0))" } ?? dimensions
     }
 
-    /// Classifies by width: a letterboxed 2.39:1 source keeps its full width but
-    /// has reduced height, so bucketing by height would demote a true 4K
-    /// release. Shared by `resolutionLabel` and `metadataBadges`.
-    private static func resolutionCommonName(width: Int) -> String? {
-        switch width {
-        case 3840...:     "4K"
-        case 2560..<3840: "1440p"
-        case 1920..<2560: "1080p"
-        case 1280..<1920: "720p"
-        case 640..<1280:  "480p"
-        default:          nil
+    /// The smallest standard size the picture fits inside, width and height
+    /// both: Jellyfin's own rule (`MediaStream.GetResolutionText`), so the app
+    /// names a file as the server and its web client do. Neither dimension
+    /// alone works: a letterboxed encode crops its height (3840×1606 is 4K)
+    /// and often a few pixels of width with it (1916×800 is 1080p), and a
+    /// narrower film fills the height instead (1440×1080 is 1080p). Classing
+    /// by width alone called 28 of Benjamin's 1080p films 720p (2026-10-22).
+    /// No 1440p, as in Jellyfin: 2560×1080 ultrawide and 2560×1440 are 1080p.
+    /// Interlacing isn't decoded, so every size reads "p". Shared by
+    /// `resolutionLabel`, `metadataBadges` and the version picker.
+    static func resolutionCommonName(width: Int, height: Int) -> String? {
+        switch (width, height) {
+        case (...256, ...144):   "144p"
+        case (...426, ...240):   "240p"
+        case (...640, ...360):   "360p"
+        case (...682, ...384):   "384p"
+        case (...720, ...404):   "404p"
+        case (...854, ...480):   "480p"
+        case (...960, ...544):   "540p"
+        case (...1024, ...576):  "576p"
+        case (...1280, ...962):  "720p"
+        case (...2560, ...1440): "1080p"
+        case (...4096, ...3072): "4K"
+        case (...8192, ...6144): "8K"
+        default:                 nil
         }
     }
 

@@ -270,7 +270,7 @@ struct TVProfileView: View {
                 // A section of its own under Playback, as on iOS (Benjamin,
                 // 2026-10-19).
                 if !spatialAudioFocusIDs.isEmpty {
-                    section("spatialAudio", "Spatial Audio") { spatialAudioRows }
+                    section("spatialAudio", "Spatial Audio (beta)") { spatialAudioRows }
                 }
 
                 section("about", "About") {

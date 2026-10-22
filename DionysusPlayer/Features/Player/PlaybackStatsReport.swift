@@ -43,6 +43,12 @@ enum PlaybackStatsReport {
         /// at headroom 1.0 is getting no HDR boost, whatever the format label
         /// says.
         var edrHeadroom: CGFloat = 1
+        /// The screen in points, the units the UI is laid out in, and in the
+        /// pixels it is drawn at. An Apple TV on a 4K TV is 1920×1080 pt at
+        /// 3840×2160 px, so points alone read as a 1080p output (Benjamin,
+        /// 2026-10-22). Polled, as the output mode can change while playing.
+        var screenPoints: CGSize = .zero
+        var screenPixels: CGSize = .zero
 
         @MainActor
         static func current() -> DeviceReadings {
@@ -50,8 +56,20 @@ enum PlaybackStatsReport {
                 audioOutputRoute: AVAudioSession.sharedInstance().currentRoute.outputs.first?.portName,
                 audioOutputChannelCount: AVAudioSession.sharedInstance().outputNumberOfChannels,
                 thermalState: ProcessInfo.processInfo.thermalState,
-                edrHeadroom: UIScreen.main.currentEDRHeadroom
+                edrHeadroom: UIScreen.main.currentEDRHeadroom,
+                screenPoints: UIScreen.main.bounds.size,
+                screenPixels: pixelSize(of: UIScreen.main)
             )
+        }
+
+        /// `nativeBounds` is always portrait-up; turned to match `bounds`, so
+        /// a landscape iPhone reads wide in both.
+        @MainActor
+        private static func pixelSize(of screen: UIScreen) -> CGSize {
+            let native = screen.nativeBounds.size
+            let landscape = screen.bounds.width > screen.bounds.height
+            return landscape == (native.width > native.height)
+                ? native : CGSize(width: native.height, height: native.width)
         }
     }
 }
@@ -154,7 +172,7 @@ extension PlaybackStatsReport {
 
     static func display(_ stats: PlaybackStats, readings: DeviceReadings) -> Section {
         Section(title: String(localized: "Display"), rows: [
-            Row("Screen", "\(Int(screenSize.width))×\(Int(screenSize.height)) pt"),
+            Row("Screen", describeScreen(pixels: readings.screenPixels, points: readings.screenPoints)),
             Row("Displayed Color", stats.displayColorFormat),
             Row("Refresh Rate", "\(refreshRateHz) Hz"),
             Row("EDR Headroom", String(format: "%.2fx", readings.edrHeadroom)),
@@ -208,7 +226,6 @@ extension PlaybackStatsReport {
 // MARK: - Readings and formatting
 
 extension PlaybackStatsReport {
-    static let screenSize = UIScreen.main.bounds.size
     static let refreshRateHz = UIScreen.main.maximumFramesPerSecond
 
     /// "1.0 (1)" — `CFBundleShortVersionString` plus build number, the pairing
@@ -271,6 +288,15 @@ extension PlaybackStatsReport {
         let secondsText = String(format: "%.1fs", seconds)
         guard let bytes else { return secondsText }
         return "\(secondsText) (\(formatKB(bytes)))"
+    }
+
+    /// "3840×2160 (UI: 1920×1080 pt)": the pixels first, what the output
+    /// really is, then the points the UI is laid out in.
+    static func describeScreen(pixels: CGSize, points: CGSize) -> String {
+        guard pixels != .zero else { return "—" }
+        let px = "\(Int(pixels.width))×\(Int(pixels.height))"
+        guard points != .zero else { return px }
+        return "\(px) (UI: \(Int(points.width))×\(Int(points.height)) pt)"
     }
 
     static func formatKB(_ bytes: Int64) -> String {

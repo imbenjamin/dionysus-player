@@ -46,6 +46,20 @@ final class PlaybackStatsReportTests: XCTestCase {
         XCTAssertFalse(PlaybackStatsReport.playback(stats, state: .playing, zoomMode: nil).rows.contains { $0.label == "Zoom" })
     }
 
+    /// Pixels first, then the UI's points: an Apple TV on a 4K TV read
+    /// "1920×1080 pt" alone, which looked like a 1080p output.
+    func test_display_screenShowsPixelsThenPoints() {
+        var readings = PlaybackStatsReport.DeviceReadings()
+        readings.screenPixels = CGSize(width: 3840, height: 2160)
+        readings.screenPoints = CGSize(width: 1920, height: 1080)
+        let row = PlaybackStatsReport.display(stats, readings: readings).rows.first { $0.label == "Screen" }
+        XCTAssertEqual(row?.value, "3840×2160 (UI: 1920×1080 pt)")
+    }
+
+    func test_describeScreen_beforeTheFirstReading() {
+        XCTAssertEqual(PlaybackStatsReport.describeScreen(pixels: .zero, points: .zero), "—")
+    }
+
     func test_streaming_offlineIsOneDownloadRow() {
         let section = PlaybackStatsReport.streaming(isOffline: true, serverVersion: "10.11.11", session: nil)
         XCTAssertEqual(section.rows, [PlaybackStatsReport.Row("Play Method", "Download")])
