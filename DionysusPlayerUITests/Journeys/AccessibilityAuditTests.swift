@@ -304,16 +304,19 @@ final class AccessibilityAuditTests: UITestCase {
             if lastRow.exists, lastRow.frame == before { break }
         }
 
-        try auditCurrentScreen()
+        // Below iOS 26 there's no Spatial Audio section, so the list is short
+        // enough that the Audio Offset stepper is still on screen here.
+        try auditCurrentScreen(besideStepper: true)
     }
 
     /// The Spatial Audio section with both toggles on, so its layout pickers
-    /// are audited too.
+    /// are audited too. iOS 26 and later, where the section shows.
     func testSpatialAudioSettingsHaveNoAccessibilityIssues() throws {
+        try skipBelowiOS26ForSpatialAudio()
         launch()
         HomeScreen(app: app).awaitLoaded()
         TabBar(app: app).profile.tap()
-        ProfileScreen(app: app).awaitLoaded()
+        ProfileScreen(app: app).openPlaybackSettings()
         for toggleID in [A11yID.Profile.spatialAtmosToggle, A11yID.Profile.spatialDTSXToggle] {
             let toggle = app.switches[toggleID]
             for _ in 0..<8 where !toggle.isHittable { app.swipeUp() }
@@ -321,7 +324,8 @@ final class AccessibilityAuditTests: UITestCase {
         }
         app.buttons[A11yID.Profile.spatialDTSXLayout].awaitExistence("the DTS:X layout picker")
 
-        try auditCurrentScreen()
+        // On iPad the Audio Offset stepper shares the pane.
+        try auditCurrentScreen(besideStepper: true)
     }
 
     func testQuickConnectApprovalHasNoAccessibilityIssues() throws {
@@ -385,12 +389,26 @@ private extension AccessibilityAuditTests {
     /// `xcodebuild` into `xcbeautify` without `pipefail`, so the three iPad
     /// audits using this failed every night while the run reported success
     /// (fixed in PR #258).
-    func auditCurrentScreen(underModal: Bool = false, file: StaticString = #filePath, line: UInt = #line) throws {
+    ///
+    /// `besideStepper`: a system `Stepper` is on screen. On iOS 27 the audit
+    /// reads its −/+ control as text with no element (that same issue, the
+    /// same shape), with the row's own label and value already exposed:
+    /// Profile's Playback pane passed with the Audio Offset stepper hidden,
+    /// and failed with it shown even with its label and value replaced by
+    /// plain `Text`. Let through only while a stepper is actually on screen.
+    func auditCurrentScreen(
+        underModal: Bool = false, besideStepper: Bool = false,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
         // A query, resolved each time it's read, so it finds a keyboard that
         // came up after the audit started.
         let keyboard = app.keyboards.firstMatch
+        let stepper = app.steppers.firstMatch
         try app.performAccessibilityAudit(for: Self.auditedTypes) { issue in
             if underModal, issue.auditType == .elementDetection, issue.element == nil {
+                return true
+            }
+            if besideStepper, issue.auditType == .elementDetection, issue.element == nil, stepper.exists {
                 return true
             }
             if Self.isKnownAcceptable(issue, keyboard: keyboard) {

@@ -383,6 +383,10 @@ final class AddToPlaylistJourneyTests: UITestCase {
             let back = app.navigationBackButton
             guard back.exists else { break }
             back.tap()
+            // Let the pop finish before the next lookup. Mid-pop, the old
+            // bar's button can pass `exists` and be gone by the time the tap
+            // or a frame read resolves it, which fails the test (iPadOS 27).
+            Thread.sleep(forTimeInterval: 1)
         }
         HomeScreen(app: app).awaitLoaded(file: file, line: line)
 

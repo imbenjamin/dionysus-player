@@ -5,15 +5,12 @@ import XCTest
 /// stays scoped to just those — the rest of Profile forks by device in a
 /// way this suite doesn't yet absorb).
 final class ProfileJourneyTests: UITestCase {
-    /// Approving another device's code signs it in and says so.
-    /// iPhone only: Profile is one scrolling list there (`ProfileScreen`'s
-    /// note on the iPad sidebar fork). The stepper steps 10 ms; Reset shows
-    /// only off 0 ms.
+    /// The stepper steps 10 ms; Reset shows only off 0 ms.
     func testAudioOffsetStepperAndReset() {
         launch()
         HomeScreen(app: app).awaitLoaded()
         TabBar(app: app).profile.tap()
-        ProfileScreen(app: app).awaitLoaded()
+        ProfileScreen(app: app).openPlaybackSettings()
         let stepper = app.steppers[A11yID.Profile.audioOffsetStepper]
         for _ in 0..<6 where !stepper.isHittable { app.swipeUp() }
         stepper.awaitExistence("the audio offset stepper")
@@ -26,13 +23,12 @@ final class ProfileJourneyTests: UITestCase {
         app.buttons[A11yID.Profile.audioOffsetReset].awaitDisappearance("Reset, back at 0 ms")
     }
 
-    /// Advanced's Read-Ahead Buffer steps 30 s from 5 min. iPhone only, as
-    /// above.
+    /// Advanced's Read-Ahead Buffer steps 30 s from 5 min.
     func testReadAheadBufferStepsThirtySeconds() {
         launch()
         HomeScreen(app: app).awaitLoaded()
         TabBar(app: app).profile.tap()
-        ProfileScreen(app: app).awaitLoaded()
+        ProfileScreen(app: app).openPlaybackSettings()
         let advanced = app.buttons[A11yID.Profile.advancedPlaybackLink]
         for _ in 0..<8 where !advanced.isHittable { app.swipeUp() }
         advanced.tap()
@@ -48,12 +44,14 @@ final class ProfileJourneyTests: UITestCase {
     }
 
     /// Each Spatial Audio toggle shows its layout picker while it's on, at
-    /// 7.1.4 first.
-    func testSpatialAudioTogglesRevealTheirLayoutPickers() {
+    /// 7.1.4 first. iOS 26 and later: below it the section is hidden
+    /// (`SpatialAudioSupport`).
+    func testSpatialAudioTogglesRevealTheirLayoutPickers() throws {
+        try skipBelowiOS26ForSpatialAudio()
         launch()
         HomeScreen(app: app).awaitLoaded()
         TabBar(app: app).profile.tap()
-        ProfileScreen(app: app).awaitLoaded()
+        ProfileScreen(app: app).openPlaybackSettings()
         for (toggleID, layoutID) in [
             (A11yID.Profile.spatialAtmosToggle, A11yID.Profile.spatialAtmosLayout),
             (A11yID.Profile.spatialDTSXToggle, A11yID.Profile.spatialDTSXLayout),

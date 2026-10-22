@@ -46,6 +46,18 @@ private enum ProfileSettingsPane: Identifiable, Hashable {
         case .about: return "info.circle"
         }
     }
+
+    /// The sidebar row's identifier, so a UI test can open a pane on iPad
+    /// before reaching rows that live only there.
+    var accessibilityIdentifier: String {
+        switch self {
+        case .account: return A11yID.Profile.accountCard
+        case .appearance: return A11yID.Profile.appearancePane
+        case .playback: return A11yID.Profile.playbackPane
+        case .downloads: return A11yID.Profile.downloadsPane
+        case .about: return A11yID.Profile.aboutPane
+        }
+    }
 }
 
 /// Account/server settings: who's signed in and where, plus sign out and
@@ -285,8 +297,15 @@ struct ProfileView: View {
 
             Section {
                 ForEach(ProfileSettingsPane.listed) { pane in
-                    Label(pane.title, systemImage: pane.systemImage)
-                        .tag(pane)
+                    // The identifier on the title alone: on the whole `Label`
+                    // it also overwrote the icon's own (its symbol name).
+                    Label {
+                        Text(pane.title)
+                            .accessibilityIdentifier(pane.accessibilityIdentifier)
+                    } icon: {
+                        Image(systemName: pane.systemImage)
+                    }
+                    .tag(pane)
                 }
             }
         }

@@ -679,6 +679,7 @@ struct AddToPlaylistScreen: Screen {
         nameField.typeText(name)
 
         createButton.awaitExistence("the Create button", file: file, line: line)
+        createButton.awaitStableFrame()
         createButton.tap()
 
         createConfirmButton.awaitExistence("the create confirmation", file: file, line: line)
@@ -908,15 +909,12 @@ struct QuickConnectApprovalScreen: Screen {
     }
 }
 
-/// Covers only what's reachable through the account card — sign out and
-/// change server. Every other Profile row (`advancedPlaybackLink`,
-/// `licenseLink`, ...) sits behind a device-specific fork this screen object
-/// deliberately doesn't absorb yet: iPhone reaches them by scrolling one
-/// continuous list, iPad by first selecting a sidebar pane
-/// (`ProfileSettingsPane`) that carries no identifier of its own. The
-/// account card is the one row that's a sidebar destination in its own
-/// right on both layouts (see `ProfileView.sidebar`), so it needs no such
-/// fork.
+/// Profile on both layouts. iPhone shows every section in one scrolling
+/// list; iPad shows a sidebar of panes (`ProfileSettingsPane`), so a row
+/// outside the account card is reached by first opening its pane
+/// (`openPlaybackSettings()`), then scrolling as on iPhone. The account card
+/// is a sidebar destination in its own right on both layouts (see
+/// `ProfileView.sidebar`), so it needs no such step.
 struct ProfileScreen: Screen {
     let app: XCUIApplication
 
@@ -927,6 +925,18 @@ struct ProfileScreen: Screen {
 
     func awaitLoaded(file: StaticString = #filePath, line: UInt = #line) {
         accountCard.awaitExistence("the Profile account card", file: file, line: line)
+    }
+
+    /// Selects the iPad sidebar's Playback pane, where its rows and Spatial
+    /// Audio live. Nothing to do on iPhone, where they're in the one list.
+    /// Keyed on the idiom, as `ProfileView` splits only on an iPad: checking
+    /// for the row instead raced the sidebar's first layout.
+    func openPlaybackSettings(file: StaticString = #filePath, line: UInt = #line) {
+        awaitLoaded(file: file, line: line)
+        guard UIDevice.current.userInterfaceIdiom == .pad else { return }
+        let pane = app.descendants(matching: .any).matching(identifier: A11yID.Profile.playbackPane).firstMatch
+        pane.awaitExistence("the Playback pane", file: file, line: line)
+        pane.tap()
     }
 
     /// Opens `AccountDetailsContent` — a sheet on iPhone, a detail pane on

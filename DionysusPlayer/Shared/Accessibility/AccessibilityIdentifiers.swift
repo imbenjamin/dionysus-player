@@ -367,6 +367,12 @@ enum A11yID {
 
     enum Profile {
         static let accountCard = "profile.accountCard"
+        /// The iPad sidebar's pane rows (`ProfileSettingsPane`). iPhone has
+        /// no sidebar; its sections sit in one list.
+        static let appearancePane = "profile.pane.appearance"
+        static let playbackPane = "profile.pane.playback"
+        static let downloadsPane = "profile.pane.downloads"
+        static let aboutPane = "profile.pane.about"
         /// Playback → Audio Offset's stepper, and Reset to 0 ms beside it.
         static let audioOffsetStepper = "profile.audioOffset.stepper"
         static let audioOffsetReset = "profile.audioOffset.reset"
