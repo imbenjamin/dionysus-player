@@ -54,10 +54,13 @@ on:
       timeout-minutes:
         description: >-
           Per-environment job timeout. The full plan took 46 min on iPhone and
-          54 min on iPad on 2026-09-26.
+          54 min on iPad on 2026-09-26; on 2026-10-22 iPad iOS 27.0 took 62
+          min, and a slow runner (a Simulator that lost 16 min before testing
+          began) ran the v1.2.0-beta.1 release's leg past 90 with no test
+          failed, so 120 leaves room for one.
         required: false
         type: number
-        default: 90
+        default: 120
 
 permissions:
   contents: read
