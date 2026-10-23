@@ -9,8 +9,8 @@ enum TVTransportLayout {
     }
 
     /// The end of what is buffered, as a fraction of the title. `nil` where
-    /// the route reports nothing (`PlaybackStats.bufferedSeconds` is
-    /// native-route only), so no fill is drawn rather than a wrong one.
+    /// the route reports nothing (`PlaybackStats.bufferedSeconds` covers the
+    /// native and software backends), so no fill is drawn rather than a wrong one.
     static func bufferedFraction(currentTime: TimeInterval, bufferedSeconds: Double?, duration: TimeInterval) -> Double? {
         guard let bufferedSeconds, duration > 0 else { return nil }
         return fraction(currentTime + bufferedSeconds, duration: duration)

@@ -213,6 +213,9 @@ enum UITestScenario: String {
     /// `.buffering` for 3 s before playing on: a mid-play rebuffer, as a
     /// remux on a slow link has.
     case rebuffering
+    /// `.standard`, but the fake engine holds every seek in `.seeking` for
+    /// 3 s before it lands: a long jump (a chapter) on a slow link.
+    case slowSeek
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a

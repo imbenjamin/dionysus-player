@@ -579,7 +579,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
              .slowPublicUsers:
             return nil
         case .largeCast, .noBackdrop, .missingTileArtwork, .manyGenres, .failingLibrary, .failingHome, .thinDynamicRails, .skipIntro, .earlyCredits,
-             .audioOffsetUnavailable, .rebuffering:
+             .audioOffsetUnavailable, .rebuffering, .slowSeek:
             return nil
         case .failingDetail:
             return path.hasSuffix("/Items/\(UITestFixtureIdentity.movieID(3))") ? 500 : nil

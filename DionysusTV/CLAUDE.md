@@ -871,10 +871,12 @@ playing-to-paused change it didn't cause (`TVPlayerInputModel.tick`), and
 skips it for its own Play/Pause and a scan.
 
 **A stall shows a spinner** (`TVTransportOverlay.spinnerDelay`): at once
-while loading, and after half a second of a mid-play rebuffer or a dropped
-connection, with or without the transport, so a catch shorter than that
+while loading, and after half a second of a mid-play rebuffer, a dropped
+connection or a seek still landing (a chapter jump; Benjamin, 2026-10-23),
+with or without the transport, so a catch or a 10s skip shorter than that
 doesn't flash it. It used to show nothing at all (Benjamin, 2026-10-21, a 4K
-remux over powerline and Wi-Fi). It's UIKit's white indicator on a dark
+remux over powerline and Wi-Fi). A scrub isn't a seek until it's committed:
+the picture stays paused under its preview. It's UIKit's white indicator on a dark
 plate: SwiftUI's `ProgressView` draws grey on tvOS and ignores `tint`.
 `TVPlayerContext` still maps `.buffering` to `.playing`, which is about the
 input the player accepts, not what it draws.
