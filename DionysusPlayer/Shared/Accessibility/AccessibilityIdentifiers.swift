@@ -380,6 +380,11 @@ enum A11yID {
         static let spatialAtmosLayout = "profile.spatialAudio.atmos.layout"
         static let spatialDTSXToggle = "profile.spatialAudio.dtsx.toggle"
         static let spatialDTSXLayout = "profile.spatialAudio.dtsx.layout"
+        /// The section footer's Learn More button, and the sheet it opens:
+        /// the page's text block (never the sheet's root) and its Done.
+        static let spatialAudioLearnMore = "profile.spatialAudio.learnMore"
+        static let spatialAudioHelp = "profile.spatialAudio.help"
+        static let spatialAudioHelpDone = "profile.spatialAudio.help.done"
         static let accountSheet = "profile.accountSheet"
         static let signOutButton = "profile.signOutButton"
         static let changeServerButton = "profile.changeServerButton"
@@ -602,6 +607,8 @@ enum A11yID {
             static let spatialAtmosLayout = "tv.profile.spatialAudio.atmos.layout"
             static let spatialDTSX = "tv.profile.spatialAudio.dtsx"
             static let spatialDTSXLayout = "tv.profile.spatialAudio.dtsx.layout"
+            /// Opens the About Spatial Audio page (a `TVTextPageView`).
+            static let spatialAudioAbout = "tv.profile.spatialAudio.about"
             static let audioOffsetDecrease = "tv.profile.audioOffset.decrease"
             static let audioOffsetIncrease = "tv.profile.audioOffset.increase"
             static let audioOffsetValue = "tv.profile.audioOffset.value"

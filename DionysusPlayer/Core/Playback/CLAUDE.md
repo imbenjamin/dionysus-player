@@ -136,15 +136,21 @@ it needs the `TrueHDObjectAudio`/`DTSXObjectAudio` traits
   its height channels): the one in-app sign the route was taken. tvOS's
   engine loops a silent Atmos stream so soundbars light their indicator
   (`AtmosOutputActivator`); nothing to do in the app.
-- **The section is headed "Spatial Audio (beta)" on both apps** (Benjamin,
-  2026-10-22) because of AetherEngine #850: on the A15 Apple TV the TrueHD
+- **The section's footer is one sentence, and the rest is a page of its
+  own** (`SpatialAudioHelp`, Benjamin, 2026-10-23): iOS's footer ends in
+  Learn More…, which opens a sheet; the Apple TV's section ends in an About
+  Spatial Audio row, since focus never reaches a footer there. Its last
+  paragraph is the caveat for AetherEngine #850, a plain limitation: the
+  section was headed "Spatial Audio (beta)" for a day, and App Review rejects
+  a store build with a feature labelled beta (guideline 2.2;
+  `SpatialAudioHelpTests` keeps "beta" out). On the A15 Apple TV the TrueHD
   decode and APAC encode run the engine's segment producer at only ~1.2x real
   time, and the engine's QoS retune drops it to `.utility` at 16 s of lead,
   where it runs below real time. The lead never grows, AVPlayer stalls every
   few minutes on a 4K remux, and worse as the box heats (thermal state
   Serious, stalls every ~20 s by 20 minutes in). The Read-Ahead Buffer can't
-  help: the producer is the limit, not the network. Drop "(beta)" once a fix
-  is verified on the Living Room box.
+  help: the producer is the limit, not the network. Drop the page's last
+  paragraph once a fix is verified on the Living Room box.
 
 ## Read-Ahead Buffer
 

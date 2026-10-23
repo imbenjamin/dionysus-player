@@ -328,6 +328,20 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen(besideStepper: true)
     }
 
+    func testSpatialAudioHelpHasNoAccessibilityIssues() throws {
+        try skipBelowiOS26ForSpatialAudio()
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).openPlaybackSettings()
+        let learnMore = app.buttons[A11yID.Profile.spatialAudioLearnMore]
+        for _ in 0..<8 where !learnMore.isHittable { app.swipeUp() }
+        learnMore.tap()
+        app.descendants(matching: .any)[A11yID.Profile.spatialAudioHelp].awaitExistence("the About Spatial Audio sheet")
+
+        try auditCurrentScreen()
+    }
+
     func testQuickConnectApprovalHasNoAccessibilityIssues() throws {
         launch()
         HomeScreen(app: app).awaitLoaded()
