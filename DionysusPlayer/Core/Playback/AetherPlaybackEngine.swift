@@ -148,28 +148,14 @@ final class AetherPlaybackEngine: PlaybackEngine {
             audioChannels: Self.describeChannels(activeAudioTrack),
             backend: engine.playbackBackend.rawValue.capitalized,
             route: Self.describeVideoRoute(engine.videoRoute),
-            // Native-only, per `PlaybackStats.bufferedSeconds`. On the software
-            // backend `bufferedPosition` tracks the playhead rather than any
-            // read-ahead, so diffing it against `currentTime` or `sourceTime`
-            // only ever reads ~0.
-            //
-            // Prefers `loadedTimeRanges` where available: on the
-            // `nativeRemoteHLS` route `bufferedPosition` sits permanently at
-            // `sourceTime`, reading as a constant "Buffered: 0.0s". That route
-            // has no local segment cache for its clock to measure — AVPlayer
-            // buffers against the origin itself — which is why
-            // `LoadOptions.forwardBufferSegments` is documented as ignored
-            // there. Falls back to the `bufferedPosition` diff when no
-            // AVPlayerItem exists.
-            bufferedSeconds: engine.playbackBackend == .native
-                ? (engine.currentAVPlayerItem.flatMap { Self.bufferedAheadSeconds(item: $0, currentTime: engine.sourceTime) }
-                    ?? max(0, engine.bufferedPosition - engine.sourceTime))
-                : nil,
-            // `liveTelemetry`'s 1 Hz sampler runs for every session despite its
-            // name. Its `cachedBytes` measures the same segment cache
-            // `bufferedSeconds` reads above, so it is native-only for the same
-            // reason.
-            bufferedBytes: engine.liveTelemetry?.cachedBytes,
+            bufferedSeconds: Self.bufferedAheadSeconds(
+                backend: engine.playbackBackend,
+                loadedAhead: engine.currentAVPlayerItem.flatMap { Self.bufferedAheadSeconds(item: $0, currentTime: engine.sourceTime) },
+                bufferedPosition: engine.bufferedPosition, sourceTime: engine.sourceTime, currentTime: engine.currentTime
+            ),
+            // The forward part of the segment cache `bufferedSeconds` reads
+            // above; see `forwardCacheBytes(_:)`.
+            bufferedBytes: Self.forwardCacheBytes(engine.diagnostics.sessionCacheStatus),
             currentTime: engine.currentTime,
             duration: engine.duration,
             // `sourceVideoCodecName` is mapped back from AVPlayer's sample
@@ -1192,6 +1178,41 @@ final class AetherPlaybackEngine: PlaybackEngine {
         case .software: return "Software"
         case .audio: return "Audio"
         }
+    }
+
+    /// `stats.bufferedSeconds`: how far ahead of the playhead the media is
+    /// already held.
+    ///
+    /// - Native: prefers `loadedAhead` (the AVPlayerItem's `loadedTimeRanges`):
+    ///   on the `nativeRemoteHLS` route `bufferedPosition` sits permanently at
+    ///   `sourceTime`, reading as a constant "Buffered: 0.0s". That route has no
+    ///   local segment cache for its clock to measure (AVPlayer buffers against
+    ///   the origin itself), which is why `LoadOptions.forwardBufferSegments` is
+    ///   documented as ignored there. Falls back to the `bufferedPosition` diff
+    ///   when no AVPlayerItem exists.
+    /// - Software: `bufferedPosition` is the end of the engine's compressed
+    ///   packet cache on `currentTime`'s axis (`SoftwareBufferFrontier`), so the
+    ///   diff is the read-ahead. It once tracked the playhead, which is why this
+    ///   was native-only and the Simulator, whose sessions run here, read N/A.
+    /// - Anything else (audio only, between sessions) has no read-ahead to show.
+    nonisolated static func bufferedAheadSeconds(
+        backend: PlaybackBackend, loadedAhead: Double?, bufferedPosition: Double, sourceTime: Double, currentTime: Double
+    ) -> Double? {
+        switch backend {
+        case .native: return loadedAhead ?? max(0, bufferedPosition - sourceTime)
+        case .software: return max(0, bufferedPosition - currentTime)
+        default: return nil
+        }
+    }
+
+    /// `stats.bufferedBytes`: the bytes cached ahead of the playhead (AE 7.45.0).
+    /// `liveTelemetry.cachedBytes`, read before, is the whole cache, which also
+    /// keeps segments already watched. Only the loopback has a segment cache;
+    /// a server transcode reports `.unsupported` (AVPlayer buffers against the
+    /// origin) and the software path `.inactive`, so both read `nil`.
+    nonisolated static func forwardCacheBytes(_ status: SessionCacheStatus) -> Int64? {
+        guard status.route == .loopbackFMP4, status.capability == .active else { return nil }
+        return Int64(status.currentForwardBytes)
     }
 
     /// `stats.bufferedSeconds`' route-agnostic path. Reports how far ahead the

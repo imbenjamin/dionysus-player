@@ -280,9 +280,9 @@ extension PlaybackStatsReport {
         }
     }
 
-    /// `seconds` is the gate; `bytes` comes from the same native-only source
-    /// (see `PlaybackStats.bufferedBytes`) but is treated as optional in case
-    /// it lags a tick at session startup.
+    /// `seconds` is the gate; `bytes` is optional on its own: the loopback's
+    /// cache reports it (see `PlaybackStats.bufferedBytes`) and can lag a tick
+    /// at session startup, and the software route never does.
     static func describeBuffered(seconds: Double?, bytes: Int64?) -> String {
         guard let seconds else { return "N/A" }
         let secondsText = String(format: "%.1fs", seconds)

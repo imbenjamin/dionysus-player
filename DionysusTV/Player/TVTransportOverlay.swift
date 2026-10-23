@@ -35,13 +35,14 @@ struct TVTransportOverlay: View {
     private var shownTime: TimeInterval { state.scrub?.previewTime ?? viewModel.currentTime }
 
     /// How long a state lasts before the spinner shows, or `nil` for none.
-    /// Loading shows it at once; a rebuffer or a dropped connection after
-    /// half a second, so a catch shorter than that doesn't flash it. A scrub
-    /// has its own preview.
+    /// Loading shows it at once; a rebuffer, a dropped connection or a seek
+    /// (a chapter jump) after half a second, so a catch or a 10s skip shorter
+    /// than that doesn't flash it. A scrub isn't a seek until it's committed:
+    /// the picture stays paused under its preview.
     static func spinnerDelay(for state: PlaybackState) -> Duration? {
         switch state {
         case .loading: .zero
-        case .buffering, .reconnecting: .milliseconds(500)
+        case .buffering, .reconnecting, .seeking: .milliseconds(500)
         default: nil
         }
     }

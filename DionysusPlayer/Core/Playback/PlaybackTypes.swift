@@ -99,13 +99,13 @@ struct PlaybackStats: Equatable {
     /// misdeclared HLS carriage.
     var route: String
     /// Seconds fetched ahead of the playhead: the margin before playback would
-    /// rebuffer. `nil` off the native backend, where `bufferedPosition` means
-    /// "newest demuxed PTS since session start" and tracks the playhead rather
-    /// than any read-ahead — reporting that would read as a stuck "0.0s",
-    /// indistinguishable from a stall.
+    /// rebuffer. Native and software backends; `nil` otherwise
+    /// (`AetherPlaybackEngine.bufferedAheadSeconds(backend:...)`).
     var bufferedSeconds: Double?
-    /// Resident size of the segment cache `bufferedSeconds` measures; `nil` in
-    /// the same case.
+    /// Bytes of the loopback's segment cache ahead of the playhead, segments
+    /// already watched excluded; `nil` off the loopback. The software route's
+    /// packet cache publishes only its resident size, played packets included,
+    /// so it shows seconds alone (`AetherPlaybackEngine.forwardCacheBytes(_:)`).
     var bufferedBytes: Int64?
     var currentTime: TimeInterval
     var duration: TimeInterval

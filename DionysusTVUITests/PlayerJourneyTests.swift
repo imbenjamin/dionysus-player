@@ -101,4 +101,17 @@ final class PlayerJourneyTests: TVUITestCase {
         XCTAssertTrue(poll(timeout: 8) { !spinner.exists }, "It clears when playback resumes")
     }
 
+    /// A seek that takes a while to land shows the spinner too, and clears it
+    /// once it has (Benjamin, 2026-10-23: a long chapter jump showed nothing).
+    /// The `slowSeek` fake engine holds every seek in `.seeking` for 3 s,
+    /// the resume seek on opening included, so the skip waits that one out.
+    func test_slowSeek_showsASpinner_untilItLands() {
+        let app = openPlayer(scenario: "slowSeek", extraArguments: [])
+        let spinner = app.descendants(matching: .any)[A11yID.TV.Player.buffering]
+        XCTAssertTrue(poll(timeout: 10) { !spinner.exists }, "The resume seek lands first")
+        press(.right)
+        XCTAssertTrue(spinner.waitForExistence(timeout: 3), "A slow seek shows the spinner")
+        XCTAssertTrue(poll(timeout: 8) { !spinner.exists }, "It clears when the seek lands")
+    }
+
 }

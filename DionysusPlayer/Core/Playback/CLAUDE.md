@@ -135,7 +135,9 @@ it needs the `TrueHDObjectAudio`/`DTSXObjectAudio` traits
   `LiveTelemetry.objectAudio` ("7.1.4 · 13 objects, 4 overhead"; DTS:X shows
   its height channels): the one in-app sign the route was taken. tvOS's
   engine loops a silent Atmos stream so soundbars light their indicator
-  (`AtmosOutputActivator`); nothing to do in the app.
+  (`AtmosOutputActivator`), only while every output is HDMI since 7.45.0
+  (AE#834: over AirPlay to a HomePod pair it silenced the programme after a
+  pause); nothing to do in the app.
 - **The section's footer is one sentence, and the rest is a page of its
   own** (`SpatialAudioHelp`, Benjamin, 2026-10-23): iOS's footer ends in
   Learn More…, which opens a sheet; the Apple TV's section ends in an About
@@ -166,10 +168,17 @@ Kodi's raised caches); ExoPlayer's 50 s and AVPlayer's own are tuned for
 adaptive streams. Segments are disk-backed (~750 MB for 5 min of 4K) and the
 engine caps the window at a quarter of free space. It does nothing on a
 server transcode (`nativeRemoteHLS`), where AVPlayer buffers against the
-server itself. Playback Stats' "Buffered" KB counts every segment the
-engine keeps, already-watched ones included (kept for seeking back), so it is
-not how much lies ahead; the seconds figure is AVPlayer's own, only a few
-segments.
+server itself. Playback Stats' "Buffered" KB is what lies ahead in the
+engine's segment cache (`SessionCacheStatus.currentForwardBytes`, since
+AetherEngine 7.45.0); before, it read `liveTelemetry.cachedBytes`, which
+also counts the already-watched segments kept for seeking back. The seconds
+figure is AVPlayer's own, only a few segments. **On the software route**
+(AV1, VC-1 and the like on device; every direct-play session on the
+Simulator) the seconds are the engine's packet cache ahead of the playhead
+(`bufferedPosition − currentTime`), which fills to the Read-Ahead Buffer, and
+there is no KB: the engine publishes only that cache's resident size, played
+packets included. Until 2026-10-23 the row read N/A there, since
+`bufferedPosition` once tracked the playhead on that route.
 
 ## After the app comes back from the background
 
