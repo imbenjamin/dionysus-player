@@ -369,7 +369,13 @@
     "9:59:59" : {
 
     },
+    "A receiver or soundbar shows the result as Dolby Atmos, DTS:X tracks included, and AirPods play it as Spatial Audio. The audio is re-encoded, so it isn't lossless." : {
+
+    },
     "About" : {
+
+    },
+    "About Spatial Audio" : {
 
     },
     "Account" : {
@@ -579,6 +585,9 @@
 
     },
     "Choose an Audio Track" : {
+
+    },
+    "Choose the speaker layout that matches your setup. 7.1.4 is the default and is recommended for AirPods. DTS:X offers 7.1.4 and 9.1.6." : {
 
     },
     "Choose your server to continue." : {
@@ -889,6 +898,9 @@
     "Dolby Digital Plus" : {
 
     },
+    "Dolby TrueHD and DTS-HD Master Audio can't be sent to a receiver or AirPods as they are, so Dolby Atmos and DTS:X tracks usually play as 5.1 and lose their height channels. With Spatial Audio on, Dionysus decodes the height channels and re-encodes them as Spatial Audio." : {
+
+    },
     "Dolby Vision, HDR10 and surround sound, straight from your server, with the TV switched to match every frame rate and range." : {
 
     },
@@ -1127,10 +1139,13 @@
     "Keeps the height channels of DTS:X tracks for a receiver with height speakers. The audio is re-encoded, so it isn't lossless, and the receiver shows it as Dolby Atmos, not DTS:X." : {
 
     },
-    "Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for Spatial Audio on AirPods. The audio is re-encoded, so it isn't lossless, and a receiver shows it as Dolby Atmos, DTS:X included. For AirPods, 7.1.4 is recommended." : {
+    "Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for AirPods." : {
 
     },
     "Keeps the height channels of Dolby TrueHD Atmos tracks for a receiver with height speakers. The audio is re-encoded, so it isn't lossless." : {
+
+    },
+    "Learn More…" : {
 
     },
     "Libraries" : {
@@ -1421,6 +1436,9 @@
     "Rating" : {
 
     },
+    "Re-encoding takes a lot of processing power: on some devices, a 4K title with one of these tracks can pause to buffer. If that happens, turn Spatial Audio off for that format." : {
+
+    },
     "Read-Ahead Buffer" : {
 
     },
@@ -1696,9 +1714,6 @@
 
     },
     "Spatial Audio" : {
-
-    },
-    "Spatial Audio (beta)" : {
 
     },
     "Starring" : {

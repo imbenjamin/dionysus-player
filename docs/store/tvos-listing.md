@@ -56,9 +56,6 @@ This app is a client, not a media library. You'll need a Jellyfin server to conn
 ALSO ON IPHONE AND IPAD
 Dionysus is available across iPhone, iPad and Apple TV. On iPhone and iPad you can also download movies and episodes to watch offline.
 
-MORE TO COME
-We know the app still has a few gaps in its support for everything Jellyfin has to offer. More features and capabilities are committed for future releases. Watch this space!
-
 ## URLs
 
 - Marketing: https://github.com/imbenjamin/dionysus-player

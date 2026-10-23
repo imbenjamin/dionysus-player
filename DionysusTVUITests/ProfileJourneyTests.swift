@@ -322,6 +322,19 @@ final class ProfileJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(privacy))
     }
 
+    /// The Spatial Audio section's About row opens its page, which Menu
+    /// closes back onto the row.
+    func test_spatialAudioAbout_opens_andMenuReturns() {
+        let app = launchAtHome()
+        openProfile(app)
+        let about = app.buttons[A11yID.TV.Profile.spatialAudioAbout]
+        pressDownThroughProfile(until: about)
+        press(.select)
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Profile.textPage].waitForExistence(timeout: 5))
+        press(.menu)
+        XCTAssertTrue(waitForFocus(about))
+    }
+
     /// Sign Out sits above Change Server (Benjamin, 2026-10-05): the
     /// account's own action before the household's.
     func test_signOut_comesBeforeChangeServer() {

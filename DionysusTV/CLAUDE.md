@@ -506,8 +506,11 @@ Privacy Policy), with iOS's footers.
   on/off row, and while on a "Dolby Atmos Speaker Layout" / "DTS:X Speaker
   Layout" row (named apart, never two rows with one label) opening a
   `TVSettingsPicker` page of that format's layouts. Both pickers mark 7.1.4
-  "(Default)" (`SpeakerLayout.optionLabel`; Benjamin, 2026-10-20), and the
-  section footer recommends it for AirPods. Stored in the shared keychain like
+  "(Default)" (`SpeakerLayout.optionLabel`; Benjamin, 2026-10-20). The
+  section ends in an About Spatial Audio row opening a `TVTextPageView` of
+  `SpatialAudioHelp` (iOS's Learn More sheet; Benjamin, 2026-10-23), then a
+  one-sentence footer: the full text as a footer was also every row's spoken
+  hint. Stored in the shared keychain like
   the audio offset. `Core/Playback/CLAUDE.md` has how it plays.
 
 - **Audio Offset opens a page of its own** (`TVAudioOffsetPage`): the value

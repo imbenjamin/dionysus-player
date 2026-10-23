@@ -72,6 +72,25 @@ final class ProfileJourneyTests: UITestCase {
         }
     }
 
+    /// The section's footer is one sentence; Learn More opens the rest, the
+    /// stall caveat included, in a sheet Done closes.
+    func testSpatialAudioLearnMoreOpensAndCloses() throws {
+        try skipBelowiOS26ForSpatialAudio()
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).openPlaybackSettings()
+        let learnMore = app.buttons[A11yID.Profile.spatialAudioLearnMore]
+        for _ in 0..<8 where !learnMore.isHittable { app.swipeUp() }
+        learnMore.awaitExistence("the Spatial Audio Learn More button")
+        learnMore.tap()
+        let help = app.descendants(matching: .any)[A11yID.Profile.spatialAudioHelp]
+        help.awaitExistence("the About Spatial Audio sheet")
+        app.buttons[A11yID.Profile.spatialAudioHelpDone].tap()
+        help.awaitDisappearance("the About Spatial Audio sheet, after Done")
+        XCTAssertTrue(learnMore.isHittable, "Done returns to the settings")
+    }
+
     func testQuickConnectApprovesACode() {
         launch()
         HomeScreen(app: app).awaitLoaded()
