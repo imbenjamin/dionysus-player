@@ -105,6 +105,7 @@ struct ProfileView: View {
     /// A copy of the stored Spatial Audio settings (`SpatialAudioStore`),
     /// written back on every change.
     @State private var spatialAudio = SpatialAudioStore().settings
+    @State private var showsSpatialAudioHelp = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showAccountDetails = false
     @State private var pendingAccountAction: AccountAction?
@@ -185,6 +186,7 @@ struct ProfileView: View {
             }
         }
         .task(id: appState.currentUser?.id) { await loadAvatarImageURL() }
+        .sheet(isPresented: $showsSpatialAudioHelp) { SpatialAudioHelpView() }
         // Sign Out and Change Server close the sheet first and run from here,
         // once it's gone — see `AccountAction`.
         .sheet(isPresented: $showAccountDetails, onDismiss: {
@@ -504,10 +506,17 @@ struct ProfileView: View {
                     spatialAudioRows(for: format)
                 }
             } header: {
-                Text("Spatial Audio (beta)")
+                Text("Spatial Audio")
             } footer: {
-                Text("Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for Spatial Audio on AirPods. The audio is re-encoded, so it isn't lossless, and a receiver shows it as Dolby Atmos, DTS:X included. For AirPods, 7.1.4 is recommended.")
-                    .readableSettingsFooter()
+                // One sentence; the rest, with #850's caveat, is a sheet of
+                // its own (`SpatialAudioHelp`, Benjamin, 2026-10-23).
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for AirPods.")
+                    Button("Learn More…") { showsSpatialAudioHelp = true }
+                        .font(.footnote)
+                        .accessibilityIdentifier(A11yID.Profile.spatialAudioLearnMore)
+                }
+                .readableSettingsFooter()
             }
         }
     }

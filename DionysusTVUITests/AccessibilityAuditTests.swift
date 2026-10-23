@@ -248,6 +248,14 @@ final class AccessibilityAuditTests: TVUITestCase {
         try audit(app)
     }
 
+    func test_profileSpatialAudioAbout() throws {
+        let app = openProfile()
+        pressDown(until: app.buttons[A11yID.TV.Profile.spatialAudioAbout], presses: 18)
+        press(.select)
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Profile.textPage].waitForExistence(timeout: 5))
+        try audit(app)
+    }
+
     func test_profileQuickConnectApproval() throws {
         let app = openProfile()
         pressDown(until: app.buttons[A11yID.TV.Profile.approveQuickConnect])

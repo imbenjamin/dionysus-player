@@ -19,7 +19,7 @@ struct TVProfileView: View {
     /// accessibility identifiers on tvOS, nor a push, which would put the
     /// sidebar beside a page that belongs to Profile.
     private enum Cover: String, Identifiable {
-        case changeServer, signOut, quickConnect, nextUpCountdown, audioOffset, atmosLayout, dtsXLayout, advanced, license, privacyPolicy
+        case changeServer, signOut, quickConnect, nextUpCountdown, audioOffset, atmosLayout, dtsXLayout, spatialAudioHelp, advanced, license, privacyPolicy
         var id: String { rawValue }
     }
 
@@ -64,7 +64,8 @@ struct TVProfileView: View {
             + [A11yID.TV.Profile.license, A11yID.TV.Profile.privacyPolicy]
     }
 
-    /// Each format's toggle, and its layout row while it's on.
+    /// Each format's toggle, its layout row while it's on, and About Spatial
+    /// Audio after them while any format is offered.
     private var spatialAudioFocusIDs: [String] {
         var ids: [String] = []
         if SpatialAudioSupport.isOffered(.dolbyAtmos) {
@@ -75,7 +76,7 @@ struct TVProfileView: View {
             ids.append(A11yID.TV.Profile.spatialDTSX)
             if spatialAudio.dtsXEnabled { ids.append(A11yID.TV.Profile.spatialDTSXLayout) }
         }
-        return ids
+        return ids.isEmpty ? ids : ids + [A11yID.TV.Profile.spatialAudioAbout]
     }
 
     /// Reads and writes one Spatial Audio setting through the store.
@@ -161,6 +162,8 @@ struct TVProfileView: View {
                     selection: spatialAudioBinding(\.dtsXLayout), id: \.rawValue, label: \.optionLabel,
                     accessibilityLabel: \.accessibilityLabel
                 )
+            case .spatialAudioHelp:
+                TVTextPageView(title: "About Spatial Audio", paragraphs: SpatialAudioHelp.paragraphs.map { AttributedString($0) })
             case .advanced:
                 TVAdvancedPlaybackView()
             case .license:
@@ -270,7 +273,7 @@ struct TVProfileView: View {
                 // A section of its own under Playback, as on iOS (Benjamin,
                 // 2026-10-19).
                 if !spatialAudioFocusIDs.isEmpty {
-                    section("spatialAudio", "Spatial Audio (beta)") { spatialAudioRows }
+                    section("spatialAudio", "Spatial Audio") { spatialAudioRows }
                 }
 
                 section("about", "About") {
@@ -286,8 +289,8 @@ struct TVProfileView: View {
         .scrollClipDisabled()
     }
 
-    /// Each format's toggle, its Speaker Layout row while it's on, and the
-    /// footer iOS's section has.
+    /// Each format's toggle, its Speaker Layout row while it's on, About
+    /// Spatial Audio (iOS's Learn More sheet), and iOS's one-sentence footer.
     @ViewBuilder
     private var spatialAudioRows: some View {
         if SpatialAudioSupport.isOffered(.dolbyAtmos) {
@@ -324,7 +327,10 @@ struct TVProfileView: View {
                 }
             }
         }
-        TVSettingsFooter(text: "Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for Spatial Audio on AirPods. The audio is re-encoded, so it isn't lossless, and a receiver shows it as Dolby Atmos, DTS:X included. For AirPods, 7.1.4 is recommended.")
+        row("About Spatial Audio", opensPage: true, id: A11yID.TV.Profile.spatialAudioAbout) {
+            cover = .spatialAudioHelp
+        }
+        TVSettingsFooter(text: "Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for AirPods.")
     }
 
     private static let followFooter: LocalizedStringKey = "Attempts to match Jellyfin users to this Apple TV's users. Turn off to keep user switching inside the app, and when users become out of sync."
