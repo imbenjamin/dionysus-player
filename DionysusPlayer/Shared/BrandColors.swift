@@ -17,6 +17,11 @@ extension Color {
     static let dionysusRoseGoldLight = Color(red: 0xF7 / 255, green: 0xC2 / 255, blue: 0xA8 / 255)
     static let dionysusMagenta = Color(red: 0.84, green: 0.05, blue: 0.40)
     static let dionysusBurgundy = Color(red: 0.26, green: 0.00, blue: 0.12)
+    /// The Apple TV's page ground (`TVPageBackground`), a plum glow from
+    /// `dionysusPlum` to the near-black `dionysusPlumDeep`. Also behind a
+    /// user's profile picture, which can be a transparent PNG.
+    static let dionysusPlum = Color(red: 42 / 255, green: 10 / 255, blue: 28 / 255)
+    static let dionysusPlumDeep = Color(red: 11 / 255, green: 2 / 255, blue: 8 / 255)
 
     /// Increase Contrast variant of `dionysusMagenta` — brighter/more
     /// luminant, not just more saturated. Computed via the standard WCAG

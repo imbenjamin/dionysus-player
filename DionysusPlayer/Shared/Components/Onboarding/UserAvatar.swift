@@ -1,14 +1,22 @@
 import SwiftUI
 
-/// A user's Jellyfin profile picture, over their initial on a colour derived
-/// from their id — which is also what shows while the picture loads, or for a
-/// user who never set one. The picture needs no sign-in to fetch.
+/// A user's Jellyfin profile picture on a plain dark ground, or, while it loads
+/// and for a user who never set one, their initial on a colour derived from
+/// their id. The picture needs no sign-in to fetch.
 struct UserAvatar: View {
     let user: UserDto
     let serverURL: URL?
     var size: CGFloat = 84
 
     @State private var image: UIImage?
+
+    /// `image` is a picture already in hand, for tests; otherwise it's fetched.
+    init(user: UserDto, serverURL: URL?, size: CGFloat = 84, image: UIImage? = nil) {
+        self.user = user
+        self.serverURL = serverURL
+        self.size = size
+        _image = State(initialValue: image)
+    }
 
     private var imageURL: URL? { Self.imageURL(for: user, serverURL: serverURL, size: size) }
 
@@ -45,11 +53,25 @@ struct UserAvatar: View {
                     .foregroundStyle(.white)
             }
             .overlay {
+                // A picture can be a transparent PNG (the demo server's is),
+                // so it sits on a plain dark ground of its own, never over the
+                // monogram, which would show through.
                 if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .clipShape(Circle())
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [.dionysusPlum, .dionysusPlumDeep],
+                                center: .topLeading,
+                                startRadius: 0,
+                                endRadius: size * 1.2
+                            )
+                        )
+                        .overlay {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .clipShape(Circle())
+                        }
                         .transition(.opacity)
                 }
             }
