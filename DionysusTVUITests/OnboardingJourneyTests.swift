@@ -129,6 +129,53 @@ final class OnboardingJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Onboarding.changeServer]))
     }
 
+    /// The stub serves every profile picture as a transparent PNG, as the demo
+    /// server's is. The avatar's middle stays dark once it loads: the monogram
+    /// and its bright colour behind the picture showed through (store
+    /// screenshots, 2026-10-23).
+    func test_transparentProfilePicture_hidesTheMonogram() throws {
+        let app = launch()
+        connectToDiscoveredServer(app)
+        let lockup = app.buttons[A11yID.TV.Onboarding.user(UITestFixtureIdentity.userID)]
+        XCTAssertTrue(waitForFocus(lockup, timeout: 10))
+        // Unfocused, so no lift or highlight over the avatar.
+        press(.down)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Onboarding.changeServer]))
+        // The picture fades in over 0.3s once loaded.
+        let deadline = Date().addingTimeInterval(5)
+        var brightness = 1.0
+        repeat {
+            brightness = try avatarCentreBrightness(of: lockup)
+            if brightness < 0.3 { break }
+            Thread.sleep(forTimeInterval: 0.25)
+        } while Date() < deadline
+        XCTAssertLessThan(brightness, 0.3)
+    }
+
+    /// The mean of each pixel's brightest channel over the middle half of a
+    /// lockup's avatar: 230pt across (`TVLoginView.lockupSize`), centred at
+    /// the top, above the name.
+    private func avatarCentreBrightness(of lockup: XCUIElement) throws -> Double {
+        let cgImage = try XCTUnwrap(lockup.screenshot().image.cgImage)
+        let side = Int(230 * CGFloat(cgImage.width) / lockup.frame.width)
+        let width = cgImage.width, height = cgImage.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let context = try XCTUnwrap(CGContext(
+            data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        var total = 0.0, count = 0.0
+        for y in side / 4 ..< side * 3 / 4 {
+            for x in (width - side) / 2 + side / 4 ..< (width - side) / 2 + side * 3 / 4 {
+                let i = (y * width + x) * 4
+                total += Double(max(pixels[i], pixels[i + 1], pixels[i + 2])) / 255
+                count += 1
+            }
+        }
+        return total / count
+    }
+
     /// While the users load, Change Server is the way off a slow server
     /// (M5 review): disabled for everyone, nothing could take focus for up to
     /// the request's 20s. Only under VoiceOver does it wait.

@@ -641,7 +641,7 @@ the detail.
 | `Features/Home/HomeViewModelTests` | Home's fan-out, the hero, retries after reconnecting |
 | `Features/Login/LoginViewModelTests` | Sign-in and its errors |
 | `Features/Login/QuickConnectViewModelTests` | Quick Connect polling, expiry and sign-in |
-| `Features/Login/UserAvatarTests` | The sign-in avatar's image URL |
+| `Features/Login/UserAvatarTests` | The sign-in avatar's image URL, and a transparent picture hiding the monogram |
 | `Features/Player/ASSSubtitleMappingTests` | Which tracks go to libass, the ordinal mapping, the styling setting and the font source |
 | `Features/Player/PlaybackRequestTests` | A playback request's identity (start from the beginning, media version) |
 | `Features/Player/PlaybackStatsReportTests` | Playback Stats' rows |

@@ -108,7 +108,7 @@ extension TVPageScaffold where Background == EmptyView {
 struct TVPageBackground: View {
     var body: some View {
         RadialGradient(
-            colors: [Color(red: 42 / 255, green: 10 / 255, blue: 28 / 255), Color(red: 11 / 255, green: 2 / 255, blue: 8 / 255)],
+            colors: [.dionysusPlum, .dionysusPlumDeep],
             center: UnitPoint(x: 0.2, y: 0),
             startRadius: 0,
             endRadius: 1300

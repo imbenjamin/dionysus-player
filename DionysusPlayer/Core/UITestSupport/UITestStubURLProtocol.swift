@@ -85,6 +85,12 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
                 finish(.success((404, Data(), "text/plain")))
                 return
             }
+            // A profile picture can be a transparent PNG (the demo server's
+            // is), which `UserAvatar` must not let its monogram show through.
+            if path.contains("/Users/") {
+                finish(.success((200, Self.transparentPNG, "image/png")))
+                return
+            }
             finish(.success((200, Self.placeholderPNG, "image/png")))
             return
         }
@@ -1269,6 +1275,14 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             UIColor(red: 0.16, green: 0.14, blue: 0.24, alpha: 1).setFill()
             context.fill(CGRect(origin: .zero, size: size))
         }
+        return image.pngData() ?? Data()
+    }()
+
+    /// A fully transparent picture, served for every user's profile image.
+    private static let transparentPNG: Data = {
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = false
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8), format: format).image { _ in }
         return image.pngData() ?? Data()
     }()
 
