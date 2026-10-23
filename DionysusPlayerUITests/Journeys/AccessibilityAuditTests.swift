@@ -339,7 +339,9 @@ final class AccessibilityAuditTests: UITestCase {
         learnMore.tap()
         app.descendants(matching: .any)[A11yID.Profile.spatialAudioHelp].awaitExistence("the About Spatial Audio sheet")
 
-        try auditCurrentScreen()
+        // On iPad it's a form sheet over the settings pane, whose text and
+        // stepper the audit reads through the dimming with no element.
+        try auditCurrentScreen(underModal: true)
     }
 
     func testQuickConnectApprovalHasNoAccessibilityIssues() throws {

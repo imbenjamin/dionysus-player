@@ -512,8 +512,15 @@ struct ProfileView: View {
                 // its own (`SpatialAudioHelp`, Benjamin, 2026-10-23).
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for AirPods.")
+                    // A footnote line is 16pt tall, under the audit's minimum
+                    // tap size (failed v1.2.0-beta.2's release on iOS 27): the
+                    // frame takes 44pt, and the negative padding gives the
+                    // extra back so the footer lays out as before.
                     Button("Learn More…") { showsSpatialAudioHelp = true }
                         .font(.footnote)
+                        .frame(minHeight: 44, alignment: .leading)
+                        .contentShape(.rect)
+                        .padding(.vertical, -14)
                         .accessibilityIdentifier(A11yID.Profile.spatialAudioLearnMore)
                 }
                 .readableSettingsFooter()
