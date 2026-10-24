@@ -326,6 +326,9 @@ targets:
         LSApplicationCategoryType: public.app-category.entertainment
         ITSAppUsesNonExemptEncryption: false
         UIUserInterfaceStyle: Dark
+        # Resources/LaunchScreen.storyboard: iOS's launch screen at TV size,
+        # handing over to TVSplashView without a cut (see its doc comment).
+        UILaunchStoryboardName: LaunchScreen
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: "Dionysus looks for and connects to your Jellyfin media server on your local network."

@@ -353,6 +353,13 @@ final class AccessibilityAuditTests: TVUITestCase {
 
     // MARK: Onboarding (M5)
 
+    /// The splash, held by a slow sign-in until its spinner shows.
+    func test_splash() throws {
+        let app = launch(scenario: "slowSignIn", seedSession: true)
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Onboarding.splashSpinner].waitForExistence(timeout: 6))
+        try audit(app)
+    }
+
     func test_welcome() throws {
         let app = launch(skipsWelcome: false)
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Onboarding.getStarted], timeout: 10))

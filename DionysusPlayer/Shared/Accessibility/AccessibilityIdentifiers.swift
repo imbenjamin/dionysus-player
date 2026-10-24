@@ -443,6 +443,9 @@ enum A11yID {
     /// file's header); each sits on a concrete element inside the screen.
     enum TV {
         enum Onboarding {
+            /// The splash's spinner, shown once restoring the session takes
+            /// three seconds; the splash itself is decorative.
+            static let splashSpinner = "tv.onboarding.splash.spinner"
             static let findServerTitle = "tv.onboarding.findServer.title"
             static let welcomeTitle = "tv.onboarding.welcome.title"
             static let getStarted = "tv.onboarding.welcome.getStarted"

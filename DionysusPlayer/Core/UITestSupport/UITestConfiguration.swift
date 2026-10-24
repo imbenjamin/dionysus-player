@@ -187,6 +187,12 @@ enum UITestScenario: String {
     /// that checks Change Server works while Who's Watching? loads.
     case slowPublicUsers
 
+    /// `.standard`, but signing in (`/Users/AuthenticateByName`, and
+    /// `/Users/Me` for a Quick Connect session) is held for
+    /// `UITestStubURLProtocol.slowSignInDelay`: a seeded session's launch
+    /// stays on the Apple TV splash past its spinner's delay.
+    case slowSignIn
+
     /// `.standard`, but `/Views` answers 500 for five seconds after it is
     /// first asked, as a server still starting up does: whatever loads the
     /// libraries at launch fails, and a later retry succeeds.

@@ -46,6 +46,8 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Dionysus looks for and connects to your Jellyfin media server on your local network.</string>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
 	<key>UIUserInterfaceStyle</key>
 	<string>Dark</string>
 </dict>
