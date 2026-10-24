@@ -156,6 +156,17 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             }
             return
         }
+        if scenario == .slowSignIn, path.hasSuffix("/Users/AuthenticateByName") || path.hasSuffix("/Users/Me") {
+            let request = request
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.slowSignInDelay) {
+                do {
+                    self.finish(.success((200, try Self.body(forPath: path, query: query, request: request), "application/json")))
+                } catch {
+                    self.finish(.failure(error))
+                }
+            }
+            return
+        }
         if (scenario == .slowBoxSet && url.absoluteString.contains(UITestFixtureIdentity.boxSetID))
             || (scenario == .slowItems && (path.contains("/Items") || path.contains("/Shows/"))) {
             let request = request
@@ -576,7 +587,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
              .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort,
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
              .slowVideoDownload, .slowPlaybackInfo, .slowBoxSet, .emptyBoxSet, .slowItems, .manyLibraries, .manyUsers,
-             .slowPublicUsers:
+             .slowPublicUsers, .slowSignIn:
             return nil
         case .largeCast, .noBackdrop, .missingTileArtwork, .manyGenres, .failingLibrary, .failingHome, .thinDynamicRails, .skipIntro, .earlyCredits,
              .audioOffsetUnavailable, .rebuffering, .slowSeek:
@@ -1254,6 +1265,10 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     /// How long `.slowPublicUsers` holds `/Users/Public`: long enough for its
     /// journey to reach Change Server and press it before any user arrives.
     static let slowPublicUsersDelay: TimeInterval = 20
+
+    /// How long `.slowSignIn` holds signing in: past the Apple TV splash's
+    /// three-second spinner delay, with time left to see the spinner.
+    static let slowSignInDelay: TimeInterval = 8
 
     /// Stand-in bytes for a font attachment.
     ///

@@ -647,6 +647,16 @@ source that fails is left out and the rest shown.
 
 ## Onboarding and accounts
 
+**Launch runs from the launch screen to the splash without a cut**, as on
+iOS (Benjamin, 2026-10-24): `Resources/LaunchScreen.storyboard` is iOS's
+(`LaunchGlyph` on `LaunchBackground`) at TV size, and `TVSplashView`, shown
+while the session restores, starts on the same burgundy with the glyph drawn
+at the same 300pt in the same place, then fades the brand mesh in and
+crossfades into what follows. The storyboard's 352pt frame and its 2pt/3pt
+nudge come from the two SVGs' viewBoxes (`TVSplashView.glyphSize`); measure a
+change there from the files, not from screenshots, which catch tvOS's zoom
+from the icon mid-way. The `slowSignIn` UI-test scenario holds the splash.
+
 **Find Your Server's Rescan** appears once a scan is over and scans again from
 an empty list (`ServerSetupViewModel.rescan()`, Benjamin, 2026-10-05); iOS's
 Scan Again keeps the old list until the first answer. Once the address field

@@ -471,8 +471,8 @@ private extension View {
 }
 
 /// UIKit's large activity indicator in white: SwiftUI's `ProgressView` on
-/// tvOS draws grey and ignores `tint`.
-private struct TVWhiteSpinner: UIViewRepresentable {
+/// tvOS draws grey and ignores `tint`. The splash's too.
+struct TVWhiteSpinner: UIViewRepresentable {
     func makeUIView(context: Context) -> UIActivityIndicatorView {
         let view = UIActivityIndicatorView(style: .large)
         view.color = .white

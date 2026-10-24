@@ -39,7 +39,7 @@ struct TVRootView: View {
     var body: some View {
         Group {
             if appState.isRestoringSession {
-                ProgressView()
+                TVSplashView()
             } else {
                 switch appState.phase {
                 case .serverSetup:
@@ -58,6 +58,8 @@ struct TVRootView: View {
                 }
             }
         }
+        // The splash crossfades into what follows it, as on iOS (`RootView`).
+        .animation(.default, value: appState.isRestoringSession)
         .buttonStyle(TVOpaqueAtRestButtonStyle())
         .onOpenURL { url in pendingLink = TVDeepLink(url: url) }
         .environment(\.tvPendingDeepLink, appliedLink)

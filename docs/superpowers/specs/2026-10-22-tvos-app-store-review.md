@@ -65,6 +65,8 @@ form; dropping it silently isn't the fix.
   target has neither a launch image nor a storyboard, so launch shows black
   until the first frame. The HIG asks for a launch screen that looks like the
   first screen. Upload validation accepts this (builds 797–861 are `VALID`).
+  **Done 2026-10-24:** a launch storyboard handing over to a branded splash
+  (`TVSplashView`), as on iOS.
 - **Play/Pause on a focused title doesn't play it** (HIG, Remotes). Select
   opens a detail page and Play is one press further on, which is fine;
   Play/Pause on a tile or a detail page's header could start playback the way

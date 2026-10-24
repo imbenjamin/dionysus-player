@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder.AppleTV.Storyboard" version="3.0" toolsVersion="24765" targetRuntime="AppleTV" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="tvL-lp-oVM">
+    <device id="appleTV" appearance="dark"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="24743"/>
+        <capability name="Named colors" minToolsVersion="9.0"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <scenes>
+        <!--View Controller-->
+        <scene sceneID="tvE-hf-A2E">
+            <objects>
+                <viewController id="tvL-lp-oVM" sceneMemberID="viewController">
+                    <view key="view" contentMode="scaleToFill" id="tvZ-e6-2t3">
+                        <rect key="frame" x="0.0" y="0.0" width="1920" height="1080"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="LaunchGlyph" translatesAutoresizingMaskIntoConstraints="NO" id="tvG-ly-phV">
+                                <rect key="frame" x="786" y="361" width="352" height="352"/>
+                                <constraints>
+                                    <constraint firstAttribute="height" constant="352" id="tvG-ly-hgt"/>
+                                    <constraint firstAttribute="width" constant="352" id="tvG-ly-wdt"/>
+                                </constraints>
+                            </imageView>
+                        </subviews>
+                        <viewLayoutGuide key="safeArea" id="tvS-af-BBY"/>
+                        <color key="backgroundColor" name="LaunchBackground"/>
+                        <constraints>
+                            <constraint firstItem="tvG-ly-phV" firstAttribute="centerX" secondItem="tvZ-e6-2t3" secondAttribute="centerX" constant="2" id="tvG-ly-cnx"/>
+                            <constraint firstItem="tvG-ly-phV" firstAttribute="centerY" secondItem="tvZ-e6-2t3" secondAttribute="centerY" constant="-3" id="tvG-ly-cny"/>
+                        </constraints>
+                    </view>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="tvY-Kq-ea1" userLabel="First Responder" sceneMemberID="firstResponder"/>
+            </objects>
+        </scene>
+    </scenes>
+    <resources>
+        <image name="LaunchGlyph" width="150" height="150"/>
+        <namedColor name="LaunchBackground">
+            <color red="0.25882352941176473" green="0.0" blue="0.12156862745098039" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+        </namedColor>
+    </resources>
+</document>
