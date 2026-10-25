@@ -18,6 +18,56 @@ final class TVSeasonEpisodesModelTests: XCTestCase {
         return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
     }
 
+    nonisolated private static func episodesResponse(_ request: URLRequest, played: [String: Bool]) throws -> (HTTPURLResponse, Data) {
+        let items = played.keys.sorted().map {
+            BaseItemDto(id: $0, name: $0, type: .episode, userData: UserItemDataDto(playbackPositionTicks: 0, playedPercentage: 0, played: played[$0]))
+        }
+        return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
+    }
+
+    /// Watched and Favorite on a show's page act on the chosen episode, which
+    /// only this model holds (Benjamin, 2026-10-25).
+    func test_applyStatus_marksThatEpisodeAlone() async throws {
+        MockURLProtocol.requestHandler = { request in try Self.episodesResponse(request, played: ["e1": false, "e2": false]) }
+        let model = makeModel()
+        await model.load(seasonID: "s1")
+        model.applyStatus(itemID: "e2", watched: true)
+        XCTAssertEqual(model.episodes["s1"]?.map(\.isPlayed), [false, true])
+        model.applyStatus(itemID: "e2", favorite: true)
+        XCTAssertEqual(model.episodes["s1"]?.map(\.isFavorite), [false, true])
+        XCTAssertEqual(model.episodes["s1"]?.last?.isPlayed, true, "A favorite write keeps the watched one")
+    }
+
+    /// Jellyfin commits userData late: a refetch still reporting the old value
+    /// mustn't undo the write on screen, and one that agrees ends the override.
+    func test_applyStatus_survivesAStaleRefetch_untilTheServerAgrees() async throws {
+        nonisolated(unsafe) var serverPlayed = false
+        MockURLProtocol.requestHandler = { request in try Self.episodesResponse(request, played: ["e1": serverPlayed]) }
+        let model = makeModel()
+        await model.load(seasonID: "s1")
+        model.applyStatus(itemID: "e1", watched: true)
+        await model.load(seasonID: "s1", force: true)
+        XCTAssertEqual(model.episodes["s1"]?.first?.isPlayed, true, "A stale refetch keeps the write")
+
+        serverPlayed = true
+        await model.load(seasonID: "s1", force: true)
+        serverPlayed = false
+        await model.load(seasonID: "s1", force: true)
+        XCTAssertEqual(model.episodes["s1"]?.first?.isPlayed, false, "Once confirmed, the server speaks for itself again")
+    }
+
+    /// After playback the server is the source again.
+    func test_forgetStatusOverrides_letsTheServerSpeak() async throws {
+        MockURLProtocol.requestHandler = { request in try Self.episodesResponse(request, played: ["e1": true]) }
+        let model = makeModel()
+        await model.load(seasonID: "s1")
+        model.applyStatus(itemID: "e1", favorite: true, watched: false)
+        model.forgetStatusOverrides()
+        await model.load(seasonID: "s1", force: true)
+        XCTAssertEqual(model.episodes["s1"]?.first?.isPlayed, true)
+        XCTAssertEqual(model.episodes["s1"]?.first?.isFavorite, false)
+    }
+
     func test_load_fetchesOneSeason_once() async throws {
         nonisolated(unsafe) var requests = 0
         MockURLProtocol.requestHandler = { request in

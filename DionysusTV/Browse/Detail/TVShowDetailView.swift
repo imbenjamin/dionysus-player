@@ -7,8 +7,8 @@ import SwiftUI
 /// opened on (a Continue Watching tile) or the one chosen from the rail.
 /// Select on an episode tile doesn't play it (Benjamin, 2026-10-02): the page
 /// becomes that episode's, in place, with focus on Play. On an episode its
-/// own name, overview and details show and Play is that episode, while
-/// Watched and Favorite act on the show (`seriesItem`), as on iOS.
+/// own name, overview and details show and Play is that episode. Watched
+/// and Favorite act on the episode Play starts (`statusTarget`).
 struct TVShowDetailView: View {
     let viewModel: AssetDetailViewModel
     /// What the page was opened on: the view model's item.
@@ -63,6 +63,13 @@ struct TVShowDetailView: View {
     /// The episode Play targets: the episode the page was opened on, or the
     /// one the view model resolved for the show.
     private var playTarget: MediaItem? { isEpisode ? item : viewModel.showPlaybackEpisode }
+    /// What Watched and Favorite act on: the episode Play starts, never the
+    /// show, whose Watched marked every episode (Benjamin, 2026-10-25). The
+    /// show only while there's nothing to play, where Play isn't drawn.
+    private var statusTarget: MediaItem {
+        playTarget ?? viewModel.seriesItem ?? item
+    }
+
     /// A show's episode comes with the load; until then Play is drawn
     /// without one, so focus lands on it and stays.
     private var isResolving: Bool { !isEpisode && isLoading }
@@ -142,9 +149,13 @@ struct TVShowDetailView: View {
                         .accessibilityIdentifier(A11yID.TV.Detail.overview)
                     }
                     TVDetailActions(
-                        viewModel: viewModel, playTarget: playTarget, statusTarget: viewModel.seriesItem ?? item,
+                        viewModel: viewModel, playTarget: playTarget,
+                        statusTarget: statusTarget,
                         isShow: true, isResolving: isResolving,
                         moreTargets: moreTargets,
+                        // The rail's copy, which the chosen episode is read
+                        // from: the view model holds only its own episodes.
+                        statusWritten: { id, favorite, watched in episodes?.applyStatus(itemID: id, favorite: favorite, watched: watched) },
                         focus: $focus, play: play
                     )
                     .padding(.top, 16)
@@ -347,6 +358,7 @@ struct TVShowDetailView: View {
 
     private func play(_ request: PlaybackRequest) {
         TVPlayerPresenter.present(request, client: client, userID: userID) { outcome in
+            episodes?.forgetStatusOverrides()
             viewModel.applyOptimisticPlaybackPosition(outcome)
             Task { await viewModel.refreshItem() }
         }

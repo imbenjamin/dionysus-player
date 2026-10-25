@@ -9,6 +9,11 @@ import Observation
 final class TVSeasonEpisodesModel {
     private(set) var episodes: [String: [MediaItem]] = [:]
     private(set) var failedSeasons: Set<String> = []
+    /// Favorite and watched writes that succeeded, laid over every list until
+    /// the server reports them: Jellyfin commits userData late, and a refetch
+    /// in between would otherwise undo the change on screen.
+    private var favoriteOverrides: [String: Bool] = [:]
+    private var watchedOverrides: [String: Bool] = [:]
 
     private let client: JellyfinAPIClient
     private let userID: String
@@ -27,6 +32,27 @@ final class TVSeasonEpisodesModel {
         failedSeasons.formIntersection(seasonIDs)
     }
 
+    /// Shows a successful favorite or watched write on the episode wherever
+    /// it's listed.
+    func applyStatus(itemID: String, favorite: Bool? = nil, watched: Bool? = nil) {
+        if let favorite { favoriteOverrides[itemID] = favorite }
+        if let watched { watchedOverrides[itemID] = watched }
+        episodes = episodes.mapValues { $0.map(applyingOverrides) }
+    }
+
+    /// Playback changes what was watched, so a write still unconfirmed
+    /// stops speaking for the server once a session ends.
+    func forgetStatusOverrides() {
+        favoriteOverrides.removeAll()
+        watchedOverrides.removeAll()
+    }
+
+    private func applyingOverrides(_ episode: MediaItem) -> MediaItem {
+        let favorite = favoriteOverrides[episode.id].flatMap { $0 == episode.isFavorite ? nil : $0 }
+        let watched = watchedOverrides[episode.id].flatMap { $0 == episode.isPlayed ? nil : $0 }
+        return episode.withOptimisticFavoriteWatched(favorite: favorite, watched: watched)
+    }
+
     /// Fetches a season once; `force` refetches it after playback or a
     /// watched change, keeping what's shown until the new list lands.
     func load(seasonID: String, force: Bool = false) async {
@@ -36,7 +62,12 @@ final class TVSeasonEpisodesModel {
             // With media sources: the show page reads its format badges
             // from the episode Play starts.
             let result = try await client.episodes(seriesID: seriesID, seasonID: seasonID, userID: userID, fields: JellyfinAPIClient.detailFields)
-            episodes[seasonID] = result.items.map { MediaItem(dto: $0, images: images) }
+            let fetched = result.items.map { MediaItem(dto: $0, images: images) }
+            for episode in fetched {
+                if favoriteOverrides[episode.id] == episode.isFavorite { favoriteOverrides[episode.id] = nil }
+                if watchedOverrides[episode.id] == episode.isPlayed { watchedOverrides[episode.id] = nil }
+            }
+            episodes[seasonID] = fetched.map(applyingOverrides)
             failedSeasons.remove(seasonID)
         } catch {
             // Cancelled isn't failed: the tabs follow focus, so passing a
