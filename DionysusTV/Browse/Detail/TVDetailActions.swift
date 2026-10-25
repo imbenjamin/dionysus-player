@@ -15,7 +15,8 @@ enum TVDetailFocus {
 /// `playTarget` is what plays (the movie, or the show's resolved episode;
 /// `nil` when a show has nothing to play, where the Play button isn't
 /// drawn). `statusTarget` is what Watched and Favorite act on: the movie, or
-/// the show itself rather than the episode.
+/// on a show the episode Play starts (Benjamin, 2026-10-25: Watched on a
+/// show's page marked every episode).
 struct TVDetailActions: View {
     let viewModel: AssetDetailViewModel
     let playTarget: MediaItem?
@@ -26,6 +27,9 @@ struct TVDetailActions: View {
     var isResolving = false
     /// What More Actions offers; `nil` draws no More button.
     var moreTargets: AssetActionTargets?
+    /// Told once a favorite or watched write has succeeded, for a copy of the
+    /// item the view model doesn't hold (an episode chosen from a show's rail).
+    var statusWritten: ((_ itemID: String, _ favorite: Bool?, _ watched: Bool?) -> Void)?
     let focus: FocusState<String?>.Binding
     let play: (PlaybackRequest) -> Void
 
@@ -77,7 +81,12 @@ struct TVDetailActions: View {
             }
 
             Button {
-                Task { await viewModel.toggleWatched(itemID: statusTarget.id, currentlyWatched: statusTarget.isPlayed) }
+                let target = statusTarget
+                Task {
+                    await viewModel.toggleWatched(itemID: target.id, currentlyWatched: target.isPlayed) { watched in
+                        statusWritten?(target.id, nil, watched)
+                    }
+                }
             } label: {
                 // The eye, never a tick.
                 Image(systemName: statusTarget.isPlayed ? "eye.fill" : "eye")
@@ -87,7 +96,12 @@ struct TVDetailActions: View {
             .accessibilityIdentifier(A11yID.TV.Detail.watched)
 
             Button {
-                Task { await viewModel.toggleFavorite(itemID: statusTarget.id, currentlyFavorite: statusTarget.isFavorite) }
+                let target = statusTarget
+                Task {
+                    await viewModel.toggleFavorite(itemID: target.id, currentlyFavorite: target.isFavorite) { favorite in
+                        statusWritten?(target.id, favorite, nil)
+                    }
+                }
             } label: {
                 Image(systemName: statusTarget.isFavorite ? "heart.fill" : "heart")
                     .foregroundStyle(statusTarget.isFavorite ? Color.dionysusFavorite : .primary)

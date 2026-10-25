@@ -261,8 +261,14 @@ chooses by kind), all on `AssetDetailViewModel`.
   tile from Home opens it on that episode; Select on an episode in the rail
   turns the page to it in place with focus on Play (Benjamin, 2026-10-02;
   `chosenEpisodeID`). On an episode, its name, overview, Details and Play are
-  the episode's; Watched and Favorite act on the show, as on iOS. Not a push:
-  Menu leaves the show.
+  the episode's. Not a push: Menu leaves the show.
+- **Watched and Favorite act on the episode Play starts, never the show**
+  (Benjamin, 2026-10-25: Watched on the show marked every episode). The show
+  is the target only when there's nothing to play. An episode chosen from
+  the rail lives in `TVSeasonEpisodesModel`, which the view model's patch
+  doesn't reach, so a successful write is laid over its lists
+  (`applyStatus`) until a refetch agrees or a playback session ends. iOS
+  differs: its heart and eye are Show/Season/Episode menus.
 - **A show page's imagery follows what it's on** (`TVShowDetailView.artItem`):
   the episode; on the series, the episode Play starts (Benjamin, 2026-10-05),
   so per-season art shows the right season's; otherwise the show. A season

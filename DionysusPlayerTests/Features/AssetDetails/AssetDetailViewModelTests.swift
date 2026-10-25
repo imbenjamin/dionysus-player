@@ -620,6 +620,49 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.item?.isPlayed, true)
     }
 
+    /// `written` reports a successful write, for a copy of the item the view
+    /// model doesn't hold (the Apple TV show page's chosen episode).
+    func test_toggleWatched_reportsASuccessfulWrite() async {
+        let viewModel = makeViewModel(itemID: "series-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/PlayedItems/episode-9":
+                return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+            case "/Users/user-1/Items/episode-9":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                    id: "episode-9", name: "Nine", type: .episode,
+                    userData: UserItemDataDto(playbackPositionTicks: 0, playedPercentage: 100, played: true)
+                ))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        var reported: [Bool] = []
+        await viewModel.toggleWatched(itemID: "episode-9", currentlyWatched: false) { reported.append($0) }
+        XCTAssertEqual(reported, [true])
+    }
+
+    /// `toggleWatched`'s `written`, for the favorite status.
+    func test_toggleFavorite_reportsASuccessfulWrite() async {
+        let viewModel = makeViewModel(itemID: "series-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/FavoriteItems/episode-9":
+                return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+            case "/Users/user-1/Items/episode-9":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                    id: "episode-9", name: "Nine", type: .episode,
+                    userData: UserItemDataDto(playbackPositionTicks: 0, playedPercentage: 0, played: false, isFavorite: true)
+                ))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        var reported: [Bool] = []
+        await viewModel.toggleFavorite(itemID: "episode-9", currentlyFavorite: false) { reported.append($0) }
+        XCTAssertEqual(reported, [true])
+    }
+
     /// The favorite/watched refetch patches *every* property currently
     /// holding that same id, not just `item` — a Season tapped from
     /// `PlayResumeButtonRow`'s extended menu lives in `seasons`, not `item`.

@@ -698,8 +698,11 @@ final class AssetDetailViewModel {
     /// Toggles `itemID`'s favorite status. `itemID` is always `item.id` on a
     /// Movie or Episode page, but can be the Show's, the selected Season's or
     /// the current Episode's on a Show page. `currentlyFavorite` is the caller's
-    /// value, flipped rather than re-derived.
-    func toggleFavorite(itemID: String, currentlyFavorite: Bool) async {
+    /// value, flipped rather than re-derived. `written` is called with the new
+    /// value once the write succeeds, before the confirmation poll, for a
+    /// caller holding a copy of `itemID` this view model doesn't (the Apple TV
+    /// show page's chosen episode).
+    func toggleFavorite(itemID: String, currentlyFavorite: Bool, written: ((Bool) -> Void)? = nil) async {
         pendingFavoriteIDs.insert(itemID)
         defer { pendingFavoriteIDs.remove(itemID) }
         let newValue = !currentlyFavorite
@@ -707,18 +710,23 @@ final class AssetDetailViewModel {
         // Applied only once the write succeeded, so a failed request doesn't show
         // a false success. `applyOptimisticFavoriteWatched` covers why this can't
         // wait on the confirmation poll below.
-        if succeeded { applyOptimisticFavoriteWatched(itemID: itemID, favorite: newValue) }
+        if succeeded {
+            applyOptimisticFavoriteWatched(itemID: itemID, favorite: newValue)
+            written?(newValue)
+        }
         await refetchFavoriteWatchedTarget(itemID: itemID, expectedFavorite: newValue)
     }
 
-    /// `toggleFavorite(itemID:currentlyFavorite:)` for the watched status.
-    func toggleWatched(itemID: String, currentlyWatched: Bool) async {
+    /// `toggleFavorite(itemID:currentlyFavorite:written:)` for the watched
+    /// status.
+    func toggleWatched(itemID: String, currentlyWatched: Bool, written: ((Bool) -> Void)? = nil) async {
         pendingWatchedIDs.insert(itemID)
         defer { pendingWatchedIDs.remove(itemID) }
         let newValue = !currentlyWatched
         let succeeded = (try? await client.setWatched(newValue, itemID: itemID, userID: userID)) != nil
         if succeeded {
             applyOptimisticFavoriteWatched(itemID: itemID, watched: newValue)
+            written?(newValue)
             #if os(tvOS)
             // Watched changes Continue Watching and Next Up (M6).
             TopShelfRefresh.contentChanged()

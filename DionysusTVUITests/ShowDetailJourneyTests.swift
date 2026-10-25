@@ -134,6 +134,82 @@ final class ShowDetailJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(episodeTile))
     }
 
+    /// Watched acts on the episode Play starts, never the whole show
+    /// (Benjamin, 2026-10-25): on the series that's Next Up, S1:E2.
+    func test_watched_onTheSeries_marksTheEpisodePlayStarts() {
+        let app = launchAtHome()
+        openSeries(app)
+        let play = app.buttons[A11yID.TV.Detail.play]
+        XCTAssertTrue(poll(timeout: 10) { play.label.contains("S1:E2") })
+        let target = episode(app, season: 1, 2)
+        let other = episode(app, season: 1, 3)
+        XCTAssertTrue(target.waitForExistence(timeout: 10))
+        XCTAssertTrue(other.exists)
+        let targetBefore = target.value as? String
+        let otherBefore = other.value as? String
+
+        let watched = app.buttons[A11yID.TV.Detail.watched]
+        let labelBefore = watched.label
+        for _ in 0..<3 where !watched.hasFocus { press(.right) }
+        XCTAssertTrue(waitForFocus(watched))
+        press(.select)
+        XCTAssertTrue(poll(timeout: 5) { watched.label != labelBefore }, "Watched shows the episode's new state")
+        XCTAssertTrue(poll(timeout: 5) { target.value as? String != targetBefore }, "The episode Play starts is marked")
+        XCTAssertEqual(other.value as? String, otherBefore, "No other episode is marked")
+        XCTAssertTrue(play.label.contains("S1:E2"), "Play stays on its episode")
+    }
+
+    /// Favorite acts on the episode Play starts too (Benjamin, 2026-10-25).
+    func test_favorite_onTheSeries_marksTheEpisodePlayStarts() {
+        let app = launchAtHome()
+        openSeries(app)
+        let play = app.buttons[A11yID.TV.Detail.play]
+        XCTAssertTrue(poll(timeout: 10) { play.label.contains("S1:E2") })
+        let target = episode(app, season: 1, 2)
+        let other = episode(app, season: 1, 3)
+        XCTAssertTrue(target.waitForExistence(timeout: 10))
+        XCTAssertTrue(other.exists)
+        let targetBefore = target.value as? String
+        let otherBefore = other.value as? String
+
+        let favorite = app.buttons[A11yID.TV.Detail.favorite]
+        let labelBefore = favorite.label
+        for _ in 0..<4 where !favorite.hasFocus { press(.right) }
+        XCTAssertTrue(waitForFocus(favorite))
+        press(.select)
+        XCTAssertTrue(poll(timeout: 5) { favorite.label != labelBefore }, "Favorite shows the episode's new state")
+        XCTAssertTrue(poll(timeout: 5) { target.value as? String != targetBefore }, "The episode Play starts is the favorite")
+        XCTAssertEqual(other.value as? String, otherBefore, "No other episode is marked")
+    }
+
+    /// On an episode chosen from the rail, Watched marks that episode alone.
+    func test_watched_onAChosenEpisode_marksThatEpisode() {
+        let app = launchAtHome()
+        openSeries(app)
+        let chosen = episode(app, season: 1, 3)
+        let other = episode(app, season: 1, 2)
+        XCTAssertTrue(chosen.waitForExistence(timeout: 10))
+        let otherBefore = other.value as? String
+        press(.down)
+        let firstEpisode = app.buttons.matching(NSPredicate(format: "hasFocus == true AND identifier BEGINSWITH %@", "tv.detail.episode.")).firstMatch
+        for _ in 0..<3 where !firstEpisode.exists { press(.down) }
+        for _ in 0..<4 where !chosen.hasFocus { press(.right) }
+        XCTAssertTrue(waitForFocus(chosen))
+        let chosenBefore = chosen.value as? String
+        press(.select)
+        let play = app.buttons[A11yID.TV.Detail.play]
+        XCTAssertTrue(poll(timeout: 5) { play.hasFocus && play.label.contains("S1:E3") })
+
+        let watched = app.buttons[A11yID.TV.Detail.watched]
+        let labelBefore = watched.label
+        press(.right)
+        XCTAssertTrue(waitForFocus(watched))
+        press(.select)
+        XCTAssertTrue(poll(timeout: 5) { watched.label != labelBefore }, "Watched shows the episode's new state")
+        XCTAssertTrue(poll(timeout: 5) { chosen.value as? String != chosenBefore }, "The chosen episode is marked")
+        XCTAssertEqual(other.value as? String, otherBefore, "No other episode is marked")
+    }
+
     /// A show whose seasons hold no episodes: no Play button, a message in
     /// place of the rail, and focus somewhere Menu can pop from.
     func test_showWithoutEpisodes_hasNoPlay_andMenuPops() {
