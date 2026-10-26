@@ -329,6 +329,47 @@ final class AssetDetailJourneyTests: UITestCase {
         XCTAssertFalse(detail.playButton.label.contains("S1:E"), "Play should leave Season 1. Was: \(detail.playButton.label)")
     }
 
+    /// A show page offers the episode Play starts for deletion too (Benjamin,
+    /// 2026-10-26). The stub's Next Up serves `CanDelete` only when asked, so
+    /// the row's presence proves the lookup asks. Deleting it keeps the page
+    /// on the show, and Play moves on.
+    func testShowPageOffersTheEpisodePlayStartsForDeletion() {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.showsLibraryID)
+
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.seriesID)
+        collection.card(UITestFixtureIdentity.seriesID).tap()
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        let nextUp = detail.episodeRow(UITestFixtureIdentity.episodeID(season: 1, episode: 2))
+        nextUp.awaitExistence("Season 1's second episode, Next Up")
+
+        detail.openDelete()
+        let row = detail.deleteTarget("S1:E2 \u{00B7} Episode 2")
+        row.awaitExistence("the Play episode's row in the Delete submenu")
+        XCTAssertTrue(detail.deleteTarget(UITestFixtureIdentity.seriesName).exists)
+        XCTAssertTrue(detail.deleteTarget("Season 1").exists)
+        row.tap()
+
+        let warning = app.sheets.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS %@", "Episode 2")
+        ).firstMatch
+        XCTAssertTrue(warning.waitForExistence(timeout: 5), "The dialog names the episode it deletes.")
+        detail.confirmDelete()
+
+        nextUp.awaitDisappearance("the deleted episode's row")
+        XCTAssertTrue(
+            detail.episodeRow(UITestFixtureIdentity.episodeID(season: 1, episode: 1)).exists,
+            "The rest of the season stays."
+        )
+        XCTAssertTrue(detail.playButton.exists, "Still the show's page.")
+        XCTAssertFalse(detail.playButton.label.contains("S1:E2"), "Play leaves the deleted episode. Was: \(detail.playButton.label)")
+    }
+
     /// An episode page offers all three: the episode, its season and the
     /// show. Deleting the season from there takes the episode on show with it,
     /// so the page goes back to the show, on the season that's left.

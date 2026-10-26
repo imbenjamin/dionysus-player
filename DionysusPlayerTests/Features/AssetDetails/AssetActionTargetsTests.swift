@@ -24,30 +24,66 @@ final class AssetActionTargetsTests: XCTestCase {
 
     func test_movie_offersItselfForBoth() {
         let movie = item("movie", .movie)
-        let targets = AssetActionTargets(item: movie, seriesItem: nil, seasons: [], selectedSeasonID: nil) { _ in false }
+        let targets = AssetActionTargets(item: movie, seriesItem: nil, seasons: [], selectedSeasonID: nil, playbackEpisode: nil) { _ in false }
         XCTAssertEqual(targets.addable.map(\.id), ["movie"])
         XCTAssertEqual(targets.deletable.map(\.id), ["movie"])
     }
 
     func test_movieWithoutCanDelete_isAddableButNotDeletable() {
         let movie = item("movie", .movie, canDelete: false)
-        let targets = AssetActionTargets(item: movie, seriesItem: nil, seasons: [], selectedSeasonID: nil) { _ in false }
+        let targets = AssetActionTargets(item: movie, seriesItem: nil, seasons: [], selectedSeasonID: nil, playbackEpisode: nil) { _ in false }
         XCTAssertEqual(targets.addable.map(\.id), ["movie"])
         XCTAssertTrue(targets.deletable.isEmpty)
     }
 
-    func test_seriesPage_offersShowAndSelectedSeason_neverAnEpisode() {
+    /// The episode Play starts is offered too (Benjamin, 2026-10-26): the
+    /// page names it on its Play button, so it's the episode "this" means.
+    func test_seriesPage_offersShowSelectedSeasonAndPlaybackEpisode() {
+        let next = item("e3", .episode, season: 1, episode: 3)
         let targets = AssetActionTargets(
-            item: show, seriesItem: show, seasons: [season1, season2], selectedSeasonID: "s2"
+            item: show, seriesItem: show, seasons: [season1, season2], selectedSeasonID: "s2",
+            playbackEpisode: next
+        ) { $0.canDelete }
+        XCTAssertEqual(targets.addable.map(\.id), ["show", "s2", "e3"])
+        XCTAssertEqual(targets.deletable.map(\.id), ["show", "s2", "e3"])
+    }
+
+    func test_seriesPage_playbackEpisodeWithoutCanDelete_isAddableButNotDeletable() {
+        let next = item("e3", .episode, canDelete: false, season: 1, episode: 3)
+        let targets = AssetActionTargets(
+            item: show, seriesItem: show, seasons: [season1], selectedSeasonID: "s1",
+            playbackEpisode: next
+        ) { $0.canDelete }
+        XCTAssertEqual(targets.addable.map(\.id), ["show", "s1", "e3"])
+        XCTAssertEqual(targets.deletable.map(\.id), ["show", "s1"])
+    }
+
+    func test_seriesPage_withNothingToPlay_offersShowAndSeason() {
+        let targets = AssetActionTargets(
+            item: show, seriesItem: show, seasons: [season1, season2], selectedSeasonID: "s2",
+            playbackEpisode: nil
         ) { $0.canDelete }
         XCTAssertEqual(targets.addable.map(\.id), ["show", "s2"])
         XCTAssertEqual(targets.deletable.map(\.id), ["show", "s2"])
     }
 
+    /// On an episode's page Play is that episode, whatever the show's own
+    /// next one is.
+    func test_episodePage_offersItsOwnEpisode_notThePlaybackEpisode() {
+        let episode = item("e4", .episode, season: 2, episode: 4)
+        let next = item("e3", .episode, season: 1, episode: 3)
+        let targets = AssetActionTargets(
+            item: episode, seriesItem: show, seasons: [season1, season2], selectedSeasonID: "s2",
+            playbackEpisode: next
+        ) { $0.canDelete }
+        XCTAssertEqual(targets.addable.map(\.id), ["show", "s2", "e4"])
+    }
+
     func test_episodePage_offersShowSeasonEpisode_inThatOrder() {
         let episode = item("e4", .episode, season: 2, episode: 4)
         let targets = AssetActionTargets(
-            item: episode, seriesItem: show, seasons: [season1, season2], selectedSeasonID: "s2"
+            item: episode, seriesItem: show, seasons: [season1, season2], selectedSeasonID: "s2",
+            playbackEpisode: nil
         ) { $0.canDelete }
         XCTAssertEqual(targets.addable.map(\.id), ["show", "s2", "e4"])
         XCTAssertEqual(targets.deletable.map(\.id), ["show", "s2", "e4"])
@@ -56,13 +92,13 @@ final class AssetActionTargetsTests: XCTestCase {
     func test_folderlessSeason_offeredOnlyWhenEveryEpisodeIsDeletable() {
         let folderless = item("s1", .season, canDelete: false)
         let before = AssetActionTargets(
-            item: show, seriesItem: show, seasons: [folderless], selectedSeasonID: "s1"
+            item: show, seriesItem: show, seasons: [folderless], selectedSeasonID: "s1", playbackEpisode: nil
         ) { _ in false }
         XCTAssertEqual(before.deletable.map(\.id), ["show"])
         XCTAssertEqual(before.addable.map(\.id), ["show", "s1"], "Adding has no permission gate.")
 
         let after = AssetActionTargets(
-            item: show, seriesItem: show, seasons: [folderless], selectedSeasonID: "s1"
+            item: show, seriesItem: show, seasons: [folderless], selectedSeasonID: "s1", playbackEpisode: nil
         ) { _ in true }
         XCTAssertEqual(after.deletable.map(\.id), ["show", "s1"])
     }

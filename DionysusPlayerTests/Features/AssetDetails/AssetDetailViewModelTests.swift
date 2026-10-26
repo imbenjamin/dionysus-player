@@ -1444,6 +1444,36 @@ final class AssetDetailViewModelTests: XCTestCase {
         return viewModel
     }
 
+    /// More Actions offers the episode Play starts for deletion, gated on its
+    /// `CanDelete`, which Jellyfin leaves out unless `Fields` names it. Both
+    /// lookups ask: NextUp, and the first-episode fallback.
+    func test_load_showPlaybackEpisode_asksForCanDelete() async {
+        for usesNextUp in [true, false] {
+            let itemDto = BaseItemDto(id: "series-1", name: "The Wire", type: .series)
+            let seasonDto = BaseItemDto(id: "season-1", name: "Season 1", type: .season)
+            let viewModel = makeViewModel(itemID: "series-1")
+            MockURLProtocol.requestHandler = { request in
+                // No closure here: one would inherit the test's main-actor
+                // isolation and trap on URLSession's queue.
+                var episodeDto = BaseItemDto(id: "episode-1", name: "Pilot", type: .episode)
+                if request.url?.query?.contains("CanDelete") == true { episodeDto.canDelete = true }
+                switch request.url?.path {
+                case "/Users/user-1/Items/series-1":
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: itemDto)
+                case "/Shows/series-1/Seasons":
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [seasonDto], totalRecordCount: 1))
+                case "/Shows/NextUp" where usesNextUp, "/Shows/series-1/Episodes" where !usesNextUp:
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [episodeDto], totalRecordCount: 1))
+                default:
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+            }
+            await viewModel.load()
+            XCTAssertEqual(viewModel.showPlaybackEpisode?.id, "episode-1", "NextUp: \(usesNextUp)")
+            XCTAssertEqual(viewModel.showPlaybackEpisode?.canDelete, true, "NextUp: \(usesNextUp)")
+        }
+    }
+
     /// The Apple TV's player is presented full screen, which takes the page
     /// beneath out of the window and cancels its `.task`. A page pushed under
     /// the player (Home's hero, Benjamin, 2026-10-04) lost its load that way:

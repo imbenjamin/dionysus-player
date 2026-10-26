@@ -307,9 +307,11 @@ with iOS's `AssetActionsButton`) on the shared `AssetDetailViewModel` and
   `-UITestDisableAnimations`.
 - **On a show the targets are built from the page's own item**, not
   `viewModel.item`: an episode chosen in place lives in `chosenEpisodeID`.
-  On the series: the show and the season on show, never the episode Play
-  would start; on an episode: show, season, episode. Deleting an episode
-  chosen in place stays on the show with focus on ⋯; deleting the season on
+  Show, season on show, and the episode Play starts: Next Up on the series
+  (`showPlaybackEpisode`, offered since Benjamin asked, 2026-10-26; it was
+  held back as a destructive-safety rule), the page's own on an episode.
+  Deleting an episode chosen in place, or Play's on the series, stays on
+  the show (Play moves on) with focus on ⋯; deleting the season on
   show moves the tabs to one that's left. Deleting the page's own title pops
   it (`tvPopPage`), and deleting a show's last episode or season pops to the
   root (`tvPopToRoot`; Jellyfin drops the emptied show), as

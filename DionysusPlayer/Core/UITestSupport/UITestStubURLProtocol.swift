@@ -726,7 +726,12 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
 
         case path.hasSuffix("/Shows/NextUp"):
             guard UITestConfiguration.scenario != .showWithoutEpisodes else { return try encode(result([])) }
-            return try encode(result(scoped([library.episodes[1]])))
+            // `CanDelete` only when `Fields` names it, as Jellyfin does: a
+            // show page offers this episode for deletion on it.
+            let fields = query.first { $0.name.caseInsensitiveCompare("Fields") == .orderedSame }?.value ?? ""
+            var nextUp = scoped([library.episodes[1]])
+            if !fields.contains("CanDelete") { nextUp = nextUp.map { var episode = $0; episode.canDelete = nil; return episode } }
+            return try encode(result(nextUp))
 
         case path.hasSuffix("/Seasons"):
             // Jellyfin leaves both `nil` unless `Fields` names them, and this
