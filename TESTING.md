@@ -582,6 +582,17 @@ What no suite can reach, and how it was or should be checked.
   (26.5 reads "1h 48m" as hours and minutes, 27 as "meters"), so a check of
   how text is pronounced still needs the device.
 
+**On the iPhone Duo Simulator** (Xcode 27.1's Device Hub)
+
+- **The fold layouts** (the player's tabletop and book poses, the detail
+  page's book spread): XCUITest can't fold the device, so a journey runs in
+  whatever pose the Simulator is in. `ActiveFoldTests` pins where each thing
+  goes for a given fold; the look was checked by screenshot, closed, open held
+  wide and tall, book and tabletop, against a movie, a series and an episode.
+  Set the pose with Device Hub's Closed / Partially Open / Open buttons
+  (tabletop is Partially Open, then Rotate Right) and capture the inner
+  display with `xcrun simctl io <udid> screenshot --display=primary-1`.
+
 ## Where each thing is tested
 
 One line per test file: what it pins. The test names and doc comments carry
@@ -655,6 +666,7 @@ the detail.
 | `Features/ServerSetup/ServerSetupViewModelTests` | Connecting, the HTTP fallback, the Local Network prompt, discovery |
 | `Shared/AppVersionInfoTests` | The version string |
 | `Shared/BackdropLogoOverlayTests` | The hero logo's tilt rotation |
+| `Shared/Components/ActiveFoldTests` | Reading the iPhone Duo's fold, and where the player and the detail page's book spread put things around it |
 | `Shared/Components/AsyncRemoteImageFillTests` | Placeholders while loading and after failure |
 | `Shared/Components/HeroScrollEdgeScrimTests` | The hero's scroll-edge scrim and status bar |
 | `Shared/Components/OnboardingLayoutTests` | Onboarding's composition per measured device size |

@@ -120,6 +120,18 @@ struct DownloadedAssetDetailView: View {
                 // Same hero-bleeds-under-the-status-bar treatment as the live
                 // detail pages; see `HeroHeaderView`.
                 .ignoresSafeArea(edges: .top)
+                // The poster spread on a book-pose iPhone Duo; see
+                // `DetailBookSpread`. A download keeps only its own Primary, an
+                // episode's being a still, so an episode spreads its backdrop.
+                .detailBookSpread(
+                    posterURL: item.kind == .episode ? nil : item.posterImagePath.map(DownloadFileStore.url(forRelativePath:)),
+                    backdropURL: heroBackdropURL(item),
+                    logoURL: item.logoImagePath.map(DownloadFileStore.url(forRelativePath:)),
+                    title: item.seriesTitle ?? item.title,
+                    episodeTitle: item.kind == .episode ? item.title : nil,
+                    episodeNumberAccessibilityText: item.kind == .episode ? item.episodeLabelAccessibilityText : nil,
+                    kind: item.kind == .episode ? .episode : .movie
+                )
                 // Keeps the bars legible once the hero scrolls away.
                 .heroScrollEdgeScrim()
                 .toolbar {

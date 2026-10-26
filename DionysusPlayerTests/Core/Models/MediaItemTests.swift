@@ -1068,6 +1068,30 @@ final class MediaItemTests: XCTestCase {
         XCTAssertTrue(url!.absoluteString.contains("tag=thumb123"))
     }
 
+    func test_posterImageURL_isTheItemsOwnPrimary() {
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, imageTags: ["Primary": "p1"])
+        let url = MediaItem(dto: dto, images: images).posterImageURL
+        XCTAssertTrue(url?.absoluteString.contains("Items/movie-1/Images/Primary") == true)
+        XCTAssertTrue(url?.absoluteString.contains("tag=p1") == true)
+    }
+
+    /// An episode's own Primary is a still; its poster is the show's.
+    func test_posterImageURL_episodeUsesTheShowsPoster() {
+        let dto = BaseItemDto(
+            id: "ep-1", name: "Old Cases", type: .episode, seriesId: "series-1",
+            imageTags: ["Primary": "still"], seriesPrimaryImageTag: "showposter"
+        )
+        let url = MediaItem(dto: dto, images: images).posterImageURL
+        XCTAssertTrue(url?.absoluteString.contains("Items/series-1/Images/Primary") == true)
+        XCTAssertTrue(url?.absoluteString.contains("tag=showposter") == true)
+    }
+
+    /// `nil` rather than a 404ing URL, so the spread falls back to the backdrop.
+    func test_posterImageURL_nilWithoutATag() {
+        XCTAssertNil(makeMovie().posterImageURL)
+        XCTAssertNil(makeEpisode().posterImageURL)
+    }
+
     func test_thumbImageURL_nilWhenNoThumbTag() {
         XCTAssertNil(makeMovie().thumbImageURL)
     }

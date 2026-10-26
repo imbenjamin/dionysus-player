@@ -389,8 +389,9 @@ struct BackdropLogoOverlay: View {
 /// download's own artwork) or `AsyncRemoteImage` otherwise (a live item's
 /// network artwork) — the one place `BackdropLogoOverlay` needs to know
 /// which of the two it's dealing with, so neither caller has to say so
-/// explicitly.
-private struct AdaptiveArtworkImage: View {
+/// explicitly. Also the book-pose detail spread's poster page
+/// (`DetailBookSpread`).
+struct AdaptiveArtworkImage: View {
     let url: URL?
     var contentMode: ContentMode = .fill
     var placeholderSystemImage: String = "photo"

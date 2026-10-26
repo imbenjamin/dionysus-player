@@ -192,6 +192,10 @@ struct BaseItemDto: Codable, Identifiable, Equatable {
     /// — resolved server-side, as `parentBackdropItemId` is.
     var parentLogoItemId: String?
     var parentLogoImageTag: String?
+    /// An episode's show's poster tag, sent beside `seriesId` (measured on
+    /// 12.2.0, list and single-item fetches alike). Its own Primary is a 16:9
+    /// still; see `MediaItem.posterImageURL`.
+    var seriesPrimaryImageTag: String?
     /// The nearest ancestor with a Thumb, resolved server-side the same way,
     /// and sent only when the item has no Thumb of its own. Jellyfin 10.11
     /// sends this on an episode, not `SeriesThumbImageTag` (measured on the

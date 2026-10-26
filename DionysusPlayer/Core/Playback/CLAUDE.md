@@ -6,6 +6,17 @@ abstraction (`PlaybackEngine`, change the protocol and both conformers) and
 how playback negotiates with the server; the Apple TV player's host is in
 `DionysusTV/CLAUDE.md`.
 
+## The fold (iPhone Duo)
+
+`PlayerView` and `PlayerControlsOverlay` each read the fold
+(`onActiveFoldChange`) and lay out through `PlayerFoldLayout`: tabletop puts
+the picture above the fold and the whole overlay, top row and logo included,
+below it; book pose moves the transport and scrubber to the trailing page.
+Each reads it on its outermost frame, after the padding it drives: reading it
+from `topSection`'s position fed back into that padding and locked the main
+thread when folding back from tabletop. The root `CLAUDE.md`, "iPhone Duo: the
+fold", has the rest.
+
 ## Picture in Picture
 
 PiP is wired for AetherEngine's native (AVPlayer) route only, which covers

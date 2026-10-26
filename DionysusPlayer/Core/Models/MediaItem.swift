@@ -792,6 +792,20 @@ struct MediaItem: Identifiable {
 
     var primaryImageURL: URL? { imageURL(type: "Primary", maxWidth: 500) }
 
+    /// The portrait poster, for the book-pose detail spread
+    /// (`DetailBookSpread`): the item's own Primary, but an episode's show's,
+    /// since an episode's own Primary is a 16:9 still. `nil` rather than a
+    /// 404ing URL when there is none, so the spread can fall back to the
+    /// backdrop (the `thumbImageURL` reasoning).
+    var posterImageURL: URL? {
+        if dto.type == .episode {
+            guard let seriesID = dto.seriesId, let tag = dto.seriesPrimaryImageTag else { return nil }
+            return images.url(itemID: seriesID, imageType: "Primary", tag: tag, maxWidth: 1000)
+        }
+        guard let tag = dto.imageTags?["Primary"] else { return nil }
+        return images.url(itemID: id, imageType: "Primary", tag: tag, maxWidth: 1000)
+    }
+
     /// The 16:9 "Thumb" image: a still frame, which episodes almost always have
     /// and series sometimes do.
     ///
