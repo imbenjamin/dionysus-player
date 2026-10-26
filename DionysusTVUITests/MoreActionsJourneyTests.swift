@@ -248,6 +248,8 @@ final class MoreActionsJourneyTests: TVUITestCase {
     private var seriesRow: (id: String, label: String) { (seriesID, UITestFixtureIdentity.seriesName) }
     private let seasonRow = (id: "season-1", label: "Season 1")
     private let episodeRow = (id: UITestFixtureIdentity.episodeID(season: 1, episode: 1), label: "S1:E1")
+    /// The stub's Next Up: the episode Play starts on the series.
+    private let nextUpRow = (id: UITestFixtureIdentity.episodeID(season: 1, episode: 2), label: "S1:E2")
 
     /// More's menu, then its Add to Playlist submenu (several targets).
     private func openAddSubmenu(_ app: XCUIApplication) {
@@ -277,12 +279,34 @@ final class MoreActionsJourneyTests: TVUITestCase {
         XCTAssertEqual(ys, ys.sorted(), "Most specific last: \(message)")
     }
 
-    func test_more_onTheSeries_offersNoEpisode() {
+    /// On the series, the episode Play starts is offered too (Benjamin,
+    /// 2026-10-26), in both menus: Delete gates it on its `CanDelete`, which
+    /// the stub's Next Up serves only when asked for.
+    func test_more_onTheSeries_offersTheEpisodePlayStarts() {
         let app = launchAtHome()
         openSeries(app)
+        let rows = [seriesRow, seasonRow, nextUpRow]
+
         openAddSubmenu(app)
-        XCTAssertTrue(submenuRow(app, seasonRow).exists, "The season on show")
-        XCTAssertFalse(submenuRow(app, (id: "episode-", label: "S1:E")).exists, "Never the episode Play would start")
+        assertInOrder(rows.map { submenuRow(app, $0) }, "Add: show, season, Play's episode")
+        press(.menu)
+        press(.menu)
+        XCTAssertTrue(waitFocused(any(app, A11yID.TV.Detail.more)))
+
+        openDeleteSubmenu(app)
+        assertInOrder(rows.map { submenuRow(app, $0) }, "Delete: show, season, Play's episode")
+    }
+
+    /// Deleting it leaves the page on the series, and Play moves on.
+    func test_deleteTheEpisodePlayStarts_staysOnTheShow() {
+        let app = launchAtHome()
+        openSeries(app)
+        openDeleteSubmenu(app)
+        confirmDelete(app, row: submenuRow(app, nextUpRow))
+
+        XCTAssertTrue(poll(timeout: 10) { !self.episodeTile(app, season: 1, 2).exists }, "The episode leaves the rail")
+        XCTAssertTrue(episodeTile(app, season: 1, 1).exists, "The rest of the season stays")
+        XCTAssertTrue(app.buttons[A11yID.TV.Detail.play].exists, "Still the show's page")
     }
 
     func test_more_onAnEpisode_offersShowSeasonAndEpisode() {
@@ -329,12 +353,16 @@ final class MoreActionsJourneyTests: TVUITestCase {
         XCTAssertTrue(app.buttons[A11yID.TV.Detail.play].exists, "The show is still there")
     }
 
-    /// Delete's submenu, open on a page no longer on an episode: the show
-    /// and the season on show, no episode.
-    private func assertDeleteOffersNoEpisode(_ app: XCUIApplication) {
+    /// Delete's submenu, open on a page back on the series: the episode it
+    /// offers is Play's (`playsEpisode`, when one is left), never the one
+    /// deleted.
+    private func assertDeleteOffersPlaysEpisode(_ app: XCUIApplication, playsEpisode: (id: String, label: String)?) {
         XCTAssertTrue(waitFocused(any(app, A11yID.TV.Detail.more), timeout: 10), "Focus back on More")
         openDeleteSubmenu(app)
-        XCTAssertFalse(submenuRow(app, (id: "episode-", label: "S1:E")).exists, "The page is back on the series")
+        XCTAssertFalse(submenuRow(app, episodeRow).exists, "The page is back on the series")
+        if let playsEpisode {
+            XCTAssertTrue(submenuRow(app, playsEpisode).exists, "Play's episode is offered")
+        }
         press(.menu)
         press(.menu)
     }
@@ -354,7 +382,7 @@ final class MoreActionsJourneyTests: TVUITestCase {
 
         openDeleteSubmenu(app)
         confirmDelete(app, row: submenuRow(app, episodeRow))
-        assertDeleteOffersNoEpisode(app)
+        assertDeleteOffersPlaysEpisode(app, playsEpisode: nextUpRow)
     }
 
     /// The chosen episode's whole season deleted (review, Important 2).
@@ -365,7 +393,9 @@ final class MoreActionsJourneyTests: TVUITestCase {
         openDeleteSubmenu(app)
         confirmDelete(app, row: submenuRow(app, seasonRow))
         XCTAssertTrue(episodeTile(app, season: 2, 1).waitForExistence(timeout: 10))
-        assertDeleteOffersNoEpisode(app)
+        // Play's episode went with the season; which one replaces it is
+        // `resolveShowPlaybackEpisode`'s business.
+        assertDeleteOffersPlaysEpisode(app, playsEpisode: nil)
     }
 
     /// A season with no folder (Benjamin's library): offered once its

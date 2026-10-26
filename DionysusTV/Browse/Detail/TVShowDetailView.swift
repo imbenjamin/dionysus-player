@@ -91,14 +91,15 @@ struct TVShowDetailView: View {
     private var seasonID: String? { selectedSeasonID ?? viewModel.initialSeasonID }
 
     /// What More Actions offers: the show, the season on show (as iOS's
-    /// picker selection), and the episode when the page is on one. Built
-    /// from the page's own `item`, not the view model's: an episode chosen
-    /// from the rail is this view's (`chosenEpisodeID`), and the view model
-    /// stays on the series.
+    /// picker selection), and the episode Play starts (Benjamin, 2026-10-26).
+    /// Built from the page's own `item`, not the view model's: an episode
+    /// chosen from the rail is this view's (`chosenEpisodeID`), and the view
+    /// model stays on the series.
     private var moreTargets: AssetActionTargets {
         AssetActionTargets(
             item: item, seriesItem: viewModel.seriesItem, seasons: viewModel.seasons,
-            selectedSeasonID: seasonID, canDeleteSeason: viewModel.canDelete(season:)
+            selectedSeasonID: seasonID, playbackEpisode: viewModel.showPlaybackEpisode,
+            canDeleteSeason: viewModel.canDelete(season:)
         )
     }
     private var seasonEpisodes: [MediaItem] { seasonID.flatMap { episodes?.episodes[$0] } ?? [] }

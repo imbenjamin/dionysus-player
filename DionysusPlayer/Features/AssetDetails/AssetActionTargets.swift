@@ -9,22 +9,20 @@ import Foundation
 /// Scoped to movies, episodes, seasons and shows; box sets and playlists
 /// don't offer these (see `AssetActionsButton`).
 struct AssetActionTargets: Equatable {
-    /// Every entity the page could offer to delete, most specific last.
+    /// Every entity the page could offer to delete, most specific last: the
+    /// show, the season on show, and the episode Play starts (the page's own
+    /// on an episode, `AssetDetailViewModel.showPlaybackEpisode` on the
+    /// series).
     ///
-    /// Mirrors `FavoriteWatchedShowScope` with one difference: the episode is
-    /// offered only when the page is genuinely showing an episode, never for
-    /// `AssetDetailViewModel.showPlaybackEpisode`. Getting favorite/watched
-    /// wrong costs a toggle; offering to delete an episode the user never
-    /// selected destroys a file.
+    /// The series' episode used to be left out, since deleting an episode the
+    /// user never chose destroys a file. It's offered now (Benjamin,
+    /// 2026-10-26): Play names it on the page, the row names it by number
+    /// and title, and the confirmation names it again.
     let deletable: [MediaItem]
 
     /// Every entity the page could offer to add to a playlist, most specific
-    /// last.
-    ///
-    /// The same shape as `deletable`, including its restriction to genuine
-    /// episode content. That restriction is destructive-only in origin, but
-    /// both actions sit in one menu and must agree on what "this episode"
-    /// means.
+    /// last: the same targets as `deletable`, so both actions in the one menu
+    /// agree on what "this episode" means.
     ///
     /// No permission filter, unlike `deletable`: every target is addable
     /// somewhere, since a user with no editable playlist can create one
@@ -36,12 +34,16 @@ struct AssetActionTargets: Equatable {
     ///   - seriesItem: the show, on a show's page; `nil` for standalone content.
     ///   - selectedSeasonID: the season on show (iOS's picker, the Apple TV's
     ///     season tabs).
+    ///   - playbackEpisode: the episode Play starts on the series
+    ///     (`AssetDetailViewModel.showPlaybackEpisode`); ignored when `item`
+    ///     is an episode, which is then Play's.
     ///   - canDeleteSeason: `AssetDetailViewModel.canDelete(season:)`: a season
     ///     with no folder of its own is never deletable as a unit, and is
     ///     offered when its episodes are.
     init(
         item: MediaItem?, seriesItem: MediaItem?, seasons: [MediaItem],
-        selectedSeasonID: String?, canDeleteSeason: (MediaItem) -> Bool
+        selectedSeasonID: String?, playbackEpisode: MediaItem?,
+        canDeleteSeason: (MediaItem) -> Bool
     ) {
         guard let item else {
             deletable = []
@@ -55,7 +57,7 @@ struct AssetActionTargets: Equatable {
             return
         }
         let season = seasons.first { $0.id == selectedSeasonID }
-        let episode = item.kind == .episode ? item : nil
+        let episode = item.kind == .episode ? item : playbackEpisode
         let all = [show, season, episode].compactMap { $0 }
         addable = all
         deletable = all.filter { target in
@@ -67,7 +69,8 @@ struct AssetActionTargets: Equatable {
     init(viewModel: AssetDetailViewModel, selectedSeasonID: String?) {
         self.init(
             item: viewModel.item, seriesItem: viewModel.seriesItem, seasons: viewModel.seasons,
-            selectedSeasonID: selectedSeasonID, canDeleteSeason: viewModel.canDelete(season:)
+            selectedSeasonID: selectedSeasonID, playbackEpisode: viewModel.showPlaybackEpisode,
+            canDeleteSeason: viewModel.canDelete(season:)
         )
     }
 

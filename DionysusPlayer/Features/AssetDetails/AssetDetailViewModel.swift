@@ -1046,14 +1046,19 @@ final class AssetDetailViewModel {
     /// that season, rather than a Series tap's NextUp. Safe to rely on because
     /// this is only called for Show content — Episode content also sets
     /// `preselectedSeasonID` but never invokes this.
+    ///
+    /// Asks for `CanDelete`, which More Actions gates this episode's Delete
+    /// row on (`AssetActionTargets`). A season's lookup pays its per-item
+    /// cost on every episode, as `loadSeasonDeletability` already does.
     private func resolveShowPlaybackEpisode(seriesID: String, images: ImageURLBuilder) async {
+        let fields = JellyfinAPIClient.defaultFields + ",CanDelete"
         if let preselectedSeasonID {
             if let firstEpisodeDto = try? await client.episodes(
-                seriesID: seriesID, seasonID: preselectedSeasonID, userID: userID
+                seriesID: seriesID, seasonID: preselectedSeasonID, userID: userID, fields: fields
             ).items.first {
                 showPlaybackEpisode = MediaItem(dto: firstEpisodeDto, images: images)
             }
-        } else if let nextUpDto = try? await client.nextUp(userID: userID, seriesID: seriesID).items.first {
+        } else if let nextUpDto = try? await client.nextUp(userID: userID, seriesID: seriesID, fields: fields).items.first {
             showPlaybackEpisode = MediaItem(dto: nextUpDto, images: images)
         } else {
             // In season order, stopping at the first season with anything in
@@ -1062,7 +1067,7 @@ final class AssetDetailViewModel {
             // episodes further on. Usually one request — an empty season is rare.
             for season in seasons {
                 if let firstEpisodeDto = try? await client.episodes(
-                    seriesID: seriesID, seasonID: season.id, userID: userID
+                    seriesID: seriesID, seasonID: season.id, userID: userID, fields: fields
                 ).items.first {
                     showPlaybackEpisode = MediaItem(dto: firstEpisodeDto, images: images)
                     return
