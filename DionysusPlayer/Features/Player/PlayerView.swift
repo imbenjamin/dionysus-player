@@ -93,6 +93,10 @@ struct PlayerView: View {
     /// proposing one, avoiding the zero-size failures the picker sizing
     /// documents.
     @State private var isLandscapeWindow = false
+    /// The fold of a partly folded iPhone Duo, in full-screen space; see
+    /// `PlayerFoldLayout`.
+    @State private var fold: ActiveFold?
+    private var foldLayout: PlayerFoldLayout { PlayerFoldLayout(fold: fold) }
     /// Whether `PlaybackStatsOverlay` is showing. Unlike `showControls` it has no
     /// auto-hide: a plain toggle only the stats button flips.
     @State private var showPlaybackStats = false
@@ -146,9 +150,17 @@ struct PlayerView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+                // Full-screen, the space the surface and subtitles lay out in.
+                .onActiveFoldChange { fold = $0 }
 
             if let viewModel {
                 viewModel.engine.makeSurface()
+                    // Above the fold in tabletop (`PlayerFoldLayout`); the
+                    // whole screen otherwise. The shape keeps the tap and pinch
+                    // targets full-screen either way.
+                    .frame(height: foldLayout.videoHeight)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .contentShape(Rectangle())
                     .ignoresSafeArea()
                     // `exclusively(before:)` holds the single tap until the
                     // double-tap window passes, the disambiguation a
@@ -169,6 +181,9 @@ struct PlayerView: View {
                 // controls and shouldn't fade with them. Its bottom clearance
                 // animates in step with the fade instead.
                 SubtitleOverlayView(viewModel: viewModel, zoomMode: zoomMode, controlsVisible: showControls, controlsTop: bottomChromeTop)
+                    // Over the picture, wherever `PlayerFoldLayout` puts it.
+                    .frame(height: foldLayout.videoHeight)
+                    .frame(maxHeight: .infinity, alignment: .top)
                     .ignoresSafeArea()
 
                 // Between the video surface and `PlayerControlsOverlay`. Always
@@ -299,6 +314,8 @@ struct PlayerView: View {
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     .padding()
+                    // Centred below a tabletop fold rather than on it.
+                    .padding(.top, foldLayout.controlsTopInset)
                 }
 
                 if let errorMessage = viewModel.errorMessage {

@@ -269,6 +269,16 @@ struct ShowDetailView: View {
                 }
             }
             .ignoresSafeArea(edges: .top)
+            // The poster spread on a book-pose iPhone Duo; see `DetailBookSpread`.
+            .detailBookSpread(
+                posterURL: viewModel.item?.posterImageURL,
+                backdropURL: viewModel.item.flatMap { $0.backdropImageURL ?? $0.primaryImageURL },
+                logoURL: viewModel.item?.logoImageURL,
+                title: viewModel.item?.railTitle ?? "",
+                episodeTitle: isEpisodeContent ? viewModel.item?.name : nil,
+                episodeNumberAccessibilityText: isEpisodeContent ? viewModel.item?.episodeLabelAccessibilityText : nil,
+                kind: viewModel.item?.kind
+            )
             // Keeps the bars legible once the hero scrolls away.
             .heroScrollEdgeScrim()
             // Trailing toolbar items float in the nav bar opposite the system
@@ -279,6 +289,7 @@ struct ShowDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     HeroActionButtons(viewModel: viewModel, selectedSeasonID: selectedSeasonID)
                 }
+                .duoVerticalPreferred()
                 // `ToolbarSpacer(.fixed)`, not just a second `ToolbarItem`: on
                 // iOS 26 adjacent trailing items share one Liquid Glass capsule,
                 // so delete drew as a third glyph inside the favorite/watched

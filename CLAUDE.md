@@ -478,6 +478,26 @@ The app adds items to a playlist (`AssetActionsButton` →
 omitting it publishes the playlist to every user. New playlists are private,
 as in `jellyfin-web`.
 
+### iPhone Duo: the fold
+
+The foldable's fold is read from the `.division` reserved region (iOS 27.1,
+gated: the floor is 18) through `ActiveFold` (`Shared/Components/`), which
+rounds it to whole points. **Read it from a view whose position doesn't
+depend on it**: a view moved by the fold it measures loops (measured: 98% CPU
+on a black screen), so read it on the outer frame, after any padding it
+drives. Two layouts use it (Benjamin, 2026-10-26):
+
+- **The player** (`PlayerFoldLayout`): in tabletop the picture sits above the
+  fold and every control below it; in book pose the transport and scrubber
+  take the trailing page. Same controls in every pose.
+- **Detail pages, held wide** (`DetailBookSpread`), partly folded *or* fully
+  open and flat: the poster fills the leading page (`MediaItem.posterImageURL`,
+  the series poster for an episode, no logo), or the backdrop with the logo
+  when there's no poster; the content scrolls on the trailing page, and
+  `HeroHeaderView` steps aside. Held tall the page keeps its hero. Favourite
+  and Watched sit in the vertical side bar there (`.duoVerticalPreferred()`
+  on their toolbar item), stacked, rather than floating over the content.
+
 ### Navigation (`Shared/Navigation/`)
 
 One `AppRoute` enum (`collection`, `assetDetail`, `downloadedAsset`,

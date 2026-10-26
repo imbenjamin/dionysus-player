@@ -55,6 +55,10 @@ struct PlayerControlsOverlay: View {
     /// this overlay needs to know.
     @State private var showRemainingTime = true
 
+    /// The fold of a partly folded iPhone Duo, in `content`'s space; see
+    /// `PlayerFoldLayout`.
+    @State private var fold: ActiveFold?
+
     #if DEBUG
     /// Mirrors `LogoImageView`'s otherwise-invisible `showFallback` for
     /// `titleRow`'s logo, needed because this row's
@@ -302,10 +306,19 @@ struct PlayerControlsOverlay: View {
                     }
                 )
                 .padding(.bottom, isLandscape ? 56 : 96)
-                .padding(.leading, 20)
+                // Under its button, which moves to the trailing page in book pose.
+                .padding(.leading, 20 + foldLayout.controlsLeadingInset)
                 .transition(.scale(scale: 0.92, anchor: .bottomLeading).combined(with: .opacity))
             }
         }
+        // Tabletop on an iPhone Duo: every control, the top row and logo
+        // included, below the fold, leaving the top half to the picture
+        // (Benjamin, 2026-10-26; `PlayerFoldLayout`).
+        .padding(.top, foldLayout.controlsTopInset)
+        // Read after the padding, on the overlay's full frame. Read inside it,
+        // the inset moves the view the fold was measured in and the two chase
+        // each other (measured: a 99%-CPU layout loop, black on folding back).
+        .onActiveFoldChange { fold = $0 }
         // No container identifier: this overlay is inside the same
         // `.fullScreenCover`, so one on its root propagates down and overwrites
         // every control's own.
@@ -316,19 +329,28 @@ struct PlayerControlsOverlay: View {
     /// sibling. Carries no `.background()` of its own (see `backgroundGradient`),
     /// so it is purely interactive content: a tap on a `Spacer()` gap falls
     /// through to the catcher behind.
+    ///
+    /// On a book-pose iPhone Duo the transport row and scrubber move to the
+    /// trailing page (`PlayerFoldLayout`); centred, play/pause sat on the fold.
+    /// Tabletop moves the whole overlay instead; see `body`.
     private var content: some View {
         VStack {
             topSection
 
             VStack {
-                Spacer()
-                transportControls
-                Spacer()
-            }
+                VStack {
+                    Spacer()
+                    transportControls
+                    Spacer()
+                }
 
-            scrubberBar
+                scrubberBar
+            }
+            .padding(.leading, foldLayout.controlsLeadingInset)
         }
     }
+
+    private var foldLayout: PlayerFoldLayout { PlayerFoldLayout(fold: fold) }
 
     /// The corner-anchored logo gradient and bottom darkening, as `body`'s
     /// backmost `ZStack` sibling rather than a `.background()` on `content`.
