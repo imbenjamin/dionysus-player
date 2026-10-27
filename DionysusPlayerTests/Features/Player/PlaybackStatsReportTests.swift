@@ -56,6 +56,14 @@ final class PlaybackStatsReportTests: XCTestCase {
         XCTAssertEqual(row?.value, "3840×2160 (UI: 1920×1080 pt)")
     }
 
+    /// A polled reading, so it follows the screen showing the player.
+    func test_display_refreshRateComesFromTheReadings() {
+        var readings = PlaybackStatsReport.DeviceReadings()
+        XCTAssertEqual(PlaybackStatsReport.display(stats, readings: readings).rows.first { $0.label == "Refresh Rate" }?.value, "—")
+        readings.refreshRateHz = 120
+        XCTAssertEqual(PlaybackStatsReport.display(stats, readings: readings).rows.first { $0.label == "Refresh Rate" }?.value, "120 Hz")
+    }
+
     func test_describeScreen_beforeTheFirstReading() {
         XCTAssertEqual(PlaybackStatsReport.describeScreen(pixels: .zero, points: .zero), "—")
     }
