@@ -137,9 +137,10 @@ it needs the `TrueHDObjectAudio`/`DTSXObjectAudio` traits
   `audioStream(forEngineTrackID:in:)` translate, shared with the Atmos hint.
 - **Where it can't apply, nothing is rendered or rebuilt**: a server
   transcode (AVPlayer never sees the track), offline (downloads are
-  HEVC/MP4), and the engine's own refusals (software route, non-48 kHz,
-  DTS:X's object presentations, OS below 26), which keep the bridge with the
-  audio intact. DTS:X renders into 7.1.4 and 9.1.6 only, so its picker offers
+  HEVC/MP4), and the engine's own refusals (non-48 kHz, DTS:X's object
+  presentations, OS below 26), which keep the bridge with the audio intact.
+  The software route renders too since AetherEngine 7.48.0, and its own
+  track pick prefers Atmos/DTS:X as the prediction assumes. DTS:X renders into 7.1.4 and 9.1.6 only, so its picker offers
   nothing else. The settings are hidden below iOS 26 and where a trait isn't
   built in (`SpatialAudioSupport`).
 - **Playback Stats shows a "Spatial Audio" row while it plays**, from
@@ -152,18 +153,19 @@ it needs the `TrueHDObjectAudio`/`DTSXObjectAudio` traits
 - **The section's footer is one sentence, and the rest is a page of its
   own** (`SpatialAudioHelp`, Benjamin, 2026-10-23): iOS's footer ends in
   Learn More…, which opens a sheet; the Apple TV's section ends in an About
-  Spatial Audio row, since focus never reaches a footer there. Its last
-  paragraph is the caveat for AetherEngine #850, a plain limitation: the
-  section was headed "Spatial Audio (beta)" for a day, and App Review rejects
-  a store build with a feature labelled beta (guideline 2.2;
-  `SpatialAudioHelpTests` keeps "beta" out). On the A15 Apple TV the TrueHD
-  decode and APAC encode run the engine's segment producer at only ~1.2x real
-  time, and the engine's QoS retune drops it to `.utility` at 16 s of lead,
-  where it runs below real time. The lead never grows, AVPlayer stalls every
-  few minutes on a 4K remux, and worse as the box heats (thermal state
-  Serious, stalls every ~20 s by 20 minutes in). The Read-Ahead Buffer can't
-  help: the producer is the limit, not the network. Drop the page's last
-  paragraph once a fix is verified on the Living Room box.
+  Spatial Audio row, since focus never reaches a footer there. Nothing on it
+  may call the feature beta: the section was headed "Spatial Audio (beta)"
+  for a day, and App Review rejects a store build with a feature labelled
+  beta (guideline 2.2; `SpatialAudioHelpTests` keeps it out).
+- **Stalls on the A15 Apple TV were AetherEngine #850, fixed in 7.48.0.**
+  The TrueHD decode and APAC encode ran the engine's segment producer at
+  only ~1.2x real time, and its QoS retune dropped it to `.utility` at 16 s
+  of lead, where it ran below real time, so a 4K remux stalled every few
+  minutes. The pump now stays on `.userInitiated` once it measures below
+  real time there (28 min of a 4K Atmos remux, no stalls, Living Room,
+  2026-10-25), and the help page's "may pause to buffer" paragraph is gone.
+  If stalls come back, the Read-Ahead Buffer can't help: the producer is the
+  limit, not the network.
 
 ## Read-Ahead Buffer
 

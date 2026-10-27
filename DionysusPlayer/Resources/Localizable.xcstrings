@@ -1436,9 +1436,6 @@
     "Rating" : {
 
     },
-    "Re-encoding takes a lot of processing power: on some devices, a 4K title with one of these tracks can pause to buffer. If that happens, turn Spatial Audio off for that format." : {
-
-    },
     "Read-Ahead Buffer" : {
 
     },
