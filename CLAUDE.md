@@ -503,7 +503,9 @@ regular width, but its tab bar sits at the bottom held tall and at the foot of
 the vertical side bar held wide (`tabBarPlacement` reads `.bottomBar` for
 both; an iPad, `.topBar`). Anything that assumes the bar floats over the
 content at the top asks `tabBarPlacement`, as Home's hero tint does
-(`TabBarTintModel.isBarOverHero`).
+(`TabBarTintModel.isBarOverHero`). Where the bars are vertical the status bar
+is in the side bar too, so the hero's top shade (`HeroScrollEdgeScrim`) is
+left out there (Benjamin, 2026-10-27).
 
 **Every toolbar button has a symbol and a title, and shows its title on a
 horizontal bar**: `Button("Select", systemImage: "checkmark.circle", …)`
