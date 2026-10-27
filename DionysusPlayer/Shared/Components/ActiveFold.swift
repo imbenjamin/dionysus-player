@@ -87,3 +87,50 @@ struct PlayerFoldLayout: Equatable {
         }
     }
 }
+
+/// Where a centred, non-scrolling state (an empty state, a spinner, an error)
+/// goes on a partly folded iPhone Duo, so its glyph and title never sit on the
+/// fold: on the trailing page in book pose, in the top half in tabletop, where
+/// it's read from a distance (Apple's displacement, Tech Talk 111463; Benjamin,
+/// 2026-10-27). Flat and closed it keeps the whole view. Scrolling content never
+/// moves, as Apple says, so lists and grids don't use this.
+struct FoldAvoidingCentredLayout: Equatable {
+    /// How far in from the leading edge the state's area starts.
+    var leadingInset: CGFloat = 0
+    /// The state's area's height from the top edge, or `nil` for the whole view.
+    var height: CGFloat?
+
+    init(fold: ActiveFold?) {
+        switch fold {
+        case .horizontal(let top, _):
+            height = top
+        case .vertical(_, let trailing):
+            leadingInset = trailing
+        case nil:
+            break
+        }
+    }
+}
+
+extension View {
+    /// Centres this view in the part of its frame clear of the fold; see
+    /// `FoldAvoidingCentredLayout`.
+    func centredClearOfTheFold() -> some View {
+        modifier(FoldAvoidingCentred())
+    }
+}
+
+private struct FoldAvoidingCentred: ViewModifier {
+    @State private var fold: ActiveFold?
+
+    func body(content: Content) -> some View {
+        let layout = FoldAvoidingCentredLayout(fold: fold)
+        content
+            .frame(maxWidth: .infinity, maxHeight: layout.height ?? .infinity)
+            .padding(.leading, layout.leadingInset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            // Read on the full frame, outside the inset and height it drives,
+            // for the reason `onActiveFoldChange`'s callers give.
+            .onActiveFoldChange { fold = $0 }
+    }
+}

@@ -80,19 +80,23 @@ struct SearchView: View {
         if ConnectivityMonitor.shared.isOffline,
            viewModel?.loadState == .searching || isFailedState(viewModel?.loadState) {
             OfflineStateView(retry: { viewModel?.queryChanged() })
+                .centredClearOfTheFold()
         } else {
             switch viewModel?.loadState ?? .idle {
             case .idle:
                 idleContent
             case .searching:
                 LoadingView()
+                    .centredClearOfTheFold()
             case .failed(let message):
                 ErrorStateView(message: message, retry: nil)
+                    .centredClearOfTheFold()
             case .loaded:
                 let results = viewModel?.results ?? []
                 if results.isEmpty {
                     ContentUnavailableView.search
                         .accessibilityIdentifier(A11yID.Search.emptyState)
+                        .centredClearOfTheFold()
                 } else if usesGridLayout {
                     resultsGrid(results)
                 } else {
@@ -112,8 +116,10 @@ struct SearchView: View {
         switch LibraryAvailability.shared.state {
         case .loading:
             LoadingView()
+                .centredClearOfTheFold()
         case .unavailable:
             OfflineStateView(retry: { LibraryAvailability.shared.retryAction?() })
+                .centredClearOfTheFold()
         case .available:
             let history = viewModel?.history ?? []
             if !isSearching, !history.isEmpty {
@@ -128,6 +134,7 @@ struct SearchView: View {
                     systemImage: "magnifyingglass",
                     description: Text("Find movies, shows, and episodes on your server.")
                 )
+                .centredClearOfTheFold()
             }
         }
     }
