@@ -12,7 +12,8 @@ import SwiftUI
 /// content (and dark toolbar glass), and once the hero has gone the page's own
 /// scheme is asked for explicitly. Not `nil`: that hands the choice back to the
 /// system, which on the iOS 27 Simulator kept Home's clock light over the light
-/// band.
+/// band. The exception is an iPhone Duo's vertical side bar, which gets no
+/// scheme (see `barScheme`).
 ///
 /// **Over the hero**, a soft dark shade behind the bars keeps that light
 /// content readable on bright artwork. The hero only darkens its own bottom
@@ -50,10 +51,16 @@ struct HeroScrollEdgeScrim: ViewModifier {
     @State private var statusBarOwner = UUID()
     /// The page's own scheme, which the bars return to after the hero.
     @Environment(\.colorScheme) private var colorScheme
+    /// Whether the bars are an iPhone Duo's vertical side bar.
+    @State private var isVerticalBar = false
 
     /// Dark (light content) over the hero, the page's own scheme after it.
-    private var barScheme: ColorScheme {
-        Self.isOverHero(progress: progress) ? .dark : colorScheme
+    /// Nothing in a vertical side bar: only its top reaches over the hero, and
+    /// a scheme applies to the whole bar, so the system's glass is left to
+    /// adapt item by item to whatever is beneath it.
+    private var barScheme: ColorScheme? {
+        guard !isVerticalBar else { return nil }
+        return Self.isOverHero(progress: progress) ? .dark : colorScheme
     }
 
     func body(content: Content) -> some View {
@@ -76,6 +83,20 @@ struct HeroScrollEdgeScrim: ViewModifier {
             .onChange(of: barScheme) { _, scheme in HeroStatusBarScheme.shared.claim(statusBarOwner, scheme: scheme) }
             .onDisappear { HeroStatusBarScheme.shared.release(statusBarOwner) }
             .overlay(alignment: .top) { bands }
+            .background { verticalBarProbe }
+    }
+
+    /// Feeds `isVerticalBar`. Never set before iOS 27.1, which has no
+    /// vertical bars.
+    @ViewBuilder
+    private var verticalBarProbe: some View {
+        if #available(iOS 27.1, *) {
+            VerticalBarReader { isVertical in
+                Color.clear
+                    .onAppear { isVerticalBar = isVertical }
+                    .onChange(of: isVertical) { _, vertical in isVerticalBar = vertical }
+            }
+        }
     }
 
     /// A zero-height marker at the top of the safe area gives `barBottom`; the
@@ -214,7 +235,7 @@ final class HeroStatusBarScheme {
     private(set) var scheme: ColorScheme?
     private var owner: UUID?
 
-    func claim(_ owner: UUID, scheme: ColorScheme) {
+    func claim(_ owner: UUID, scheme: ColorScheme?) {
         self.owner = owner
         if self.scheme != scheme { self.scheme = scheme }
     }

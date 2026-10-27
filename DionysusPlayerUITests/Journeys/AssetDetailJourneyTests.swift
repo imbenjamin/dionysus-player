@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 /// The four detail layouts (movie, show → episode, box set, playlist) and
@@ -505,5 +506,54 @@ final class AssetDetailJourneyTests: UITestCase {
             detail.playlistRemoveMenuItem("playlist-entry-1").waitForExistence(timeout: 2),
             "Remove from Playlist must not be offered without edit permission on this playlist."
         )
+    }
+
+    /// The hero's backdrop reaches both screen edges in landscape, where the
+    /// page's scroll view keeps a horizontal safe area (the Dynamic Island's
+    /// side, and on a closed iPhone Duo the vertical bar's column). Read from
+    /// the pixels: the backdrop is accessibility-hidden, and the fixture's is
+    /// dark against the light page, so a backdrop stopping at the safe area
+    /// leaves a light strip at the edge.
+    func testHeroBackdropReachesTheScreenEdgesInLandscape() {
+        let device = XCUIDevice.shared
+        addTeardownBlock { @MainActor in device.orientation = .portrait }
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+
+        device.orientation = .landscapeLeft
+        let window = app.windows.firstMatch
+        let landscape = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in window.frame.width > window.frame.height },
+            object: nil
+        )
+        XCTAssertEqual(XCTWaiter().wait(for: [landscape], timeout: Self.defaultTimeout), .completed)
+        // Let the rotation and the hero's height settle.
+        _ = XCTWaiter().wait(for: [XCTestExpectation(description: "settle")], timeout: 2)
+
+        let image = window.screenshot().image
+        XCTAssertGreaterThan(image.size.width, image.size.height, "The screenshot should be upright in landscape.")
+        let y = image.size.height * 0.4
+        for x in [2, image.size.width - 2] {
+            XCTAssertLessThan(
+                Self.brightness(of: image, at: CGPoint(x: x, y: y)), 0.5,
+                "The backdrop should reach the screen edge at x = \(Int(x))pt, not stop at the safe area."
+            )
+        }
+    }
+
+    /// The brightness, 0 to 1, of the pixel under `point` (in points): the
+    /// mean of its three colour channels, whichever order they come in.
+    private static func brightness(of image: UIImage, at point: CGPoint) -> CGFloat {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let pixel = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1), format: format).image { _ in
+            image.draw(at: CGPoint(x: -point.x, y: -point.y))
+        }
+        guard let data = pixel.cgImage?.dataProvider?.data, let bytes = CFDataGetBytePtr(data) else { return 1 }
+        return (CGFloat(bytes[0]) + CGFloat(bytes[1]) + CGFloat(bytes[2])) / (3 * 255)
     }
 }

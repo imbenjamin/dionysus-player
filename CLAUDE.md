@@ -505,7 +505,12 @@ both; an iPad, `.topBar`). Anything that assumes the bar floats over the
 content at the top asks `tabBarPlacement`, as Home's hero tint does
 (`TabBarTintModel.isBarOverHero`). Where the bars are vertical the status bar
 is in the side bar too, so the hero's top shade (`HeroScrollEdgeScrim`) is
-left out there (Benjamin, 2026-10-27).
+left out there, and so is its forced dark bar scheme: a scheme colours the
+whole side bar, only part of which is over the hero, so the system's glass
+picks per item instead (Benjamin, 2026-10-27). Every other bar keeps both.
+The hero's backdrop reaches past the horizontal safe area (the side bar's
+column on the closed Duo) while its logo stays centred inside it
+(`BackdropLogoOverlay.backdrop`).
 
 **Every toolbar button has a symbol and a title, and shows its title on a
 horizontal bar**: `Button("Select", systemImage: "checkmark.circle", …)`
