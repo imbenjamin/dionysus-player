@@ -136,12 +136,20 @@ struct HeroRailView: View {
         return (scrollPosition - 1 + items.count) % items.count
     }
 
+    /// Where the tab bar is; see `TabBarTintModel.isBarOverHero(_:)`.
+    @Environment(\.tabBarPlacement) private var tabBarPlacement
+
     /// See `TabBarTintModel`. `nil` — and so the default tint — whenever there
-    /// is no hero artwork to sample, rather than leaving the previous hero's.
+    /// is no hero artwork to sample, rather than leaving the previous hero's,
+    /// and whenever the tab bar isn't over the hero. A dark hero's light tint
+    /// landed on the Duo's light pill at 2.35:1 held wide and about 2.9:1 in
+    /// tabletop (audit, 2026-10-26). Placement is checked after the image
+    /// arrives, so a fold while it loads can't publish it.
     private func publishBackdropLuminance() async {
         guard items.indices.contains(currentIndex),
               let url = items[currentIndex].backdropImageURL ?? items[currentIndex].primaryImageURL,
-              let image = try? await RemoteImageLoader.shared.image(for: url) else {
+              let image = try? await RemoteImageLoader.shared.image(for: url),
+              TabBarTintModel.isBarOverHero(tabBarPlacement) else {
             TabBarTintModel.shared.update(backdropLuminance: nil)
             return
         }
@@ -348,6 +356,12 @@ struct HeroRailView: View {
                 .task(id: currentIndex) {
                     guard isVisible else { return }
                     await publishBackdropLuminance()
+                }
+                // The bar can move without the hero changing: an iPad entering
+                // Split View, say.
+                .onChange(of: tabBarPlacement) { _, _ in
+                    guard isVisible else { return }
+                    Task { await publishBackdropLuminance() }
                 }
                 .onChange(of: isTabActive) { _, active in
                     if active {

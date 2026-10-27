@@ -592,6 +592,11 @@ What no suite can reach, and how it was or should be checked.
   Set the pose with Device Hub's Closed / Partially Open / Open buttons
   (tabletop is Partially Open, then Rotate Right) and capture the inner
   display with `xcrun simctl io <udid> screenshot --display=primary-1`.
+- **The tab bar's tint**: no journey reads a colour, so `TabBarTintTests`
+  pins the rule and the look was checked by screenshot (2026-10-27): with
+  dark heroes the selected tab stayed burgundy on the Duo open, in book and
+  in tabletop (10.5:1 and up), and still switched to the light tint on an
+  iPad. `/duology-ship:duo-poses` sets the poses.
 
 ## Where each thing is tested
 
@@ -672,6 +677,7 @@ the detail.
 | `Shared/Components/OnboardingLayoutTests` | Onboarding's composition per measured device size |
 | `Shared/Components/ToastCenterTests` | Toasts |
 | `Shared/DeviceTiltObserverTests` | Tilt smoothing and the sensor's reference counting |
+| `Shared/Navigation/TabBarTintTests` | Which tab bar placements let Home's hero pick the tab tint (iPad's top bar, not a Duo's) |
 
 ### Apple TV unit tests (`DionysusTVTests/`)
 

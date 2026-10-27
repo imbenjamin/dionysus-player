@@ -498,6 +498,13 @@ drives. Two layouts use it (Benjamin, 2026-10-26):
   and Watched sit in the vertical side bar there (`.duoVerticalPreferred()`
   on their toolbar item), stacked, rather than floating over the content.
 
+**Regular width doesn't mean an iPad's top bar.** The inner display is
+regular width, but its tab bar sits at the bottom held tall and at the foot of
+the vertical side bar held wide (`tabBarPlacement` reads `.bottomBar` for
+both; an iPad, `.topBar`). Anything that assumes the bar floats over the
+content at the top asks `tabBarPlacement`, as Home's hero tint does
+(`TabBarTintModel.isBarOverHero`).
+
 ### Navigation (`Shared/Navigation/`)
 
 One `AppRoute` enum (`collection`, `assetDetail`, `downloadedAsset`,
