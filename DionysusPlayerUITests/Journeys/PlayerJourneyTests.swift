@@ -214,6 +214,43 @@ final class PlayerJourneyTests: UITestCase {
         }
     }
 
+    /// Locking rotation in landscape holds the app there when the device turns
+    /// back upright. `RotationLock` reads the orientation to hold from the
+    /// scene's `effectiveGeometry`; a lock that read nothing would leave the
+    /// app free to follow the device. Skipped where the button is omitted
+    /// (a resizable iPad app can't lock; `RotationLock.isSupported`).
+    func testRotationLockHoldsLandscapeWhenTheDeviceTurnsUpright() throws {
+        let device = XCUIDevice.shared
+        addTeardownBlock { @MainActor in device.orientation = .portrait }
+        let player = openPlayer()
+        guard player.rotationLockButton.waitForExistence(timeout: 2) else {
+            throw XCTSkip("The rotation lock is omitted on this device.")
+        }
+        func isLandscape() -> Bool {
+            let frame = app.windows.firstMatch.frame
+            return frame.width > frame.height
+        }
+        func wait(untilLandscape landscape: Bool, _ message: String) {
+            let reached = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in isLandscape() == landscape },
+                object: nil
+            )
+            XCTAssertEqual(XCTWaiter().wait(for: [reached], timeout: Self.defaultTimeout), .completed, message)
+        }
+
+        device.orientation = .landscapeLeft
+        wait(untilLandscape: true, "The app should follow the device into landscape.")
+        player.rotationLockButton.tap()
+
+        device.orientation = .portrait
+        // Give the app the time it would take to rotate, then check it didn't.
+        _ = XCTWaiter().wait(for: [XCTestExpectation(description: "settle")], timeout: 2)
+        XCTAssertTrue(isLandscape(), "The lock should hold landscape with the device upright.")
+
+        player.rotationLockButton.tap()
+        wait(untilLandscape: false, "Unlocking should let the app follow the device upright.")
+    }
+
     /// A movie has nothing queued after it, so reaching the end closes the
     /// player back to its detail page rather than holding on the last frame.
     func testReachingTheEndWithNothingQueuedReturnsToDetail() {

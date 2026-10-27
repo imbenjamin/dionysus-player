@@ -732,6 +732,7 @@ struct PlayerScreen: Screen {
     var chapterPicker: XCUIElement { app.descendants(matching: .any)[A11yID.Player.chapterPicker] }
     var statsButton: XCUIElement { app.buttons[A11yID.Player.statsButton] }
     var statsPageIndicator: XCUIElement { app.staticTexts[A11yID.Player.statsPageIndicator] }
+    var rotationLockButton: XCUIElement { app.buttons[A11yID.Player.rotationLockButton] }
 
     /// The value half of a stats row, keyed by its English label. Rows on
     /// every page resolve — see `A11yID.Player.statsValue(_:)`.
