@@ -2,8 +2,10 @@ import SwiftUI
 import UIKit
 
 /// Picks the tab bar's selected-item tint from the artwork currently behind
-/// the bar. Regular width only (`MainTabView`): an iPhone's bar sits at the
-/// bottom, never over the hero, and keeps `dionysusPrimary`.
+/// the bar. Only while the bar floats at the top, over the hero
+/// (`HeroRailView` checks `tabBarPlacement`): an iPhone's bar sits at the
+/// bottom and keeps `dionysusPrimary`, as does an iPhone Duo's, though its
+/// inner display is regular width like an iPad.
 ///
 /// On iPadOS 26 the floating tab bar is Liquid Glass: its selection pill
 /// takes its tone from whatever is behind it while the selected label is
@@ -48,9 +50,9 @@ final class TabBarTintModel {
 
     /// Mean relative luminance (0...1) of the strip of artwork the tab
     /// bar sits over, or `nil` when nothing is on screen behind it (any
-    /// tab other than Home, a page pushed over Home, or Home before its
-    /// hero has loaded). `HeroRailView` resets it whenever the hero stops
-    /// being visible.
+    /// tab other than Home, a page pushed over Home, Home before its hero
+    /// has loaded, or a tab bar anywhere but the top).
+    /// `HeroRailView` resets it whenever the hero stops being visible.
     private(set) var backdropLuminance: Double?
 
     /// Below this, the backdrop is dark enough that the pill goes dark
@@ -79,6 +81,16 @@ final class TabBarTintModel {
 
     var tint: Color {
         usesLightTint ? .dionysusMagentaOnGlass : .dionysusPrimary
+    }
+
+    /// Whether a tab bar at `placement` sits over Home's hero, so the hero's
+    /// backdrop should choose its tint. Only iPad's floating bar does. Regular
+    /// width isn't the test: measured on iOS 27, an iPad reports `.topBar`,
+    /// while an iPhone Duo's inner display, also regular width, reports
+    /// `.bottomBar` both held tall (a bar at the bottom) and held wide (the
+    /// foot of its vertical side bar).
+    nonisolated static func isBarOverHero(_ placement: TabBarPlacement?) -> Bool {
+        placement == .topBar
     }
 
     /// Guard-before-write on both properties: this is an `@Observable`
