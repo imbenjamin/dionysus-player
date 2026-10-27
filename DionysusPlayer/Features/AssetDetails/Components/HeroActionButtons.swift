@@ -257,18 +257,6 @@ struct HeroActionButtons: View {
     }
 }
 
-/// Whether the toolbar this sits in is a vertical bar. `toolbarVerticalEdge` is
-/// `nil` wherever the system never places one, every device but an iPhone Duo.
-/// A view of its own because the key is iOS 27.1 and a stored `@Environment`
-/// can't be gated.
-@available(iOS 27.1, *)
-private struct VerticalBarReader<Content: View>: View {
-    @Environment(\.toolbarVerticalEdge) private var edge
-    @ViewBuilder let content: (Bool) -> Content
-
-    var body: some View { content(edge != nil) }
-}
-
 extension ToolbarContent {
     /// Lets a custom item view into an iPhone Duo's vertical bar, which by
     /// default keeps custom views horizontal (HIG, "Designing for iPhone Duo").

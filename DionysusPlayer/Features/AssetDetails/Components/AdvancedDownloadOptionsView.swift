@@ -137,13 +137,15 @@ struct AdvancedDownloadOptionsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", role: .cancel) { dismiss() }
+                    Button("Cancel", systemImage: "xmark", role: .cancel) { dismiss() }
+                        .toolbarTitleUnlessVertical()
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Download") {
+                    Button("Download", systemImage: "arrow.down.circle") {
                         onDownload(resolution, preset)
                         dismiss()
                     }
+                    .toolbarTitleUnlessVertical()
                 }
             }
         }

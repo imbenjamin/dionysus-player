@@ -132,9 +132,10 @@ struct DownloadsQualityLadderView: View {
             // reachable without scrolling past all four sections — as a whole-page
             // reset reads in iOS Settings.
             ToolbarItem(placement: .primaryAction) {
-                Button("Reset All", role: .destructive) {
+                Button("Reset All", systemImage: "arrow.counterclockwise", role: .destructive) {
                     isConfirmingResetAll = true
                 }
+                .toolbarTitleUnlessVertical()
                 .disabled(!store.hasAnyOverride)
             }
         }
