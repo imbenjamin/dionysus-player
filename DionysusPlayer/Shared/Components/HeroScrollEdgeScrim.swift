@@ -16,7 +16,9 @@ import SwiftUI
 ///
 /// **Over the hero**, a soft dark shade behind the bars keeps that light
 /// content readable on bright artwork. The hero only darkens its own bottom
-/// edge, for the logo.
+/// edge, for the logo. There's no shade where the bars are vertical (an
+/// iPhone Duo's outer display, and its inner display held wide), since the
+/// status bar isn't at the top there (Benjamin, 2026-10-27).
 ///
 /// **After the hero**, the posters and text that follow would pass straight
 /// under the clock. The system's own top scroll edge effect handles that
@@ -85,12 +87,9 @@ struct HeroScrollEdgeScrim: ViewModifier {
             .overlay(alignment: .top) {
                 ZStack(alignment: .top) {
                     // Over the hero: a dark shade for the light status bar.
-                    LinearGradient(
-                        colors: [.black.opacity(Self.shadeOpacity), .clear],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                    .frame(height: barBottom + Self.shadeExtent)
-                    .opacity(1 - progress)
+                    shade
+                        .frame(height: barBottom + Self.shadeExtent)
+                        .opacity(1 - progress)
 
                     // After the hero: the bar material, fading out below the bars.
                     Rectangle()
@@ -112,6 +111,24 @@ struct HeroScrollEdgeScrim: ViewModifier {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
+    }
+
+    /// The shade, left out where the bars are vertical: on an iPhone Duo's
+    /// outer display and its inner display held wide, the status bar and the
+    /// toolbar sit in the side bar, so nothing at the top needs the contrast.
+    @ViewBuilder
+    private var shade: some View {
+        let gradient = LinearGradient(
+            colors: [.black.opacity(Self.shadeOpacity), .clear],
+            startPoint: .top, endPoint: .bottom
+        )
+        if #available(iOS 27.1, *) {
+            VerticalBarReader { isVertical in
+                if !isVertical { gradient }
+            }
+        } else {
+            gradient
+        }
     }
 
     /// How far the material fades out below the bars.
