@@ -505,6 +505,14 @@ both; an iPad, `.topBar`). Anything that assumes the bar floats over the
 content at the top asks `tabBarPlacement`, as Home's hero tint does
 (`TabBarTintModel.isBarOverHero`).
 
+**Every toolbar button has a symbol and a title, and shows its title on a
+horizontal bar**: `Button("Select", systemImage: "checkmark.circle", …)`
+with `.toolbarTitleUnlessVertical()`. Held wide, the Duo's bars merge into the
+vertical side bar, which shows symbols only; a text-only item (or one styled
+`.titleOnly` everywhere) stays behind in a horizontal bar of its own
+(measured, 2026-10-27). Elsewhere the words stay, since "Select" or "Cancel"
+says more than a glyph (Benjamin, 2026-10-27).
+
 ### Navigation (`Shared/Navigation/`)
 
 One `AppRoute` enum (`collection`, `assetDetail`, `downloadedAsset`,

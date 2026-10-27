@@ -14,6 +14,9 @@ import SwiftUI
 /// confirmation dialog rather than on the trash button, keeping it icon-only
 /// so it fits beside Cancel and Select All.
 ///
+/// Every button has a symbol as well as its title, shown only in an iPhone
+/// Duo's vertical bar (`toolbarTitleUnlessVertical()`).
+///
 /// The identifiers are the same on all three screens; only one is ever on
 /// screen at a time.
 struct DownloadsSelectionToolbar: ToolbarContent {
@@ -28,14 +31,20 @@ struct DownloadsSelectionToolbar: ToolbarContent {
     var body: some ToolbarContent {
         if isSelecting {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel", action: onCancel)
+                Button("Cancel", systemImage: "xmark", action: onCancel)
+                    .toolbarTitleUnlessVertical()
                     .neutralToolbarItem()
                     .accessibilityIdentifier(A11yID.Downloads.cancelSelectionButton)
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button(isAllSelected ? "Deselect All" : "Select All", action: onToggleSelectAll)
-                    .neutralToolbarItem()
-                    .accessibilityIdentifier(A11yID.Downloads.selectAllButton)
+                Button(
+                    isAllSelected ? "Deselect All" : "Select All",
+                    systemImage: isAllSelected ? "checklist.unchecked" : "checklist",
+                    action: onToggleSelectAll
+                )
+                .toolbarTitleUnlessVertical()
+                .neutralToolbarItem()
+                .accessibilityIdentifier(A11yID.Downloads.selectAllButton)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button(role: .destructive, action: onDelete) {
@@ -48,7 +57,8 @@ struct DownloadsSelectionToolbar: ToolbarContent {
             }
         } else {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Select", action: onBeginSelecting)
+                Button("Select", systemImage: "checkmark.circle", action: onBeginSelecting)
+                    .toolbarTitleUnlessVertical()
                     .neutralToolbarItem()
                     .accessibilityIdentifier(A11yID.Downloads.selectButton)
             }
