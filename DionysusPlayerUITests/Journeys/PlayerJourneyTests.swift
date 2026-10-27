@@ -192,6 +192,10 @@ final class PlayerJourneyTests: UITestCase {
         XCTAssertEqual(player.statsValue("Pixel Format").label, "yuv420p10le (10-bit)")
         XCTAssertEqual(player.statsValue("Sampling").label, "48 kHz")
         XCTAssertEqual(player.statsValue("Frames").label, "0 dropped")
+        // Read from the player window's screen rather than canned, so these
+        // only prove that screen was found ("—" when it isn't).
+        XCTAssertNotEqual(player.statsValue("Screen").label, "—")
+        XCTAssertNotEqual(player.statsValue("Refresh Rate").label, "—")
 
         // The panel sits beneath the controls, so while they're up the first
         // tap lands on their blank-space catcher and hides them, as it would

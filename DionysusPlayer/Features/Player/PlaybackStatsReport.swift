@@ -7,7 +7,7 @@ import UIKit
 /// on one page. Labels are technical and stay unlocalized, as they were;
 /// section titles are localized.
 ///
-/// `@MainActor` because its statics read `UIScreen` and `UIDevice`.
+/// `@MainActor` because it reads UIKit's scenes and `UIDevice`.
 @MainActor
 enum PlaybackStatsReport {
     struct Row: Equatable, Identifiable {
@@ -49,17 +49,33 @@ enum PlaybackStatsReport {
         /// 2026-10-22). Polled, as the output mode can change while playing.
         var screenPoints: CGSize = .zero
         var screenPixels: CGSize = .zero
+        /// Polled with the rest, not read once: the screen can change under a
+        /// session (an iPhone Duo folding between its two displays).
+        var refreshRateHz: Int?
 
+        /// Every screen reading comes from the screen showing the player (the
+        /// key window's scene), never `UIScreen.main`: on an iPhone Duo that
+        /// can be the other display, folded or unfolded.
         @MainActor
         static func current() -> DeviceReadings {
-            DeviceReadings(
+            let screen = playerScreen
+            return DeviceReadings(
                 audioOutputRoute: AVAudioSession.sharedInstance().currentRoute.outputs.first?.portName,
                 audioOutputChannelCount: AVAudioSession.sharedInstance().outputNumberOfChannels,
                 thermalState: ProcessInfo.processInfo.thermalState,
-                edrHeadroom: UIScreen.main.currentEDRHeadroom,
-                screenPoints: UIScreen.main.bounds.size,
-                screenPixels: pixelSize(of: UIScreen.main)
+                edrHeadroom: screen?.currentEDRHeadroom ?? 1,
+                screenPoints: screen?.bounds.size ?? .zero,
+                screenPixels: screen.map(pixelSize) ?? .zero,
+                refreshRateHz: screen?.maximumFramesPerSecond
             )
+        }
+
+        /// The key window's screen, as `DisplayContext` finds its window.
+        @MainActor
+        private static var playerScreen: UIScreen? {
+            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            let keyScene = scenes.first { $0.windows.contains(where: \.isKeyWindow) }
+            return (keyScene ?? scenes.first)?.screen
         }
 
         /// `nativeBounds` is always portrait-up; turned to match `bounds`, so
@@ -174,7 +190,7 @@ extension PlaybackStatsReport {
         Section(title: String(localized: "Display"), rows: [
             Row("Screen", describeScreen(pixels: readings.screenPixels, points: readings.screenPoints)),
             Row("Displayed Color", stats.displayColorFormat),
-            Row("Refresh Rate", "\(refreshRateHz) Hz"),
+            Row("Refresh Rate", readings.refreshRateHz.map { "\($0) Hz" } ?? "—"),
             Row("EDR Headroom", String(format: "%.2fx", readings.edrHeadroom)),
             Row("Thermal State", describe(readings.thermalState))
         ])
@@ -226,8 +242,6 @@ extension PlaybackStatsReport {
 // MARK: - Readings and formatting
 
 extension PlaybackStatsReport {
-    static let refreshRateHz = UIScreen.main.maximumFramesPerSecond
-
     /// "1.0 (1)" — `CFBundleShortVersionString` plus build number, the pairing
     /// Settings and the App Store show.
     static let appVersion: String = {
