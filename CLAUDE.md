@@ -485,7 +485,7 @@ gated: the floor is 18) through `ActiveFold` (`Shared/Components/`), which
 rounds it to whole points. **Read it from a view whose position doesn't
 depend on it**: a view moved by the fold it measures loops (measured: 98% CPU
 on a black screen), so read it on the outer frame, after any padding it
-drives. Two layouts use it (Benjamin, 2026-10-26):
+drives. Three layouts use it (Benjamin, 2026-10-26 and 2026-10-27):
 
 - **The player** (`PlayerFoldLayout`): in tabletop the picture sits above the
   fold and every control below it; in book pose the transport and scrubber
@@ -497,6 +497,10 @@ drives. Two layouts use it (Benjamin, 2026-10-26):
   `HeroHeaderView` steps aside. Held tall the page keeps its hero. Favourite
   and Watched sit in the vertical side bar there (`.duoVerticalPreferred()`
   on their toolbar item), stacked, rather than floating over the content.
+- **Centred states** (`.centredClearOfTheFold()`: Search's empty, loading,
+  offline and error states): on the trailing page in book pose, in the top
+  half in tabletop, Apple's "displacement". Lists and grids scroll through the
+  fold and never move.
 
 **Regular width doesn't mean an iPad's top bar.** The inner display is
 regular width, but its tab bar sits at the bottom held tall and at the foot of

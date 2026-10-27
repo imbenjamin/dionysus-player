@@ -64,6 +64,28 @@ final class ActiveFoldTests: XCTestCase {
         XCTAssertEqual(layout.controlsLeadingInset, 495)
     }
 
+    // MARK: Centred states (Search)
+
+    func test_centredState_flatKeepsTheWholeView() {
+        let layout = FoldAvoidingCentredLayout(fold: nil)
+        XCTAssertEqual(layout.leadingInset, 0)
+        XCTAssertNil(layout.height)
+    }
+
+    /// Book: the trailing page, past the fold.
+    func test_centredState_bookMovesToTheTrailingPage() {
+        let layout = FoldAvoidingCentredLayout(fold: .vertical(leading: 455, trailing: 495))
+        XCTAssertEqual(layout.leadingInset, 495)
+        XCTAssertNil(layout.height)
+    }
+
+    /// Tabletop: the top half, above the fold.
+    func test_centredState_tabletopMovesAboveTheFold() {
+        let layout = FoldAvoidingCentredLayout(fold: .horizontal(top: 455, bottom: 495))
+        XCTAssertEqual(layout.leadingInset, 0)
+        XCTAssertEqual(layout.height, 455)
+    }
+
     // MARK: Detail page
 
     /// Book: the poster fills the leading page up to the fold, the content
