@@ -86,6 +86,30 @@ final class ActiveFoldTests: XCTestCase {
         XCTAssertEqual(layout.height, 455)
     }
 
+    // MARK: Home's hero
+
+    /// Tabletop: the hero's natural 478pt ended inside the band (audit,
+    /// 2026-10-26), so it stops at the fold's top edge and the fold sits in
+    /// the gap before the next row.
+    func test_homeHero_tabletopEndsAtTheFoldAndLeavesItInTheGap() {
+        let layout = HeroFoldLayout(naturalHeight: 478, foldBand: 455...495)
+        XCTAssertEqual(layout.height, 455)
+        XCTAssertEqual(layout.bottomGap, 40)
+    }
+
+    func test_homeHero_endingAboveTheFoldIsUnchanged() {
+        let layout = HeroFoldLayout(naturalHeight: 300, foldBand: 455...495)
+        XCTAssertEqual(layout, HeroFoldLayout(naturalHeight: 300, foldBand: nil))
+        XCTAssertEqual(layout.height, 300)
+        XCTAssertEqual(layout.bottomGap, 0)
+    }
+
+    func test_homeHero_withoutATabletopFoldIsUnchanged() {
+        let layout = HeroFoldLayout(naturalHeight: 478, foldBand: nil)
+        XCTAssertEqual(layout.height, 478)
+        XCTAssertEqual(layout.bottomGap, 0)
+    }
+
     // MARK: Detail page
 
     /// Book: the poster fills the leading page up to the fold, the content

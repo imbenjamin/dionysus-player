@@ -485,7 +485,7 @@ gated: the floor is 18) through `ActiveFold` (`Shared/Components/`), which
 rounds it to whole points. **Read it from a view whose position doesn't
 depend on it**: a view moved by the fold it measures loops (measured: 98% CPU
 on a black screen), so read it on the outer frame, after any padding it
-drives. Three layouts use it (Benjamin, 2026-10-26 and 2026-10-27):
+drives. Four layouts use it (Benjamin, 2026-10-26 to 2026-10-28):
 
 - **The player** (`PlayerFoldLayout`): in tabletop the picture sits above the
   fold and every control below it; in book pose the transport and scrubber
@@ -501,6 +501,9 @@ drives. Three layouts use it (Benjamin, 2026-10-26 and 2026-10-27):
   offline and error states): on the trailing page in book pose, in the top
   half in tabletop, Apple's "displacement". Lists and grids scroll through the
   fold and never move.
+- **Home's hero** (`HeroFoldLayout`), in tabletop only: it ends at the fold
+  and the rows start their usual spacing past it, so the fold sits in the gap.
+  Ended at the fold alone, the library row moved up onto it.
 
 **Regular width doesn't mean an iPad's top bar.** The inner display is
 regular width, but its tab bar sits at the bottom held tall and at the foot of
