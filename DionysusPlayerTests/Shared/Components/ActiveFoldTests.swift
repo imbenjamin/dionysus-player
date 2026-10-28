@@ -1,4 +1,5 @@
 import CoreGraphics
+import SwiftUI
 import XCTest
 @testable import Dionysus
 
@@ -108,6 +109,23 @@ final class ActiveFoldTests: XCTestCase {
         let layout = HeroFoldLayout(naturalHeight: 478, foldBand: nil)
         XCTAssertEqual(layout.height, 478)
         XCTAssertEqual(layout.bottomGap, 0)
+    }
+
+    /// The page dots move in by the vertical bar's column, on its edge only.
+    func test_homeHeroControls_moveInFromTheVerticalBar() {
+        let safeArea = EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 70)
+        XCTAssertEqual(HeroControlsInset.edges(for: .trailing), .trailing)
+        XCTAssertEqual(HeroControlsInset.length(for: .trailing, safeArea: safeArea), 70)
+        XCTAssertEqual(HeroControlsInset.edges(for: .leading), .leading)
+        XCTAssertEqual(HeroControlsInset.length(for: .leading, safeArea: safeArea), 12)
+    }
+
+    /// No vertical bar (every device but a Duo): an iPhone's landscape notch
+    /// inset is left alone.
+    func test_homeHeroControls_withoutAVerticalBarStayPut() {
+        let safeArea = EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59)
+        XCTAssertEqual(HeroControlsInset.edges(for: nil), [])
+        XCTAssertEqual(HeroControlsInset.length(for: nil, safeArea: safeArea), 0)
     }
 
     // MARK: Detail page

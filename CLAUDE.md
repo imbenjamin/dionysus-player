@@ -517,7 +517,10 @@ whole side bar, only part of which is over the hero, so the system's glass
 picks per item instead (Benjamin, 2026-10-27). Every other bar keeps both.
 The hero's backdrop reaches past the horizontal safe area (the side bar's
 column on the closed Duo) while its logo stays centred inside it
-(`BackdropLogoOverlay.backdrop`).
+(`BackdropLogoOverlay.backdrop`). Home's hero does the
+same, and its page dots and VoiceOver's Previous/Next move in from the side
+bar's edge (`clearOfTheVerticalBar(safeArea:)`, with `HomeView`'s safe area:
+the hero's own reads 0 at the sides, since it ignores them).
 
 **Every toolbar button has a symbol and a title, and shows its title on a
 horizontal bar**: `Button("Select", systemImage: "checkmark.circle", …)`

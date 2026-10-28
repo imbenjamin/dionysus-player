@@ -26,16 +26,21 @@ struct HeroRailView: View {
     /// A tabletop fold's band measured from the hero's top edge, from
     /// `HomeView`, or `nil` with no such fold. See `HeroFoldLayout`.
     let foldBand: ClosedRange<CGFloat>?
+    /// `HomeView`'s safe area, for `clearOfTheVerticalBar(safeArea:)`. Read
+    /// there because the hero ignores the horizontal safe area, so its own
+    /// reads 0 at the sides (measured on the Duo).
+    let safeArea: EdgeInsets
 
     /// A custom init so `scrollPosition` can start at `0` rather than `1` when
     /// `loopedItems` doesn't pad `items` — with 0 or 1 items looping is
     /// meaningless, and the usual `1` would reference a nonexistent `.id` and
     /// render blank. Also computes `loopedItems` once (see that property).
-    init(items: [MediaItem], isTabActive: Bool, resetToken: Int = 0, foldBand: ClosedRange<CGFloat>? = nil) {
+    init(items: [MediaItem], isTabActive: Bool, resetToken: Int = 0, foldBand: ClosedRange<CGFloat>? = nil, safeArea: EdgeInsets = EdgeInsets()) {
         self.items = items
         self.isTabActive = isTabActive
         self.resetToken = resetToken
         self.foldBand = foldBand
+        self.safeArea = safeArea
         self.loopedItems = Self.loop(items)
         _scrollPosition = State(initialValue: Self.firstPagePosition(for: items))
     }
@@ -415,6 +420,7 @@ struct HeroRailView: View {
                         isPaused: isInteracting || !isVisible || manualCarouselModeEnabled
                     )
                     .padding(16)
+                    .clearOfTheVerticalBar(safeArea: safeArea)
                 }
 
                 // Replaces the automatic advance `tick()` doesn't perform while
@@ -433,6 +439,7 @@ struct HeroRailView: View {
                         }
                     }
                     .padding()
+                    .clearOfTheVerticalBar(safeArea: safeArea)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -999,6 +1006,52 @@ private final class PassthroughTouchRecognizer: UIGestureRecognizer {
 
 #Preview {
     HeroRailView(items: [], isTabActive: true)
+}
+
+extension View {
+    /// Moves the hero's own controls (page dots, VoiceOver's Previous and Next)
+    /// in from an iPhone Duo's vertical bar. The hero ignores the horizontal safe
+    /// area so its artwork runs under the bar's column, and these came with it:
+    /// the dots reached under the bar's items (audit, 2026-10-26). Only the
+    /// bar's edge moves; elsewhere `toolbarVerticalEdge` is `nil`, so an
+    /// iPhone's landscape notch inset is left as it was.
+    fileprivate func clearOfTheVerticalBar(safeArea: EdgeInsets) -> some View {
+        modifier(ClearOfTheVerticalBar(safeArea: safeArea))
+    }
+}
+
+private struct ClearOfTheVerticalBar: ViewModifier {
+    let safeArea: EdgeInsets
+
+    func body(content: Content) -> some View {
+        if #available(iOS 27.1, *) {
+            VerticalBarEdgeReader { edge in
+                content.padding(HeroControlsInset.edges(for: edge), HeroControlsInset.length(for: edge, safeArea: safeArea))
+            }
+        } else {
+            content
+        }
+    }
+}
+
+/// The padding `clearOfTheVerticalBar(safeArea:)` adds, apart so it can be
+/// tested without a Duo.
+enum HeroControlsInset {
+    static func edges(for barEdge: HorizontalEdge?) -> Edge.Set {
+        switch barEdge {
+        case .leading: .leading
+        case .trailing: .trailing
+        case nil: []
+        }
+    }
+
+    static func length(for barEdge: HorizontalEdge?, safeArea: EdgeInsets) -> CGFloat {
+        switch barEdge {
+        case .leading: safeArea.leading
+        case .trailing: safeArea.trailing
+        case nil: 0
+        }
+    }
 }
 
 /// Home's hero on a Duo in tabletop: the hero ends at the fold, and the rows

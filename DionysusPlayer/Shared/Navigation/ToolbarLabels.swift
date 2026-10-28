@@ -12,6 +12,16 @@ struct VerticalBarReader<Content: View>: View {
     var body: some View { content(edge != nil) }
 }
 
+/// Which edge an iPhone Duo's vertical bar is on, or `nil` without one. See
+/// `VerticalBarReader`.
+@available(iOS 27.1, *)
+struct VerticalBarEdgeReader<Content: View>: View {
+    @Environment(\.toolbarVerticalEdge) private var edge
+    @ViewBuilder let content: (HorizontalEdge?) -> Content
+
+    var body: some View { content(edge) }
+}
+
 extension View {
     /// A toolbar button that reads as its title on a horizontal bar and as its
     /// symbol in an iPhone Duo's vertical bar. Give the button both

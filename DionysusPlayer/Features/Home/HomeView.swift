@@ -104,11 +104,15 @@ struct HomeView: View {
         // `topSafeAreaInset` for why a UIKit window lookup gives a different
         // number.
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topSafeAreaInset = $0 }
+        .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { safeArea = $0 }
         // Read here, on a frame the hero's height doesn't move, for the reason
         // `onActiveFoldChange` gives; inside the scrolled content it would
         // change on every scroll tick too.
         .onActiveFoldChange { fold = $0 }
     }
+
+    /// For `HeroRailView.safeArea`: an iPhone Duo's vertical bar column.
+    @State private var safeArea = EdgeInsets()
 
     /// The Duo's fold, for `heroFoldBand`.
     @State private var fold: ActiveFold?
@@ -246,7 +250,7 @@ struct HomeView: View {
                 // `.refreshable` spinner anchors correctly.
                 // `.scrollClipDisabled()` above is required for the overflow to
                 // render rather than be clipped.
-                HeroRailView(items: heroItems, isTabActive: isActiveTab, resetToken: resetToken, foldBand: heroFoldBand)
+                HeroRailView(items: heroItems, isTabActive: isActiveTab, resetToken: resetToken, foldBand: heroFoldBand, safeArea: safeArea)
                     .padding(.top, -topSafeAreaInset)
             }
             if !libraries.isEmpty {
