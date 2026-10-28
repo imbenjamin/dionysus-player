@@ -23,15 +23,19 @@ struct HeroRailView: View {
     /// carousel parked mid-way through a set the user has never seen. Bumping
     /// it sends the hero back to its first item.
     let resetToken: Int
+    /// A tabletop fold's band measured from the hero's top edge, from
+    /// `HomeView`, or `nil` with no such fold. See `HeroFoldLayout`.
+    let foldBand: ClosedRange<CGFloat>?
 
     /// A custom init so `scrollPosition` can start at `0` rather than `1` when
     /// `loopedItems` doesn't pad `items` — with 0 or 1 items looping is
     /// meaningless, and the usual `1` would reference a nonexistent `.id` and
     /// render blank. Also computes `loopedItems` once (see that property).
-    init(items: [MediaItem], isTabActive: Bool, resetToken: Int = 0) {
+    init(items: [MediaItem], isTabActive: Bool, resetToken: Int = 0, foldBand: ClosedRange<CGFloat>? = nil) {
         self.items = items
         self.isTabActive = isTabActive
         self.resetToken = resetToken
+        self.foldBand = foldBand
         self.loopedItems = Self.loop(items)
         _scrollPosition = State(initialValue: Self.firstPagePosition(for: items))
     }
@@ -98,12 +102,18 @@ struct HeroRailView: View {
     ///
     /// `keyWindow` is read once into a local rather than through two computed
     /// properties, which would re-walk `connectedScenes` twice per evaluation.
-    private var heroHeight: CGFloat {
+    private var naturalHeight: CGFloat {
         let window = keyWindow
         let height = window?.bounds.height ?? 800
         guard !isLandscape else { return height * 0.75 }
         return (window?.safeAreaInsets.top ?? 0) + height / 3 * 1.25
     }
+
+    private var foldLayout: HeroFoldLayout {
+        HeroFoldLayout(naturalHeight: naturalHeight, foldBand: foldBand)
+    }
+
+    private var heroHeight: CGFloat { foldLayout.height }
 
     /// Indexes into `loopedItems`, not `items`, starting at `1` — the first real
     /// page past the leading duplicate. Optional because `.scrollPosition(id:)`
@@ -226,6 +236,8 @@ struct HeroRailView: View {
         // For `HeroScrollEdgeScrim` on Home's scroll view.
         .preference(key: HeroHeightKey.self, value: heroHeight)
         .accessibilityIdentifier(A11yID.Home.heroCarousel)
+        // Below the identifier, so the hero's frame doesn't take in the gap.
+        .padding(.bottom, foldLayout.bottomGap)
         // `proxy.size` reports the size within the safe area, not the full
         // available width: nothing above `HeroRailView` ignores the horizontal
         // safe area, only `.top` for the notch bleed, so `proxy.size.width` came
@@ -987,4 +999,25 @@ private final class PassthroughTouchRecognizer: UIGestureRecognizer {
 
 #Preview {
     HeroRailView(items: [], isTabActive: true)
+}
+
+/// Home's hero on a Duo in tabletop: the hero ends at the fold, and the rows
+/// below start past it. Measured: the hero ended at 478pt, inside the 455–495
+/// band, with its page dots beside it; ended at the fold alone, it pulled the
+/// library row up to 480pt, its top 15pt on the fold. So the top half is the
+/// artwork, Apple's place for things to look at, and the fold sits in the gap
+/// (Benjamin, 2026-10-28). Without a tabletop fold, or with a hero that ends
+/// above it, nothing changes.
+struct HeroFoldLayout: Equatable {
+    var height: CGFloat
+    /// Added below the hero so the next row starts its usual spacing past the
+    /// fold's bottom edge.
+    var bottomGap: CGFloat = 0
+
+    init(naturalHeight: CGFloat, foldBand: ClosedRange<CGFloat>?) {
+        height = naturalHeight
+        guard let foldBand, naturalHeight > foldBand.lowerBound else { return }
+        height = foldBand.lowerBound
+        bottomGap = foldBand.upperBound - foldBand.lowerBound
+    }
 }
