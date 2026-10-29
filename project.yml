@@ -437,6 +437,8 @@ targets:
           - "Shared/BrandColorsTests.swift"
         excludes:
           - "Core/Persistence/Download*.swift"
+          # iOS Profile's layout; the Apple TV has its own settings pages.
+          - "Features/Profile/SettingsLayoutTests.swift"
       # TV-only unit tests.
       - path: DionysusTVTests
     dependencies:
