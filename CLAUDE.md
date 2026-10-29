@@ -24,12 +24,9 @@ its release notes: 7.13.0's notes said "iOS 17" while its manifest said 18.
 **Both apps build with Xcode 27.1**, locally and in every CI job (GitHub's
 `xcode-27` image, since 2026-10-20). AetherEngine is built and tested only
 with Xcode 27, and 7.43.0 stopped compiling with Xcode 26, so no job can go
-back to an older image. The iOS 18.6 floor is still tested in CI, with the
-full plan only (PRs into `stable`, nightly, releases; not `develop` PRs),
-from a runtime cached off `macos-15`. The iPhone Duo runs on iOS 27.1 in each
-pose, which CI sets by pressing Device Hub's buttons
-(`Scripts/duo-pose/`): closed and open on `develop` PRs, all four with the
-full plan (`TESTING.md`, "Where they run in CI").
+back to an older image. CI also tests the iOS 18.6 floor (full plan only)
+and the iPhone Duo on iOS 27.1 in each pose, set through Device Hub by
+`Scripts/duo-pose/` (`TESTING.md`, "Where they run in CI").
 
 **Where the rest of the guidance lives.** Claude Code loads a folder's own
 `CLAUDE.md` when working in it:
@@ -491,9 +488,9 @@ depend on it**: a view moved by the fold it measures loops (measured: 98% CPU
 on a black screen), so read it on the outer frame, after any padding it
 drives. Four layouts use it (Benjamin, 2026-10-26 to 2026-10-28):
 
-- **The player** (`PlayerFoldLayout`): in tabletop the picture sits above the
-  fold and every control below it; in book pose the transport and scrubber
-  take the trailing page. Same controls in every pose.
+- **The player** (`PlayerFoldLayout`; `Core/Playback/CLAUDE.md`): tabletop
+  puts the picture above the fold and every control below; book pose moves
+  the transport to the trailing page.
 - **Detail pages, held wide** (`DetailBookSpread`), partly folded *or* fully
   open and flat: the poster fills the leading page (`MediaItem.posterImageURL`,
   the series poster for an episode, no logo), or the backdrop with the logo
@@ -519,12 +516,12 @@ is in the side bar too, so the hero's top shade (`HeroScrollEdgeScrim`) is
 left out there, and so is its forced dark bar scheme: a scheme colours the
 whole side bar, only part of which is over the hero, so the system's glass
 picks per item instead (Benjamin, 2026-10-27). Every other bar keeps both.
-The hero's backdrop reaches past the horizontal safe area (the side bar's
-column on the closed Duo) while its logo stays centred inside it
-(`BackdropLogoOverlay.backdrop`). Home's hero does the
-same, and its page dots and VoiceOver's Previous/Next move in from the side
-bar's edge (`clearOfTheVerticalBar(safeArea:)`, with `HomeView`'s safe area:
-the hero's own reads 0 at the sides, since it ignores them).
+Heroes' backdrops reach past the horizontal safe area (the side bar's column
+on the closed Duo) while logos stay centred inside it
+(`BackdropLogoOverlay.backdrop`); Home's page dots and VoiceOver's
+Previous/Next move in from the side bar's edge
+(`clearOfTheVerticalBar(safeArea:)`, given `HomeView`'s safe area, since the
+hero's own reads 0 at the sides).
 
 **Every toolbar button has a symbol and a title, and shows its title on a
 horizontal bar**: `Button("Select", systemImage: "checkmark.circle", …)`
@@ -541,9 +538,10 @@ One `AppRoute` enum (`collection`, `assetDetail`, `downloadedAsset`,
 type across `MainTabView`'s four tabs. Home, Search and Downloads each own a
 `NavigationStack`; Profile owns its own container, a `NavigationSplitView` on
 iPad and the Duo's inner display held wide (`SettingsLayout.usesSplitLayout`:
-both size classes regular *and* at least 700pt wide; held tall, the 669pt
-inner display can't tile the split and gets the one list). A new destination is a case in `AppRoute` and a branch in
-`AppRouteDestinationView`, not a per-feature navigation type.
+both size classes regular *and* at least 700pt wide, so the 669pt inner
+display held tall gets the one list). A new destination is a case in
+`AppRoute` and a branch in `AppRouteDestinationView`, not a per-feature
+navigation type.
 
 ### Models (`Core/Models/`)
 
