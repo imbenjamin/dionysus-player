@@ -458,7 +458,8 @@ through the Accessibility API (the image's bash is trusted for it) and checks
 with `devicectl` which display is active and how the phone is held; open and
 book look the same from outside the app. The Simulator can stop following
 Device Hub (the pose drawn, the phone on its old display) until it reboots,
-so a pose that doesn't take gets one reboot and a second try. Locally the
+so a pose that doesn't take, or whose buttons Device Hub never draws, gets
+one reboot and a second try. Locally the
 script needs Accessibility access for the terminal, the Duo selected in
 Device Hub, and the Mac awake (`caffeinate -d`): a locked screen hides Device
 Hub's window.
