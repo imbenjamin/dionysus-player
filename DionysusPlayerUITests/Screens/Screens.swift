@@ -928,13 +928,26 @@ struct ProfileScreen: Screen {
         accountCard.awaitExistence("the Profile account card", file: file, line: line)
     }
 
-    /// Selects the iPad sidebar's Playback pane, where its rows and Spatial
-    /// Audio live. Nothing to do on iPhone, where they're in the one list.
-    /// Keyed on the idiom, as `ProfileView` splits only on an iPad: checking
-    /// for the row instead raced the sidebar's first layout.
+    /// Whether `ProfileView` is in its split layout, which it takes when both
+    /// size classes are regular and it's at least 700pt wide
+    /// (`SettingsLayout.usesSplitLayout`). The runner can't read the app's
+    /// size classes, so both sides of the window at least 600pt stand in for
+    /// them: true on every iPad and on an iPhone Duo's inner display held
+    /// wide (951 by 669pt), false held tall (669pt wide), on every other
+    /// iPhone either way up and on the closed Duo (466 by 678pt). Not the
+    /// idiom: the Duo's inner display splits as an iPhone.
+    var usesSplitLayout: Bool {
+        let frame = app.windows.firstMatch.frame
+        return min(frame.width, frame.height) >= 600 && frame.width >= 700
+    }
+
+    /// Selects the split layout's Playback pane, where its rows and Spatial
+    /// Audio live. Nothing to do in the one-list layout, which has them all.
+    /// Keyed on the window (`usesSplitLayout`): checking for the row instead
+    /// raced the sidebar's first layout.
     func openPlaybackSettings(file: StaticString = #filePath, line: UInt = #line) {
         awaitLoaded(file: file, line: line)
-        guard UIDevice.current.userInterfaceIdiom == .pad else { return }
+        guard usesSplitLayout else { return }
         let pane = app.descendants(matching: .any).matching(identifier: A11yID.Profile.playbackPane).firstMatch
         pane.awaitExistence("the Playback pane", file: file, line: line)
         pane.tap()

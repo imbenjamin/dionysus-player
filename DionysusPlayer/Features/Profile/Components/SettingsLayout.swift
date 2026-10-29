@@ -35,6 +35,28 @@ enum SettingsLayout {
     /// The conventional readable maximum is 75 characters, so
     /// 75 x 6.8 ~= 510pt, rounded to 520.
     static let readableFooterWidth: CGFloat = 520
+
+    /// The narrowest container Profile's sidebar-plus-detail split is drawn
+    /// in. Both size classes regular isn't enough on its own: the iPhone
+    /// Duo's inner display held tall is regular both ways at 669pt wide,
+    /// too narrow for the split to tile, and the sidebar then overlays the
+    /// detail, slides away after a pick (with the back button removed, no
+    /// way back) and leaves a layer that swallows taps (measured on the iOS
+    /// 27.1 Simulator, 2026-10-28; the iPad portrait form of the same bug
+    /// was #259). The smallest iPad held tall is 744pt and keeps the split.
+    static let minimumSplitWidth: CGFloat = 700
+
+    /// Whether Profile shows its split rather than its one list: an iPad-like
+    /// container (both size classes regular) at least `minimumSplitWidth`
+    /// wide.
+    static func usesSplitLayout(
+        horizontalSizeClass: UserInterfaceSizeClass?,
+        verticalSizeClass: UserInterfaceSizeClass?,
+        width: CGFloat
+    ) -> Bool {
+        horizontalSizeClass == .regular && verticalSizeClass == .regular
+            && width >= minimumSplitWidth
+    }
 }
 
 /// Constrains a `List` section footer to a readable measure on iPad.
