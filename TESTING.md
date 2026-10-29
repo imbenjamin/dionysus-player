@@ -457,7 +457,10 @@ and `XCUIDevice` have no pose), so `Scripts/duo-pose/set-duo-pose.sh` presses
 Device Hub's buttons through the Accessibility API, which the image's bash is
 trusted for: Closed, Open, Partially Open for book, then Rotate Right for
 tabletop. It checks the result through `devicectl`, which display is active
-and how the phone is held, and fails the job if the pose didn't take. Open and
+and how the phone is held. The Simulator can stop following Device Hub (the
+pose drawn, the phone still on its old display), which pressing again doesn't
+fix, so a pose that doesn't take gets one reboot and a second try before the
+job fails. Open and
 book look the same from outside the app. Locally the script needs
 Accessibility access for the terminal, and the Duo selected in Device Hub; a
 locked screen hides Device Hub's window from it, so keep the Mac awake

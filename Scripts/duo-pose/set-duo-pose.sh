@@ -71,19 +71,22 @@ for _ in $(seq 1 60); do
 done
 [ -n "$pid" ] || { echo "::error::Device Hub didn't start." >&2; exit 1; }
 
-# Device Hub's window can take a while to show a newly booted simulator.
-for _ in $(seq 1 60); do
-  code=0
-  "$helper" buttons "$pid" "$udid" "$name" > "$work/buttons.json" || code=$?
-  [ "$code" -ne 5 ] && break
-  open -a "$hub"
-  sleep 2
-done
-if [ "$code" -ne 0 ]; then
-  echo "::error::Device Hub's pose buttons for $name weren't found (exit $code)." >&2
-  cat "$work/buttons.json" >&2
-  exit 1
-fi
+# Waits for Device Hub's window to show the Duo's pose buttons: it can take
+# a while to show a newly booted simulator.
+await_buttons() {
+  for _ in $(seq 1 60); do
+    code=0
+    "$helper" buttons "$pid" "$udid" "$name" > "$work/buttons.json" || code=$?
+    [ "$code" -ne 5 ] && break
+    open -a "$hub"
+    sleep 2
+  done
+  if [ "$code" -ne 0 ]; then
+    echo "::error::Device Hub's pose buttons for $name weren't found (exit $code)." >&2
+    cat "$work/buttons.json" >&2
+    exit 1
+  fi
+}
 
 press() {
   "$helper" press "$pid" "$udid" "$1" "$name" > "$work/press.json" \
@@ -107,21 +110,40 @@ rotate_until_held() {
   done
 }
 
-state
-echo "Before: $active display active, held $held"
-# Closing a turned phone: turn it upright first, while the inner display shows.
-if [ "$want_active" = outer ] && [ "$active" = inner ] && [ "$held" != portrait ]; then
-  rotate_until_held portrait
-fi
-press "$fold"
-wait_until 30 '[ "$active" = "$want_active" ]'
-[ "$active" = "$want_active" ] && rotate_until_held "$want_held"
-sleep 2
-state
-echo "After: $active display active, held $held"
 
-if [ "$active" != "$want_active" ] || [ "$held" != "$want_held" ]; then
-  echo "::error::The iPhone Duo didn't take the $pose pose: $active display active, held $held (wanted $want_active, $want_held)." >&2
-  exit 1
+# Presses the pose's buttons and checks it took. Fails if it didn't.
+set_pose() {
+  state
+  echo "Before: $active display active, held $held"
+  # Closing a turned phone: turn it upright first, while the inner display shows.
+  if [ "$want_active" = outer ] && [ "$active" = inner ] && [ "$held" != portrait ]; then
+    rotate_until_held portrait
+  fi
+  press "$fold"
+  wait_until 30 '[ "$active" = "$want_active" ]'
+  [ "$active" = "$want_active" ] && rotate_until_held "$want_held"
+  sleep 2
+  state
+  echo "After: $active display active, held $held"
+  [ "$active" = "$want_active" ] && [ "$held" = "$want_held" ]
+}
+
+await_buttons
+# The simulator can stop following Device Hub: Device Hub draws the pose
+# pressed while the phone keeps the display it had, or none at all (seen on
+# a runner before anything was pressed, and once locally). Pressing again
+# doesn't move it; rebooting the simulator does.
+if ! set_pose; then
+  echo "The pose didn't take; rebooting $name and trying again."
+  xcrun devicectl device info displays -d "$udid" || true
+  xcrun simctl shutdown "$udid"
+  xcrun simctl boot "$udid"
+  xcrun simctl bootstatus "$udid" -b > /dev/null
+  await_buttons
+  if ! set_pose; then
+    echo "::error::The iPhone Duo didn't take the $pose pose: $active display active, held $held (wanted $want_active, $want_held)." >&2
+    xcrun devicectl device info displays -d "$udid" >&2 || true
+    exit 1
+  fi
 fi
 echo "The iPhone Duo is $pose."
