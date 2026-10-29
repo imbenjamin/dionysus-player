@@ -449,26 +449,25 @@ generation), the same 820×1180pt screen. Each environment runs with
 `ui-test-results-<plan>-<device>-iOS-<version>` (the Duo's,
 `ui-test-results-<plan>-iPhone-Duo-<pose>`).
 
-**The iPhone Duo** runs on iOS 27.1, its only runtime, which the image
-carries along with the `iPhone Duo` device type. One job per pose
-(`duo-poses`) boots it, sets the pose, then builds and runs the plan on that
-Simulator. No command-line tool can fold the Simulator (`simctl`, `devicectl`
-and `XCUIDevice` have no pose), so `Scripts/duo-pose/set-duo-pose.sh` presses
-Device Hub's buttons through the Accessibility API, which the image's bash is
-trusted for: Closed, Open, Partially Open for book, then Rotate Right for
-tabletop. It checks the result through `devicectl`, which display is active
-and how the phone is held. The Simulator can stop following Device Hub (the
-pose drawn, the phone still on its old display), which pressing again doesn't
-fix, so a pose that doesn't take gets one reboot and a second try before the
-job fails. Open and
-book look the same from outside the app. Locally the script needs
-Accessibility access for the terminal, and the Duo selected in Device Hub; a
-locked screen hides Device Hub's window from it, so keep the Mac awake
-(`caffeinate -d`) through a run. Before CI ran them (2026-10-29), every pose
-passed the full plan on this Mac. A few journeys skip on the Duo:
-`XCUIDevice.orientation` doesn't turn its Simulator
-(`skipWhereXCUIDeviceCannotRotate()`), and held wide a detail page's book
-spread replaces the hero (`AssetDetailScreen.isBookSpread`).
+**The iPhone Duo** runs on iOS 27.1, its only runtime; the image carries it
+and the `iPhone Duo` device type. One job per pose (`duo-poses`) boots it,
+sets the pose, then builds and runs the plan on it. Nothing on the command
+line can fold the Simulator (`simctl`, `devicectl` and `XCUIDevice` have no
+pose), so `Scripts/duo-pose/set-duo-pose.sh` presses Device Hub's buttons
+through the Accessibility API (the image's bash is trusted for it) and checks
+with `devicectl` which display is active and how the phone is held; open and
+book look the same from outside the app. The Simulator can stop following
+Device Hub (the pose drawn, the phone on its old display) until it reboots,
+so a pose that doesn't take gets one reboot and a second try. Locally the
+script needs Accessibility access for the terminal, the Duo selected in
+Device Hub, and the Mac awake (`caffeinate -d`): a locked screen hides Device
+Hub's window.
+
+On the Duo the tabs sit in the vertical side bar, as unidentified toolbar
+buttons on a tab's root (`TabBar`'s last fallback). Journeys that turn the
+device skip (`skipWhereXCUIDeviceCannotRotate()`: `XCUIDevice` can't turn
+it), and held wide a detail page's book spread replaces the hero
+(`AssetDetailScreen.isBookSpread`).
 
 **Apple TV** has its own reusable workflow, `.github/workflows/tv-ui-tests.yml`:
 an Apple TV 4K (3rd generation) with Xcode 27.1 on GitHub's `xcode-27` image,
@@ -619,19 +618,19 @@ What no suite can reach, and how it was or should be checked.
 
 - **The fold layouts** (the player's tabletop and book poses, the detail
   page's book spread): XCUITest can't fold the device, so a journey runs in
-  whatever pose the Simulator is in, which CI sets per job (`Scripts/duo-pose/`,
-  "Where they run in CI"); no journey reads a layout's look. `ActiveFoldTests` pins where each thing
-  goes for a given fold; the look was checked by screenshot, closed, open held
-  wide and tall, book and tabletop, against a movie, a series and an episode.
-  Set the pose with Device Hub's Closed / Partially Open / Open buttons
-  (tabletop is Partially Open, then Rotate Right), or
-  `Scripts/duo-pose/set-duo-pose.sh <udid> <pose>`, and capture the inner
-  display with `xcrun simctl io <udid> screenshot --display=primary-1`.
+  whatever pose the Simulator is in, which CI sets per job ("Where they run
+  in CI"); no journey reads a layout's look. `ActiveFoldTests` pins where
+  each thing goes for a given fold; the look was checked by screenshot,
+  closed, open held wide and tall, book and tabletop, against a movie, a
+  series and an episode. Set the pose with Device Hub's buttons (tabletop is
+  Partially Open, then Rotate Right), `Scripts/duo-pose/set-duo-pose.sh
+  <udid> <pose>` or `/duology-ship:duo-poses`, and capture the inner display
+  with `xcrun simctl io <udid> screenshot --display=primary-1`.
 - **The tab bar's tint**: no journey reads a colour, so `TabBarTintTests`
   pins the rule and the look was checked by screenshot (2026-10-27): with
   dark heroes the selected tab stayed burgundy on the Duo open, in book and
   in tabletop (10.5:1 and up), and still switched to the light tint on an
-  iPad. `/duology-ship:duo-poses` sets the poses.
+  iPad.
 
 ## Where each thing is tested
 
