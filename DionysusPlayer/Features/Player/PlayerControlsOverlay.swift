@@ -785,6 +785,7 @@ struct PlayerControlsOverlay: View {
                     identifier: A11yID.Player.trackNavigationRow("subtitle")
                 ) { navigateToTrackPickerPage(.subtitle) }
             }
+            .accessibilityHidden(isTrackPickerPageHidden(.root))
         }
         .frame(height: estimatedHeight(for: .root))
     }
@@ -852,6 +853,7 @@ struct PlayerControlsOverlay: View {
                         }
                     }
                 }
+                .accessibilityHidden(isTrackPickerPageHidden(.leaf))
             }
         }
         .frame(height: min(estimatedHeight(for: displayedLeafPage.page), trackPickerMaxHeight))
@@ -859,6 +861,25 @@ struct PlayerControlsOverlay: View {
         // `rootPage` are transparent apart from their text, and root's rows show
         // through wherever this leaf's don't cover the same pixels mid-slide.
         .background(Color(white: 0.1))
+    }
+
+    /// The three layers of `trackPickerContent`, for `isTrackPickerPageHidden`.
+    private enum TrackPickerLayer { case root, leaf, audioOffset }
+
+    /// Whether a layer is parked or covered, and so hidden from accessibility.
+    /// `.clipped()` hides a parked page from the eye only: its elements keep
+    /// their frames, and on a window wider than the panel plus
+    /// `trackPickerSlideOffset` (a closed iPhone Duo's 466pt) they sat inside
+    /// it, where VoiceOver reached rows nobody could see. A covered page is
+    /// the same. Applied to each page's `ScrollView` content as well as the
+    /// page: hiding the page didn't reach into its scroll view (measured on
+    /// iOS 27.1, 2026-10-28).
+    private func isTrackPickerPageHidden(_ layer: TrackPickerLayer) -> Bool {
+        switch layer {
+        case .root: trackPickerPage != .root
+        case .leaf: trackPickerPage == .root || trackPickerPage == .audioOffset
+        case .audioOffset: trackPickerPage != .audioOffset
+        }
     }
 
     /// `rootPage` as a permanent base layer with `leafPage` always mounted above
@@ -877,7 +898,10 @@ struct PlayerControlsOverlay: View {
     @ViewBuilder
     private var trackPickerContent: some View {
         ZStack(alignment: .topLeading) {
+            // Each page is hidden from accessibility wherever it can't be
+            // touched (`isTrackPickerPageHidden`).
             rootPage
+                .accessibilityHidden(isTrackPickerPageHidden(.root))
 
             leafPage
                 .offset(x: trackPickerPage == .root ? Self.trackPickerSlideOffset : 0)
@@ -885,11 +909,13 @@ struct PlayerControlsOverlay: View {
                 // parked-off-screen leaf still intercepts taps meant for
                 // `rootPage`.
                 .allowsHitTesting(trackPickerPage != .root && trackPickerPage != .audioOffset)
+                .accessibilityHidden(isTrackPickerPageHidden(.leaf))
 
             // A third level, over the Audio page, the same way.
             audioOffsetPage
                 .offset(x: trackPickerPage == .audioOffset ? 0 : Self.trackPickerSlideOffset)
                 .allowsHitTesting(trackPickerPage == .audioOffset)
+                .accessibilityHidden(isTrackPickerPageHidden(.audioOffset))
         }
         .frame(idealWidth: Self.trackPickerIdealWidth, maxWidth: Self.trackPickerMaxWidth)
         .frame(height: trackPickerHeight, alignment: .top)
@@ -926,7 +952,10 @@ struct PlayerControlsOverlay: View {
             .accessibilityIdentifier(A11yID.Player.audioOffsetBack)
             divider
             ScrollView {
-                if viewModel.audioOffset.isAvailable { audioOffsetSection }
+                if viewModel.audioOffset.isAvailable {
+                    audioOffsetSection
+                        .accessibilityHidden(isTrackPickerPageHidden(.audioOffset))
+                }
             }
         }
         .frame(height: min(estimatedHeight(for: .audioOffset), trackPickerMaxHeight))

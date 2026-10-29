@@ -536,7 +536,9 @@ One `AppRoute` enum (`collection`, `assetDetail`, `downloadedAsset`,
 `downloadedShow`, `downloadedSeason`) is the `navigationDestination(for:)`
 type across `MainTabView`'s four tabs. Home, Search and Downloads each own a
 `NavigationStack`; Profile owns its own container, a `NavigationSplitView` on
-iPad. A new destination is a case in `AppRoute` and a branch in
+iPad and the Duo's inner display held wide (`SettingsLayout.usesSplitLayout`:
+both size classes regular *and* at least 700pt wide; held tall, the 669pt
+inner display can't tile the split and gets the one list). A new destination is a case in `AppRoute` and a branch in
 `AppRouteDestinationView`, not a per-feature navigation type.
 
 ### Models (`Core/Models/`)

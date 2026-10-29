@@ -117,11 +117,19 @@ struct ProfileView: View {
     @State private var selectedPane: ProfileSettingsPane? = .appearance
 
     /// See `SettingsLayout` for why this ANDs both size classes rather than
-    /// testing width alone like the Home/Search/Downloads grids.
+    /// testing width alone like the Home/Search/Downloads grids, and for the
+    /// minimum width on top.
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    /// The width Profile is drawn in, measured on the container that holds
+    /// either layout, so it doesn't change with the choice it feeds.
+    @State private var containerWidth: CGFloat = 0
     private var usesSplitLayout: Bool {
-        horizontalSizeClass == .regular && verticalSizeClass == .regular
+        SettingsLayout.usesSplitLayout(
+            horizontalSizeClass: horizontalSizeClass,
+            verticalSizeClass: verticalSizeClass,
+            width: containerWidth
+        )
     }
 
     /// Recomputed on every `body` evaluation: a `FileManager` directory scan
@@ -185,6 +193,7 @@ struct ProfileView: View {
                 compactLayout
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { containerWidth = $0 }
         .task(id: appState.currentUser?.id) { await loadAvatarImageURL() }
         .sheet(isPresented: $showsSpatialAudioHelp) { SpatialAudioHelpView() }
         // Sign Out and Change Server close the sheet first and run from here,

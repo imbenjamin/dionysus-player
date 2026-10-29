@@ -107,8 +107,9 @@ final class PlayerJourneyTests: UITestCase {
         player.trackNavigationRow("audio").tap()
         player.trackOption("audio", 1).awaitExistence("the Audio page's tracks")
         // Parked beside the panel, the page is built but out of reach, as the
-        // leaf page is beside the root.
-        XCTAssertFalse(player.audioOffsetValue.isHittable, "The offset is a page of its own, not under the tracks")
+        // leaf page is beside the root, and hidden from VoiceOver: on a window
+        // wide enough (a closed iPhone Duo's) its frame fell inside it.
+        XCTAssertFalse(player.audioOffsetValue.exists, "The offset is a page of its own, not under the tracks")
         player.trackNavigationRow("audioOffset").tap()
         let value = player.audioOffsetValue
         value.awaitExistence("the audio offset row")
