@@ -107,8 +107,10 @@ enum UITestFixtureIdentity {
     /// A styled subtitle must never render this close to the top of the
     /// screen. Misplaced into the top letterbox bar it lands around y 9;
     /// correctly placed it sits at the top of the picture, which on the
-    /// fixture's 2.4:1 video in portrait is past y 350.
-    static let styledSubtitleMinimumTopY: Double = 150
+    /// fixture's 2.4:1 video in portrait is past y 350, and on an iPhone Duo
+    /// in tabletop, where the picture is centred above the fold, at y 102
+    /// (measured 2026-10-28). 150 failed there.
+    static let styledSubtitleMinimumTopY: Double = 60
 
     static let serverName = "Dionysus UI Test Server"
     /// The fixture user's id — the tile a journey taps on the sign-in screen.

@@ -160,6 +160,9 @@ enum A11yID {
 
     enum AssetDetail {
         static let playButton = "assetDetail.playButton"
+        /// The poster page of an iPhone Duo's book spread
+        /// (`DetailBookSpread`), shown instead of the hero.
+        static let bookSpreadPoster = "assetDetail.bookSpreadPoster"
         static let restartButton = "assetDetail.restartButton"
         static let favoriteButton = "assetDetail.favoriteButton"
         static let watchedButton = "assetDetail.watchedButton"

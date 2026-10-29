@@ -121,6 +121,20 @@ class UITestCase: XCTestCase {
             throw XCTSkip("Spatial Audio settings are hidden below iOS 26.")
         }
     }
+
+    /// `XCUIDevice.orientation` doesn't turn the iPhone Duo Simulator: the
+    /// runner reads the new orientation back, but the Simulator stays upright
+    /// (`devicectl device orientation get` says portrait) and so does the
+    /// app's window. Measured on iOS 27.1, 2026-10-28. Only Device Hub's
+    /// Rotate buttons turn it, and CI's tabletop pose uses them, so a test
+    /// that turns the device skips here rather than failing. Keyed on the
+    /// model identifier the Simulator exports, which renaming the Simulator
+    /// doesn't change.
+    func skipWhereXCUIDeviceCannotRotate() throws {
+        if ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4" {
+            throw XCTSkip("XCUIDevice can't turn the iPhone Duo Simulator.")
+        }
+    }
 }
 
 @MainActor

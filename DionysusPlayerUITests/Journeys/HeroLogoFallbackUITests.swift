@@ -26,8 +26,9 @@ final class HeroLogoFallbackUITests: UITestCase {
     private let logoArrivalTimeout: TimeInterval = 30
 
     /// The asset-detail hero header: `BackdropLogoOverlay`'s
-    /// `.accessibilityHidden` case.
-    func testSlowLogoOnAssetDetailEventuallyShowsThenHidesFallback() {
+    /// `.accessibilityHidden` case. Skipped on an iPhone Duo's book spread,
+    /// whose poster page has no logo.
+    func testSlowLogoOnAssetDetailEventuallyShowsThenHidesFallback() throws {
         launch(scenario: "slowLogoImage")
         let home = HomeScreen(app: app)
         home.awaitLoaded()
@@ -35,6 +36,9 @@ final class HeroLogoFallbackUITests: UITestCase {
 
         let detail = AssetDetailScreen(app: app)
         detail.awaitLoaded()
+        if detail.isBookSpread {
+            throw XCTSkip("A book spread shows the poster, with no logo, instead of the hero.")
+        }
 
         detail.heroLogoFallbackVisible.awaitExistence(
             "the hero fallback text once the logo has taken longer than its reveal delay"

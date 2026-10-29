@@ -415,12 +415,18 @@ as "Iteration 2 of 3" in the log.
 ## Where they run in CI
 
 **iOS** goes through one reusable workflow, `.github/workflows/ui-tests.yml`,
-which owns the matrix: an **iPhone 16** and an **iPad (A16)** on
+which owns the matrix. A PR into `develop` runs the smoke plan; a PR into
+`stable`, the nightly and a release run the full plan, and no smoke (the full
+plan holds every smoke journey):
 
-| iOS | Why | PR smoke | Full plan (PRs into `stable`, nightly, release) |
-| --- | --- | --- | --- |
-| 27.0 | The `xcode-27` image's only iOS runtime | ✓ | ✓ |
-| 18.6 | The deployment floor | ✓ | ✓ |
+| Device | iOS | Why | Smoke (`develop` PRs) | Full plan |
+| --- | --- | --- | --- | --- |
+| iPhone 16, iPad (A16) | 27.0 | The `xcode-27` image's only iOS 27.0 runtime | ✓ | ✓ |
+| iPhone 16, iPad (A16) | 18.6 | The deployment floor | | ✓ |
+| iPhone Duo, closed | 27.1 | The outer display | ✓ | ✓ |
+| iPhone Duo, open | 27.1 | The inner display, held wide | ✓ | ✓ |
+| iPhone Duo, book | 27.1 | Partly folded, held wide: the fold layouts | | ✓ |
+| iPhone Duo, tabletop | 27.1 | Partly folded, held tall | | ✓ |
 
 Every leg builds with **Xcode 27.1 on GitHub's `xcode-27` image**, as every
 other job here does (2026-10-20): AetherEngine 7.43.0 and later don't compile
@@ -428,7 +434,8 @@ with Xcode 26 ("sending 'codecpar' risks causing data races"), and the engine
 is built and tested only with Xcode 27.
 
 iOS 18 is the only place the pre-26 branch of an `#available(iOS 26, *)` check
-runs, so it gates `develop` PRs too. The `xcode-27` image carries no iOS 18
+runs. It gated `develop` PRs from 2026-10-20 to 2026-10-29, and now runs with
+the full plan only, to keep `develop` PRs quick. The `xcode-27` image carries no iOS 18
 runtime and Xcode won't download one (`-downloadPlatform` answers "not
 available", exit 70), but `macos-15` carries 18.6: `ui-tests.yml`'s
 `floor-runtime` job copies that runtime image (about 8.5 GB) into the Actions
@@ -439,11 +446,33 @@ one OS isn't a screen-size difference. Locally, Apple offers an iOS 18.2 runtime
 simctl runtime add <dmg>`); iPad (A16) needs 18.3, so use iPad (10th
 generation), the same 820×1180pt screen. Each environment runs with
 `fail-fast: false` and uploads a failed `.xcresult` as
-`ui-test-results-<plan>-<device>-iOS-<version>`.
+`ui-test-results-<plan>-<device>-iOS-<version>` (the Duo's,
+`ui-test-results-<plan>-iPhone-Duo-<pose>`).
+
+**The iPhone Duo** runs on iOS 27.1, its only runtime, which the image
+carries along with the `iPhone Duo` device type. One job per pose
+(`duo-poses`) boots it, sets the pose, then builds and runs the plan on that
+Simulator. No command-line tool can fold the Simulator (`simctl`, `devicectl`
+and `XCUIDevice` have no pose), so `Scripts/duo-pose/set-duo-pose.sh` presses
+Device Hub's buttons through the Accessibility API, which the image's bash is
+trusted for: Closed, Open, Partially Open for book, then Rotate Right for
+tabletop. It checks the result through `devicectl`, which display is active
+and how the phone is held. The Simulator can stop following Device Hub (the
+pose drawn, the phone still on its old display), which pressing again doesn't
+fix, so a pose that doesn't take gets one reboot and a second try before the
+job fails. Open and
+book look the same from outside the app. Locally the script needs
+Accessibility access for the terminal, and the Duo selected in Device Hub; a
+locked screen hides Device Hub's window from it, so keep the Mac awake
+(`caffeinate -d`) through a run. Before CI ran them (2026-10-29), every pose
+passed the full plan on this Mac. A few journeys skip on the Duo:
+`XCUIDevice.orientation` doesn't turn its Simulator
+(`skipWhereXCUIDeviceCannotRotate()`), and held wide a detail page's book
+spread replaces the hero (`AssetDetailScreen.isBookSpread`).
 
 **Apple TV** has its own reusable workflow, `.github/workflows/tv-ui-tests.yml`:
 an Apple TV 4K (3rd generation) with Xcode 27.1 on GitHub's `xcode-27` image,
-one job per tvOS version. `TVUITests-Smoke` runs on tvOS 27.0 on every PR;
+one job per tvOS version. `TVUITests-Smoke` runs on tvOS 27.0 on PRs into `develop`;
 `TVUITests` on 27.0 nightly, on PRs into `stable`, and in `release.yml` before
 `tvos-release` archives anything. The tvOS unit tests and `tvos-release` use
 the same Xcode and image, so what's tested is what ships: built with Xcode
@@ -485,15 +514,19 @@ plan selects single tests and stays one job.
   one job of the full plan took about an hour of test time, leaving the
   90-minute limit no room for retries (`v1.2.0-alpha.3` ran out).
 
-**Required checks.** `develop` requires the iOS build and unit tests, the
-Release compile, GitGuardian, the four `UI smoke tests / <device>, iOS
-<version>` checks (iPhone and iPad, iOS 27.0 and 18.6), `tvOS build and unit tests` and `tvOS UI smoke tests / Apple TV 4K,
-tvOS 27.0`. `stable` requires the same, plus CodeQL's `Analyze (actions)` (`Analyze (swift)`
-is paused and off the ruleset, see `codeql.yml`),
-the four `Full UI tests / <device>, iOS <version>` checks and `Full tvOS UI
-tests / Apple TV 4K, tvOS 27.0` (added 2026-10-15), which is why a PR into
-`stable` runs both full plans (`pr-checks.yml`'s `ui-full` and `tv-ui-full`
-jobs, named to match). **Check names embed the device and OS**, so changing either renames
+**Required checks.** Both branches require the iOS build and unit tests, the
+Release compile, GitGuardian and `tvOS build and unit tests`. `develop` adds
+the smoke checks: `UI smoke tests / iPhone, iOS 27.0` and `/ iPad, iOS 27.0`,
+`UI smoke tests / iPhone Duo closed, iOS 27.1` and `/ iPhone Duo open, iOS
+27.1`, and `tvOS UI smoke tests / Apple TV 4K, tvOS 27.0`. `stable` adds
+CodeQL's `Analyze (actions)` (`Analyze (swift)` is paused and off the
+ruleset, see `codeql.yml`), the eight `Full UI tests / …` checks (iPhone and
+iPad on iOS 27.0 and 18.6, and `iPhone Duo <pose>, iOS 27.1` for closed,
+open, book and tabletop) and `Full tvOS UI tests / Apple TV 4K, tvOS 27.0`,
+which is why a PR into `stable` runs both full plans (`pr-checks.yml`'s
+`ui-full` and `tv-ui-full` jobs, named to match) and no smoke. A smoke job
+skipped on a `stable` PR reports no per-device check, so `stable` mustn't
+require one. **Check names embed the device and OS**, so changing either renames
 them, and both rulesets must be updated in the same change. A nightly
 dispatched on a PR's branch reports checks of the right names, but GitHub
 doesn't count them towards the PR (#290).
@@ -586,11 +619,13 @@ What no suite can reach, and how it was or should be checked.
 
 - **The fold layouts** (the player's tabletop and book poses, the detail
   page's book spread): XCUITest can't fold the device, so a journey runs in
-  whatever pose the Simulator is in. `ActiveFoldTests` pins where each thing
+  whatever pose the Simulator is in, which CI sets per job (`Scripts/duo-pose/`,
+  "Where they run in CI"); no journey reads a layout's look. `ActiveFoldTests` pins where each thing
   goes for a given fold; the look was checked by screenshot, closed, open held
   wide and tall, book and tabletop, against a movie, a series and an episode.
   Set the pose with Device Hub's Closed / Partially Open / Open buttons
-  (tabletop is Partially Open, then Rotate Right) and capture the inner
+  (tabletop is Partially Open, then Rotate Right), or
+  `Scripts/duo-pose/set-duo-pose.sh <udid> <pose>`, and capture the inner
   display with `xcrun simctl io <udid> screenshot --display=primary-1`.
 - **The tab bar's tint**: no journey reads a colour, so `TabBarTintTests`
   pins the rule and the look was checked by screenshot (2026-10-27): with

@@ -123,13 +123,15 @@ final class AccessibilityAuditTests: UITestCase {
     }
 
     /// Held on its code by `.quickConnectPending`, which never approves it.
+    /// A sheet, which on a closed iPhone Duo stops short of the top and
+    /// leaves the sign-in screen showing behind it.
     func testQuickConnectHasNoAccessibilityIssues() throws {
         launch(scenario: "quickConnectPending", signedIn: false)
         ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
         LoginScreen(app: app).openQuickConnect()
         QuickConnectScreen(app: app).awaitCode(UITestFixtureIdentity.quickConnectCode(1))
 
-        try auditCurrentScreen()
+        try auditCurrentScreen(underModal: true)
     }
 
     // MARK: - Browse
@@ -322,7 +324,15 @@ final class AccessibilityAuditTests: UITestCase {
             for _ in 0..<8 where !toggle.isHittable { app.swipeUp() }
             toggle.switches.firstMatch.tap()
         }
-        app.buttons[A11yID.Profile.spatialDTSXLayout].awaitExistence("the DTS:X layout picker")
+        // The picker appears below its toggle, which can sit at the foot of a
+        // short pane (the Duo in book pose, 669pt tall), where the list hasn't
+        // made the new row yet: scroll it into view. The swipe starts on the
+        // Atmos row, since a swipe from the window's centre lands on the fold
+        // between the split's columns there and scrolls neither.
+        let dtsxLayout = app.buttons[A11yID.Profile.spatialDTSXLayout]
+        let atmosRow = app.switches[A11yID.Profile.spatialAtmosToggle]
+        for _ in 0..<4 where !dtsxLayout.exists && atmosRow.isHittable { atmosRow.swipeUp() }
+        dtsxLayout.awaitExistence("the DTS:X layout picker")
 
         // On iPad the Audio Offset stepper shares the pane.
         try auditCurrentScreen(besideStepper: true)
@@ -392,8 +402,9 @@ private extension AccessibilityAuditTests {
     /// Runs the full audit against whatever is currently on screen,
     /// suppressing only the documented exceptions below.
     /// `underModal`: something modal is up that leaves the screen behind it
-    /// visible but dimmed — a system alert, or on iPad a popover or form
-    /// sheet, which don't cover the screen the way the iPhone's full-height
+    /// visible but dimmed — a system alert, on iPad a popover or form
+    /// sheet, or on a closed iPhone Duo a sheet that stops short of the top,
+    /// none of which cover the screen the way the iPhone's full-height
     /// sheet does. The audit still sees that screen's text, but iOS rightly
     /// takes it out of the accessibility tree while the modal is up. That
     /// surfaces as one `.elementDetection` issue ("Potentially inaccessible
