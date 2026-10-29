@@ -72,20 +72,21 @@ done
 [ -n "$pid" ] || { echo "::error::Device Hub didn't start." >&2; exit 1; }
 
 # Waits for Device Hub's window to show the Duo's pose buttons: it can take
-# a while to show a newly booted simulator.
+# a while to show a newly booted simulator, first the window (the helper
+# exits 5) and then the device in it (exits 1: a runner once matched the
+# window with only its sidebar buttons drawn). Fails if they never show.
 await_buttons() {
   for _ in $(seq 1 60); do
     code=0
     "$helper" buttons "$pid" "$udid" "$name" > "$work/buttons.json" || code=$?
-    [ "$code" -ne 5 ] && break
+    [ "$code" -eq 0 ] && return 0
+    [ "$code" -ne 1 ] && [ "$code" -ne 5 ] && break
     open -a "$hub"
     sleep 2
   done
-  if [ "$code" -ne 0 ]; then
-    echo "::error::Device Hub's pose buttons for $name weren't found (exit $code)." >&2
-    cat "$work/buttons.json" >&2
-    exit 1
-  fi
+  echo "Device Hub's pose buttons for $name weren't found (exit $code):"
+  cat "$work/buttons.json"
+  return 1
 }
 
 press() {
@@ -128,18 +129,24 @@ set_pose() {
   [ "$active" = "$want_active" ] && [ "$held" = "$want_held" ]
 }
 
-await_buttons
 # The simulator can stop following Device Hub: Device Hub draws the pose
 # pressed while the phone keeps the display it had, or none at all (seen on
 # a runner before anything was pressed, and once locally). Pressing again
-# doesn't move it; rebooting the simulator does.
-if ! set_pose; then
+# doesn't move it; rebooting the simulator does, and also gets Device Hub
+# to draw a device whose buttons never showed.
+if ! { await_buttons && set_pose; }; then
   echo "The pose didn't take; rebooting $name and trying again."
   xcrun devicectl device info displays -d "$udid" || true
   xcrun simctl shutdown "$udid"
   xcrun simctl boot "$udid"
   xcrun simctl bootstatus "$udid" -b > /dev/null
-  await_buttons
+  # A newly booted Duo shows no display for a while, and ignores a pose
+  # pressed until it does.
+  wait_until 120 '[ "$active" != none ]'
+  if ! await_buttons; then
+    echo "::error::Device Hub's pose buttons for $name weren't found, even after a reboot." >&2
+    exit 1
+  fi
   if ! set_pose; then
     echo "::error::The iPhone Duo didn't take the $pose pose: $active display active, held $held (wanted $want_active, $want_held)." >&2
     xcrun devicectl device info displays -d "$udid" >&2 || true
