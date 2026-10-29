@@ -32,6 +32,16 @@ name: UI tests
 # The device models are the same on every OS, so a failure on only one OS
 # can't be a screen-size difference. iPhone 16 rather than 17 because the 17
 # can't run iOS 18; iPad (A16) runs both.
+#
+# The iPhone Duo runs in its own job (`duo-ui-tests`), once per pose in
+# `duo-poses`: closed (the outer display), open (the inner one, held wide),
+# book (partly folded, held wide) and tabletop (partly folded, held tall).
+# Its only runtime is iOS 27.1, which the image carries with the `iPhone Duo`
+# device type. No command-line tool can fold the Simulator, so
+# Scripts/duo-pose/set-duo-pose.sh presses Device Hub's buttons through the
+# Accessibility API, which the image's bash is trusted for (probed
+# 2026-10-28), and fails the job if the pose didn't take. A plan's tests
+# don't run in parallel, so they run on the posed Simulator itself.
 on:
   workflow_call:
     inputs:
@@ -46,6 +56,14 @@ on:
         required: false
         type: boolean
         default: false
+      duo-poses:
+        description: >-
+          The iPhone Duo poses to run the plan in, as a JSON array of
+          "closed", "open", "book" and "tabletop", one job each. "[]" runs
+          none.
+        required: false
+        type: string
+        default: '["closed", "open", "book", "tabletop"]'
       retry-tests-on-failure:
         description: See the build-and-test action's input of the same name.
         required: false
@@ -130,8 +148,9 @@ jobs:
   ui-tests:
     # ⚠️ This name is part of a required status check. For a reusable
     # workflow GitHub reports each job as "<caller job name> / <this name>" —
-    # e.g. "UI smoke tests / iPhone, iOS 27.0" — and both branch rulesets
-    # require the smoke ones by that exact string. Renaming it, or changing a
+    # e.g. "UI smoke tests / iPhone, iOS 27.0" — and the branch rulesets
+    # require them by that exact string ("develop protection" the smoke ones,
+    # "Secure stable" the "Full UI tests" ones). Renaming it, or changing a
     # device or an OS below, means updating both rulesets in the same breath,
     # or every PR waits forever on a check that no longer reports.
     name: ${{ matrix.family }}, iOS ${{ matrix.os.version }}
@@ -254,6 +273,80 @@ jobs:
           # recorded interaction, which is the only practical way to see what
           # the runner actually saw.
           name: ui-test-results-${{ inputs.test-plan }}-${{ matrix.family }}-iOS-${{ matrix.os.version }}
+          path: .build/UITestResults.xcresult
+          retention-days: 7
+          if-no-files-found: ignore
+
+  duo-ui-tests:
+    # ⚠️ Part of required status checks, as `ui-tests`' name is: "UI smoke
+    # tests / iPhone Duo closed, iOS 27.1" and so on. Renaming it, or a pose,
+    # means updating both rulesets in the same breath.
+    name: iPhone Duo ${{ matrix.pose }}, iOS 27.1
+    if: ${{ inputs.duo-poses != '[]' }}
+    runs-on: xcode-27
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    strategy:
+      # As `ui-tests`: every pose always reports.
+      fail-fast: false
+      matrix:
+        pose: ${{ fromJSON(inputs.duo-poses) }}
+
+    steps:
+      - name: Checkout
+        # Always the triggering commit; see `ui-tests`.
+        uses: actions/checkout@v7
+
+      - name: Set up iOS project
+        uses: ./.github/actions/setup-ios-project
+
+      - name: Shut down all simulators
+        # See `ui-tests`.
+        run: xcrun simctl shutdown all || true
+
+      - name: Boot an iPhone Duo
+        id: duo
+        shell: bash
+        run: |
+          # The same device build-and-test picks below: the image's own
+          # "iPhone Duo" on iOS 27.1, or one made here when it has none.
+          # Booted before the build, since the pose is set on a running
+          # Simulator.
+          runtime=$(xcrun simctl list runtimes available -j \
+            | jq -r '.runtimes[] | select(.platform == "iOS" and .version == "27.1") | .identifier' | head -1)
+          if [ -z "$runtime" ]; then
+            echo "::error::No iOS 27.1 runtime on this runner image, and the iPhone Duo runs no other." >&2
+            xcrun simctl list runtimes
+            exit 1
+          fi
+          udid=$(xcrun simctl list devices available -j \
+            | jq -r --arg rt "$runtime" '.devices[$rt] // [] | map(select(.name == "iPhone Duo")) | first | .udid // empty')
+          if [ -z "$udid" ]; then
+            udid=$(xcrun simctl create "iPhone Duo" "iPhone Duo" "$runtime")
+          fi
+          xcrun simctl bootstatus "$udid" -b
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+      - name: Set the ${{ matrix.pose }} pose
+        env:
+          UDID: ${{ steps.duo.outputs.udid }}
+          POSE: ${{ matrix.pose }}
+        run: Scripts/duo-pose/set-duo-pose.sh "$UDID" "$POSE"
+
+      - name: Build and test
+        uses: ./.github/actions/build-and-test
+        with:
+          test-plan: ${{ inputs.test-plan }}
+          device-type: iPhone Duo
+          ios-version: "27.1"
+          retry-tests-on-failure: ${{ inputs.retry-tests-on-failure }}
+          result-bundle-path: .build/UITestResults.xcresult
+
+      - name: Upload UI test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-test-results-${{ inputs.test-plan }}-iPhone-Duo-${{ matrix.pose }}
           path: .build/UITestResults.xcresult
           retention-days: 7
           if-no-files-found: ignore

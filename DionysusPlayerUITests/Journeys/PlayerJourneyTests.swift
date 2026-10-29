@@ -200,9 +200,18 @@ final class PlayerJourneyTests: UITestCase {
 
         // The panel sits beneath the controls, so while they're up the first
         // tap lands on their blank-space catcher and hides them, as it would
-        // for anyone. Pages turn from the second tap on.
+        // for anyone, and pages turn from the second tap on. On an iPhone Duo
+        // in tabletop the controls sit below the fold, clear of the panel
+        // above it, so the first tap turns the page.
         player.statsPageIndicator.tap()
-        for expected in ["2/3", "3/3", "1/3"] {
+        let turnedByFirstTap = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "2/3"),
+            object: player.statsPageIndicator
+        )
+        let pages = XCTWaiter().wait(for: [turnedByFirstTap], timeout: 2) == .completed
+            ? ["3/3", "1/3", "2/3"]
+            : ["2/3", "3/3", "1/3"]
+        for expected in pages {
             player.statsPageIndicator.tap()
             let turned = XCTNSPredicateExpectation(
                 predicate: NSPredicate(format: "label == %@", expected),
@@ -219,8 +228,10 @@ final class PlayerJourneyTests: UITestCase {
     /// back upright. `RotationLock` reads the orientation to hold from the
     /// scene's `effectiveGeometry`; a lock that read nothing would leave the
     /// app free to follow the device. Skipped where the button is omitted
-    /// (a resizable iPad app can't lock; `RotationLock.isSupported`).
+    /// (a resizable iPad app can't lock; `RotationLock.isSupported`), and on
+    /// the iPhone Duo, which `XCUIDevice` can't turn.
     func testRotationLockHoldsLandscapeWhenTheDeviceTurnsUpright() throws {
+        try skipWhereXCUIDeviceCannotRotate()
         let device = XCUIDevice.shared
         addTeardownBlock { @MainActor in device.orientation = .portrait }
         let player = openPlayer()

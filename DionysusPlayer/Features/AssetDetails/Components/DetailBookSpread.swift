@@ -105,6 +105,7 @@ private struct DetailBookSpread: ViewModifier {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(posterAccessibilityLabel)
                 .accessibilityAddTraits(.isImage)
+                .accessibilityIdentifier(A11yID.AssetDetail.bookSpreadPoster)
         case .backdropWithLogo(let url):
             BackdropLogoOverlay(
                 backdropURL: url,

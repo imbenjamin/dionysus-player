@@ -346,8 +346,18 @@ final class AssetDetailJourneyTests: UITestCase {
 
         let detail = AssetDetailScreen(app: app)
         detail.awaitLoaded()
+        // Read from Play, not the episode's row: the list is a `Lazy` stack,
+        // and on a short window (a closed iPhone Duo's 678pt) Episode 2's row
+        // sits past what's materialized without a scroll.
+        let playsNextUp = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "S1:E2"),
+            object: detail.playButton
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [playsNextUp], timeout: Self.defaultTimeout), .completed,
+            "Play should start Season 1's second episode, Next Up."
+        )
         let nextUp = detail.episodeRow(UITestFixtureIdentity.episodeID(season: 1, episode: 2))
-        nextUp.awaitExistence("Season 1's second episode, Next Up")
 
         detail.openDelete()
         let row = detail.deleteTarget("S1:E2 \u{00B7} Episode 2")
@@ -513,8 +523,11 @@ final class AssetDetailJourneyTests: UITestCase {
     /// side, and on a closed iPhone Duo the vertical bar's column). Read from
     /// the pixels: the backdrop is accessibility-hidden, and the fixture's is
     /// dark against the light page, so a backdrop stopping at the safe area
-    /// leaves a light strip at the edge.
-    func testHeroBackdropReachesTheScreenEdgesInLandscape() {
+    /// leaves a light strip at the edge. Skipped on an iPhone Duo: its inner
+    /// display held wide shows a book spread instead of the hero, and closed
+    /// the Simulator can't be turned from here
+    /// (`skipWhereXCUIDeviceCannotRotate()`).
+    func testHeroBackdropReachesTheScreenEdgesInLandscape() throws {
         let device = XCUIDevice.shared
         addTeardownBlock { @MainActor in device.orientation = .portrait }
         launch()
@@ -523,9 +536,15 @@ final class AssetDetailJourneyTests: UITestCase {
         home.openItem(UITestFixtureIdentity.primaryMovieID)
         let detail = AssetDetailScreen(app: app)
         detail.awaitLoaded()
+        if detail.isBookSpread {
+            throw XCTSkip("A book spread shows the poster instead of the hero.")
+        }
 
-        device.orientation = .landscapeLeft
         let window = app.windows.firstMatch
+        if window.frame.width <= window.frame.height {
+            try skipWhereXCUIDeviceCannotRotate()
+            device.orientation = .landscapeLeft
+        }
         let landscape = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in window.frame.width > window.frame.height },
             object: nil

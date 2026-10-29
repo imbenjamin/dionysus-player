@@ -267,6 +267,15 @@ struct QuickConnectScreen: Screen {
 /// label-based selector silently breaks the day the string catalogue gains a
 /// second language. Tab *order* is fixed in `MainTabView` and is not
 /// localized.
+///
+/// On an iPhone Duo, where the tab bar joins the vertical bar at the side
+/// (closed, and the inner display held wide), it is neither: there is no
+/// `TabBar`, the tabs are buttons in a `Toolbar` beside any toolbar items, and
+/// on a tab's root screen they carry no identifier (on a pushed screen they
+/// do). Measured on the iPhone Duo Simulator, iOS 27.1, 2026-10-28. So the
+/// last fallback is the toolbars' unidentified buttons, by the same order.
+/// Which of the three shapes is up isn't known until the bar has drawn, so
+/// this waits for any of them before choosing.
 struct TabBar: Screen {
     let app: XCUIApplication
 
@@ -277,9 +286,18 @@ struct TabBar: Screen {
 
     private func tab(_ identifier: String, index: Int) -> XCUIElement {
         let identified = app.buttons.matching(identifier: identifier).firstMatch
-        guard identified.exists else {
-            return app.tabBars.buttons.element(boundBy: index)
-        }
+        let inTabBar = app.tabBars.buttons.element(boundBy: index)
+        let inVerticalBar = app.toolbars.buttons
+            .matching(NSPredicate(format: "identifier == ''"))
+            .element(boundBy: index)
+        let anyShown = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in identified.exists || inTabBar.exists || inVerticalBar.exists },
+            object: nil
+        )
+        _ = XCTWaiter().wait(for: [anyShown], timeout: UITestCase.defaultTimeout)
+        if identified.exists { return identified }
+        if inTabBar.exists { return inTabBar }
+        if inVerticalBar.exists { return inVerticalBar }
         return identified
     }
 }
@@ -369,10 +387,14 @@ struct HomeScreen: Screen {
     /// (non-lazy) off-screen element. A single, bounded swipe on the rail
     /// itself first — unlike the open-ended scroll gestures this suite
     /// otherwise avoids — reliably brings the later cards into view; a
-    /// no-op on a device where they were already visible.
+    /// no-op on a device where they were already visible. Skipped where the
+    /// rail is below the fold, which XCUITest can't swipe ("visible frame is
+    /// empty"): that's a wide window (an iPhone Duo's inner display, 669pt
+    /// tall under its hero), where all four cards fit and the tap scrolls
+    /// to them.
     func openLibrary(_ libraryID: String, file: StaticString = #filePath, line: UInt = #line) {
         let rail = app.descendants(matching: .any)[A11yID.Home.libraryRail]
-        if rail.exists {
+        if rail.exists, rail.isHittable {
             rail.swipeLeft()
         }
         openItem(libraryID, file: file, line: line)
@@ -458,6 +480,13 @@ struct AssetDetailScreen: Screen {
     /// One identifier covers Play and Resume — the label changes with watch
     /// state, the action does not.
     var playButton: XCUIElement { app.buttons[A11yID.AssetDetail.playButton] }
+
+    /// Whether the page is an iPhone Duo's book spread (inner display held
+    /// wide), whose poster page replaces the hero and its logo. The spread
+    /// follows the fold, read a moment after the page loads, hence the wait.
+    var isBookSpread: Bool {
+        app.descendants(matching: .any)[A11yID.AssetDetail.bookSpreadPoster].waitForExistence(timeout: 2)
+    }
     /// Only present for a part-watched item, alongside Resume.
     var restartButton: XCUIElement { app.buttons[A11yID.AssetDetail.restartButton] }
     var favoriteButton: XCUIElement { app.buttons[A11yID.AssetDetail.favoriteButton] }
