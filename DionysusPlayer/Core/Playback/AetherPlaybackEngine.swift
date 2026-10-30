@@ -199,10 +199,19 @@ final class AetherPlaybackEngine: PlaybackEngine {
         // precede `load()`. The tvOS host is an AVPlayerViewController, so it
         // passes `false`.
         engine.ownsVideoNowPlayingSession = ownsNowPlayingSession
+        // The software route (whatever the device can't decode in hardware) has no AVPlayer,
+        // so neither AVKit nor the native session publishes for it; opted
+        // in, the engine runs its own card and remote commands (7.48.0),
+        // from the same `setNowPlayingInfo` staging. On both platforms: on
+        // the Apple TV, AVKit has no player to publish for on that route.
+        engine.ownsSoftwareNowPlaying = true
         observeEngine()
         observeAppLifecycle()
         observeAudioRoute()
     }
+
+    /// Whether the software route publishes Now Playing, for tests.
+    var publishesSoftwareNowPlaying: Bool { engine.ownsSoftwareNowPlaying }
 
     #if os(tvOS)
     /// The tvOS player host binds the engine's own view on the software route
@@ -1156,8 +1165,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// this runs again against a still-live command center, which a same-host
     /// reload can cause.
     ///
-    /// The 15s/30s skip intervals match the in-app transport controls, so
-    /// Control Center behaves the same as the app.
+    /// The 10s skip intervals match the in-app transport controls, and the
+    /// software route's (`remoteSkipInterval`, 10s by default), so Control
+    /// Center behaves the same as the app on either route.
     private func updateNowPlayingCommands() {
         guard let center = engine.videoNowPlayingSession?.remoteCommandCenter else { return }
 

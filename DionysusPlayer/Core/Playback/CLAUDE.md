@@ -51,6 +51,20 @@ with `ownsNowPlayingSession: false` and the same call stages the info as the
 item's `externalMetadata` for AVKit instead; `NowPlayingMetadata`, and
 `DionysusTV/CLAUDE.md`'s player section.)
 
+**The software route publishes its own** (`engine.ownsSoftwareNowPlaying`,
+set on both platforms since AetherEngine 7.48.0): it has no AVPlayer, so
+neither the native session nor AVKit had anything to publish, and the lock
+screen, Control Center and the Apple TV's iPhone card showed nothing for a
+title on it. Which titles those are depends on the device: an iPhone 16 Pro
+decodes AV1 and H.264 High 10 in hardware and plays them natively, where an
+Apple TV 4K takes the software route for AV1; VC-1 is software everywhere, so
+Ocean's Thirteen (LAN server) is the title to check it with (the lock
+screen and Control Center card confirmed on an iPhone 16 Pro, 2026-10-30). The engine writes the shared
+`MPNowPlayingInfoCenter` from the same staging (`setVideoNowPlayingInfo` over
+`setExternalMetadata`) and serves play, pause, the 10s skips and scrubbing
+from `MPRemoteCommandCenter.shared()` itself, so the app registers nothing
+for it.
+
 ## Reporting a stop
 
 **A stop is reported only after a start** (`PlayerViewModel.stop()`).
