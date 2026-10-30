@@ -1790,6 +1790,81 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.currentSkipSegment)
     }
 
+    /// A resume reads 0:00 until its seek lands, and an intro from 0:00
+    /// mustn't be offered then (Benjamin, 2026-10-30): no button until a
+    /// time update reaches the resume position.
+    func test_currentSkipSegment_onResume_waitsForTheResumePosition() async {
+        let (viewModel, engine) = makeViewModel()
+        stubStart(
+            itemDto: BaseItemDto(
+                id: "item-1", name: "Arrival", type: .movie, runTimeTicks: 3000 * 10_000_000,
+                userData: UserItemDataDto(playbackPositionTicks: 1200 * 10_000_000)
+            ),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")],
+            mediaSegments: [
+                MediaSegmentDto(id: "seg-intro", itemId: "item-1", type: .intro, startTicks: 0, endTicks: 60 * 10_000_000)
+            ]
+        )
+
+        await viewModel.start()
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+
+        engine.onTimeUpdate?(0, 3000) // the load's 0:00, before the seek lands
+        XCTAssertTrue(viewModel.isAwaitingStart)
+        XCTAssertNil(viewModel.currentSkipSegment)
+
+        engine.onTimeUpdate?(1195, 3000) // a keyframe short of 1200
+        XCTAssertFalse(viewModel.isAwaitingStart)
+
+        engine.onTimeUpdate?(30, 3000) // the viewer goes back into the intro
+        XCTAssertEqual(viewModel.currentSkipSegment?.kind, .intro)
+    }
+
+    /// From the top, the start is 0:00 itself, so an intro there is offered
+    /// as soon as playback is asked for.
+    func test_currentSkipSegment_fromTheTop_isOfferedOncePlaying() async {
+        let (viewModel, engine) = makeViewModel()
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")],
+            mediaSegments: [
+                MediaSegmentDto(id: "seg-intro", itemId: "item-1", type: .intro, startTicks: 0, endTicks: 60 * 10_000_000)
+            ]
+        )
+        XCTAssertTrue(viewModel.isAwaitingStart)
+
+        await viewModel.start()
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+
+        XCTAssertFalse(viewModel.isAwaitingStart)
+        engine.onTimeUpdate?(0, 300)
+        XCTAssertEqual(viewModel.currentSkipSegment?.kind, .intro)
+    }
+
+    /// A seek made before the resume position is reached is where playback
+    /// now starts, so reaching it ends the wait.
+    func test_seekBeforeTheResumePositionIsReached_becomesTheStart() async {
+        let (viewModel, engine) = makeViewModel()
+        stubStart(
+            itemDto: BaseItemDto(
+                id: "item-1", name: "Arrival", type: .movie, runTimeTicks: 3000 * 10_000_000,
+                userData: UserItemDataDto(playbackPositionTicks: 1200 * 10_000_000)
+            ),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")],
+            mediaSegments: [
+                MediaSegmentDto(id: "seg-intro", itemId: "item-1", type: .intro, startTicks: 0, endTicks: 60 * 10_000_000)
+            ]
+        )
+        await viewModel.start()
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+
+        viewModel.seek(to: 20)
+        engine.onTimeUpdate?(20, 3000)
+
+        XCTAssertFalse(viewModel.isAwaitingStart)
+        XCTAssertEqual(viewModel.currentSkipSegment?.kind, .intro)
+    }
+
     /// Jellyfin has no separate "opening credits" vs. "closing credits"
     /// segment type — an item with a mid-content credits roll *and* true
     /// end credits reports two `.outro` segments. Only the later one is

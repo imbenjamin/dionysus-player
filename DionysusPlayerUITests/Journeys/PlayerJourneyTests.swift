@@ -18,8 +18,8 @@ import XCTest
 /// HDR, transcode and seek behaviour — `PlaybackEngineFactory`'s doc
 /// comment has the full list.
 final class PlayerJourneyTests: UITestCase {
-    private func openPlayer() -> PlayerScreen {
-        launch()
+    private func openPlayer(scenario: String = "standard") -> PlayerScreen {
+        launch(scenario: scenario)
         let home = HomeScreen(app: app)
         home.awaitLoaded()
         home.openItem(UITestFixtureIdentity.primaryMovieID)
@@ -143,6 +143,42 @@ final class PlayerJourneyTests: UITestCase {
         again.trackNavigationRow("audioOffset").tap()
         again.audioOffsetValue.awaitExistence("the audio offset row after a relaunch")
         XCTAssertEqual(again.audioOffsetValue.value as? String, "10 milliseconds, audio later", "The title kept its offset")
+    }
+
+    /// From the top, the start is 0:00 itself, so the intro's Skip shows.
+    func testSkipShowsForAnIntroPlayedFromTheTop() {
+        let player = openPlayer(scenario: "introBeforeResume")
+        player.skipSegmentButton.awaitExistence("Skip Intro, from the top")
+    }
+
+    /// A resume reads 0:00 until its seek lands, over an intro it never
+    /// plays: no Skip to press by mistake while it's under way (Benjamin,
+    /// 2026-10-30). The fake engine holds the seek 3 s; the part-watched
+    /// movie resumes at 20:00, past the intro's 1:00.
+    func testResumeOffersNoSkipWhileItsSeekIsUnderWay() {
+        launch(scenario: "introBeforeResume")
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.moviesLibraryID)
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.partWatchedMovieID)
+        collection.card(UITestFixtureIdentity.partWatchedMovieID).tap()
+        AssetDetailScreen(app: app).play()
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        func position() -> Double {
+            let parts = ((player.scrubber.value as? String) ?? "").split(separator: ":").compactMap { Double($0) }
+            return parts.count >= 2 ? parts.reduce(0) { $0 * 60 + $1 } : 0
+        }
+        var sawSkip = false
+        let deadline = Date().addingTimeInterval(10)
+        while position() < 1200, Date() < deadline {
+            if player.skipSegmentButton.exists { sawSkip = true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        XCTAssertGreaterThanOrEqual(position(), 1200, "The resume seek lands at 20:00")
+        XCTAssertFalse(sawSkip, "No Skip while the seek was under way")
+        XCTAssertFalse(player.skipSegmentButton.exists, "Nor once it has, past the intro")
     }
 
     func testAudioOffsetHiddenWhenUnavailable() {

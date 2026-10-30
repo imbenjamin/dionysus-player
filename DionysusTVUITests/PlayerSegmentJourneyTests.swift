@@ -21,6 +21,22 @@ final class PlayerSegmentJourneyTests: TVUITestCase {
         XCTAssertTrue(poll(timeout: 3) { !skip.exists })
     }
 
+    /// A resume reads 0:00 until its seek lands, over an intro it never
+    /// plays: no Skip for a stray Select while it's under way (Benjamin,
+    /// 2026-10-30). The fake engine holds the seek 3 s.
+    func test_resume_offersNoSkip_whileItsSeekIsUnderWay() {
+        let app = openPlayer(scenario: "introBeforeResume", extraArguments: ["-UITestDisableControlAutoHide", "YES"])
+        let skip = app.descendants(matching: .any)[A11yID.TV.Player.skipButton]
+        var sawSkip = false
+        let landed = poll(timeout: 10) {
+            if skip.exists { sawSkip = true }
+            return (self.elapsedSeconds(app) ?? 0) >= 1200
+        }
+        XCTAssertTrue(landed, "The resume seek lands at 20:00")
+        XCTAssertFalse(sawSkip, "No Skip while the seek was under way")
+        XCTAssertFalse(skip.exists, "Nor once it has, past the intro")
+    }
+
     func test_skipIntro_menuHidesIt_theTransportBringsItBack_andASecondMenuCloses() {
         let app = openPlayer(scenario: "skipIntro", extraArguments: [])
         let skip = app.descendants(matching: .any)[A11yID.TV.Player.skipButton]

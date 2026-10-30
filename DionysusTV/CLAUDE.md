@@ -960,7 +960,11 @@ state, so XCUITest reads it from a test-only marker
   re-centred.
 - **Skip and Next Up share the bottom-right slot**, lifting above the
   transport when it's up. With the transport hidden Select skips; with it up,
-  Skip is its own focus stop above the icon row (Benjamin, 2026-10-07). Menu
+  Skip is its own focus stop above the icon row (Benjamin, 2026-10-07).
+  Neither is offered until the session's start has landed
+  (`PlayerViewModel.isAwaitingStart`, shared with iOS): a resume reads 0:00
+  through its load and seek, so an intro from 0:00 put a Skip under a stray
+  Select (Benjamin, 2026-10-30). Menu
   with nothing else up hides the button until the transport returns. The Next
   Up card has focus while the transport is hidden, where Menu means Close and a
   swipe or hold moves along the card, never scans (`scrubCanOpen`); with the
