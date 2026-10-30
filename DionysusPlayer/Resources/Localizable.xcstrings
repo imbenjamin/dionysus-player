@@ -369,7 +369,7 @@
     "9:59:59" : {
 
     },
-    "A receiver or soundbar shows the result as Dolby Atmos, DTS:X tracks included, and AirPods play it as Spatial Audio. The audio is re-encoded, so it isn't lossless." : {
+    "A receiver or soundbar may show it as Dolby Atmos, Multichannel PCM or LPCM, depending on the model and on the track. Each means the height channels are there. It never shows as DTS:X, since a DTS:X track is decoded before it leaves the device. AirPods play it as Spatial Audio. Over AirPlay it's compressed instead, since AirPlay doesn't carry the uncompressed audio with its height channels." : {
 
     },
     "About" : {
@@ -898,7 +898,7 @@
     "Dolby Digital Plus" : {
 
     },
-    "Dolby TrueHD and DTS-HD Master Audio can't be sent to a receiver or AirPods as they are, so Dolby Atmos and DTS:X tracks usually play as 5.1 and lose their height channels. With Spatial Audio on, Dionysus decodes the height channels and re-encodes them as Spatial Audio." : {
+    "Dolby TrueHD and DTS-HD Master Audio can't be sent to a receiver or AirPods as they are, so Dolby Atmos and DTS:X tracks usually play as 5.1 and lose their height channels. With Spatial Audio on, Dionysus decodes them, height channels included, and plays them in your speaker layout as lossless multichannel audio." : {
 
     },
     "Dolby Vision, HDR10 and surround sound, straight from your server, with the TV switched to match every frame rate and range." : {
@@ -1136,13 +1136,13 @@
     "Kbps" : {
 
     },
-    "Keeps the height channels of DTS:X tracks for a receiver with height speakers. The audio is re-encoded, so it isn't lossless, and the receiver shows it as Dolby Atmos, not DTS:X." : {
+    "Keeps the height channels of DTS:X tracks for a receiver with height speakers, losslessly except over AirPlay. The receiver shows it as Dolby Atmos or multichannel PCM, never as DTS:X." : {
 
     },
     "Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for AirPods." : {
 
     },
-    "Keeps the height channels of Dolby TrueHD Atmos tracks for a receiver with height speakers. The audio is re-encoded, so it isn't lossless." : {
+    "Keeps the height channels of Dolby TrueHD Atmos tracks for a receiver with height speakers, losslessly except over AirPlay." : {
 
     },
     "Learn More…" : {
@@ -1362,6 +1362,9 @@
 
     },
     "Playback Source" : {
+
+    },
+    "Playback couldn't continue after the audio output changed." : {
 
     },
     "Playback couldn't resume after being paused in the background." : {

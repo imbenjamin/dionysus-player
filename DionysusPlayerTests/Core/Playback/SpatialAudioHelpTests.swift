@@ -11,6 +11,17 @@ final class SpatialAudioHelpTests: XCTestCase {
         XCTAssertTrue(paragraphs.last?.hasPrefix("Choose the speaker layout") == true)
     }
 
+    /// The bed goes out as lossless PCM since AetherEngine 7.50.0, and the
+    /// page names every indicator a receiver may light for it (Benjamin,
+    /// 2026-10-30), so nobody reads "Multichannel PCM" as the feature failing.
+    func test_paragraphs_sayLosslessAndNameTheReceiverIndicators() {
+        let text = SpatialAudioHelp.paragraphs.joined(separator: " ")
+        for phrase in ["lossless", "Dolby Atmos", "Multichannel PCM", "LPCM", "never shows as DTS:X"] {
+            XCTAssertTrue(text.contains(phrase), "missing \"\(phrase)\"")
+        }
+        XCTAssertFalse(text.contains("re-encode"), "the bed is no longer re-encoded")
+    }
+
     /// App Review rejects a store build with a feature labelled beta
     /// (guideline 2.2).
     func test_paragraphs_neverCallTheFeatureABeta() {

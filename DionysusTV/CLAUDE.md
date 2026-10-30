@@ -1078,3 +1078,8 @@ picture's transfer function once a second:
   heights, sent to the receiver as Dolby MAT. Confirmed on Living Room
   (2026-10-20): Gravity (TrueHD Atmos) and Apollo 13 (DTS:X) both rendered
   to APAC 7.1.4, and the receiver showed Dolby Atmos for each, DTS:X too.
+  Since AetherEngine 7.52.0 the bed goes out as lossless PCM instead
+  (`.render`, APAC only over AirPlay; `Core/Playback/CLAUDE.md`, "Spatial
+  Audio"). Checked on Living Room (2026-10-30): both render to PCM 7.1.4;
+  the receiver shows Dolby Atmos for Gravity and "Multi In" (multichannel
+  PCM) for Apollo 13, since the silent Atmos stream runs only for TrueHD.

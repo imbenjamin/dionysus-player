@@ -296,7 +296,7 @@ struct TVProfileView: View {
         if SpatialAudioSupport.isOffered(.dolbyAtmos) {
             row(
                 "Dolby Atmos as Spatial Audio", value: onOff(spatialAudio.atmosEnabled),
-                hint: "Keeps the height channels of Dolby TrueHD Atmos tracks for a receiver with height speakers. The audio is re-encoded, so it isn't lossless.",
+                hint: "Keeps the height channels of Dolby TrueHD Atmos tracks for a receiver with height speakers, losslessly except over AirPlay.",
                 id: A11yID.TV.Profile.spatialAtmos
             ) {
                 spatialAudioBinding(\.atmosEnabled).wrappedValue.toggle()
@@ -313,7 +313,7 @@ struct TVProfileView: View {
         if SpatialAudioSupport.isOffered(.dtsX) {
             row(
                 "DTS:X as Spatial Audio", value: onOff(spatialAudio.dtsXEnabled),
-                hint: "Keeps the height channels of DTS:X tracks for a receiver with height speakers. The audio is re-encoded, so it isn't lossless, and the receiver shows it as Dolby Atmos, not DTS:X.",
+                hint: "Keeps the height channels of DTS:X tracks for a receiver with height speakers, losslessly except over AirPlay. The receiver shows it as Dolby Atmos or multichannel PCM, never as DTS:X.",
                 id: A11yID.TV.Profile.spatialDTSX
             ) {
                 spatialAudioBinding(\.dtsXEnabled).wrappedValue.toggle()

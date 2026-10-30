@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 import AetherEngine
 @testable import Dionysus
@@ -54,11 +55,89 @@ final class AetherPlaybackEngineLoadOptionsTests: XCTestCase {
         XCTAssertEqual(options.objectAudioRendering, .off)
     }
 
-    func test_spatialAudio_layout714_isApac714() {
+    /// `.render`, not `.apac`: the bed goes out as lossless PCM, and
+    /// AetherEngine falls back to APAC by itself where AirPlay is in the route.
+    func test_spatialAudio_layout714_rendersForTheRoute() {
         let options = AetherPlaybackEngine.makeLoadOptions(
             isRemoteHLS: false, externalSubtitles: [], display: .unknown, spatialAudio: .layout(.l714)
         )
-        XCTAssertEqual(options.objectAudioRendering, .apac(.l714))
+        XCTAssertEqual(options.objectAudioRendering, .render(.l714))
+    }
+
+    // MARK: Spatial Audio across an AirPlay route change
+
+    func test_routeIsAirPlay_onlyWithAnAirPlayPort() {
+        XCTAssertTrue(AetherPlaybackEngine.routeIsAirPlay([.airPlay]))
+        XCTAssertTrue(AetherPlaybackEngine.routeIsAirPlay([.HDMI, .airPlay]))
+        XCTAssertFalse(AetherPlaybackEngine.routeIsAirPlay([.HDMI]))
+        XCTAssertFalse(AetherPlaybackEngine.routeIsAirPlay([.bluetoothA2DP]))
+        XCTAssertFalse(AetherPlaybackEngine.routeIsAirPlay([]))
+    }
+
+    /// Speakers or HDMI to a HomePod mid-film: the PCM bed chosen at load
+    /// would reach AirPlay as stereo, so the session is rebuilt as APAC.
+    func test_bedRebuild_whenTheRouteGainsAirPlay() {
+        XCTAssertTrue(AetherPlaybackEngine.spatialBedNeedsRebuild(
+            rendering: .layout(.l714),
+            chosenFor: .init(isAirPlay: false, isExternalPlayback: false),
+            now: .init(isAirPlay: true, isExternalPlayback: false)
+        ))
+    }
+
+    /// And back: APAC chosen for AirPlay goes back to lossless PCM.
+    func test_bedRebuild_whenTheRouteLosesAirPlay() {
+        XCTAssertTrue(AetherPlaybackEngine.spatialBedNeedsRebuild(
+            rendering: .layout(.l714),
+            chosenFor: .init(isAirPlay: true, isExternalPlayback: false),
+            now: .init(isAirPlay: false, isExternalPlayback: false)
+        ))
+    }
+
+    func test_noBedRebuild_whileTheRouteKeepsItsKind() {
+        XCTAssertFalse(AetherPlaybackEngine.spatialBedNeedsRebuild(
+            rendering: .layout(.l714),
+            chosenFor: .init(isAirPlay: false, isExternalPlayback: false),
+            now: .init(isAirPlay: false, isExternalPlayback: false)
+        ))
+        XCTAssertFalse(AetherPlaybackEngine.spatialBedNeedsRebuild(
+            rendering: .layout(.l714),
+            chosenFor: .init(isAirPlay: true, isExternalPlayback: false),
+            now: .init(isAirPlay: true, isExternalPlayback: false)
+        ))
+    }
+
+    /// Nothing is rendered, so there's no bed to re-choose.
+    func test_noBedRebuild_withSpatialAudioOff() {
+        XCTAssertFalse(AetherPlaybackEngine.spatialBedNeedsRebuild(
+            rendering: .off,
+            chosenFor: .init(isAirPlay: false, isExternalPlayback: false),
+            now: .init(isAirPlay: true, isExternalPlayback: false)
+        ))
+    }
+
+    /// No session has chosen a bed yet (or it has stopped).
+    func test_noBedRebuild_beforeALoad() {
+        XCTAssertFalse(AetherPlaybackEngine.spatialBedNeedsRebuild(
+            rendering: .layout(.l714),
+            chosenFor: nil,
+            now: .init(isAirPlay: true, isExternalPlayback: false)
+        ))
+    }
+
+    /// AirPlaying the video to a TV, either way: AetherEngine reloads the
+    /// session itself on that edge, which re-chooses the bed. A second reload
+    /// from here would race it.
+    func test_noBedRebuild_acrossAnExternalPlaybackEdge() {
+        XCTAssertFalse(AetherPlaybackEngine.spatialBedNeedsRebuild(
+            rendering: .layout(.l714),
+            chosenFor: .init(isAirPlay: false, isExternalPlayback: false),
+            now: .init(isAirPlay: true, isExternalPlayback: true)
+        ))
+        XCTAssertFalse(AetherPlaybackEngine.spatialBedNeedsRebuild(
+            rendering: .layout(.l714),
+            chosenFor: .init(isAirPlay: true, isExternalPlayback: true),
+            now: .init(isAirPlay: false, isExternalPlayback: false)
+        ))
     }
 
     /// Every app layout names one of the engine's, by the same raw value.
