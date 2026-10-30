@@ -484,6 +484,9 @@
     "Ascending" : {
 
     },
+    "ASS/SSA Subtitles" : {
+
+    },
     "Attempts to match Jellyfin users to this Apple TV's users. Turn off to keep user switching inside the app, and when users become out of sync." : {
 
     },
@@ -859,6 +862,9 @@
     "Device Signed In" : {
 
     },
+    "Dionysus" : {
+
+    },
     "Dionysus doesn't have access to your local network." : {
 
     },
@@ -1220,7 +1226,10 @@
     "Next Episode Countdown" : {
 
     },
-    "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel." : {
+    "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Subtitle Style can follow your choices in Settings › Accessibility › Subtitles & Captioning. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel." : {
+
+    },
+    "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Subtitle Style can follow your choices in Settings › Accessibility › Subtitles and Captioning. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel." : {
 
     },
     "Next Item" : {
@@ -1614,6 +1623,9 @@
     "Sets how long before the end of an episode to count down the next one, if end credits aren't detected." : {
 
     },
+    "Sets whether subtitles follow your choices in Settings, Accessibility, Subtitles and Captioning." : {
+
+    },
     "Show" : {
 
     },
@@ -1743,7 +1755,7 @@
     "Studios" : {
 
     },
-    "Subtitle Styling" : {
+    "Subtitle Style" : {
 
     },
     "Subtitle Track Unavailable Offline" : {
@@ -1771,6 +1783,9 @@
 
     },
     "System" : {
+
+    },
+    "System (Default)" : {
 
     },
     "Tagline: %@" : {

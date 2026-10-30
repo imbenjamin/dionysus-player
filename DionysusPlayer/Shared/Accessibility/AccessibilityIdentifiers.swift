@@ -295,7 +295,7 @@ enum A11yID {
         static let styledSubtitle = "player.styledSubtitle"
 
         /// A cue rendered by the app's OWN overlay rather than libass — every
-        /// SubRip/WebVTT track, and an ASS one with Subtitle Styling off.
+        /// SubRip/WebVTT track, and an ASS one with ASS/SSA Subtitles off.
         /// Several can be on screen at once (a sign alongside dialogue), so a
         /// query for this resolves to more than one element by design; match
         /// the first.
@@ -381,6 +381,8 @@ enum A11yID {
         /// Playback → Audio Offset's stepper, and Reset to 0 ms beside it.
         static let audioOffsetStepper = "profile.audioOffset.stepper"
         static let audioOffsetReset = "profile.audioOffset.reset"
+        /// Playback → Subtitle Style's picker.
+        static let subtitleAppearance = "profile.subtitleAppearance"
         static let spatialAtmosToggle = "profile.spatialAudio.atmos.toggle"
         static let spatialAtmosLayout = "profile.spatialAudio.atmos.layout"
         static let spatialDTSXToggle = "profile.spatialAudio.dtsx.toggle"
@@ -597,6 +599,7 @@ enum A11yID {
             static let autoCarousel = "tv.profile.autoCarousel"
             static let nextUpCountdown = "tv.profile.nextUpCountdown"
             static let chaptersInScrubber = "tv.profile.chaptersInScrubber"
+            static let subtitleAppearance = "tv.profile.subtitleAppearance"
             static let advanced = "tv.profile.advanced"
             static let license = "tv.profile.license"
             static let privacyPolicy = "tv.profile.privacyPolicy"

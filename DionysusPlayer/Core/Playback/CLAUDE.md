@@ -330,9 +330,10 @@ would subtract the lead twice. Three things remain the app's job:
 Direct play and offline need none of this: there `sourceTime` is the source
 PTS.
 
-### Subtitle Styling
+### ASS/SSA Subtitles
 
-Profile → Playback → Advanced → Subtitle Styling, on by default
+Profile → Playback → Advanced → ASS/SSA Subtitles (named "Subtitle Styling"
+until 2026-10-30, renamed to stay clear of Subtitle Style), on by default
 (`styledASSSubtitlesEnabledDefault`), is an escape hatch for a script whose
 typesetting fights the phone. The one gate is
 `PlayerViewModel.handleSubtitleTrackChange`'s `isStyledASSEnabled()`; off, an
@@ -340,6 +341,29 @@ ASS track renders like SubRip, unstyled. It's read at each track selection.
 `isStyledASSEnabled` reads `object(forKey:)` before `bool(forKey:)`, which
 reports `false` for a key never written and would ship the feature off for
 everyone who never opened Settings.
+
+### Subtitle Style
+
+Profile → Playback → Subtitle Style (both platforms; Benjamin,
+2026-10-30) picks how `SubtitleOverlayView` draws a **text** cue: **Match
+System**, the default, or **Dionysus**, the app's own look
+(`SubtitleTextStyle.dionysus`). System reads Settings › Accessibility ›
+Subtitles & Captioning through AetherEngine's `SubtitleCaptionStyle` (7.48.0)
+in `SystemCaptionStyle`, which also follows changes while a title plays.
+
+- **A field the user left alone keeps the Dionysus look**, as AetherEngine
+  documents for a host drawing its own overlay (a field is set only where it
+  differs from the system's default). So someone who never opened that page
+  sees no difference, which is why System is the default: it changes
+  only what someone chose there on purpose.
+- **The background restyles the Dionysus panel** (one rounded panel per cue,
+  not the system's per-line strip), and the system's window is a second panel
+  behind it. Edge styles are approximated with shadows. Text colour follows
+  the system's precedence against a cue's own colour
+  (`SubtitleTextStyle.runColor`); a cue's font is never read.
+- **Not restyled**: bitmap subtitles, and styled ASS through libass, which
+  keeps the author's typesetting. Native-route Picture in Picture draws its
+  WebVTT rendition in AVKit, which follows the system style in either mode.
 
 ### Geometry
 

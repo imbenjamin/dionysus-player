@@ -104,7 +104,7 @@ final class StyledSubtitleJourneyTests: UITestCase {
 }
 
 extension StyledSubtitleJourneyTests {
-    /// Profile → Playback → Advanced → Subtitle Styling, off.
+    /// Profile → Playback → Advanced → ASS/SSA Subtitles, off.
     ///
     /// Forced through `UserDefaults`' argument domain rather than by driving
     /// the settings screen: the Advanced screen sits behind an iPhone/iPad
@@ -125,7 +125,7 @@ extension StyledSubtitleJourneyTests {
             // Short on purpose, like the SubRip case above: this asserts an
             // absence that is settled as soon as the selection is handled.
             player.styledSubtitle.waitForExistence(timeout: 3),
-            "With Subtitle Styling off, an ASS track must not reach libass."
+            "With ASS/SSA Subtitles off, an ASS track must not reach libass."
         )
         player.plainSubtitle.awaitExistence(
             "the unstyled subtitle the app's own cue path should still be rendering"

@@ -155,6 +155,10 @@ Keychain as it's made.
   `UserDefaults`' argument domain instead of driving the settings screen.
 - `-UITestAccessibleTransport YES` forces the Apple TV player's accessible
   transport, since XCUITest can run neither VoiceOver nor Switch Control.
+- `-UITestCustomCaptionStyle YES` stands `SystemCaptionStyle.uiTestStyle`
+  (twice the size, yellow, a window) in for the Simulator's caption settings,
+  which a test can't change; the Subtitle Style journeys compare the
+  cue's height with System and Dionysus.
 - The hero's timer, the 3D tilt and the welcome (`-onboarding.welcomeCompleted
   YES`) are switched off through the app's own `@AppStorage` keys straight from
   the launch arguments. `UITestCase.launch` and `TVUITestCase.launch` skip the

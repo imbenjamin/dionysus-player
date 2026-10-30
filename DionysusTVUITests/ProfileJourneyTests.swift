@@ -30,7 +30,7 @@ final class ProfileJourneyTests: TVUITestCase {
         openProfile(app)
         for id in [A11yID.TV.Profile.approveQuickConnect, A11yID.TV.Profile.signOut, A11yID.TV.Profile.changeServer,
                    A11yID.TV.Profile.followsAppleTVUsers, A11yID.TV.Profile.autoCarousel, A11yID.TV.Profile.nextUpCountdown,
-                   A11yID.TV.Profile.chaptersInScrubber, A11yID.TV.Profile.audioOffset, A11yID.TV.Profile.advanced,
+                   A11yID.TV.Profile.chaptersInScrubber, A11yID.TV.Profile.subtitleAppearance, A11yID.TV.Profile.audioOffset, A11yID.TV.Profile.advanced,
                    A11yID.TV.Profile.license,
                    A11yID.TV.Profile.privacyPolicy] {
             pressDownThroughProfile(until: app.buttons[id])
@@ -141,6 +141,28 @@ final class ProfileJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(row), "Choosing returns to the row")
         XCTAssertNotEqual(row.value as? String, before)
         XCTAssertFalse(sixty.exists)
+    }
+
+    /// Subtitle Style opens on System, the default, and picks
+    /// Dionysus.
+    func test_subtitleAppearance_picksFromAList() {
+        let app = launchAtHome()
+        openProfile(app)
+        let row = app.buttons[A11yID.TV.Profile.subtitleAppearance]
+        pressDownThroughProfile(until: row)
+        let before = row.value as? String
+        press(.select)
+        let system = app.buttons[A11yID.TV.Profile.option("system")]
+        XCTAssertTrue(system.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForFocus(system), "System, the default, takes focus")
+        XCTAssertTrue(system.isSelected)
+        let dionysus = app.buttons[A11yID.TV.Profile.option("dionysus")]
+        XCTAssertTrue(dionysus.exists)
+        press(.up)
+        XCTAssertTrue(waitForFocus(dionysus), "Dionysus is listed first")
+        press(.select)
+        XCTAssertTrue(waitForFocus(row), "Choosing returns to the row")
+        XCTAssertNotEqual(row.value as? String, before)
     }
 
     /// Spatial Audio's toggle shows its layout row, which picks from the

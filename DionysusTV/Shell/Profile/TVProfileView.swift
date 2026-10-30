@@ -6,20 +6,21 @@ import SwiftUI
 ///
 /// iOS's sections minus Downloads, 3D Depth Effects and Theme, plus Switch
 /// User, Sign Out and the two Apple TV session settings. Next Episode
-/// Countdown, Chapters in Scrubber, Subtitle Styling and the stats button are
+/// Countdown, Chapters in Scrubber, ASS/SSA Subtitles and the stats button are
 /// stored now and take effect with their player features in M4.
 struct TVProfileView: View {
     @Environment(AppState.self) private var appState
     @AppStorage(heroAutoCarouselEnabledStorageKey) private var autoCarousel = true
     @AppStorage(nextUpCountdownStorageKey) private var nextUpCountdown: NextUpCountdownPreference = .seconds30
     @AppStorage(chaptersInScrubberEnabledStorageKey) private var chaptersInScrubber = chaptersInScrubberEnabledDefault
+    @AppStorage(subtitleAppearanceStorageKey) private var subtitleAppearance = subtitleAppearanceDefault
 
     /// Each sub-screen is a cover: Menu closes it, and the row beneath keeps
     /// focus. Not `.confirmationDialog`, whose buttons lose their
     /// accessibility identifiers on tvOS, nor a push, which would put the
     /// sidebar beside a page that belongs to Profile.
     private enum Cover: String, Identifiable {
-        case changeServer, signOut, quickConnect, nextUpCountdown, audioOffset, atmosLayout, dtsXLayout, spatialAudioHelp, advanced, license, privacyPolicy
+        case changeServer, signOut, quickConnect, nextUpCountdown, subtitleAppearance, audioOffset, atmosLayout, dtsXLayout, spatialAudioHelp, advanced, license, privacyPolicy
         var id: String { rawValue }
     }
 
@@ -141,6 +142,13 @@ struct TVProfileView: View {
                     label: \.displayName,
                     accessibilityLabel: \.accessibilityLabel
                 )
+            case .subtitleAppearance:
+                TVSettingsPicker(
+                    title: "Subtitle Style",
+                    selection: $subtitleAppearance,
+                    id: \.rawValue,
+                    label: \.displayName
+                )
             case .audioOffset:
                 TVAudioOffsetPage(milliseconds: Binding(
                     get: { audioOffsetMilliseconds },
@@ -259,6 +267,13 @@ struct TVProfileView: View {
                         chaptersInScrubber.toggle()
                     }
                     row(
+                        "Subtitle Style", value: subtitleAppearance.displayName,
+                        hint: "Sets whether subtitles follow your choices in Settings, Accessibility, Subtitles and Captioning.",
+                        opensPage: true, id: A11yID.TV.Profile.subtitleAppearance
+                    ) {
+                        cover = .subtitleAppearance
+                    }
+                    row(
                         "Audio Offset", value: AudioOffsetFormat.value(audioOffsetMilliseconds),
                         spokenValue: AudioOffsetFormat.spoken(audioOffsetMilliseconds),
                         hint: "Delays or advances audio to correct lip sync for your TV or receiver.",
@@ -267,7 +282,7 @@ struct TVProfileView: View {
                         cover = .audioOffset
                     }
                     row("Advanced", opensPage: true, id: A11yID.TV.Profile.advanced) { cover = .advanced }
-                    TVSettingsFooter(text: "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel.")
+                    TVSettingsFooter(text: "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Subtitle Style can follow your choices in Settings › Accessibility › Subtitles and Captioning. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel.")
                 }
 
                 // A section of its own under Playback, as on iOS (Benjamin,
