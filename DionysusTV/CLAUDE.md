@@ -938,7 +938,9 @@ state, so XCUITest reads it from a test-only marker
 - **Subtitles are iOS's `SubtitleOverlayView`**, with `SubtitleOverlayMetrics.tv`
   (54pt text, matched to Infuse; a title-safe resting inset), libass
   included. Cues clear the transport's bar through `BottomChromeTopKey`. AVKit
-  draws no copy of its own (checked with a forced SubRip track).
+  draws no copy of its own (checked with a forced SubRip track). Subtitle
+  Appearance applies here too, from tvOS's Settings › Accessibility ›
+  Subtitles and Captioning (`Core/Playback/CLAUDE.md`, "Subtitle Style").
 - **The swipe-down panel** (Info, Chapters, Audio, Subtitles; Chapters only
   when the title has them) opens with Down or an icon and lifts the scrubber
   to mid-screen. Tabs follow focus. Restart and a chapter play and close it; a

@@ -72,6 +72,30 @@ final class PlayerPanelJourneyTests: TVUITestCase {
         XCTAssertLessThanOrEqual(cue.frame.maxY, scrubber.frame.minY, "The cue sits above the raised scrubber")
     }
 
+    /// Subtitle Style through the player: System draws the system
+    /// caption style (`SystemCaptionStyle.uiTestStyle` standing in for the
+    /// Simulator's settings, twice the size), Dionysus doesn't.
+    func test_subtitleAppearance_matchSystemFollowsTheSystemStyle_andDionysusDoesNot() {
+        let customSystemStyle = keepTransportUp + ["-UITestCustomCaptionStyle", "YES"]
+        let system = subRipCueHeight(openPlayer(extraArguments: customSystemStyle))
+        let dionysus = subRipCueHeight(openPlayer(extraArguments: customSystemStyle + ["-subtitleAppearance", "dionysus"]))
+        XCTAssertGreaterThan(system, dionysus * 1.5, "Twice the size (\(system) against \(dionysus))")
+    }
+
+    private func subRipCueHeight(_ app: XCUIApplication) -> CGFloat {
+        press(.up)
+        press(.right)
+        press(.right)
+        XCTAssertTrue(waitForPlayerFocus(app, "icon.subtitles"))
+        press(.select)
+        XCTAssertTrue(waitForPlayerFocus(app, "content.subtitles.0"))
+        press(.down)
+        press(.select)
+        let cue = app.descendants(matching: .any)[A11yID.Player.plainSubtitle].firstMatch
+        XCTAssertTrue(cue.waitForExistence(timeout: 5))
+        return cue.frame.height
+    }
+
     func test_choosingTheStyledTrack_rendersItThroughLibass() {
         let app = openPlayer(extraArguments: keepTransportUp)
         press(.up)

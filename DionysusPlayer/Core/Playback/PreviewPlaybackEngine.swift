@@ -178,7 +178,7 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     ///
     /// It also publishes a cue, which is what `SubtitleOverlayView`'s own
     /// (non-libass) path renders — every SubRip and WebVTT track in the app,
-    /// and an ASS track when Subtitle Styling is off. Without it that path
+    /// and an ASS track when ASS/SSA Subtitles is off. Without it that path
     /// paints nothing under the harness, so a test could only ever assert the
     /// *absence* of a styled frame — which passes just as happily on a bug that
     /// drops the track altogether.

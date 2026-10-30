@@ -99,6 +99,7 @@ struct ProfileView: View {
     /// Default `true`, matching `PlayerControlsOverlay`'s read of this key. See
     /// `chaptersInScrubberEnabledDefault` for what it does and doesn't gate.
     @AppStorage(chaptersInScrubberEnabledStorageKey) private var isChaptersInScrubberEnabled = chaptersInScrubberEnabledDefault
+    @AppStorage(subtitleAppearanceStorageKey) private var subtitleAppearance = subtitleAppearanceDefault
     /// A copy of the stored global offset (`AudioOffsetStore`), which nothing
     /// observes.
     @State private var audioOffsetMilliseconds = AudioOffsetStore().globalOffsetMilliseconds
@@ -470,6 +471,12 @@ struct ProfileView: View {
             }
         }
         Toggle("Chapters in Scrubber", isOn: $isChaptersInScrubberEnabled)
+        Picker("Subtitle Style", selection: $subtitleAppearance) {
+            ForEach(SubtitleAppearance.allCases) { appearance in
+                Text(appearance.displayName).tag(appearance)
+            }
+        }
+        .accessibilityIdentifier(A11yID.Profile.subtitleAppearance)
         Stepper(
             value: Binding(
                 get: { audioOffsetMilliseconds },
@@ -576,7 +583,7 @@ struct ProfileView: View {
     }
 
     private var playbackFooter: some View {
-        Text("Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel.")
+        Text("Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Subtitle Style can follow your choices in Settings › Accessibility › Subtitles & Captioning. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel.")
             .readableSettingsFooter()
     }
 

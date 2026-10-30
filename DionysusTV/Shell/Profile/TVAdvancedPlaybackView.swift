@@ -111,7 +111,7 @@ struct TVAdvancedPlaybackView: View {
         }
         .padding(.top, 24)
         TVSettingsFooter(text: Self.readAheadFooter)
-        TVSettingsRow(title: "Subtitle Styling", value: onOff(isStyledASSEnabled), hint: Self.stylingFooter, identifier: A11yID.TV.Profile.subtitleStyling) {
+        TVSettingsRow(title: "ASS/SSA Subtitles", value: onOff(isStyledASSEnabled), hint: Self.stylingFooter, identifier: A11yID.TV.Profile.subtitleStyling) {
             isStyledASSEnabled.toggle()
         }
         .padding(.top, 24)

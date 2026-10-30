@@ -283,6 +283,10 @@ enum UITestConfiguration {
     /// VoiceOver or Switch Control running; XCUITest can run neither.
     static var forcesAccessibleTransport: Bool { flag("UITestAccessibleTransport") }
 
+    /// Stand in `SystemCaptionStyle.uiTestStyle` for the Simulator's caption
+    /// settings, which a test can't change.
+    static var usesCustomCaptionStyle: Bool { flag("UITestCustomCaptionStyle") }
+
     /// The server address a seeded session points at. Arbitrary, since every
     /// request is intercepted, but it must be a real URL and must match what
     /// `UITestStubURLProtocol.respond` claims to have responded from.
