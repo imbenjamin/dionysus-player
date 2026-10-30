@@ -129,7 +129,8 @@ AirPlay as stereo. It needs the `TrueHDObjectAudio`/`DTSXObjectAudio` traits
   change that adds or drops an AirPlay port reloads in place, mounted
   playing or paused as it was (`spatialBedNeedsRebuild`). Not across an
   external-playback edge (the video AirPlayed to a TV): AetherEngine reloads
-  the session itself there, which re-chooses the bed. Unverified on device.
+  the session itself there, which re-chooses the bed. Shipped untested on
+  hardware (no AirPlay device to hand; Benjamin, 2026-10-30).
 - **One rendering per session, for both formats.** `objectAudioRendering` is
   `.off` or `.render(layout)` and applies to TrueHD Atmos and DTS:X alike, so
   two toggles with their own layouts need the format known before load.
@@ -174,7 +175,9 @@ AirPlay as stereo. It needs the `TrueHDObjectAudio`/`DTSXObjectAudio` traits
   sends the bed as Dolby MAT, which some sinks show as Atmos on their own;
   AetherEngine's silent Atmos stream (above) lights the rest for TrueHD
   Atmos, and never runs for DTS:X, so a DTS:X film may show as multichannel
-  PCM. The Living Room AVR showed Atmos for both under APAC (2026-10-20).
+  PCM. Measured on the Living Room AVR (2026-10-30, PCM bed): Gravity
+  (TrueHD Atmos) shows Dolby Atmos, Apollo 13 (DTS:X) shows "Multi In"
+  (multichannel PCM). Under APAC both showed Atmos (2026-10-20).
 - **The section's footer is one sentence, and the rest is a page of its
   own** (`SpatialAudioHelp`, Benjamin, 2026-10-23): iOS's footer ends in
   Learn More…, which opens a sheet; the Apple TV's section ends in an About
