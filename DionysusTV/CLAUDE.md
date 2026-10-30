@@ -876,7 +876,11 @@ app**, Infuse included (Bedroom, 2026-10-14); it surfaces on a paired iPhone
 working play/pause, ±10s and scrubbing. AVKit publishes while the player is
 still waiting to play and not again once it plays, so the iPhone's bar stood
 still: `AVKitNowPlayingRepublisher` stages the metadata again each time
-playback settles into `.playing`.
+playback settles into `.playing`. The software route has no AVPlayer, so
+AVKit publishes nothing there; the engine runs that card itself
+(`ownsSoftwareNowPlaying`, `Core/Playback/CLAUDE.md`'s "Now Playing").
+On Bedroom (Ocean's Thirteen, 2026-10-30) the iPhone card and its controls
+work, and the remote's Play/Pause toggles once, playing or paused.
 AVKit's chrome is hidden and the transport is ours (`TVTransportOverlay`),
 inset by the safe area alone. The host keeps Select and Play/Pause away from
 `AVPlayerViewController`'s own `pressesBegan`: passed up, AVKit toggled
