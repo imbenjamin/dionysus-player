@@ -205,6 +205,11 @@ final class AetherPlaybackEngine: PlaybackEngine {
         // from the same `setNowPlayingInfo` staging. On both platforms: on
         // the Apple TV, AVKit has no player to publish for on that route.
         engine.ownsSoftwareNowPlaying = true
+        // A paused title keeps its decode pipeline through a trip to the
+        // background (7.48.0), so coming back costs no rebuild. The system
+        // may still invalidate it while suspended, and a paused session that
+        // comes back torn down is still reloaded (`observeAppLifecycle()`).
+        engine.retainsVideoPipelineWhenBackgrounded = true
         observeEngine()
         observeAppLifecycle()
         observeAudioRoute()
@@ -212,6 +217,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
 
     /// Whether the software route publishes Now Playing, for tests.
     var publishesSoftwareNowPlaying: Bool { engine.ownsSoftwareNowPlaying }
+
+    /// Whether a paused session keeps its pipeline in the background, for tests.
+    var retainsPausedPipelineInBackground: Bool { engine.retainsVideoPipelineWhenBackgrounded }
 
     #if os(tvOS)
     /// The tvOS player host binds the engine's own view on the software route
@@ -478,8 +486,10 @@ final class AetherPlaybackEngine: PlaybackEngine {
             .store(in: &cancellables)
     }
 
-    /// A session paused long enough in the background is torn down by
-    /// AetherEngine's grace-window teardown, which releases the decode session
+    /// A paused session keeps its pipeline in the background
+    /// (`retainsVideoPipelineWhenBackgrounded`), but one that was playing as
+    /// the app left, or resumed from the lock screen while away, still gets
+    /// AetherEngine's background teardown, which releases the decode session
     /// to stay suspension-safe. It then reports `state == .paused` with
     /// `isSessionReady == false`, and `play()` forwards to the torn-down
     /// transport host and no-ops.

@@ -237,9 +237,16 @@ packets included. Until 2026-10-23 the row read N/A there, since
 
 ## After the app comes back from the background
 
-AetherEngine releases a paused session's decode pipeline after its
-background grace window (`backgroundTeardownGraceSeconds`), and reloading on
-return is the host's job (`reloadAtCurrentPosition()`'s doc comment). The
+**A paused title keeps its decode pipeline in the background**
+(`engine.retainsVideoPipelineWhenBackgrounded`, AetherEngine 7.48.0, set on
+both platforms; 2026-10-30), so coming back to it costs no rebuild. The
+system may still invalidate the decoders while the app is suspended (the
+software route rebuilds a lost VideoToolbox session itself; the native
+route's recovery is AVPlayer's). A session playing as the app leaves, or resumed
+from the lock screen while away, still gets the background teardown:
+AetherEngine releases its decode pipeline after the grace window
+(`backgroundTeardownGraceSeconds`), and reloading on return is the host's job
+(`reloadAtCurrentPosition()`'s doc comment). The
 player reloads on `didBecomeActive` (with a fallback inside `play()`), and
 **mounts the rebuild paused** (`reloadAtCurrentPosition { $0.autoplay = false }`,
 AetherEngine#460): pausing after an autoplaying reload wedged the native route
