@@ -391,6 +391,33 @@ final class PlayerViewModel {
     /// this segment's button again.
     private var skippedSegmentIDs: Set<String> = []
 
+    /// True from `start()` until a time update reaches `startTarget`, where
+    /// the load's resume seek (or 0:00) puts playback. Until then
+    /// `currentTime` holds the load's 0:00, not the position about to play.
+    private(set) var isAwaitingStart = true
+
+    /// Where `isAwaitingStart` waits for, set just before `start()` plays;
+    /// `nil` while the load and resume seek are still under way. An explicit
+    /// seek before it's reached moves it (`seek(to:)`).
+    private var startTarget: TimeInterval?
+
+    /// How far short of `startTarget` still counts as arrived: a seek lands
+    /// on the keyframe or HLS segment at or before its target.
+    static let startTargetTolerance: TimeInterval = 10
+
+    /// Called just before `start()` plays, with where the resume seek put
+    /// playback (0 from the top).
+    private func awaitStart(at target: TimeInterval) {
+        startTarget = target
+        settleStartIfReached()
+    }
+
+    private func settleStartIfReached() {
+        guard isAwaitingStart, let startTarget, currentTime >= startTarget - Self.startTargetTolerance else { return }
+        isAwaitingStart = false
+        self.startTarget = nil
+    }
+
     /// The segment (any kind) containing `currentTime` right now, if any —
     /// drives `SkipSegmentOverlay`'s plain "Skip Intro"/"Skip Recap"/etc.
     /// button. Suppressed for the item's end-credits segment specifically
@@ -403,8 +430,13 @@ final class PlayerViewModel {
     /// `skippedSegmentIDs` — the button needs to disappear the instant it's
     /// tapped, not once `currentTime` actually catches up to the seek
     /// target, which can lag behind by a buffering spell's worth of time.
+    ///
+    /// Nothing is offered until the session's start has landed
+    /// (`isAwaitingStart`): a resume reads 0:00 through its load and seek,
+    /// which put an intro starting at 0:00 under a press meant for something
+    /// else (Benjamin, 2026-10-30).
     var currentSkipSegment: PlaybackSegment? {
-        guard !isPictureInPictureActive,
+        guard !isAwaitingStart, !isPictureInPictureActive,
               let segment = mediaSegments.first(where: { $0.startSeconds <= currentTime && currentTime < $0.endSeconds }),
               !skippedSegmentIDs.contains(segment.id)
         else { return nil }
@@ -456,6 +488,7 @@ final class PlayerViewModel {
             guard let self else { return }
             self.currentTime = time
             self.duration = duration
+            self.settleStartIfReached()
             self.updateNextUpCountdownAnchor()
             // Item time on a transcode, the axis `assSeekHold` counts playback on.
             if self.assSeekHold != nil {
@@ -524,6 +557,8 @@ final class PlayerViewModel {
         errorMessage = nil
         failureCategory = nil
         cancelSpatialAudioCorrection()
+        isAwaitingStart = true
+        startTarget = nil
         #if DOWNLOADS
         if let downloadedItem {
             await startOffline(downloadedItem, resumeSeconds: resumeSeconds)
@@ -656,15 +691,20 @@ final class PlayerViewModel {
             // position and ignores `startFromBeginning`: this recovers an
             // already-started session rather than honouring a play-from-the-top
             // request.
+            var startTime: TimeInterval = 0
             if let resumeSeconds, resumeSeconds > 0 {
-                await engine.seek(to: resumeSeconds)
+                startTime = resumeSeconds
             } else if !startFromBeginning, let resumeSeconds = mediaItem.resumePositionSeconds, resumeSeconds > 0 {
-                await engine.seek(to: resumeSeconds)
+                startTime = resumeSeconds
+            }
+            if startTime > 0 {
+                await engine.seek(to: startTime)
             }
             // Closed during the load or the resume seek: `stop()` has already
             // run and skipped its report (nothing had started), so playing or
             // reporting a start now would leave a session open behind it.
             try Task.checkCancellation()
+            awaitStart(at: startTime)
             engine.play()
 
             hasReportedPlaybackStart = true
@@ -757,11 +797,16 @@ final class PlayerViewModel {
                 isRemoteHLS: false, audioOffset: audioOffset.loadSeconds
             )
             applyStoredTrackSelection()
+            var startTime: TimeInterval = 0
             if let resumeSeconds, resumeSeconds > 0 {
-                await engine.seek(to: resumeSeconds)
+                startTime = resumeSeconds
             } else if !startFromBeginning, downloadedItem.resumePositionTicks > 0 {
-                await engine.seek(to: Double(downloadedItem.resumePositionTicks) / 10_000_000)
+                startTime = Double(downloadedItem.resumePositionTicks) / 10_000_000
             }
+            if startTime > 0 {
+                await engine.seek(to: startTime)
+            }
+            awaitStart(at: startTime)
             engine.play()
             startOfflineProgressReporting(downloadedItem)
         } catch is CancellationError {
@@ -1511,6 +1556,7 @@ final class PlayerViewModel {
     /// countdown where it lands rather than reuse a stale one.
     func seek(to time: TimeInterval) {
         nextUpCountdownAnchorTime = nil
+        if isAwaitingStart, startTarget != nil { startTarget = time }
         Task { await engine.seek(to: time) }
     }
 

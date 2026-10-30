@@ -126,6 +126,7 @@ struct SkipSegmentOverlay: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(segment.kind.skipButtonTitle)
                 .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier(A11yID.Player.skipSegmentButton)
 
                 // VoiceOver-only: the swipe above isn't a reliable path for
                 // VoiceOver users, who need an explicit way to dismiss. A real

@@ -243,6 +243,7 @@ JSON, so a DTO change is a compile error rather than silent rot.
 | `audioOffsetUnavailable` | The fake engine reports the audio offset unavailable (a server transcode's case), so the player hides its offset controls |
 | `rebuffering` | The fake engine stalls 2 s into playback, reporting `.buffering` for 3 s (the Apple TV's stall spinner) |
 | `slowSeek` | The fake engine holds every seek in `.seeking` for 3 s before it lands (the Apple TV's spinner on a long jump) |
+| `introBeforeResume` | An intro from 0:00 to 1:00 and `slowSeek`'s held seek, so a resume sits at 0:00 over the intro until it lands (no Skip until then) |
 
 ### The fake playback engine
 

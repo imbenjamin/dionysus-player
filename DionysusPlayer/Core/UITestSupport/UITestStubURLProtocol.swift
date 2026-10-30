@@ -590,7 +590,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
              .slowPublicUsers, .slowSignIn:
             return nil
         case .largeCast, .noBackdrop, .missingTileArtwork, .manyGenres, .failingLibrary, .failingHome, .thinDynamicRails, .skipIntro, .earlyCredits,
-             .audioOffsetUnavailable, .rebuffering, .slowSeek:
+             .audioOffsetUnavailable, .rebuffering, .slowSeek, .introBeforeResume:
             return nil
         case .failingDetail:
             return path.hasSuffix("/Items/\(UITestFixtureIdentity.movieID(3))") ? 500 : nil
@@ -1064,13 +1064,17 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         return SearchHintResult(searchHints: hints, totalRecordCount: hints.count)
     }
 
-    /// Segments for the two player scenarios; none otherwise.
+    /// Segments for the player scenarios; none otherwise.
     private static func mediaSegments(forItem itemID: String) -> [MediaSegmentDto] {
         let ticksPerSecond: Int64 = 10_000_000
         switch UITestConfiguration.scenario {
         case .skipIntro:
             return [MediaSegmentDto(
                 id: "intro-\(itemID)", itemId: itemID, type: .intro, startTicks: 0, endTicks: 5000 * ticksPerSecond
+            )]
+        case .introBeforeResume:
+            return [MediaSegmentDto(
+                id: "intro-\(itemID)", itemId: itemID, type: .intro, startTicks: 0, endTicks: 60 * ticksPerSecond
             )]
         case .earlyCredits where UITestFixtureLibrary.allItems[itemID]?.type == .episode:
             return [MediaSegmentDto(

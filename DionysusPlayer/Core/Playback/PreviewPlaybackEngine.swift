@@ -150,8 +150,9 @@ final class PreviewPlaybackEngine: PlaybackEngine {
 
     func seek(to time: TimeInterval) async {
         // The `slowSeek` scenario: `.seeking` for 3 s before the seek lands,
-        // with the clock stopped, as a long jump on a slow link.
-        if UITestConfiguration.scenario == .slowSeek {
+        // with the clock stopped, as a long jump on a slow link;
+        // `introBeforeResume` holds the resume seek the same way.
+        if [.slowSeek, .introBeforeResume].contains(UITestConfiguration.scenario) {
             stopTicking()
             onStateChange?(.seeking)
             try? await Task.sleep(for: .seconds(3))

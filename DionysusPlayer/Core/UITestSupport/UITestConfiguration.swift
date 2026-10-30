@@ -222,6 +222,10 @@ enum UITestScenario: String {
     /// `.standard`, but the fake engine holds every seek in `.seeking` for
     /// 3 s before it lands: a long jump (a chapter) on a slow link.
     case slowSeek
+    /// Every item has an intro from 0:00 to 1:00, and every seek is held 3 s
+    /// as in `slowSeek`, so a resume (the part-watched movie, at 20:00) sits
+    /// at 0:00 over an intro it never plays until its seek lands.
+    case introBeforeResume
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a
