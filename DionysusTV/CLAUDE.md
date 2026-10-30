@@ -866,7 +866,12 @@ AVKit draws the native route and the software route has no AVPlayer
 (`TVPlayerSurfacePolicy`). And the engine is made with
 `ownsNowPlayingSession: false`: AVKit runs Now Playing, from the item's
 `externalMetadata`, which `setNowPlayingInfo` stages through the engine before
-`load()` (`NowPlayingMetadata`, after Sodalite). AVKit publishes only with
+`load()` (`NowPlayingMetadata`, after Sodalite). **An `AetherStillView` sits
+over the video in `contentOverlayView`**, bound with `bindStillView` (2026-10-30):
+an audio switch swaps the `AVPlayer`'s item, and AVKit drew black until the
+new item's first frame, where the engine now holds the outgoing picture. It
+draws nothing otherwise and takes no input; its `videoGravity` is the
+player's. AVKit publishes only with
 `showsPlaybackControls` on, so the chrome is hidden, not switched off; an
 `MPNowPlayingSession` of the app's own conflicts with AVKit's (Sodalite:
 CoreMediaErrorDomain -16046), and `updatesNowPlayingInfoCenter` doesn't exist

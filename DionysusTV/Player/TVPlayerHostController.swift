@@ -25,6 +25,8 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
 
     private var aetherView: AetherPlayerView?
     private var isAetherViewBound = false
+    /// Where the engine holds the picture through an audio switch.
+    private(set) var stillView: AetherStillView?
     private var fakeSurface: UIHostingController<AnyView>?
     private var overlayHost: UIHostingController<TVPlayerOverlay>?
     private var ourRecognizers: [UIGestureRecognizer] = []
@@ -229,6 +231,18 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         self.aetherView = aetherView
 
         let hostEngine = aether.hostEngine
+        // An audio switch swaps the AVPlayer's item, and AVKit draws black
+        // until the new one's first frame. The engine holds the outgoing
+        // picture here instead (7.29.0); it draws nothing otherwise. Above
+        // the video, below our overlay (a subview of `view`).
+        let stillView = AetherStillView()
+        stillView.frame = surfaceHost.bounds
+        stillView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        stillView.videoGravity = videoGravity
+        surfaceHost.addSubview(stillView)
+        hostEngine.bindStillView(stillView)
+        self.stillView = stillView
+
         // Every emission, not just the first: an audio-track reload re-emits,
         // and an escalation moves native to software mid-session.
         hostEngine.$currentAVPlayer
