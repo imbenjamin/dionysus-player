@@ -21,6 +21,13 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// Repairs a paused session that AetherEngine's background grace-window
     /// teardown left with no pipeline to resume (see `observeAppLifecycle()`).
     private var didBecomeActiveObserver: NSObjectProtocol?
+    /// Rebuilds a rendered Spatial Audio bed when AirPlay joins or leaves the
+    /// route mid-session (see `observeAudioRoute()`).
+    private var audioRouteObserver: NSObjectProtocol?
+    /// The route the session's Spatial Audio bed was chosen for: nil before a
+    /// load and after `stop()`.
+    private var spatialBedRoute: SpatialBedRoute?
+    private var spatialBedRebuildTask: Task<Void, Never>?
     /// The end state `recoverSessionIfNeeded(desiredState:)`'s in-flight reload
     /// applies once it resolves.
     private enum SessionRecoveryDesiredState { case play, pause }
@@ -194,6 +201,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
         engine.ownsVideoNowPlayingSession = ownsNowPlayingSession
         observeEngine()
         observeAppLifecycle()
+        observeAudioRoute()
     }
 
     #if os(tvOS)
@@ -208,6 +216,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
     isolated deinit {
         if let didBecomeActiveObserver {
             NotificationCenter.default.removeObserver(didBecomeActiveObserver)
+        }
+        if let audioRouteObserver {
+            NotificationCenter.default.removeObserver(audioRouteObserver)
         }
     }
 
@@ -515,7 +526,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
             // already clamped it to ±0.5 s, inside the engine's ±2 s.
             audioDelaySeconds: audioOffset
         )
-        // TrueHD Atmos and DTS:X keep their heights as APAC in this build's
+        // TrueHD Atmos and DTS:X keep their heights in this build's
         // `TrueHDObjectAudio`/`DTSXObjectAudio` traits; `.off` keeps today's
         // Dolby Digital Plus bridge. Set after the init, out of its order.
         options.objectAudioRendering = engineRendering(spatialAudio)
@@ -529,7 +540,12 @@ final class AetherPlaybackEngine: PlaybackEngine {
     nonisolated static func engineRendering(_ rendering: SpatialAudioRendering) -> ObjectAudioRendering {
         switch rendering {
         case .off: return .off
-        case .layout(let layout): return .apac(engineLayout(layout))
+        // `.render`: the rendered bed goes out as lossless 24-bit PCM, which
+        // tvOS wraps in Dolby MAT for the receiver and iOS spatialises on
+        // AirPods, and as APAC where AirPlay is in the route at load (PCM
+        // reached AirPlay as stereo; AetherEngine 7.50.0). A later AirPlay
+        // change is `observeAudioRoute()`'s.
+        case .layout(let layout): return .render(engineLayout(layout))
         }
     }
 
@@ -610,6 +626,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
             ))
         }
         applyForcedSubtitleSelection()
+        spatialBedRoute = currentSpatialBedRoute()
     }
 
     /// Maps `PlaybackErrorKind` onto the recovery category `PlayerView` acts on.
@@ -755,6 +772,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
                 self.sessionRecoveryTask = nil
                 return
             }
+            // The rebuild re-chose any Spatial Audio bed for the route as it
+            // is now (`observeAudioRoute()`).
+            if self.spatialBedRoute != nil { self.spatialBedRoute = self.currentSpatialBedRoute() }
             switch self.sessionRecoveryDesiredState {
             case .play:
                 self.engine.play()
@@ -772,6 +792,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
     func togglePlayPause() { engine.togglePlayPause() }
     func stop() {
         pausedRebuildAnchor = nil
+        spatialBedRoute = nil
+        spatialBedRebuildTask?.cancel()
+        spatialBedRebuildTask = nil
         engine.stop()
     }
 
@@ -825,6 +848,94 @@ final class AetherPlaybackEngine: PlaybackEngine {
         let engineRendering = Self.engineRendering(rendering)
         try await engine.reloadAtCurrentPosition { $0.objectAudioRendering = engineRendering }
         spatialAudio = rendering
+        spatialBedRoute = currentSpatialBedRoute()
+    }
+
+    // MARK: Spatial Audio across a route change
+
+    /// What decides the form of a rendered bed: AetherEngine's `.render`
+    /// picks APAC while an AirPlay port is in the route and PCM otherwise, at
+    /// load only. `isExternalPlayback` marks the video itself AirPlayed to a
+    /// TV, an edge AetherEngine reloads the session on by itself.
+    struct SpatialBedRoute: Equatable {
+        var isAirPlay: Bool
+        var isExternalPlayback: Bool
+    }
+
+    /// The same test AetherEngine's internal `SpatialBedFormat.forRoute` makes.
+    nonisolated static func routeIsAirPlay(_ ports: [AVAudioSession.Port]) -> Bool {
+        ports.contains(.airPlay)
+    }
+
+    /// Whether the bed chosen at load is the wrong form for the route now.
+    /// Skipped across an external-playback edge in either direction: the
+    /// engine's own AirPlay reload re-chooses the bed, and a second reload
+    /// would race it.
+    nonisolated static func spatialBedNeedsRebuild(
+        rendering: SpatialAudioRendering, chosenFor: SpatialBedRoute?, now: SpatialBedRoute
+    ) -> Bool {
+        guard rendering != .off, let chosenFor else { return false }
+        guard !chosenFor.isExternalPlayback, !now.isExternalPlayback else { return false }
+        return chosenFor.isAirPlay != now.isAirPlay
+    }
+
+    private func currentSpatialBedRoute() -> SpatialBedRoute {
+        SpatialBedRoute(
+            isAirPlay: Self.routeIsAirPlay(AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portType)),
+            isExternalPlayback: engine.currentAVPlayer?.isExternalPlaybackActive ?? false
+        )
+    }
+
+    /// Choosing a HomePod mid-film (Control Center, or the Apple TV's audio
+    /// menu) leaves a PCM bed going to AirPlay, where it arrived as stereo;
+    /// leaving AirPlay keeps a lossy APAC bed where PCM would do. Either way
+    /// the session is rebuilt where it is, and `.render` re-chooses.
+    private func observeAudioRoute() {
+        audioRouteObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.rebuildSpatialBedIfTheRouteChanged()
+            }
+        }
+    }
+
+    private func rebuildSpatialBedIfTheRouteChanged() {
+        let now = currentSpatialBedRoute()
+        let needsRebuild = Self.spatialBedNeedsRebuild(rendering: spatialAudio, chosenFor: spatialBedRoute, now: now)
+        // Not rebuilding, record the route anyway: after an external-playback
+        // edge, the engine's own reload has chosen for it.
+        guard needsRebuild else {
+            if spatialBedRoute != nil { spatialBedRoute = now }
+            return
+        }
+        // One rebuild at a time; a background recovery reloads with the route
+        // as it is and records it.
+        guard spatialBedRebuildTask == nil, sessionRecoveryTask == nil else { return }
+        spatialBedRoute = now
+        Self.logger.info("Audio route \(now.isAirPlay ? "gained" : "lost") AirPlay: rebuilding the Spatial Audio bed")
+        // Mounted in the state it was in, as `recoverSessionIfNeeded` does:
+        // pausing an autoplaying rebuild wedges the native route.
+        let playing = engine.state == .playing
+        let anchor = engine.currentTime
+        spatialBedRebuildTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.spatialBedRebuildTask = nil }
+            do {
+                try await self.engine.reloadAtCurrentPosition { $0.autoplay = playing }
+            } catch {
+                if case AetherEngineError.sessionNotReloadable = error { return }
+                if Task.isCancelled { return }
+                self.onStateChange?(.failed(PlaybackFailure(
+                    message: String(localized: "Playback couldn't continue after the audio output changed.")
+                )))
+                return
+            }
+            if !playing, anchor > 0 {
+                self.pausedRebuildAnchor = anchor
+                self.onTimeUpdate?(anchor, self.engine.duration)
+            }
+        }
     }
 
     func setAudioOffset(_ seconds: TimeInterval) {

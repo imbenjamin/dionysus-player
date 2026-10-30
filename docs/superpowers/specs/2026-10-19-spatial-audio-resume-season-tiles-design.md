@@ -1,5 +1,10 @@
 # Spatial Audio for TrueHD Atmos and DTS:X, Resume after a rewatch, season tiles
 
+> **Superseded in part (2026-10-30):** Spatial Audio now asks AetherEngine for
+> `.render(layout)` (7.50.0), which sends the rendered bed as lossless PCM and
+> as APAC only over AirPlay. Where this spec says APAC or "lossy", read the
+> playback `CLAUDE.md`'s "Spatial Audio" section for the current behaviour.
+
 Agreed with Benjamin on 2026-10-19. iOS and Apple TV. Three independent
 parts, one plan, ahead of the 1.2.0 App Store submission.
 

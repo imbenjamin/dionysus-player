@@ -42,8 +42,8 @@ home-theatre receiver. Apple devices can't pass a TrueHD or DTS-HD MA
 bitstream through, so a Blu-ray remux's Atmos or DTS:X track usually plays
 as plain 5.1 or 7.1 and the overhead speakers go quiet.
 Dionysus can render the heights into the speaker layout you have, from 5.1.2
-to 9.1.6, and hand them to the receiver as Atmos, or to AirPods as Spatial
-Audio. See [Spatial Audio](#spatial-audio) below.
+to 9.1.6, and send them to the receiver uncompressed, or to AirPods as
+Spatial Audio. See [Spatial Audio](#spatial-audio) below.
 
 On the Apple TV it aims for the same standard on the big screen: a
 remote-first interface of its own over the iOS app's core, a Top Shelf that
@@ -208,31 +208,36 @@ yet.
 On iPhone, iPad and Apple TV (iOS and tvOS 26 or later), in Profile →
 Spatial Audio.
 
-- **Height channels kept.** No Apple device can send a TrueHD or DTS-HD MA
-  bitstream to a receiver, so a TrueHD Atmos or DTS:X track normally plays
-  as a re-encoded 5.1 or 7.1 bed, its heights folded down or lost.
-  Dionysus can instead decode the Atmos objects or the DTS:X heights,
-  render them into your speaker layout and deliver Apple's Spatial Audio
-  format: the Apple TV sends it to an Atmos receiver or soundbar as Dolby
-  MAT, so the overhead speakers play, and iPhone and iPad play it as
-  Spatial Audio on AirPods.
-- **The receiver shows Dolby Atmos, DTS:X included.** Both formats leave the
-  Apple TV as the same Dolby MAT stream, so a receiver or soundbar lights its
-  Dolby Atmos indicator for a DTS:X film too. That's expected: the heights
-  are there, carried as Atmos rather than as DTS.
+- **Height channels kept, losslessly.** No Apple device can send a TrueHD
+  or DTS-HD MA bitstream to a receiver, so a TrueHD Atmos or DTS:X track
+  normally plays as a re-encoded 5.1 or 7.1 bed, its heights folded down or
+  lost. Dionysus can instead decode the Atmos objects or the DTS:X heights,
+  render them into your speaker layout and send that as uncompressed
+  multichannel PCM: the Apple TV wraps it in Dolby MAT for an Atmos receiver
+  or soundbar, so the overhead speakers play, and iPhone and iPad play it as
+  Spatial Audio on AirPods. Over AirPlay it goes as Apple's compressed
+  Spatial Audio format (APAC) instead, the form AirPlay carries with its
+  heights; Dionysus switches between the two if AirPlay is picked or dropped
+  mid-film.
+- **What the receiver shows.** Dolby Atmos, Multichannel PCM or LPCM,
+  depending on the receiver and the track; each means the heights are
+  there. A TrueHD Atmos film normally shows as Atmos. A DTS:X film may show
+  as either: some receivers light Atmos for any Dolby MAT stream, others show
+  multichannel PCM. It never shows as DTS:X, since the track is decoded
+  before it leaves the device.
 - **Your speaker layout.** Dolby Atmos renders into 5.1.2, 5.1.4, 7.1.2,
   7.1.4 or 9.1.6; DTS:X into 7.1.4 or 9.1.6, the layouts that carry its
   four heights one to one. 7.1.4 is the default, and the one recommended
   for AirPods.
-- **A choice per format, off by default.** The rendered audio is re-encoded
-  (lossy), so it only helps a system with height speakers or Spatial Audio
-  headphones; Dolby Atmos and DTS:X each have their own switch.
-- **Where it applies.** Direct play of a TrueHD Atmos or DTS:X track.
-  Dolby Digital Plus Atmos already reaches a receiver with its objects and
-  needs none of this; a server transcode, a download, or a title on the
-  engine's software route plays as before. Playback Stats shows the layout
-  and how many objects play overhead (for DTS:X, its height channels) while
-  it's working.
+- **A choice per format, off by default.** It only helps a system with
+  height speakers or Spatial Audio headphones, and decoding the objects is
+  more work for the device; Dolby Atmos and DTS:X each have their own switch.
+- **Where it applies.** Direct play of a TrueHD Atmos or DTS:X track, on
+  either of the engine's routes. Dolby Digital Plus Atmos already reaches a
+  receiver with its objects and needs none of this; a server transcode or a
+  download plays as before. Playback Stats shows the form it's sent in
+  ("TRUEHD Atmos → PCM 7.1.4"), the layout and how many objects play
+  overhead (for DTS:X, its height channels) while it's working.
 - Rendered by [AetherEngine](https://github.com/superuser404notfound/AetherEngine)'s
   object-audio components: LibTrueHD for TrueHD Atmos, and FFmpeg's own
   DTS decoder for DTS:X.

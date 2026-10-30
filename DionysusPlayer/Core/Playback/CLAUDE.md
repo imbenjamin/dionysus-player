@@ -106,15 +106,32 @@ Apple platforms can't bitstream TrueHD or DTS-HD, so AetherEngine decodes
 them and, in the app's bridge mode (the engine default, `.surroundCompat`),
 re-encodes to Dolby Digital Plus: the height channels are lost. Two settings
 (Profile → Spatial Audio, both off by default, per device like the audio
-offset: `SpatialAudioStore`) render them instead as Apple Positional Audio
-(`LoadOptions.objectAudioRendering = .apac(layout)`), which tvOS sends to an
-Atmos receiver as Dolby MAT and iOS plays as Spatial Audio. It's lossy, and
-it needs the `TrueHDObjectAudio`/`DTSXObjectAudio` traits
+offset: `SpatialAudioStore`) render them instead into a speaker bed
+(`LoadOptions.objectAudioRendering = .render(layout)`, since AetherEngine
+7.50.0). The bed goes out as lossless 24-bit PCM, which tvOS wraps in Dolby
+MAT for an Atmos receiver and iOS plays as Spatial Audio, and as lossy Apple
+Positional Audio (APAC) where AirPlay is in the route at load: PCM reached
+AirPlay as stereo. It needs the `TrueHDObjectAudio`/`DTSXObjectAudio` traits
 (`Packages/AetherEngineWithObjectAudio`, root `CLAUDE.md`). Design:
 `docs/superpowers/specs/2026-10-19-spatial-audio-resume-season-tiles-design.md`.
 
+- **Replaced APAC rather than joining it** (Benjamin, 2026-10-30): APAC or
+  PCM is how the bed travels, not something a viewer can choose well, and
+  `.render` makes the one call that matters (AirPlay). PCM also drops the
+  APAC encode, about a core, which on the A15 Apple TV was the half of the
+  work behind #850. The cost is disk: 1.15 Mbit/s per bed channel (~13.8
+  for 7.1.4) in the Read-Ahead Buffer's segments. If a sink misbehaves on
+  PCM, the fallback is a hidden Advanced switch forcing `.apac`, not a third
+  option.
+- **An AirPlay change mid-session rebuilds the bed**
+  (`AetherPlaybackEngine.observeAudioRoute()`): `.render` decides at load
+  only, so picking a HomePod mid-film left PCM going to AirPlay. A route
+  change that adds or drops an AirPlay port reloads in place, mounted
+  playing or paused as it was (`spatialBedNeedsRebuild`). Not across an
+  external-playback edge (the video AirPlayed to a TV): AetherEngine reloads
+  the session itself there, which re-chooses the bed. Unverified on device.
 - **One rendering per session, for both formats.** `objectAudioRendering` is
-  `.off` or `.apac(layout)` and applies to TrueHD Atmos and DTS:X alike, so
+  `.off` or `.render(layout)` and applies to TrueHD Atmos and DTS:X alike, so
   two toggles with their own layouts need the format known before load.
   `PlayerViewModel.start()` predicts the track (`SpatialAudioRules`: the
   remembered choice, else the default, swapped for a same-language
@@ -143,13 +160,21 @@ it needs the `TrueHDObjectAudio`/`DTSXObjectAudio` traits
   track pick prefers Atmos/DTS:X as the prediction assumes. DTS:X renders into 7.1.4 and 9.1.6 only, so its picker offers
   nothing else. The settings are hidden below iOS 26 and where a trait isn't
   built in (`SpatialAudioSupport`).
-- **Playback Stats shows a "Spatial Audio" row while it plays**, from
+- **Playback Stats shows the bed's form in the audio Decoder row**
+  (AetherEngine's own label: "TRUEHD Atmos → PCM 7.1.4", "DTS:X → APAC
+  9.1.6"), **and a "Spatial Audio" row while it plays**, from
   `LiveTelemetry.objectAudio` ("7.1.4 · 13 objects, 4 overhead"; DTS:X shows
   its height channels): the one in-app sign the route was taken. tvOS's
   engine loops a silent Atmos stream so soundbars light their indicator
   (`AtmosOutputActivator`), only while every output is HDMI since 7.45.0
   (AE#834: over AirPlay to a HomePod pair it silenced the programme after a
   pause); nothing to do in the app.
+- **What a receiver shows** (the help page lists all three; Benjamin,
+  2026-10-30): Dolby Atmos, Multichannel PCM or LPCM, never DTS:X. tvOS
+  sends the bed as Dolby MAT, which some sinks show as Atmos on their own;
+  AetherEngine's silent Atmos stream (above) lights the rest for TrueHD
+  Atmos, and never runs for DTS:X, so a DTS:X film may show as multichannel
+  PCM. The Living Room AVR showed Atmos for both under APAC (2026-10-20).
 - **The section's footer is one sentence, and the rest is a page of its
   own** (`SpatialAudioHelp`, Benjamin, 2026-10-23): iOS's footer ends in
   Learn More…, which opens a sheet; the Apple TV's section ends in an About
