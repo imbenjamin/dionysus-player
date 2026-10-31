@@ -14,6 +14,11 @@ struct CollectionGridView: View {
     /// `MainTabView`'s `NavigationStack`: a second `navigationDestination` for
     /// the same type nested inside that stack is ambiguous per SwiftUI's docs.
     @State private var randomPick: MediaItem?
+    /// The iPhone Duo's fold while partly folded, which the filter pills and
+    /// the grid's columns keep clear of. Open and flat they go back to the
+    /// plain row and grid, as content may cross a flat fold (Benjamin,
+    /// 2026-10-31); unlike sign-in, which clears it flat too.
+    @State private var fold: ActiveFold?
 
     var body: some View {
         GeometryReader { proxy in
@@ -22,6 +27,8 @@ struct CollectionGridView: View {
                     .padding(pageMargin)
             }
         }
+        // Read on the GeometryReader, which the pills it moves don't move.
+        .onActiveFoldChange { fold = $0 }
         .navigationTitle(query.title)
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $randomPick) { item in
@@ -140,6 +147,11 @@ struct CollectionGridView: View {
     /// edge, so a scrolled pill drew over the Reset button. The `.mask` — the
     /// row's bounds widened top and bottom by negative vertical padding — puts
     /// the horizontal clipping back.
+    ///
+    /// Partly folded like a book, the fitting row keeps its pills and Reset
+    /// off the fold (`FoldGapHStack`): the first one that would cross it starts
+    /// past it. The scrolling row doesn't, as scrolling content may cross the
+    /// fold, and only a phone's width or accessibility text sizes reach it.
     @ViewBuilder
     private var filterRow: some View {
         let showsReset = viewModel?.hasActiveFilters == true
@@ -150,19 +162,22 @@ struct CollectionGridView: View {
         let favoriteStatuses = viewModel?.availableFavoriteStatuses ?? []
 
         if !genres.isEmpty || !studios.isEmpty || !decades.isEmpty || !watchStatuses.isEmpty || !favoriteStatuses.isEmpty {
-            let pills = pillRow(
-                genres: genres, studios: studios, decades: decades,
-                watchStatuses: watchStatuses, favoriteStatuses: favoriteStatuses
-            )
+            let gap = foldGap
+            let pills = { (gap: ClosedRange<CGFloat>?) in
+                pillRow(
+                    genres: genres, studios: studios, decades: decades,
+                    watchStatuses: watchStatuses, favoriteStatuses: favoriteStatuses, foldGap: gap
+                )
+            }
 
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    pills
+                FoldGapHStack(spacing: 8, gap: gap) {
+                    pills(gap).foldGapApplied()
                     resetButton(shows: showsReset)
                 }
 
                 HStack(spacing: 8) {
-                    ScrollView(.horizontal, showsIndicators: false) { pills }
+                    ScrollView(.horizontal, showsIndicators: false) { pills(nil) }
                         .contentMargins(.leading, pageMargin, for: .scrollContent)
                         .contentMargins(.trailing, showsReset ? 0 : pageMargin, for: .scrollContent)
                         .scrollClipDisabled()
@@ -174,6 +189,20 @@ struct CollectionGridView: View {
                 }
             }
         }
+    }
+
+    /// The fold's band in the filter row's coordinates, which start a page
+    /// margin in from the GeometryReader the fold is read on. Only a fold held
+    /// wide crosses the row.
+    private var foldGap: ClosedRange<CGFloat>? {
+        verticalFold.map { ($0.lowerBound - pageMargin)...($0.upperBound - pageMargin) }
+    }
+
+    /// The fold held wide, in the GeometryReader's coordinates, which the
+    /// grid's columns split around. Held tall the grid scrolls through it.
+    private var verticalFold: ClosedRange<CGFloat>? {
+        guard case .vertical(let leading, let trailing) = fold else { return nil }
+        return leading...trailing
     }
 
     /// The page's own padding, which the scrolling filter row cancels to reach
@@ -192,11 +221,12 @@ struct CollectionGridView: View {
     @ViewBuilder
     private func pillRow(
         genres: [String], studios: [String], decades: [Int],
-        watchStatuses: [CollectionWatchStatus], favoriteStatuses: [CollectionFavoriteStatus]
+        watchStatuses: [CollectionWatchStatus], favoriteStatuses: [CollectionFavoriteStatus],
+        foldGap: ClosedRange<CGFloat>?
     ) -> some View {
         if #available(iOS 26.0, *) {
             GlassEffectContainer(spacing: 8) {
-                HStack(spacing: 8) {
+                FoldGapHStack(spacing: 8, gap: foldGap) {
                     filterPills(
                         genres: genres, studios: studios, decades: decades,
                         watchStatuses: watchStatuses, favoriteStatuses: favoriteStatuses
@@ -204,7 +234,7 @@ struct CollectionGridView: View {
                 }
             }
         } else {
-            HStack(spacing: 8) {
+            FoldGapHStack(spacing: 8, gap: foldGap) {
                 filterPills(
                     genres: genres, studios: studios, decades: decades,
                     watchStatuses: watchStatuses, favoriteStatuses: favoriteStatuses
@@ -387,9 +417,12 @@ struct CollectionGridView: View {
                             // sizes truncated the subtitle mid-value
                             // ("2007 · 2h…"). Compact width is unchanged: at
                             // 393pt the 3-column floor wins either way.
+                            // Split around the Duo's fold held wide, so it
+                            // falls in a gutter (`PosterGridMetrics`).
                             let metrics = PosterGridMetrics(
                                 containerWidth: containerWidth,
-                                idealItemWidth: horizontalSizeClass == .regular ? 160 : PosterGridMetrics.idealItemWidth
+                                idealItemWidth: horizontalSizeClass == .regular ? 160 : PosterGridMetrics.idealItemWidth,
+                                foldGap: verticalFold
                             )
                             LazyVGrid(columns: metrics.columns, spacing: 20) {
                                 ForEach(filtered) { item in

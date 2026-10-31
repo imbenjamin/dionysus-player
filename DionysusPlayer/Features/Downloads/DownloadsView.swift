@@ -117,6 +117,8 @@ struct DownloadsView: View {
                     Text("Movies and episodes you download appear here, ready to watch without a connection.")
                 }
                 .accessibilityIdentifier(A11yID.Downloads.emptyState)
+                // On the trailing page in book pose, as Search's are.
+                .centredClearOfTheFold()
             } else if usesGridLayout {
                 // One identifier for both layouts: which renders is a size-class
                 // detail a test shouldn't know.

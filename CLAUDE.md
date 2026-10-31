@@ -488,7 +488,7 @@ gated: the floor is 18) through `ActiveFold` (`Shared/Components/`), which
 rounds it to whole points. **Read it from a view whose position doesn't
 depend on it**: a view moved by the fold it measures loops (measured: 98% CPU
 on a black screen), so read it on the outer frame, after any padding it
-drives. Five layouts use it (Benjamin, 2026-10-26 to 2026-10-31):
+drives. Six layouts use it (Benjamin, 2026-10-26 to 2026-10-31):
 
 - **The player** (`PlayerFoldLayout`; `Core/Playback/CLAUDE.md`): tabletop
   puts the picture above the fold and every control below; book pose moves
@@ -501,9 +501,9 @@ drives. Five layouts use it (Benjamin, 2026-10-26 to 2026-10-31):
   and Watched sit in the vertical side bar there (`.duoVerticalPreferred()`
   on their toolbar item), stacked, rather than floating over the content.
 - **Centred states** (`.centredClearOfTheFold()`: Search's empty, loading,
-  offline and error states): on the trailing page in book pose, in the top
-  half in tabletop, Apple's "displacement". Lists and grids scroll through the
-  fold and never move.
+  offline and error states, Home's, and the empty Downloads tab): on the
+  trailing page in book pose, in the top half in tabletop, Apple's
+  "displacement". Lists and grids scroll through the fold and never move.
 - **Home's hero** (`HeroFoldLayout`), in tabletop only: it ends at the fold
   and the rows start their usual spacing past it, so the fold sits in the gap.
   Ended at the fold alone, the library row moved up onto it.
@@ -513,6 +513,13 @@ drives. Five layouts use it (Benjamin, 2026-10-26 to 2026-10-31):
   held tall. Read with inactive folds too, like the detail spread, so it
   lines up with the crease open and flat as well. Centred, a tile straddled
   the fold in book and "Change Server" sat on it in tabletop.
+- **The collection grids' filter pills and posters**, in book pose only:
+  a pill that would cross the fold starts past it (`FoldGapHStack`), and the
+  columns split around it (`PosterGridMetrics(…, foldGap:)`), every poster
+  the trailing page's width, so the gutter at the fold is wider than the
+  rest (the side bar narrows that page). Open and flat both go back to the
+  plain row and grid: content may cross a flat fold. Favorites and a column
+  of posters straddled it.
 
 **Regular width doesn't mean an iPad's top bar.** The inner display is
 regular width, but its tab bar sits at the bottom held tall and at the foot of

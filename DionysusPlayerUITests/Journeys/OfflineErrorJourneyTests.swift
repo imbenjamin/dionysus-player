@@ -38,6 +38,39 @@ final class OfflineErrorJourneyTests: UITestCase {
         TabBar(app: app).downloads.tap()
         DownloadsScreen(app: app).emptyState.awaitExistence("the Downloads tab, still reachable while offline")
     }
+
+    /// In book pose on the iPhone Duo, Home's offline state and the empty
+    /// Downloads tab sit on the trailing page, as Search's states do
+    /// (`.centredClearOfTheFold()`); they spanned the fold, full width.
+    func testOfflineAndEmptyDownloadsStatesSitOnTheTrailingPageInBookPose() throws {
+        launch(scenario: "offline")
+        guard duoPose == "book", let fold = duoFoldBand(), fold.height > fold.width else {
+            throw XCTSkip("Only the iPhone Duo in book pose moves these states off the fold.")
+        }
+
+        StateViewsScreen(app: app).offlineState.firstMatch.awaitExistence("Home's offline state")
+        assertOnTheTrailingPage(A11yID.State.offline, of: fold, "Home's offline state")
+
+        TabBar(app: app).downloads.tap()
+        DownloadsScreen(app: app).emptyState.firstMatch.awaitExistence("the Downloads empty state")
+        assertOnTheTrailingPage(A11yID.Downloads.emptyState, of: fold, "The Downloads empty state")
+    }
+
+    /// Every element carrying `identifier` (a state's identifier reaches its
+    /// text and button too) starts past the fold. Waits a moment: the state
+    /// moves once the fold is read, a pass after it appears.
+    private func assertOnTheTrailingPage(_ identifier: String, of fold: CGRect, _ name: String) {
+        let elements = app.descendants(matching: .any).matching(identifier: identifier)
+        let clear = NSPredicate { _, _ in
+            let all = elements.allElementsBoundByIndex
+            return !all.isEmpty && all.allSatisfy { $0.frame.minX >= fold.maxX }
+        }
+        let result = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: clear, object: nil)], timeout: Self.defaultTimeout)
+        XCTAssertEqual(
+            result, .completed,
+            "\(name) should start past the fold \(fold): \(elements.allElementsBoundByIndex.map(\.frame))."
+        )
+    }
 }
 
 /// The shared loading/error/offline placeholders (`Shared/Components/StateViews.swift`),

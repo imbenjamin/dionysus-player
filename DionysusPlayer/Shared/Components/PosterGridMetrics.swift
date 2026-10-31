@@ -14,6 +14,13 @@ import SwiftUI
 /// widths always show 3 columns rather than falling back to fewer, larger
 /// ones; wider containers (landscape, iPad) grow past 3 toward
 /// `idealItemWidth`-sized columns.
+///
+/// Given an iPhone Duo's fold in book pose (`foldGap`), the columns split
+/// around it so the fold falls in a gutter, not across a poster: each page
+/// fits its own columns, all one width (the narrower page's), the outer
+/// columns keep the page margins and the gutter at the fold takes what's
+/// left. Centred, the fold crossed a poster in every row (Benjamin,
+/// 2026-10-31).
 struct PosterGridMetrics {
     static let spacing: CGFloat = 16
     static let horizontalPadding: CGFloat = 16
@@ -22,6 +29,9 @@ struct PosterGridMetrics {
 
     let columnCount: Int
     let itemWidth: CGFloat
+    /// How many columns sit before the fold, and the gutter after the last of
+    /// them, or `nil` with no fold to clear.
+    let foldSplit: (leadingColumns: Int, gutter: CGFloat)?
 
     /// `idealItemWidth` defaults to the portrait-poster value every existing
     /// caller (`CollectionGridView`) wants, but is overridable — `SearchView`
@@ -37,12 +47,51 @@ struct PosterGridMetrics {
         let fitCount = Int((available + Self.spacing) / (idealItemWidth + Self.spacing))
         columnCount = max(minimumColumns, fitCount)
         itemWidth = (available - Self.spacing * CGFloat(columnCount - 1)) / CGFloat(columnCount)
+        foldSplit = nil
+    }
+
+    /// Columns either side of `foldGap`, the fold's span in the container's
+    /// coordinates (the view whose width is `containerWidth`). Falls back to
+    /// the plain grid when there's no fold, or a page too narrow for a column.
+    init(containerWidth: CGFloat, idealItemWidth: CGFloat = Self.idealItemWidth, foldGap: ClosedRange<CGFloat>?) {
+        let leadingPage = (foldGap?.lowerBound ?? 0) - Self.horizontalPadding
+        let trailingPage = containerWidth - Self.horizontalPadding - (foldGap?.upperBound ?? containerWidth)
+        guard foldGap != nil, leadingPage >= idealItemWidth / 2, trailingPage >= idealItemWidth / 2 else {
+            self.init(containerWidth: containerWidth, idealItemWidth: idealItemWidth)
+            return
+        }
+        func fit(_ page: CGFloat) -> (count: Int, width: CGFloat) {
+            let count = max(1, Int((page + Self.spacing) / (idealItemWidth + Self.spacing)))
+            return (count, (page - Self.spacing * CGFloat(count - 1)) / CGFloat(count))
+        }
+        let leading = fit(leadingPage)
+        let trailing = fit(trailingPage)
+        let width = min(leading.width, trailing.width)
+        let count = leading.count + trailing.count
+        let available = containerWidth - Self.horizontalPadding * 2
+        self.init(
+            columnCount: count, itemWidth: width,
+            foldSplit: (leading.count, available - width * CGFloat(count) - Self.spacing * CGFloat(count - 2))
+        )
+    }
+
+    private init(columnCount: Int, itemWidth: CGFloat, foldSplit: (leadingColumns: Int, gutter: CGFloat)?) {
+        self.columnCount = columnCount
+        self.itemWidth = itemWidth
+        self.foldSplit = foldSplit
     }
 
     /// Top-aligned: a row is as tall as its tallest card, and the Collections
     /// grid lets a title run to two lines, so a centred one-line card would sit
     /// lower than its neighbours and its poster out of line with theirs.
     var columns: [GridItem] {
-        Array(repeating: GridItem(.fixed(itemWidth), spacing: Self.spacing, alignment: .top), count: columnCount)
+        (0..<columnCount).map { GridItem(.fixed(itemWidth), spacing: spacing(after: $0), alignment: .top) }
+    }
+
+    /// The gutter after column `index`: the fold's after the last column
+    /// before it.
+    func spacing(after index: Int) -> CGFloat {
+        guard let foldSplit, index == foldSplit.leadingColumns - 1 else { return Self.spacing }
+        return foldSplit.gutter
     }
 }

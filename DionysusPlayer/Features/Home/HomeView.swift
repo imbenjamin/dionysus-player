@@ -25,7 +25,9 @@ struct HomeView: View {
                 // so `OfflineStateView`/`LoadingView`/`ErrorStateView`'s
                 // `.frame(maxHeight: .infinity)` centers on the visible screen
                 // rather than in a short box at the top of an empty scroll area.
+                // On the trailing page in book pose, as Search's are.
                 placeholderView(for: placeholderState)
+                    .centredClearOfTheFold()
             } else {
                 ScrollView {
                     content
