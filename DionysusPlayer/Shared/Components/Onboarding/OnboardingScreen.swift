@@ -8,7 +8,9 @@ import SwiftUI
 /// - Landscape: two panes — `brand` (glyph, title) centred on the left, the
 ///   task and its actions centred on the right.
 ///
-/// See `OnboardingLayout` for how the composition is chosen.
+/// See `OnboardingLayout` for how the composition is chosen. On an open
+/// iPhone Duo the brand and the task each take one side of the fold
+/// (`OnboardingFoldSplit`).
 struct OnboardingScreen<Brand: View, Content: View, Actions: View>: View {
     /// Whether the compact composition centres vertically (a picker) or reads
     /// from the top (a page ending in a pinned action).
@@ -19,6 +21,7 @@ struct OnboardingScreen<Brand: View, Content: View, Actions: View>: View {
 
     @Environment(\.onboardingLayout) private var layout
     @Environment(\.onboardingWindowSize) private var windowSize
+    @State private var fold: ActiveFold?
 
     var body: some View {
         GeometryReader { proxy in
@@ -34,10 +37,24 @@ struct OnboardingScreen<Brand: View, Content: View, Actions: View>: View {
                     .signInColumn()
             })
         }
+        // Read on the whole screen, which the split doesn't move, for the
+        // reason `onActiveFoldChange`'s callers give. Inactive folds too, as
+        // the detail page's spread does: the panes line up with the crease
+        // fully open and flat as well.
+        .onActiveFoldChange(includingInactive: true) { fold = $0 }
     }
 
     @ViewBuilder
     private func composition(viewport: CGSize) -> some View {
+        if let split = OnboardingFoldSplit(fold: fold, layout: layout) {
+            foldSplitComposition(split, viewport: viewport)
+        } else {
+            unfoldedComposition(viewport: viewport)
+        }
+    }
+
+    @ViewBuilder
+    private func unfoldedComposition(viewport: CGSize) -> some View {
         switch layout {
         case .compact:
             VStack(spacing: 32) {
@@ -82,6 +99,48 @@ struct OnboardingScreen<Brand: View, Content: View, Actions: View>: View {
         }
     }
 
+    /// The brand on one side of the fold and the task on the other, each
+    /// centred in its own half, with the fold's band left empty between
+    /// them. Held tall, a brand taller than its half pushes the picker down
+    /// rather than overlapping the fold.
+    @ViewBuilder
+    private func foldSplitComposition(_ split: OnboardingFoldSplit, viewport: CGSize) -> some View {
+        switch split {
+        case .sideBySide(let brandWidth, let taskLeading):
+            let isShort = OnboardingLayout.isShortLandscape(layout, windowSize: windowSize)
+            let gutter: CGFloat = isShort ? 40 : 64
+            HStack(spacing: 0) {
+                brand
+                    .padding(.horizontal, gutter)
+                    .frame(width: brandWidth)
+                Color.clear.frame(width: taskLeading - brandWidth)
+                VStack(spacing: isShort ? 24 : 36) {
+                    content
+                    actionColumn
+                }
+                .frame(maxWidth: layout.contentWidth)
+                .padding(.horizontal, gutter)
+                .frame(maxWidth: .infinity)
+            }
+            .padding(.vertical, isShort ? 24 : 40)
+            .frame(maxWidth: .infinity, minHeight: viewport.height)
+        case .stacked(let brandHeight, let taskTop):
+            VStack(spacing: 0) {
+                brand
+                    .padding(.horizontal, 48)
+                    .frame(maxWidth: .infinity, minHeight: brandHeight)
+                Color.clear.frame(height: taskTop - brandHeight)
+                VStack(spacing: 44) {
+                    content
+                    actionColumn
+                }
+                .padding(.horizontal, 48)
+                .frame(maxWidth: layout.contentWidth + 96)
+                .frame(maxWidth: .infinity, minHeight: max(0, viewport.height - taskTop))
+            }
+        }
+    }
+
     /// Nothing at all for a screen without actions: a zero-size frame would
     /// still take a slot in the stack, and the stack's spacing with it.
     @ViewBuilder
@@ -92,6 +151,32 @@ struct OnboardingScreen<Brand: View, Content: View, Actions: View>: View {
     }
 
     private var hasActions: Bool { Actions.self != EmptyView.self }
+}
+
+/// Where the sign-in screen's two parts go on an open iPhone Duo, so neither
+/// sits on the fold: held wide (book, or open and flat), the brand (glyph,
+/// title, server line) takes the leading page and the user picker the
+/// trailing one; held tall (tabletop), the brand is above the fold and the
+/// picker below it. Centred across the whole screen, the first user tile
+/// straddled the fold in book and "Change Server" sat on it in tabletop
+/// (measured on the simulator, 2026-10-31).
+///
+/// Only the two-part compositions split: landscape held wide, regular held
+/// tall. The compact one never meets a fold (the outer display has none).
+enum OnboardingFoldSplit: Equatable {
+    case sideBySide(brandWidth: CGFloat, taskLeading: CGFloat)
+    case stacked(brandHeight: CGFloat, taskTop: CGFloat)
+
+    init?(fold: ActiveFold?, layout: OnboardingLayout) {
+        switch (fold, layout) {
+        case (.vertical(let leading, let trailing), .landscape):
+            self = .sideBySide(brandWidth: leading, taskLeading: trailing)
+        case (.horizontal(let top, let bottom), .regular):
+            self = .stacked(brandHeight: top, taskTop: bottom)
+        default:
+            return nil
+        }
+    }
 }
 
 /// Pins the compact composition's actions to the bottom edge.

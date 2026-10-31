@@ -135,6 +135,24 @@ class UITestCase: XCTestCase {
             throw XCTSkip("XCUIDevice can't turn the iPhone Duo Simulator.")
         }
     }
+
+    /// The iPhone Duo's fold in the app window's space, on its inner display;
+    /// `nil` on the closed phone (the outer display, 466x678pt, has none) and
+    /// on every other device. The band is 40pt centred on the inner display,
+    /// as the app measures it from the `.division` reserved region
+    /// (`ActiveFoldTests`), running top to bottom held wide and side to side
+    /// held tall. XCUITest can't read reserved regions, so this assumes the
+    /// band rather than measuring it, in every open pose: flat too, where the
+    /// fold is crossable but the layouts that avoid it line up with it all
+    /// the same.
+    func duoFoldBand() -> CGRect? {
+        guard ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4" else { return nil }
+        let window = app.windows.firstMatch.frame
+        guard max(window.width, window.height) > 900 else { return nil }
+        return window.width > window.height
+            ? CGRect(x: window.midX - 20, y: window.minY, width: 40, height: window.height)
+            : CGRect(x: window.minX, y: window.midY - 20, width: window.width, height: 40)
+    }
 }
 
 @MainActor

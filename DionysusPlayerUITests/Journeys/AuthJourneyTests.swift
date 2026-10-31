@@ -219,6 +219,35 @@ final class AuthJourneyTests: UITestCase {
         XCTAssertFalse(login.disclaimer.label.contains("<br"), "Markup should be stripped: \(login.disclaimer.label)")
     }
 
+    /// On the open iPhone Duo the sign-in screen puts the fold between its
+    /// header and its user picker, so no control sits on the crease: a tile
+    /// straddled it in book and "Change Server" sat on it in tabletop
+    /// (2026-10-31). Runs in the Duo legs' open, book and tabletop poses; the
+    /// closed phone and other devices have no fold to keep clear of.
+    func testSignInKeepsItsControlsOffTheDuoFold() throws {
+        launch(signedIn: false)
+        ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
+
+        let login = LoginScreen(app: app)
+        login.awaitLoaded()
+        guard let fold = duoFoldBand() else {
+            throw XCTSkip("Only the iPhone Duo's inner display has a fold.")
+        }
+        let controls = [
+            login.fixtureUserTile,
+            login.userTile(UITestFixtureIdentity.passwordlessUserID),
+            login.otherUserButton,
+            login.changeServerButton,
+        ]
+        // The split follows the fold, read a pass after the screen appears.
+        let clear = NSPredicate { _, _ in controls.allSatisfy { $0.exists && !$0.frame.intersects(fold) } }
+        let result = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: clear, object: nil)], timeout: Self.defaultTimeout)
+        XCTAssertEqual(
+            result, .completed,
+            "No sign-in control should overlap the fold \(fold): \(controls.map { "\($0.identifier) \($0.frame)" })."
+        )
+    }
+
     /// Someone the server doesn't list signs in by name from "Other".
     func testOtherUserSignsInByName() {
         launch(signedIn: false)
