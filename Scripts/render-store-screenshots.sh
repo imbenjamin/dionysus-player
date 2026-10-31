@@ -1,6 +1,6 @@
 #!/bin/sh
 # Renders App Store screenshot sets (iPhone 6.9", iPhone 6.5", iPad 13",
-# Apple TV)
+# iPhone Duo, Apple TV)
 # from a folder of raw device screenshots, using Scripts/store-screenshots/
 # {gen.py,shot.swift}.
 #
@@ -22,6 +22,9 @@
 #   the app looks different at each size, but should show the same content
 #   so the sets read as one series). appletv/ holds tvOS Simulator captures
 #   named to match gen.py's TV_SLIDES (01-home.png … 07-whos-watching.png).
+#   duo/ holds iPhone Duo Simulator captures named to match gen.py's
+#   DUO_SLIDES, each at its display's size (the inner display held wide or
+#   tall, or the outer display); one appstore-iphone-duo set takes both.
 #
 #   <out-dir> is created if missing, with one subfolder per store size —
 #   this is what you upload to App Store Connect, one subfolder per slot.
@@ -37,8 +40,8 @@ if [ -z "$RAW" ] || [ -z "$OUT" ]; then
     echo "usage: $0 <raw-dir> <out-dir>" >&2
     exit 2
 fi
-if [ ! -d "$RAW/iphone" ] && [ ! -d "$RAW/ipad" ] && [ ! -d "$RAW/appletv" ]; then
-    echo "error: $RAW must contain an iphone/, ipad/ or appletv/ subfolder" >&2
+if [ ! -d "$RAW/iphone" ] && [ ! -d "$RAW/ipad" ] && [ ! -d "$RAW/duo" ] && [ ! -d "$RAW/appletv" ]; then
+    echo "error: $RAW must contain an iphone/, ipad/, duo/ or appletv/ subfolder" >&2
     exit 2
 fi
 
@@ -72,6 +75,18 @@ fi
 if [ -d "$RAW/ipad" ]; then
     render_set ipad "$RAW/ipad" 2064 2752 appstore-ipad-13
 fi
+if [ -d "$RAW/duo" ]; then
+    # Each Duo slide renders at its own capture's size, which gen.py prints
+    # after the slide's path.
+    work="$WORK/appstore-iphone-duo"
+    mkdir -p "$work" "$OUT/appstore-iphone-duo"
+    cp "$RAW/duo"/*.png "$work/"
+    idx=1
+    python3 "$TOOLDIR/gen.py" duo 0 0 "$work" all | while read -r html w h; do
+        "$SHOT" "$html" "$OUT/appstore-iphone-duo/$(printf '%02d' "$idx").png" "$w" "$h"
+        idx=$((idx + 1))
+    done
+fi
 if [ -d "$RAW/appletv" ]; then
     render_set appletv "$RAW/appletv" 1920 1080 appstore-appletv
 fi
@@ -79,5 +94,7 @@ fi
 echo "Rendered to $OUT:"
 for f in "$OUT"/*/*.png; do
     dims=$(sips -g pixelWidth -g pixelHeight "$f" | tail -2 | tr -d ' \n' | sed 's/pixelWidth:/ /;s/pixelHeight:/x/')
-    printf '  %s  %s\n' "$dims" "${f#"$OUT"/}"
+    # App Store Connect rejects screenshots with an alpha channel.
+    alpha=$(sips -g hasAlpha "$f" | awk '/hasAlpha/ {print $2}')
+    printf '  %s  alpha:%s  %s\n' "$dims" "$alpha" "${f#"$OUT"/}"
 done

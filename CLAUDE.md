@@ -651,6 +651,22 @@ capture-then-render workflow. What the scripts don't say:
   wait out another cycle or pick a shorter title.
 - `gen.py`'s `MAGENTA`/`ROSE_GOLD` are copies of `BrandColors.swift`; update both
   if the palette changes.
+- **No alpha channel**: App Store Connect rejects one, so `shot.swift` renders
+  into an opaque context; the render script's report shows `alpha:no` per file.
+- **The iPhone Duo set** (`appstore-iphone-duo`, `gen.py`'s `DUO_SLIDES`) is one
+  `APP_IPHONE_DUO` set holding outer (1398×2034) and inner landscape
+  (2853×2007) frames together (tested by upload, 2026-10-31). Capture each
+  display with `simctl io --display=primary-1|primary`: both save upright and
+  both show the status bar override. Xcode's MCP taps land only inside the
+  outer display's 466×678pt box, so navigate closed and unfold; and launch
+  fresh closed rather than signing in there, or unfolding leaves the app tall.
+- **Only iOS 27 Simulators take Xcode's MCP taps**, so the iPhone set comes
+  from the iPhone 18 Pro Max (1320×2868, the 6.9" size) and the iPad set from
+  the iPad Air 13-inch (M4). `orientation landscapeLeft` rotates them (not
+  the Duo). Raw captures for every set are kept in `store-screenshots/raw/`.
+- **Go easy on the demo server's downloads**: ten parallel transcodes across
+  two Simulators coincided with it answering 503 (2026-10-31). Download the
+  short Caminandes films, one Simulator at a time.
 - **The Apple TV set** (`appstore-appletv`, `gen.py`'s `TV_SLIDES`, no device
   frame) is captured with `xcrun simctl io <udid> screenshot`, which works on
   tvOS with no rotation or status bar to handle; the 4K Simulator saves
