@@ -461,7 +461,10 @@ line can fold the Simulator (`simctl`, `devicectl` and `XCUIDevice` have no
 pose), so `Scripts/duo-pose/set-duo-pose.sh` presses Device Hub's buttons
 through the Accessibility API (the image's bash is trusted for it) and checks
 with `devicectl` which display is active and how the phone is held; open and
-book look the same from outside the app. The Simulator can stop following
+book look the same from outside the app, and to XCUITest too, so the job
+passes the pose to the tests as `TEST_RUNNER_DUO_POSE` (`UITestCase.duoPose`;
+locally, set it on `xcodebuild`), for a journey whose layout clears only a
+partly folded fold. The Simulator can stop following
 Device Hub (the pose drawn, the phone on its old display) until it reboots,
 so a pose that doesn't take, or whose buttons Device Hub never draws, gets
 one reboot and a second try. Locally the

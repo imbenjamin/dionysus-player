@@ -145,6 +145,12 @@ class UITestCase: XCTestCase {
     /// band rather than measuring it, in every open pose: flat too, where the
     /// fold is crossable but the layouts that avoid it line up with it all
     /// the same.
+    /// The iPhone Duo pose CI set before the run ("closed", "open", "book",
+    /// "tabletop"), passed as `TEST_RUNNER_DUO_POSE`, or `nil` when nothing
+    /// said. A layout that clears only a partly folded fold needs it: XCUITest
+    /// sees the same window open and flat as in book pose.
+    var duoPose: String? { ProcessInfo.processInfo.environment["DUO_POSE"] }
+
     func duoFoldBand() -> CGRect? {
         guard ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4" else { return nil }
         let window = app.windows.firstMatch.frame

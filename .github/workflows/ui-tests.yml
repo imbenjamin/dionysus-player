@@ -335,6 +335,10 @@ jobs:
 
       - name: Build and test
         uses: ./.github/actions/build-and-test
+        env:
+          # Reaches the tests as DUO_POSE (`UITestCase.duoPose`): a flat
+          # display's fold looks the same to XCUITest as a partly folded one.
+          TEST_RUNNER_DUO_POSE: ${{ matrix.pose }}
         with:
           test-plan: ${{ inputs.test-plan }}
           device-type: iPhone Duo

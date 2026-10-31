@@ -71,4 +71,37 @@ final class CollectionJourneyTests: UITestCase {
 
         AssetDetailScreen(app: app).awaitLoaded()
     }
+
+    /// In book pose on the iPhone Duo, no filter pill (nor Reset) and no
+    /// poster sits on the fold: Favorites straddled it (`FoldGapHStack`), and a
+    /// column of posters did (`PosterGridMetrics`). A genre is picked so Reset
+    /// shows and the row reaches past the fold. Open and flat both go back to
+    /// the plain layout, so the test needs the pose from CI (`duoPose`).
+    func testTheFilterPillsAndPostersStayOffTheDuoFold() throws {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.moviesLibraryID)
+
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.partWatchedMovieID)
+        guard duoPose == "book", let fold = duoFoldBand(), fold.height > fold.width else {
+            throw XCTSkip("Only the iPhone Duo in book pose has a fold across the pills to clear.")
+        }
+        collection.openFilter("genre")
+        collection.selectFilterOption("Action")
+
+        let posters = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "media.card."))
+        let controls = ["genre", "studio", "decade", "watched", "favorites"].map(collection.filterPill)
+            + [collection.resetFiltersButton]
+            + (0..<min(posters.count, 8)).map { posters.element(boundBy: $0) }
+        let clear = NSPredicate { _, _ in
+            controls.allSatisfy { !$0.exists || !$0.frame.intersects(fold) } && collection.resetFiltersButton.exists
+        }
+        let result = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: clear, object: nil)], timeout: Self.defaultTimeout)
+        XCTAssertEqual(
+            result, .completed,
+            "No filter control or poster should overlap the fold \(fold): \(controls.map { "\($0.identifier) \($0.frame)" })."
+        )
+    }
 }
