@@ -486,7 +486,7 @@ gated: the floor is 18) through `ActiveFold` (`Shared/Components/`), which
 rounds it to whole points. **Read it from a view whose position doesn't
 depend on it**: a view moved by the fold it measures loops (measured: 98% CPU
 on a black screen), so read it on the outer frame, after any padding it
-drives. Four layouts use it (Benjamin, 2026-10-26 to 2026-10-28):
+drives. Five layouts use it (Benjamin, 2026-10-26 to 2026-10-31):
 
 - **The player** (`PlayerFoldLayout`; `Core/Playback/CLAUDE.md`): tabletop
   puts the picture above the fold and every control below; book pose moves
@@ -505,6 +505,12 @@ drives. Four layouts use it (Benjamin, 2026-10-26 to 2026-10-28):
 - **Home's hero** (`HeroFoldLayout`), in tabletop only: it ends at the fold
   and the rows start their usual spacing past it, so the fold sits in the gap.
   Ended at the fold alone, the library row moved up onto it.
+- **Sign-in** (`OnboardingFoldSplit`, in `OnboardingScreen`): the header
+  ("Who's Watching?", the server line) on one side of the fold and the user
+  picker on the other: leading and trailing pages held wide, above and below
+  held tall. Read with inactive folds too, like the detail spread, so it
+  lines up with the crease open and flat as well. Centred, a tile straddled
+  the fold in book and "Change Server" sat on it in tabletop.
 
 **Regular width doesn't mean an iPad's top bar.** The inner display is
 regular width, but its tab bar sits at the bottom held tall and at the foot of

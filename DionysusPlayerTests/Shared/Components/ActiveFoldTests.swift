@@ -160,4 +160,35 @@ final class ActiveFoldTests: XCTestCase {
         let backdrop = URL(string: "https://example.com/backdrop")!
         XCTAssertEqual(DetailBookSpreadLayout.Artwork(posterURL: nil, backdropURL: backdrop), .backdropWithLogo(backdrop))
     }
+
+    // MARK: Sign-in
+
+    /// Held wide (book, or open and flat): the brand on the leading page up to
+    /// the fold, the user picker from its trailing edge.
+    func test_signIn_heldWideSplitsBrandAndPickerAtTheFold() {
+        let split = OnboardingFoldSplit(fold: .vertical(leading: 455, trailing: 495), layout: .landscape)
+        XCTAssertEqual(split, .sideBySide(brandWidth: 455, taskLeading: 495))
+    }
+
+    /// Held tall (tabletop): the brand above the fold, the picker below it.
+    func test_signIn_heldTallStacksBrandAboveAndPickerBelow() {
+        let split = OnboardingFoldSplit(fold: .horizontal(top: 455, bottom: 495), layout: .regular)
+        XCTAssertEqual(split, .stacked(brandHeight: 455, taskTop: 495))
+    }
+
+    /// No fold (closed, any other device): the composition is unchanged.
+    func test_signIn_withoutAFoldDoesNotSplit() {
+        XCTAssertNil(OnboardingFoldSplit(fold: nil, layout: .landscape))
+        XCTAssertNil(OnboardingFoldSplit(fold: nil, layout: .regular))
+    }
+
+    /// Only the two-part compositions split, and only across the fold that
+    /// separates their parts: the phone composition stays one column, and a
+    /// fold running the other way isn't between brand and picker.
+    func test_signIn_splitsOnlyAlongItsOwnAxis() {
+        XCTAssertNil(OnboardingFoldSplit(fold: .vertical(leading: 455, trailing: 495), layout: .compact))
+        XCTAssertNil(OnboardingFoldSplit(fold: .horizontal(top: 455, bottom: 495), layout: .compact))
+        XCTAssertNil(OnboardingFoldSplit(fold: .horizontal(top: 455, bottom: 495), layout: .landscape))
+        XCTAssertNil(OnboardingFoldSplit(fold: .vertical(leading: 455, trailing: 495), layout: .regular))
+    }
 }
