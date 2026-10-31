@@ -226,11 +226,13 @@ Shared pieces are in `Shared/Components/Onboarding/`.
   every measured device size.
 - **Portrait-only on a phone-sized screen**: shorter side under 600pt
   (`RotationLock.isPhoneSized`), keyed on the screen, not the idiom, because a
-  foldable iPhone is both (outer 466pt, inner 669pt held landscape). **Known
-  gap, parked until that hardware ships**: unfolding after folding releases
-  the lock but iOS leaves the interface sideways until the device turns;
-  `requestGeometryUpdate(.all)` didn't move it and `UIDevice.orientation`
-  reads `.portrait` on the inner screen.
+  foldable iPhone is both (outer 466pt, inner 669pt held landscape). **The
+  lock asks the scene to rotate only from sideways**
+  (`RotationLock.needsRotationToPortrait`): a `requestGeometryUpdate(.portrait)`
+  made while already upright outlived the lock, so unfolding left the inner
+  screen sideways, onboarding and the signed-in app alike, until a relaunch
+  (fixed 2026-10-31). A closed Duo held sideways through onboarding still
+  makes the request; not reproduced, since XCUIDevice can't turn the Duo.
 - **The welcome shows once** (`ServerSessionStore.hasCompletedWelcome`): "Get
   Started", or having ever configured a server. `clearAll()` leaves it set,
   so changing server never replays it. UI tests skip it with

@@ -86,11 +86,26 @@ enum RotationLock {
     /// landscape composition worth having: a phone on its side leaves a
     /// two-line strip for the content under the keyboard. Released with
     /// `unlock()`.
+    ///
+    /// Asks the scene to rotate only when it isn't portrait already
+    /// (`needsRotationToPortrait`). The request outlives the lock: made on an
+    /// iPhone Duo's outer screen, it kept the interface portrait after the
+    /// phone unfolded, so the inner screen held wide showed the app sideways,
+    /// onboarding and everything after it, until a relaunch (2026-10-31).
     @MainActor
     static func lockToPortrait() {
         mask = .portrait
         notifyUIKit()
-        keyWindowScene?.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
+        // duo-lint:disable-next-line DUO002 -- asks whether a rotation is needed, not layout
+        guard let scene = keyWindowScene, needsRotationToPortrait(scene.effectiveGeometry.interfaceOrientation) else { return }
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
+    }
+
+    /// Whether the portrait lock has to ask the scene to rotate: only when
+    /// the interface is sideways (or not yet known), never when it's
+    /// portrait already. See `lockToPortrait()`.
+    static func needsRotationToPortrait(_ orientation: UIInterfaceOrientation) -> Bool {
+        !orientation.isPortrait
     }
 
     /// Restores free rotation (within whatever this device's own

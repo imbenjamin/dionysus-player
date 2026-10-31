@@ -248,6 +248,30 @@ final class AuthJourneyTests: UITestCase {
         )
     }
 
+    /// On a phone held sideways, the pre-sign-in journey still turns upright:
+    /// it's portrait-only on a phone-sized screen. The portrait lock now asks
+    /// the scene to rotate only from sideways (`RotationLock.lockToPortrait`),
+    /// so this guards the case that still needs the request. Skipped on iPad
+    /// (not phone-sized, so never locked) and on the iPhone Duo, which
+    /// `XCUIDevice` can't turn.
+    func testOnboardingTurnsUprightOnASidewaysPhone() throws {
+        try skipWhereXCUIDeviceCannotRotate()
+        guard UIDevice.current.userInterfaceIdiom == .phone else {
+            throw XCTSkip("Onboarding is only portrait-locked on a phone-sized screen.")
+        }
+        let device = XCUIDevice.shared
+        addTeardownBlock { @MainActor in device.orientation = .portrait }
+        device.orientation = .landscapeLeft
+
+        launch(signedIn: false)
+        ServerSetupScreen(app: app).manualEntryButton.awaitExistence("server setup's Enter Address Manually button")
+
+        let window = app.windows.firstMatch
+        let upright = NSPredicate { _, _ in window.frame.height > window.frame.width }
+        let result = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: upright, object: nil)], timeout: Self.defaultTimeout)
+        XCTAssertEqual(result, .completed, "Server setup should be portrait on a sideways phone, but the window is \(window.frame.size).")
+    }
+
     /// Someone the server doesn't list signs in by name from "Other".
     func testOtherUserSignsInByName() {
         launch(signedIn: false)
