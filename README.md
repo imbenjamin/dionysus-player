@@ -65,6 +65,15 @@ sets (see [Store screenshots](#store-screenshots)).
   <img src="store-screenshots/appstore-iphone-69/06.png" alt="Home in light appearance" width="19%">
 </p>
 
+**iPhone Duo**
+
+<p align="center">
+  <img src="store-screenshots/appstore-iphone-duo/01.png" alt="A movie's page as a two-page spread on the open phone" height="240">
+  <img src="store-screenshots/appstore-iphone-duo/02.png" alt="The player in tabletop: picture above the fold, controls below" height="240">
+  <img src="store-screenshots/appstore-iphone-duo/03.png" alt="Home in tabletop, its hero ending at the fold" height="240">
+  <img src="store-screenshots/appstore-iphone-duo/06.png" alt="Home on the closed phone's outer display" height="240">
+</p>
+
 **Apple TV**
 
 <p align="center">
@@ -466,8 +475,10 @@ changes.
 
 [`store-screenshots/`](store-screenshots) holds the App Store Connect
 screenshot sets — one folder per required size (`appstore-iphone-69`,
-`appstore-iphone-65`, `appstore-ipad-13`, six PNGs each, and
-`appstore-appletv`, seven at 1920×1080), at exact store pixel dimensions.
+`appstore-iphone-65`, `appstore-ipad-13`, six PNGs each;
+`appstore-iphone-duo`, six at the size of the display each shows; and
+`appstore-appletv`, seven at 1920×1080), at exact store pixel dimensions and
+with no alpha channel, which App Store Connect rejects.
 Every slide is a real screenshot of the running app
 (against the [Jellyfin demo server](https://demo.jellyfin.org/stable), so
 no personal library content or credentials appear in them) framed and
@@ -488,15 +499,30 @@ Producing a set is two steps:
    complete/in-progress items, and Home again in the opposite appearance.
    Name them to match `Scripts/store-screenshots/gen.py`'s `SLIDES` list
    (`01-home.png` … `06-light.png`) into `<raw>/iphone/` and `<raw>/ipad/`.
+   Use iOS 27 Simulators (the current set: iPhone 18 Pro Max, 1320×2868, and
+   iPad Air 13-inch (M4), 2048×2732): Xcode's MCP device tools, which drive
+   the taps, only accept iOS 27 runtimes.
+
+   For the iPhone Duo, name the captures to match `gen.py`'s `DUO_SLIDES`
+   into `<raw>/duo/`: the inner display held wide (2853×2007) or tall
+   (2007×2853), or the outer display (1398×2034). Set poses with
+   `Scripts/duo-pose/set-duo-pose.sh` (or Duology's `duo-pose`), and capture
+   one display at a time with `xcrun simctl io <udid> screenshot
+   --display=primary-1` (inner) or `--display=primary` (outer); both save
+   upright and both show the `status_bar override`. Xcode's taps only land
+   inside the outer display's 466×678pt area, so navigate on the closed
+   phone, then unfold: the app keeps its screen. Launch fresh on the closed
+   phone rather than signing in there, or the app stays tall when unfolded.
 
    For the Apple TV, sign the tvOS Simulator in to the demo server and
    capture with `xcrun simctl io <udid> screenshot` (no status bar or
    rotation to deal with): Home's hero, the Movies grid, a movie page, a
    show page, the player paused with its swipe-down panel on Info, Search
    with results, and Who's Watching?. Name them to match `gen.py`'s
-   `TV_SLIDES` into `<raw>/appletv/`. The captures used for the current set
-   are kept, downscaled to 1920×1080, in
-   [`store-screenshots/raw/appletv/`](store-screenshots/raw/appletv).
+   `TV_SLIDES` into `<raw>/appletv/`. The captures used for the current sets
+   are kept in [`store-screenshots/raw/`](store-screenshots/raw), the Apple
+   TV's downscaled to 1920×1080, so a set can be re-rendered without
+   capturing again.
 2. **Render the store PNGs**:
    ```sh
    ./Scripts/render-store-screenshots.sh <raw-dir> store-screenshots
@@ -505,9 +531,11 @@ Producing a set is two steps:
    snapshot tool — no Chrome/Node dependency) and runs `gen.py` to lay each
    raw screenshot into a CSS-drawn device frame (none for the Apple TV,
    whose screenshot is the whole screen) over a brand-gradient background
-   with a headline/subcopy pair, then renders each slide to a PNG at the
-   exact size App Store Connect expects. Each set renders only if its raw
-   folder is there, so the Apple TV set can be redone on its own.
+   with a headline/subcopy pair, then renders each slide to an opaque PNG
+   at the exact size App Store Connect expects (the Duo's open phone gets a
+   faint crease where the fold is). Each set renders only if its raw folder
+   is there, so one set can be redone on its own; the closing report lists
+   each file's size and whether it has an alpha channel.
 
 Update the headline/subcopy text or the backdrop palette in `gen.py`
 directly; re-run the render script to regenerate. See that file's own
