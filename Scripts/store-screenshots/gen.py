@@ -57,6 +57,109 @@ TV_SLIDES = [
 ]
 
 
+# The iPhone Duo set (one APP_IPHONE_DUO set takes both displays). Each
+# slide names the display and how the phone was held when it was captured:
+# "wide" is the inner display held wide (open flat or book, 2853x2007),
+# "tall" the inner display held tall (tabletop, 2007x2853), "outer" the
+# closed phone (1398x2034). The canvas takes the capture's shape, so a slide
+# renders at the size of the display it shows.
+DUO_SLIDES = [
+    dict(shot="01-spread.png",          held="wide",  head="Every title,<br>a two-page spread",  sub="Designed for iPhone Duo"),
+    dict(shot="02-tabletop-player.png", held="tall",  head="Stand it up<br>and watch",          sub="Picture up top, controls below the fold"),
+    dict(shot="03-tabletop-home.png",   held="tall",  head="Your library,<br>folded just right", sub="The fold falls in the gap"),
+    dict(shot="04-grid.png",            held="wide",  head="Find it in seconds",                sub="Genre, studio, decade — stacked"),
+    dict(shot="05-settings.png",        held="wide",  head="Settings,<br>side by side",          sub="List and detail on one screen"),
+    dict(shot="06-closed-home.png",     held="outer", head="Closed, it’s all<br>still here",     sub="The whole app on the outer display"),
+]
+
+DUO_SIZES = {"wide": (2853, 2007), "tall": (2007, 2853), "outer": (1398, 2034)}
+
+
+def build_duo(idx, slide, outdir):
+    """An iPhone Duo slide: the series backdrop and copy over a CSS-drawn
+    Duo. The open phone gets a faint crease down (held wide) or across
+    (held tall) its middle, where the fold is, so it reads as a foldable
+    without drawing anything the app doesn't show."""
+    held = slide["held"]
+    W, H = DUO_SIZES[held]
+    c1, c2 = BACKDROPS[idx % len(BACKDROPS)]
+    sw, sh = DUO_SIZES[held]
+    # Sized so the copy and the phone both fit with room to breathe: by
+    # width held wide, by height on the portrait canvases, where a
+    # width-led phone ran off the bottom.
+    if held == "wide":
+        dev_w = round(W * 0.66)
+        dev_h = round(dev_w * sh / sw)
+        head_size, sub_size = round(H * 0.058), round(H * 0.028)
+    else:
+        dev_h = round(H * 0.655)
+        dev_w = round(dev_h * sw / sh)
+        head_size, sub_size = round(W * 0.082), round(W * 0.037)
+    radius = round(min(dev_w, dev_h) * (0.06 if held != "outer" else 0.12))
+    bezel = round(min(dev_w, dev_h) * 0.022)
+    inner = radius - bezel
+    if held == "wide":
+        crease = (f'<div class="crease" style="left:50%;top:{bezel}px;bottom:{bezel}px;width:{max(3, round(dev_w*0.0016))}px;'
+                  f'transform:translateX(-50%);background:linear-gradient(90deg,rgba(0,0,0,.30),rgba(255,255,255,.16),rgba(0,0,0,.30))"></div>')
+    elif held == "tall":
+        crease = (f'<div class="crease" style="top:50%;left:{bezel}px;right:{bezel}px;height:{max(3, round(dev_h*0.0016))}px;'
+                  f'transform:translateY(-50%);background:linear-gradient(180deg,rgba(0,0,0,.30),rgba(255,255,255,.16),rgba(0,0,0,.30))"></div>')
+    else:
+        crease = ""
+    if held == "wide":
+        copy = f'<div class="copy wide"><div><div class="rule"></div><h1>{slide["head"]}</h1></div><p>{slide["sub"]}</p></div>'
+        layout = f"justify-content:center;padding-top:{round(H*0.02)}px"
+    else:
+        copy = f'<div class="copy"><div class="rule"></div><h1>{slide["head"]}</h1><p>{slide["sub"]}</p></div>'
+        layout = f"justify-content:space-between;padding-bottom:{round(H*0.045)}px"
+
+    html = f'''<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  *{{margin:0;padding:0;box-sizing:border-box}}
+  body{{
+    width:{W}px;height:{H}px;overflow:hidden;position:relative;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 92%, rgba(214,13,102,.42), transparent 70%),
+      linear-gradient(163deg, {c1} 0%, {c2} 68%, #0B0004 100%);
+    font-family:-apple-system,"SF Pro Display","Helvetica Neue",sans-serif;
+    display:flex;flex-direction:column;align-items:center;{layout};
+  }}
+  body::after{{
+    content:"";position:absolute;left:50%;top:{round(H*0.40)}px;transform:translateX(-50%);
+    width:{round(max(W, H)*0.9)}px;height:{round(max(W, H)*0.75)}px;border-radius:50%;
+    background:radial-gradient(circle, rgba(240,140,0,.14), transparent 65%);
+    pointer-events:none;
+  }}
+  .copy{{text-align:center;padding:{round(H*0.055)}px {round(W*0.075)}px 0;position:relative;z-index:2}}
+  .copy.wide{{width:{dev_w}px;padding:0 0 {round(H*0.04)}px;text-align:left;
+    display:flex;align-items:flex-end;justify-content:space-between;gap:{round(W*0.03)}px}}
+  .rule{{
+    width:{round(min(W, H)*0.115)}px;height:{max(8,round(min(W, H)*0.0075))}px;margin:0 auto {round(min(W, H)*0.035)}px;
+    border-radius:99px;background:linear-gradient(90deg,{MAGENTA},{ROSE_GOLD});
+  }}
+  .copy.wide .rule{{margin:0 0 {round(H*0.025)}px}}
+  .copy h1{{font-size:{head_size}px;font-weight:800;line-height:1.08;color:#fff;letter-spacing:-{round(head_size*0.022)}px}}
+  .copy p{{font-size:{sub_size}px;font-weight:500;line-height:1.3;margin-top:{round(min(W, H)*0.025)}px;color:rgba(255,255,255,.74)}}
+  .copy.wide p{{text-align:right;margin:0;padding-bottom:{round(H*0.008)}px}}
+  .device{{
+    width:{dev_w}px;height:{dev_h}px;border-radius:{radius}px;padding:{bezel}px;
+    position:relative;background:#0C0C10;z-index:1;
+    box-shadow:0 {round(H*0.03)}px {round(H*0.08)}px rgba(0,0,0,.55),
+               inset 0 0 0 {max(3,round(min(W, H)*0.0035))}px #3A3A40;
+  }}
+  .device img{{width:100%;height:100%;object-fit:cover;display:block;border-radius:{inner}px}}
+  .crease{{position:absolute;z-index:2;pointer-events:none}}
+</style></head>
+<body>
+  {copy}
+  <div class="device"><img src="./{slide["shot"]}">{crease}</div>
+</body></html>'''
+    path = os.path.join(outdir, f"slide{idx + 1}.html")
+    with open(path, "w") as f:
+        f.write(html)
+    return path, W, H
+
+
 def build_tv(idx, slide, W, H, outdir):
     """An Apple TV slide: headline top left, the capture large and low."""
     c1, c2 = BACKDROPS[idx % len(BACKDROPS)]
@@ -232,6 +335,14 @@ if __name__ == "__main__":
               file=sys.stderr)
         sys.exit(2)
     kind, W, H, outdir, only = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5]
+    if kind == "duo":
+        # Each slide's size follows its capture (DUO_SIZES), so the width and
+        # height arguments are ignored; each line prints "path width height".
+        os.makedirs(outdir, exist_ok=True)
+        idxs = range(len(DUO_SLIDES)) if only == "all" else [int(only)]
+        for i in idxs:
+            print(*build_duo(i, DUO_SLIDES[i], outdir))
+        sys.exit(0)
     os.makedirs(outdir, exist_ok=True)
     slides = TV_SLIDES if kind == "appletv" else SLIDES
     idxs = range(len(slides)) if only == "all" else [int(only)]
