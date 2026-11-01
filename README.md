@@ -533,7 +533,9 @@ Producing a set is two steps:
    whose screenshot is the whole screen) over a brand-gradient background
    with a headline/subcopy pair, then renders each slide to an opaque PNG
    at the exact size App Store Connect expects (the Duo's open phone gets a
-   faint crease where the fold is). Each set renders only if its raw folder
+   faint crease where the fold is; a slide marked `pose="book"` or
+   `pose="tabletop"` in `DUO_SLIDES` shows the phone folded in 3D instead,
+   projected with Pillow, so `pip3 install Pillow` first). Each set renders only if its raw folder
    is there, so one set can be redone on its own; the closing report lists
    each file's size and whether it has an alpha channel.
 

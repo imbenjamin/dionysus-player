@@ -9,6 +9,7 @@ each file to a PNG with shot.swift to get the final store-ready image.
 See Scripts/render-store-screenshots.sh for the usual entry point — this
 script is normally invoked by that wrapper, not run directly.
 """
+import math
 import os, sys
 
 # Brand palette, straight from DionysusPlayer/Shared/BrandColors.swift.
@@ -65,9 +66,9 @@ TV_SLIDES = [
 # renders at the size of the display it shows.
 DUO_SLIDES = [
     dict(shot="01-spread.png",          held="wide",  head="Every title,<br>a two-page spread",  sub="Designed for iPhone Duo"),
-    dict(shot="02-tabletop-player.png", held="tall",  head="Stand it up<br>and watch",          sub="Picture up top, controls below the fold"),
-    dict(shot="03-tabletop-home.png",   held="tall",  head="Your library,<br>folded just right", sub="The fold falls in the gap"),
-    dict(shot="04-grid.png",            held="wide",  head="Find it in seconds",                sub="Genre, studio, decade — stacked"),
+    dict(shot="02-tabletop-player.png", held="tall",  pose="tabletop", head="Stand it up<br>and watch",          sub="Picture up top, controls below the fold"),
+    dict(shot="03-tabletop-home.png",   held="tall",  pose="tabletop", head="Your library,<br>folded just right", sub="The fold falls in the gap"),
+    dict(shot="04-grid.png",            held="wide",  pose="book", head="Find it in seconds",                sub="Genre, studio, decade — stacked"),
     dict(shot="05-settings.png",        held="wide",  head="Settings,<br>side by side",          sub="List and detail on one screen"),
     dict(shot="06-closed-home.png",     held="outer", head="Closed, it’s all<br>still here",     sub="The whole app on the outer display"),
 ]
@@ -154,10 +155,126 @@ def build_duo(idx, slide, outdir):
   {copy}
   <div class="device"><img src="./{slide["shot"]}">{crease}</div>
 </body></html>'''
+    if slide.get("pose") in ("book", "tabletop"):
+        html = html.replace(
+            f'<div class="device"><img src="./{slide["shot"]}">{crease}</div>',
+            folded_device(slide["pose"], slide["shot"], dev_w, dev_h, radius, bezel, W, H, outdir, idx))
     path = os.path.join(outdir, f"slide{idx + 1}.html")
     with open(path, "w") as f:
         f.write(html)
     return path, W, H
+
+
+# The folded poses. Book: each half turns BOOK_ANGLE toward the viewer about
+# the vertical fold. Tabletop: the top half leans back TABLETOP_BACK, the
+# bottom half tips TABLETOP_BASE toward the viewer, like a laptop's base, and
+# the eye sits a little above. Angles in degrees; the eye's distance is in
+# multiples of the phone's longer side.
+BOOK_ANGLE = 24
+TABLETOP_BACK = 10
+TABLETOP_BASE = 50
+FOLD_EYE = 2.2
+
+
+def _solve(m, v):
+    """Gaussian elimination for the small linear systems _perspective needs."""
+    n = len(v)
+    a = [row[:] + [v[i]] for i, row in enumerate(m)]
+    for c in range(n):
+        p = max(range(c, n), key=lambda r: abs(a[r][c]))
+        a[c], a[p] = a[p], a[c]
+        for r in range(n):
+            if r != c:
+                f = a[r][c] / a[c][c]
+                a[r] = [x - f * y for x, y in zip(a[r], a[c])]
+    return [a[i][n] / a[i][i] for i in range(n)]
+
+
+def _perspective(dst, src):
+    """Pillow's PERSPECTIVE coefficients mapping each dst corner to its src."""
+    m, v = [], []
+    for (x, y), (u, w) in zip(dst, src):
+        m.append([x, y, 1, 0, 0, 0, -u * x, -u * y]); v.append(u)
+        m.append([0, 0, 0, x, y, 1, -w * x, -w * y]); v.append(w)
+    return _solve(m, v)
+
+
+def folded_device(pose, shot, dev_w, dev_h, radius, bezel, W, H, outdir, idx):
+    """The open phone partly folded, in book pose (held wide, folded about
+    the vertical fold) or tabletop (held tall, standing on its bottom half),
+    the two halves seen in perspective. WKWebView's snapshot flattens CSS 3D
+    transforms to 2D, so the projection is done here with Pillow and the
+    slide shows the result as an image. Each half carries its own half of
+    the one capture, so the screen is still the app's real pixels; the
+    shading only darkens it toward the fold, as a page does in a book."""
+    from PIL import Image, ImageDraw
+    k = 2  # drawn at twice the size, then downscaled, for smooth edges
+    w, h, r, b = dev_w * k, dev_h * k, radius * k, bezel * k
+    book = pose == "book"
+    flat = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(flat)
+    d.rounded_rectangle([0, 0, w - 1, h - 1], r, fill=(12, 12, 16, 255),
+                        outline=(58, 58, 64, 255), width=max(3, round(min(w, h) * 0.0035)))
+    screen = Image.open(os.path.join(outdir, shot)).convert("RGBA").resize((w - 2 * b, h - 2 * b), Image.LANCZOS)
+    mask = Image.new("L", screen.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, screen.width - 1, screen.height - 1], r - b, fill=255)
+    flat.paste(screen, (b, b), mask)
+    # Shading: each half darkens toward the fold, the first more than the second.
+    length = w if book else h
+    half = length // 2
+    shade = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shade)
+    for i in range(length):
+        t = abs(i - half) / half  # 0 at the fold, 1 at the outer edge
+        a = round(80 * max(0.0, 1 - t / 0.5) ** 2) if i < half else round(50 * max(0.0, 1 - t / 0.4) ** 2)
+        sd.line([(i, 0), (i, h)] if book else [(0, i), (w, i)], fill=(0, 0, 0, a))
+    flat = Image.alpha_composite(flat, Image.composite(shade, Image.new("RGBA", (w, h)), flat.getchannel("A")))
+
+    # Each half in 3D, the fold through the origin, z toward the eye.
+    eye = FOLD_EYE * max(w, h)
+    eye_y = 0 if book else -0.35 * h  # tabletop is seen from a little above
+    def proj(x, y, z):
+        s = eye / (eye - z)
+        return x * s, eye_y + (y - eye_y) * s
+    pages = []
+    if book:
+        th = math.radians(BOOK_ANGLE)
+        for side in (-1, 1):
+            ox, oz = side * half * math.cos(th), half * math.sin(th)
+            quad = [proj(0, -h / 2, 0), proj(ox, -h / 2, oz), proj(ox, h / 2, oz), proj(0, h / 2, 0)]
+            src = ([(half, 0), (0, 0), (0, h), (half, h)] if side < 0
+                   else [(0, 0), (half, 0), (half, h), (0, h)])
+            pages.append((quad, src, flat.crop((0, 0, half, h) if side < 0 else (half, 0, w, h))))
+    else:
+        back, base = math.radians(TABLETOP_BACK), math.radians(TABLETOP_BASE)
+        ty, tz = -half * math.cos(back), -half * math.sin(back)
+        by, bz = half * math.cos(base), half * math.sin(base)
+        top = [proj(-w / 2, ty, tz), proj(w / 2, ty, tz), proj(w / 2, 0, 0), proj(-w / 2, 0, 0)]
+        bottom = [proj(-w / 2, 0, 0), proj(w / 2, 0, 0), proj(w / 2, by, bz), proj(-w / 2, by, bz)]
+        corners = [(0, 0), (w, 0), (w, half), (0, half)]
+        pages.append((top, corners, flat.crop((0, 0, w, half))))
+        pages.append((bottom, corners, flat.crop((0, half, w, h))))
+    xs = [x for q, _, _ in pages for x, _ in q]
+    ys = [y for q, _, _ in pages for _, y in q]
+    minx, miny = min(xs), min(ys)
+    cw, ch = math.ceil(max(xs) - minx), math.ceil(max(ys) - miny)
+    out = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+    for quad, src, crop in pages:
+        dst = [(x - minx, y - miny) for x, y in quad]
+        warped = crop.transform((cw, ch), Image.PERSPECTIVE, _perspective(dst, src), Image.BICUBIC)
+        out = Image.alpha_composite(out, warped)
+    # Held wide, as wide as the flat phone. Held tall, no taller than it,
+    # and as wide as the canvas allows: tabletop is shorter than the flat
+    # phone, and its widening base is what limits it.
+    scale = dev_w / cw if book else min(dev_h / ch, W * 0.86 / cw)
+    out = out.resize((round(cw * scale), round(ch * scale)), Image.LANCZOS)
+    name = f"slide{idx + 1}-{pose}.png"
+    out.save(os.path.join(outdir, name))
+    return (f'<div style="position:relative;z-index:1;width:{out.width}px;height:{out.height}px">'
+            f'<div style="position:absolute;left:6%;right:6%;bottom:-{round(dev_h*0.05)}px;height:{round(dev_h*0.1)}px;'
+            f'border-radius:50%;background:radial-gradient(ellipse at center, rgba(0,0,0,.6), transparent 70%);'
+            f'filter:blur({round(dev_h*0.02)}px)"></div>'
+            f'<img src="./{name}" style="position:relative;width:100%;height:100%;display:block"></div>')
 
 
 def build_tv(idx, slide, W, H, outdir):
