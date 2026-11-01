@@ -676,6 +676,13 @@ capture-then-render workflow. What the scripts don't say:
 - **Go easy on the demo server's downloads**: ten parallel transcodes across
   two Simulators coincided with it answering 503 (2026-10-31). Download the
   short Caminandes films, one Simulator at a time.
+- **Book and tabletop slides show the phone folded in 3D** (`pose=` in
+  `DUO_SLIDES`; Benjamin, 2026-11-01), the capture split at the fold and
+  each half turned (`BOOK_ANGLE`, `TABLETOP_BACK`/`TABLETOP_BASE`).
+  `shot.swift`'s WKWebView snapshot flattens CSS 3D transforms to 2D, so
+  `gen.py` projects them itself with Pillow and places the result as an
+  image; don't move it back to CSS. Capture book slides in book pose: the
+  grid's fold split only shows there, not open flat.
 - **The Apple TV set** (`appstore-appletv`, `gen.py`'s `TV_SLIDES`, no device
   frame) is captured with `xcrun simctl io <udid> screenshot`, which works on
   tvOS with no rotation or status bar to handle; the 4K Simulator saves
