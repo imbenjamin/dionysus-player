@@ -17,6 +17,16 @@ from `topSection`'s position fed back into that padding and locked the main
 thread when folding back from tabletop. The root `CLAUDE.md`, "iPhone Duo: the
 fold", has the rest.
 
+## Seeking: exact or nearest keyframe
+
+Since AetherEngine 7.54.0 a plain seek of AV1 on the software route lands on
+the nearest keyframe (up to 10 s either way, at most half the seek's distance,
+never past the playhead), which brings the picture back in well under a second
+on an A15 Apple TV. Every other route is exact either way. **A jump to a place
+that means something passes `exact: true`** (`PlaybackEngine.seek(to:exact:)`):
+Skip Intro/Credits, a chapter, and a resume, where a late landing would skip
+what the viewer hasn't seen. A scrub, a 10 s skip and Restart stay plain.
+
 ## Picture in Picture
 
 PiP is wired for AetherEngine's native (AVPlayer) route only, which covers

@@ -85,7 +85,7 @@ final class TVPlayerAccessibleTransportTests: XCTestCase, TVPlayerInputModelHarn
 
     func test_chapterRow_seeksPlaysAndCloses() {
         send(.control(.openPanel(.chapters)))
-        XCTAssertEqual(send(.control(.panelRow(2))), [.seek(2700), .play])
+        XCTAssertEqual(send(.control(.panelRow(2))), [.seekExact(2700), .play])
         XCTAssertNil(state.panel)
     }
 

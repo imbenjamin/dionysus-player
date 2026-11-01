@@ -61,7 +61,7 @@ final class TVPlayerPanelTests: XCTestCase, TVPlayerInputModelHarness {
         press(.right)
         press(.right)
         XCTAssertEqual(state.panel?.focus, .content(3), "Stops at the last")
-        XCTAssertEqual(send(.select), [.seek(4050), .play])
+        XCTAssertEqual(send(.select), [.seekExact(4050), .play])
         XCTAssertNil(state.panel)
     }
 

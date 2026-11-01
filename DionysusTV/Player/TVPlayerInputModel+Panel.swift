@@ -183,7 +183,7 @@ extension TVPlayerInputModel {
             return ([.seek(0), .play], true)
         case .chapters:
             guard context.chapterStarts.indices.contains(index) else { return ([], false) }
-            return ([.seek(context.chapterStarts[index]), .play], true)
+            return ([.seekExact(context.chapterStarts[index]), .play], true)
         case .audio:
             switch audioRow(at: index, context) {
             case .track(let track):

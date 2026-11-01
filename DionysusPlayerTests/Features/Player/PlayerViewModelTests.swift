@@ -735,6 +735,7 @@ final class PlayerViewModelTests: XCTestCase {
         await viewModel.start()
 
         XCTAssertEqual(engine.seekedTimes, [30])
+        XCTAssertEqual(engine.exactSeekedTimes, [30], "A late landing would skip what the viewer hasn't seen")
         XCTAssertEqual(engine.playCallCount, 1)
     }
 
@@ -2079,6 +2080,16 @@ final class PlayerViewModelTests: XCTestCase {
         viewModel.skipSegment(segment)
 
         try await waitUntil { engine.seekedTimes.contains(60) }
+        XCTAssertEqual(engine.exactSeekedTimes, [60], "The end of an intro must not land on a nearby keyframe")
+    }
+
+    func test_seek_byDefault_mayLandOnANearbyKeyframe() async throws {
+        let (viewModel, engine) = makeViewModel()
+
+        viewModel.seek(to: 42)
+
+        try await waitUntil { engine.seekedTimes.contains(42) }
+        XCTAssertEqual(engine.exactSeekedTimes, [])
     }
 
     /// `SkipSegmentOverlay`'s swipe/close-button dismiss — same "hide the

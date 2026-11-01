@@ -116,7 +116,11 @@ protocol PlaybackEngine: AnyObject {
     func play()
     func pause()
     func togglePlayPause()
-    func seek(to time: TimeInterval) async
+    /// `exact: false` lets a route land on a nearby keyframe (AV1 on the
+    /// software route, up to 10s either way) so the picture comes back sooner.
+    /// A jump to a place that means something passes `true`: the end of an
+    /// intro, a chapter mark, a resume point.
+    func seek(to time: TimeInterval, exact: Bool) async
     func stop()
 
     func selectAudioTrack(id: Int)

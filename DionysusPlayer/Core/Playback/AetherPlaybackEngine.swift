@@ -826,13 +826,13 @@ final class AetherPlaybackEngine: PlaybackEngine {
     ///
     /// `seekWatchdogGeneration` stops a superseded seek's watchdog firing
     /// against a stale `time`: only the latest call's may act.
-    func seek(to time: TimeInterval) async {
+    func seek(to time: TimeInterval, exact: Bool) async {
         // A seek is a real position, zero included: it supersedes the stand-in.
         pausedRebuildAnchor = nil
         seekWatchdogGeneration += 1
         let generation = seekWatchdogGeneration
         seekWatchdogTask?.cancel()
-        await engine.seek(to: time)
+        await engine.seek(to: time, exact: exact)
         seekWatchdogTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(Self.seekWatchdogTimeout))
             guard !Task.isCancelled, let self, generation == self.seekWatchdogGeneration else { return }

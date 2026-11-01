@@ -26,11 +26,15 @@ final class TVPlayerCommandRunnerTests: XCTestCase {
 
         runner.run([.pause, .play, .togglePlayPause, .seek(42), .selectAudio(id: 3), .selectSubtitle(id: nil), .playNext, .close])
         try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(engine.exactSeekedTimes, [])
+        runner.run([.seekExact(60)])
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(engine.exactSeekedTimes, [60])
 
         XCTAssertEqual(engine.pauseCallCount, 1)
         XCTAssertEqual(engine.playCallCount, 1)
         XCTAssertEqual(engine.togglePlayPauseCallCount, 1)
-        XCTAssertEqual(engine.seekedTimes, [42])
+        XCTAssertEqual(engine.seekedTimes, [42, 60])
         XCTAssertEqual(engine.selectedAudioTrackIDs, [3])
         XCTAssertEqual(engine.selectedSubtitleTrackIDs, [nil])
         XCTAssertEqual(advanced, 1)
