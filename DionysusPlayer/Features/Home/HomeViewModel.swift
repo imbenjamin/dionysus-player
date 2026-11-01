@@ -381,7 +381,10 @@ final class HomeViewModel {
                 guard item.id == target.itemID else { return item }
                 let fetchedTicks = item.dto.userData?.playbackPositionTicks ?? 0
                 let played = item.dto.userData?.played ?? false
-                let caughtUp = fetchedTicks >= target.ticks - Self.optimisticPositionTolerance || played
+                // Played with no position is finished; played with one is a
+                // rewatch, whose position still has to catch up.
+                let finished = played && fetchedTicks == 0
+                let caughtUp = fetchedTicks >= target.ticks - Self.optimisticPositionTolerance || finished
                 if caughtUp {
                     // Jellyfin commits `playbackPositionTicks` and
                     // `playedPercentage` at different times, so a fetch whose
@@ -389,9 +392,8 @@ final class HomeViewModel {
                     // (notably after a backward scrub). `MediaItem.playedFraction`
                     // prefers the raw percentage, which would regress the
                     // progress bar, so recompute it from this fetch's ticks.
-                    // Skipped when `played`: the server resets position then,
-                    // and `hasResumeProgress` already gates on `!isPlayed`.
-                    guard !played, let runTimeTicks = item.dto.runTimeTicks, runTimeTicks > 0 else { return item }
+                    // Skipped when finished: the server has reset the position.
+                    guard !finished, let runTimeTicks = item.dto.runTimeTicks, runTimeTicks > 0 else { return item }
                     return item.withOptimisticPlaybackPosition(
                         seconds: Double(fetchedTicks) / 10_000_000, duration: Double(runTimeTicks) / 10_000_000
                     )

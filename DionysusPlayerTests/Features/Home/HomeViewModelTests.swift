@@ -1396,6 +1396,37 @@ final class HomeViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.curatedRails.first?.items.first?.isPlayed, true, "The played fetch should be adopted, not guarded against")
     }
 
+    /// A rewatch is played and has a position, so `played` alone isn't caught
+    /// up: a fetch still carrying the older position mustn't move the bar back.
+    func test_softRefresh_keepsTheNewPositionOfARewatchUntilTheServerCatchesUp() async {
+        let viewModel = makeViewModel()
+        let rewatch = BaseItemDto(
+            id: "resume-1", name: "Rewatch", type: .movie, runTimeTicks: 7200 * 10_000_000,
+            userData: UserItemDataDto(playbackPositionTicks: 100 * 10_000_000, playedPercentage: nil, played: true)
+        )
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Items/Resume":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [rewatch], totalRecordCount: 1))
+            case "/Users/user-1/Items/Latest":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]())
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        await viewModel.load()
+
+        RecentPlaybackBroadcaster.shared.record(
+            PlaybackSessionOutcome(itemID: "resume-1", positionSeconds: 3000, durationSeconds: 7200)
+        )
+        await viewModel.softRefresh()
+
+        let item = viewModel.curatedRails.first?.items.first
+        XCTAssertEqual(item?.resumePositionSeconds ?? 0, 3000, accuracy: 1)
+        XCTAssertEqual(item?.isPlayed, true)
+    }
+
     /// `hardRefresh()` shares `consumePendingOptimisticPlaybackPosition()`/
     /// `mergeGuardingAgainstPlaybackRegression(_:)` with `softRefresh()` via
     /// `performFullLoad(resetLoadState:)` — confirm the wiring actually
