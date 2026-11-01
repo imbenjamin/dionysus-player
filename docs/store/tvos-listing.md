@@ -2,7 +2,7 @@
 
 The `TV_OS` version's `en-US` page in App Store Connect (version 1.2.0), kept
 here for the record. The name ("Dionysus Player"), subtitle ("Your media,
-online and offline"), age rating and App Privacy are shared with the iOS app
+native everywhere"), age rating and App Privacy are shared with the iOS app
 and unchanged. Screenshots: `store-screenshots/appstore-appletv/`, uploaded
 to the `APP_APPLE_TV` set in order.
 
@@ -26,7 +26,7 @@ REAL HDR PLAYBACK
 Dionysus decodes Dolby Vision, HDR10, HDR10+ and HLG video. It is not a downscaled or tone-mapped approximation. It works with your Apple TV's Match Content settings, so your TV switches to the right mode for each title. When your server and network support it, you get the same picture quality as the original file, untouched.
 
 DOLBY ATMOS AND DTS:X, HEIGHTS INCLUDED
-Apple TV can't send Dolby TrueHD or DTS-HD Master Audio to a receiver, so most apps play Atmos and DTS:X films as a flat 5.1 mix and lose the overhead channels. Dionysus can decode the height channels and objects and re-encode them as Apple's Spatial Audio, which your Apple TV sends to an Atmos receiver or soundbar as Dolby Atmos. Choose your speaker layout, from 5.1.2 to 9.1.6. Turn it on in Settings → Spatial Audio.
+Apple TV can't send Dolby TrueHD or DTS-HD Master Audio to a receiver, so most apps play Atmos and DTS:X films as a flat 5.1 mix and lose the overhead channels. Dionysus can decode the height channels and objects and re-encode them as Apple's Spatial Audio, which your Apple TV sends to an Atmos receiver or soundbar as Dolby Atmos. Choose your speaker layout, from 5.1.2 to 9.1.6. Turn it on in Profile & Settings → Spatial Audio.
 
 SMART, SERVER-AWARE STREAMING
 The app negotiates with your Jellyfin server every time you press play. It uses Direct Play when your Apple TV can handle the source natively, or a transcode when it can't. The app chooses automatically, or you can force Direct Play if you'd rather control it yourself.
