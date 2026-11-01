@@ -75,6 +75,17 @@ DUO_SLIDES = [
 
 DUO_SIZES = {"wide": (2853, 2007), "tall": (2007, 2853), "outer": (1398, 2034)}
 
+# The closed phone's outer display, from the Simulator's device profile
+# (/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone Duo.simdevicetype,
+# capabilities.plist): 466x678pt, its corners 8pt on the hinge side (left)
+# and 59pt on the other. The camera sits at the top of the vertical status
+# bar, centred in the gap the system leaves above the clock, as wide as the
+# status ring below it; centre and diameter in the capture's pixels
+# (1398x2034), measured from the clock, the ring and the pill's top edge.
+OUTER_PT_W = 466
+OUTER_HINGE_R, OUTER_EDGE_R = 8, 59
+OUTER_CAMERA = dict(x=1254, y=160, d=123)
+
 
 def build_duo(idx, slide, outdir):
     """An iPhone Duo slide: the series backdrop and copy over a CSS-drawn
@@ -96,9 +107,25 @@ def build_duo(idx, slide, outdir):
         dev_h = round(H * 0.655)
         dev_w = round(dev_h * sw / sh)
         head_size, sub_size = round(W * 0.082), round(W * 0.037)
-    radius = round(min(dev_w, dev_h) * (0.06 if held != "outer" else 0.12))
+    radius = round(min(dev_w, dev_h) * 0.06)
     bezel = round(min(dev_w, dev_h) * 0.022)
     inner = radius - bezel
+    # CSS border-radius order: top-left, top-right, bottom-right, bottom-left.
+    dev_r, img_r, camera = f"{radius}px", f"{inner}px", ""
+    if held == "outer":
+        k = (dev_w - 2 * bezel) / OUTER_PT_W
+        hinge, edge = round(OUTER_HINGE_R * k), round(OUTER_EDGE_R * k)
+        img_r = f"{hinge}px {edge}px {edge}px {hinge}px"
+        dev_r = f"{hinge + bezel}px {edge + bezel}px {edge + bezel}px {hinge + bezel}px"
+        # Mapped as the img's object-fit:cover maps the capture, so the
+        # camera stays on the status bar whatever the frame's rounding.
+        sw_px, sh_px = dev_w - 2 * bezel, dev_h - 2 * bezel
+        s = max(sw_px / sw, sh_px / sh)
+        ox, oy = (sw_px - sw * s) / 2, (sh_px - sh * s) / 2
+        d = OUTER_CAMERA["d"] * s
+        camera = (f'<div class="camera" style="width:{d:.1f}px;height:{d:.1f}px;'
+                  f'left:{bezel + ox + OUTER_CAMERA["x"] * s - d / 2:.1f}px;'
+                  f'top:{bezel + oy + OUTER_CAMERA["y"] * s - d / 2:.1f}px"></div>')
     if held == "wide":
         crease = (f'<div class="crease" style="left:50%;top:{bezel}px;bottom:{bezel}px;width:{max(3, round(dev_w*0.0016))}px;'
                   f'transform:translateX(-50%);background:linear-gradient(90deg,rgba(0,0,0,.30),rgba(255,255,255,.16),rgba(0,0,0,.30))"></div>')
@@ -143,17 +170,19 @@ def build_duo(idx, slide, outdir):
   .copy p{{font-size:{sub_size}px;font-weight:500;line-height:1.3;margin-top:{round(min(W, H)*0.025)}px;color:rgba(255,255,255,.74)}}
   .copy.wide p{{text-align:right;margin:0;padding-bottom:{round(H*0.008)}px}}
   .device{{
-    width:{dev_w}px;height:{dev_h}px;border-radius:{radius}px;padding:{bezel}px;
+    width:{dev_w}px;height:{dev_h}px;border-radius:{dev_r};padding:{bezel}px;
     position:relative;background:#0C0C10;z-index:1;
     box-shadow:0 {round(H*0.03)}px {round(H*0.08)}px rgba(0,0,0,.55),
                inset 0 0 0 {max(3,round(min(W, H)*0.0035))}px #3A3A40;
   }}
-  .device img{{width:100%;height:100%;object-fit:cover;display:block;border-radius:{inner}px}}
+  .device img{{width:100%;height:100%;object-fit:cover;display:block;border-radius:{img_r}}}
   .crease{{position:absolute;z-index:2;pointer-events:none}}
+  .camera{{position:absolute;z-index:2;border-radius:50%;
+    background:radial-gradient(circle at 38% 36%, #2A3140 0, #0A0C12 34%, #000 62%)}}
 </style></head>
 <body>
   {copy}
-  <div class="device"><img src="./{slide["shot"]}">{crease}</div>
+  <div class="device"><img src="./{slide["shot"]}">{crease}{camera}</div>
 </body></html>'''
     if slide.get("pose") in ("book", "tabletop"):
         html = html.replace(
