@@ -22,8 +22,8 @@
 A better and open Apple client for Jellyfin.
 
 Dionysus Player is a native client for [Jellyfin](https://jellyfin.org)
-media servers on iPhone, iPad and Apple TV, with macOS to follow. It talks
-to your Jellyfin server over the
+media servers on iPhone (the foldable iPhone Duo included), iPad and Apple
+TV, with macOS to follow. It talks to your Jellyfin server over the
 [Jellyfin REST API](https://api.jellyfin.org/) and plays media using
 [AetherEngine](https://github.com/superuser404notfound/AetherEngine), an
 FFmpeg + VideoToolbox based playback engine with HDR10, HDR10+ and Dolby
@@ -48,6 +48,9 @@ Spatial Audio. See [Spatial Audio](#spatial-audio) below.
 On the Apple TV it aims for the same standard on the big screen: a
 remote-first interface of its own over the iOS app's core, a Top Shelf that
 picks up where you left off, and a profile for everyone in the house.
+
+On the iPhone Duo it lays itself out around the fold rather than across it;
+see [iPhone Duo](#iphone-duo).
 
 ## Screenshots
 
@@ -143,6 +146,25 @@ sets (see [Store screenshots](#store-screenshots)).
   approved from another signed-in client), approving other devices' Quick
   Connect codes from the Account screen, silent session restore, per-server
   config, profile/settings screen.
+
+### iPhone Duo
+
+Every screen works on the closed phone's outer display and the open inner
+one, and keeps your place when the phone folds or unfolds. Partly folded,
+layouts move off the fold:
+
+- **Detail pages** — held wide, the poster fills one page and the details
+  scroll on the other.
+- **Player** — in tabletop the picture sits above the fold and the controls
+  below; in book pose the controls move to the right-hand page.
+- **Home, grids and sign-in** — Home's hero ends at the fold in tabletop,
+  grid columns and filter pills split around it in book pose, and messages
+  and the user picker sit clear of it.
+- **Toolbars** — every button has a symbol, so nothing is lost when the bars
+  move into the Duo's vertical side bar.
+
+The UI tests run on the iPhone Duo Simulator in every pose
+(see [Testing](#testing)).
 
 ### Apple TV
 
@@ -267,21 +289,12 @@ live iPhone testing, not just unit tests. Areas still resting on unit-test
 coverage alone rather than confirmed live: non-Dolby-Vision HDR formats on
 other devices, and some seeking/scrubbing edge cases.
 
-**v1.0.0**, the first final release, was tagged and submitted for Apple App
-Review on 2026-09-07. **v1.1.0** followed on 2026-10-04. It adds styled
-ASS/SSA subtitles, the redesigned welcome and server setup with network
-discovery, Quick Connect, playlist editing, and design polish across the app,
-and it raises the minimum to iOS 18. Its code is exactly what `v1.1.0-beta.2`
-tested.
-
-**The Apple TV app reached a deployable state with v1.2.0-alpha.4**
-(2026-10-16), its first TestFlight build. Every release now builds, tests,
-signs and uploads both apps from the one tag, and the Apple TV app is gated
-on its own full UI suite. It has been checked on an Apple TV 4K (3rd
-generation) on tvOS 27: playback with HDR10, Dolby Vision, HDR10+ and HLG
-sources, the Top Shelf, Now Playing on a paired iPhone, and episode
-hand-offs. Its App Store listing is in preparation; it ships under the same
-App Store record as the iOS app (Universal Purchase).
+**v1.2.0** is the next release, for iPhone, iPad and Apple TV under one App
+Store record (Universal Purchase); v1.0.0 is the version on the App Store
+today. Every release builds, tests, signs and uploads both apps from one
+tag. The Apple TV app is in TestFlight and has been checked on an Apple TV
+4K (3rd generation) on tvOS 27: HDR10, Dolby Vision, HDR10+ and HLG
+playback, the Top Shelf and Now Playing on a paired iPhone.
 
 ## Known limitations
 
@@ -330,7 +343,8 @@ App Store record as the iOS app (Universal Purchase).
 
 ## Requirements
 
-- Xcode 26 or later (the Liquid Glass UI builds against the iOS 26 SDK)
+- Xcode 27.1 (AetherEngine is built and tested only with Xcode 27, and the
+  iPhone Duo's fold needs the iOS 27.1 SDK)
 - iOS/iPadOS 18 or later to run it (AetherEngine 7.x's platform floor), or
   tvOS 26 or later for the Apple TV app
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
@@ -377,9 +391,9 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 `DionysusPlayerUITests` drives the real app in the Simulator with XCUITest,
 against an in-process stub server and a fake playback engine, so journeys
 like "sign in → open a title → play it" are deterministic and run in CI. A
-smoke subset gates every PR on an iPhone and an iPad; the full suite runs
-nightly, on PRs into `stable` and on release tags on both, on iOS 26 and on
-the iOS 18 floor.
+smoke subset gates every PR on an iPhone, an iPad and the iPhone Duo (closed
+and open); the full suite runs nightly, on PRs into `stable` and on release
+tags, on iOS 27, on the iOS 18 floor, and on the Duo in all four poses.
 
 ```sh
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
