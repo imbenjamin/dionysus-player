@@ -2046,6 +2046,32 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.currentSkipSegment)
     }
 
+    /// Two segment providers list the same recap twice, ending 2s apart
+    /// (Benjamin's server, 2026-11-01). Skipping the first used to seek to
+    /// its own end, inside the second, whose button then showed until that
+    /// one ended too. One press now skips both, and nothing comes back.
+    func test_skipSegment_withDuplicateSegments_skipsPastBothAndStaysHidden() async throws {
+        let (viewModel, engine) = makeViewModel()
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Once Upon a Time in the West", type: .episode),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")],
+            mediaSegments: [
+                MediaSegmentDto(id: "recap-short", itemId: "item-1", type: .recap, startTicks: 40_000_000, endTicks: 741_200_000),
+                MediaSegmentDto(id: "recap-long", itemId: "item-1", type: .recap, startTicks: 40_000_000, endTicks: 760_300_000)
+            ]
+        )
+        await viewModel.start()
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+        engine.onTimeUpdate?(30, 3000)
+        let segment = try XCTUnwrap(viewModel.currentSkipSegment)
+
+        viewModel.skipSegment(segment)
+
+        try await waitUntil { engine.seekedTimes.contains { abs($0 - 76.03) < 0.001 } }
+        engine.onTimeUpdate?(75, 3000) // a seek can land short of its target
+        XCTAssertNil(viewModel.currentSkipSegment)
+    }
+
     func test_skipSegment_delegatesToEngineSeekAtSegmentEnd() async throws {
         let (viewModel, engine) = makeViewModel()
         let segment = PlaybackSegment(dto: MediaSegmentDto(id: "seg-1", itemId: "item-1", type: .intro, startTicks: 0, endTicks: 60 * 10_000_000))!

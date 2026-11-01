@@ -151,6 +151,26 @@ final class PlayerJourneyTests: UITestCase {
         player.skipSegmentButton.awaitExistence("Skip Intro, from the top")
     }
 
+    /// One tap skips the intro and the button goes, even though the server
+    /// lists the intro twice with different ends (Benjamin, 2026-11-01: the
+    /// duplicate's button stayed up for a few seconds after the skip).
+    func testSkipIntroSkipsPastADuplicateAndTheButtonStaysGone() {
+        let player = openPlayer(scenario: "skipIntro")
+        player.skipSegmentButton.awaitExistence("Skip Intro")
+        player.skipSegmentButton.tap()
+        func position() -> Double {
+            let parts = ((player.scrubber.value as? String) ?? "").split(separator: ":").compactMap { Double($0) }
+            return parts.count >= 2 ? parts.reduce(0) { $0 * 60 + $1 } : 0
+        }
+        let deadline = Date().addingTimeInterval(8)
+        while position() < 5000, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        XCTAssertGreaterThanOrEqual(position(), 5000, "Skips to 83:20, past both copies")
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        XCTAssertFalse(player.skipSegmentButton.exists, "The intro's duplicate doesn't bring the button back")
+    }
+
     /// A resume reads 0:00 until its seek lands, over an intro it never
     /// plays: no Skip to press by mistake while it's under way (Benjamin,
     /// 2026-10-30). The fake engine holds the seek 3 s; the part-watched

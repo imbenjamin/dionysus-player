@@ -17,8 +17,10 @@ final class PlayerSegmentJourneyTests: TVUITestCase {
         press(.up)
         XCTAssertTrue(waitForPlayerFocus(app, "skip"))
         press(.select)
-        XCTAssertTrue(poll(timeout: 5) { (self.elapsedSeconds(app) ?? 0) >= 5000 }, "Skips to 83:20")
+        XCTAssertTrue(poll(timeout: 5) { (self.elapsedSeconds(app) ?? 0) >= 5000 }, "Skips to 83:20, past both copies")
         XCTAssertTrue(poll(timeout: 3) { !skip.exists })
+        Thread.sleep(forTimeInterval: 2)
+        XCTAssertFalse(skip.exists, "The intro's duplicate doesn't bring the button back")
     }
 
     /// A resume reads 0:00 until its seek lands, over an intro it never
