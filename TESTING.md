@@ -635,6 +635,9 @@ What no suite can reach, and how it was or should be checked.
   Partially Open, then Rotate Right), `Scripts/duo-pose/set-duo-pose.sh
   <udid> <pose>` or `/duology-ship:duo-poses`, and capture the inner display
   with `xcrun simctl io <udid> screenshot --display=primary-1`.
+- **A journey never scrolls with `app.swipeUp()`**: it starts at the window's
+  centre, on the fold in book and tabletop, and scrolls nothing. Settings go
+  through `ProfileScreen.scrollSettings()`; elsewhere, swipe on a row.
 - **The tab bar's tint**: no journey reads a colour, so `TabBarTintTests`
   pins the rule and the look was checked by screenshot (2026-10-27): with
   dark heroes the selected tab stayed burgundy on the Duo open, in book and

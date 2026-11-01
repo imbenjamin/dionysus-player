@@ -321,7 +321,7 @@ final class AccessibilityAuditTests: UITestCase {
         ProfileScreen(app: app).openPlaybackSettings()
         for toggleID in [A11yID.Profile.spatialAtmosToggle, A11yID.Profile.spatialDTSXToggle] {
             let toggle = app.switches[toggleID]
-            for _ in 0..<8 where !toggle.isHittable { app.swipeUp() }
+            for _ in 0..<8 where !toggle.isHittable { ProfileScreen(app: app).scrollSettings() }
             toggle.switches.firstMatch.tap()
         }
         // The picker appears below its toggle, which can sit at the foot of a
@@ -345,7 +345,7 @@ final class AccessibilityAuditTests: UITestCase {
         TabBar(app: app).profile.tap()
         ProfileScreen(app: app).openPlaybackSettings()
         let learnMore = app.buttons[A11yID.Profile.spatialAudioLearnMore]
-        for _ in 0..<8 where !learnMore.isHittable { app.swipeUp() }
+        for _ in 0..<8 where !learnMore.isHittable { ProfileScreen(app: app).scrollSettings() }
         learnMore.tap()
         app.descendants(matching: .any)[A11yID.Profile.spatialAudioHelp].awaitExistence("the About Spatial Audio sheet")
 

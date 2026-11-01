@@ -12,13 +12,17 @@ final class ProfileJourneyTests: UITestCase {
         TabBar(app: app).profile.tap()
         ProfileScreen(app: app).openPlaybackSettings()
         let stepper = app.steppers[A11yID.Profile.audioOffsetStepper]
-        for _ in 0..<6 where !stepper.isHittable { app.swipeUp() }
+        for _ in 0..<6 where !stepper.isHittable { ProfileScreen(app: app).scrollSettings() }
         stepper.awaitExistence("the audio offset stepper")
         XCTAssertFalse(app.buttons[A11yID.Profile.audioOffsetReset].exists, "No reset at 0 ms")
         stepper.buttons.element(boundBy: 1).tap() // increment
         stepper.buttons.element(boundBy: 1).tap()
         XCTAssertEqual(stepper.value as? String, "20 milliseconds, audio later")
-        app.buttons[A11yID.Profile.audioOffsetReset].tap()
+        // The stepper can sit at the foot of a short screen (the closed Duo),
+        // still hittable, with the list yet to make the row below it.
+        let reset = app.buttons[A11yID.Profile.audioOffsetReset]
+        for _ in 0..<4 where !reset.isHittable { ProfileScreen(app: app).scrollSettings() }
+        reset.tap()
         XCTAssertEqual(stepper.value as? String, "0 milliseconds, in sync")
         app.buttons[A11yID.Profile.audioOffsetReset].awaitDisappearance("Reset, back at 0 ms")
     }
@@ -30,10 +34,10 @@ final class ProfileJourneyTests: UITestCase {
         TabBar(app: app).profile.tap()
         ProfileScreen(app: app).openPlaybackSettings()
         let advanced = app.buttons[A11yID.Profile.advancedPlaybackLink]
-        for _ in 0..<8 where !advanced.isHittable { app.swipeUp() }
+        for _ in 0..<8 where !advanced.isHittable { ProfileScreen(app: app).scrollSettings() }
         advanced.tap()
         let stepper = app.steppers[A11yID.Profile.readAheadBufferStepper]
-        for _ in 0..<4 where !stepper.isHittable { app.swipeUp() }
+        for _ in 0..<4 where !stepper.isHittable { ProfileScreen(app: app).scrollSettings() }
         stepper.awaitExistence("the Read-Ahead Buffer stepper")
         XCTAssertEqual(stepper.value as? String, "5 minutes", "Five minutes by default")
         stepper.buttons.element(boundBy: 1).tap() // increment
@@ -57,7 +61,7 @@ final class ProfileJourneyTests: UITestCase {
             (A11yID.Profile.spatialDTSXToggle, A11yID.Profile.spatialDTSXLayout),
         ] {
             let toggle = app.switches[toggleID]
-            for _ in 0..<8 where !toggle.isHittable { app.swipeUp() }
+            for _ in 0..<8 where !toggle.isHittable { ProfileScreen(app: app).scrollSettings() }
             toggle.awaitExistence("the \(toggleID) toggle")
             XCTAssertEqual(toggle.value as? String, "0", "Off by default")
             let picker = app.buttons[layoutID]
@@ -81,7 +85,7 @@ final class ProfileJourneyTests: UITestCase {
         TabBar(app: app).profile.tap()
         ProfileScreen(app: app).openPlaybackSettings()
         let learnMore = app.buttons[A11yID.Profile.spatialAudioLearnMore]
-        for _ in 0..<8 where !learnMore.isHittable { app.swipeUp() }
+        for _ in 0..<8 where !learnMore.isHittable { ProfileScreen(app: app).scrollSettings() }
         learnMore.awaitExistence("the Spatial Audio Learn More button")
         learnMore.tap()
         let help = app.descendants(matching: .any)[A11yID.Profile.spatialAudioHelp]
