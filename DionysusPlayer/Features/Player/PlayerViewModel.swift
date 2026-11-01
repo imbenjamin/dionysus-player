@@ -698,7 +698,8 @@ final class PlayerViewModel {
                 startTime = resumeSeconds
             }
             if startTime > 0 {
-                await engine.seek(to: startTime)
+                // Exact: a late landing would skip what the viewer hasn't seen.
+                await engine.seek(to: startTime, exact: true)
             }
             // Closed during the load or the resume seek: `stop()` has already
             // run and skipped its report (nothing had started), so playing or
@@ -804,7 +805,7 @@ final class PlayerViewModel {
                 startTime = Double(downloadedItem.resumePositionTicks) / 10_000_000
             }
             if startTime > 0 {
-                await engine.seek(to: startTime)
+                await engine.seek(to: startTime, exact: true)
             }
             awaitStart(at: startTime)
             engine.play()
@@ -937,7 +938,7 @@ final class PlayerViewModel {
     /// the seek to land, then jumps to the segment's end via `seek(to:)`.
     func skipSegment(_ segment: PlaybackSegment) {
         skippedSegmentIDs.insert(segment.id)
-        seek(to: segment.endSeconds)
+        seek(to: segment.endSeconds, exact: true)
     }
 
     /// `SkipSegmentOverlay`'s swipe-to-dismiss and its VoiceOver close button.
@@ -1553,11 +1554,13 @@ final class PlayerViewModel {
     /// Clears `nextUpCountdownAnchorTime` before seeking. This is the one choke
     /// point every explicit jump goes through — scrubber, skip buttons,
     /// VoiceOver's adjustable action — and each must re-anchor the end-credits
-    /// countdown where it lands rather than reuse a stale one.
-    func seek(to time: TimeInterval) {
+    /// countdown where it lands rather than reuse a stale one. `exact` as in
+    /// `PlaybackEngine.seek(to:exact:)`: a chapter or a segment's end passes
+    /// `true`; a scrub or a 10s skip lands wherever is quickest.
+    func seek(to time: TimeInterval, exact: Bool = false) {
         nextUpCountdownAnchorTime = nil
         if isAwaitingStart, startTarget != nil { startTarget = time }
-        Task { await engine.seek(to: time) }
+        Task { await engine.seek(to: time, exact: exact) }
     }
 
     func selectAudioTrack(id: Int) {

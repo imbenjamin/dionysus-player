@@ -301,7 +301,7 @@ struct PlayerControlsOverlay: View {
                     currentChapter: viewModel.currentChapter,
                     onSelect: { chapter in
                         onInteract()
-                        viewModel.seek(to: chapter.startSeconds)
+                        viewModel.seek(to: chapter.startSeconds, exact: true)
                         withAnimation(ChapterPickerOverlay.animation) { isShowingChapterPicker = false }
                     }
                 )

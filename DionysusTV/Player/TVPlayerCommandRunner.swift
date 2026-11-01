@@ -14,6 +14,7 @@ struct TVPlayerCommandRunner {
             case .pause: viewModel.pause()
             case .togglePlayPause: viewModel.togglePlayPause()
             case .seek(let time): viewModel.seek(to: time)
+            case .seekExact(let time): viewModel.seek(to: time, exact: true)
             case .skipSegment(let id):
                 if let segment = viewModel.mediaSegments.first(where: { $0.id == id }) {
                     viewModel.skipSegment(segment)

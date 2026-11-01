@@ -76,6 +76,8 @@ final class FakePlaybackEngine: PlaybackEngine {
     private(set) var pauseCallCount = 0
     private(set) var togglePlayPauseCallCount = 0
     private(set) var seekedTimes: [TimeInterval] = []
+    /// The seeks in `seekedTimes` that asked to land exactly.
+    private(set) var exactSeekedTimes: [TimeInterval] = []
     private(set) var stopCallCount = 0
     private(set) var selectedAudioTrackIDs: [Int] = []
     private(set) var selectedSubtitleTrackIDs: [Int?] = []
@@ -127,8 +129,9 @@ final class FakePlaybackEngine: PlaybackEngine {
     /// Runs inside `seek(to:)`, so a test can act mid-seek (e.g. cancel the
     /// task that called it).
     var onSeek: (() -> Void)?
-    func seek(to time: TimeInterval) async {
+    func seek(to time: TimeInterval, exact: Bool) async {
         seekedTimes.append(time)
+        if exact { exactSeekedTimes.append(time) }
         onSeek?()
     }
     func stop() { stopCallCount += 1 }

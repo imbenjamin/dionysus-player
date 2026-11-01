@@ -91,6 +91,8 @@ enum TVRemoteInput: Equatable {
 enum TVPlayerCommand: Equatable {
     case play, pause, togglePlayPause
     case seek(TimeInterval)
+    /// A chapter mark, which must land on its target (`PlaybackEngine.seek(to:exact:)`).
+    case seekExact(TimeInterval)
     case skipSegment(id: String)
     case playNext, dismissNextUp
     case selectAudio(id: Int), selectSubtitle(id: Int?)

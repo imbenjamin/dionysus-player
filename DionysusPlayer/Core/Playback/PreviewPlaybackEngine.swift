@@ -148,7 +148,7 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         isPlaying ? pause() : play()
     }
 
-    func seek(to time: TimeInterval) async {
+    func seek(to time: TimeInterval, exact: Bool) async {
         // The `slowSeek` scenario: `.seeking` for 3 s before the seek lands,
         // with the clock stopped, as a long jump on a slow link;
         // `introBeforeResume` holds the resume seek the same way.
