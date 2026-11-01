@@ -243,7 +243,7 @@ JSON, so a DTO change is a compile error rather than silent rot.
 | `manyUsers` | Six users, more than Who's Watching? fits in a row |
 | `librariesFailAtFirst` | `/Views` 500s for five seconds, then succeeds |
 | `thinDynamicRails` | Home's dynamic rails nearly all too thin, so it keeps loading |
-| `skipIntro` / `earlyCredits` | An intro from 0:00 to 83:20; credits from 0:05 (Next Up at once) |
+| `skipIntro` / `earlyCredits` | An intro from 0:00 to 83:20, listed twice (a copy ending 20s sooner first, as from two segment providers); credits from 0:05 (Next Up at once) |
 | `audioOffsetUnavailable` | The fake engine reports the audio offset unavailable (a server transcode's case), so the player hides its offset controls |
 | `rebuffering` | The fake engine stalls 2 s into playback, reporting `.buffering` for 3 s (the Apple TV's stall spinner) |
 | `slowSeek` | The fake engine holds every seek in `.seeking` for 3 s before it lands (the Apple TV's spinner on a long jump) |
@@ -690,6 +690,7 @@ the detail.
 | `Core/Playback/ASSSubtitleGeometryTests` | libass's frame, margins and font scale in both orientations |
 | `Core/Playback/AetherPlaybackEngineClassificationTests` | Playback errors classified as refused, rate-limited or transient |
 | `Core/Playback/AetherPlaybackEngineLoadOptionsTests` | The display context passed to the engine |
+| `Core/Playback/PlaybackSegmentTests` | Duplicate intro, recap and credits segments merged into one |
 | `Core/Playback/StreamFormatDescriptionTests` | Stream format labels for Playback Stats |
 | `Features/AssetDetails/AssetActionTargetsTests` | What Add to Playlist and Delete offer on a detail page, and their words (iOS and the Apple TV) |
 | `Features/AssetDetails/AddToPlaylistViewModelTests` | The Add to Playlist picker: editable destinations, adds, creating one |

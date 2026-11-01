@@ -765,7 +765,7 @@ final class PlayerViewModel {
         engine.setNowPlayingInfo(title: mediaItem.railTitle, subtitle: mediaItem.railSubtitle, artwork: nil)
 
         activeMediaSourceID = downloadedItem.mediaSourceID
-        mediaSegments = downloadedItem.segments.map(PlaybackSegment.init(downloaded:))
+        mediaSegments = PlaybackSegment.merged(downloadedItem.segments.map(PlaybackSegment.init(downloaded:)))
         endCreditsSegment = mediaSegments.filter { $0.kind == .outro }.max { $0.startSeconds < $1.startSeconds }
         // Empty for a download predating chapter support, or an item with no
         // chapters — the same no-chapter-UI outcome either way.
@@ -926,7 +926,7 @@ final class PlayerViewModel {
     private func loadMediaSegments(for item: MediaItem) {
         Task { [weak self] in
             guard let dtos = try? await self?.client.mediaSegments(itemID: item.id) else { return }
-            let segments = dtos.compactMap(PlaybackSegment.init(dto:))
+            let segments = PlaybackSegment.merged(dtos.compactMap(PlaybackSegment.init(dto:)))
             self?.mediaSegments = segments
             self?.endCreditsSegment = segments.filter { $0.kind == .outro }.max { $0.startSeconds < $1.startSeconds }
         }

@@ -206,7 +206,9 @@ enum UITestScenario: String {
     case thinDynamicRails
 
     /// Every item has an intro from 0:00 to 83:20, long enough that a
-    /// resumed title starts inside it: Skip Intro shows at once.
+    /// resumed title starts inside it: Skip Intro shows at once. It is
+    /// listed twice, a copy ending 20s sooner first, as a server with two
+    /// segment providers lists it.
     case skipIntro
     /// Every episode's credits start at 0:05, so Next Up shows as soon as an
     /// episode plays and counts down 10s.

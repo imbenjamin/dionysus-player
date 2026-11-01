@@ -1069,9 +1069,12 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         let ticksPerSecond: Int64 = 10_000_000
         switch UITestConfiguration.scenario {
         case .skipIntro:
-            return [MediaSegmentDto(
-                id: "intro-\(itemID)", itemId: itemID, type: .intro, startTicks: 0, endTicks: 5000 * ticksPerSecond
-            )]
+            // Listed twice, the shorter first, as a server with two segment
+            // providers does: one Skip must clear both.
+            return [
+                MediaSegmentDto(id: "intro-short-\(itemID)", itemId: itemID, type: .intro, startTicks: 0, endTicks: 4980 * ticksPerSecond),
+                MediaSegmentDto(id: "intro-\(itemID)", itemId: itemID, type: .intro, startTicks: 0, endTicks: 5000 * ticksPerSecond)
+            ]
         case .introBeforeResume:
             return [MediaSegmentDto(
                 id: "intro-\(itemID)", itemId: itemID, type: .intro, startTicks: 0, endTicks: 60 * ticksPerSecond
