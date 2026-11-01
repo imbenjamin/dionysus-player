@@ -67,8 +67,8 @@ enum TVTileCaption {
 }
 
 /// iOS's corner badges over a tile's artwork: a heart top-left, an eye
-/// top-right, a progress bar along the bottom while part-watched. Never a
-/// tick for watched.
+/// top-right, a progress bar along the bottom while there's something to
+/// resume, a rewatch included. Never a tick for watched.
 struct TVTileBadges: View {
     let badges: WatchBadges
 
