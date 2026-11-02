@@ -1,0 +1,119 @@
+import XCTest
+
+/// Box set and playlist pages: a box set's movies open their own detail
+/// pages; a playlist's rows play.
+final class CollectionDetailJourneyTests: TVUITestCase {
+    private func open(_ itemID: String, inLibrary libraryID: String, _ app: XCUIApplication) -> XCUIElement {
+        openLibraryTile(itemID, inLibrary: libraryID, app)
+    }
+
+    private func members(_ app: XCUIApplication) -> XCUIElementQuery {
+        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tv.detail.member."))
+    }
+
+    /// A box set lists its movies; each opens its own detail page, and Menu
+    /// comes back to the box set, then to the library.
+    func test_boxSet_listsItsMovies_andEachOpensItsDetailPage() {
+        let app = launchAtHome()
+        let tile = open(UITestFixtureIdentity.boxSetID, inLibrary: UITestFixtureIdentity.boxSetsLibraryID, app)
+        let first = members(app).firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(first), "A box set has no Play button: focus starts on its first movie")
+        XCTAssertGreaterThan(members(app).count, 1)
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Detail.play]))
+        press(.menu)
+        XCTAssertTrue(waitForFocus(first))
+        press(.menu)
+        XCTAssertTrue(waitForFocus(tile))
+    }
+
+    /// With no backdrop, a box set and a playlist show their poster beside
+    /// the title, as a movie's page does (Benjamin, 2026-10-05).
+    func test_noBackdrop_boxSetAndPlaylist_showTheirPosterBesideTheTitle() {
+        let app = launchAtHome(scenario: "noBackdrop")
+        _ = open(UITestFixtureIdentity.boxSetID, inLibrary: UITestFixtureIdentity.boxSetsLibraryID, app)
+        let art = app.descendants(matching: .any)[A11yID.TV.Detail.headerArt]
+        XCTAssertTrue(art.waitForExistence(timeout: 10), "A box set's poster")
+        let title = app.descendants(matching: .any)[A11yID.TV.Detail.title]
+        XCTAssertGreaterThan(art.frame.minX, title.frame.maxX, "Opposite the title, on the right")
+        XCTAssertTrue(waitForFocus(members(app).firstMatch), "Focus still starts on the first movie")
+
+        let again = launchAtHome(scenario: "noBackdrop")
+        _ = open(UITestFixtureIdentity.playlistID, inLibrary: UITestFixtureIdentity.playlistsLibraryID, again)
+        XCTAssertTrue(waitForFocus(again.buttons[A11yID.TV.Detail.play]), "Focus still starts on Play")
+        XCTAssertTrue(again.descendants(matching: .any)[A11yID.TV.Detail.headerArt].waitForExistence(timeout: 10), "A playlist's poster")
+    }
+
+    /// An empty box set says so with a message that takes focus, so Menu
+    /// still pops it (the plan's Review Focus 4).
+    func test_emptyBoxSet_showsAMessage_andMenuPops() {
+        let app = launchAtHome(scenario: "emptyBoxSet")
+        let tile = open(UITestFixtureIdentity.boxSetID, inLibrary: UITestFixtureIdentity.boxSetsLibraryID, app)
+        let message = app.descendants(matching: .any)[A11yID.TV.Detail.emptyMessage]
+        XCTAssertTrue(message.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(message), "The message takes focus, so Menu has somewhere to go from")
+        XCTAssertEqual(members(app).count, 0)
+        press(.menu)
+        XCTAssertTrue(waitForFocus(tile))
+    }
+
+    /// Menu while a page is still loading pops it (the M3 review's Review
+    /// Focus 5): the page keeps focus on its loading indicator, so the
+    /// sidebar's three-second fallback never opens over it and Menu, which
+    /// reaches nothing while nothing has focus, still has somewhere to go.
+    func test_menuWhileABoxSetLoads_popsBackToItsTile() {
+        let app = launchAtHome(scenario: "slowBoxSet")
+        let tile = open(UITestFixtureIdentity.boxSetID, inLibrary: UITestFixtureIdentity.boxSetsLibraryID, app)
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Detail.loading].waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 4)
+        XCTAssertFalse(app.buttons[A11yID.TV.Sidebar.home].hasFocus || app.buttons[A11yID.TV.Sidebar.library(UITestFixtureIdentity.boxSetsLibraryID)].hasFocus,
+                       "The sidebar stays shut over a loading page")
+        press(.menu)
+        XCTAssertTrue(waitForFocus(tile), "Menu pops the loading page")
+    }
+
+    /// Once the members land, focus moves from the loading indicator to
+    /// the first of them.
+    func test_aBoxSetThatLoadsSlowly_focusesItsFirstMovieOnceLoaded() {
+        let app = launchAtHome(scenario: "slowBoxSet")
+        _ = open(UITestFixtureIdentity.boxSetID, inLibrary: UITestFixtureIdentity.boxSetsLibraryID, app)
+        XCTAssertTrue(waitForFocus(app.descendants(matching: .any)[A11yID.TV.Detail.loading]))
+        XCTAssertTrue(members(app).firstMatch.waitForExistence(timeout: 30), "The members land")
+        XCTAssertTrue(waitForFocus(members(app).firstMatch), "and the first takes focus")
+    }
+
+    /// A playlist plays from its Play button and from any row.
+    func test_playlist_playsFromPlay_andFromARow() {
+        let app = launchAtHome()
+        _ = open(UITestFixtureIdentity.playlistID, inLibrary: UITestFixtureIdentity.playlistsLibraryID, app)
+        let play = app.buttons[A11yID.TV.Detail.play]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(play))
+        press(.select)
+        let elapsed = app.staticTexts[A11yID.TV.Player.elapsed]
+        XCTAssertTrue(elapsed.waitForExistence(timeout: 10))
+        leavePlayer(app)
+        XCTAssertTrue(poll(timeout: 5) { !elapsed.exists })
+        XCTAssertTrue(waitForFocus(play))
+
+        press(.down)
+        let first = members(app).firstMatch
+        XCTAssertTrue(waitForFocus(first))
+        press(.select)
+        XCTAssertTrue(elapsed.waitForExistence(timeout: 10), "A playlist's row plays; it doesn't open a detail page")
+        leavePlayer(app)
+        XCTAssertTrue(poll(timeout: 5) { !elapsed.exists })
+        XCTAssertTrue(first.exists, "Back on the playlist")
+    }
+
+    /// The fixture's Late Night playlist ships empty.
+    func test_emptyPlaylist_showsAMessage_andMenuPops() {
+        let app = launchAtHome()
+        let tile = open(UITestFixtureIdentity.secondPlaylistID, inLibrary: UITestFixtureIdentity.playlistsLibraryID, app)
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Detail.emptyMessage].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons[A11yID.TV.Detail.play].exists, "No Play button with nothing to play")
+        press(.menu)
+        XCTAssertTrue(waitForFocus(tile))
+    }
+}

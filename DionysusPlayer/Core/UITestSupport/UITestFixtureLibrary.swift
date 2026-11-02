@@ -21,6 +21,9 @@ enum UITestFixtureLibrary {
     static let showsLibraryID = UITestFixtureIdentity.showsLibraryID
     static let boxSetsLibraryID = UITestFixtureIdentity.boxSetsLibraryID
     static let playlistsLibraryID = UITestFixtureIdentity.playlistsLibraryID
+    static let animeLibraryID = UITestFixtureIdentity.animeLibraryID
+    static let documentariesLibraryID = UITestFixtureIdentity.documentariesLibraryID
+    static let musicLibraryID = UITestFixtureIdentity.musicLibraryID
 
     static let seriesID = UITestFixtureIdentity.seriesID
     static let boxSetID = UITestFixtureIdentity.boxSetID
@@ -37,6 +40,14 @@ enum UITestFixtureLibrary {
         library(id: showsLibraryID, name: "TV Shows", collectionType: JellyfinCollectionType.tvShows),
         library(id: boxSetsLibraryID, name: "Collections", collectionType: JellyfinCollectionType.boxSets),
         library(id: playlistsLibraryID, name: "Playlists", collectionType: JellyfinCollectionType.playlists)
+    ]
+
+    /// The `manyLibraries` scenario's `/Views`: over the Apple TV sidebar's
+    /// fold threshold once the Music library is suppressed.
+    static let manyLibraries: [BaseItemDto] = libraries + [
+        library(id: animeLibraryID, name: "Anime", collectionType: JellyfinCollectionType.tvShows),
+        library(id: documentariesLibraryID, name: "Documentaries", collectionType: JellyfinCollectionType.movies),
+        library(id: musicLibraryID, name: "Music", collectionType: JellyfinCollectionType.music)
     ]
 
     // MARK: - Movies
@@ -80,13 +91,11 @@ enum UITestFixtureLibrary {
             item.userData = UserItemDataDto(
                 playbackPositionTicks: index == 1 ? ticks(minutes: 20) : 0,
                 playedPercentage: index == 1 ? 21 : (spec.watched ? 100 : 0),
-                // The part-watched fixture is forced unplayed regardless of its
-                // own `spec.watched`: `MediaItem.isPartWatched` requires
-                // `!isPlayed`, so a fixture claiming both a mid-film position
-                // and full watched state reads as neither part-watched nor
-                // eligible for Restart, and the detail page renders a bare
-                // "Play".
-                played: index == 1 ? false : spec.watched,
+                // The part-watched fixture is a rewatch stopped partway: played
+                // (its `spec.watched`) with a position, as Jellyfin leaves it.
+                // `MediaItem.canResume` offers Resume and Restart for it
+                // (Benjamin, 2026-10-14), which the detail journeys pin.
+                played: spec.watched,
                 isFavorite: spec.favorite
             )
             item.mediaSources = [mediaSource(for: item)]
@@ -118,6 +127,7 @@ enum UITestFixtureLibrary {
         item.seriesName = UITestFixtureIdentity.seriesName
         item.indexNumber = number
         item.childCount = 3
+        item.recursiveItemCount = 3
         item.productionYear = 2019 + number
         item.userData = UserItemDataDto(playbackPositionTicks: 0, playedPercentage: 0, played: false, isFavorite: false)
         return item
@@ -266,6 +276,15 @@ enum UITestFixtureLibrary {
         )
     }
 
+    /// What signing in as the passwordless fixture user answers.
+    static var guestAuthenticationResult: AuthenticationResult {
+        AuthenticationResult(
+            user: publicUsers[1],
+            accessToken: UITestConfiguration.stubAccessToken,
+            serverId: "uitest-server-0001"
+        )
+    }
+
     static var user: UserDto {
         UserDto(
             id: UITestConfiguration.stubUserID,
@@ -286,6 +305,12 @@ enum UITestFixtureLibrary {
                 hasPassword: false
             )
         ]
+    }
+
+    /// The `manyUsers` scenario's `/Users/Public`: six, so with "Other" there
+    /// are seven lockups, more than fit across an Apple TV screen.
+    static var manyPublicUsers: [UserDto] {
+        publicUsers + UITestFixtureIdentity.extraUserIDs.map { UserDto(id: $0, name: $0.capitalized, hasPassword: true) }
     }
 
     static var brandingConfiguration: BrandingConfiguration {

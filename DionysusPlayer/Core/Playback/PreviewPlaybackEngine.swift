@@ -20,6 +20,10 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     var onPictureInPicturePossibleChange: ((Bool) -> Void)?
     var onPictureInPictureActiveChange: ((Bool) -> Void)?
     var onSourceTimeFollowsPictureChange: ((Bool) -> Void)?
+    var onAudioOffsetAvailabilityChange: ((Bool) -> Void)?
+    private(set) var isAudioOffsetAvailable = false
+    /// The last offset `load` or `setAudioOffset` was given, for previews.
+    private(set) var audioOffsetSeconds: TimeInterval = 0
 
     var audioTracks: [PlaybackTrack] = [
         PlaybackTrack(id: 0, kind: .audio, title: "Dolby Digital Plus Atmos 7.1", metadata: "DD+ · Atmos · 7.1 · Default", isSelected: true),
@@ -55,6 +59,7 @@ final class PreviewPlaybackEngine: PlaybackEngine {
 
     private var currentTime: TimeInterval = 0
     private var ticker: Task<Void, Never>?
+    private var isPlaying = false
 
     deinit { ticker?.cancel() }
     var stats = PlaybackStats(
@@ -71,33 +76,89 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         bufferedSeconds: 24,
         bufferedBytes: 8_400_000,
         currentTime: 0,
-        duration: 5400
+        duration: 5400,
+        videoCodec: "HEVC Main 10",
+        container: "Matroska",
+        pixelFormat: "yuv420p10le (10-bit)",
+        colorDescription: "BT.2020 · PQ (SMPTE ST 2084) · BT.2020 NCL · Limited",
+        audioSampling: "48 kHz",
+        liveBitrate: "38.4 Mbps (avg 37.9)",
+        networkThroughput: "212.0 Mbps",
+        frames: "0 dropped"
     )
 
-    func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool) async throws {
+    /// What the last `load(...)` or `setSpatialAudio(_:)` asked for, for UI
+    /// tests to read (nothing renders here).
+    private(set) var spatialAudio: SpatialAudioRendering = .off
+    private(set) var spatialAudioReloads: [SpatialAudioRendering] = []
+
+    func setSpatialAudio(_ rendering: SpatialAudioRendering) async throws {
+        guard rendering != spatialAudio else { return }
+        spatialAudio = rendering
+        spatialAudioReloads.append(rendering)
+    }
+
+    func load(
+        url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>,
+        isRemoteHLS: Bool, audioOffset: TimeInterval, spatialAudio: SpatialAudioRendering
+    ) async throws {
+        self.spatialAudio = spatialAudio
         if let simulatedFailure {
             onStateChange?(.failed(simulatedFailure))
             return
         }
         currentTime = 0
+        isPlaying = true
+        audioOffsetSeconds = audioOffset
+        isAudioOffsetAvailable = UITestConfiguration.scenario != .audioOffsetUnavailable
+        onAudioOffsetAvailabilityChange?(isAudioOffsetAvailable)
         onStateChange?(.playing)
         onTimeUpdate?(currentTime, duration)
         startTickingIfNeeded()
+        if UITestConfiguration.scenario == .rebuffering { simulateRebuffer() }
+    }
+
+    /// The `rebuffering` scenario's stall: 2 s in, `.buffering` for 3 s with
+    /// the clock stopped, then playing on.
+    private func simulateRebuffer() {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, self.isPlaying else { return }
+            self.stopTicking()
+            self.onStateChange?(.buffering)
+            try? await Task.sleep(for: .seconds(3))
+            guard self.isPlaying else { return }
+            self.play()
+        }
     }
 
     func play() {
+        isPlaying = true
         onStateChange?(.playing)
         startTickingIfNeeded()
     }
 
     func pause() {
+        isPlaying = false
         stopTicking()
         onStateChange?(.paused)
     }
 
-    func togglePlayPause() {}
+    func togglePlayPause() {
+        isPlaying ? pause() : play()
+    }
 
-    func seek(to time: TimeInterval) async {
+    func seek(to time: TimeInterval, exact: Bool) async {
+        // The `slowSeek` scenario: `.seeking` for 3 s before the seek lands,
+        // with the clock stopped, as a long jump on a slow link;
+        // `introBeforeResume` holds the resume seek the same way.
+        if [.slowSeek, .introBeforeResume].contains(UITestConfiguration.scenario) {
+            stopTicking()
+            onStateChange?(.seeking)
+            try? await Task.sleep(for: .seconds(3))
+            onStateChange?(isPlaying ? .playing : .paused)
+            if isPlaying { startTickingIfNeeded() }
+        }
         currentTime = min(max(time, 0), duration)
         onTimeUpdate?(currentTime, duration)
         onSourceTimeUpdate?(currentTime)
@@ -117,7 +178,7 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     ///
     /// It also publishes a cue, which is what `SubtitleOverlayView`'s own
     /// (non-libass) path renders — every SubRip and WebVTT track in the app,
-    /// and an ASS track when Subtitle Styling is off. Without it that path
+    /// and an ASS track when ASS/SSA Subtitles is off. Without it that path
     /// paints nothing under the harness, so a test could only ever assert the
     /// *absence* of a styled frame — which passes just as happily on a bug that
     /// drops the track altogether.
@@ -132,6 +193,11 @@ final class PreviewPlaybackEngine: PlaybackEngine {
 
     func setNativeSubtitleCapture(_ active: Bool) {
         nativeSubtitleCaptureRequests.append(active)
+    }
+
+    func setAudioOffset(_ seconds: TimeInterval) {
+        guard isAudioOffsetAvailable else { return }
+        audioOffsetSeconds = seconds
     }
 
     func selectSubtitleTrack(id: Int?) {

@@ -116,10 +116,25 @@ struct HeroActionButtons: View {
             // their own there is nothing left for a container to blend, and the
             // pair reads as one system capsule the way every other toolbar in
             // the app and in system apps does.
-            HStack(spacing: 12) {
-                favoriteButton(item: item)
-                watchedButton(item: item)
+            //
+            // Stacked when the bar is vertical (an iPhone Duo's inner display):
+            // the item opts into the vertical bar (`duoVerticalPreferred()`), so
+            // the pair sits in the side bar between Back and More instead of
+            // floating over the page as a horizontal capsule, which on a book
+            // spread covered the metadata (Benjamin, 2026-10-26).
+            if #available(iOS 27.1, *) {
+                VerticalBarReader { isVertical in pair(item: item, isVertical: isVertical) }
+            } else {
+                pair(item: item, isVertical: false)
             }
+        }
+    }
+
+    private func pair(item: MediaItem, isVertical: Bool) -> some View {
+        let layout = isVertical ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))
+        return layout {
+            favoriteButton(item: item)
+            watchedButton(item: item)
         }
     }
 
@@ -239,5 +254,19 @@ struct HeroActionButtons: View {
     /// surrounding chrome; see this type's doc comment.
     private func icon(_ systemName: String, tint: Color? = nil, isPending: Bool) -> some View {
         HeroToolbarGlyph(systemName: systemName, tint: tint, isPending: isPending)
+    }
+}
+
+extension ToolbarContent {
+    /// Lets a custom item view into an iPhone Duo's vertical bar, which by
+    /// default keeps custom views horizontal (HIG, "Designing for iPhone Duo").
+    /// Only for a view that fits the bar's width. A no-op before iOS 27.1.
+    @ToolbarContentBuilder
+    func duoVerticalPreferred() -> some ToolbarContent {
+        if #available(iOS 27.1, *) {
+            axisBehavior(.verticalPreferred)
+        } else {
+            self
+        }
     }
 }

@@ -76,6 +76,35 @@ git tag -a v1.2.0 -m "Release summary for testers…"
 git push origin v1.2.0
 ```
 
+### ⚠️ A final release can't be tagged on its prerelease's commit
+
+The build number is the commit count at the tagged commit, so tagging the very
+commit a prerelease was cut from gives the final release that prerelease's
+build number. App Store Connect has already received it (same
+`MARKETING_VERSION`, same build), and the upload is refused:
+
+```
+409 ENTITY_ERROR.ATTRIBUTE.INVALID.DUPLICATE
+The bundle version must be higher than the previously uploaded version.
+```
+
+Tag `stable`'s merge commit instead. When the promotion PR merges with a
+merge commit, its tree is identical to the PR's head, so the final release is
+the same code with a build number one higher. v1.1.0 found this out: tagged on
+beta.2's commit (build 594) the upload failed, and re-tagged on `stable`'s
+merge of it (595) it shipped.
+
+**Promoting a specific prerelease when `develop` has moved on.**
+`promote-to-stable.yml` opens the PR from `develop`'s tip, which would ship
+everything merged since. To ship exactly what a prerelease tested, push a
+branch at that tag's commit and open the PR from it instead:
+
+```sh
+git push origin 'v1.2.0-beta.3^{commit}:refs/heads/release/v1.2.0'
+# open release/v1.2.0 -> stable, merge with a merge commit (squash or rebase
+# would rewrite the commits), then tag stable's merge commit as above
+```
+
 `release.yml` refuses a tag on the wrong branch — a prerelease tag not
 contained in `develop`, or a final tag not contained in `stable` — and says
 so within seconds, rather than after a ~40 minute archive and upload.
@@ -119,7 +148,7 @@ either, so neither `gh pr merge --admin` nor `--auto` could get around
 it — the rule itself had to change, not the merge command. Fixed by
 removing the `code_scanning` rule from `develop protection` entirely;
 `stable`'s ruleset needs no equivalent fix since `analyze-swift` actually
-runs — and blocks — there. If a `code_scanning` rule ever gets added back
+runs — and blocks — there (while it isn't paused; see below). If a `code_scanning` rule ever gets added back
 to a branch's ruleset, check first that every CodeQL job it depends on
 actually runs on every PR into that branch; one keyed to a config that
 branch's own PRs never trigger can never be satisfied, by any PR, ever.
@@ -148,7 +177,10 @@ nothing to predict and nothing to verify. If you find yourself re-adding a
 "stamp before tagging" step, re-read this section first.
 
 **The trade:** `Config/Version.xcconfig` and `AppVersion.swift` on `develop`
-now reflect the *last release*, not the current commit. That's intended. A
+reflect whenever someone last ran `update-version.sh`, not the current commit
+or even the last release — CI stamps the shipped build without committing
+anything back, so they had fallen a month behind (still `0.8.0-alpha.1` at
+`v1.1.0-beta.2`) before anyone noticed. That's intended. A
 local build between releases reports e.g. `0.8.0-alpha.1+12.gabc1234` — the
 off-tag build metadata `update-version.sh` has always emitted — which is
 honest about being 12 commits past the tag rather than silently claiming to
@@ -222,9 +254,9 @@ signing steps live only in `release.yml`, which runs on tag pushes — never in
 ### Both the archive and the export sign manually
 
 Both sign with the distribution certificate and the named provisioning
-profile, and neither talks to Apple. The archive's settings are on the app
-target's **Release** config in `project.yml` (`CODE_SIGN_STYLE: Manual`,
-`Apple Distribution`, `Dionysus App Store`); Debug keeps the project-wide
+profile, and neither talks to Apple. The archive's settings are on each
+shipped target's **Release** config in `project.yml` (`CODE_SIGN_STYLE:
+Manual`, `Apple Distribution` and the target's profile, below); Debug keeps the project-wide
 Automatic, so Simulator and device builds are unaffected. They can't be
 `xcodebuild` overrides in `release.yml` instead: those reach every target,
 and SwiftPM resource-bundle targets refuse a named profile.
@@ -251,15 +283,24 @@ cloud-signing path entirely.
 `extra-arguments` to the archive only, building its export argument list from
 scratch, so signing flags can never reach the export.
 
-### ⚠️ The provisioning profile is a maintained artifact
+### ⚠️ The provisioning profiles are maintained artifacts
 
-`Dionysus App Store` (type `IOS_APP_STORE`, bundle ID
-`com.imbenjamin.dionysusplayer`) must exist in App Store Connect, and
-`Config/ExportOptions.plist` names it **by name, exactly**.
-`apple-actions/download-provisioning-profiles` installs it on the runner
-before the export.
+Three profiles must exist in App Store Connect, each named **exactly** as
+below by its target's Release config and its export options file;
+`apple-actions/download-provisioning-profiles` installs them on the runner
+before the export (by bundle ID and type, so the iOS and tvOS app profiles,
+which share an App ID, are told apart by type):
 
-Two ways this breaks, neither of which the pipeline warns about in advance:
+| Profile | Type | Bundle ID | Named in |
+|---|---|---|---|
+| `Dionysus App Store` | `IOS_APP_STORE` | `com.imbenjamin.dionysusplayer` | `Config/ExportOptions.plist` |
+| `Dionysus tvOS App Store` | `TVOS_APP_STORE` | `com.imbenjamin.dionysusplayer` | `Config/ExportOptions-tvOS.plist` |
+| `Dionysus Top Shelf App Store` | `TVOS_APP_STORE` | `com.imbenjamin.dionysusplayer.topshelf` | `Config/ExportOptions-tvOS.plist` |
+
+The Top Shelf extension has an App ID of its own, with the App Group
+`group.com.imbenjamin.dionysusplayer` its composited artwork goes through.
+
+Three ways this breaks, none of which the pipeline warns about in advance:
 
 - **The profile is renamed or deleted.** The export fails with "doesn't
   include signing certificate" or a no-matching-profile error. Recreate it
@@ -267,9 +308,18 @@ Two ways this breaks, neither of which the pipeline warns about in advance:
 - **It expires** — profiles are tied to the signing certificate's lifetime,
   so this one expires with the cert (see below). Regenerate it, and make sure
   the new one keeps the name.
+- **The App ID's capabilities change.** Apple invalidates every profile for an
+  App ID when a capability is added to or removed from it, and the iOS and
+  tvOS apps share one, so a change made for either platform invalidates both
+  app profiles (the extension's has its own App ID). The "Download provisioning profile" step then
+  fails with `Unable to find 'ACTIVE' profiles for bundleId
+  'com.imbenjamin.dionysusplayer'`. That's how v1.1.0's first run failed
+  (2026-10-04), after the tvOS work added an entitlement, and re-saving the
+  profile in the developer portal (Edit → Save, same name) fixed it. Re-save it
+  whenever a capability changes, rather than finding out at release time.
 
-Recreate it from the developer portal (Certificates, Identifiers & Profiles →
-Profiles → + → App Store Connect), or via the API:
+Recreate one from the developer portal (Certificates, Identifiers & Profiles →
+Profiles → + → App Store Connect, or tvOS App Store), or via the API:
 
 ```
 POST /v1/profiles
@@ -279,12 +329,12 @@ POST /v1/profiles
 
 ### ⚠️ Both credentials expire
 
-The distribution certificate and the profile that depends on it both expire
+The distribution certificate and the profiles that depend on it all expire
 **2027-08-30**. Nothing warns beforehand; a release simply fails at the
 archive or export step with a signing error that doesn't obviously say
 "expired". Renew the certificate, re-export the `.p12`, update
-`APPSTORE_CERTIFICATES_FILE_BASE64`, and regenerate the profile under the
-same name.
+`APPSTORE_CERTIFICATES_FILE_BASE64`, and regenerate the three profiles under
+the same names.
 
 ## How the version gets into the app
 
@@ -327,28 +377,41 @@ string isn't user-visible anyway.
 - **`.github/workflows/pr-checks.yml`** — the PR gate, on every PR into `stable`
   or `develop`: sets up the project, then builds and runs the full test
   suite. It's a required status check on both branches. Its separate
-  `release-build` job compiles the Release configuration (unsigned), which
-  is otherwise first compiled by `release.yml`'s archive step — too late, as
+  `release-build` job compiles the Release configuration of both apps
+  (unsigned, the Apple TV app with its Top Shelf extension), which is
+  otherwise first compiled by `release.yml`'s archive steps — too late, as
   `v1.1.0-alpha.4` found out.
 
   ⚠️ Its job is named `Build and Test default scheme using any available
   iPhone simulator`, and both branch rulesets require that exact string.
   GitHub keys required checks on the **job** name, not the workflow name or
   filename — renaming the job without updating both rulesets first makes every
-  PR hang on a check that never reports. The same applies to the two UI smoke
-  checks (`UI smoke tests / iPhone, iOS 26.5` and `… / iPad, iOS 26.5`) —
+  PR hang on a check that never reports. The same applies to the four UI
+  smoke checks (`UI smoke tests / iPhone, iOS 27.0`, `… / iPad, iOS 27.0` and
+  the same two on iOS 18.6) and
+  `tvOS build and unit tests`, which both rulesets require, and to the four
+  `Full UI tests / …` checks, which `stable`'s requires. Those four come from
+  the `ui-full` job, which runs the full UI suite on PRs into `stable` only —
   see TESTING.md's "Where they run in CI".
 
-- **`.github/workflows/release.yml`** — runs on any `v*.*.*` tag push: sets up
-  the project, stamps the version from that tag via `Scripts/update-version.sh`,
-  builds and tests the exact
-  tagged commit — the full UI suite on every device and iOS version
-  `ui-tests.yml` covers must pass before anything is signed — archives and
-  signs it, uploads it to App Store Connect, and
-  publishes a GitHub Release with the tag's own message above GitHub's
-  generated notes (`--prerelease` for `-alpha`/`-beta` tags and for any `0.x`
-  version). It also refuses a tag on the wrong branch — see "Final releases
-  come from `stable`" above. To re-run a release for an existing tag without
+- **`.github/workflows/release.yml`** — runs on any `v*.*.*` tag push and
+  ships both apps from it. `prepare` resolves the tag, refuses one on the
+  wrong branch (see "Final releases come from `stable`" above) and composes
+  the notes. Then, in parallel, `ios-release` and `tvos-release` each stamp
+  the version from the tag via `Scripts/update-version.sh`, build and test the
+  exact tagged commit, archive, sign and upload their app to App Store
+  Connect; `ios-release` waits for the full iOS UI suite on every device and
+  iOS version `ui-tests.yml` covers, `tvos-release` for the full tvOS UI
+  suite on tvOS 27.0.
+  `publish` creates the GitHub Release only once both have finished, with the
+  tag's own message above GitHub's generated notes (`--prerelease` for
+  `-alpha`/`-beta` tags and for any `0.x` version).
+
+  An upload that went through can't be undone, so when one platform fails,
+  fix the cause and re-run just that job (`gh run rerun <run id> --job <job
+  id>`, or "Re-run failed jobs"), which also runs `publish`. The build number
+  comes from the tag and App Store Connect counts it per platform, so the two
+  uploads never collide. To re-run a release for an existing tag without
   re-tagging (recovering from an infrastructure failure partway through),
   dispatch it on the tag: `gh workflow run release.yml --ref <tag>`. That runs
   the workflow as it was at the tag, so a fix to `release.yml` itself needs a
@@ -362,10 +425,9 @@ string isn't user-visible anyway.
   `workflow_dispatch`): discovers the newest AetherEngine release within the
   currently-pinned major version and, if it's newer than `project.yml`'s
   `version:` pin (XcodeGen's spelling of an exact/SPM `.exact`
-  requirement), opens a PR bumping that pin and the generated version
-  constant together. Never proposes a major-version bump. Goes through the
-  normal `pr-checks.yml` gate like any other PR — see CLAUDE.md's "Keeping
-  the AetherEngine version display current" for why the pin is exact
+  requirement), opens a PR bumping that pin. Never proposes a
+  major-version bump. Goes through the normal `pr-checks.yml` gate like any
+  other PR — see CLAUDE.md's "Pinning AetherEngine" for why the pin is exact
   rather than a `from:` range in the first place.
 
 - **`.github/workflows/codeql.yml`** — CodeQL security scanning, split into
@@ -377,6 +439,10 @@ string isn't user-visible anyway.
   `develop` it runs non-blocking instead, via the `push`/weekly-schedule
   triggers rather than `pull_request`, surfacing anything it finds as a
   Security-tab alert rather than holding up the PR that introduced it.
+  **`analyze-swift` is paused (2026-10-20)** and off `stable`'s ruleset:
+  CodeQL's build tracer can't trace an Xcode 27 build (github/codeql#22742),
+  and Xcode 26 can't build AetherEngine 7.43+. `codeql.yml`'s comment on
+  the job says how to resume it.
   GitHub's own code-scanning **default setup** was disabled for this repo
   once this workflow was added — the two can't coexist for the same
   language; GitHub rejects the advanced-setup SARIF upload if default setup

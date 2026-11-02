@@ -136,12 +136,12 @@ struct SearchResult: Identifiable, Hashable, Codable {
     /// item's own kind. A movie in an episode-heavy landscape grid uses its own
     /// `Thumb` if it has one, else `Primary` cropped to fill rather than no
     /// image; the reverse for an episode in a portrait grid.
-    func imageURL(images: ImageURLBuilder, preferLandscape: Bool) -> URL? {
+    func imageURL(images: ImageURLBuilder, preferLandscape: Bool, maxWidth: Int = 200) -> URL? {
         let ref = preferLandscape
             ? (thumbImageReference ?? primaryImageReference)
             : (primaryImageReference ?? thumbImageReference)
         guard let ref else { return nil }
-        return images.url(itemID: ref.itemID, imageType: ref.type, tag: ref.tag, maxWidth: 200)
+        return images.url(itemID: ref.itemID, imageType: ref.type, tag: ref.tag, maxWidth: maxWidth)
     }
 
     /// `MediaItem.accessibilityDescription`'s `"name, subtitle"` composition, for

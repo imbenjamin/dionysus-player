@@ -18,7 +18,18 @@ final class AppState {
     private(set) var currentUser: UserDto?
     private(set) var apiClient: JellyfinAPIClient?
 
+    /// The signed-in user, falling back to the cached credentials while a
+    /// session resumed from cache has no `currentUser` yet (see `start()`).
+    var signedInUserID: String? {
+        currentUser?.id ?? sessionStore.credentials?.userID
+    }
+
     let sessionStore: ServerSessionStore
+    #if os(tvOS)
+    /// When the app last left the foreground (`asksWhoIsWatching(returningAt:)`).
+    private var backgroundedAt: Date?
+    #endif
+    #if DOWNLOADS
     /// Offline downloads are local-device storage, not tied to which
     /// server is configured — unlike `apiClient`, this is created once
     /// here and never recreated on sign-out/change-server, so an in-flight
@@ -39,6 +50,11 @@ final class AppState {
             Task { await DownloadSyncManager.syncIfNeeded(client: client, store: self.downloadManager.store) }
         }
     }
+    #else
+    init(sessionStore: ServerSessionStore = ServerSessionStore()) {
+        self.sessionStore = sessionStore
+    }
+    #endif
 
     /// Call once at launch: restores the configured server and attempts to
     /// sign the user back in with their remembered credentials. If the
@@ -53,7 +69,9 @@ final class AppState {
         // Effects" toggle or a detail page — see
         // `DeviceTiltObserver.warmUp()`'s doc comment. Must never delay
         // showing the actual app once sign-in restore finishes.
+        #if os(iOS)
         Task { await DeviceTiltObserver.shared.warmUp() }
+        #endif
 
         guard let server = sessionStore.serverConfiguration else {
             phase = .serverSetup
@@ -67,6 +85,25 @@ final class AppState {
             phase = .login
             return
         }
+
+        // Another Apple TV user changed the shared server since these were
+        // saved (see `StoredCredentials.serverID`).
+        if let boundServerID = credentials.serverID, boundServerID != server.id {
+            sessionStore.clearCredentials()
+            phase = .login
+            return
+        }
+
+        // One session shared by every Apple TV user: each launch asks who it
+        // is (`WhoIsWatchingPolicy`). Signed out as Switch User does, so the
+        // accounts stay remembered and one press signs one in.
+        #if os(tvOS)
+        if asksWhoIsWatching {
+            sessionStore.clearCredentials()
+            phase = .login
+            return
+        }
+        #endif
 
         do {
             switch credentials.authMethod {
@@ -135,7 +172,8 @@ final class AppState {
             username: username,
             password: password,
             accessToken: result.accessToken,
-            userID: result.user.id
+            userID: result.user.id,
+            serverID: sessionStore.serverConfiguration?.id
         ))
         phase = .main
         return result.user
@@ -154,7 +192,8 @@ final class AppState {
             password: nil,
             accessToken: result.accessToken,
             userID: result.user.id,
-            authMethod: .quickConnect
+            authMethod: .quickConnect,
+            serverID: sessionStore.serverConfiguration?.id
         ))
         phase = .main
         return result.user
@@ -173,6 +212,27 @@ final class AppState {
         phase = .main
     }
 
+    /// One press on a remembered account on Who's Watching? (tvOS): signs in
+    /// the way launch restores a session. A password account signs in again
+    /// with its stored password; a Quick Connect one validates its token. On
+    /// failure nothing changes, and the account stays remembered.
+    func signIn(rememberedAccount account: StoredCredentials) async throws {
+        guard let client = apiClient, let server = sessionStore.serverConfiguration else {
+            throw JellyfinAPIError.invalidServerAddress
+        }
+        // Never replayed against another server, where the same name could be
+        // someone else (see `StoredCredentials.serverID`).
+        guard account.serverID == server.id else { throw JellyfinAPIError.notAuthenticated }
+        switch account.authMethod {
+        case .password:
+            try await signIn(username: account.username, password: account.password ?? "", client: client)
+        case .quickConnect:
+            try await resumeQuickConnectSession(account, client: client)
+            // Launch finds these already stored; here they become current.
+            sessionStore.saveCredentials(account)
+        }
+    }
+
     func signOut() {
         sessionStore.clearCredentials()
         currentUser = nil
@@ -187,6 +247,50 @@ final class AppState {
             Task { await apiClient.forgetReauthCredentials() }
         }
     }
+
+    #if os(tvOS)
+    /// Profile's Sign Out: forgets this account on this Apple TV, then signs
+    /// out. Switch User (`signOut()`) keeps it remembered, one press away on
+    /// Who's Watching?; this is for someone who is leaving for good.
+    func signOutForgettingAccount() {
+        if let userID = sessionStore.credentials?.userID {
+            sessionStore.forgetAccount(userID: userID)
+        }
+        signOut()
+    }
+
+    /// The "Follow Apple TV Users" setting. The session moves with it, so
+    /// whoever is signed in stays signed in (`ServerSessionStore.moveSession`).
+    func setFollowsAppleTVUsers(_ follows: Bool) {
+        // The session first: if it can't be moved, the setting stays as it
+        // was and still points at where the session is.
+        guard sessionStore.moveSession(to: follows ? .currentUser : .allUsers) else { return }
+        SessionScopeSetting.set(follows)
+    }
+
+    private var asksWhoIsWatching: Bool {
+        let accounts = sessionStore.serverConfiguration.map { sessionStore.rememberedAccounts(forServer: $0.id).count } ?? 0
+        return WhoIsWatchingPolicy.asks(
+            followsAppleTVUsers: SessionScopeSetting.followsAppleTVUsers,
+            selectsUserEveryRelaunch: SessionScopeSetting.selectsUserEveryRelaunch,
+            rememberedAccounts: accounts
+        )
+    }
+
+    func didEnterBackground(at date: Date = Date()) {
+        backgroundedAt = date
+    }
+
+    /// Whether coming back to the foreground should return to Who's
+    /// Watching?: signed in, away for `WhoIsWatchingPolicy.timeAway` or more,
+    /// and the settings ask. The caller closes the player and signs out.
+    /// Each time away is answered once.
+    func asksWhoIsWatching(returningAt date: Date = Date()) -> Bool {
+        guard let left = backgroundedAt else { return false }
+        backgroundedAt = nil
+        return phase == .main && WhoIsWatchingPolicy.asks(afterSecondsAway: date.timeIntervalSince(left)) && asksWhoIsWatching
+    }
+    #endif
 
     /// Forgets the server entirely and returns to first-run setup.
     func changeServer() {

@@ -43,6 +43,7 @@ struct Chapter: Identifiable, Equatable {
         }
     }
 
+    #if DOWNLOADS
     /// Builds from a stored `DownloadedChapter`, as
     /// `PlaybackSegment.init(downloaded:)` does, so `imageURL` resolves to the
     /// downloaded file rather than an unreachable network route. `imageTag`
@@ -55,6 +56,7 @@ struct Chapter: Identifiable, Equatable {
         self.imageTag = nil
         self.imageURL = downloaded.imageRelativePath.map(DownloadFileStore.url(forRelativePath:))
     }
+    #endif
 
     /// Enough for the detail page's 220pt landscape tile at 3×, without pulling
     /// a full-resolution still for a small thumbnail.

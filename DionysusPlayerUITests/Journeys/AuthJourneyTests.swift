@@ -219,6 +219,59 @@ final class AuthJourneyTests: UITestCase {
         XCTAssertFalse(login.disclaimer.label.contains("<br"), "Markup should be stripped: \(login.disclaimer.label)")
     }
 
+    /// On the open iPhone Duo the sign-in screen puts the fold between its
+    /// header and its user picker, so no control sits on the crease: a tile
+    /// straddled it in book and "Change Server" sat on it in tabletop
+    /// (2026-10-31). Runs in the Duo legs' open, book and tabletop poses; the
+    /// closed phone and other devices have no fold to keep clear of.
+    func testSignInKeepsItsControlsOffTheDuoFold() throws {
+        launch(signedIn: false)
+        ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
+
+        let login = LoginScreen(app: app)
+        login.awaitLoaded()
+        guard let fold = duoFoldBand() else {
+            throw XCTSkip("Only the iPhone Duo's inner display has a fold.")
+        }
+        let controls = [
+            login.fixtureUserTile,
+            login.userTile(UITestFixtureIdentity.passwordlessUserID),
+            login.otherUserButton,
+            login.changeServerButton,
+        ]
+        // The split follows the fold, read a pass after the screen appears.
+        let clear = NSPredicate { _, _ in controls.allSatisfy { $0.exists && !$0.frame.intersects(fold) } }
+        let result = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: clear, object: nil)], timeout: Self.defaultTimeout)
+        XCTAssertEqual(
+            result, .completed,
+            "No sign-in control should overlap the fold \(fold): \(controls.map { "\($0.identifier) \($0.frame)" })."
+        )
+    }
+
+    /// On a phone held sideways, the pre-sign-in journey still turns upright:
+    /// it's portrait-only on a phone-sized screen. The portrait lock now asks
+    /// the scene to rotate only from sideways (`RotationLock.lockToPortrait`),
+    /// so this guards the case that still needs the request. Skipped on iPad
+    /// (not phone-sized, so never locked) and on the iPhone Duo, which
+    /// `XCUIDevice` can't turn.
+    func testOnboardingTurnsUprightOnASidewaysPhone() throws {
+        try skipWhereXCUIDeviceCannotRotate()
+        guard UIDevice.current.userInterfaceIdiom == .phone else {
+            throw XCTSkip("Onboarding is only portrait-locked on a phone-sized screen.")
+        }
+        let device = XCUIDevice.shared
+        addTeardownBlock { @MainActor in device.orientation = .portrait }
+        device.orientation = .landscapeLeft
+
+        launch(signedIn: false)
+        ServerSetupScreen(app: app).manualEntryButton.awaitExistence("server setup's Enter Address Manually button")
+
+        let window = app.windows.firstMatch
+        let upright = NSPredicate { _, _ in window.frame.height > window.frame.width }
+        let result = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: upright, object: nil)], timeout: Self.defaultTimeout)
+        XCTAssertEqual(result, .completed, "Server setup should be portrait on a sideways phone, but the window is \(window.frame.size).")
+    }
+
     /// Someone the server doesn't list signs in by name from "Other".
     func testOtherUserSignsInByName() {
         launch(signedIn: false)

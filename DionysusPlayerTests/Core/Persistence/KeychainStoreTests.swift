@@ -10,6 +10,7 @@ final class KeychainStoreTests: XCTestCase {
 
     override func tearDown() {
         KeychainStore.delete(forKey: key)
+        KeychainStore.delete(forKey: key, scope: .allUsers)
         super.tearDown()
     }
 
@@ -33,5 +34,15 @@ final class KeychainStoreTests: XCTestCase {
         KeychainStore.save(Data("hello".utf8), forKey: key)
         KeychainStore.delete(forKey: key)
         XCTAssertNil(KeychainStore.load(forKey: key))
+    }
+
+    /// The shared scope is where tvOS keeps the household's server. On iOS it
+    /// is the same keychain as `.currentUser`; either way it must round-trip.
+    func test_allUsersScope_roundTripsAndDeletes() {
+        let status = KeychainStore.save(Data("shared".utf8), forKey: key, scope: .allUsers)
+        XCTAssertEqual(status, errSecSuccess)
+        XCTAssertEqual(KeychainStore.load(forKey: key, scope: .allUsers), Data("shared".utf8))
+        KeychainStore.delete(forKey: key, scope: .allUsers)
+        XCTAssertNil(KeychainStore.load(forKey: key, scope: .allUsers))
     }
 }

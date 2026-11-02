@@ -15,6 +15,7 @@ final class AppStateTests: XCTestCase {
     private var defaults: UserDefaults!
     private let suiteName = "com.dionysusplayer.tests.AppStateTests"
     private let credentialsKey = "server.credentials" // matches ServerSessionStore.Keys.credentials
+    private let serverKey = "server.configuration" // matches ServerSessionStore.Keys.serverConfiguration
     private let exampleServer = ServerConfiguration(name: "Home", baseURL: URL(string: "https://jellyfin.example.com")!)
 
     override func setUp() async throws {
@@ -30,6 +31,13 @@ final class AppStateTests: XCTestCase {
         ConnectivityMonitor.shared.reset()
         defaults.removePersistentDomain(forName: suiteName)
         KeychainStore.delete(forKey: credentialsKey)
+        KeychainStore.delete(forKey: serverKey, scope: .allUsers)
+        KeychainStore.delete(forKey: "server.rememberedAccounts")
+        #if os(tvOS)
+        SessionScopeSetting.reset()
+        KeychainStore.delete(forKey: credentialsKey, scope: .allUsers)
+        KeychainStore.delete(forKey: "server.rememberedAccounts", scope: .allUsers)
+        #endif
         try await super.tearDown()
     }
 
@@ -109,6 +117,22 @@ final class AppStateTests: XCTestCase {
         XCTAssertNil(appState.currentUser)
         let restoredToken = await appState.apiClient?.accessToken
         XCTAssertEqual(restoredToken, "cached-token")
+    }
+
+    /// The resumed session has no `currentUser` yet, so the signed-in user
+    /// comes from the cached credentials. tvOS's root keyed on `currentUser`
+    /// alone and drew nothing at all on such a launch.
+    func test_start_serverUnreachable_signedInUserIDFallsBackToCachedCredentials() async {
+        let store = ServerSessionStore(defaults: defaults)
+        store.saveServer(exampleServer)
+        store.saveCredentials(StoredCredentials(username: "ben", password: "hunter2", accessToken: "cached-token", userID: "user-1"))
+        MockURLProtocol.requestHandler = { _ in throw URLError(.cannotConnectToHost) }
+        let appState = AppState(sessionStore: store)
+
+        await appState.start()
+
+        XCTAssertNil(appState.currentUser)
+        XCTAssertEqual(appState.signedInUserID, "user-1")
     }
 
     /// Defensive fallback: a connectivity failure with remembered
@@ -201,7 +225,10 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(appState.currentUser?.id, "user-1")
         XCTAssertEqual(
             appState.sessionStore.credentials,
-            StoredCredentials(username: "ben", password: nil, accessToken: "qc-token", userID: "user-1", authMethod: .quickConnect)
+            StoredCredentials(
+                username: "ben", password: nil, accessToken: "qc-token", userID: "user-1",
+                authMethod: .quickConnect, serverID: exampleServer.id
+            )
         )
     }
 
@@ -219,12 +246,7 @@ final class AppStateTests: XCTestCase {
     func test_signIn_success_setsUserPhaseAndPersistsCredentials() async throws {
         let appState = makeAppState()
         appState.completeServerSetup(exampleServer)
-        MockURLProtocol.requestHandler = { request in
-            try MockURLProtocol.encodedJSONResponse(
-                for: request,
-                value: AuthenticationResult(user: UserDto(id: "user-1", name: "ben"), accessToken: "tok", serverId: nil)
-            )
-        }
+        MockURLProtocol.requestHandler = Self.authenticateByNameHandler
 
         let user = try await appState.signIn(username: "ben", password: "hunter2")
 
@@ -336,4 +358,217 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(appState.phase, .serverSetup)
         XCTAssertTrue(appState.sessionStore.hasCompletedWelcome)
     }
+
+    // MARK: Credentials bound to a server
+
+    private static let authenticateByNameHandler: @Sendable (URLRequest) throws -> (HTTPURLResponse, Data) = { request in
+        try MockURLProtocol.encodedJSONResponse(
+            for: request,
+            value: AuthenticationResult(user: UserDto(id: "user-1", name: "ben"), accessToken: "tok", serverId: nil)
+        )
+    }
+
+    /// Another Apple TV user changed the shared server. This user's own
+    /// credentials were issued by the old one and must not be replayed against
+    /// the new one, where the same username could be someone else.
+    func test_start_credentialsBoundToAnotherServer_discardsThemAndGoesToLogin() async {
+        let store = ServerSessionStore(defaults: defaults)
+        store.saveServer(exampleServer)
+        store.saveCredentials(StoredCredentials(
+            username: "ben", password: "pw", accessToken: "tok", userID: "u1",
+            serverID: "https://old.example.com"
+        ))
+        MockURLProtocol.requestHandler = { _ in
+            XCTFail("No request may be sent with credentials from another server")
+            throw URLError(.badServerResponse)
+        }
+        let appState = AppState(sessionStore: store)
+
+        await appState.start()
+
+        XCTAssertEqual(appState.phase, .login)
+        XCTAssertNil(store.credentials)
+    }
+
+    func test_signIn_bindsCredentialsToTheConfiguredServer() async throws {
+        let store = ServerSessionStore(defaults: defaults)
+        let appState = AppState(sessionStore: store)
+        appState.completeServerSetup(exampleServer)
+        MockURLProtocol.requestHandler = Self.authenticateByNameHandler
+
+        try await appState.signIn(username: "ben", password: "pw")
+
+        XCTAssertEqual(store.credentials?.serverID, exampleServer.id)
+    }
+
+    // MARK: Remembered accounts (tvOS)
+
+    private func makeRememberingAppState() -> AppState {
+        AppState(sessionStore: ServerSessionStore(defaults: defaults, remembersAccounts: true))
+    }
+
+    func test_signInRememberedPasswordAccount_signsInWithItsStoredPassword() async throws {
+        let appState = makeRememberingAppState()
+        appState.completeServerSetup(exampleServer)
+        // The handler runs on a URL loading thread: it only stores the bytes.
+        nonisolated(unsafe) var sentData: Data?
+        MockURLProtocol.requestHandler = { request in
+            sentData = request.capturedHTTPBody
+            return try Self.authenticateByNameHandler(request)
+        }
+        let remembered = StoredCredentials(username: "ben", password: "pw", accessToken: "old", userID: "user-1", serverID: exampleServer.id)
+
+        try await appState.signIn(rememberedAccount: remembered)
+
+        XCTAssertEqual(appState.phase, .main)
+        let sentBody = String(data: sentData ?? Data(), encoding: .utf8) ?? ""
+        XCTAssertTrue(sentBody.contains("\"Pw\":\"pw\""), sentBody)
+        XCTAssertEqual(appState.sessionStore.credentials?.accessToken, "tok")
+    }
+
+    func test_signInRememberedQuickConnectAccount_validatesItsTokenInsteadOfSigningIn() async throws {
+        let appState = makeRememberingAppState()
+        appState.completeServerSetup(exampleServer)
+        var paths: [String] = []
+        MockURLProtocol.requestHandler = { request in
+            paths.append(request.url?.path ?? "")
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: UserDto(id: "user-1", name: "ben"))
+        }
+        let remembered = StoredCredentials(username: "ben", password: nil, accessToken: "qc", userID: "user-1",
+                                           authMethod: .quickConnect, serverID: exampleServer.id)
+
+        try await appState.signIn(rememberedAccount: remembered)
+
+        XCTAssertEqual(paths, ["/Users/Me"], "A Quick Connect account has no password to send")
+        XCTAssertEqual(appState.phase, .main)
+        XCTAssertEqual(appState.currentUser?.id, "user-1")
+        XCTAssertEqual(appState.sessionStore.credentials?.accessToken, "qc")
+    }
+
+    /// The password was changed elsewhere, or the token revoked: the person
+    /// stays on Who's Watching?, signed in as nobody, and the account stays
+    /// remembered until they forget it.
+    func test_signInRememberedAccount_thatNoLongerWorks_throwsAndStaysRemembered() async {
+        let appState = makeRememberingAppState()
+        appState.completeServerSetup(exampleServer)
+        MockURLProtocol.requestHandler = Self.authenticateByNameHandler
+        _ = try? await appState.signIn(username: "ben", password: "pw")
+        appState.signOut()
+        let remembered = appState.sessionStore.rememberedAccounts(forServer: exampleServer.id)
+        XCTAssertEqual(remembered.map(\.userID), ["user-1"])
+        MockURLProtocol.requestHandler = { request in MockURLProtocol.jsonResponse(for: request, status: 401, body: Data()) }
+
+        do {
+            try await appState.signIn(rememberedAccount: remembered[0])
+            XCTFail("Expected the stale account to be refused")
+        } catch {}
+
+        XCTAssertEqual(appState.phase, .login)
+        XCTAssertNil(appState.sessionStore.credentials)
+        XCTAssertNil(appState.currentUser)
+        XCTAssertEqual(appState.sessionStore.rememberedAccounts(forServer: exampleServer.id).map(\.userID), ["user-1"])
+    }
+
+    /// An account remembered for another server is never replayed against
+    /// this one, where the same name could be someone else.
+    func test_signInRememberedAccount_fromAnotherServer_isRefusedWithoutARequest() async {
+        let appState = makeRememberingAppState()
+        appState.completeServerSetup(exampleServer)
+        var requests = 0
+        MockURLProtocol.requestHandler = { request in
+            requests += 1
+            return try Self.authenticateByNameHandler(request)
+        }
+        let foreign = StoredCredentials(username: "ben", password: "pw", accessToken: "old", userID: "user-1", serverID: "https://other.example.com")
+
+        do {
+            try await appState.signIn(rememberedAccount: foreign)
+            XCTFail("Expected an account from another server to be refused")
+        } catch {}
+
+        XCTAssertEqual(requests, 0)
+        XCTAssertEqual(appState.phase, .login)
+    }
+
+    // MARK: Who's Watching? at every relaunch (tvOS, Follow Apple TV Users off)
+
+    #if os(tvOS)
+    /// A shared-session store with `accounts` remembered, the last signed in.
+    private func makeSharedAppState(accounts: [String]) -> AppState {
+        let store = ServerSessionStore(defaults: defaults, remembersAccounts: true, sessionScope: .allUsers)
+        store.saveServer(exampleServer)
+        for id in accounts {
+            store.saveCredentials(StoredCredentials(username: id, password: "pw", accessToken: "tok", userID: id, serverID: exampleServer.id))
+        }
+        return AppState(sessionStore: store)
+    }
+
+    func test_start_sharedSessionWithSeveralAccounts_asksWhoIsWatching_withoutSigningIn() async {
+        SessionScopeSetting.set(false)
+        let appState = makeSharedAppState(accounts: ["ben", "tara"])
+        nonisolated(unsafe) var requests = 0
+        MockURLProtocol.requestHandler = { request in
+            requests += 1
+            return try Self.authenticateByNameHandler(request)
+        }
+
+        await appState.start()
+
+        XCTAssertEqual(appState.phase, .login)
+        XCTAssertEqual(requests, 0)
+        XCTAssertNil(appState.sessionStore.credentials, "Nobody is signed in until someone is chosen")
+        XCTAssertEqual(appState.sessionStore.rememberedAccounts(forServer: exampleServer.id).count, 2)
+    }
+
+    func test_start_sharedSessionWithOneAccount_signsStraightIn() async {
+        SessionScopeSetting.set(false)
+        let appState = makeSharedAppState(accounts: ["ben"])
+        MockURLProtocol.requestHandler = Self.authenticateByNameHandler
+
+        await appState.start()
+
+        XCTAssertEqual(appState.phase, .main)
+    }
+
+    func test_start_selectAUserEveryRelaunchOff_signsStraightIn() async {
+        SessionScopeSetting.set(false)
+        SessionScopeSetting.setSelectsUserEveryRelaunch(false)
+        let appState = makeSharedAppState(accounts: ["ben", "tara"])
+        MockURLProtocol.requestHandler = Self.authenticateByNameHandler
+
+        await appState.start()
+
+        XCTAssertEqual(appState.phase, .main)
+    }
+
+    func test_returningAfterHalfAnHourAway_asksWhoIsWatching_soonerDoesNot() async {
+        SessionScopeSetting.set(false)
+        let appState = makeSharedAppState(accounts: ["ben", "tara"])
+        appState.completeServerSetup(exampleServer)
+        MockURLProtocol.requestHandler = Self.authenticateByNameHandler
+        _ = try? await appState.signIn(username: "tara", password: "pw")
+        XCTAssertEqual(appState.phase, .main)
+        let left = Date(timeIntervalSince1970: 1_000_000)
+
+        XCTAssertFalse(appState.asksWhoIsWatching(returningAt: left), "Never away")
+        appState.didEnterBackground(at: left)
+        XCTAssertFalse(appState.asksWhoIsWatching(returningAt: left.addingTimeInterval(29 * 60)))
+        appState.didEnterBackground(at: left)
+        XCTAssertTrue(appState.asksWhoIsWatching(returningAt: left.addingTimeInterval(30 * 60)))
+        XCTAssertFalse(appState.asksWhoIsWatching(returningAt: left.addingTimeInterval(31 * 60)), "Asked once per time away")
+    }
+
+    func test_returningAfterHalfAnHourAway_followingAppleTVUsers_doesNotAsk() async {
+        let appState = makeSharedAppState(accounts: ["ben", "tara"])
+        appState.completeServerSetup(exampleServer)
+        MockURLProtocol.requestHandler = Self.authenticateByNameHandler
+        _ = try? await appState.signIn(username: "tara", password: "pw")
+        XCTAssertEqual(appState.phase, .main)
+        XCTAssertGreaterThan(appState.sessionStore.rememberedAccounts(forServer: exampleServer.id).count, 1)
+        let left = Date(timeIntervalSince1970: 1_000_000)
+
+        appState.didEnterBackground(at: left)
+        XCTAssertFalse(appState.asksWhoIsWatching(returningAt: left.addingTimeInterval(60 * 60)))
+    }
+    #endif
 }

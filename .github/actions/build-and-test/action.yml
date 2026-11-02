@@ -1,7 +1,8 @@
 name: Build and test
 description: >-
   Builds the app and runs one test plan on a simulator of an exact device type
-  and iOS version. Shared by pr-checks.yml, release.yml and ui-tests.yml.
+  and OS version, iOS or tvOS. Shared by pr-checks.yml, release.yml,
+  ui-tests.yml and tv-ui-tests.yml.
 
 inputs:
   scheme:
@@ -27,6 +28,12 @@ inputs:
       for by name.
     required: false
     default: UnitTests
+  platform:
+    description: >-
+      Simulator platform, "iOS" or "tvOS" — the runtime's platform as
+      `xcrun simctl list runtimes -j` reports it, and the destination's.
+    required: false
+    default: iOS
   device-type:
     description: >-
       Simulator device type, by name as `xcrun simctl list devicetypes` prints
@@ -36,11 +43,12 @@ inputs:
     default: iPhone 16
   ios-version:
     description: >-
-      iOS runtime version, e.g. "26.5". The runner image must already carry
-      it — there's no download fallback, because Xcode won't download an iOS
-      18 runtime at all (see ui-tests.yml), so pick the image instead.
+      Runtime version of `platform`, e.g. "27.0". The runner must already
+      carry it: there's no download fallback here, because Xcode won't
+      download an iOS 18 runtime at all. ui-tests.yml installs the floor's
+      from the Actions cache before calling this.
     required: false
-    default: "26.5"
+    default: "27.0"
   retry-tests-on-failure:
     description: >-
       Pass `-retry-tests-on-failure` on top of the plan's own repetition
@@ -48,6 +56,30 @@ inputs:
       flaky rather than as a break.
     required: false
     default: "false"
+  test-iterations:
+    description: >-
+      With `retry-tests-on-failure`, how many attempts a failing test gets in
+      all (`-test-iterations`). Empty keeps xcodebuild's default, 3. A test
+      that passes is never run again, so this costs nothing on a green run.
+    required: false
+    default: ""
+  only-testing:
+    description: >-
+      Space-separated test identifiers (`Target/Class` or
+      `Target/Class/test_name`) to run instead of the whole plan, each passed
+      as `-only-testing`. Empty runs the plan. tv-ui-tests.yml uses it to
+      split a plan across parallel jobs.
+    required: false
+    default: ""
+
+  warm-up-test:
+    description: >-
+      A UI test (`Target/Class/test_name`) run once between the build and the
+      plan, its result ignored. Empty runs none. On CI the first UI test of a
+      job could read an accessibility tree seconds behind the app (see
+      TESTING.md, "The first test's warm-up").
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -58,6 +90,7 @@ runs:
       env:
         DEVICE_TYPE: ${{ inputs.device-type }}
         IOS_VERSION: ${{ inputs.ios-version }}
+        PLATFORM: ${{ inputs.platform }}
       run: |
         # Exactly the requested device type on exactly the requested runtime.
         # This used to mean "the newest iPhone on the newest runtime", which
@@ -67,7 +100,7 @@ runs:
         #
         # The image's own device is preferred when it has one — it's what the
         # suite ran on before this action created devices — and a new one is
-        # created only when it doesn't (e.g. iPhone 16 on iOS 26.5). Either
+        # created only when it doesn't (e.g. iPhone 16 on iOS 27.0). Either
         # behaves the same as far as measured: PR #258 briefly blamed three
         # iPad audit failures on freshly created devices, but they failed on
         # the image's own iPad too, and turned out to have failed every night
@@ -76,10 +109,10 @@ runs:
         # Matched on the runtime's version string exactly: macos-15 carries
         # both 18.5 and 18.6, and a prefix match would pick either.
         runtime=$(xcrun simctl list runtimes available -j \
-          | jq -r --arg v "$IOS_VERSION" '.runtimes[] | select(.platform == "iOS" and .version == $v) | .identifier' \
+          | jq -r --arg v "$IOS_VERSION" --arg p "$PLATFORM" '.runtimes[] | select(.platform == $p and .version == $v) | .identifier' \
           | head -1)
         if [ -z "$runtime" ]; then
-          echo "::error::No iOS $IOS_VERSION runtime on this runner image. It can't be downloaded; run this environment on an image that carries it (see ui-tests.yml)." >&2
+          echo "::error::No $PLATFORM $IOS_VERSION runtime on this runner image. It can't be downloaded; run this environment on an image that carries it (see ui-tests.yml)." >&2
           xcrun simctl list runtimes
           exit 1
         fi
@@ -108,21 +141,52 @@ runs:
           -scheme "${{ inputs.scheme }}" \
           -project "${{ inputs.project }}" \
           -testPlan "${{ inputs.test-plan }}" \
-          -destination "platform=iOS Simulator,id=${{ steps.select_simulator.outputs.udid }}" \
+          -destination "platform=${{ inputs.platform }} Simulator,id=${{ steps.select_simulator.outputs.udid }}" \
           | xcbeautify --renderer github-actions
+
+    - name: Warm up
+      if: inputs.warm-up-test != ''
+      shell: bash
+      run: |
+        # Its result doesn't count: the plan runs this test again. No result
+        # bundle, so the uploaded one holds only the plan's run.
+        if xcodebuild test-without-building \
+          -scheme "${{ inputs.scheme }}" \
+          -project "${{ inputs.project }}" \
+          -testPlan "${{ inputs.test-plan }}" \
+          -destination "platform=${{ inputs.platform }} Simulator,id=${{ steps.select_simulator.outputs.udid }}" \
+          -only-testing:"${{ inputs.warm-up-test }}" \
+          | xcbeautify --renderer github-actions; then
+          echo "Warm-up test passed"
+        else
+          echo "::notice::The warm-up test failed; its result doesn't count."
+        fi
 
     - name: Test
       shell: bash
+      env:
+        # Via env, not `${{ }}` in the script: they're word-split into
+        # arguments below, never pasted into the script text.
+        ONLY_TESTING: ${{ inputs.only-testing }}
+        TEST_ITERATIONS: ${{ inputs.test-iterations }}
       run: |
         retry=()
         if [ "${{ inputs.retry-tests-on-failure }}" = "true" ]; then
           retry=(-retry-tests-on-failure)
+          if [ -n "$TEST_ITERATIONS" ]; then
+            retry+=(-test-iterations "$TEST_ITERATIONS")
+          fi
         fi
+        only=()
+        for test in $ONLY_TESTING; do
+          only+=("-only-testing:$test")
+        done
         xcodebuild test-without-building \
           -scheme "${{ inputs.scheme }}" \
           -project "${{ inputs.project }}" \
           -testPlan "${{ inputs.test-plan }}" \
-          -destination "platform=iOS Simulator,id=${{ steps.select_simulator.outputs.udid }}" \
+          -destination "platform=${{ inputs.platform }} Simulator,id=${{ steps.select_simulator.outputs.udid }}" \
           "${retry[@]}" \
+          "${only[@]}" \
           -resultBundlePath "${{ inputs.result-bundle-path }}" \
           | xcbeautify --renderer github-actions

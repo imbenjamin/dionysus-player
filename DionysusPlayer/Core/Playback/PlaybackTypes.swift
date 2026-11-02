@@ -99,16 +99,58 @@ struct PlaybackStats: Equatable {
     /// misdeclared HLS carriage.
     var route: String
     /// Seconds fetched ahead of the playhead: the margin before playback would
-    /// rebuffer. `nil` off the native backend, where `bufferedPosition` means
-    /// "newest demuxed PTS since session start" and tracks the playhead rather
-    /// than any read-ahead — reporting that would read as a stuck "0.0s",
-    /// indistinguishable from a stall.
+    /// rebuffer. Native and software backends; `nil` otherwise
+    /// (`AetherPlaybackEngine.bufferedAheadSeconds(backend:...)`).
     var bufferedSeconds: Double?
-    /// Resident size of the segment cache `bufferedSeconds` measures; `nil` in
-    /// the same case.
+    /// Bytes of the loopback's segment cache ahead of the playhead, segments
+    /// already watched excluded; `nil` off the loopback. The software route's
+    /// packet cache publishes only its resident size, played packets included,
+    /// so it shows seconds alone (`AetherPlaybackEngine.forwardCacheBytes(_:)`).
     var bufferedBytes: Int64?
     var currentTime: TimeInterval
     var duration: TimeInterval
+
+    // AetherEngine's own probe of the source (7.21.0's
+    // `sourceVideoStreamFormat` and `TrackInfo` audio detail), formatted by
+    // `StreamFormatDescription`. All nil on a server transcode, where nothing
+    // local probes the source; `PlaybackStatsOverlay` then falls back to
+    // Jellyfin's probe of the same file.
+
+    /// "HEVC Main 10".
+    var videoCodec: String? = nil
+    /// The container that arrived ("Matroska", "MP4"), which on a remux
+    /// differs from the one in the library. "HLS" on a server transcode, the
+    /// one video row the engine can answer there.
+    var container: String? = nil
+    /// "yuv420p10le (10-bit)".
+    var pixelFormat: String? = nil
+    /// "BT.2020 · PQ (SMPTE ST 2084) · BT.2020 NCL · Limited".
+    var colorDescription: String? = nil
+    /// What the engine's software decoder produced and the buffer it went
+    /// into, "yuv420p → NV12 (420v)". nil on every native route by design:
+    /// AVPlayer decodes there and no frame passes through the engine.
+    var decodedFormat: String? = nil
+    /// The active audio track's codec profile, where TrueHD Atmos and DTS:X
+    /// show up ("Dolby TrueHD + Dolby Atmos"). `audioChannels`' "Atmos" only
+    /// ever covers E-AC-3 JOC.
+    var audioProfile: String? = nil
+    /// "48 kHz · 24-bit".
+    var audioSampling: String? = nil
+
+    // `LiveTelemetry`, AetherEngine's 1 Hz sampler.
+
+    /// "12.3 Mbps (avg 10.1)".
+    var liveBitrate: String? = nil
+    /// The rate the source link delivers at while it is delivering, not a
+    /// wall-clock mean, so a healthy link that idles between fetches doesn't
+    /// read as slow.
+    var networkThroughput: String? = nil
+    /// "0 dropped", or "23.9 fps · 0 dropped" on the software route, the only
+    /// one that measures a rendered rate.
+    var frames: String? = nil
+    /// While TrueHD Atmos or DTS:X plays as Spatial Audio: "7.1.4 · 13 objects,
+    /// 4 overhead", or "7.1.4 · 4 height channels" for DTS:X. Nil otherwise.
+    var spatialAudio: String? = nil
 }
 
 /// A selectable audio or subtitle track, normalized from whatever track

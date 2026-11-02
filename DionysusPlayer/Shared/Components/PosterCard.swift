@@ -208,9 +208,10 @@ extension View {
     /// routed to a neighbouring card in the horizontal `ScrollView` — hence
     /// `allowsHitTesting(false)`.
     func watchStatusOverlay(for item: MediaItem) -> some View {
-        self
+        let badges = WatchBadges(item: item)
+        return self
             .overlay(alignment: .bottom) {
-                if let fraction = item.playedFraction, fraction > 0, !item.isPlayed {
+                if let fraction = badges.progress {
                     // Inset clear of the card's 12pt corners (see
                     // `artworkCard`), which at 4pt clipped the bar's ends.
                     ProgressView(value: fraction)
@@ -220,7 +221,7 @@ extension View {
                 }
             }
             .overlay(alignment: .topLeading) {
-                if item.isFavorite {
+                if badges.showsFavorite {
                     // `.circle.fill`, not plain `.fill` — matches
                     // `eye.circle.fill` below: both are two-layer SF
                     // Symbols (a filled circle behind the glyph), which is
@@ -235,7 +236,7 @@ extension View {
                 }
             }
             .overlay(alignment: .topTrailing) {
-                if item.isPlayed {
+                if badges.showsWatched {
                     // Matches the Collection grid's Watched filter, which
                     // also uses an eye (see `CollectionGridView
                     // .watchStatusSystemImage`) rather than a checkmark, so

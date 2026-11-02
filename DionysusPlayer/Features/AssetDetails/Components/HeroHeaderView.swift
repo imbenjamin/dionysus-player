@@ -112,9 +112,28 @@ struct HeroHeaderView: View {
         return statusBarInset + screenHeight / 3 * 1.25
     }
 
+    /// On a book-pose iPhone Duo the poster page stands in for this hero
+    /// (`DetailBookSpread`).
+    @Environment(\.isDetailBookSpread) private var isDetailBookSpread
+    @Environment(\.detailBookSpreadTopInset) private var detailBookSpreadTopInset
+
     var body: some View {
+        if isDetailBookSpread {
+            // Just clearance for the bars this page ignores, so the metadata
+            // starts below them rather than under the trailing toolbar items.
+            // A zero-height hero for the scroll-edge scrim, which then shows as
+            // soon as anything scrolls under the bar.
+            Color.clear
+                .frame(height: max(statusBarInset, detailBookSpreadTopInset))
+                .preference(key: HeroHeightKey.self, value: 0)
+        } else {
+            hero
+        }
+    }
+
+    private var hero: some View {
         let height = heroHeight(forWidth: measuredWidth)
-        BackdropLogoOverlay(
+        return BackdropLogoOverlay(
             backdropURL: backdropURL,
             logoURL: logoURL,
             title: title,

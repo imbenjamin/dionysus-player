@@ -32,7 +32,8 @@ final class AssetDetailViewModelTests: XCTestCase {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
         return AssetDetailViewModel(
             client: client, userID: "user-1", itemID: itemID, preloadedItem: preloadedItem,
-            versionPreferenceStore: MediaVersionPreferenceStore(defaults: defaults)
+            versionPreferenceStore: MediaVersionPreferenceStore(defaults: defaults),
+            searchHistoryStore: SearchHistoryStore(defaults: defaults)
         )
     }
 
@@ -203,11 +204,52 @@ final class AssetDetailViewModelTests: XCTestCase {
 
     func test_load_serverError_setsFailedState() async {
         let viewModel = makeViewModel(itemID: "item-1")
-        MockURLProtocol.requestHandler = { request in MockURLProtocol.jsonResponse(for: request, status: 500, body: Data()) }
+        MockURLProtocol.requestHandler = { request in MockURLProtocol.jsonResponse(for: request, status: 500, body: Data("<html>Oops</html>".utf8)) }
 
         await viewModel.load()
 
-        guard case .failed = viewModel.loadState else { return XCTFail("Expected .failed, got \(viewModel.loadState)") }
+        XCTAssertEqual(viewModel.loadState, .failed("Something went wrong (HTTP 500)."), "The status, never the body")
+    }
+
+    /// An item deleted since it was listed (most often a recent search):
+    /// `.notFound` rather than a failure, and its recent search goes, since it
+    /// can only lead back here.
+    func test_load_itemNotFound_setsNotFound_andDropsItsRecentSearch() async {
+        let history = SearchHistoryStore(defaults: defaults)
+        history.record(SearchResult(hint: SearchHint(id: "movie-kept", name: "Arrival", type: .movie)), userID: "user-1")
+        history.record(SearchResult(hint: SearchHint(id: "movie-gone", name: "Gone", type: .movie)), userID: "user-1")
+        let viewModel = makeViewModel(itemID: "movie-gone", preloadedItem: MediaItem(dto: BaseItemDto(id: "movie-gone", name: "Gone", type: .movie), images: ImageURLBuilder(baseURL: baseURL, accessToken: "tok")))
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 404, body: Data("<html><body>404 Not Found</body></html>".utf8))
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.loadState, .notFound)
+        XCTAssertEqual(history.history(userID: "user-1").map(\.id), ["movie-kept"])
+    }
+
+    /// Only the item itself decides "gone": a 404 from a supplementary rail
+    /// leaves the page loaded and the recent search alone.
+    func test_load_similarNotFound_stillLoads_andKeepsTheRecentSearch() async {
+        let history = SearchHistoryStore(defaults: defaults)
+        history.record(SearchResult(hint: SearchHint(id: "movie-1", name: "Arrival", type: .movie)), userID: "user-1")
+        let viewModel = makeViewModel(itemID: "movie-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/movie-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie))
+            case "/Items/movie-1/Similar":
+                return MockURLProtocol.jsonResponse(for: request, status: 404, body: Data())
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(history.history(userID: "user-1").map(\.id), ["movie-1"])
     }
 
     /// `similar`/`collections`/`seasons` are all supplementary rails, not
@@ -576,6 +618,49 @@ final class AssetDetailViewModelTests: XCTestCase {
 
         XCTAssertEqual(watchedRequestMethod, "POST")
         XCTAssertEqual(viewModel.item?.isPlayed, true)
+    }
+
+    /// `written` reports a successful write, for a copy of the item the view
+    /// model doesn't hold (the Apple TV show page's chosen episode).
+    func test_toggleWatched_reportsASuccessfulWrite() async {
+        let viewModel = makeViewModel(itemID: "series-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/PlayedItems/episode-9":
+                return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+            case "/Users/user-1/Items/episode-9":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                    id: "episode-9", name: "Nine", type: .episode,
+                    userData: UserItemDataDto(playbackPositionTicks: 0, playedPercentage: 100, played: true)
+                ))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        var reported: [Bool] = []
+        await viewModel.toggleWatched(itemID: "episode-9", currentlyWatched: false) { reported.append($0) }
+        XCTAssertEqual(reported, [true])
+    }
+
+    /// `toggleWatched`'s `written`, for the favorite status.
+    func test_toggleFavorite_reportsASuccessfulWrite() async {
+        let viewModel = makeViewModel(itemID: "series-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/FavoriteItems/episode-9":
+                return MockURLProtocol.jsonResponse(for: request, status: 200, body: Data("{}".utf8))
+            case "/Users/user-1/Items/episode-9":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(
+                    id: "episode-9", name: "Nine", type: .episode,
+                    userData: UserItemDataDto(playbackPositionTicks: 0, playedPercentage: 0, played: false, isFavorite: true)
+                ))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        var reported: [Bool] = []
+        await viewModel.toggleFavorite(itemID: "episode-9", currentlyFavorite: false) { reported.append($0) }
+        XCTAssertEqual(reported, [true])
     }
 
     /// The favorite/watched refetch patches *every* property currently
@@ -1359,6 +1444,68 @@ final class AssetDetailViewModelTests: XCTestCase {
         return viewModel
     }
 
+    /// More Actions offers the episode Play starts for deletion, gated on its
+    /// `CanDelete`, which Jellyfin leaves out unless `Fields` names it. Both
+    /// lookups ask: NextUp, and the first-episode fallback.
+    func test_load_showPlaybackEpisode_asksForCanDelete() async {
+        for usesNextUp in [true, false] {
+            let itemDto = BaseItemDto(id: "series-1", name: "The Wire", type: .series)
+            let seasonDto = BaseItemDto(id: "season-1", name: "Season 1", type: .season)
+            let viewModel = makeViewModel(itemID: "series-1")
+            MockURLProtocol.requestHandler = { request in
+                // No closure here: one would inherit the test's main-actor
+                // isolation and trap on URLSession's queue.
+                var episodeDto = BaseItemDto(id: "episode-1", name: "Pilot", type: .episode)
+                if request.url?.query?.contains("CanDelete") == true { episodeDto.canDelete = true }
+                switch request.url?.path {
+                case "/Users/user-1/Items/series-1":
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: itemDto)
+                case "/Shows/series-1/Seasons":
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [seasonDto], totalRecordCount: 1))
+                case "/Shows/NextUp" where usesNextUp, "/Shows/series-1/Episodes" where !usesNextUp:
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [episodeDto], totalRecordCount: 1))
+                default:
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+            }
+            await viewModel.load()
+            XCTAssertEqual(viewModel.showPlaybackEpisode?.id, "episode-1", "NextUp: \(usesNextUp)")
+            XCTAssertEqual(viewModel.showPlaybackEpisode?.canDelete, true, "NextUp: \(usesNextUp)")
+        }
+    }
+
+    /// The Apple TV's player is presented full screen, which takes the page
+    /// beneath out of the window and cancels its `.task`. A page pushed under
+    /// the player (Home's hero, Benjamin, 2026-10-04) lost its load that way:
+    /// the show's episode lookups failed quietly and Play never appeared.
+    func test_loadIfNeeded_finishesWhenTheCallerIsCancelled() async {
+        let itemDto = BaseItemDto(id: "series-1", name: "The Wire", type: .series)
+        let seasonDto = BaseItemDto(id: "season-1", name: "Season 1", type: .season)
+        let nextUpDto = BaseItemDto(id: "episode-1", name: "Pilot", type: .episode)
+        let viewModel = makeViewModel(itemID: "series-1")
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/series-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: itemDto)
+            case "/Shows/series-1/Seasons":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [seasonDto], totalRecordCount: 1))
+            case "/Shows/NextUp":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [nextUpDto], totalRecordCount: 1))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        let caller = Task { await viewModel.loadIfNeeded() }
+        caller.cancel()
+        await caller.value
+        // A caller arriving later joins the load still in flight.
+        await viewModel.loadIfNeeded()
+
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(viewModel.showPlaybackEpisode?.id, "episode-1")
+    }
+
     /// Episode-content counterpart to `loadedSeriesViewModel` above — `item`
     /// is the episode itself (`itemID`'s own `.episode` DTO), not the Show.
     private func loadedEpisodeViewModel(itemID: String = "ep-5", seasonId: String = "season-1") async -> AssetDetailViewModel {
@@ -1482,7 +1629,7 @@ final class AssetDetailViewModelTests: XCTestCase {
     /// an in-progress episode (Jellyfin's own resume-in-place semantics —
     /// see `showPlaybackEpisode`'s doc comment) has to carry that episode's
     /// *own* `userData` through into `showPlaybackEpisode`, not just its id
-    /// — `PlayResumeButtonRow` reads `effectiveItem.isPartWatched` straight
+    /// — `PlayResumeButtonRow` reads `effectiveItem.canResume` straight
     /// off it to decide "Resume SXX:EYY" vs. "Play SXX:EYY".
     func test_load_seriesDirect_showPlaybackEpisode_carriesThroughItsOwnWatchedState() async {
         let inProgressEpisode = BaseItemDto(
@@ -1492,7 +1639,7 @@ final class AssetDetailViewModelTests: XCTestCase {
         let viewModel = await loadedSeriesViewModel(nextUpItems: [inProgressEpisode], episodesItems: [])
 
         XCTAssertEqual(viewModel.showPlaybackEpisode?.id, "ep-5")
-        XCTAssertTrue(viewModel.showPlaybackEpisode?.isPartWatched ?? false)
+        XCTAssertTrue(viewModel.showPlaybackEpisode?.canResume ?? false)
     }
 
     /// A Season tapped directly always targets *that season's own* first
@@ -1920,6 +2067,231 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.preselectedSeasonID, "season-2", "picker must move off the deleted season")
     }
 
+    /// An episode page offers its season too, and deleting the season takes
+    /// the episode on show with it. Picked in place, the page is still the
+    /// show's, so it stays, with the hero back on the show rather than on an
+    /// episode that no longer exists.
+    func test_delete_seasonOfEpisodeSelectedInPlace_staysAndRevertsToTheShow() async throws {
+        stubShowEndpoints(
+            seriesEpisodeCount: 8,
+            seasons: [
+                BaseItemDto(id: "season-1", name: "Season 1", type: .season),
+                BaseItemDto(id: "season-2", name: "Season 2", type: .season)
+            ]
+        )
+        let viewModel = makeViewModel(itemID: "series-1")
+        await viewModel.load()
+        await viewModel.selectEpisode("ep-1")
+        XCTAssertEqual(viewModel.item?.id, "ep-1", "precondition")
+
+        stubShowEndpoints(
+            seriesEpisodeCount: 8,
+            seasons: [BaseItemDto(id: "season-2", name: "Season 2", type: .season)]
+        )
+        let outcome = try await viewModel.delete(mediaItem(BaseItemDto(id: "season-1", name: "Season 1", type: .season)))
+
+        XCTAssertEqual(outcome, .stayAndRefresh)
+        XCTAssertEqual(viewModel.item?.id, "series-1", "hero should revert to the show")
+        XCTAssertEqual(viewModel.preselectedSeasonID, "season-2", "picker must move off the deleted season")
+    }
+
+    /// The same, on the episode's own pushed page: the page's subject went
+    /// with its season, and the show beneath still has episodes, so pop one.
+    func test_delete_seasonOfEpisodeOnItsOwnPushedPage_popsOneLevel() async throws {
+        stubShowEndpoints(seriesEpisodeCount: 8)
+        let viewModel = makeViewModel(itemID: "ep-1")
+        await viewModel.load()
+        XCTAssertEqual(viewModel.item?.id, "ep-1", "precondition")
+
+        let outcome = try await viewModel.delete(mediaItem(BaseItemDto(id: "season-1", name: "Season 1", type: .season)))
+        XCTAssertEqual(outcome, .popOneLevel)
+    }
+
+    /// Deleting the season Play would start from moves Play on to what's left,
+    /// rather than leaving it on an episode that went with the season.
+    func test_delete_seasonHoldingThePlayTarget_reresolvesPlay() async throws {
+        func handler(nextUp: [BaseItemDto], seasons: [BaseItemDto]) -> (URLRequest) throws -> (HTTPURLResponse, Data) {
+            { request in
+                if request.httpMethod == "DELETE" {
+                    return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+                }
+                switch (request.url?.path, request.queryDictionary["seasonId"]) {
+                case ("/Users/user-1/Items/series-1", _):
+                    var series = BaseItemDto(id: "series-1", name: "Severance", type: .series)
+                    series.recursiveItemCount = 3
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: series)
+                case ("/Shows/NextUp", _):
+                    return try MockURLProtocol.encodedJSONResponse(
+                        for: request, value: BaseItemDtoQueryResult(items: nextUp, totalRecordCount: nextUp.count))
+                case ("/Shows/series-1/Seasons", _):
+                    return try MockURLProtocol.encodedJSONResponse(
+                        for: request, value: BaseItemDtoQueryResult(items: seasons, totalRecordCount: seasons.count))
+                case ("/Shows/series-1/Episodes", "season-2"):
+                    var episode = BaseItemDto(id: "ep-2-1", name: "Second Season Opener", type: .episode)
+                    episode.seriesId = "series-1"
+                    episode.seasonId = "season-2"
+                    return try MockURLProtocol.encodedJSONResponse(
+                        for: request, value: BaseItemDtoQueryResult(items: [episode], totalRecordCount: 1))
+                default:
+                    return try MockURLProtocol.encodedJSONResponse(
+                        for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+                }
+            }
+        }
+        let bothSeasons = [
+            BaseItemDto(id: "season-1", name: "Season 1", type: .season),
+            BaseItemDto(id: "season-2", name: "Season 2", type: .season)
+        ]
+        MockURLProtocol.requestHandler = handler(nextUp: [episodeDto()], seasons: bothSeasons)
+        let viewModel = makeViewModel(itemID: "series-1")
+        await viewModel.load()
+        XCTAssertEqual(viewModel.showPlaybackEpisode?.id, "ep-1", "precondition")
+
+        MockURLProtocol.requestHandler = handler(nextUp: [], seasons: [bothSeasons[1]])
+        let outcome = try await viewModel.delete(mediaItem(BaseItemDto(id: "season-1", name: "Season 1", type: .season)))
+
+        XCTAssertEqual(outcome, .stayAndRefresh)
+        XCTAssertEqual(viewModel.showPlaybackEpisode?.id, "ep-2-1", "Play must move off the deleted season")
+    }
+
+    // MARK: Folderless seasons
+
+    /// A show whose seasons have no folder on disk: Jellyfin lists them as
+    /// `Virtual` with `CanDelete: false` whoever asks, and keeps listing an
+    /// emptied one until a library scan, so `seasons` here never changes.
+    /// Season 1 holds three deletable episodes and one missing (`Virtual`) one.
+    private func stubFolderlessShow(
+        deletes: DeletedPathRecorder,
+        failingEpisodeID: String? = nil,
+        episodeCanDelete: Bool = true
+    ) {
+        func season(_ number: Int) -> BaseItemDto {
+            var season = BaseItemDto(id: "season-\(number)", name: "Season \(number)", type: .season)
+            season.locationType = "Virtual"
+            season.canDelete = false
+            return season
+        }
+        func episode(_ id: String, virtual: Bool = false) -> BaseItemDto {
+            var episode = BaseItemDto(id: id, name: id, type: .episode)
+            episode.seriesId = "series-1"
+            episode.seasonId = "season-1"
+            episode.locationType = virtual ? "Virtual" : "FileSystem"
+            episode.canDelete = virtual ? false : episodeCanDelete
+            return episode
+        }
+        let seasons = [season(1), season(2)]
+        let seasonOne = [episode("ep-1"), episode("ep-2"), episode("ep-3"), episode("ep-missing", virtual: true)]
+        MockURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            if request.httpMethod == "DELETE" {
+                deletes.record(path)
+                let status = path == "/Items/\(failingEpisodeID ?? "")" ? 500 : 204
+                return MockURLProtocol.jsonResponse(for: request, status: status, body: Data())
+            }
+            switch (path, request.queryDictionary["seasonId"]) {
+            case ("/Users/user-1/Items/series-1", _):
+                var series = BaseItemDto(id: "series-1", name: "Severance", type: .series)
+                series.recursiveItemCount = 5
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: series)
+            case ("/Shows/series-1/Seasons", _):
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: seasons, totalRecordCount: seasons.count))
+            case ("/Shows/series-1/Episodes", "season-1"):
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: seasonOne, totalRecordCount: seasonOne.count))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+    }
+
+    private func loadedFolderlessShow(deletes: DeletedPathRecorder, failingEpisodeID: String? = nil) async -> AssetDetailViewModel {
+        stubFolderlessShow(deletes: deletes, failingEpisodeID: failingEpisodeID)
+        let viewModel = makeViewModel(itemID: "series-1")
+        await viewModel.load()
+        await viewModel.loadSeasonDeletability(seasonID: "season-1")
+        return viewModel
+    }
+
+    /// The server never lets a folderless season go as a unit, so the menu
+    /// offers it on its episodes' say-so, and only once they've been asked.
+    func test_canDeleteSeason_folderless_followsItsEpisodes() async throws {
+        stubFolderlessShow(deletes: DeletedPathRecorder())
+        let viewModel = makeViewModel(itemID: "series-1")
+        await viewModel.load()
+        let seasonOne = try XCTUnwrap(viewModel.seasons.first)
+        XCTAssertFalse(viewModel.canDelete(season: seasonOne), "nothing known before the episodes are fetched")
+
+        await viewModel.loadSeasonDeletability(seasonID: "season-1")
+        XCTAssertTrue(
+            viewModel.canDelete(season: seasonOne),
+            "every episode with a file is deletable; the missing one doesn't count"
+        )
+        XCTAssertEqual(viewModel.folderlessSeasonEpisodes["season-1"]?.map(\.id), ["ep-1", "ep-2", "ep-3"])
+    }
+
+    /// One episode the user can't delete means the season can't go either.
+    func test_canDeleteSeason_folderless_falseWhenAnEpisodeIsNotDeletable() async throws {
+        stubFolderlessShow(deletes: DeletedPathRecorder(), episodeCanDelete: false)
+        let viewModel = makeViewModel(itemID: "series-1")
+        await viewModel.load()
+        await viewModel.loadSeasonDeletability(seasonID: "season-1")
+        XCTAssertFalse(viewModel.canDelete(season: try XCTUnwrap(viewModel.seasons.first)))
+    }
+
+    /// Each episode is deleted on its own, never the season (which Jellyfin
+    /// refuses), and the emptied season leaves the page although the server
+    /// still lists it.
+    func test_delete_folderlessSeason_deletesEachEpisodeAndDropsTheSeason() async throws {
+        DeletedItemBroadcaster.shared.reset()
+        let deletes = DeletedPathRecorder()
+        let viewModel = await loadedFolderlessShow(deletes: deletes)
+
+        let outcome = try await viewModel.delete(try XCTUnwrap(viewModel.seasons.first))
+
+        XCTAssertEqual(deletes.paths, ["/Items/ep-1", "/Items/ep-2", "/Items/ep-3"])
+        XCTAssertEqual(outcome, .stayAndRefresh)
+        XCTAssertEqual(viewModel.seasons.map(\.id), ["season-2"])
+        XCTAssertEqual(DeletedItemBroadcaster.shared.lastDeletedItemID, "season-1")
+    }
+
+    /// A failure partway stops there, says how far it got, and leaves the
+    /// season listed, since some of it is still on the server.
+    func test_delete_folderlessSeason_stopsAtTheFirstFailureAndSaysHowFarItGot() async throws {
+        let deletes = DeletedPathRecorder()
+        let viewModel = await loadedFolderlessShow(deletes: deletes, failingEpisodeID: "ep-2")
+
+        do {
+            try await viewModel.delete(try XCTUnwrap(viewModel.seasons.first))
+            XCTFail("expected a partial failure")
+        } catch let error as AssetDetailViewModel.PartialSeasonDeletionError {
+            XCTAssertEqual(error.deletedCount, 1)
+            XCTAssertEqual(error.totalCount, 3)
+        }
+        XCTAssertEqual(deletes.paths, ["/Items/ep-1", "/Items/ep-2"], "nothing after the failure is attempted")
+        XCTAssertEqual(viewModel.seasons.map(\.id), ["season-1", "season-2"])
+        XCTAssertEqual(
+            viewModel.folderlessSeasonEpisodes["season-1"]?.map(\.id), ["ep-2", "ep-3"],
+            "a retry must not ask for the deleted episode again"
+        )
+    }
+
+    /// Failing on the very first episode is an ordinary failed delete, with
+    /// the server's own error rather than a "0 of 3" one.
+    func test_delete_folderlessSeason_failingOnTheFirstEpisode_throwsThePlainError() async throws {
+        let deletes = DeletedPathRecorder()
+        let viewModel = await loadedFolderlessShow(deletes: deletes, failingEpisodeID: "ep-1")
+
+        do {
+            try await viewModel.delete(try XCTUnwrap(viewModel.seasons.first))
+            XCTFail("expected a failure")
+        } catch {
+            XCTAssertFalse(error is AssetDetailViewModel.PartialSeasonDeletionError, "was \(error)")
+        }
+        XCTAssertEqual(deletes.paths, ["/Items/ep-1"])
+    }
+
     /// A refused deletion has to propagate rather than being swallowed — the
     /// button surfaces it, and nothing may be treated as deleted.
     func test_delete_whenServerRefuses_throwsAndBroadcastsNothing() async {
@@ -1948,5 +2320,24 @@ final class AssetDetailViewModelTests: XCTestCase {
 
     private func mediaItem(_ dto: BaseItemDto) -> MediaItem {
         MediaItem(dto: dto, images: ImageURLBuilder(baseURL: baseURL, accessToken: "tok"))
+    }
+}
+
+/// `DELETE` paths in the order they were sent. `MockURLProtocol.requestHandler`
+/// runs off the main actor, so a plain captured `var` isn't safe.
+private final class DeletedPathRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+
+    func record(_ path: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        recorded.append(path)
+    }
+
+    var paths: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
     }
 }

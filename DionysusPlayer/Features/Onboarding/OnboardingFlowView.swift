@@ -84,15 +84,9 @@ struct OnboardingFlowView: View {
         // to Home: holding the phone sideways at launch shouldn't turn the
         // interface upright for a screen with nothing to lay out. Re-checked
         // on every size change, which is what folding or unfolding a foldable
-        // produces.
-        //
-        // Known gap (iPhone Duo, pre-release tooling, 2026-09-25): unfolding
-        // after folding releases the lock but iOS leaves the interface
-        // portrait — sideways on the inner screen — until the device is
-        // turned. Neither `setNeedsUpdateOfSupportedInterfaceOrientations` nor
-        // `requestGeometryUpdate(.all)` moved it, and `UIDevice.orientation`
-        // reads `.portrait` there, so it can't choose a target. Parked until
-        // that hardware ships.
+        // produces. The lock only asks the scene to rotate when it's sideways;
+        // see `RotationLock.lockToPortrait()` for why asking while upright
+        // left an unfolded iPhone Duo sideways.
         .onChange(of: OrientationInputs(stage: stage, windowSize: windowSize), initial: true) {
             if stage != .splash, RotationLock.isOnPhoneSizedScreen {
                 RotationLock.lockToPortrait()

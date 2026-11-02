@@ -1,9 +1,9 @@
 import XCTest
 
 /// Deeper Player coverage than `SmokeJourneyTests.testPlayingAndClosingAnItem`
-/// — transport, the track picker, and the chapter picker.
+/// — transport, the track picker, the chapter picker, and Stats for Nerds.
 ///
-/// All three run against `PreviewPlaybackEngine` (see `PlaybackEngineFactory`),
+/// All of them run against `PreviewPlaybackEngine` (see `PlaybackEngineFactory`),
 /// not real media — its canned, hardcoded audio/subtitle tracks (ids 0/1
 /// either way) are what these tests select against, not anything from
 /// `UITestFixtureLibrary`'s own `MediaSourceInfo`. So these tests assert what
@@ -18,8 +18,8 @@ import XCTest
 /// HDR, transcode and seek behaviour — `PlaybackEngineFactory`'s doc
 /// comment has the full list.
 final class PlayerJourneyTests: UITestCase {
-    private func openPlayer() -> PlayerScreen {
-        launch()
+    private func openPlayer(scenario: String = "standard") -> PlayerScreen {
+        launch(scenario: scenario)
         let home = HomeScreen(app: app)
         home.awaitLoaded()
         home.openItem(UITestFixtureIdentity.primaryMovieID)
@@ -43,6 +43,33 @@ final class PlayerJourneyTests: UITestCase {
             XCTWaiter().wait(for: [changed], timeout: Self.defaultTimeout), .completed,
             "Skipping forward should advance the elapsed-time label."
         )
+    }
+
+    /// Both skips jump 10s, as the Apple TV's do (Benjamin, 2026-10-07; they
+    /// were 15s back and 30s forward). Read off the scrubber's value, the
+    /// unlocalized "m:ss" position; the fake engine plays on at 1x, so the
+    /// bounds leave room for a few seconds of playback, never for 30.
+    func testSkipButtonsJumpTenSeconds() {
+        let player = openPlayer()
+        func position() -> Double? {
+            let parts = ((player.scrubber.value as? String) ?? "").split(separator: ":").compactMap { Double($0) }
+            return parts.count >= 2 ? parts.reduce(0) { $0 * 60 + $1 } : nil
+        }
+        func waitForPosition(_ range: ClosedRange<Double>, _ message: String) {
+            let reached = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in position().map(range.contains) ?? false },
+                object: nil
+            )
+            XCTAssertEqual(XCTWaiter().wait(for: [reached], timeout: 5), .completed, message)
+        }
+        guard let start = position() else { return XCTFail("Unreadable scrubber value") }
+
+        player.skipForwardButton.tap()
+        waitForPosition((start + 9)...(start + 15), "Forward skips 10s on from \(start)s")
+        guard let ahead = position() else { return XCTFail("Unreadable scrubber value") }
+
+        player.skipBackwardButton.tap()
+        waitForPosition((ahead - 11)...(ahead - 5), "Back skips 10s from \(ahead)s")
     }
 
     /// Opens the track picker, drills into each leaf, and taps a row —
@@ -70,6 +97,125 @@ final class PlayerJourneyTests: UITestCase {
         player.subtitleOffOption.awaitDisappearance("the track picker after selecting a subtitle track")
     }
 
+    /// The offset, a page of its own under Audio when there's a track to
+    /// choose too: + steps 10 ms, Reset (shown only under This Title) goes
+    /// back to the global value, All Titles edits the global value, and a
+    /// title's own offset survives a relaunch.
+    func testAudioOffsetStepsScopesResetsAndIsRemembered() {
+        let player = openPlayer()
+        player.tracksButton.tap()
+        player.trackNavigationRow("audio").tap()
+        player.trackOption("audio", 1).awaitExistence("the Audio page's tracks")
+        // Parked beside the panel, the page is built but out of reach, as the
+        // leaf page is beside the root, and hidden from VoiceOver: on a window
+        // wide enough (a closed iPhone Duo's) its frame fell inside it.
+        XCTAssertFalse(player.audioOffsetValue.exists, "The offset is a page of its own, not under the tracks")
+        player.trackNavigationRow("audioOffset").tap()
+        let value = player.audioOffsetValue
+        value.awaitExistence("the audio offset row")
+        XCTAssertEqual(value.value as? String, "0 milliseconds, in sync")
+        player.audioOffsetIncrease.tap()
+        player.audioOffsetIncrease.tap()
+        XCTAssertEqual(value.value as? String, "20 milliseconds, audio later")
+        XCTAssertTrue(player.audioOffsetReset.isEnabled)
+        player.audioOffsetReset.tap()
+        XCTAssertEqual(value.value as? String, "0 milliseconds, in sync")
+
+        player.audioOffsetScope("allTitles").tap()
+        player.audioOffsetReset.awaitDisappearance("Reset, which only This Title shows")
+        player.audioOffsetScope("thisTitle").tap()
+        player.audioOffsetReset.awaitExistence("Reset, back under This Title")
+        player.audioOffsetIncrease.tap()
+        XCTAssertEqual(value.value as? String, "10 milliseconds, audio later")
+        player.audioOffsetBack.tap()
+        player.trackOption("audio", 1).awaitExistence("the Audio page, back from Audio Offset")
+
+        app.terminate()
+        launch(resetsState: false)
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+        AssetDetailScreen(app: app).play()
+        let again = PlayerScreen(app: app)
+        again.awaitControls()
+        again.tracksButton.tap()
+        again.trackNavigationRow("audio").tap()
+        again.trackNavigationRow("audioOffset").tap()
+        again.audioOffsetValue.awaitExistence("the audio offset row after a relaunch")
+        XCTAssertEqual(again.audioOffsetValue.value as? String, "10 milliseconds, audio later", "The title kept its offset")
+    }
+
+    /// From the top, the start is 0:00 itself, so the intro's Skip shows.
+    func testSkipShowsForAnIntroPlayedFromTheTop() {
+        let player = openPlayer(scenario: "introBeforeResume")
+        player.skipSegmentButton.awaitExistence("Skip Intro, from the top")
+    }
+
+    /// One tap skips the intro and the button goes, even though the server
+    /// lists the intro twice with different ends (Benjamin, 2026-11-01: the
+    /// duplicate's button stayed up for a few seconds after the skip).
+    func testSkipIntroSkipsPastADuplicateAndTheButtonStaysGone() {
+        let player = openPlayer(scenario: "skipIntro")
+        player.skipSegmentButton.awaitExistence("Skip Intro")
+        player.skipSegmentButton.tap()
+        func position() -> Double {
+            let parts = ((player.scrubber.value as? String) ?? "").split(separator: ":").compactMap { Double($0) }
+            return parts.count >= 2 ? parts.reduce(0) { $0 * 60 + $1 } : 0
+        }
+        let deadline = Date().addingTimeInterval(8)
+        while position() < 5000, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        XCTAssertGreaterThanOrEqual(position(), 5000, "Skips to 83:20, past both copies")
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        XCTAssertFalse(player.skipSegmentButton.exists, "The intro's duplicate doesn't bring the button back")
+    }
+
+    /// A resume reads 0:00 until its seek lands, over an intro it never
+    /// plays: no Skip to press by mistake while it's under way (Benjamin,
+    /// 2026-10-30). The fake engine holds the seek 3 s; the part-watched
+    /// movie resumes at 20:00, past the intro's 1:00.
+    func testResumeOffersNoSkipWhileItsSeekIsUnderWay() {
+        launch(scenario: "introBeforeResume")
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.moviesLibraryID)
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.partWatchedMovieID)
+        collection.card(UITestFixtureIdentity.partWatchedMovieID).tap()
+        AssetDetailScreen(app: app).play()
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        func position() -> Double {
+            let parts = ((player.scrubber.value as? String) ?? "").split(separator: ":").compactMap { Double($0) }
+            return parts.count >= 2 ? parts.reduce(0) { $0 * 60 + $1 } : 0
+        }
+        var sawSkip = false
+        let deadline = Date().addingTimeInterval(10)
+        while position() < 1200, Date() < deadline {
+            if player.skipSegmentButton.exists { sawSkip = true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        XCTAssertGreaterThanOrEqual(position(), 1200, "The resume seek lands at 20:00")
+        XCTAssertFalse(sawSkip, "No Skip while the seek was under way")
+        XCTAssertFalse(player.skipSegmentButton.exists, "Nor once it has, past the intro")
+    }
+
+    func testAudioOffsetHiddenWhenUnavailable() {
+        launch(scenario: "audioOffsetUnavailable")
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+        AssetDetailScreen(app: app).play()
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        player.tracksButton.tap()
+        player.trackNavigationRow("audio").tap()
+        player.trackOption("audio", 0).awaitExistence("the first audio track")
+        XCTAssertFalse(player.audioOffsetValue.exists)
+        XCTAssertFalse(player.trackNavigationRow("audioOffset").exists)
+    }
+
     /// Opens the chapter picker (the fixture movie has four, see
     /// `UITestFixtureLibrary.chapters(runtimeMinutes:)`) and selects one.
     func testChapterPickerOpensAndSelectingADismissesIt() {
@@ -82,6 +228,95 @@ final class PlayerJourneyTests: UITestCase {
         secondChapter.tap()
 
         player.chapterPicker.awaitDisappearance("the chapter picker after selecting a chapter")
+    }
+
+    /// Opens Stats for Nerds and pages through all three pages and back to
+    /// the first, reading one row from each. The values are
+    /// `PreviewPlaybackEngine`'s canned stats, so this proves the panel lays
+    /// out and pages, not what AetherEngine reports; `StreamFormatDescription`
+    /// has the unit tests for that.
+    ///
+    /// The page counter is the proof of paging, not which rows resolve: every
+    /// page stays mounted to keep the box a constant size, and XCUITest
+    /// reaches the hidden ones' rows too.
+    func testStatsPanelPagesThroughAllThreePages() {
+        let player = openPlayer()
+
+        player.statsButton.tap()
+        player.statsPageIndicator.awaitExistence("the stats panel's page counter")
+        XCTAssertEqual(player.statsPageIndicator.label, "1/3")
+        XCTAssertEqual(player.statsValue("Codec").label, "HEVC Main 10")
+        XCTAssertEqual(player.statsValue("Pixel Format").label, "yuv420p10le (10-bit)")
+        XCTAssertEqual(player.statsValue("Sampling").label, "48 kHz")
+        XCTAssertEqual(player.statsValue("Frames").label, "0 dropped")
+        // Read from the player window's screen rather than canned, so these
+        // only prove that screen was found ("—" when it isn't).
+        XCTAssertNotEqual(player.statsValue("Screen").label, "—")
+        XCTAssertNotEqual(player.statsValue("Refresh Rate").label, "—")
+
+        // The panel sits beneath the controls, so while they're up the first
+        // tap lands on their blank-space catcher and hides them, as it would
+        // for anyone, and pages turn from the second tap on. On an iPhone Duo
+        // in tabletop the controls sit below the fold, clear of the panel
+        // above it, so the first tap turns the page.
+        player.statsPageIndicator.tap()
+        let turnedByFirstTap = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "2/3"),
+            object: player.statsPageIndicator
+        )
+        let pages = XCTWaiter().wait(for: [turnedByFirstTap], timeout: 2) == .completed
+            ? ["3/3", "1/3", "2/3"]
+            : ["2/3", "3/3", "1/3"]
+        for expected in pages {
+            player.statsPageIndicator.tap()
+            let turned = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "label == %@", expected),
+                object: player.statsPageIndicator
+            )
+            XCTAssertEqual(
+                XCTWaiter().wait(for: [turned], timeout: Self.defaultTimeout), .completed,
+                "Tapping the panel should turn to page \(expected)."
+            )
+        }
+    }
+
+    /// Locking rotation in landscape holds the app there when the device turns
+    /// back upright. `RotationLock` reads the orientation to hold from the
+    /// scene's `effectiveGeometry`; a lock that read nothing would leave the
+    /// app free to follow the device. Skipped where the button is omitted
+    /// (a resizable iPad app can't lock; `RotationLock.isSupported`), and on
+    /// the iPhone Duo, which `XCUIDevice` can't turn.
+    func testRotationLockHoldsLandscapeWhenTheDeviceTurnsUpright() throws {
+        try skipWhereXCUIDeviceCannotRotate()
+        let device = XCUIDevice.shared
+        addTeardownBlock { @MainActor in device.orientation = .portrait }
+        let player = openPlayer()
+        guard player.rotationLockButton.waitForExistence(timeout: 2) else {
+            throw XCTSkip("The rotation lock is omitted on this device.")
+        }
+        func isLandscape() -> Bool {
+            let frame = app.windows.firstMatch.frame
+            return frame.width > frame.height
+        }
+        func wait(untilLandscape landscape: Bool, _ message: String) {
+            let reached = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in isLandscape() == landscape },
+                object: nil
+            )
+            XCTAssertEqual(XCTWaiter().wait(for: [reached], timeout: Self.defaultTimeout), .completed, message)
+        }
+
+        device.orientation = .landscapeLeft
+        wait(untilLandscape: true, "The app should follow the device into landscape.")
+        player.rotationLockButton.tap()
+
+        device.orientation = .portrait
+        // Give the app the time it would take to rotate, then check it didn't.
+        _ = XCTWaiter().wait(for: [XCTestExpectation(description: "settle")], timeout: 2)
+        XCTAssertTrue(isLandscape(), "The lock should hold landscape with the device upright.")
+
+        player.rotationLockButton.tap()
+        wait(untilLandscape: false, "Unlocking should let the app follow the device upright.")
     }
 
     /// A movie has nothing queued after it, so reaching the end closes the

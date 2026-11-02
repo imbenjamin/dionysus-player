@@ -26,21 +26,31 @@ class UITestCase: XCTestCase {
 
     private(set) var app: XCUIApplication!
 
-    // The `async throws` variants, not the plain ones. An override of
-    // `XCTestCase`'s synchronous `setUp()`/`tearDown()` is nonisolated
-    // regardless of this class's `@MainActor`, so it cannot touch `app` —
-    // these inherit the isolation instead.
-    override func setUp() async throws {
-        try await super.setUp()
+    // The synchronous overrides, never the `async throws` ones. In Xcode 26,
+    // a Swift test with `continueAfterFailure = false` and an async `setUp`
+    // or `tearDown` (or an async test method) has its runner terminated
+    // after its first failure, and the run resumes at the *next* test: the
+    // test plan's retry never runs (Apple's known issue 108565878, in the
+    // developer forums' thread 809989). Every iOS UI failure in CI was final
+    // because of it, a launch timeout included, while the Apple TV suite's
+    // synchronous `setUp` retried. Keep these synchronous.
+    override func setUp() {
+        super.setUp()
         // A UI test that has already failed one assertion is reporting
         // cascading noise from that point on, not new information.
         continueAfterFailure = false
     }
 
-    override func tearDown() async throws {
-        app?.terminate()
-        app = nil
-        try await super.tearDown()
+    // A synchronous override is nonisolated whatever this class's
+    // `@MainActor` says, so it can't reach `app` (handing `self` to the main
+    // actor is a Swift 6 error). XCTest calls it on the main thread, so it
+    // claims the isolation for a fresh handle on the same app instead, which
+    // terminates whatever instance is running and does nothing if none is.
+    override func tearDown() {
+        MainActor.assumeIsolated {
+            XCUIApplication().terminate()
+        }
+        super.tearDown()
     }
 
     /// Launches the app against the stub server.
@@ -101,6 +111,54 @@ class UITestCase: XCTestCase {
         self.app = app
         return app
     }
+
+    /// Profile's Spatial Audio section is hidden below iOS 26
+    /// (`SpatialAudioSupport.isOffered`), so the floor leg has nothing to
+    /// drive. The test runner shares the app's Simulator, so its own OS check
+    /// answers for the app.
+    func skipBelowiOS26ForSpatialAudio() throws {
+        guard #available(iOS 26, *) else {
+            throw XCTSkip("Spatial Audio settings are hidden below iOS 26.")
+        }
+    }
+
+    /// `XCUIDevice.orientation` doesn't turn the iPhone Duo Simulator: the
+    /// runner reads the new orientation back, but the Simulator stays upright
+    /// (`devicectl device orientation get` says portrait) and so does the
+    /// app's window. Measured on iOS 27.1, 2026-10-28. Only Device Hub's
+    /// Rotate buttons turn it, and CI's tabletop pose uses them, so a test
+    /// that turns the device skips here rather than failing. Keyed on the
+    /// model identifier the Simulator exports, which renaming the Simulator
+    /// doesn't change.
+    func skipWhereXCUIDeviceCannotRotate() throws {
+        if ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4" {
+            throw XCTSkip("XCUIDevice can't turn the iPhone Duo Simulator.")
+        }
+    }
+
+    /// The iPhone Duo's fold in the app window's space, on its inner display;
+    /// `nil` on the closed phone (the outer display, 466x678pt, has none) and
+    /// on every other device. The band is 40pt centred on the inner display,
+    /// as the app measures it from the `.division` reserved region
+    /// (`ActiveFoldTests`), running top to bottom held wide and side to side
+    /// held tall. XCUITest can't read reserved regions, so this assumes the
+    /// band rather than measuring it, in every open pose: flat too, where the
+    /// fold is crossable but the layouts that avoid it line up with it all
+    /// the same.
+    /// The iPhone Duo pose CI set before the run ("closed", "open", "book",
+    /// "tabletop"), passed as `TEST_RUNNER_DUO_POSE`, or `nil` when nothing
+    /// said. A layout that clears only a partly folded fold needs it: XCUITest
+    /// sees the same window open and flat as in book pose.
+    var duoPose: String? { ProcessInfo.processInfo.environment["DUO_POSE"] }
+
+    func duoFoldBand() -> CGRect? {
+        guard ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4" else { return nil }
+        let window = app.windows.firstMatch.frame
+        guard max(window.width, window.height) > 900 else { return nil }
+        return window.width > window.height
+            ? CGRect(x: window.midX - 20, y: window.minY, width: 40, height: window.height)
+            : CGRect(x: window.minX, y: window.midY - 20, width: window.width, height: 40)
+    }
 }
 
 @MainActor
@@ -121,6 +179,22 @@ extension XCUIElement {
             file: file, line: line
         )
         return self
+    }
+
+    /// Waits until the element's frame holds still across two reads, then
+    /// returns. A tap resolves the element when it's issued, so one still
+    /// moving lands where it was: on iPadOS 27 a form sheet slides up to
+    /// clear the keyboard after typing, and a Create tap issued then fell
+    /// outside the sheet and dismissed it. Gives up quietly after `timeout`.
+    func awaitStableFrame(timeout: TimeInterval = 3) {
+        var previous = exists ? frame : .zero
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.25)
+            let current = exists ? frame : .zero
+            if current == previous, current != .zero { return }
+            previous = current
+        }
     }
 
     /// Taps an element whose job is to navigate away, tapping again if the
@@ -188,10 +262,14 @@ extension XCUIApplication {
     /// all, only a label, which is localized and so off-limits here (see
     /// `A11yID`). There it's the bar's leading button with no identifier,
     /// found by position: every toolbar item this app adds carries an
-    /// identifier, and none sits at the leading edge.
+    /// identifier, and none sits at the leading edge. iPadOS 27 can draw it
+    /// outside any `NavigationBar` element (seen on a detail page under the
+    /// floating tab bar), so the identifier is also looked for app-wide.
     var navigationBackButton: XCUIElement {
         let identified = navigationBars.buttons["BackButton"]
         if identified.exists { return identified }
+        let floating = buttons.matching(identifier: "BackButton").firstMatch
+        if floating.exists { return floating }
 
         let unidentified = navigationBars.buttons.matching(NSPredicate(format: "identifier == ''"))
         for index in 0..<unidentified.count {

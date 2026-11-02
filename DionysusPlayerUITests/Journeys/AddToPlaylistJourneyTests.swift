@@ -129,6 +129,35 @@ final class AddToPlaylistJourneyTests: UITestCase {
             .awaitExistence("a second episode — proof the show expanded rather than landing as one row")
     }
 
+    /// A show page offers the episode Play starts beside the show and its
+    /// season (Benjamin, 2026-10-26), and adding it adds that one episode,
+    /// with no confirmation.
+    func testShowPageOffersTheEpisodePlayStarts() {
+        launch()
+        let detail = openSeriesDetail()
+        detail.openAddToPlaylist()
+        let row = detail.addToPlaylistScope("S1:E2 \u{00B7} Episode 2")
+        row.awaitExistence("the Play episode's row in the Add to Playlist submenu")
+        row.tap()
+
+        let picker = AddToPlaylistScreen(app: app)
+        picker.awaitLoaded()
+        picker.playlistRow(UITestFixtureIdentity.secondPlaylistID).tap()
+        XCTAssertFalse(
+            picker.addConfirmButton.waitForExistence(timeout: 2),
+            "Adding one episode must not stop to confirm."
+        )
+        picker.newPlaylistButton.awaitDisappearance("the Add to Playlist sheet")
+
+        let playlistDetail = openSecondPlaylistDetail()
+        playlistDetail.playlistRow(addedEntry(index: 1))
+            .awaitExistence("the added episode's row")
+        XCTAssertFalse(
+            playlistDetail.playlistRow(addedEntry(index: 2)).exists,
+            "One episode, not the show expanded."
+        )
+    }
+
     // MARK: - Confirmation feedback
 
     /// A toast, not just a haptic. The sheet closes on success, so this is
@@ -383,6 +412,10 @@ final class AddToPlaylistJourneyTests: UITestCase {
             let back = app.navigationBackButton
             guard back.exists else { break }
             back.tap()
+            // Let the pop finish before the next lookup. Mid-pop, the old
+            // bar's button can pass `exists` and be gone by the time the tap
+            // or a frame read resolves it, which fails the test (iPadOS 27).
+            Thread.sleep(forTimeInterval: 1)
         }
         HomeScreen(app: app).awaitLoaded(file: file, line: line)
 

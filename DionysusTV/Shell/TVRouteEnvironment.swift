@@ -1,0 +1,32 @@
+import SwiftUI
+
+extension EnvironmentValues {
+    /// Pushes a detail page or a See All grid onto the shell's path.
+    @Entry var tvOpenRoute: @MainActor (AppRoute) -> Void = { _ in }
+
+    /// Pops this page, if it's still on top: where deleting the title a page
+    /// shows lands (`AssetDetailViewModel.DeletionOutcome.popOneLevel`).
+    /// Bound per pushed page by `TVMainView`.
+    @Entry var tvPopPage: @MainActor () -> Void = {}
+
+    /// Drops every pushed page, back to the sidebar's destination, if this
+    /// page is still among them: deleting a show's last episode leaves
+    /// nothing beneath (`.popToRoot`).
+    @Entry var tvPopToRoot: @MainActor () -> Void = {}
+
+    /// Pushes an item's detail page beneath the player about to open, so
+    /// leaving the player lands there (Home's hero, Benjamin, 2026-10-04).
+    /// Returns what to call with where the player stopped, which that page
+    /// shows at once, as its own Play does.
+    @Entry var tvOpenDetailBeneathPlayer: @MainActor (MediaItem) -> (@MainActor (PlaybackSessionOutcome) -> Void) = { _ in { _ in } }
+
+    /// False for a page kept alive beneath the top one. A hidden page claims
+    /// no focus and runs no timer; when it turns true again the page takes
+    /// focus back and refreshes what may have changed above it.
+    @Entry var tvPageIsOnShow = true
+
+    /// Hands focus to the page's own default, as choosing its sidebar row
+    /// does: what reaches Search's keyboard, a UIKit control SwiftUI can't
+    /// focus.
+    @Entry var tvFocusPageDefault: @MainActor () -> Void = {}
+}

@@ -1,0 +1,463 @@
+import AVKit
+import AetherEngine
+import Combine
+import SwiftUI
+import UIKit
+
+/// The Apple TV player: an `AVPlayerViewController` with AVKit's chrome and
+/// gestures switched off, so the system integration comes from AVKit (Now
+/// Playing, audio routing, Atmos) while the transport is ours. This is the
+/// integration AetherEngine's "Host setup on tvOS" describes, and Sodalite's.
+///
+/// On the native route AVKit renders the engine's `AVPlayer`; on the software
+/// route there is no `AVPlayer`, so the engine's own `AetherPlayerView` does.
+/// `TVPlayerSurfacePolicy` decides which, on every route change.
+///
+/// Under the UI-test harness the engine is a fake with no `AVPlayer` and no
+/// Aether view, so nothing is bound to AVKit and its SwiftUI surface is shown
+/// instead.
+final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation {
+    private var session: TVPlaybackSession
+    private var viewModel: PlayerViewModel { session.viewModel }
+    private var engine: PlaybackEngine { viewModel.engine }
+    private let input = TVPlayerInput()
+    private var swipeGate = TVSwipeGate()
+
+    private var aetherView: AetherPlayerView?
+    private var isAetherViewBound = false
+    /// Where the engine holds the picture through an audio switch.
+    private(set) var stillView: AetherStillView?
+    private var fakeSurface: UIHostingController<AnyView>?
+    private var overlayHost: UIHostingController<TVPlayerOverlay>?
+    private var ourRecognizers: [UIGestureRecognizer] = []
+    /// Menu and Play/Pause: they keep working in the accessible transport,
+    /// where every other press is the focus engine's (M5).
+    private var modeIndependentRecognizers: Set<ObjectIdentifier> = []
+    private var isAccessibleTransportApplied = false
+    private var accessibleLayer: TVAccessibleTransportLayer?
+    /// VoiceOver's and Switch Control's status.
+    private var accessibilityObservers: Set<AnyCancellable> = []
+    private var cancellables: Set<AnyCancellable> = []
+
+    init(viewModel: PlayerViewModel) {
+        session = TVPlaybackSession(viewModel: viewModel)
+        super.init(nibName: nil, bundle: nil)
+        input.context = { [weak self] in
+            guard let self else { return TVPlayerContext() }
+            return TVPlayerContext(viewModel: self.viewModel)
+        }
+        input.perform = { [weak self] commands in self?.run(commands) }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+        // The engine is the only display-criteria writer (AetherEngine's "Host
+        // setup on tvOS"): AVKit's automatic criteria race it for HDR HLS.
+        appliesPreferredDisplayCriteriaAutomatically = false
+
+        bindSurface()
+
+        let overlay = UIHostingController(rootView: TVPlayerOverlay(viewModel: viewModel, input: input))
+        overlay.view.backgroundColor = .clear
+        overlay.view.isUserInteractionEnabled = false
+        overlay.view.frame = view.bounds
+        overlay.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addChild(overlay)
+        view.addSubview(overlay.view)
+        overlay.didMove(toParent: self)
+        overlayHost = overlay
+
+        // Every press goes to the input model, which decides what it means.
+        addTap(.select) { [weak self] in self?.input.send(.select) }
+        addTap(.playPause) { [weak self] in self?.input.send(.playPause) }
+        addTap(.menu) { [weak self] in self?.input.send(.menu) }
+        addTap(.upArrow) { [weak self] in self?.input.send(.up) }
+        addTap(.downArrow) { [weak self] in self?.input.send(.down) }
+        addArrow(.leftArrow, .left)
+        addArrow(.rightArrow, .right)
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]
+        view.addGestureRecognizer(pan)
+        ourRecognizers.append(pan)
+
+        input.announce = { text in AccessibilityNotification.Announcement(text).post() }
+        applyAccessibleTransport()
+        for name in [UIAccessibility.voiceOverStatusDidChangeNotification, UIAccessibility.switchControlStatusDidChangeNotification] {
+            NotificationCenter.default.publisher(for: name)
+                .receive(on: RunLoop.main)
+                .sink { [weak self] _ in self?.applyAccessibleTransport() }
+                .store(in: &accessibilityObservers)
+        }
+    }
+
+    /// VoiceOver or Switch Control, read now and on every change (M5). In
+    /// the accessible transport every press but Menu and Play/Pause is the
+    /// focus engine's: with VoiceOver on, Select still reached our
+    /// recognizers as well as the focused button (measured, tvOS 26.5
+    /// Simulator), so they stand down rather than act twice.
+    private func applyAccessibleTransport() {
+        var forced = false
+        #if DEBUG
+        forced = UITestConfiguration.isActive && UITestConfiguration.forcesAccessibleTransport
+        #endif
+        let on = TVAccessibleTransport.isOn(
+            voiceOver: UIAccessibility.isVoiceOverRunning,
+            switchControl: UIAccessibility.isSwitchControlRunning,
+            forced: forced
+        )
+        if on != input.accessibleTransport || !isAccessibleTransportApplied {
+            isAccessibleTransportApplied = true
+            input.accessibleTransport = on
+            for recognizer in ourRecognizers where !modeIndependentRecognizers.contains(ObjectIdentifier(recognizer)) {
+                recognizer.isEnabled = !on
+            }
+        }
+        syncAccessibleLayer()
+    }
+
+    /// The accessible transport's controls are a layer presented over the
+    /// player, not part of its overlay: AVKit's container view can take
+    /// focus itself, and UIKit doesn't search inside a focusable view, so
+    /// buttons hosted in it took focus once and could never move it
+    /// (measured, tvOS 26.5 Simulator). Presented only once the player is
+    /// on screen, and never while it is closing.
+    private func syncAccessibleLayer() {
+        if input.accessibleTransport {
+            guard accessibleLayer == nil, viewIfLoaded?.window != nil, presentedViewController == nil,
+                  !session.hasEnded, !isBeingDismissed else { return }
+            let layer = TVAccessibleTransportLayer(rootView: TVPlayerOverlay(viewModel: viewModel, input: input, role: .accessibleLayer))
+            accessibleLayer = layer
+            present(layer, animated: false)
+        } else if let layer = accessibleLayer {
+            accessibleLayer = nil
+            if presentedViewController === layer { dismiss(animated: false) }
+        }
+    }
+
+    /// Remote presses our recognizers already turn into input. Passed up,
+    /// `AVPlayerViewController` acts on them itself: it toggled playback on
+    /// Play/Pause before our recognizer fired, so the model read the player
+    /// as paused already, flashed Play for a pause and sent a toggle the
+    /// engine ignored (Benjamin, on the Bedroom Apple TV, 2026-10-06).
+    private static let swallowedPressTypes: Set<UIPress.PressType> = [.select, .playPause]
+
+    /// Every press but those we act on: the remote's Select and Play/Pause,
+    /// and the keyboard keys `TVKeyboardCommand` maps, kept from AVKit for
+    /// the whole press, not only its release (M4 review).
+    private func forwardable(_ presses: Set<UIPress>) -> Set<UIPress> {
+        presses.filter { press in
+            !Self.swallowedPressTypes.contains(press.type)
+                && press.key.flatMap { TVKeyboardCommand(keyCode: $0.keyCode) } == nil
+        }
+    }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = forwardable(presses)
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+
+    override func pressesChanged(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = forwardable(presses)
+        if !rest.isEmpty { super.pressesChanged(rest, with: event) }
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = forwardable(presses)
+        if !rest.isEmpty { super.pressesCancelled(rest, with: event) }
+    }
+
+    /// Keyboard keys with no remote press of their own (`TVKeyboardCommand`).
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        for press in presses {
+            guard let keyCode = press.key?.keyCode, let command = TVKeyboardCommand(keyCode: keyCode) else { continue }
+            switch command {
+            case .playPause: input.send(.playPause)
+            }
+        }
+        let rest = forwardable(presses)
+        if !rest.isEmpty { super.pressesEnded(rest, with: event) }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        suppressAVKitGestures(in: view)
+        hideAVKitChrome(in: view)
+        // Menu pressed during the presentation: its dismiss was deferred to here.
+        guard !session.hasEnded else { return dismissReportingOutcome() }
+        // The transport is up already; the input model times its fade from
+        // playback starting, not from here.
+        session.begin()
+        input.start()
+        syncAccessibleLayer()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // AVKit rebuilds parts of its chrome as the item changes; keep it hidden.
+        hideAVKitChrome(in: view)
+        // And its recognizers, which a new `player` (the next item played in
+        // place) may bring back (M4 review). Only once on screen, when every
+        // recognizer of ours is installed.
+        if view.window != nil { suppressAVKitGestures(in: view) }
+        if let overlay = overlayHost?.view { view.bringSubviewToFront(overlay) }
+    }
+
+    // MARK: - Surfaces
+
+    private func bindSurface() {
+        if let aether = engine as? AetherPlaybackEngine {
+            bindToAVKit(aether)
+        } else {
+            showFakeSurface()
+        }
+    }
+
+    private func bindToAVKit(_ aether: AetherPlaybackEngine) {
+        // Required before tvOS runs AVKit's Now Playing session, AirPods
+        // detection and Atmos sync; the visible chrome is hidden separately.
+        showsPlaybackControls = true
+        playbackControlsIncludeInfoViews = false
+        contextualActions = []
+
+        let aetherView = AetherPlayerView()
+        let surfaceHost = contentOverlayView ?? view!
+        aetherView.frame = surfaceHost.bounds
+        aetherView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        surfaceHost.insertSubview(aetherView, at: 0)
+        self.aetherView = aetherView
+
+        let hostEngine = aether.hostEngine
+        // An audio switch swaps the AVPlayer's item, and AVKit draws black
+        // until the new one's first frame. The engine holds the outgoing
+        // picture here instead (7.29.0); it draws nothing otherwise. Above
+        // the video, below our overlay (a subview of `view`).
+        let stillView = AetherStillView()
+        stillView.frame = surfaceHost.bounds
+        stillView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        stillView.videoGravity = videoGravity
+        surfaceHost.addSubview(stillView)
+        hostEngine.bindStillView(stillView)
+        self.stillView = stillView
+
+        // Every emission, not just the first: an audio-track reload re-emits,
+        // and an escalation moves native to software mid-session.
+        hostEngine.$currentAVPlayer
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] avPlayer in self?.apply(avPlayer: avPlayer, hostEngine: hostEngine) }
+            .store(in: &cancellables)
+    }
+
+    private func apply(avPlayer: AVPlayer?, hostEngine: AetherEngine) {
+        guard let aetherView else { return }
+        let surface = TVPlayerSurfacePolicy.surface(nativePlayerAvailable: avPlayer != nil)
+        if surface.avKitRendersPlayer, let avPlayer {
+            player = avPlayer
+        } else {
+            // Left set, AVKit draws a spinner over the software route's frames.
+            player = nil
+        }
+        // Hidden, not merely unbound: on the native route the view's opaque
+        // layer otherwise sits over AVKit's video, leaving sound, a display
+        // mode switch and a black picture (found in the spike).
+        aetherView.isHidden = !surface.engineViewVisible
+        if surface.engineViewVisible, !isAetherViewBound {
+            hostEngine.bind(view: aetherView)
+            isAetherViewBound = true
+        } else if !surface.engineViewVisible, isAetherViewBound {
+            hostEngine.unbind(view: aetherView)
+            isAetherViewBound = false
+        }
+    }
+
+    private func showFakeSurface() {
+        showsPlaybackControls = false
+        let surface = UIHostingController(rootView: engine.makeSurface())
+        surface.view.frame = view.bounds
+        surface.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addChild(surface)
+        view.insertSubview(surface.view, at: 0)
+        surface.didMove(toParent: self)
+        fakeSurface = surface
+    }
+
+    // MARK: - Remote
+
+    private func run(_ commands: [TVPlayerCommand]) {
+        TVPlayerCommandRunner(
+            viewModel: viewModel,
+            close: { [weak self] in self?.close() },
+            playNext: { [weak self] in self?.advanceToNextItem() }
+        ).run(commands)
+    }
+
+    /// Builds the player for another item, for Next Up, on the engine
+    /// playing now. Set by `TVPlayerPresenter`, which holds the client, user
+    /// and queue.
+    var makeViewModel: ((String, PlaybackEngine) -> PlayerViewModel)?
+
+    /// Play Now, or the countdown reaching zero: the next item plays in this
+    /// player, without dismissing (spec, The host). The finished item is
+    /// reported as iOS reports it, so Home and the page beneath are current.
+    private func advanceToNextItem() {
+        // The next item plays on this engine, its `load()` replacing this
+        // one's. A new engine handed AVKit a new `AVPlayer`, which breaks
+        // AVKit's Now Playing registration (AetherEngine issue #15): on the
+        // Bedroom Apple TV the remote's Play/Pause then never reached the
+        // player, and a stop between the two sent the TV through its default
+        // mode, a black flash (Benjamin, 2026-10-16). The same engine keeps
+        // both the player and the mode across the seam.
+        guard let next = viewModel.nextEpisode, let nextViewModel = makeViewModel?(next.id, engine) else { return close() }
+        // Before `end()`, as iOS's `tearDown` does: a late time update during
+        // the stop could otherwise reach zero again and advance twice.
+        viewModel.dismissNextUp()
+        if let outcome = session.end(handingOff: true) {
+            pendingOutcome = outcome
+            RecentPlaybackBroadcaster.shared.record(outcome)
+        }
+        session = TVPlaybackSession(viewModel: nextViewModel)
+        input.reset()
+        overlayHost?.rootView = TVPlayerOverlay(viewModel: nextViewModel, input: input)
+        accessibleLayer?.rootView = TVPlayerOverlay(viewModel: nextViewModel, input: input, role: .accessibleLayer)
+        session.begin()
+    }
+
+    @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .began:
+            swipeGate.began()
+        case .changed:
+            let inputs = swipeGate.changed(
+                translation: pan.translation(in: view), velocity: pan.velocity(in: view),
+                width: view.bounds.width, scrubs: input.swipeScrubs
+            )
+            inputs.forEach(input.send)
+        case .ended, .cancelled, .failed:
+            swipeGate.ended().forEach(input.send)
+        default:
+            break
+        }
+    }
+
+    /// Told where playback stopped, after the player has gone, so the page
+    /// beneath can show it at once instead of waiting on the server.
+    var onClose: (@MainActor (PlaybackSessionOutcome) -> Void)?
+    private var pendingOutcome: PlaybackSessionOutcome?
+
+    /// Ends the session before dismissing, in any state, `.loading` included.
+    /// UIKit ignores a dismiss while the presentation is still animating, so
+    /// one pressed then is left to `viewDidAppear`.
+    func close() {
+        input.stop()
+        viewModel.dismissNextUp()
+        if let outcome = session.end() {
+            pendingOutcome = outcome
+            // As iOS's `PlayerView` does: Home has no other way to learn it.
+            RecentPlaybackBroadcaster.shared.record(outcome)
+        }
+        guard !isBeingPresented else { return }
+        dismissReportingOutcome()
+    }
+
+    private func dismissReportingOutcome() {
+        // From the presenter, so the accessible transport's layer goes with
+        // the player: `dismiss` on the player would close only the layer.
+        (presentingViewController ?? self).dismiss(animated: true) { [onClose, pendingOutcome] in
+            if let pendingOutcome { onClose?(pendingOutcome) }
+        }
+    }
+
+    /// Left and Right report down and up, so the model can tell a press from
+    /// a hold. A long-press recognizer with no minimum is UIKit's way to get
+    /// both edges of a remote press.
+    private func addArrow(_ type: UIPress.PressType, _ direction: TVDirection) {
+        let recognizer = UILongPressGestureRecognizer(
+            target: self, action: direction == .left ? #selector(leftArrowChanged(_:)) : #selector(rightArrowChanged(_:))
+        )
+        recognizer.minimumPressDuration = 0
+        recognizer.allowedPressTypes = [NSNumber(value: type.rawValue)]
+        view.addGestureRecognizer(recognizer)
+        ourRecognizers.append(recognizer)
+    }
+
+    @objc private func leftArrowChanged(_ recognizer: UILongPressGestureRecognizer) { arrowChanged(recognizer, .left) }
+    @objc private func rightArrowChanged(_ recognizer: UILongPressGestureRecognizer) { arrowChanged(recognizer, .right) }
+
+    private func arrowChanged(_ recognizer: UILongPressGestureRecognizer, _ direction: TVDirection) {
+        switch recognizer.state {
+        case .began: input.send(.arrowDown(direction))
+        case .ended, .cancelled, .failed: input.send(.arrowUp(direction))
+        default: break
+        }
+    }
+
+    private func addTap(_ type: UIPress.PressType, _ action: @escaping () -> Void) {
+        let recognizer = PressRecognizer(action: action)
+        recognizer.allowedPressTypes = [NSNumber(value: type.rawValue)]
+        view.addGestureRecognizer(recognizer)
+        ourRecognizers.append(recognizer)
+        if type == .menu || type == .playPause { modeIndependentRecognizers.insert(ObjectIdentifier(recognizer)) }
+    }
+
+    /// Switches off every recognizer AVKit installed, leaving ours.
+    private func suppressAVKitGestures(in root: UIView) {
+        let ours = Set(ourRecognizers.map(ObjectIdentifier.init))
+        func walk(_ view: UIView) {
+            if view === overlayHost?.view || view === aetherView { return }
+            view.gestureRecognizers?.forEach { if !ours.contains(ObjectIdentifier($0)) { $0.isEnabled = false } }
+            view.subviews.forEach(walk)
+        }
+        walk(root)
+    }
+
+    /// Hides AVKit's chrome by runtime class name (Sodalite's approach). This is
+    /// the fragile part of the pattern: it keys off private view class names,
+    /// which a tvOS release can rename.
+    private func hideAVKitChrome(in root: UIView) {
+        func walk(_ view: UIView) {
+            if view === overlayHost?.view || view === aetherView || view === contentOverlayView { return }
+            let name = String(describing: type(of: view))
+            if ["Controls", "Transport", "Chrome", "Info", "Focus", "Menu"].contains(where: name.contains) {
+                view.alpha = 0
+                return
+            }
+            view.subviews.forEach(walk)
+        }
+        walk(root)
+    }
+}
+
+/// One remote press type, as a closure.
+private final class PressRecognizer: UITapGestureRecognizer {
+    private let action: () -> Void
+
+    init(action: @escaping () -> Void) {
+        self.action = action
+        super.init(target: nil, action: nil)
+        addTarget(self, action: #selector(fire))
+    }
+
+    @objc private func fire() { action() }
+}
+
+/// The accessible transport's controls (M5), presented over the player
+/// (`TVPlayerHostController.syncAccessibleLayer`). Menu and Play/Pause are
+/// its overlay's (`AccessibleLayerCommands`), since presses start at the
+/// focused control in this layer, not at the player's recognizers.
+final class TVAccessibleTransportLayer: UIHostingController<TVPlayerOverlay> {
+    override init(rootView: TVPlayerOverlay) {
+        super.init(rootView: rootView)
+        modalPresentationStyle = .overFullScreen
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+    }
+}

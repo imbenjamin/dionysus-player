@@ -47,7 +47,8 @@ struct QuickConnectView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", role: .cancel) { dismiss() }
+                    Button("Cancel", systemImage: "xmark", role: .cancel) { dismiss() }
+                        .toolbarTitleUnlessVertical()
                         .accessibilityIdentifier(A11yID.QuickConnect.cancelButton)
                 }
             }

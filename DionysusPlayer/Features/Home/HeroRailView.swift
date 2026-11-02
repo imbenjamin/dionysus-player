@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import UIKit
 
@@ -22,15 +23,24 @@ struct HeroRailView: View {
     /// carousel parked mid-way through a set the user has never seen. Bumping
     /// it sends the hero back to its first item.
     let resetToken: Int
+    /// A tabletop fold's band measured from the hero's top edge, from
+    /// `HomeView`, or `nil` with no such fold. See `HeroFoldLayout`.
+    let foldBand: ClosedRange<CGFloat>?
+    /// `HomeView`'s safe area, for `clearOfTheVerticalBar(safeArea:)`. Read
+    /// there because the hero ignores the horizontal safe area, so its own
+    /// reads 0 at the sides (measured on the Duo).
+    let safeArea: EdgeInsets
 
     /// A custom init so `scrollPosition` can start at `0` rather than `1` when
     /// `loopedItems` doesn't pad `items` — with 0 or 1 items looping is
     /// meaningless, and the usual `1` would reference a nonexistent `.id` and
     /// render blank. Also computes `loopedItems` once (see that property).
-    init(items: [MediaItem], isTabActive: Bool, resetToken: Int = 0) {
+    init(items: [MediaItem], isTabActive: Bool, resetToken: Int = 0, foldBand: ClosedRange<CGFloat>? = nil, safeArea: EdgeInsets = EdgeInsets()) {
         self.items = items
         self.isTabActive = isTabActive
         self.resetToken = resetToken
+        self.foldBand = foldBand
+        self.safeArea = safeArea
         self.loopedItems = Self.loop(items)
         _scrollPosition = State(initialValue: Self.firstPagePosition(for: items))
     }
@@ -97,12 +107,18 @@ struct HeroRailView: View {
     ///
     /// `keyWindow` is read once into a local rather than through two computed
     /// properties, which would re-walk `connectedScenes` twice per evaluation.
-    private var heroHeight: CGFloat {
+    private var naturalHeight: CGFloat {
         let window = keyWindow
         let height = window?.bounds.height ?? 800
         guard !isLandscape else { return height * 0.75 }
         return (window?.safeAreaInsets.top ?? 0) + height / 3 * 1.25
     }
+
+    private var foldLayout: HeroFoldLayout {
+        HeroFoldLayout(naturalHeight: naturalHeight, foldBand: foldBand)
+    }
+
+    private var heroHeight: CGFloat { foldLayout.height }
 
     /// Indexes into `loopedItems`, not `items`, starting at `1` — the first real
     /// page past the leading duplicate. Optional because `.scrollPosition(id:)`
@@ -135,12 +151,20 @@ struct HeroRailView: View {
         return (scrollPosition - 1 + items.count) % items.count
     }
 
+    /// Where the tab bar is; see `TabBarTintModel.isBarOverHero(_:)`.
+    @Environment(\.tabBarPlacement) private var tabBarPlacement
+
     /// See `TabBarTintModel`. `nil` — and so the default tint — whenever there
-    /// is no hero artwork to sample, rather than leaving the previous hero's.
+    /// is no hero artwork to sample, rather than leaving the previous hero's,
+    /// and whenever the tab bar isn't over the hero. A dark hero's light tint
+    /// landed on the Duo's light pill at 2.35:1 held wide and about 2.9:1 in
+    /// tabletop (audit, 2026-10-26). Placement is checked after the image
+    /// arrives, so a fold while it loads can't publish it.
     private func publishBackdropLuminance() async {
         guard items.indices.contains(currentIndex),
               let url = items[currentIndex].backdropImageURL ?? items[currentIndex].primaryImageURL,
-              let image = try? await RemoteImageLoader.shared.image(for: url) else {
+              let image = try? await RemoteImageLoader.shared.image(for: url),
+              TabBarTintModel.isBarOverHero(tabBarPlacement) else {
             TabBarTintModel.shared.update(backdropLuminance: nil)
             return
         }
@@ -217,6 +241,8 @@ struct HeroRailView: View {
         // For `HeroScrollEdgeScrim` on Home's scroll view.
         .preference(key: HeroHeightKey.self, value: heroHeight)
         .accessibilityIdentifier(A11yID.Home.heroCarousel)
+        // Below the identifier, so the hero's frame doesn't take in the gap.
+        .padding(.bottom, foldLayout.bottomGap)
         // `proxy.size` reports the size within the safe area, not the full
         // available width: nothing above `HeroRailView` ignores the horizontal
         // safe area, only `.top` for the notch bleed, so `proxy.size.width` came
@@ -338,7 +364,29 @@ struct HeroRailView: View {
                 // can pick a legible tint. Keyed on `currentIndex` to re-run on
                 // every advance. The hero just displayed the image, so this is a
                 // cache hit and a one-pixel downsample rather than a fetch.
-                .task(id: currentIndex) { await publishBackdropLuminance() }
+                // Only while the hero is visible: the tint is app-wide, and
+                // left set by a dark hero it painted the light pink label on
+                // Search's, Downloads', Profile's and a pushed page's light
+                // pill (about 2.6:1, Benjamin, 2026-10-20). Leaving resets it
+                // in `onDisappear` and `onChange(of: isTabActive)`, not here:
+                // a `.task` doesn't start for a view that has disappeared.
+                .task(id: currentIndex) {
+                    guard isVisible else { return }
+                    await publishBackdropLuminance()
+                }
+                // The bar can move without the hero changing: an iPad entering
+                // Split View, say.
+                .onChange(of: tabBarPlacement) { _, _ in
+                    guard isVisible else { return }
+                    Task { await publishBackdropLuminance() }
+                }
+                .onChange(of: isTabActive) { _, active in
+                    if active {
+                        Task { await publishBackdropLuminance() }
+                    } else {
+                        TabBarTintModel.shared.update(backdropLuminance: nil)
+                    }
+                }
                 .onReceive(tickTimer) { _ in tick() }
 
                 // Reduce Motion only. Sits directly above the ScrollView at one
@@ -372,6 +420,7 @@ struct HeroRailView: View {
                         isPaused: isInteracting || !isVisible || manualCarouselModeEnabled
                     )
                     .padding(16)
+                    .clearOfTheVerticalBar(safeArea: safeArea)
                 }
 
                 // Replaces the automatic advance `tick()` doesn't perform while
@@ -390,6 +439,7 @@ struct HeroRailView: View {
                         }
                     }
                     .padding()
+                    .clearOfTheVerticalBar(safeArea: safeArea)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -397,7 +447,10 @@ struct HeroRailView: View {
                 isOnScreen = true
                 resyncScrollPosition(using: scrollProxy)
             }
-            .onDisappear { isOnScreen = false }
+            .onDisappear {
+                isOnScreen = false
+                TabBarTintModel.shared.update(backdropLuminance: nil)
+            }
         }
     }
 
@@ -951,10 +1004,73 @@ private final class PassthroughTouchRecognizer: UIGestureRecognizer {
     }
 }
 
-/// `UserDefaults` key for `ProfileView`'s "Auto Carousel on Home" toggle, shared
-/// so `HeroRailView`'s `@AppStorage` reads what `ProfileView` writes.
-let heroAutoCarouselEnabledStorageKey = "heroAutoCarouselEnabled"
-
 #Preview {
     HeroRailView(items: [], isTabActive: true)
+}
+
+extension View {
+    /// Moves the hero's own controls (page dots, VoiceOver's Previous and Next)
+    /// in from an iPhone Duo's vertical bar. The hero ignores the horizontal safe
+    /// area so its artwork runs under the bar's column, and these came with it:
+    /// the dots reached under the bar's items (audit, 2026-10-26). Only the
+    /// bar's edge moves; elsewhere `toolbarVerticalEdge` is `nil`, so an
+    /// iPhone's landscape notch inset is left as it was.
+    fileprivate func clearOfTheVerticalBar(safeArea: EdgeInsets) -> some View {
+        modifier(ClearOfTheVerticalBar(safeArea: safeArea))
+    }
+}
+
+private struct ClearOfTheVerticalBar: ViewModifier {
+    let safeArea: EdgeInsets
+
+    func body(content: Content) -> some View {
+        if #available(iOS 27.1, *) {
+            VerticalBarEdgeReader { edge in
+                content.padding(HeroControlsInset.edges(for: edge), HeroControlsInset.length(for: edge, safeArea: safeArea))
+            }
+        } else {
+            content
+        }
+    }
+}
+
+/// The padding `clearOfTheVerticalBar(safeArea:)` adds, apart so it can be
+/// tested without a Duo.
+enum HeroControlsInset {
+    static func edges(for barEdge: HorizontalEdge?) -> Edge.Set {
+        switch barEdge {
+        case .leading: .leading
+        case .trailing: .trailing
+        case nil: []
+        }
+    }
+
+    static func length(for barEdge: HorizontalEdge?, safeArea: EdgeInsets) -> CGFloat {
+        switch barEdge {
+        case .leading: safeArea.leading
+        case .trailing: safeArea.trailing
+        case nil: 0
+        }
+    }
+}
+
+/// Home's hero on a Duo in tabletop: the hero ends at the fold, and the rows
+/// below start past it. Measured: the hero ended at 478pt, inside the 455–495
+/// band, with its page dots beside it; ended at the fold alone, it pulled the
+/// library row up to 480pt, its top 15pt on the fold. So the top half is the
+/// artwork, Apple's place for things to look at, and the fold sits in the gap
+/// (Benjamin, 2026-10-28). Without a tabletop fold, or with a hero that ends
+/// above it, nothing changes.
+struct HeroFoldLayout: Equatable {
+    var height: CGFloat
+    /// Added below the hero so the next row starts its usual spacing past the
+    /// fold's bottom edge.
+    var bottomGap: CGFloat = 0
+
+    init(naturalHeight: CGFloat, foldBand: ClosedRange<CGFloat>?) {
+        height = naturalHeight
+        guard let foldBand, naturalHeight > foldBand.lowerBound else { return }
+        height = foldBand.lowerBound
+        bottomGap = foldBand.upperBound - foldBand.lowerBound
+    }
 }

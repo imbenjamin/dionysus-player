@@ -63,6 +63,17 @@ final class OnboardingLayoutTests: XCTestCase {
         XCTAssertFalse(RotationLock.isPhoneSized(CGSize(width: 744, height: 1133)), "iPad mini")
     }
 
+    /// The portrait lock asks the scene to rotate only when it's sideways.
+    /// Asked while already portrait (the closed iPhone Duo held upright), the
+    /// request outlived the lock and kept the unfolded inner screen sideways.
+    func test_portraitLock_rotatesOnlyFromSideways() {
+        XCTAssertFalse(RotationLock.needsRotationToPortrait(.portrait))
+        XCTAssertFalse(RotationLock.needsRotationToPortrait(.portraitUpsideDown))
+        XCTAssertTrue(RotationLock.needsRotationToPortrait(.landscapeLeft))
+        XCTAssertTrue(RotationLock.needsRotationToPortrait(.landscapeRight))
+        XCTAssertTrue(RotationLock.needsRotationToPortrait(.unknown), "Not known yet: rotate to be sure")
+    }
+
     // MARK: Avatar rows
 
     func test_rows_balancesRatherThanStrandingTheLastTile() {

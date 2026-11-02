@@ -1,0 +1,484 @@
+import SwiftUI
+
+/// The player's transport, drawn over the video: the title top-left, and at
+/// the bottom a scrubber with chapter ticks, the times, and the format chip.
+/// Shown while the input model's state says so (`TVPlayerInputModel`).
+struct TVTransportOverlay: View {
+    let viewModel: PlayerViewModel
+    let input: TVPlayerInput
+
+    @State private var isLogoFallbackVisible = false
+    @AppStorage(chaptersInScrubberEnabledStorageKey) private var chaptersInScrubber = chaptersInScrubberEnabledDefault
+    @State private var bufferedSeconds: Double?
+    /// Set once `spinnerDelay(for:)` has passed in the current state.
+    @State private var showsSpinner = false
+    @State private var thumbnails: TVScrubThumbnailLoader
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(viewModel: PlayerViewModel, input: TVPlayerInput) {
+        self.viewModel = viewModel
+        self.input = input
+        _thumbnails = State(initialValue: TVScrubThumbnailLoader(fetch: { [viewModel] seconds in
+            await viewModel.scrubThumbnail(atSeconds: seconds)
+        }))
+    }
+
+    private var state: TVPlayerInputState { input.state }
+    /// The accessible transport (M5): real focusable controls, drawn from
+    /// the focus engine's focus rather than the model's.
+    private var accessible: Bool { input.accessibleTransport }
+    @FocusState private var focusedControl: String?
+    @FocusState private var isScrubberFocused: Bool
+    private func send(_ control: TVPlayerControl) { input.send(.control(control)) }
+    private var showsChrome: Bool { state.chrome == .transport }
+    /// The preview's time while scrubbing, else the playhead.
+    private var shownTime: TimeInterval { state.scrub?.previewTime ?? viewModel.currentTime }
+
+    /// How long a state lasts before the spinner shows, or `nil` for none.
+    /// Loading shows it at once; a rebuffer, a dropped connection or a seek
+    /// (a chapter jump) after half a second, so a catch or a 10s skip shorter
+    /// than that doesn't flash it. A scrub isn't a seek until it's committed:
+    /// the picture stays paused under its preview.
+    static func spinnerDelay(for state: PlaybackState) -> Duration? {
+        switch state {
+        case .loading: .zero
+        case .buffering, .reconnecting, .seeking: .milliseconds(500)
+        default: nil
+        }
+    }
+
+    private var spinner: some View {
+        // White on a dark plate, as iOS's is white: tvOS's grey `ProgressView`
+        // (which ignores `tint`) all but vanished over dark video.
+        VStack(spacing: 20) {
+            TVWhiteSpinner()
+            if viewModel.state == .reconnecting {
+                Text("Reconnecting…").font(.callout).foregroundStyle(.white)
+            }
+        }
+        .padding(36)
+        .background(.black.opacity(0.55), in: .rect(cornerRadius: 24))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(viewModel.state == .reconnecting ? Text("Reconnecting…") : Text("Loading"))
+        .accessibilityIdentifier(A11yID.TV.Player.buffering)
+    }
+
+    var body: some View {
+        ZStack {
+            if showsSpinner {
+                spinner
+            }
+            if let error = viewModel.errorMessage {
+                Text(error)
+                    .padding(30)
+                    .background(.ultraThinMaterial, in: .rect(cornerRadius: 20))
+            }
+            if showsChrome {
+                chromeLayer.transition(.opacity)
+            } else if accessible {
+                showControlsButton
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeInOut(duration: 0.25), value: showsChrome)
+        // A stall used to show nothing at all (Benjamin, 2026-10-21, a 4K
+        // remux on a slow link): it now shows the spinner, with or without
+        // the transport, after `spinnerDelay(for:)`.
+        .task(id: viewModel.state) {
+            guard let delay = Self.spinnerDelay(for: viewModel.state) else {
+                showsSpinner = false
+                return
+            }
+            if delay > .zero {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+            }
+            showsSpinner = true
+        }
+        // `PlaybackStats.bufferedSeconds` is polled, not pushed; once a
+        // second is plenty for a fill nobody reads to the second.
+        .task(id: showsChrome) {
+            while showsChrome, !Task.isCancelled {
+                bufferedSeconds = viewModel.stats.bufferedSeconds
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+        // Shown again from the hidden state: Play/Pause, once the controls
+        // exist to take it.
+        .onChange(of: showsChrome) { _, shown in
+            guard accessible, shown else { return }
+            Task { @MainActor in focusedControl = TVAccessibleTransportButton.playPause.id }
+        }
+        .onChange(of: state.scrub?.previewTime) { _, time in
+            if let time { thumbnails.request(time) } else { thumbnails.reset() }
+        }
+    }
+
+    private var chromeLayer: some View {
+        ZStack {
+            // Hung in overlays of a clear view: as a stack of fixed heights
+            // the gradients sized this layer, and with the panel's taller
+            // one they outgrew the 960pt safe area, which pushed every
+            // piece of chrome off its inset (measured).
+            Color.clear
+                .overlay(alignment: .top) {
+                    LinearGradient(colors: [.black.opacity(0.8), .black.opacity(0.45), .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 360)
+                }
+                .overlay(alignment: .bottom) {
+                    // Deeper with the panel open, so its rows read over the
+                    // picture (prototype `PlayerTabs`).
+                    LinearGradient(
+                        colors: state.panel == nil
+                            ? [.clear, .black.opacity(0.85)]
+                            : [.clear, .black.opacity(0.75), .black.opacity(0.92)],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                    .frame(height: state.panel == nil ? 420 : 780)
+                }
+                .ignoresSafeArea()
+                .accessibilityHidden(true)
+
+            // Laid out in screen coordinates, with the HIG's 80pt sides and
+            // 60pt top and bottom written out, each piece in an overlay of a
+            // screen-sized view so no child can grow this layer.
+            Color.clear
+                .overlay(alignment: .topLeading) {
+                    titleBlock
+                        .padding(.top, 60)
+                        .padding(.leading, 80)
+                }
+                .overlay(alignment: .bottomLeading) {
+                    // One stack on the safe area's bottom edge: opening the
+                    // panel inserts it under the scrubber, which rises to
+                    // make room, while the icons fade out (Benjamin,
+                    // 2026-10-06). It reports `BottomChromeTopKey` from its
+                    // top, the icons or the raised scrubber, so a subtitle
+                    // shows above whichever is up.
+                    VStack(alignment: .leading, spacing: 18) {
+                        // In the accessible transport the icons stay with the
+                        // panel open: they are how focus gets back up.
+                        if state.panel == nil || accessible {
+                            iconRow.transition(.opacity)
+                        }
+                        scrubberStop
+                        timesRow
+                        if let panel = state.panel {
+                            TVPlayerPanelView(
+                                viewModel: viewModel, panel: panel, tabs: TVPlayerInputModel.availableTabs(input.snapshot()),
+                                accessible: accessible, send: send,
+                                landingRow: TVPlayerInputModel.defaultIndex(panel.tab, input.snapshot())
+                            )
+                                .padding(.top, 26)
+                                // From a whole panel-height below, so it rides
+                                // up under the rising scrubber rather than
+                                // fading in across it.
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        }
+                    }
+                    .reportsBottomChromeTop()
+                    .padding(.horizontal, 80)
+                    .padding(.bottom, 60)
+                }
+                .ignoresSafeArea()
+                .animation(TVMotion.moving(.easeInOut(duration: 0.3), reduceMotion: reduceMotion), value: state.panel != nil)
+        }
+        .defaultFocus($focusedControl, TVAccessibleTransportButton.playPause.id)
+        // Closing the panel takes its rows away; focus goes to Play/Pause
+        // rather than wherever tvOS lands (the leftmost button).
+        // The Audio tab's scope starts on This Title each time it opens.
+        .onChange(of: state.panel?.tab == .audio) { _, showsAudio in
+            if showsAudio { viewModel.audioOffset.panelDidOpen() } else { viewModel.audioOffset.flush() }
+        }
+        .onChange(of: state.panel == nil) { _, closed in
+            if accessible, closed { focusedControl = TVAccessibleTransportButton.playPause.id }
+        }
+    }
+
+    /// The accessible transport with its controls hidden (Benjamin,
+    /// 2026-10-08): nothing on screen but the picture, and one invisible
+    /// button holding focus, so Select, Up or Down brings the controls back
+    /// with Play/Pause focused. Named as iOS's VoiceOver button is.
+    private var showControlsButton: some View {
+        TVPlayerControlButton(action: { send(.showControls) }) { _ in
+            Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .onMoveCommand { direction in
+            switch direction {
+            case .up, .down: send(.showControls)
+            // Watching without the controls, Left and Right still skip
+            // (Benjamin, 2026-10-08).
+            case .left: send(.skip(.left))
+            case .right: send(.skip(.right))
+            @unknown default: break
+            }
+        }
+        .accessibilityLabel(String(localized: "Show Player Controls"))
+        .accessibilityIdentifier(A11yID.TV.Player.showControls)
+        .ignoresSafeArea()
+    }
+
+    // MARK: - Title
+
+    @ViewBuilder
+    private var titleBlock: some View {
+        if let item = viewModel.item {
+            ZStack(alignment: .topLeading) {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let logo = item.logoImageURL {
+                        #if DEBUG
+                        LogoImageView(
+                            url: logo, fallback: titleText(item.railTitle),
+                            onFallbackVisibilityChange: { isLogoFallbackVisible = $0 }
+                        )
+                        .frame(maxWidth: 460, maxHeight: 110, alignment: .topLeading)
+                        #else
+                        LogoImageView(url: logo, fallback: titleText(item.railTitle))
+                            .frame(maxWidth: 460, maxHeight: 110, alignment: .topLeading)
+                        #endif
+                    } else {
+                        titleText(item.railTitle)
+                    }
+                    if item.kind == .episode {
+                        Text(item.numberedEpisodeName)
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                // `.ignore` plus an explicit label, as on iOS: a logo is an
+                // unlabelled image, which would leave the block nameless.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(item.accessibilityDescription)
+                .accessibilityIdentifier(A11yID.TV.Player.titleBlock)
+                // Never focused, so VoiceOver read it ahead after every
+                // focus move and state change (Benjamin, on device, M5).
+                // The Info tab names the title.
+                .modifier(HiddenFromVoiceOver(isHidden: accessible))
+
+                #if DEBUG
+                // Test-only, beside the collapsed block rather than inside it.
+                if UITestConfiguration.isActive, isLogoFallbackVisible {
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .accessibilityIdentifier(A11yID.Media.heroLogoFallbackVisible)
+                }
+                #endif
+            }
+        }
+    }
+
+    private func titleText(_ text: String) -> some View {
+        Text(text)
+            .font(.title2.bold())
+            .lineLimit(2)
+    }
+
+    // MARK: - Bottom bar
+
+    /// Elapsed, the format chip and remaining, under the scrubber.
+    private var timesRow: some View {
+        HStack {
+            Text(TVPlaybackTimeFormat.string(shownTime))
+                .monospacedDigit()
+                .accessibilityLabel(TVPlaybackTimeFormat.spokenElapsed(shownTime))
+                .accessibilityIdentifier(A11yID.TV.Player.elapsed)
+            Spacer()
+            if let chip = TVTransportLayout.formatChipText(viewModel.videoFormatDescription) {
+                Text(chip)
+                    .font(.caption.bold())
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+                    .background(.black.opacity(0.35), in: .capsule)
+                    .accessibilityIdentifier(A11yID.TV.Player.formatLabel)
+            }
+            Spacer()
+            Text("\u{2212}" + TVPlaybackTimeFormat.string(max(0, viewModel.duration - shownTime)))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .accessibilityLabel(TVPlaybackTimeFormat.spokenRemaining(max(0, viewModel.duration - shownTime)))
+                .accessibilityIdentifier(A11yID.TV.Player.remaining)
+        }
+        .font(.callout.weight(.semibold))
+    }
+
+    private var iconRow: some View {
+        HStack(spacing: 18) {
+            if accessible {
+                ForEach([TVAccessibleTransportButton.back, .playPause, .forward], id: \.id) { button in
+                    accessibleButton(button)
+                }
+            }
+            Spacer()
+            if accessible { accessibleButton(.info) }
+            ForEach(input.snapshot().availableIcons, id: \.self) { icon in
+                if accessible {
+                    let isOn = icon == .stats && state.isStatsOn
+                    TVPlayerControlButton(action: { send(icon == .stats ? .toggleStats : .openPanel(icon.panelTab)) }) { focused in
+                        TVPlayerIconFace(systemImage: icon.systemImage, isFocused: focused, isOn: isOn)
+                    }
+                    .accessibilityLabel(icon.label(isOn: isOn))
+                    .accessibilityAddTraits(isOn ? .isSelected : [])
+                    .accessibilityIdentifier(A11yID.TV.Player.icon(icon.id))
+                } else {
+                    TVPlayerIconButton(
+                        icon: icon,
+                        isFocused: state.transportFocus == .icon(icon),
+                        isOn: icon == .stats && state.isStatsOn
+                    )
+                }
+            }
+        }
+        .frame(height: 96)
+        .focusSection()
+        // Up from the scrubber always lands on Play/Pause (Benjamin,
+        // 2026-10-08), not on whichever icon sits above the knob. As the
+        // detail page's season tabs do: `.userInitiated` applies to a press
+        // into the row as well.
+        .defaultFocus($focusedControl, TVAccessibleTransportButton.playPause.id, priority: .userInitiated)
+    }
+
+    private func accessibleButton(_ button: TVAccessibleTransportButton) -> some View {
+        let isPlaying = TVPlayerContext.playback(viewModel.state) == .playing
+        return TVPlayerControlButton(action: { send(button.control) }) { focused in
+            TVPlayerIconFace(systemImage: button.systemImage(isPlaying: isPlaying), isFocused: focused)
+        }
+        .focused($focusedControl, equals: button.id)
+        .accessibilityLabel(button.label(isPlaying: isPlaying))
+        .accessibilityIdentifier(A11yID.TV.Player.control(button.id))
+    }
+
+    /// The scrubber; in the accessible transport, one adjustable element
+    /// that steps 10s, as iOS's scrubber does under VoiceOver.
+    @ViewBuilder
+    private var scrubberStop: some View {
+        if accessible {
+            // A button, as a bare `.focusable()` view was never reached by
+            // Down from the icons (measured); Select plays and pauses, as it
+            // does on the remote's scrubber.
+            TVPlayerControlButton(action: { send(.playPause) }) { _ in scrubber }
+                .focused($isScrubberFocused)
+                .accessibilityElement(children: .ignore)
+                // iOS's label: the title here was read again on every move.
+                .accessibilityLabel(String(localized: "Playback position"))
+                .accessibilityValue(TVPlaybackTimeFormat.spokenPosition(viewModel.currentTime, of: viewModel.duration))
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: send(.skip(.right))
+                    case .decrement: send(.skip(.left))
+                    @unknown default: break
+                    }
+                }
+                .onMoveCommand { direction in
+                    if direction == .left { send(.skip(.left)) }
+                    if direction == .right { send(.skip(.right)) }
+                }
+                .accessibilityIdentifier(A11yID.TV.Player.scrubber)
+        } else {
+            scrubber
+        }
+    }
+
+    private var scrubber: some View {
+        GeometryReader { geo in
+            let duration = viewModel.duration
+            let width = geo.size.width
+            ZStack(alignment: .leading) {
+                // Every bar keeps the track's 12pt: the knob, 36pt, is in
+                // the same stack and would otherwise stretch them.
+                Capsule().fill(.white.opacity(0.25)).frame(height: 12)
+                if let buffered = TVTransportLayout.bufferedFraction(
+                    currentTime: viewModel.currentTime, bufferedSeconds: bufferedSeconds, duration: duration
+                ) {
+                    Capsule().fill(.white.opacity(0.45))
+                        .frame(width: width * buffered, height: 12)
+                        .accessibilityElement()
+                        .accessibilityLabel(Text("Buffered"))
+                        .accessibilityIdentifier(A11yID.TV.Player.bufferedRange)
+                }
+                Capsule().fill(.white)
+                    .frame(width: width * TVTransportLayout.fraction(viewModel.currentTime, duration: duration), height: 12)
+                if chaptersInScrubber, duration > 0 {
+                    ForEach(viewModel.chapters.filter { $0.startSeconds > 0 }) { chapter in
+                        Rectangle()
+                            .fill(.black.opacity(0.75))
+                            .frame(width: 5, height: 12)
+                            .offset(x: width * chapter.startSeconds / duration)
+                    }
+                }
+                if let scrub = state.scrub {
+                    let fraction = TVTransportLayout.fraction(scrub.previewTime, duration: duration)
+                    knob(at: fraction, width: width)
+                    TVScrubPreview(
+                        image: thumbnails.image,
+                        showsFrame: viewModel.supportsScrubThumbnails,
+                        caption: TVTransportLayout.previewCaption(
+                            time: scrub.previewTime, chapterName: viewModel.chapters.chapter(at: scrub.previewTime)?.name
+                        ),
+                        scanLevel: scrub.scan?.level
+                    )
+                    .fixedSize()
+                    .position(
+                        x: TVTransportLayout.previewCenterX(fraction: fraction, trackWidth: width, previewWidth: TVScrubPreview.size.width),
+                        y: -(TVScrubPreview.size.height / 2 + 150)
+                    )
+                } else if accessible ? isScrubberFocused : TVPlayerInputModel.scrubberHasFocus(state), duration > 0 {
+                    // The scrubber's focus (Benjamin, 2026-10-06): a knob at
+                    // the playhead whenever the scrubber has it.
+                    knob(at: TVTransportLayout.fraction(viewModel.currentTime, duration: duration), width: width)
+                }
+            }
+            // Pinned to the track, so the knob overflows it rather than
+            // growing the stack and moving the bar down.
+            .frame(width: width, height: 12)
+        }
+        .frame(height: 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("Playback position"))
+        .accessibilityValue(Text(TVPlaybackTimeFormat.string(shownTime)))
+        .accessibilityIdentifier(A11yID.TV.Player.transport)
+    }
+
+    private func knob(at fraction: Double, width: CGFloat) -> some View {
+        Circle()
+            .fill(.white)
+            .frame(width: 36, height: 36)
+            .shadow(color: .black.opacity(0.5), radius: 10)
+            .offset(x: width * fraction - 18)
+            .accessibilityHidden(true)
+    }
+}
+
+/// `.accessibilityHidden(true)` only while `isHidden`: a `false` would
+/// override every hidden view inside (`DionysusTV/CLAUDE.md`, Accessibility).
+private struct HiddenFromVoiceOver: ViewModifier {
+    let isHidden: Bool
+
+    func body(content: Content) -> some View {
+        if isHidden { content.accessibilityHidden(true) } else { content }
+    }
+}
+
+private extension View {
+    /// Publishes this view's top edge as `BottomChromeTopKey`, so subtitles
+    /// sit above it.
+    func reportsBottomChromeTop() -> some View {
+        background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: BottomChromeTopKey.self, value: proxy.frame(in: .global).minY)
+            }
+        )
+    }
+}
+
+/// UIKit's large activity indicator in white: SwiftUI's `ProgressView` on
+/// tvOS draws grey and ignores `tint`. The splash's too.
+struct TVWhiteSpinner: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIActivityIndicatorView {
+        let view = UIActivityIndicatorView(style: .large)
+        view.color = .white
+        view.startAnimating()
+        return view
+    }
+
+    func updateUIView(_ view: UIActivityIndicatorView, context: Context) {}
+}

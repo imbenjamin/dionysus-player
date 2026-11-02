@@ -76,6 +76,10 @@ struct AssetDetailView: View {
     private var content: some View {
         if ConnectivityMonitor.shared.isOffline, viewModel.loadState != .loaded {
             OfflineStateView(retry: { Task { await viewModel.load() } })
+        } else if viewModel.loadState == .notFound {
+            // Wins over a preloaded item, whose page would offer Play for
+            // something the server no longer has.
+            notFound
         } else if let item = viewModel.item {
             // AUDIO SUPPRESSION: the required safety net. `/Items/{itemId}` and
             // `/Items/{itemId}/Similar` have no server-side type filter, so an
@@ -115,7 +119,19 @@ struct AssetDetailView: View {
                 LoadingView()
             case .failed(let message):
                 ErrorStateView(message: message) { Task { await viewModel.load() } }
+            case .notFound:
+                notFound
             }
         }
+    }
+
+    /// No retry: the item is gone, and asking again gets the same 404.
+    private var notFound: some View {
+        ContentUnavailableView {
+            Label("This Title Can't Be Found", systemImage: "questionmark.square.dashed")
+        } description: {
+            Text("It may have been removed from the server.")
+        }
+        .accessibilityIdentifier(A11yID.AssetDetail.notFoundMessage)
     }
 }

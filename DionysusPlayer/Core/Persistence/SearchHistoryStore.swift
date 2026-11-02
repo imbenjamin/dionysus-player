@@ -7,6 +7,13 @@ import Foundation
 /// keyed by `userID` so a shared device doesn't leak one user's history to
 /// another.
 final class SearchHistoryStore {
+    /// Posted after any change to a user's history, with that user's id under
+    /// `userIDKey`. A change can come from outside Search: a detail page that
+    /// finds its item gone from the server drops it (`AssetDetailViewModel
+    /// .load()`), and `SearchViewModel` reloads on this.
+    static let didChange = Notification.Name("SearchHistoryStore.didChange")
+    static let userIDKey = "userID"
+
     /// A handful of shortcuts back to something recently viewed, not a log.
     /// Trimmed to this many entries, most recent first.
     private static let maxEntries = 20
@@ -54,10 +61,16 @@ final class SearchHistoryStore {
 
     func clear(userID: String) {
         defaults.removeObject(forKey: key(userID: userID))
+        postChange(userID: userID)
     }
 
     private func save(_ entries: [SearchResult], userID: String) {
         guard let data = try? encoder.encode(entries) else { return }
         defaults.set(data, forKey: key(userID: userID))
+        postChange(userID: userID)
+    }
+
+    private func postChange(userID: String) {
+        NotificationCenter.default.post(name: Self.didChange, object: self, userInfo: [Self.userIDKey: userID])
     }
 }

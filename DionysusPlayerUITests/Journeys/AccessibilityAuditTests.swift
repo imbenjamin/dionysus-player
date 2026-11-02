@@ -123,13 +123,15 @@ final class AccessibilityAuditTests: UITestCase {
     }
 
     /// Held on its code by `.quickConnectPending`, which never approves it.
+    /// A sheet, which on a closed iPhone Duo stops short of the top and
+    /// leaves the sign-in screen showing behind it.
     func testQuickConnectHasNoAccessibilityIssues() throws {
         launch(scenario: "quickConnectPending", signedIn: false)
         ServerSetupScreen(app: app).connect(to: UITestFixtureIdentity.serverAddress)
         LoginScreen(app: app).openQuickConnect()
         QuickConnectScreen(app: app).awaitCode(UITestFixtureIdentity.quickConnectCode(1))
 
-        try auditCurrentScreen()
+        try auditCurrentScreen(underModal: true)
     }
 
     // MARK: - Browse
@@ -258,6 +260,23 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen()
     }
 
+    func testAudioOffsetPageHasNoAccessibilityIssues() throws {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+        AssetDetailScreen(app: app).play()
+
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        player.tracksButton.tap()
+        player.trackNavigationRow("audio").tap()
+        player.trackNavigationRow("audioOffset").tap()
+        player.audioOffsetValue.awaitExistence("the Audio Offset page")
+
+        try auditCurrentScreen()
+    }
+
     // MARK: - Downloads and Profile
 
     func testDownloadsEmptyStateHasNoAccessibilityIssues() throws {
@@ -275,7 +294,64 @@ final class AccessibilityAuditTests: UITestCase {
         TabBar(app: app).profile.tap()
         ProfileScreen(app: app).awaitLoaded()
 
-        try auditCurrentScreen()
+        // Audited scrolled to the end: at the top, whichever paragraph
+        // straddles the glass tab bar's edge is read through the blur as
+        // "Potentially inaccessible text" with no element attached, so the
+        // result depended on how many rows sit above it. At the end the
+        // list's bottom inset keeps every line clear of the bar.
+        let lastRow = app.descendants(matching: .any)[A11yID.Profile.privacyPolicyLink]
+        for _ in 0..<8 {
+            let before = lastRow.exists ? lastRow.frame : .zero
+            app.swipeUp()
+            if lastRow.exists, lastRow.frame == before { break }
+        }
+
+        // Below iOS 26 there's no Spatial Audio section, so the list is short
+        // enough that the Audio Offset stepper is still on screen here.
+        try auditCurrentScreen(besideStepper: true)
+    }
+
+    /// The Spatial Audio section with both toggles on, so its layout pickers
+    /// are audited too. iOS 26 and later, where the section shows.
+    func testSpatialAudioSettingsHaveNoAccessibilityIssues() throws {
+        try skipBelowiOS26ForSpatialAudio()
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).openPlaybackSettings()
+        for toggleID in [A11yID.Profile.spatialAtmosToggle, A11yID.Profile.spatialDTSXToggle] {
+            let toggle = app.switches[toggleID]
+            for _ in 0..<8 where !toggle.isHittable { ProfileScreen(app: app).scrollSettings() }
+            toggle.switches.firstMatch.tap()
+        }
+        // The picker appears below its toggle, which can sit at the foot of a
+        // short pane (the Duo in book pose, 669pt tall), where the list hasn't
+        // made the new row yet: scroll it into view. The swipe starts on the
+        // Atmos row, since a swipe from the window's centre lands on the fold
+        // between the split's columns there and scrolls neither.
+        let dtsxLayout = app.buttons[A11yID.Profile.spatialDTSXLayout]
+        let atmosRow = app.switches[A11yID.Profile.spatialAtmosToggle]
+        for _ in 0..<4 where !dtsxLayout.exists && atmosRow.isHittable { atmosRow.swipeUp() }
+        dtsxLayout.awaitExistence("the DTS:X layout picker")
+
+        // On iPad the Audio Offset stepper shares the pane.
+        try auditCurrentScreen(besideStepper: true)
+    }
+
+    func testSpatialAudioHelpHasNoAccessibilityIssues() throws {
+        try skipBelowiOS26ForSpatialAudio()
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).openPlaybackSettings()
+        let learnMore = app.buttons[A11yID.Profile.spatialAudioLearnMore]
+        for _ in 0..<8 where !learnMore.isHittable { ProfileScreen(app: app).scrollSettings() }
+        learnMore.tap()
+        app.descendants(matching: .any)[A11yID.Profile.spatialAudioHelp].awaitExistence("the About Spatial Audio sheet")
+
+        // On iPad it's a form sheet over the settings pane, whose text and
+        // stepper the audit reads through the dimming with no element.
+        try auditCurrentScreen(underModal: true)
     }
 
     func testQuickConnectApprovalHasNoAccessibilityIssues() throws {
@@ -326,8 +402,9 @@ private extension AccessibilityAuditTests {
     /// Runs the full audit against whatever is currently on screen,
     /// suppressing only the documented exceptions below.
     /// `underModal`: something modal is up that leaves the screen behind it
-    /// visible but dimmed — a system alert, or on iPad a popover or form
-    /// sheet, which don't cover the screen the way the iPhone's full-height
+    /// visible but dimmed — a system alert, on iPad a popover or form
+    /// sheet, or on a closed iPhone Duo a sheet that stops short of the top,
+    /// none of which cover the screen the way the iPhone's full-height
     /// sheet does. The audit still sees that screen's text, but iOS rightly
     /// takes it out of the accessibility tree while the modal is up. That
     /// surfaces as one `.elementDetection` issue ("Potentially inaccessible
@@ -339,12 +416,51 @@ private extension AccessibilityAuditTests {
     /// `xcodebuild` into `xcbeautify` without `pipefail`, so the three iPad
     /// audits using this failed every night while the run reported success
     /// (fixed in PR #258).
-    func auditCurrentScreen(underModal: Bool = false, file: StaticString = #filePath, line: UInt = #line) throws {
+    ///
+    /// `besideStepper`: a system `Stepper` is on screen. On iOS 27 the audit
+    /// reads its −/+ control as text with no element (that same issue, the
+    /// same shape), with the row's own label and value already exposed:
+    /// Profile's Playback pane passed with the Audio Offset stepper hidden,
+    /// and failed with it shown even with its label and value replaced by
+    /// plain `Text`. Let through only while a stepper is actually on screen.
+    func auditCurrentScreen(
+        underModal: Bool = false, besideStepper: Bool = false,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        // A query, resolved each time it's read, so it finds a keyboard that
+        // came up after the audit started.
+        let keyboard = app.keyboards.firstMatch
+        let stepper = app.steppers.firstMatch
         try app.performAccessibilityAudit(for: Self.auditedTypes) { issue in
             if underModal, issue.auditType == .elementDetection, issue.element == nil {
                 return true
             }
-            return Self.isKnownAcceptable(issue)
+            if besideStepper, issue.auditType == .elementDetection, issue.element == nil, stepper.exists {
+                return true
+            }
+            if Self.isKnownAcceptable(issue, keyboard: keyboard) {
+                return true
+            }
+            Self.record(issue)
+            return false
+        }
+    }
+
+    /// Attaches what the audit knows about an issue that fails the test.
+    /// The failure itself carries only the issue's compact description
+    /// ("Element has no description") and a screenshot, which on a CI run
+    /// says nothing about *which* element it was.
+    static func record(_ issue: XCUIAccessibilityAuditIssue) {
+        let attachment = XCTAttachment(string: """
+            \(issue.compactDescription)
+            \(issue.detailedDescription)
+
+            \(issue.element?.debugDescription ?? "No element attached.")
+            """)
+        attachment.name = "Accessibility audit issue"
+        attachment.lifetime = .keepAlways
+        XCTContext.runActivity(named: "Unsuppressed audit issue: \(issue.compactDescription)") { activity in
+            activity.add(attachment)
         }
     }
 
@@ -393,7 +509,7 @@ private extension AccessibilityAuditTests {
     /// applies to a screen nobody intended it for is the main way an audit
     /// suite rots. Every entry below is scoped to a kind of element, never to
     /// an audit type alone.
-    static func isKnownAcceptable(_ issue: XCUIAccessibilityAuditIssue) -> Bool {
+    static func isKnownAcceptable(_ issue: XCUIAccessibilityAuditIssue, keyboard: XCUIElement) -> Bool {
         guard let element = issue.element else { return false }
 
         // UIKit's own clear button inside `.searchable`'s text field, 20.5pt
@@ -439,6 +555,24 @@ private extension AccessibilityAuditTests {
         }
         if issue.auditType == .sufficientElementDescription,
            element.debugDescription.contains("identifier: 'SystemInputAssistantView'") {
+            return true
+        }
+
+        // The same bar on iPad, iOS 26, when it offers AutoFill: the
+        // username fields carry `.textContentType(.username)`, so the bar
+        // shows a "Passwords" button with an empty cell beside it. That
+        // cell fails `.sufficientElementDescription` with the same generic
+        // description, and is caught by neither check above. It fails only
+        // some nights (first on 2026-10-06, Other User sheet): the bar
+        // offers Passwords only once the system's AutoFill has answered,
+        // which may come after the audit has run. No element details
+        // were recorded, so it's recognised by sitting wholly inside the
+        // on-screen keyboard. An unlabeled app element hidden behind the
+        // keyboard would pass too, so this is limited to that one audit type
+        // and to a keyboard actually on screen.
+        if issue.auditType == .sufficientElementDescription,
+           keyboard.exists,
+           keyboard.frame.contains(element.frame) {
             return true
         }
 

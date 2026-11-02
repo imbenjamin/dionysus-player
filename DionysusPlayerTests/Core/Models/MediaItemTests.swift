@@ -149,6 +149,36 @@ final class MediaItemTests: XCTestCase {
         XCTAssertEqual(makeEpisode(seriesName: nil, name: "Old Cases").railTitle, "Old Cases")
     }
 
+    // MARK: season tiles
+
+    /// A season tile once read "13" alone ("13, Button" under VoiceOver):
+    /// it names its show, with the season beneath.
+    private func makeSeason(seriesName: String? = "American Horror Story", name: String = "Season 13") -> MediaItem {
+        var dto = BaseItemDto(id: "season-13", name: name, type: .season)
+        dto.seriesName = seriesName
+        return MediaItem(dto: dto, images: images)
+    }
+
+    func test_railTitle_season_isSeriesName() {
+        XCTAssertEqual(makeSeason().railTitle, "American Horror Story")
+    }
+
+    func test_railSubtitle_season_isSeasonName() {
+        XCTAssertEqual(makeSeason().railSubtitle, "Season 13")
+    }
+
+    func test_accessibilityDescription_season_readsShowThenSeason() {
+        XCTAssertEqual(makeSeason().accessibilityDescription, "American Horror Story, Season 13")
+    }
+
+    /// Review Focus 4: a server that omits `SeriesName` keeps a one-line
+    /// caption with the season's own name, never an empty title.
+    func test_season_withoutSeriesName_isOneLine() {
+        let season = makeSeason(seriesName: nil)
+        XCTAssertEqual(season.railTitle, "Season 13")
+        XCTAssertNil(season.railSubtitle)
+    }
+
     func test_railTitle_movie_usesOwnName() {
         XCTAssertEqual(makeMovie().railTitle, "Arrival")
     }
@@ -205,7 +235,7 @@ final class MediaItemTests: XCTestCase {
         XCTAssertEqual(item.accessibilityDescription, "The Wire, S1:E4 \u{00B7} Old Cases")
     }
 
-    // MARK: resumePositionSeconds / playedFraction / isPlayed / isPartWatched
+    // MARK: resumePositionSeconds / playedFraction / isPlayed / canResume
 
     func test_resumePositionSeconds_convertsTicksToSeconds() {
         let userData = UserItemDataDto(playbackPositionTicks: 30 * 10_000_000)
@@ -244,15 +274,44 @@ final class MediaItemTests: XCTestCase {
         XCTAssertFalse(makeMovie(userData: nil).isFavorite)
     }
 
-    func test_isPartWatched_trueOnlyBetweenZeroAndOneAndNotPlayed() {
+    func test_canResume_trueOnlyBetweenZeroAndOneAndNotPlayed_withoutAPosition() {
         let midway = UserItemDataDto(playedPercentage: 50, played: false)
-        XCTAssertTrue(makeMovie(userData: midway).isPartWatched)
+        XCTAssertTrue(makeMovie(userData: midway).canResume)
 
         let finished = UserItemDataDto(playedPercentage: 100, played: true)
-        XCTAssertFalse(makeMovie(userData: finished).isPartWatched)
+        XCTAssertFalse(makeMovie(userData: finished).canResume)
 
         let untouched = UserItemDataDto(playedPercentage: 0, played: false)
-        XCTAssertFalse(makeMovie(userData: untouched).isPartWatched)
+        XCTAssertFalse(makeMovie(userData: untouched).canResume)
+    }
+
+    /// A rewatch stopped partway: Jellyfin keeps `Played` and stores the new
+    /// position (Benjamin, 2026-10-14).
+    func test_canResume_playedWithPosition_isTrue() {
+        let rewatched = UserItemDataDto(playbackPositionTicks: 60 * 10_000_000, playedPercentage: 10, played: true)
+        XCTAssertTrue(makeMovie(userData: rewatched).canResume)
+    }
+
+    func test_canResume_playedWithoutPosition_isFalse() {
+        let finished = UserItemDataDto(playbackPositionTicks: 0, played: true)
+        XCTAssertFalse(makeMovie(userData: finished).canResume)
+    }
+
+    func test_canResume_unplayedWithPosition_isTrue() {
+        let started = UserItemDataDto(playbackPositionTicks: 60 * 10_000_000, played: false)
+        XCTAssertTrue(makeMovie(userData: started).canResume)
+    }
+
+    /// A Series has no position of its own: `playedPercentage` counts its
+    /// watched episodes, and a played Series stays Play.
+    func test_canResume_series_followsPlayedPercentage() {
+        var played = BaseItemDto(id: "series-1", name: "The Wire", type: .series)
+        played.userData = UserItemDataDto(playedPercentage: 40, played: true)
+        XCTAssertFalse(MediaItem(dto: played, images: images).canResume)
+
+        var started = BaseItemDto(id: "series-1", name: "The Wire", type: .series)
+        started.userData = UserItemDataDto(playedPercentage: 40, played: false)
+        XCTAssertTrue(MediaItem(dto: started, images: images).canResume)
     }
 
     // MARK: playbackProgressIdentity
@@ -477,11 +536,53 @@ final class MediaItemTests: XCTestCase {
 
     /// A letterboxed, very-wide-aspect release (e.g. 2.39:1) has a reduced
     /// height for a genuinely 4K-width source — classifying by height would
-    /// misidentify this as 1440p or lower.
-    func test_technicalDetails_resolutionClassifiesByWidthNotHeightForLetterboxedVideo() {
+    /// misidentify this as 1080p or lower.
+    func test_technicalDetails_resolutionKeepsLetterboxedVideoAt4K() {
         let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", width: 3840, height: 1606)])
         let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaSources: [source])
         XCTAssertEqual(MediaItem(dto: dto, images: images).technicalDetails?.resolution, "3840\u{00D7}1606 (4K)")
+    }
+
+    /// Files from Benjamin's library, each against the name Jellyfin's own
+    /// `DisplayTitle` gives it (2026-10-22). Classed by width alone, every
+    /// 1080p one here read 720p and both 4K ones 1440p.
+    func test_resolutionCommonName_matchesJellyfin() {
+        let cases: [(String, Int, Int, String)] = [
+            ("Pirates of the Caribbean (cropped letterbox)", 1916, 800, "1080p"),
+            ("Harry Potter and the Chamber of Secrets", 1918, 802, "1080p"),
+            ("Shaun of the Dead", 1880, 820, "1080p"),
+            ("Poor Things", 1792, 1080, "1080p"),
+            ("A Close Shave", 1792, 1072, "1080p"),
+            ("Casablanca (4:3)", 1440, 1080, "1080p"),
+            ("The French Dispatch", 1416, 1036, "1080p"),
+            ("The Lighthouse (1.19:1)", 1296, 1080, "1080p"),
+            ("Spider-Man: Brand New Day (cropped letterbox)", 3832, 1600, "4K"),
+            ("Obsession", 3240, 2160, "4K"),
+            ("Full-frame 1080p", 1920, 1080, "1080p"),
+            ("Ultrawide 21:9", 2560, 1080, "1080p"),
+            ("720p", 1280, 720, "720p"),
+            ("DVD PAL", 720, 576, "576p"),
+            ("DVD NTSC", 720, 480, "480p"),
+            ("UHD", 3840, 2160, "4K"),
+            ("DCI 4K", 4096, 2160, "4K"),
+        ]
+        for (name, width, height, expected) in cases {
+            XCTAssertEqual(MediaItem.resolutionCommonName(width: width, height: height), expected, name)
+        }
+    }
+
+    func test_technicalDetails_letterboxedCropped1080pReads1080p() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", width: 1916, height: 800)])
+        let dto = BaseItemDto(id: "movie-1", name: "Pirates of the Caribbean", type: .movie, mediaSources: [source])
+        let item = MediaItem(dto: dto, images: images)
+        XCTAssertEqual(item.technicalDetails?.resolution, "1916\u{00D7}800 (1080p)")
+        XCTAssertTrue(item.metadataBadges.contains("HD"))
+    }
+
+    func test_metadataBadges_croppedLetterboxed4KIs4K() {
+        let source = MediaSourceInfo(mediaStreams: [MediaStream(index: 0, type: "Video", width: 3832, height: 1600)])
+        let dto = BaseItemDto(id: "movie-1", name: "Spider-Man", type: .movie, mediaSources: [source])
+        XCTAssertTrue(MediaItem(dto: dto, images: images).metadataBadges.contains("4K"))
     }
 
     func test_technicalDetails_dolbyVisionWithHDR10PlusLayer() {
@@ -687,6 +788,39 @@ final class MediaItemTests: XCTestCase {
         let item = makeMovie(mediaSources: [make4KSource(), make1080pSource()])
         XCTAssertEqual(item.technicalDetails(forVersion: nil)?.resolution, item.technicalDetails?.resolution)
         XCTAssertEqual(item.technicalDetails(forVersion: "no-such-id")?.resolution, item.technicalDetails?.resolution)
+    }
+
+    // MARK: spokenBadge
+
+    /// The badges VoiceOver can't read on their own are spelled out; the
+    /// rest (4K, HD, DTS, Dolby Atmos…) read fine as they are. Shared by
+    /// iOS's info row and the Apple TV's header (M5).
+    func test_spokenBadge_spellsOutTheAbbreviations() {
+        XCTAssertEqual(MediaItem.spokenBadge("CC"), String(localized: "Closed Captions"))
+        XCTAssertEqual(MediaItem.spokenBadge("DD+"), String(localized: "Dolby Digital Plus"))
+        XCTAssertEqual(MediaItem.spokenBadge("DD"), String(localized: "Dolby Digital"))
+        for badge in ["4K", "HD", "HDR10", "Dolby Vision", "DTS", "Dolby Atmos"] {
+            XCTAssertEqual(MediaItem.spokenBadge(badge), badge)
+        }
+    }
+
+    func test_spokenBadges_readTheRowAsOne() {
+        XCTAssertEqual(MediaItem.spokenBadges(["HD", "DD+", "CC"]), String(localized: "Formats: \("HD, Dolby Digital Plus, Closed Captions")"))
+    }
+
+    /// A track's metadata line, abbreviations in words: VoiceOver read "DD"
+    /// as letters (Benjamin, on the Apple TV, M5).
+    func test_spokenFormats_spellsOutWholeTokensOnly() {
+        XCTAssertEqual(
+            MediaItem.spokenFormats(in: "DD+ \u{00B7} Atmos \u{00B7} 7.1 \u{00B7} Default"),
+            "Dolby Digital Plus \u{00B7} Atmos \u{00B7} 7.1 \u{00B7} Default"
+        )
+        XCTAssertEqual(MediaItem.spokenFormats(in: "English, DD \u{00B7} 5.1"), "English, Dolby Digital \u{00B7} 5.1")
+        XCTAssertEqual(MediaItem.spokenFormats(in: "English (CC)"), "English (Closed Captions)")
+        XCTAssertEqual(MediaItem.spokenFormats(in: "English - DTS-HD MA - 5.1 - Default"), "English - DTS-HD Master Audio - 5.1 - Default")
+        XCTAssertEqual(MediaItem.spokenFormats(in: "DTS-HD HRA"), "DTS-HD High Resolution Audio")
+        // Inside a word, or a longer abbreviation, nothing changes.
+        XCTAssertEqual(MediaItem.spokenFormats(in: "ADDA DDP CCTV"), "ADDA DDP CCTV")
     }
 
     // MARK: metadataBadges
@@ -932,6 +1066,30 @@ final class MediaItemTests: XCTestCase {
         XCTAssertNotNil(url)
         XCTAssertTrue(url!.absoluteString.contains("Items/ep-1/Images/Thumb"))
         XCTAssertTrue(url!.absoluteString.contains("tag=thumb123"))
+    }
+
+    func test_posterImageURL_isTheItemsOwnPrimary() {
+        let dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, imageTags: ["Primary": "p1"])
+        let url = MediaItem(dto: dto, images: images).posterImageURL
+        XCTAssertTrue(url?.absoluteString.contains("Items/movie-1/Images/Primary") == true)
+        XCTAssertTrue(url?.absoluteString.contains("tag=p1") == true)
+    }
+
+    /// An episode's own Primary is a still; its poster is the show's.
+    func test_posterImageURL_episodeUsesTheShowsPoster() {
+        let dto = BaseItemDto(
+            id: "ep-1", name: "Old Cases", type: .episode, seriesId: "series-1",
+            imageTags: ["Primary": "still"], seriesPrimaryImageTag: "showposter"
+        )
+        let url = MediaItem(dto: dto, images: images).posterImageURL
+        XCTAssertTrue(url?.absoluteString.contains("Items/series-1/Images/Primary") == true)
+        XCTAssertTrue(url?.absoluteString.contains("tag=showposter") == true)
+    }
+
+    /// `nil` rather than a 404ing URL, so the spread falls back to the backdrop.
+    func test_posterImageURL_nilWithoutATag() {
+        XCTAssertNil(makeMovie().posterImageURL)
+        XCTAssertNil(makeEpisode().posterImageURL)
     }
 
     func test_thumbImageURL_nilWhenNoThumbTag() {

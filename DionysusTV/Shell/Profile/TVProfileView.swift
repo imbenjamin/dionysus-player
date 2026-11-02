@@ -1,0 +1,369 @@
+import SwiftUI
+
+/// Profile (prototype screen 11): who is signed in and the app's versions on
+/// the left, the settings as focusable rows on the right. Profile is the only
+/// way to settings; there is no separate Settings page.
+///
+/// iOS's sections minus Downloads, 3D Depth Effects and Theme, plus Switch
+/// User, Sign Out and the two Apple TV session settings. Next Episode
+/// Countdown, Chapters in Scrubber, ASS/SSA Subtitles and the stats button are
+/// stored now and take effect with their player features in M4.
+struct TVProfileView: View {
+    @Environment(AppState.self) private var appState
+    @AppStorage(heroAutoCarouselEnabledStorageKey) private var autoCarousel = true
+    @AppStorage(nextUpCountdownStorageKey) private var nextUpCountdown: NextUpCountdownPreference = .seconds30
+    @AppStorage(chaptersInScrubberEnabledStorageKey) private var chaptersInScrubber = chaptersInScrubberEnabledDefault
+    @AppStorage(subtitleAppearanceStorageKey) private var subtitleAppearance = subtitleAppearanceDefault
+
+    /// Each sub-screen is a cover: Menu closes it, and the row beneath keeps
+    /// focus. Not `.confirmationDialog`, whose buttons lose their
+    /// accessibility identifiers on tvOS, nor a push, which would put the
+    /// sidebar beside a page that belongs to Profile.
+    private enum Cover: String, Identifiable {
+        case changeServer, signOut, quickConnect, nextUpCountdown, subtitleAppearance, audioOffset, atmosLayout, dtsXLayout, spatialAudioHelp, advanced, license, privacyPolicy
+        var id: String { rawValue }
+    }
+
+    @State private var cover: Cover?
+    @State private var quickConnectAvailable = false
+    /// Switch User is the default focus (`tvClaimsFocus`).
+    @FocusState private var focus: String?
+    @State private var remembered: String?
+    /// The rows have scrolled from their top; Menu then goes back there.
+    @State private var rowsScrolled = false
+    @State private var topRequest = 0
+    /// Copies to draw from: these settings live in the keychain, which
+    /// nothing observes.
+    @State private var followsAppleTVUsers = SessionScopeSetting.followsAppleTVUsers
+    @State private var selectsUserEveryRelaunch = SessionScopeSetting.selectsUserEveryRelaunch
+    /// A copy of the stored global offset (`AudioOffsetStore`), which
+    /// nothing observes.
+    @State private var audioOffsetMilliseconds = AudioOffsetStore().globalOffsetMilliseconds
+    /// A copy of the stored Spatial Audio settings (`SpatialAudioStore`, the
+    /// keychain every Apple TV user shares).
+    @State private var spatialAudio = SpatialAudioStore().settings
+
+    private var user: UserDto? {
+        TVProfileIdentity.user(currentUser: appState.currentUser, credentials: appState.sessionStore.credentials)
+    }
+
+    private var server: ServerConfiguration? { appState.sessionStore.serverConfiguration }
+
+    private func onOff(_ value: Bool) -> String { value ? String(localized: "On") : String(localized: "Off") }
+
+    /// In the order drawn, Switch User first.
+    private var focusIDs: [String] {
+        [A11yID.TV.Profile.switchUser]
+            + (quickConnectAvailable ? [A11yID.TV.Profile.approveQuickConnect] : [])
+            + [A11yID.TV.Profile.signOut, A11yID.TV.Profile.changeServer, A11yID.TV.Profile.followsAppleTVUsers]
+            // The second setting only means something with one shared
+            // session, so it's only there while the first is off.
+            + (followsAppleTVUsers ? [] : [A11yID.TV.Profile.selectsUserEveryRelaunch])
+            + [A11yID.TV.Profile.autoCarousel, A11yID.TV.Profile.nextUpCountdown, A11yID.TV.Profile.chaptersInScrubber,
+               A11yID.TV.Profile.audioOffset, A11yID.TV.Profile.advanced]
+            + spatialAudioFocusIDs
+            + [A11yID.TV.Profile.license, A11yID.TV.Profile.privacyPolicy]
+    }
+
+    /// Each format's toggle, its layout row while it's on, and About Spatial
+    /// Audio after them while any format is offered.
+    private var spatialAudioFocusIDs: [String] {
+        var ids: [String] = []
+        if SpatialAudioSupport.isOffered(.dolbyAtmos) {
+            ids.append(A11yID.TV.Profile.spatialAtmos)
+            if spatialAudio.atmosEnabled { ids.append(A11yID.TV.Profile.spatialAtmosLayout) }
+        }
+        if SpatialAudioSupport.isOffered(.dtsX) {
+            ids.append(A11yID.TV.Profile.spatialDTSX)
+            if spatialAudio.dtsXEnabled { ids.append(A11yID.TV.Profile.spatialDTSXLayout) }
+        }
+        return ids.isEmpty ? ids : ids + [A11yID.TV.Profile.spatialAudioAbout]
+    }
+
+    /// Reads and writes one Spatial Audio setting through the store.
+    private func spatialAudioBinding<Value>(_ keyPath: WritableKeyPath<SpatialAudioSettings, Value>) -> Binding<Value> {
+        Binding(
+            get: { spatialAudio[keyPath: keyPath] },
+            set: { newValue in
+                let store = SpatialAudioStore()
+                var settings = store.settings
+                settings[keyPath: keyPath] = newValue
+                store.settings = settings
+                spatialAudio = store.settings
+            }
+        )
+    }
+
+    var body: some View {
+        TVPageScaffold {
+            HStack(alignment: .top, spacing: 60) {
+                brandPane
+                rows
+            }
+        }
+        .tvClaimsFocus($focus, ids: focusIDs, remembered: $remembered)
+        .tvMenuReturnsToLanding($focus, landing: focusIDs.first, isAway: rowsScrolled) { topRequest += 1 }
+        .task {
+            guard let client = appState.apiClient else { return }
+            quickConnectAvailable = await QuickConnectApprovalViewModel.isAvailable(on: client)
+        }
+        .fullScreenCover(item: $cover) { cover in
+            switch cover {
+            case .changeServer:
+                // Change Server forgets the server for every Apple TV user:
+                // their stored sign-ins then fail the server check at
+                // launch, so they all start again.
+                TVConfirmation(
+                    title: Text("Change Server?"),
+                    message: Text("Everyone on this Apple TV will need to find a server and sign in again."),
+                    action: Text("Change Server"),
+                    actionIdentifier: A11yID.TV.Profile.changeServerConfirm
+                ) { appState.changeServer() }
+            case .signOut:
+                // iOS's title: you sign out *of* a server. Sign Out forgets
+                // the account on this Apple TV (Benjamin, 2026-10-05).
+                TVConfirmation(
+                    title: Text("Sign out of \(appState.sessionStore.serverConfiguration?.name ?? String(localized: "your server"))?"),
+                    message: Text("This Apple TV will forget the account, so signing in again needs its password or a new Quick Connect code."),
+                    action: Text("Sign Out"),
+                    actionIdentifier: A11yID.TV.Profile.signOutConfirm
+                ) { appState.signOutForgettingAccount() }
+            case .quickConnect:
+                if let client = appState.apiClient {
+                    TVQuickConnectApprovalView(viewModel: QuickConnectApprovalViewModel(
+                        client: client, userName: user?.name ?? "", serverName: server?.name ?? ""
+                    ))
+                }
+            case .nextUpCountdown:
+                TVSettingsPicker(
+                    title: "Next Episode Countdown",
+                    selection: $nextUpCountdown,
+                    id: { String($0.rawValue) },
+                    label: \.displayName,
+                    accessibilityLabel: \.accessibilityLabel
+                )
+            case .subtitleAppearance:
+                TVSettingsPicker(
+                    title: "Subtitle Style",
+                    selection: $subtitleAppearance,
+                    id: \.rawValue,
+                    label: \.displayName
+                )
+            case .audioOffset:
+                TVAudioOffsetPage(milliseconds: Binding(
+                    get: { audioOffsetMilliseconds },
+                    set: { newValue in
+                        let store = AudioOffsetStore()
+                        store.globalOffsetMilliseconds = newValue
+                        audioOffsetMilliseconds = store.globalOffsetMilliseconds
+                    }
+                ))
+            case .atmosLayout:
+                TVSettingsPicker(
+                    title: "Dolby Atmos Speaker Layout", options: SpatialAudioFormat.dolbyAtmos.layouts,
+                    selection: spatialAudioBinding(\.atmosLayout), id: \.rawValue, label: \.optionLabel,
+                    accessibilityLabel: \.accessibilityLabel
+                )
+            case .dtsXLayout:
+                TVSettingsPicker(
+                    title: "DTS:X Speaker Layout", options: SpatialAudioFormat.dtsX.layouts,
+                    selection: spatialAudioBinding(\.dtsXLayout), id: \.rawValue, label: \.optionLabel,
+                    accessibilityLabel: \.accessibilityLabel
+                )
+            case .spatialAudioHelp:
+                TVTextPageView(title: "About Spatial Audio", paragraphs: SpatialAudioHelp.paragraphs.map { AttributedString($0) })
+            case .advanced:
+                TVAdvancedPlaybackView()
+            case .license:
+                TVTextPageView(title: "License", paragraphs: TVTextPageView.licenseParagraphs(license: LicenseDocument.appLicense(), components: LicenseDocument.components()))
+            case .privacyPolicy:
+                TVTextPageView(title: "Privacy Policy", paragraphs: TVTextPageView.paragraphs(resource: "PRIVACY", extension: "md", markdown: true))
+            }
+        }
+    }
+
+    /// The prototype's left pane: who this is, and what's running.
+    private var brandPane: some View {
+        VStack(spacing: 26) {
+            if let user {
+                UserAvatar(user: user, serverURL: server?.baseURL, size: 220)
+                Text(verbatim: user.name)
+                    .font(.title2.bold())
+                    .accessibilityIdentifier(A11yID.TV.Profile.name)
+            }
+            if let server {
+                let address = server.baseURL.host() ?? server.baseURL.absoluteString
+                VStack(spacing: 6) {
+                    Text(verbatim: server.name)
+                        .foregroundStyle(.secondary)
+                    Text(verbatim: address)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                // One element: the server, with its address as the value.
+                // Read as a label of its own, a host name isn't
+                // human-readable to the accessibility audit.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(verbatim: server.name))
+                .accessibilityValue(Text(verbatim: address))
+                .accessibilityIdentifier(A11yID.TV.Profile.server)
+            }
+            // "AetherEngine" is a product name, not translated.
+            Text(verbatim: "\(AppVersionInfo.footerText())\nAetherEngine \(AetherEngineVersion.current)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.top, 30)
+                .accessibilityIdentifier(A11yID.TV.Profile.version)
+        }
+        .frame(width: 520)
+        .frame(maxHeight: .infinity)
+    }
+
+    private var rows: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                section("account", "Account") {
+                    row("Switch User", id: A11yID.TV.Profile.switchUser) { appState.signOut() }
+                    if quickConnectAvailable {
+                        row("Approve Quick Connect Code", opensPage: true, id: A11yID.TV.Profile.approveQuickConnect) { cover = .quickConnect }
+                    }
+                    // Sign Out above Change Server (Benjamin, 2026-10-05).
+                    row("Sign Out", role: .destructive, id: A11yID.TV.Profile.signOut) { cover = .signOut }
+                    row("Change Server", role: .destructive, id: A11yID.TV.Profile.changeServer) { cover = .changeServer }
+                }
+
+                section("appleTVUsers", "Apple TV Users") {
+                    row("Follow Apple TV Users", value: onOff(followsAppleTVUsers), hint: Self.followFooter, id: A11yID.TV.Profile.followsAppleTVUsers) {
+                        appState.setFollowsAppleTVUsers(!followsAppleTVUsers)
+                        followsAppleTVUsers = SessionScopeSetting.followsAppleTVUsers
+                    }
+                    if !followsAppleTVUsers {
+                        row("Select a User Every Relaunch", value: onOff(selectsUserEveryRelaunch), id: A11yID.TV.Profile.selectsUserEveryRelaunch) {
+                            SessionScopeSetting.setSelectsUserEveryRelaunch(!selectsUserEveryRelaunch)
+                            selectsUserEveryRelaunch = SessionScopeSetting.selectsUserEveryRelaunch
+                        }
+                    }
+                    TVSettingsFooter(text: Self.followFooter)
+                }
+
+                section("appearance", "Appearance") {
+                    row("Auto Carousel on Home", value: onOff(autoCarousel), id: A11yID.TV.Profile.autoCarousel) { autoCarousel.toggle() }
+                }
+
+                section("playback", "Playback") {
+                    row(
+                        "Next Episode Countdown", value: nextUpCountdown.displayName, spokenValue: nextUpCountdown.accessibilityLabel,
+                        hint: "Sets how long before the end of an episode to count down the next one, if end credits aren't detected.",
+                        opensPage: true, id: A11yID.TV.Profile.nextUpCountdown
+                    ) {
+                        cover = .nextUpCountdown
+                    }
+                    row(
+                        "Chapters in Scrubber", value: onOff(chaptersInScrubber),
+                        hint: "Overlays chapter markers on the scrubber with magnetic snapping while dragging.",
+                        id: A11yID.TV.Profile.chaptersInScrubber
+                    ) {
+                        chaptersInScrubber.toggle()
+                    }
+                    row(
+                        "Subtitle Style", value: subtitleAppearance.displayName,
+                        hint: "Sets whether subtitles follow your choices in Settings, Accessibility, Subtitles and Captioning.",
+                        opensPage: true, id: A11yID.TV.Profile.subtitleAppearance
+                    ) {
+                        cover = .subtitleAppearance
+                    }
+                    row(
+                        "Audio Offset", value: AudioOffsetFormat.value(audioOffsetMilliseconds),
+                        spokenValue: AudioOffsetFormat.spoken(audioOffsetMilliseconds),
+                        hint: "Delays or advances audio to correct lip sync for your TV or receiver.",
+                        opensPage: true, id: A11yID.TV.Profile.audioOffset
+                    ) {
+                        cover = .audioOffset
+                    }
+                    row("Advanced", opensPage: true, id: A11yID.TV.Profile.advanced) { cover = .advanced }
+                    TVSettingsFooter(text: "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Subtitle Style can follow your choices in Settings › Accessibility › Subtitles and Captioning. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel.")
+                }
+
+                // A section of its own under Playback, as on iOS (Benjamin,
+                // 2026-10-19).
+                if !spatialAudioFocusIDs.isEmpty {
+                    section("spatialAudio", "Spatial Audio") { spatialAudioRows }
+                }
+
+                section("about", "About") {
+                    row("License", opensPage: true, id: A11yID.TV.Profile.license) { cover = .license }
+                    row("Privacy Policy", opensPage: true, id: A11yID.TV.Profile.privacyPolicy) { cover = .privacyPolicy }
+                }
+            }
+            .padding(.top, 60)
+            .padding(.bottom, 120)
+            .padding(.trailing, 80)
+        }
+        .tvScrollsToTop(on: topRequest, isScrolled: $rowsScrolled)
+        .scrollClipDisabled()
+    }
+
+    /// Each format's toggle, its Speaker Layout row while it's on, About
+    /// Spatial Audio (iOS's Learn More sheet), and iOS's one-sentence footer.
+    @ViewBuilder
+    private var spatialAudioRows: some View {
+        if SpatialAudioSupport.isOffered(.dolbyAtmos) {
+            row(
+                "Dolby Atmos as Spatial Audio", value: onOff(spatialAudio.atmosEnabled),
+                hint: "Keeps the height channels of Dolby TrueHD Atmos tracks for a receiver with height speakers, losslessly except over AirPlay.",
+                id: A11yID.TV.Profile.spatialAtmos
+            ) {
+                spatialAudioBinding(\.atmosEnabled).wrappedValue.toggle()
+            }
+            if spatialAudio.atmosEnabled {
+                row(
+                    "Dolby Atmos Speaker Layout", value: spatialAudio.atmosLayout.rawValue, opensPage: true,
+                    id: A11yID.TV.Profile.spatialAtmosLayout
+                ) {
+                    cover = .atmosLayout
+                }
+            }
+        }
+        if SpatialAudioSupport.isOffered(.dtsX) {
+            row(
+                "DTS:X as Spatial Audio", value: onOff(spatialAudio.dtsXEnabled),
+                hint: "Keeps the height channels of DTS:X tracks for a receiver with height speakers, losslessly except over AirPlay. The receiver shows it as Dolby Atmos or multichannel PCM, never as DTS:X.",
+                id: A11yID.TV.Profile.spatialDTSX
+            ) {
+                spatialAudioBinding(\.dtsXEnabled).wrappedValue.toggle()
+            }
+            if spatialAudio.dtsXEnabled {
+                row(
+                    "DTS:X Speaker Layout", value: spatialAudio.dtsXLayout.rawValue, opensPage: true,
+                    id: A11yID.TV.Profile.spatialDTSXLayout
+                ) {
+                    cover = .dtsXLayout
+                }
+            }
+        }
+        row("About Spatial Audio", opensPage: true, id: A11yID.TV.Profile.spatialAudioAbout) {
+            cover = .spatialAudioHelp
+        }
+        TVSettingsFooter(text: "Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for AirPods.")
+    }
+
+    private static let followFooter: LocalizedStringKey = "Attempts to match Jellyfin users to this Apple TV's users. Turn off to keep user switching inside the app, and when users become out of sync."
+
+    private func section<Content: View>(_ id: String, _ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
+        TVSettingsSection(
+            title: title,
+            identifier: A11yID.TV.Profile.section(id),
+            headingIdentifier: A11yID.TV.Profile.sectionHeading(id),
+            content: content
+        )
+    }
+
+    private func row(
+        _ title: LocalizedStringKey, value: String? = nil, spokenValue: String? = nil, hint: LocalizedStringKey? = nil,
+        opensPage: Bool = false, role: ButtonRole? = nil, id: String, action: @escaping () -> Void
+    ) -> some View {
+        TVSettingsRow(title: title, value: value, spokenValue: spokenValue, hint: hint, opensPage: opensPage, role: role, identifier: id, action: action)
+            .focused($focus, equals: id)
+    }
+}

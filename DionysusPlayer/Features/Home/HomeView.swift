@@ -25,7 +25,9 @@ struct HomeView: View {
                 // so `OfflineStateView`/`LoadingView`/`ErrorStateView`'s
                 // `.frame(maxHeight: .infinity)` centers on the visible screen
                 // rather than in a short box at the top of an empty scroll area.
+                // On the trailing page in book pose, as Search's are.
                 placeholderView(for: placeholderState)
+                    .centredClearOfTheFold()
             } else {
                 ScrollView {
                     content
@@ -104,6 +106,26 @@ struct HomeView: View {
         // `topSafeAreaInset` for why a UIKit window lookup gives a different
         // number.
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topSafeAreaInset = $0 }
+        .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { safeArea = $0 }
+        // Read here, on a frame the hero's height doesn't move, for the reason
+        // `onActiveFoldChange` gives; inside the scrolled content it would
+        // change on every scroll tick too.
+        .onActiveFoldChange { fold = $0 }
+    }
+
+    /// For `HeroRailView.safeArea`: an iPhone Duo's vertical bar column.
+    @State private var safeArea = EdgeInsets()
+
+    /// The Duo's fold, for `heroFoldBand`.
+    @State private var fold: ActiveFold?
+
+    /// A tabletop fold's band measured from the hero's top edge, or `nil`: book,
+    /// flat, closed and every other device. The fold is read in this view's
+    /// space, which starts below the status bar the hero bleeds under, so the
+    /// bleed is added back.
+    private var heroFoldBand: ClosedRange<CGFloat>? {
+        guard case .horizontal(let top, let bottom) = fold else { return nil }
+        return (top + topSafeAreaInset)...(bottom + topSafeAreaInset)
     }
 
     private var refreshButton: some View {
@@ -230,7 +252,7 @@ struct HomeView: View {
                 // `.refreshable` spinner anchors correctly.
                 // `.scrollClipDisabled()` above is required for the overflow to
                 // render rather than be clipped.
-                HeroRailView(items: heroItems, isTabActive: isActiveTab, resetToken: resetToken)
+                HeroRailView(items: heroItems, isTabActive: isActiveTab, resetToken: resetToken, foldBand: heroFoldBand, safeArea: safeArea)
                     .padding(.top, -topSafeAreaInset)
             }
             if !libraries.isEmpty {

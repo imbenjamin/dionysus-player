@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last updated: September 25, 2026**
+**Last updated: October 14, 2026**
 
 Dionysus Player is a client for [Jellyfin](https://jellyfin.org) media
 servers. It has no backend of its own: everything the app does happens
@@ -22,7 +22,23 @@ storage, and is never sent anywhere except where noted:
 - **Account credentials** — your Jellyfin username, password (if your
   account has one and you signed in with it — signing in with Quick Connect
   stores no password at all), and access token, stored in the iOS Keychain.
+  On Apple TV, the app keeps these for every account you have signed in
+  with, so you can switch between them on the "Who's Watching?" screen
+  without signing in again. They are kept separately for each Apple TV user,
+  unless you turn off **Follow Apple TV Users** on the Profile screen: they
+  are then shared by every user of that Apple TV, and anyone using it can
+  open any account signed in there. Turning the setting back on moves only
+  the account then in use to the Apple TV user who turned it on, and removes
+  the rest of the shared accounts. Both this setting and **Select a User
+  Every Relaunch** are stored on the Apple TV as on/off values and nothing
+  else.
 - **Server address** — the URL of the Jellyfin server you configured.
+- **A copy of your session for the Top Shelf (Apple TV)** — your server
+  address, user ID, access token and device identifier, kept in the Apple
+  TV's Keychain where every user of that Apple TV can reach it, so the Top
+  Shelf can show your Continue Watching, Next Up and recently added titles,
+  fetched from your own server. The Top Shelf shows whoever used Dionysus
+  last; signing out deletes the copy.
 - **A random device identifier** — a UUID generated once on first launch,
   used only to identify this app installation to your Jellyfin server (the
   standard way Jellyfin/Emby clients identify themselves). It is not
@@ -31,6 +47,10 @@ storage, and is never sent anywhere except where noted:
 - **Playback preferences** — your chosen audio/subtitle tracks, media
   version selections, download settings, and recent search history, scoped
   to your Jellyfin account and never sent to the server.
+- **Audio offset** — the lip-sync correction you set, overall and for
+  individual titles (by their Jellyfin item ID), in milliseconds. It belongs
+  to the device rather than your account: on Apple TV it is kept in the
+  Keychain every user of that Apple TV shares. Never sent to the server.
 - **Downloaded content** — video, subtitles, subtitle fonts, and artwork you
   choose to download for offline playback, stored in the app's local storage
   and excluded from iCloud/iTunes backups.
@@ -82,7 +102,7 @@ server on your Wi-Fi network.
 ## Third-Party Components
 
 Dionysus Player's playback is built on [AetherEngine](https://github.com/superuser404notfound/AetherEngine)
-and its own dependencies (FFmpegBuild, LibDovi, SMBClient), which decode
+and its own dependencies (FFmpegBuild, LibDovi, LibTrueHD, SMBClient), which decode
 and play media on-device. We have no indication that these components make
 network connections of their own beyond what Dionysus Player itself
 directs (streaming or downloading from your configured server), but as
@@ -104,9 +124,16 @@ There is no Dionysus Player account to delete, because there is no
 Dionysus Player account — your account belongs to your Jellyfin server.
 Within the app:
 
-- **Sign Out** removes your stored credentials from the Keychain.
+- **Sign Out** removes your stored credentials from the Keychain. On Apple
+  TV, Profile's **Sign Out** also forgets the account, removing its stored
+  credentials from "Who's Watching?". **Switch User** signs you out but
+  keeps the account there; hold Select on it and choose **Forget This
+  Account** to remove its stored credentials.
 - **Change Server** does that and also forgets the configured server
-  address.
+  address. On Apple TV it removes the accounts remembered for the current
+  Apple TV user (or the shared ones, with Follow Apple TV Users off);
+  accounts remembered for other Apple TV users stay in their keychains,
+  unused, since they belong to the old server.
 - Neither clears downloaded content, saved preferences, or the random
   device identifier described above — those persist until you delete
   downloads individually, or delete the app entirely, which removes

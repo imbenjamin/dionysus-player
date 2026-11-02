@@ -1,5 +1,34 @@
 import SwiftUI
 
+/// The sizes that differ between a phone at arm's length and a TV across the
+/// room. `.phone` is what this overlay always drew.
+struct SubtitleOverlayMetrics {
+    var fontSize: CGFloat
+    var horizontalInset: CGFloat
+    /// Bottom clearance once the chrome has gone.
+    var restingBottomInset: CGFloat
+    /// Breathing room between a subtitle and the chrome it clears.
+    var controlsGap: CGFloat
+    var horizontalPadding: CGFloat
+    var verticalPadding: CGFloat
+    var cornerRadius: CGFloat
+
+    /// The resting inset is just enough to clear the home indicator / safe area.
+    static let phone = SubtitleOverlayMetrics(
+        fontSize: 20, horizontalInset: 24, restingBottomInset: 28, controlsGap: 8,
+        horizontalPadding: 10, verticalPadding: 5, cornerRadius: 6
+    )
+
+    /// Sized for a 1920×1080pt screen viewed from a sofa. The font size
+    /// matches Infuse's default on the same scene, photographed from the sofa
+    /// (Bedroom Apple TV, 2026-10-08; 46pt was about a fifth smaller). The
+    /// resting inset keeps a cue inside the title-safe area.
+    static let tv = SubtitleOverlayMetrics(
+        fontSize: 54, horizontalInset: 80, restingBottomInset: 60, controlsGap: 20,
+        horizontalPadding: 22, verticalPadding: 10, cornerRadius: 12
+    )
+}
+
 /// Paints `PlayerViewModel.subtitleCues` over the video surface.
 ///
 /// AetherEngine decodes and publishes subtitle cues but draws nothing itself;
@@ -20,15 +49,16 @@ struct SubtitleOverlayView: View {
     /// `.infinity` until a layout pass reports it, which resolves to
     /// `restingBottomInset`.
     let controlsTop: CGFloat
+    var metrics: SubtitleOverlayMetrics = .phone
 
     @Environment(\.displayScale) private var displayScale
+    @AppStorage(subtitleAppearanceStorageKey) private var appearance = subtitleAppearanceDefault
 
-    /// Breathing room between a subtitle and the chrome it clears.
-    private static let controlsGap: CGFloat = 8
-    /// Bottom clearance once controls have faded, just enough to clear the
-    /// home indicator / safe area.
-    private static let restingBottomInset: CGFloat = 28
-    private static let horizontalInset: CGFloat = 24
+    /// Read per render, so a change in Settings reaches a cue already on screen.
+    private var textStyle: SubtitleTextStyle {
+        appearance == .system ? SystemCaptionStyle.shared.style : .dionysus
+    }
+
     /// Matches `PlayerView.fadeOutAnimation`'s duration, so the clearance change
     /// reads as part of the controls fade rather than separate motion.
     private static let clearanceAnimation: Animation = .easeInOut(duration: 0.3)
@@ -36,7 +66,10 @@ struct SubtitleOverlayView: View {
     var body: some View {
         GeometryReader { proxy in
             let video = videoRect(in: proxy.size)
-            let bottomInset = bottomInset(overlayMaxY: proxy.frame(in: .global).maxY)
+            let bottomInset = Self.bottomInset(
+                controlsVisible: controlsVisible, controlsTop: controlsTop,
+                overlayMaxY: proxy.frame(in: .global).maxY, metrics: metrics
+            )
             let cues = activeCues
             let defaultCues = cues.filter(isDefaultPositioned)
             let placedCues = cues.filter { !isDefaultPositioned($0) }
@@ -66,7 +99,7 @@ struct SubtitleOverlayView: View {
                                     textCueContent(cue)
                                 }
                             }
-                            .frame(maxWidth: video.width - Self.horizontalInset * 2)
+                            .frame(maxWidth: video.width - metrics.horizontalInset * 2)
                             .padding(.bottom, bottomInset)
                             .animation(Self.clearanceAnimation, value: controlsVisible)
                         }
@@ -89,9 +122,11 @@ struct SubtitleOverlayView: View {
     /// format to name, which put the chrome at ~124pt and left a subtitle drawn
     /// straight through the scrubber in landscape. Content-dependent, so no
     /// constant can be right for both cases in either orientation.
-    private func bottomInset(overlayMaxY: CGFloat) -> CGFloat {
-        guard controlsVisible, controlsTop.isFinite else { return Self.restingBottomInset }
-        return max(overlayMaxY - controlsTop + Self.controlsGap, Self.restingBottomInset)
+    static func bottomInset(
+        controlsVisible: Bool, controlsTop: CGFloat, overlayMaxY: CGFloat, metrics: SubtitleOverlayMetrics
+    ) -> CGFloat {
+        guard controlsVisible, controlsTop.isFinite else { return metrics.restingBottomInset }
+        return max(overlayMaxY - controlsTop + metrics.controlsGap, metrics.restingBottomInset)
     }
 
     /// Cues active at `viewModel.sourceTime`. The cue list covers a window ahead
@@ -119,7 +154,7 @@ struct SubtitleOverlayView: View {
         case .text, .richText:
             if let placement = cue.placement {
                 textCueContent(cue)
-                    .frame(maxWidth: video.width - Self.horizontalInset * 2)
+                    .frame(maxWidth: video.width - metrics.horizontalInset * 2)
                     .position(placementPoint(placement, video: video))
             }
         }
@@ -129,33 +164,45 @@ struct SubtitleOverlayView: View {
 
     @ViewBuilder
     private func textCueContent(_ cue: SubtitleCueDisplay) -> some View {
+        let style = textStyle
+        let scale = style.sizeScale
+        let panel = RoundedRectangle(cornerRadius: metrics.cornerRadius * scale, style: .continuous)
         Group {
             switch cue.body {
             case .text(let string):
                 Text(string)
             case .richText(let runs):
-                richText(runs)
+                richText(runs, style: style)
             case .image:
                 EmptyView()
             }
         }
-        .font(.system(size: 20, weight: .semibold))
-        .foregroundStyle(.white)
+        .font(Self.font(style, size: metrics.fontSize * scale))
+        .foregroundStyle(style.textColor.color)
         .multilineTextAlignment(.center)
-        .shadow(color: .black.opacity(0.9), radius: 2, y: 1)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .modifier(SubtitleEdgeModifier(edge: style.edge, unit: metrics.fontSize * scale / 20))
+        .padding(.horizontal, metrics.horizontalPadding * scale)
+        .padding(.vertical, metrics.verticalPadding * scale)
+        .background(style.background?.color ?? .clear, in: panel)
+        .padding(style.window == nil ? 0 : metrics.verticalPadding * scale)
+        .background(style.window?.color ?? .clear, in: panel)
         .accessibilityIdentifier(A11yID.Player.plainSubtitle)
+    }
+
+    /// A face chosen in Settings at that size, never scaled again by Dynamic
+    /// Type (the system font here isn't either).
+    private static func font(_ style: SubtitleTextStyle, size: CGFloat) -> Font {
+        guard let name = style.fontName else { return .system(size: size, weight: .semibold) }
+        return .custom(name, fixedSize: size)
     }
 
     /// `SubtitleTextRun`s concatenate into one styled `Text` via `+`, mirroring how
     /// AetherEngine flattens rich-text cues into `cue.text` for consumers that
     /// don't care about styling. This one does.
-    private func richText(_ runs: [SubtitleCueDisplay.Run]) -> Text {
+    private func richText(_ runs: [SubtitleCueDisplay.Run], style: SubtitleTextStyle) -> Text {
         runs.reduce(Text("")) { accumulated, run in
             var segment = Text(run.text)
-            if let color = run.color { segment = segment.foregroundColor(color) }
+            if let color = style.runColor(run.color) { segment = segment.foregroundColor(color) }
             if run.isBold { segment = segment.bold() }
             if run.isItalic { segment = segment.italic() }
             if run.isUnderlined { segment = segment.underline() }
@@ -309,5 +356,38 @@ struct SubtitleOverlayView: View {
             : CGSize(width: containerSize.height * videoAspect, height: containerSize.height)
         let origin = CGPoint(x: (containerSize.width - size.width) / 2, y: (containerSize.height - size.height) / 2)
         return CGRect(origin: origin, size: size)
+    }
+}
+
+/// The text's edge, in the system's vocabulary (`SubtitleTextStyle.Edge`).
+/// `unit` is a point at the phone's 20pt, so the edge grows with the text.
+private struct SubtitleEdgeModifier: ViewModifier {
+    let edge: SubtitleTextStyle.Edge
+    let unit: CGFloat
+
+    func body(content: Content) -> some View {
+        switch edge {
+        case .softShadow:
+            // Unscaled: the Dionysus look's shadow, on the phone and the TV.
+            content.shadow(color: .black.opacity(0.9), radius: 2, y: 1)
+        case .none:
+            content
+        case .dropShadow:
+            content.shadow(color: .black.opacity(0.8), radius: 0.5 * unit, x: 1.5 * unit, y: 1.5 * unit)
+        case .raised:
+            content
+                .shadow(color: .white.opacity(0.5), radius: 0, x: -0.75 * unit, y: -0.75 * unit)
+                .shadow(color: .black.opacity(0.8), radius: 0, x: unit, y: unit)
+        case .depressed:
+            content
+                .shadow(color: .black.opacity(0.8), radius: 0, x: -unit, y: -unit)
+                .shadow(color: .white.opacity(0.5), radius: 0, x: 0.75 * unit, y: 0.75 * unit)
+        case .outline:
+            content
+                .shadow(color: .black, radius: 0, x: unit, y: 0)
+                .shadow(color: .black, radius: 0, x: -unit, y: 0)
+                .shadow(color: .black, radius: 0, x: 0, y: unit)
+                .shadow(color: .black, radius: 0, x: 0, y: -unit)
+        }
     }
 }

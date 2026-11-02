@@ -105,12 +105,21 @@ struct PlaylistDetailView: View {
             }
         }
         .ignoresSafeArea(edges: .top)
+        // The poster spread on a book-pose iPhone Duo; see `DetailBookSpread`.
+        .detailBookSpread(
+            posterURL: viewModel.item?.posterImageURL,
+            backdropURL: viewModel.item.flatMap { $0.backdropImageURL ?? $0.primaryImageURL },
+            logoURL: viewModel.item?.logoImageURL,
+            title: viewModel.item?.name ?? "",
+            kind: viewModel.item?.kind
+        )
         // Keeps the bars legible once the hero scrolls away.
         .heroScrollEdgeScrim()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HeroActionButtons(viewModel: viewModel)
             }
+            .duoVerticalPreferred()
         }
         .fullScreenCover(
             item: $playbackRequest,

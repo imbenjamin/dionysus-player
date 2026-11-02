@@ -48,6 +48,7 @@ struct PlaybackSegment: Identifiable, Equatable {
         self.endSeconds = Double(dto.endTicks) / 10_000_000
     }
 
+    #if DOWNLOADS
     /// Builds from a stored `DownloadedSegment`, which offline playback seeds
     /// `PlayerViewModel.mediaSegments` from instead of a live fetch. There is no
     /// server-assigned `id` to reuse, so kind and start stand in. Not failable
@@ -58,8 +59,42 @@ struct PlaybackSegment: Identifiable, Equatable {
         self.startSeconds = downloaded.startSeconds
         self.endSeconds = downloaded.endSeconds
     }
+    #endif
+
+    private init(id: String, kind: Kind, startSeconds: TimeInterval, endSeconds: TimeInterval) {
+        self.id = id
+        self.kind = kind
+        self.startSeconds = startSeconds
+        self.endSeconds = endSeconds
+    }
+
+    /// One segment per stretch of each kind, in start order: overlapping (or
+    /// touching) segments of the same kind become one covering both, keeping
+    /// the first one's id. A server with two segment providers lists the same
+    /// intro, recap or credits twice with slightly different ends (Benjamin's
+    /// 12.2.0 server, 2026-11-01: 115 such pairs in 300 episodes); skipping
+    /// the first seeked to its own end, inside the second, whose button then
+    /// showed until that one ended too. Segments of different kinds stay
+    /// apart, so a recap running into the intro still offers Skip Intro.
+    static func merged(_ segments: [PlaybackSegment]) -> [PlaybackSegment] {
+        var merged: [PlaybackSegment] = []
+        for segment in segments.sorted(by: { $0.startSeconds < $1.startSeconds }) {
+            if let index = merged.lastIndex(where: { $0.kind == segment.kind }),
+               segment.startSeconds <= merged[index].endSeconds {
+                let existing = merged[index]
+                merged[index] = PlaybackSegment(
+                    id: existing.id, kind: existing.kind, startSeconds: existing.startSeconds,
+                    endSeconds: max(existing.endSeconds, segment.endSeconds)
+                )
+            } else {
+                merged.append(segment)
+            }
+        }
+        return merged
+    }
 }
 
+#if DOWNLOADS
 private extension PlaybackSegment.Kind {
     init(downloadedKind: DownloadedSegment.Kind) {
         switch downloadedKind {
@@ -71,3 +106,4 @@ private extension PlaybackSegment.Kind {
         }
     }
 }
+#endif

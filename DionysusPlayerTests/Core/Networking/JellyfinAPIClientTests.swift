@@ -633,6 +633,23 @@ final class JellyfinAPIClientTests: XCTestCase {
 
     // MARK: resumeItems
 
+    /// The Top Shelf asks its three lists for more than the rails do (M6).
+    func test_listCalls_passTheFieldsAsked() async throws {
+        let client = makeClient()
+        var fields: [String] = []
+        MockURLProtocol.requestHandler = { request in
+            fields.append(request.queryDictionary["Fields"] ?? "")
+            if request.url?.path.hasSuffix("/Items/Latest") == true {
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]())
+            }
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+        _ = try await client.resumeItems(userID: "u", fields: JellyfinAPIClient.topShelfFields)
+        _ = try await client.nextUp(userID: "u", fields: JellyfinAPIClient.topShelfFields)
+        _ = try await client.latestItems(userID: "u", fields: JellyfinAPIClient.topShelfFields)
+        XCTAssertEqual(fields, Array(repeating: JellyfinAPIClient.topShelfFields, count: 3))
+    }
+
     func test_resumeItems_appliesExcludeItemTypesWhenProvided() async throws {
         let client = makeClient()
         var capturedQuery: [String: String] = [:]
@@ -643,6 +660,20 @@ final class JellyfinAPIClientTests: XCTestCase {
 
         _ = try await client.resumeItems(userID: "user-1", excludeItemTypes: JellyfinAPIClient.audioItemTypeExclusions)
         XCTAssertEqual(capturedQuery["ExcludeItemTypes"], "Audio,AudioBook,MusicAlbum,MusicArtist,MusicGenre")
+    }
+
+    /// Jellyfin 12 lists the in-progress seasons and shows themselves among
+    /// resume items; only video asks for what plays (Benjamin, 2026-10-07).
+    func test_resumeItems_asksForVideoOnly() async throws {
+        let client = makeClient()
+        var capturedQuery: [String: String] = [:]
+        MockURLProtocol.requestHandler = { request in
+            capturedQuery = request.queryDictionary
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+        }
+
+        _ = try await client.resumeItems(userID: "user-1")
+        XCTAssertEqual(capturedQuery["MediaTypes"], "Video")
     }
 
     func test_resumeItems_omitsExcludeItemTypesWhenEmpty() async throws {
@@ -962,6 +993,7 @@ final class JellyfinAPIClientTests: XCTestCase {
         }
     }
 
+    #if DOWNLOADS
     // MARK: downloadStreamURL (pure, no network)
 
     func test_downloadStreamURL_alwaysTranscodesToHEVCMp4Stereo() async {
@@ -1151,6 +1183,8 @@ final class JellyfinAPIClientTests: XCTestCase {
         )
         XCTAssertEqual(URLRequest(url: url!).queryDictionary["ApiKey"], "tok")
     }
+
+    #endif
 
     // MARK: makeImageURLBuilder
 
@@ -1611,6 +1645,28 @@ final class JellyfinAPIClientTests: XCTestCase {
         _ = try await client.item(userID: "user-1", itemID: "item-1")
 
         let components = capturedRequest?.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        let fields = components?.queryItems?.first { $0.name == "Fields" }?.value ?? ""
+        XCTAssertTrue(fields.contains("CanDelete"), "Fields was \(fields)")
+        XCTAssertTrue(fields.contains("RecursiveItemCount"), "Fields was \(fields)")
+    }
+
+    /// The same two fields on the season list, which is where a show page's
+    /// Season delete row and its "all {n} episodes" copy come from. Without
+    /// them every season reads as undeletable and the row never appears.
+    func test_seasons_requestsCanDeleteAndRecursiveItemCountFields() async throws {
+        let client = makeClient(accessToken: "tok")
+        var capturedRequest: URLRequest?
+        MockURLProtocol.requestHandler = { request in
+            capturedRequest = request
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0)
+            )
+        }
+
+        _ = try await client.seasons(seriesID: "series-1", userID: "user-1")
+
+        let components = capturedRequest?.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        XCTAssertEqual(components?.path, "/Shows/series-1/Seasons")
         let fields = components?.queryItems?.first { $0.name == "Fields" }?.value ?? ""
         XCTAssertTrue(fields.contains("CanDelete"), "Fields was \(fields)")
         XCTAssertTrue(fields.contains("RecursiveItemCount"), "Fields was \(fields)")

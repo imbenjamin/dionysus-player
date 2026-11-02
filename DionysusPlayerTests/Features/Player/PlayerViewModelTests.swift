@@ -38,6 +38,8 @@ final class PlayerViewModelTests: XCTestCase {
         trackPreferenceStore: TrackPreferenceStore? = nil,
         nextUpPreferenceStore: NextUpPreferenceStore? = nil,
         streamPreferenceStore: StreamPreferenceStore? = nil,
+        audioOffsetStore: AudioOffsetStore? = nil,
+        spatialAudioStore: SpatialAudioStore? = nil,
         playbackQueue: [MediaItem] = []
     ) -> (PlayerViewModel, FakePlaybackEngine) {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
@@ -47,9 +49,156 @@ final class PlayerViewModelTests: XCTestCase {
             trackPreferenceStore: trackPreferenceStore ?? TrackPreferenceStore(defaults: defaults),
             nextUpPreferenceStore: nextUpPreferenceStore ?? NextUpPreferenceStore(defaults: defaults),
             streamPreferenceStore: streamPreferenceStore ?? StreamPreferenceStore(defaults: defaults),
+            audioOffsetStore: audioOffsetStore ?? AudioOffsetStore(defaults: defaults),
+            spatialAudioStore: spatialAudioStore ?? SpatialAudioStore(storage: defaults),
             playbackQueue: playbackQueue
         )
         return (viewModel, engine)
+    }
+
+    // MARK: Spatial Audio
+
+    /// A store with the given formats on (nil leaves one off).
+    private func spatialStore(atmos: SpeakerLayout? = nil, dtsX: SpeakerLayout? = nil) -> SpatialAudioStore {
+        let store = SpatialAudioStore(storage: defaults)
+        var settings = SpatialAudioSettings()
+        if let atmos { settings.atmosEnabled = true; settings.atmosLayout = atmos }
+        if let dtsX { settings.dtsXEnabled = true; settings.dtsXLayout = dtsX }
+        store.settings = settings
+        return store
+    }
+
+    /// A film with a default TrueHD Atmos track (engine id 1) and a DTS:X
+    /// track (engine id 2), as the engine and Jellyfin both list them.
+    private func stubAtmosAndDTSX(engine: FakePlaybackEngine, selected: Int = 1) {
+        engine.audioTracks = [
+            PlaybackTrack(id: 1, kind: .audio, title: "TrueHD Atmos", metadata: nil, isSelected: selected == 1),
+            PlaybackTrack(id: 2, kind: .audio, title: "DTS:X", metadata: nil, isSelected: selected == 2),
+        ]
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Dune", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mkv", mediaStreams: [
+                MediaStream(index: 0, type: "Video"),
+                MediaStream(index: 1, type: "Audio", codec: "truehd", language: "eng", isDefault: true, audioSpatialFormat: "DolbyAtmos"),
+                MediaStream(index: 2, type: "Audio", codec: "dts", language: "eng", audioSpatialFormat: "DTSX"),
+            ])]
+        )
+    }
+
+    func test_start_predictsAtmosTrack_loadsWithAtmosLayout() async {
+        let engine = FakePlaybackEngine()
+        stubAtmosAndDTSX(engine: engine)
+        let (viewModel, _) = makeViewModel(engine: engine, spatialAudioStore: spatialStore(atmos: .l514))
+
+        await viewModel.start()
+
+        XCTAssertEqual(engine.loadedSpatialAudio, [.layout(.l514)])
+        XCTAssertEqual(engine.spatialAudioReloads, [])
+    }
+
+    func test_start_rememberedDTSX_loadsWithDTSXLayout() async {
+        let engine = FakePlaybackEngine()
+        stubAtmosAndDTSX(engine: engine)
+        let tracks = TrackPreferenceStore(defaults: defaults)
+        tracks.recordAudioSelection(.init(id: 2, title: "DTS:X"), forItem: "item-1", userID: "user-1")
+        let (viewModel, _) = makeViewModel(
+            engine: engine, trackPreferenceStore: tracks, spatialAudioStore: spatialStore(atmos: .l514, dtsX: .l916)
+        )
+
+        await viewModel.start()
+
+        XCTAssertEqual(engine.loadedSpatialAudio, [.layout(.l916)])
+        XCTAssertEqual(engine.spatialAudioReloads, [])
+    }
+
+    /// Review Focus 1: the prediction said Atmos, but the track that plays is
+    /// the DTS:X one (here the engine picked it itself): exactly one rebuild,
+    /// to the DTS:X layout, never a loop.
+    func test_start_mispredicted_reloadsOnce() async {
+        let engine = FakePlaybackEngine()
+        stubAtmosAndDTSX(engine: engine, selected: 2)
+        let (viewModel, _) = makeViewModel(engine: engine, spatialAudioStore: spatialStore(atmos: .l514, dtsX: .l916))
+
+        await viewModel.start()
+
+        XCTAssertEqual(engine.loadedSpatialAudio, [.layout(.l514)])
+        XCTAssertEqual(engine.spatialAudioReloads, [.layout(.l916)])
+    }
+
+    /// Review Focus 2: Atmos on, DTS:X off; switching to the DTS:X track
+    /// must play it on today's path, not inherit the Atmos layout.
+    func test_selectAudioTrack_atmosToDTSXWithDTSXOff_reloadsOff() async {
+        let engine = FakePlaybackEngine()
+        stubAtmosAndDTSX(engine: engine)
+        let (viewModel, _) = makeViewModel(engine: engine, spatialAudioStore: spatialStore(atmos: .l714))
+        await viewModel.start()
+
+        viewModel.selectAudioTrack(id: 2)
+        await viewModel.awaitSpatialAudioCorrection()
+
+        XCTAssertEqual(engine.spatialAudioReloads, [.off])
+    }
+
+    /// AetherEngine's audio switch is a rebuild of its own, which a rebuild
+    /// started after it cancels, leaving the old track playing. The rendering
+    /// goes first; the switch's own rebuild then carries it.
+    func test_selectAudioTrack_renderingChange_rebuildsBeforeSwitching() async {
+        let engine = FakePlaybackEngine()
+        stubAtmosAndDTSX(engine: engine)
+        let (viewModel, _) = makeViewModel(engine: engine, spatialAudioStore: spatialStore(atmos: .l714))
+        await viewModel.start()
+
+        viewModel.selectAudioTrack(id: 2)
+        await viewModel.awaitSpatialAudioCorrection()
+
+        XCTAssertEqual(engine.audioEvents, [.setSpatialAudio(.off), .selectAudioTrack(2)])
+    }
+
+    /// A rebuild queued as the player closes mustn't run against whatever
+    /// session follows.
+    func test_stop_cancelsAPendingSpatialAudioRebuild() async {
+        let engine = FakePlaybackEngine()
+        stubAtmosAndDTSX(engine: engine)
+        let (viewModel, _) = makeViewModel(engine: engine, spatialAudioStore: spatialStore(atmos: .l714))
+        await viewModel.start()
+
+        MockURLProtocol.requestHandler = { MockURLProtocol.jsonResponse(for: $0, status: 204, body: Data()) }
+        viewModel.selectAudioTrack(id: 2)
+        await viewModel.stop()
+        await viewModel.awaitSpatialAudioCorrection()
+
+        XCTAssertEqual(engine.spatialAudioReloads, [])
+    }
+
+    func test_selectAudioTrack_sameRenderingNeeded_noReload() async {
+        let engine = FakePlaybackEngine()
+        stubAtmosAndDTSX(engine: engine)
+        let (viewModel, _) = makeViewModel(engine: engine, spatialAudioStore: spatialStore(atmos: .l714, dtsX: .l714))
+        await viewModel.start()
+
+        viewModel.selectAudioTrack(id: 2)
+        await viewModel.awaitSpatialAudioCorrection()
+
+        XCTAssertEqual(engine.loadedSpatialAudio, [.layout(.l714)])
+        XCTAssertEqual(engine.spatialAudioReloads, [])
+    }
+
+    /// Review Focus 5: a server transcode never sees the source's tracks, so
+    /// it loads with rendering off and is never rebuilt for it.
+    func test_transcode_loadsOff_neverReloads() async {
+        let engine = FakePlaybackEngine()
+        engine.audioTracks = [PlaybackTrack(id: 0, kind: .audio, title: "AAC", metadata: nil, isSelected: true)]
+        var source = MediaSourceInfo(id: "src-1", container: "mkv", mediaStreams: [
+            MediaStream(index: 1, type: "Audio", codec: "truehd", language: "eng", isDefault: true, audioSpatialFormat: "DolbyAtmos"),
+        ])
+        source.transcodingUrl = "/videos/item-1/master.m3u8?x=1"
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Dune", type: .movie), mediaSources: [source])
+        let (viewModel, _) = makeViewModel(engine: engine, spatialAudioStore: spatialStore(atmos: .l714))
+
+        await viewModel.start()
+
+        XCTAssertEqual(engine.loadedSpatialAudio, [.off])
+        XCTAssertEqual(engine.spatialAudioReloads, [])
     }
 
     /// A `MediaItem` wrapping a bare `BaseItemDto` — enough for
@@ -586,6 +735,7 @@ final class PlayerViewModelTests: XCTestCase {
         await viewModel.start()
 
         XCTAssertEqual(engine.seekedTimes, [30])
+        XCTAssertEqual(engine.exactSeekedTimes, [30], "A late landing would skip what the viewer hasn't seen")
         XCTAssertEqual(engine.playCallCount, 1)
     }
 
@@ -994,10 +1144,12 @@ final class PlayerViewModelTests: XCTestCase {
         try await waitUntil { engine.seekedTimes.contains(42) }
     }
 
-    func test_selectAudioAndSubtitleTracks_delegateToEngine() {
+    func test_selectAudioAndSubtitleTracks_delegateToEngine() async {
         let (viewModel, engine) = makeViewModel()
         viewModel.selectAudioTrack(id: 2)
         viewModel.selectSubtitleTrack(id: nil)
+        // The audio switch waits on any Spatial Audio rebuild it needs.
+        await viewModel.awaitSpatialAudioCorrection()
         XCTAssertEqual(engine.selectedAudioTrackIDs, [2])
         XCTAssertEqual(engine.selectedSubtitleTrackIDs, [nil])
     }
@@ -1083,6 +1235,8 @@ final class PlayerViewModelTests: XCTestCase {
 
     func test_stop_reportsCurrentPositionAsTicksAndStopsEngine() async throws {
         let (viewModel, engine) = makeViewModel()
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie), mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")])
+        await viewModel.start()
         // Simulate the engine reporting playback progress, same as it would
         // mid-session via the `onTimeUpdate` callback wired up in `init`.
         engine.onTimeUpdate?(75, 5400)
@@ -1101,6 +1255,47 @@ final class PlayerViewModelTests: XCTestCase {
 
         XCTAssertEqual(engine.stopCallCount, 1)
         XCTAssertEqual(reportedTicks, 75 * 10_000_000)
+    }
+
+    /// Closing before playback started — Menu while the player is still
+    /// loading — must not report a stop. Jellyfin writes a reported position
+    /// straight to the resume point, so the 0 of a player that never played
+    /// wiped it; and omitting the position marks the item played. Nothing was
+    /// reported as started, so there is nothing to stop.
+    func test_stop_beforePlaybackStarted_sendsNoStoppedReport() async {
+        let (viewModel, engine) = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            XCTFail("No request expected, got \(request.url?.path ?? "?")")
+            return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+        }
+
+        await viewModel.stop()
+
+        XCTAssertEqual(engine.stopCallCount, 1)
+    }
+
+    /// Menu landing during the resume seek cancels `start()`. It must not then
+    /// play, or report a start the stop it raced has already skipped.
+    func test_start_cancelledDuringResumeSeek_neitherPlaysNorReportsStart() async {
+        let engine = FakePlaybackEngine()
+        let (viewModel, _) = makeViewModel(engine: engine)
+        var startReported = false
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie, runTimeTicks: 100 * 10_000_000, userData: UserItemDataDto(playbackPositionTicks: 30 * 10_000_000)),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")]
+        )
+        let stubbed = MockURLProtocol.requestHandler
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path == "/Sessions/Playing" { startReported = true }
+            return try stubbed!(request)
+        }
+        let task = Task { await viewModel.start() }
+        engine.onSeek = { task.cancel() }
+        await task.value
+
+        XCTAssertEqual(engine.seekedTimes, [30], "It should have reached the resume seek")
+        XCTAssertEqual(engine.playCallCount, 0)
+        XCTAssertFalse(startReported)
     }
 
     /// A close affordance (the top bar's X, or the offline screen's own
@@ -1596,6 +1791,81 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.currentSkipSegment)
     }
 
+    /// A resume reads 0:00 until its seek lands, and an intro from 0:00
+    /// mustn't be offered then (Benjamin, 2026-10-30): no button until a
+    /// time update reaches the resume position.
+    func test_currentSkipSegment_onResume_waitsForTheResumePosition() async {
+        let (viewModel, engine) = makeViewModel()
+        stubStart(
+            itemDto: BaseItemDto(
+                id: "item-1", name: "Arrival", type: .movie, runTimeTicks: 3000 * 10_000_000,
+                userData: UserItemDataDto(playbackPositionTicks: 1200 * 10_000_000)
+            ),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")],
+            mediaSegments: [
+                MediaSegmentDto(id: "seg-intro", itemId: "item-1", type: .intro, startTicks: 0, endTicks: 60 * 10_000_000)
+            ]
+        )
+
+        await viewModel.start()
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+
+        engine.onTimeUpdate?(0, 3000) // the load's 0:00, before the seek lands
+        XCTAssertTrue(viewModel.isAwaitingStart)
+        XCTAssertNil(viewModel.currentSkipSegment)
+
+        engine.onTimeUpdate?(1195, 3000) // a keyframe short of 1200
+        XCTAssertFalse(viewModel.isAwaitingStart)
+
+        engine.onTimeUpdate?(30, 3000) // the viewer goes back into the intro
+        XCTAssertEqual(viewModel.currentSkipSegment?.kind, .intro)
+    }
+
+    /// From the top, the start is 0:00 itself, so an intro there is offered
+    /// as soon as playback is asked for.
+    func test_currentSkipSegment_fromTheTop_isOfferedOncePlaying() async {
+        let (viewModel, engine) = makeViewModel()
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")],
+            mediaSegments: [
+                MediaSegmentDto(id: "seg-intro", itemId: "item-1", type: .intro, startTicks: 0, endTicks: 60 * 10_000_000)
+            ]
+        )
+        XCTAssertTrue(viewModel.isAwaitingStart)
+
+        await viewModel.start()
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+
+        XCTAssertFalse(viewModel.isAwaitingStart)
+        engine.onTimeUpdate?(0, 300)
+        XCTAssertEqual(viewModel.currentSkipSegment?.kind, .intro)
+    }
+
+    /// A seek made before the resume position is reached is where playback
+    /// now starts, so reaching it ends the wait.
+    func test_seekBeforeTheResumePositionIsReached_becomesTheStart() async {
+        let (viewModel, engine) = makeViewModel()
+        stubStart(
+            itemDto: BaseItemDto(
+                id: "item-1", name: "Arrival", type: .movie, runTimeTicks: 3000 * 10_000_000,
+                userData: UserItemDataDto(playbackPositionTicks: 1200 * 10_000_000)
+            ),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")],
+            mediaSegments: [
+                MediaSegmentDto(id: "seg-intro", itemId: "item-1", type: .intro, startTicks: 0, endTicks: 60 * 10_000_000)
+            ]
+        )
+        await viewModel.start()
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+
+        viewModel.seek(to: 20)
+        engine.onTimeUpdate?(20, 3000)
+
+        XCTAssertFalse(viewModel.isAwaitingStart)
+        XCTAssertEqual(viewModel.currentSkipSegment?.kind, .intro)
+    }
+
     /// Jellyfin has no separate "opening credits" vs. "closing credits"
     /// segment type — an item with a mid-content credits roll *and* true
     /// end credits reports two `.outro` segments. Only the later one is
@@ -1777,6 +2047,32 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.currentSkipSegment)
     }
 
+    /// Two segment providers list the same recap twice, ending 2s apart
+    /// (Benjamin's server, 2026-11-01). Skipping the first used to seek to
+    /// its own end, inside the second, whose button then showed until that
+    /// one ended too. One press now skips both, and nothing comes back.
+    func test_skipSegment_withDuplicateSegments_skipsPastBothAndStaysHidden() async throws {
+        let (viewModel, engine) = makeViewModel()
+        stubStart(
+            itemDto: BaseItemDto(id: "item-1", name: "Once Upon a Time in the West", type: .episode),
+            mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")],
+            mediaSegments: [
+                MediaSegmentDto(id: "recap-short", itemId: "item-1", type: .recap, startTicks: 40_000_000, endTicks: 741_200_000),
+                MediaSegmentDto(id: "recap-long", itemId: "item-1", type: .recap, startTicks: 40_000_000, endTicks: 760_300_000)
+            ]
+        )
+        await viewModel.start()
+        try? await waitUntil { !viewModel.mediaSegments.isEmpty }
+        engine.onTimeUpdate?(30, 3000)
+        let segment = try XCTUnwrap(viewModel.currentSkipSegment)
+
+        viewModel.skipSegment(segment)
+
+        try await waitUntil { engine.seekedTimes.contains { abs($0 - 76.03) < 0.001 } }
+        engine.onTimeUpdate?(75, 3000) // a seek can land short of its target
+        XCTAssertNil(viewModel.currentSkipSegment)
+    }
+
     func test_skipSegment_delegatesToEngineSeekAtSegmentEnd() async throws {
         let (viewModel, engine) = makeViewModel()
         let segment = PlaybackSegment(dto: MediaSegmentDto(id: "seg-1", itemId: "item-1", type: .intro, startTicks: 0, endTicks: 60 * 10_000_000))!
@@ -1784,6 +2080,16 @@ final class PlayerViewModelTests: XCTestCase {
         viewModel.skipSegment(segment)
 
         try await waitUntil { engine.seekedTimes.contains(60) }
+        XCTAssertEqual(engine.exactSeekedTimes, [60], "The end of an intro must not land on a nearby keyframe")
+    }
+
+    func test_seek_byDefault_mayLandOnANearbyKeyframe() async throws {
+        let (viewModel, engine) = makeViewModel()
+
+        viewModel.seek(to: 42)
+
+        try await waitUntil { engine.seekedTimes.contains(42) }
+        XCTAssertEqual(engine.exactSeekedTimes, [])
     }
 
     /// `SkipSegmentOverlay`'s swipe/close-button dismiss — same "hide the
@@ -1818,5 +2124,65 @@ final class PlayerViewModelTests: XCTestCase {
         viewModel.dismissSkipSegment(segment)
 
         XCTAssertTrue(engine.seekedTimes.isEmpty)
+    }
+
+    /// The download-free designated init is the one tvOS builds against, so it
+    /// must stay callable without naming any Downloads type, and must never
+    /// report an offline session.
+    func test_designatedInit_withoutDownloadParameters_isNotOffline() {
+        let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
+        let viewModel = PlayerViewModel(
+            client: client, userID: "user", itemID: "item",
+            engine: FakePlaybackEngine(), playbackQueue: []
+        )
+        XCTAssertFalse(viewModel.isOfflinePlayback)
+    }
+
+    // MARK: Audio offset
+
+    func test_start_loadsWithTheTitlesOffset() async {
+        let store = AudioOffsetStore(defaults: defaults)
+        store.globalOffsetMilliseconds = 30
+        store.setOffset(-60, forItem: "item-1")
+        let (viewModel, engine) = makeViewModel(audioOffsetStore: store)
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie), mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")])
+        await viewModel.start()
+        XCTAssertEqual(engine.loadedAudioOffsets.last ?? 99, -0.06, accuracy: 0.0001)
+    }
+
+    func test_start_loadsWithTheGlobal_whenTheTitleHasNone() async {
+        let store = AudioOffsetStore(defaults: defaults)
+        store.globalOffsetMilliseconds = 30
+        let (viewModel, engine) = makeViewModel(audioOffsetStore: store)
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie), mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")])
+        await viewModel.start()
+        XCTAssertEqual(engine.loadedAudioOffsets.last ?? 99, 0.03, accuracy: 0.0001)
+    }
+
+    /// Review Focus 2.
+    func test_availabilityFollowsTheEngine() {
+        let (viewModel, engine) = makeViewModel()
+        XCTAssertFalse(viewModel.audioOffset.isAvailable)
+        engine.isAudioOffsetAvailable = true
+        XCTAssertTrue(viewModel.audioOffset.isAvailable)
+        engine.isAudioOffsetAvailable = false
+        XCTAssertFalse(viewModel.audioOffset.isAvailable)
+    }
+
+    func test_aFlushedChange_reachesTheEngineInSeconds() {
+        let (viewModel, engine) = makeViewModel()
+        engine.isAudioOffsetAvailable = true
+        viewModel.audioOffset.step(by: 2)
+        viewModel.audioOffset.flush()
+        XCTAssertEqual(engine.audioOffsetRequests, [0.02])
+    }
+
+    func test_stop_dropsAPendingChange() async {
+        let (viewModel, engine) = makeViewModel()
+        engine.isAudioOffsetAvailable = true
+        viewModel.audioOffset.step(by: 1)
+        await viewModel.stop()
+        viewModel.audioOffset.flush()
+        XCTAssertEqual(engine.audioOffsetRequests, [])
     }
 }

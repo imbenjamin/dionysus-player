@@ -223,22 +223,7 @@ struct BackdropLogoOverlay: View {
         // overflowing the screen on the way back.
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background {
-                AdaptiveArtworkImage(url: backdropURL, placeholderSystemImage: kind?.placeholderSystemImage ?? "photo")
-                    .scaleEffect(enable3DDepth ? Self.backdropScale : 1)
-                    .rotation3DEffect(
-                        tiltRotation.angle, axis: tiltRotation.axis,
-                        anchor: .center, anchorZ: Self.backdropAnchorZ, perspective: Self.backdropPerspective
-                    )
-            }
-            .clipped()
-            .overlay {
-                LinearGradient(
-                    colors: [.clear, .black.opacity(0.85)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
+            .background { backdrop }
             .overlay(alignment: Alignment(horizontal: alignment, vertical: .bottom)) {
                 // A single `VStack` rather than the logo/title alone —
                 // `episodeTitle`, when present, stacks as its own line
@@ -320,6 +305,33 @@ struct BackdropLogoOverlay: View {
             .contentShape(Rectangle())
     }
 
+    /// The artwork and its shade, edge to edge while the logo above keeps to
+    /// the safe area. A detail page's scroll view keeps its horizontal safe
+    /// area, which on a closed iPhone Duo includes the vertical bar's column:
+    /// a backdrop sized to the logo's frame stopped short there and left a
+    /// blank strip under Back and the trailing items. Clipped after the bleed,
+    /// so it clips to the widened frame.
+    private var backdrop: some View {
+        Color.clear
+            .background {
+                AdaptiveArtworkImage(url: backdropURL, placeholderSystemImage: kind?.placeholderSystemImage ?? "photo")
+                    .scaleEffect(enable3DDepth ? Self.backdropScale : 1)
+                    .rotation3DEffect(
+                        tiltRotation.angle, axis: tiltRotation.axis,
+                        anchor: .center, anchorZ: Self.backdropAnchorZ, perspective: Self.backdropPerspective
+                    )
+            }
+            .clipped()
+            .overlay {
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.85)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .ignoresSafeArea(.container, edges: .horizontal)
+    }
+
     /// `title`, plus `episodeNumberAccessibilityText` and `episodeTitle`
     /// when present — e.g. "Top Gear, season 19 episode 6, Africa Special"
     /// — see `body`'s doc comment for why this view needs an explicit
@@ -389,8 +401,9 @@ struct BackdropLogoOverlay: View {
 /// download's own artwork) or `AsyncRemoteImage` otherwise (a live item's
 /// network artwork) — the one place `BackdropLogoOverlay` needs to know
 /// which of the two it's dealing with, so neither caller has to say so
-/// explicitly.
-private struct AdaptiveArtworkImage: View {
+/// explicitly. Also the book-pose detail spread's poster page
+/// (`DetailBookSpread`).
+struct AdaptiveArtworkImage: View {
     let url: URL?
     var contentMode: ContentMode = .fill
     var placeholderSystemImage: String = "photo"

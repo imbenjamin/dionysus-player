@@ -123,6 +123,12 @@ struct BaseItemDto: Codable, Identifiable, Equatable {
     var productionYear: Int?
     var endDate: Date?
     var premiereDate: Date?
+    /// When the item reached the library; sent only when `Fields` names
+    /// `DateCreated`. A show's is when the show was first added.
+    var dateCreated: Date?
+    /// A show's newest episode's arrival, which `/Items/Latest` orders a
+    /// grouped show by; sent only when `Fields` names `DateLastMediaAdded`.
+    var dateLastMediaAdded: Date?
 
     var communityRating: Double?
     var officialRating: String?
@@ -158,6 +164,13 @@ struct BaseItemDto: Codable, Identifiable, Equatable {
     /// This flag comes from the same predicate `DELETE /Items/{id}` enforces.
     var canDelete: Bool?
 
+    /// `"FileSystem"` for an item backed by a file or folder, `"Virtual"` for
+    /// one the server made up: a Season with no folder of its own (its
+    /// episodes sit loose in the show's folder), or a missing Episode listed
+    /// from metadata. Always sent. A virtual item has no path, so
+    /// `canDelete` is always `false` on it.
+    var locationType: String?
+
     /// This entry's identity within one playlist, distinct from `id`, which
     /// identifies the media item and is not unique per row — the same item can
     /// appear twice. Populated only by `GET /Playlists/{id}/Items`, and required
@@ -179,6 +192,16 @@ struct BaseItemDto: Codable, Identifiable, Equatable {
     /// — resolved server-side, as `parentBackdropItemId` is.
     var parentLogoItemId: String?
     var parentLogoImageTag: String?
+    /// An episode's show's poster tag, sent beside `seriesId` (measured on
+    /// 12.2.0, list and single-item fetches alike). Its own Primary is a 16:9
+    /// still; see `MediaItem.posterImageURL`.
+    var seriesPrimaryImageTag: String?
+    /// The nearest ancestor with a Thumb, resolved server-side the same way,
+    /// and sent only when the item has no Thumb of its own. Jellyfin 10.11
+    /// sends this on an episode, not `SeriesThumbImageTag` (measured on the
+    /// LAN server). The Apple TV player's Info tab falls back to it.
+    var parentThumbItemId: String?
+    var parentThumbImageTag: String?
 
     var userData: UserItemDataDto?
 
@@ -536,6 +559,8 @@ struct MediaStream: Codable, Identifiable, Hashable {
     // `nil` for audio and subtitle streams.
     var width: Int?
     var height: Int?
+    /// The codec profile in libavcodec's names, for audio streams too: "Main
+    /// 10", "LC", "DTS-HD MA + DTS:X", "Dolby TrueHD + Dolby Atmos".
     var profile: String?
     /// Simple SDR/HDR classification.
     var videoRange: String?
@@ -552,8 +577,21 @@ struct MediaStream: Codable, Identifiable, Hashable {
     /// this rather than a figure inflated by the file's audio tracks. `nil` for
     /// an older library item or a container the server couldn't fully probe.
     var bitRate: Int?
+    /// libav's names, as `ffprobe` reports them ("yuv420p10le", "bt2020",
+    /// "smpte2084", "bt2020nc"), for `PlaybackStatsOverlay`'s fallback on a
+    /// server transcode. Absent, not "bt709", when the file leaves one
+    /// unspecified. Jellyfin reports no colour range.
+    var pixelFormat: String?
+    var colorPrimaries: String?
+    var colorTransfer: String?
+    var colorSpace: String?
+    /// Bits per sample for both kinds: 10 for a Main 10 video stream, 24 for
+    /// a TrueHD track. Absent for codecs that decode to float (AAC, AC-3,
+    /// E-AC-3, Opus).
+    var bitDepth: Int?
 
     // Audio-specific.
+    var sampleRate: Int?
     var channelLayout: String?
     /// Server-detected spatial format ("None"/"DolbyAtmos"/"DTSX"), more
     /// reliable than text-matching the codec or title for Atmos.

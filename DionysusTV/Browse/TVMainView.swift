@@ -1,0 +1,509 @@
+import SwiftUI
+import UIKit
+
+/// The signed-in shell (prototype screens 5, 6 and 6b): one top-level page
+/// (Profile, Home, Search or a library) with the custom `TVSidebar` beside it,
+/// collapsed to a rail of icons on every page (Benjamin, 2026-10-01).
+///
+/// Left from a page's leftmost item, or Menu on a page, opens the sidebar on
+/// that page's row; Menu with it open is left to tvOS, which leaves the app.
+/// Choosing a row opens its page, collapses the sidebar and puts focus on the
+/// page's first item. Where the shell is, and which rows can take focus, is
+/// `TVShellNavigation`.
+///
+/// Only the page on show is built (the app is image heavy): choosing another
+/// tears the old one down, and it starts fresh when it's next chosen
+/// (`startFresh`). The shell owns Home's and Search's view models, so a fresh
+/// Home refreshes in place rather than loading again. The player is the
+/// exception: it's laid over the page, which stays as it is beneath.
+struct TVMainView: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.tvPendingDeepLink) private var pendingLink
+    @Environment(\.tvDeepLinkApplied) private var deepLinkApplied
+    let client: JellyfinAPIClient
+    let userID: String
+
+    @State private var sidebar: TVSidebarModel
+    @State private var home: HomeViewModel
+    @State private var search: SearchViewModel
+    @State private var libraryGrids: [String: CollectionGridViewModel] = [:]
+    @State private var rememberedHomeTile: String?
+    @State private var rememberedSearchResult: String?
+    @State private var rememberedLibraryItems: [String: String] = [:]
+    /// One view model per pushed page, keyed by its path entry, kept while
+    /// the entry is on the path: a page torn down by the keep-alive cap
+    /// rebuilds from it without a refetch.
+    @State private var detailModels: [UUID: AssetDetailViewModel] = [:]
+    @State private var pushedGrids: [UUID: CollectionGridViewModel] = [:]
+    @State private var rememberedPushedFocus: [UUID: String] = [:]
+    /// The path entry pushed beneath a player that's still up
+    /// (`openDetailBeneathPlayer`). It counts as covered until the player
+    /// closes: as it closes tvOS puts focus where it likes (Watched, not
+    /// Play), so the page claims its item as one coming back on show does.
+    @State private var entryBeneathPlayer: UUID?
+    @State private var nav = TVShellNavigation()
+    /// Holds the whole sidebar disabled while focus is on its way to the page,
+    /// until the page says it has claimed it (`tvPageClaimedFocus`): on a
+    /// fresh shell tvOS's first focus pass would otherwise land on the rail,
+    /// the leftmost thing on screen, and open it; after a choice, a row that
+    /// can still take focus keeps it.
+    @State private var railHeld = true
+    @State private var holdGeneration = 0
+    /// See `EnvironmentValues.tvFocusHandoff`.
+    @State private var focusHandoff = 0
+    /// See `EnvironmentValues.tvRailReturn`.
+    @State private var railReturn = 0
+    /// Set while a chosen row hands focus to its page, so focus leaving the
+    /// rail then isn't taken for a return to the page beneath.
+    @State private var isChoosingRow = false
+    @FocusState private var focusedRow: TVSidebarLayout.Row?
+
+    init(client: JellyfinAPIClient, userID: String) {
+        self.client = client
+        self.userID = userID
+        _sidebar = State(initialValue: TVSidebarModel(client: client, userID: userID))
+        _home = State(initialValue: HomeViewModel(client: client, userID: userID))
+        _search = State(initialValue: SearchViewModel(client: client, userID: userID))
+    }
+
+    private var isExpanded: Bool { focusedRow != nil }
+    private var libraries: [MediaItem] { sidebar.libraries }
+
+    private var profileUser: UserDto? {
+        TVProfileIdentity.user(currentUser: appState.currentUser, credentials: appState.sessionStore.credentials)
+    }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            // Beneath every page, so switching pages never shows the
+            // window's plain black while the new one fades in.
+            TVPageBackground()
+                .ignoresSafeArea()
+
+            pages
+
+            Color(red: 8 / 255, green: 1 / 255, blue: 6 / 255)
+                .opacity(isExpanded ? TVShellMetrics.dimOpacity : 0)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+
+            TVEdgeChevron()
+                .opacity(nav.showsEdgeChevron(isExpanded: isExpanded) ? 1 : 0)
+
+            TVSidebar(
+                rows: TVSidebarLayout.rows(libraries: libraries, librariesExpanded: nav.librariesExpanded),
+                libraries: libraries,
+                profileUser: profileUser,
+                serverName: appState.sessionStore.serverConfiguration?.name,
+                serverURL: appState.sessionStore.serverConfiguration?.baseURL,
+                highlighted: Set(TVSidebarLayout.rows(libraries: libraries, librariesExpanded: true)
+                    .filter { nav.isHighlighted($0, isExpanded: isExpanded, libraries: libraries) }),
+                focusable: nav.focusableRows(isExpanded: isExpanded, libraries: libraries),
+                isExpanded: isExpanded,
+                librariesExpanded: nav.librariesExpanded,
+                focus: $focusedRow,
+                onSelect: select
+            )
+            .disabled(railHeld)
+            .ignoresSafeArea()
+            .offset(x: nav.hidesCollapsedRail && !isExpanded ? -TVShellMetrics.railOffScreen : 0)
+            // Search's keyboard is a UIKit control near the top, so tvOS finds
+            // nothing right of the open sidebar there: Right hands focus back
+            // to the page as choosing its row does, keeping what it had.
+            .onMoveCommand { direction in
+                if direction == .right, isExpanded, nav.hidesCollapsedRail { handFocusToPage() }
+            }
+        }
+        // "That worked" for an action whose own UI has gone (adding to a
+        // playlist), as on iOS: over every page, beneath the player.
+        .overlay(alignment: .top) { ToastHost() }
+        .environment(\.tvSidebarExpanded, isExpanded)
+        .environment(\.tvFocusHandoff, focusHandoff)
+        .environment(\.tvRailReturn, railReturn)
+        .environment(\.tvPageClaimedFocus, releaseRail)
+        .environment(\.tvPageClaimingFocus, holdRail)
+        .environment(\.tvOpenRoute, open)
+        .environment(\.tvOpenDetailBeneathPlayer, openDetailBeneathPlayer)
+        .environment(\.tvFocusPageDefault, { handFocusToPage() })
+        .animation(TVMotion.moving(.easeOut(duration: 0.18), reduceMotion: reduceMotion), value: isExpanded)
+        .animation(TVMotion.moving(.easeOut(duration: 0.25), reduceMotion: reduceMotion), value: nav.hidesCollapsedRail)
+        .animation(TVMotion.moving(.easeOut(duration: 0.2), reduceMotion: reduceMotion), value: nav.librariesExpanded)
+        .onExitCommand(perform: exitCommand)
+        .onChange(of: pendingLink, initial: true) { _, link in
+            if let link { apply(link) }
+        }
+        // Collapsed, focus can only enter on the anchor row; a folded
+        // library's anchor is the Libraries row, so it moves on to the
+        // library's own row once that's drawn.
+        // Focus left the rail without a row being chosen (Right, back into
+        // the page): the page goes back to where it was (`tvRailReturn`).
+        .onChange(of: focusedRow) { old, new in
+            if old != nil, new == nil, !isChoosingRow { railReturn += 1 }
+        }
+        .onChange(of: focusedRow) { old, new in
+            guard old == nil, let new else { return }
+            let target = nav.enterRail(libraries: libraries)
+            guard new != target else { return }
+            // The library's row is drawn and enabled only once the panel has
+            // opened, which can take more than one pass, so try a few times.
+            Task { @MainActor in
+                for _ in 0..<10 {
+                    try? await Task.sleep(for: .milliseconds(50))
+                    guard focusedRow != nil, focusedRow != target else { return }
+                    focusedRow = target
+                }
+            }
+        }
+        .onAppear { holdRail() }
+        .task { await sidebar.loadIfNeeded() }
+        // A load that failed at launch (offline, or a server still starting)
+        // is tried again whenever the rail is used, not only at next launch.
+        .onChange(of: focusedRow) { _, row in
+            guard row != nil, sidebar.loadState == .failed else { return }
+            Task { await sidebar.loadIfNeeded() }
+        }
+    }
+
+    /// The root page and the pushed pages the cap keeps alive
+    /// (`TVPageKeepAlive`). Only the top one is on show; the rest are built
+    /// but hidden and disabled, so Menu returns to them as they were.
+    private var pages: some View {
+        let live = TVPageKeepAlive.liveLevels(depth: nav.path.count)
+        return ZStack {
+            level(0) { page }
+                .id(nav.destination)
+                // Removed at once: a page fading out could still take focus.
+                .transition(.asymmetric(insertion: .opacity, removal: .identity))
+            ForEach(Array(nav.path.enumerated()), id: \.element.id) { index, entry in
+                if live.contains(index + 1) {
+                    level(index + 1) {
+                        // Bound to the page, so a deletion landing after
+                        // the user has left pops nothing it shouldn't.
+                        pushedPage(entry)
+                            .environment(\.tvPopPage) { pop(entry.id) }
+                            .environment(\.tvPopToRoot) { popToRoot(from: entry.id) }
+                    }
+                }
+            }
+        }
+    }
+
+    private func level<Page: View>(_ level: Int, @ViewBuilder _ page: () -> Page) -> some View {
+        let onShow = level == nav.path.count
+        // Drawn while the player closes over it, but not yet on show.
+        let beneathPlayer = level > 0 && nav.path[level - 1].id == entryBeneathPlayer
+        return page()
+            .environment(\.tvPageIsOnShow, onShow && !beneathPlayer)
+            .opacity(onShow ? 1 : 0)
+            .disabled(!onShow)
+            // No `.accessibilityHidden(!onShow)`: hidden pages stay out of
+            // the tree without it, and on the page on show its `false` overrode
+            // every `.accessibilityHidden(true)` inside it, exposing the
+            // avatar and backdrops (the accessibility audit).
+    }
+
+    @ViewBuilder
+    private func pushedPage(_ entry: TVPathEntry) -> some View {
+        let focus = Binding(
+            get: { rememberedPushedFocus[entry.id] },
+            set: { rememberedPushedFocus[entry.id] = $0 }
+        )
+        switch entry.route {
+        case .assetDetail:
+            if let model = detailModels[entry.id] {
+                TVDetailPage(viewModel: model, client: client, userID: userID, rememberedFocus: focus, onBack: pop)
+            }
+        case .collection(let query):
+            if let grid = pushedGrids[entry.id] {
+                TVCollectionGridView(title: query.title, titleIdentifier: A11yID.TV.Library.title(query.title), viewModel: grid, rememberedItemID: focus)
+            }
+        default:
+            // The downloaded routes don't exist on tvOS.
+            EmptyView()
+        }
+    }
+
+    private func open(_ route: AppRoute) {
+        let entry = nav.push(route)
+        switch route {
+        case .assetDetail(let itemID, let preloadedItem):
+            detailModels[entry.id] = AssetDetailViewModel(client: client, userID: userID, itemID: itemID, preloadedItem: preloadedItem)
+        case .collection(let query):
+            pushedGrids[entry.id] = CollectionGridViewModel(client: client, userID: userID, query: query)
+        default:
+            break
+        }
+        // The tile that was focused is now disabled; without the hold, tvOS
+        // moves focus to the rail, the only thing left, and opens it.
+        holdRail()
+    }
+
+    private func openDetailBeneathPlayer(_ item: MediaItem) -> @MainActor (PlaybackSessionOutcome) -> Void {
+        open(.assetDetail(itemID: item.id, preloadedItem: item))
+        guard let entry = nav.path.last, let model = detailModels[entry.id] else { return { _ in } }
+        entryBeneathPlayer = entry.id
+        return { [weak model] outcome in
+            model?.applyOptimisticPlaybackPosition(outcome)
+            if entryBeneathPlayer == entry.id { entryBeneathPlayer = nil }
+            // Back on show, the page refreshes its item itself.
+        }
+    }
+
+    /// A Top Shelf link (M6): Home with its path dropped, the title's page
+    /// pushed over it, and for Play the player over that page, as the hero's
+    /// Play does, so Menu lands on the page. A player already up closes
+    /// first, reporting its stop.
+    private func apply(_ link: TVDeepLink) {
+        deepLinkApplied()
+        TVPlayerPresenter.dismissPlayer()
+        if nav.destination != .home || !nav.path.isEmpty { select(.home) }
+        Task { @MainActor in
+            // Asked after every await (`TVDeepLinkRouter.canFinish`).
+            @MainActor func canFinish() -> Bool {
+                TVDeepLinkRouter.canFinish(appliedFor: userID, isSignedIn: appState.phase == .main, signedInUserID: appState.signedInUserID)
+            }
+            // The closing player has to leave the presented chain before
+            // another can be presented, and Home has to rebuild before the push.
+            for _ in 0..<40 where TVPlayerPresenter.isPlayerUp {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            guard canFinish() else { return }
+            let dto = try? await client.item(userID: userID, itemID: link.itemID)
+            guard canFinish() else { return }
+            guard let dto else {
+                // Gone or not this user's: the page shows its own error and Retry.
+                open(.assetDetail(itemID: link.itemID, preloadedItem: nil))
+                return
+            }
+            let item = MediaItem(dto: dto, images: await client.makeImageURLBuilder())
+            let target = link.action == .play ? await TVHeroPlayTarget.resolve(item, client: client, userID: userID) : nil
+            guard canFinish() else { return }
+            guard let target else {
+                open(.assetDetail(itemID: item.id, preloadedItem: item))
+                return
+            }
+            var playbackEnded: (@MainActor (PlaybackSessionOutcome) -> Void)?
+            let presented = TVPlayerPresenter.present(PlaybackRequest(itemID: target), client: client, userID: userID) { outcome in
+                playbackEnded?(outcome)
+            }
+            if presented {
+                playbackEnded = openDetailBeneathPlayer(item)
+            } else {
+                open(.assetDetail(itemID: item.id, preloadedItem: item))
+            }
+        }
+    }
+
+    private func pop() {
+        guard let entry = nav.pop() else { return }
+        forget(entry)
+        holdRail()
+    }
+
+    private func pop(_ entryID: UUID) {
+        guard let entry = nav.pop(entryID) else { return }
+        forget(entry)
+        holdRail()
+    }
+
+    private func popToRoot(from entryID: UUID) {
+        let removed = nav.popToRoot(from: entryID)
+        guard !removed.isEmpty else { return }
+        removed.forEach(forget)
+        holdRail()
+    }
+
+    /// Lets go of a popped page's view model and remembered focus.
+    private func forget(_ entry: TVPathEntry) {
+        detailModels[entry.id]?.cancelBackgroundWork()
+        detailModels[entry.id] = nil
+        pushedGrids[entry.id] = nil
+        rememberedPushedFocus[entry.id] = nil
+    }
+
+    /// The root page, built only while its row is the destination.
+    @ViewBuilder
+    private var page: some View {
+        switch nav.destination {
+        case .search:
+            TVSearchView(viewModel: search, rememberedResultID: $rememberedSearchResult)
+        case .profile:
+            TVProfileView()
+        case .library(let id):
+            if let library = libraries.first(where: { $0.id == id }), let grid = libraryGrids[id] {
+                TVCollectionGridView(
+                    title: library.name,
+                    titleIdentifier: A11yID.TV.Library.title(library.id),
+                    viewModel: grid,
+                    rememberedItemID: Binding(
+                        get: { rememberedLibraryItems[id] },
+                        set: { rememberedLibraryItems[id] = $0 }
+                    )
+                )
+            }
+        default:
+            TVHomeView(client: client, userID: userID, viewModel: home, rememberedFocus: $rememberedHomeTile)
+        }
+    }
+
+    /// Menu: pops a pushed page; on a root page, opens the sidebar on that
+    /// page's row; with the sidebar open, nothing, so tvOS leaves the app.
+    private var exitCommand: (() -> Void)? {
+        if isExpanded { return nil }
+        if !nav.path.isEmpty { return pop }
+        return {
+            railHeld = false
+            Task { @MainActor in
+                await Task.yield()
+                focusedRow = nav.railAnchor(libraries: libraries)
+            }
+        }
+    }
+
+    /// Disables the sidebar until the page claims focus, or for at most
+    /// three seconds. A page with nothing to focus (an empty library, a load
+    /// that failed or is still running) would otherwise leave focus nowhere,
+    /// where even Menu reaches nothing, so focus then goes to the page's row.
+    private func holdRail() {
+        railHeld = true
+        holdGeneration += 1
+        let generation = holdGeneration
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            guard generation == holdGeneration, railHeld else { return }
+            railHeld = false
+            // Nowhere, or left in the rail: holding it can push focus from
+            // the chosen row onto another (seen: Profile's).
+            guard Self.focusedItem() == nil || focusedRow != nil else { return }
+            await Task.yield()
+            let target = nav.enterRail(libraries: libraries)
+            focusedRow = focusedRow == nil ? nav.railAnchor(libraries: libraries) : target
+        }
+    }
+
+    /// Enables the sidebar once focus is on the page, asking the focus system
+    /// again until it is. A page's claim isn't proof by itself: Search claims
+    /// on a timer, since its keyboard is UIKit, and on a loaded machine the
+    /// keyboard joined the window after it. Released with focus nowhere,
+    /// tvOS gave focus to the rail and opened it over Search, so nothing
+    /// typed reached the field (nightly CI on tvOS 27.0, 2026-10-09). Gives
+    /// up after two seconds and releases the rail anyway, to tvOS's choice.
+    /// Stops at once if something else released it (Menu opening the rail).
+    private func releaseRail() {
+        guard railHeld else { return }
+        let generation = holdGeneration
+        Task { @MainActor in
+            await Task.yield()
+            var attempts = 0
+            while Self.focusedItem() == nil || focusedRow != nil, attempts < 20 {
+                Self.requestFocusUpdate()
+                attempts += 1
+                try? await Task.sleep(for: .milliseconds(100))
+                guard generation == holdGeneration, railHeld else { return }
+            }
+            guard generation == holdGeneration else { return }
+            railHeld = false
+        }
+    }
+
+    private func select(_ row: TVSidebarLayout.Row) {
+        let pageLeft = nav.pageLeft(choosing: row)
+        if let pageLeft { startFresh(pageLeft) }
+        if case .library(let id) = row, libraryGrids[id] == nil,
+           let library = libraries.first(where: { $0.id == id }) {
+            libraryGrids[id] = CollectionGridViewModel(client: client, userID: userID, query: TVSidebarLayout.query(for: library))
+        }
+        if row != .librariesGroup {
+            detailModels.values.forEach { $0.cancelBackgroundWork() }
+            detailModels = [:]
+            pushedGrids = [:]
+            rememberedPushedFocus = [:]
+        }
+        let selection = withAnimation(TVMotion.moving(.easeOut(duration: 0.2), reduceMotion: reduceMotion)) { nav.select(row) }
+        guard selection == .navigated else { return }
+        // Chosen from another page, Home gets everything again, the hero's
+        // picks and the dynamic rails included (Benjamin, 2026-10-20), in
+        // place, without its spinner. Back on show beneath a popped page it
+        // refreshes only its curated rails (`TVHomeView`).
+        if row == .home, pageLeft != nil { Task { await home.hardRefresh() } }
+        // A library's fresh view model has loaded since it was left
+        // (`startFresh`): it reloads in place, so watched state is current.
+        // Still loading, its grid's own `loadIfNeeded()` joins that load.
+        if case .library(let id) = row, pageLeft != nil, let grid = libraryGrids[id], !grid.items.isEmpty {
+            Task { await grid.load() }
+        }
+        handFocusToPage(choosingRow: true)
+    }
+
+    /// Forgets what a page kept, so it starts fresh when it's next chosen
+    /// (`TVShellNavigation.pageLeft(choosing:)`): Search with an empty field,
+    /// a library with a new view model (default sort, no filters, its top),
+    /// Home on the hero's Play.
+    ///
+    /// A library's new view model starts loading as the page is left, not
+    /// when it's chosen again: built then, the page showed its spinner while
+    /// the sidebar closed, and the grid arrived after the page had slid into
+    /// place, so the slide went unseen (Benjamin, on Bedroom, 2026-10-21).
+    private func startFresh(_ page: TVSidebarLayout.Row) {
+        switch page {
+        case .search:
+            search.query = ""
+            search.queryChanged()
+            rememberedSearchResult = nil
+        case .home:
+            rememberedHomeTile = nil
+        case .library(let id):
+            rememberedLibraryItems[id] = nil
+            guard let library = libraries.first(where: { $0.id == id }) else {
+                libraryGrids[id] = nil
+                return
+            }
+            let grid = CollectionGridViewModel(client: client, userID: userID, query: TVSidebarLayout.query(for: library))
+            libraryGrids[id] = grid
+            Task { await grid.loadIfNeeded() }
+        default:
+            break
+        }
+    }
+
+    /// Holds the sidebar and asks the focus system for the page, which with
+    /// the sidebar held can only choose the page.
+    private func handFocusToPage(choosingRow: Bool = false) {
+        isChoosingRow = choosingRow
+        Task { @MainActor in
+            defer { isChoosingRow = false }
+            // After the new page has laid out: Search's keyboard is a UIKit
+            // control that isn't in the window until then, and holding the
+            // sidebar sooner left focus nowhere to go.
+            try? await Task.sleep(for: .milliseconds(150))
+            holdRail()
+            // Disabling a SwiftUI view doesn't make tvOS look for new focus by
+            // itself; asking the focus system does, and with the sidebar held
+            // it can only choose the page.
+            await Task.yield()
+            Self.requestFocusUpdate()
+            focusHandoff += 1
+        }
+    }
+
+    @MainActor
+    private static func requestFocusUpdate() {
+        guard let window = keyWindow(), let root = window.rootViewController,
+              let focusSystem = UIFocusSystem.focusSystem(for: window) else { return }
+        focusSystem.requestFocusUpdate(to: root)
+        focusSystem.updateFocusIfNeeded()
+    }
+
+    @MainActor
+    private static func focusedItem() -> UIFocusItem? {
+        keyWindow().flatMap { UIFocusSystem.focusSystem(for: $0)?.focusedItem }
+    }
+
+    @MainActor
+    private static func keyWindow() -> UIWindow? {
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        return scene?.windows.first(where: \.isKeyWindow)
+    }
+}

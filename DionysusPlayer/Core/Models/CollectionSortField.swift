@@ -11,11 +11,15 @@ enum CollectionSortField: CaseIterable, Identifiable, Hashable {
 
     var id: Self { self }
 
-    /// Jellyfin's `SortBy` query value.
-    var sortBy: String {
+    /// Jellyfin's `SortBy` query value for a grid of `includeItemTypes`.
+    /// Date Added on a grid of shows is its newest episode's arrival
+    /// (`DateLastContentAdded`, read from `DateLastMediaAdded` in 10.11 and
+    /// 12), as Home's Recently Added Shows rail orders them; a show's own
+    /// `DateCreated` is when it was first added (Benjamin, 2026-10-16).
+    func sortBy(includeItemTypes: [String]) -> String {
         switch self {
         case .title: "SortName"
-        case .dateAdded: "DateCreated"
+        case .dateAdded: includeItemTypes == ["Series"] ? "DateLastContentAdded" : "DateCreated"
         case .releaseDate: "PremiereDate"
         }
     }

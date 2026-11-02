@@ -12,11 +12,14 @@ import SwiftUI
 /// content (and dark toolbar glass), and once the hero has gone the page's own
 /// scheme is asked for explicitly. Not `nil`: that hands the choice back to the
 /// system, which on the iOS 27 Simulator kept Home's clock light over the light
-/// band.
+/// band. The exception is an iPhone Duo's vertical side bar, which gets no
+/// scheme (see `barScheme`).
 ///
 /// **Over the hero**, a soft dark shade behind the bars keeps that light
 /// content readable on bright artwork. The hero only darkens its own bottom
-/// edge, for the logo.
+/// edge, for the logo. There's no shade where the bars are vertical (an
+/// iPhone Duo's outer display, and its inner display held wide), since the
+/// status bar isn't at the top there (Benjamin, 2026-10-27).
 ///
 /// **After the hero**, the posters and text that follow would pass straight
 /// under the clock. The system's own top scroll edge effect handles that
@@ -48,10 +51,16 @@ struct HeroScrollEdgeScrim: ViewModifier {
     @State private var statusBarOwner = UUID()
     /// The page's own scheme, which the bars return to after the hero.
     @Environment(\.colorScheme) private var colorScheme
+    /// Whether the bars are an iPhone Duo's vertical side bar.
+    @State private var isVerticalBar = false
 
     /// Dark (light content) over the hero, the page's own scheme after it.
-    private var barScheme: ColorScheme {
-        Self.isOverHero(progress: progress) ? .dark : colorScheme
+    /// Nothing in a vertical side bar: only its top reaches over the hero, and
+    /// a scheme applies to the whole bar, so the system's glass is left to
+    /// adapt item by item to whatever is beneath it.
+    private var barScheme: ColorScheme? {
+        guard !isVerticalBar else { return nil }
+        return Self.isOverHero(progress: progress) ? .dark : colorScheme
     }
 
     func body(content: Content) -> some View {
@@ -74,6 +83,20 @@ struct HeroScrollEdgeScrim: ViewModifier {
             .onChange(of: barScheme) { _, scheme in HeroStatusBarScheme.shared.claim(statusBarOwner, scheme: scheme) }
             .onDisappear { HeroStatusBarScheme.shared.release(statusBarOwner) }
             .overlay(alignment: .top) { bands }
+            .background { verticalBarProbe }
+    }
+
+    /// Feeds `isVerticalBar`. Never set before iOS 27.1, which has no
+    /// vertical bars.
+    @ViewBuilder
+    private var verticalBarProbe: some View {
+        if #available(iOS 27.1, *) {
+            VerticalBarReader { isVertical in
+                Color.clear
+                    .onAppear { isVerticalBar = isVertical }
+                    .onChange(of: isVertical) { _, vertical in isVerticalBar = vertical }
+            }
+        }
     }
 
     /// A zero-height marker at the top of the safe area gives `barBottom`; the
@@ -85,12 +108,9 @@ struct HeroScrollEdgeScrim: ViewModifier {
             .overlay(alignment: .top) {
                 ZStack(alignment: .top) {
                     // Over the hero: a dark shade for the light status bar.
-                    LinearGradient(
-                        colors: [.black.opacity(Self.shadeOpacity), .clear],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                    .frame(height: barBottom + Self.shadeExtent)
-                    .opacity(1 - progress)
+                    shade
+                        .frame(height: barBottom + Self.shadeExtent)
+                        .opacity(1 - progress)
 
                     // After the hero: the bar material, fading out below the bars.
                     Rectangle()
@@ -112,6 +132,24 @@ struct HeroScrollEdgeScrim: ViewModifier {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
+    }
+
+    /// The shade, left out where the bars are vertical: on an iPhone Duo's
+    /// outer display and its inner display held wide, the status bar and the
+    /// toolbar sit in the side bar, so nothing at the top needs the contrast.
+    @ViewBuilder
+    private var shade: some View {
+        let gradient = LinearGradient(
+            colors: [.black.opacity(Self.shadeOpacity), .clear],
+            startPoint: .top, endPoint: .bottom
+        )
+        if #available(iOS 27.1, *) {
+            VerticalBarReader { isVertical in
+                if !isVertical { gradient }
+            }
+        } else {
+            gradient
+        }
     }
 
     /// How far the material fades out below the bars.
@@ -197,7 +235,7 @@ final class HeroStatusBarScheme {
     private(set) var scheme: ColorScheme?
     private var owner: UUID?
 
-    func claim(_ owner: UUID, scheme: ColorScheme) {
+    func claim(_ owner: UUID, scheme: ColorScheme?) {
         self.owner = owner
         if self.scheme != scheme { self.scheme = scheme }
     }

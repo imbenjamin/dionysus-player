@@ -141,4 +141,31 @@ final class SearchViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.history, [keep])
         XCTAssertEqual(SearchHistoryStore(defaults: defaults).history(userID: "user-1"), [keep], "Should persist beyond this instance")
     }
+
+    /// A detail page drops a recent search whose item is gone from the server
+    /// through a store of its own; the list on show follows.
+    func test_history_followsAChangeMadeElsewhere() {
+        let viewModel = makeViewModel()
+        let keep = SearchResult(hint: SearchHint(id: "movie-1", name: "Arrival", type: .movie))
+        let gone = SearchResult(hint: SearchHint(id: "movie-2", name: "Interstellar", type: .movie))
+        viewModel.recordSelection(keep)
+        viewModel.recordSelection(gone)
+
+        SearchHistoryStore(defaults: defaults).remove(id: gone.id, userID: "user-1")
+
+        XCTAssertEqual(viewModel.history, [keep])
+    }
+
+    /// Another user's history changing leaves this one's list alone.
+    func test_history_ignoresAnotherUsersChange() {
+        let viewModel = makeViewModel()
+        let mine = SearchResult(hint: SearchHint(id: "movie-1", name: "Arrival", type: .movie))
+        viewModel.recordSelection(mine)
+        // Written behind this view model's back, so only a reload would show it.
+        defaults.removePersistentDomain(forName: suiteName)
+
+        SearchHistoryStore(defaults: defaults).clear(userID: "user-2")
+
+        XCTAssertEqual(viewModel.history, [mine])
+    }
 }

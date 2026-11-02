@@ -18,6 +18,10 @@ enum UITestFixtureIdentity {
     static let showsLibraryID = "lib-tvshows"
     static let boxSetsLibraryID = "lib-boxsets"
     static let playlistsLibraryID = "lib-playlists"
+    /// The `manyLibraries` scenario's extra libraries.
+    static let animeLibraryID = "lib-anime"
+    static let documentariesLibraryID = "lib-docs"
+    static let musicLibraryID = "lib-music"
 
     static let seriesID = "series-northern-lights"
     static let seriesName = "Northern Lights"
@@ -39,6 +43,12 @@ enum UITestFixtureIdentity {
     /// expired (404).
     static let quickConnectApprovableCode = "246810"
     static let quickConnectUsedCode = "135790"
+
+    /// A recent search for a movie since deleted from the server, which the
+    /// stub answers with a 404 and an HTML page, as a proxy in front of
+    /// Jellyfin can (`UITestConfiguration.seedsMissingSearchHistory`).
+    static let missingItemID = "movie-deleted-since"
+    static let missingItemName = "Gone Tomorrow"
 
     static let secondPlaylistID = "playlist-late-night"
     static let secondPlaylistName = "Late Night"
@@ -72,7 +82,8 @@ enum UITestFixtureIdentity {
     static let primaryMovieID = movieID(1)
     static let primaryMovieTitle = "The Quiet Ascent"
 
-    /// The one part-watched movie, so the detail page shows Resume with a
+    /// The one part-watched movie: played, with a position, as a rewatch
+    /// stopped partway leaves it, so the detail page shows Resume with a
     /// Restart button beside it.
     static let partWatchedMovieID = movieID(2)
 
@@ -96,8 +107,10 @@ enum UITestFixtureIdentity {
     /// A styled subtitle must never render this close to the top of the
     /// screen. Misplaced into the top letterbox bar it lands around y 9;
     /// correctly placed it sits at the top of the picture, which on the
-    /// fixture's 2.4:1 video in portrait is past y 350.
-    static let styledSubtitleMinimumTopY: Double = 150
+    /// fixture's 2.4:1 video in portrait is past y 350, and on an iPhone Duo
+    /// in tabletop, where the picture is centred above the fold, at y 102
+    /// (measured 2026-10-28). 150 failed there.
+    static let styledSubtitleMinimumTopY: Double = 60
 
     static let serverName = "Dionysus UI Test Server"
     /// The fixture user's id — the tile a journey taps on the sign-in screen.
@@ -110,6 +123,8 @@ enum UITestFixtureIdentity {
     /// one tap signs in. The stub accepts this name with an empty password.
     static let passwordlessUserID = "uitest-user-guest"
     static let passwordlessUsername = "Guest"
+    /// The `manyUsers` scenario's users beyond the standard two.
+    static let extraUserIDs = ["ana", "ben", "cleo", "dev"]
 
     /// The stub server's login disclaimer, markup and all, as an admin might
     /// write it.

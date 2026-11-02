@@ -36,7 +36,8 @@ jobs:
     # longer reports, including the PR doing the rename. The name is
     # starter-template boilerplate and reads oddly; it stays anyway.
     name: Build and Test default scheme using any available iPhone simulator
-    runs-on: macos-26
+    # Xcode 27.1, setup-ios-project's default (see there for why).
+    runs-on: xcode-27
     timeout-minutes: 45
 
     steps:
@@ -73,7 +74,8 @@ jobs:
     # a step in `build`, for the same reason `ui-smoke` is one (see below).
     # Required by both branch rulesets.
     name: Release configuration compiles
-    runs-on: macos-26
+    # Xcode 27.1, setup-ios-project's default (see there for why).
+    runs-on: xcode-27
     timeout-minutes: 30
 
     steps:
@@ -94,25 +96,143 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             | xcbeautify --renderer github-actions
 
+      - name: Build Release for a generic tvOS device
+        # The Apple TV app and its Top Shelf extension, Release, unsigned: a
+        # Release-only break (the extension not embedded, a stray #if DEBUG)
+        # fails here, not at the tag.
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project DionysusPlayer.xcodeproj \
+            -scheme DionysusTV \
+            -configuration Release \
+            -destination 'generic/platform=tvOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
+
+  tvos-build:
+    # Builds the Apple TV app and runs the shared unit tests on tvOS
+    # (TestPlans/TVUnitTests.xctestplan).
+    #
+    # ⚠️ Both rulesets require this check by name, "tvOS build and unit
+    # tests". Renaming the job means updating both rulesets first.
+    name: tvOS build and unit tests
+    # The Xcode and image release.yml's tvos-release archives with (see there).
+    runs-on: xcode-27
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up iOS project
+        uses: ./.github/actions/setup-ios-project
+
+      - name: List tvOS runtimes
+        run: xcrun simctl list runtimes | grep -i tvos || (echo "::error::No tvOS runtime on this image" && exit 1)
+
+      - name: Build and test (tvOS)
+        run: |
+          set -o pipefail
+          xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
+            -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)' \
+            -resultBundlePath .build/TVTestResults.xcresult \
+            | xcbeautify --renderer github-actions
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tvos-test-results
+          path: .build/TVTestResults.xcresult
+          retention-days: 7
+          if-no-files-found: ignore
+
   ui-smoke:
     # A separate job from `build`, deliberately. That one's name is required
     # verbatim by both branch rulesets (see its own comment), so it must not
     # grow a second responsibility or change shape.
     #
     # Runs the smoke plan only — a handful of journeys, no per-feature
-    # coverage — on one iPhone and one iPad, latest iOS only. The full suite,
-    # on every supported iOS version, runs nightly (nightly-ui-tests.yml) and
-    # on release tags. The split exists because UI tests are slow and a shared
-    # runner is variable; the point of this job is fast pre-merge feedback on
-    # the paths that stop the app being usable at all.
+    # coverage — for PRs into `develop`, on the latest iOS only: one iPhone,
+    # one iPad, and the iPhone Duo closed and open (on iOS 27.1, its only
+    # runtime). The iOS 18.6 floor and the Duo's book and tabletop poses run
+    # with the full suite: nightly (nightly-ui-tests.yml), on PRs into
+    # `stable` (`ui-full`) and on release tags. The split exists because UI
+    # tests are slow and a shared runner is variable; the point of this job
+    # is fast pre-merge feedback on the paths that stop the app being usable
+    # at all. A `stable` PR runs the full suite instead, and no smoke (since
+    # 2026-10-29), since the full plan holds every smoke journey.
     #
-    # ⚠️ Both rulesets require the two checks this reports, by their full
-    # names: "UI smoke tests / iPhone, iOS 26.5" and "UI smoke tests / iPad,
-    # iOS 26.5". Renaming this job, or changing the latest iOS version in
-    # ui-tests.yml, changes those names — update both rulesets in step.
+    # ⚠️ "develop protection" requires the four checks this reports, by
+    # their full names: "UI smoke tests / iPhone, iOS 27.0", "UI smoke tests
+    # / iPad, iOS 27.0", "UI smoke tests / iPhone Duo closed, iOS 27.1" and
+    # the same with "open". Renaming this job, or changing a device, pose or
+    # iOS version in ui-tests.yml, changes those names — update the ruleset
+    # in step.
     name: UI smoke tests
+    if: github.base_ref == 'develop'
     uses: ./.github/workflows/ui-tests.yml
     with:
       test-plan: UITests-Smoke
       latest-only: true
-      timeout-minutes: 30
+      duo-poses: '["closed", "open"]'
+      # The Duo legs boot and pose a Simulator before building, which took
+      # about 10 minutes on the probe.
+      timeout-minutes: 45
+
+  tv-ui-smoke:
+    # The Apple TV app's smoke journeys (TestPlans/TVUITests-Smoke): first
+    # launch to sign-in, Home, a detail page from Home and from a library,
+    # Search, and opening and closing the player. A separate job from
+    # `tvos-build` for the reason `ui-smoke` is one from `build`. The full
+    # tvOS suite runs nightly and on PRs into `stable` (`tv-ui-full`).
+    #
+    # Reports "tvOS UI smoke tests / Apple TV 4K, tvOS 27.0" (see
+    # tv-ui-tests.yml, which also says why tvOS 26.5 runs nightly only).
+    # `develop` PRs only, as `ui-smoke`; "develop protection" requires it:
+    # renaming this job changes that name.
+    name: tvOS UI smoke tests
+    if: github.base_ref == 'develop'
+    uses: ./.github/workflows/tv-ui-tests.yml
+    with:
+      test-plan: TVUITests-Smoke
+      timeout-minutes: 40
+
+  ui-full:
+    # The full UI suite on every environment, for PRs into `stable` only:
+    # the same plan and matrix release.yml runs before it signs anything.
+    # `develop` PRs keep the smoke plan above and get the full suite nightly.
+    #
+    # It exists because "Secure stable" requires the eight "Full UI tests / …"
+    # checks (iPhone and iPad on iOS 27.0 and 18.6, and the iPhone Duo in
+    # its four poses), and before this job only nightly-ui-tests.yml
+    # reported them.
+    # That workflow runs on its schedule or by dispatch, never for a PR, so a
+    # promotion PR waited on them forever. Dispatching the nightly on the PR's
+    # branch did report them on the head commit, and GitHub still didn't count
+    # them towards the PR (v1.1.0's promotion, #290).
+    #
+    # ⚠️ The job name must stay "Full UI tests", the same as the nightly's:
+    # it is half of each required check's name, "Full UI tests / iPhone,
+    # iOS 18.6" and so on (see ui-tests.yml's job name for the other half).
+    # On a `develop` PR it is skipped and reports nothing under those names,
+    # which `develop protection` doesn't require.
+    name: Full UI tests
+    if: github.base_ref == 'stable'
+    uses: ./.github/workflows/ui-tests.yml
+    with:
+      test-plan: UITests-Full
+
+  tv-ui-full:
+    # The full tvOS UI suite for PRs into `stable`, as `ui-full` is for iOS:
+    # split across four jobs, with retries, as the nightly and release.yml
+    # run it (see tv-ui-tests.yml's header). "Secure stable" requires
+    # "Full tvOS UI tests / Apple TV 4K, tvOS 27.0".
+    name: Full tvOS UI tests
+    if: github.base_ref == 'stable'
+    uses: ./.github/workflows/tv-ui-tests.yml
+    with:
+      test-plan: TVUITests
+      retry-tests-on-failure: true
+      shards: 4

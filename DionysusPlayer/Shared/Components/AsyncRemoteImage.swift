@@ -28,6 +28,10 @@ struct AsyncRemoteImage: View {
     var placeholderSystemImage: String = "photo"
     var glyphSize: CGFloat = 28
     var retryPatience: RetryPatience = .standard
+    /// `false` draws nothing while loading or after a failure, for an image
+    /// that sits behind a whole page (the Apple TV detail backdrop), where a
+    /// glyph in mid-screen reads as broken.
+    var showsPlaceholder = true
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var phase: Phase
@@ -48,8 +52,10 @@ struct AsyncRemoteImage: View {
         contentMode: ContentMode = .fill,
         placeholderSystemImage: String = "photo",
         glyphSize: CGFloat = 28,
-        retryPatience: RetryPatience = .standard
+        retryPatience: RetryPatience = .standard,
+        showsPlaceholder: Bool = true
     ) {
+        self.showsPlaceholder = showsPlaceholder
         self.url = url
         self.contentMode = contentMode
         self.placeholderSystemImage = placeholderSystemImage
@@ -87,15 +93,73 @@ struct AsyncRemoteImage: View {
             .task(id: url) { await load() }
     }
 
+    /// How far a load has got, for `fill(_:showsPlaceholder:)`.
+    enum LoadState {
+        case loading
+        case loaded
+        case failed
+    }
+
+    /// What the view draws.
+    enum Fill: Equatable {
+        case image
+        case nothing
+        /// The shimmering glyph: a fetch is still outstanding.
+        case loadingGlyph
+        /// The static glyph: it failed, or there was nothing to fetch.
+        case settledGlyph
+    }
+
+    static func fill(_ state: LoadState, showsPlaceholder: Bool) -> Fill {
+        // One `where` per pattern: written once after `.loading, .failed`
+        // it bound to `.failed` alone, and a loading image drew nothing.
+        switch state {
+        case .loaded: .image
+        case .loading where !showsPlaceholder, .failed where !showsPlaceholder: .nothing
+        case .loading: .loadingGlyph
+        case .failed: .settledGlyph
+        }
+    }
+
+    private var loadState: LoadState {
+        switch phase {
+        case .empty: .loading
+        case .success: .loaded
+        case .failure: .failed
+        }
+    }
+
     @ViewBuilder
     private var content: some View {
-        switch phase {
-        case .success(let uiImage):
-            Image(uiImage: uiImage).resizable().aspectRatio(contentMode: contentMode)
-        case .empty:
+        switch Self.fill(loadState, showsPlaceholder: showsPlaceholder) {
+        case .image:
+            if case .success(let uiImage) = phase {
+                Image(uiImage: uiImage).resizable().aspectRatio(contentMode: contentMode)
+            }
+        case .nothing:
+            Color.clear
+        case .loadingGlyph:
             MediaPlaceholderBox(systemImage: placeholderSystemImage, glyphSize: glyphSize, isSettled: false)
-        case .failure:
+                .modifier(StandsInForImage())
+        case .settledGlyph:
             MediaPlaceholderBox(systemImage: placeholderSystemImage, glyphSize: glyphSize, isSettled: true)
+                .modifier(StandsInForImage())
+        }
+    }
+
+    /// On tvOS the placeholder sits over an empty image, so a tile without
+    /// artwork reads to VoiceOver as one with it. VoiceOver's read-ahead
+    /// passes over a tile that holds an image and read one that didn't:
+    /// whenever Right found nothing past a rail's end it spoke that tile's
+    /// name, though focus stayed put (M5; measured with the image moved
+    /// between tiles, and an image trait alone didn't do it).
+    private struct StandsInForImage: ViewModifier {
+        func body(content: Content) -> some View {
+            #if os(tvOS)
+            content.background { Image(uiImage: UIImage()).resizable() }
+            #else
+            content
+            #endif
         }
     }
 

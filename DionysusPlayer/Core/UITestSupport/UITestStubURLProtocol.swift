@@ -81,6 +81,16 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
                 }
                 return
             }
+            if scenario == .missingTileArtwork, path.contains("/Items/\(UITestFixtureIdentity.partWatchedMovieID)/Images/") {
+                finish(.success((404, Data(), "text/plain")))
+                return
+            }
+            // A profile picture can be a transparent PNG (the demo server's
+            // is), which `UserAvatar` must not let its monogram show through.
+            if path.contains("/Users/") {
+                finish(.success((200, Self.transparentPNG, "image/png")))
+                return
+            }
             finish(.success((200, Self.placeholderPNG, "image/png")))
             return
         }
@@ -119,8 +129,79 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
+        // Held back under `.slowPlaybackInfo`; answered below as usual otherwise.
+        if scenario == .slowPlaybackInfo, path.hasSuffix("/PlaybackInfo") {
+            // Background queue, never `Thread.sleep` — see the
+            // `.slowLogoImage` branch above for what blocking here costs.
+            let request = request
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.slowPlaybackInfoDelay) {
+                do {
+                    self.finish(.success((200, try Self.body(forPath: path, query: query, request: request), "application/json")))
+                } catch {
+                    self.finish(.failure(error))
+                }
+            }
+            return
+        }
+
+        // Held back under `.slowPublicUsers`, `.slowBoxSet` and `.slowItems`, the same way.
+        if scenario == .slowPublicUsers, path.hasSuffix("/Users/Public") {
+            let request = request
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.slowPublicUsersDelay) {
+                do {
+                    self.finish(.success((200, try Self.body(forPath: path, query: query, request: request), "application/json")))
+                } catch {
+                    self.finish(.failure(error))
+                }
+            }
+            return
+        }
+        if scenario == .slowSignIn, path.hasSuffix("/Users/AuthenticateByName") || path.hasSuffix("/Users/Me") {
+            let request = request
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.slowSignInDelay) {
+                do {
+                    self.finish(.success((200, try Self.body(forPath: path, query: query, request: request), "application/json")))
+                } catch {
+                    self.finish(.failure(error))
+                }
+            }
+            return
+        }
+        if (scenario == .slowBoxSet && url.absoluteString.contains(UITestFixtureIdentity.boxSetID))
+            || (scenario == .slowItems && (path.contains("/Items") || path.contains("/Shows/"))) {
+            let request = request
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.slowBoxSetDelay) {
+                do {
+                    self.finish(.success((200, try Self.body(forPath: path, query: query, request: request), "application/json")))
+                } catch {
+                    self.finish(.failure(error))
+                }
+            }
+            return
+        }
+
         if path.contains("/QuickConnect/") {
             finish(.success(Self.quickConnectResponse(scenario: scenario, path: path, query: query)))
+            return
+        }
+
+        // Remembered, then answered as before by the routes below.
+        if path.contains("/PlayedItems/"), let itemID = path.split(separator: "/").last.map(String.init) {
+            if request.httpMethod == "POST" { Self.setWatched(true, itemID: itemID) }
+            if request.httpMethod == "DELETE" { Self.setWatched(false, itemID: itemID) }
+        }
+
+        if scenario == .failingHome, path.hasSuffix("/Items"),
+           URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+            .contains(where: { $0.name.caseInsensitiveCompare("SortBy") == .orderedSame && $0.value == "Random" }) == true {
+            finish(.success((500, Data("{}".utf8), "application/json")))
+            return
+        }
+
+        if scenario == .failingLibrary, path.hasSuffix("/Items"),
+           URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+            .contains(where: { $0.name.caseInsensitiveCompare("ParentId") == .orderedSame && $0.value == UITestFixtureIdentity.moviesLibraryID }) == true {
+            finish(.success((500, Data("{}".utf8), "application/json")))
             return
         }
 
@@ -144,7 +225,11 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         if request.httpMethod == "DELETE", let itemID = Self.deletedItemID(forPath: path) {
             // Refuses with Jellyfin's own 401 rather than a 403, as the real
             // server does (see `JellyfinAPIClient.deleteItem`).
-            guard scenario != .noDeletePermission else {
+            // A season with no folder can't be deleted as a unit, by anyone:
+            // Jellyfin's `CanDelete()` is `IsFileProtocol`.
+            let isFolderlessSeason = scenario == .folderlessSeasons
+                && UITestFixtureLibrary.seasons.contains { $0.id == itemID }
+            guard scenario != .noDeletePermission, !isFolderlessSeason else {
                 finish(.success((401, Data("{}".utf8), "application/json")))
                 return
             }
@@ -187,6 +272,17 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
+        // The guest signs in as the guest: a second account, so journeys can
+        // tell two remembered accounts apart. Here because `body(forPath:)`
+        // has no request body to read the username from.
+        if path.hasSuffix("/Users/AuthenticateByName"),
+           let sent = Self.requestBody(of: request).flatMap({ try? JellyfinJSON.decoder.decode(AuthenticateByNameRequest.self, from: $0) }),
+           sent.username == UITestFixtureIdentity.passwordlessUsername,
+           let data = try? Self.encode(UITestFixtureLibrary.guestAuthenticationResult) {
+            finish(.success((200, data, "application/json")))
+            return
+        }
+
         // `POST /Playlists`. Handled here rather than in `body(forPath:)`, whose
         // `default:` arm answers an unmatched POST with empty `Data()` the app
         // can't decode as a `PlaylistCreationResult`, and which has no access to
@@ -202,6 +298,13 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             } catch {
                 finish(.failure(error))
             }
+            return
+        }
+
+        // An item deleted since it was listed, answered as a proxy in front of
+        // Jellyfin can: a 404 with an HTML page, which must never be shown.
+        if path.contains("/Items/\(UITestFixtureIdentity.missingItemID)") {
+            finish(.success((404, Data("<html><body><h1>404 Not Found</h1></body></html>".utf8), "text/html")))
             return
         }
 
@@ -260,6 +363,8 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     /// `nonisolated(unsafe)`: `URLProtocol` instances load on URLSession's
     /// queues, so `lock` guards this rather than isolation.
     nonisolated(unsafe) private static var challengedPaths: Set<String> = []
+    /// When `.librariesFailAtFirst` first saw `/Views`.
+    nonisolated(unsafe) private static var firstViewsRequest: Date?
     private static let lock = NSLock()
 
     /// Items deleted during this app session.
@@ -270,6 +375,24 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     /// of the catalogue — and process-lifetime, so each test's fresh launch
     /// starts clean with no explicit reset.
     nonisolated(unsafe) private static var deletedItemIDs: Set<String> = []
+
+    /// Watched states changed during this app session, by item id: the same
+    /// minimal shape as `deletedItemIDs`. Without it a grid that reloads
+    /// after its detail page marked a title watched got the fixture's state
+    /// back, and the Apple TV journey for that had nothing to see.
+    nonisolated(unsafe) private static var watchedOverrides: [String: Bool] = [:]
+
+    private static func setWatched(_ watched: Bool, itemID: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        watchedOverrides[itemID] = watched
+    }
+
+    private static func watchedOverride(_ itemID: String) -> Bool? {
+        lock.lock()
+        defer { lock.unlock() }
+        return watchedOverrides[itemID]
+    }
 
     /// The item id in a `DELETE /Items/{id}`, or `nil` off that route. Matched
     /// precisely so `/Users/{id}/Items/{id}` can't be mistaken for it.
@@ -460,11 +583,24 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         // `.noDeletePermission` fails nothing wholesale: the standard catalogue
         // with `canDelete` cleared, and only `DELETE` refused in `startLoading`,
         // which has the method.
-        case .standard, .emptyLibrary, .offline, .noDeletePermission, .noPlaylistEditPermission,
+        case .standard, .emptyLibrary, .offline, .noDeletePermission, .folderlessSeasons, .noPlaylistEditPermission,
              .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort,
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
-             .slowVideoDownload:
+             .slowVideoDownload, .slowPlaybackInfo, .slowBoxSet, .emptyBoxSet, .slowItems, .manyLibraries, .manyUsers,
+             .slowPublicUsers, .slowSignIn:
             return nil
+        case .largeCast, .noBackdrop, .missingTileArtwork, .manyGenres, .failingLibrary, .failingHome, .thinDynamicRails, .skipIntro, .earlyCredits,
+             .audioOffsetUnavailable, .rebuffering, .slowSeek, .introBeforeResume:
+            return nil
+        case .failingDetail:
+            return path.hasSuffix("/Items/\(UITestFixtureIdentity.movieID(3))") ? 500 : nil
+        case .librariesFailAtFirst:
+            guard path.hasSuffix("/Views") else { return nil }
+            lock.lock()
+            defer { lock.unlock() }
+            let first = firstViewsRequest ?? Date()
+            firstViewsRequest = first
+            return Date().timeIntervalSince(first) < 5 ? 500 : nil
         case .serverError:
             return 500
         case .unauthorized:
@@ -566,13 +702,18 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return try encode(library.user)
 
         case path.hasSuffix("/Users/Public"):
-            return try encode(UITestConfiguration.scenario == .hiddenUsers ? [UserDto]() : library.publicUsers)
+            switch UITestConfiguration.scenario {
+            case .hiddenUsers: return try encode([UserDto]())
+            case .manyUsers: return try encode(library.manyPublicUsers)
+            default: return try encode(library.publicUsers)
+            }
 
         case path.hasSuffix("/Branding/Configuration"):
             return try encode(library.brandingConfiguration)
 
         case path.hasSuffix("/Views"):
-            return try encode(result(scoped(library.libraries)))
+            let views = UITestConfiguration.scenario == .manyLibraries ? library.manyLibraries : library.libraries
+            return try encode(result(scoped(views)))
 
         case path.hasSuffix("/Items/Latest"):
             // The one endpoint returning a bare array, not a query result.
@@ -585,16 +726,45 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
 
         case path.hasSuffix("/Shows/NextUp"):
             guard UITestConfiguration.scenario != .showWithoutEpisodes else { return try encode(result([])) }
-            return try encode(result(scoped([library.episodes[1]])))
+            // `CanDelete` only when `Fields` names it, as Jellyfin does: a
+            // show page offers this episode for deletion on it.
+            let fields = query.first { $0.name.caseInsensitiveCompare("Fields") == .orderedSame }?.value ?? ""
+            var nextUp = scoped([library.episodes[1]])
+            if !fields.contains("CanDelete") { nextUp = nextUp.map { var episode = $0; episode.canDelete = nil; return episode } }
+            return try encode(result(nextUp))
 
         case path.hasSuffix("/Seasons"):
-            return try encode(result(scoped(library.seasons)))
+            // Jellyfin leaves both `nil` unless `Fields` names them, and this
+            // is the route a show page's Season delete row reads them from;
+            // served regardless, the stub hid that the app never asked.
+            let fields = query.first { $0.name.caseInsensitiveCompare("Fields") == .orderedSame }?.value ?? ""
+            let seasons = scoped(library.seasons).map { season in
+                var season = season
+                if UITestConfiguration.scenario == .folderlessSeasons {
+                    season.locationType = "Virtual"
+                    season.canDelete = false
+                }
+                if !fields.contains("CanDelete") { season.canDelete = nil }
+                if !fields.contains("RecursiveItemCount") { season.recursiveItemCount = nil }
+                return season
+            }
+            return try encode(result(seasons))
 
         case path.hasSuffix("/Episodes"):
             guard UITestConfiguration.scenario != .showWithoutEpisodes else { return try encode(result([])) }
             let seasonID = query.first(where: { $0.name.caseInsensitiveCompare("SeasonId") == .orderedSame })?.value
             let episodes = seasonID.map { id in library.episodes.filter { $0.seasonId == id } } ?? library.episodes
             return try encode(result(scoped(episodes)))
+
+        case path.hasSuffix("/Genres") && UITestConfiguration.scenario == .thinDynamicRails:
+            let forMovies = query.contains { $0.name == "IncludeItemTypes" && ($0.value ?? "").contains("Movie") }
+            return try encode(result(forMovies ? named(["Drama"]) : []))
+
+        case path.hasSuffix("/Studios") && UITestConfiguration.scenario == .thinDynamicRails:
+            return try encode(result([]))
+
+        case path.hasSuffix("/Persons") && UITestConfiguration.scenario == .thinDynamicRails:
+            return try encode(result(named(Set((1...100).map { "Nobody \($0)" }))))
 
         case path.hasSuffix("/Genres"):
             return try encode(result(scoped(named(Set(library.movies.compactMap { $0.genres?.first })))))
@@ -633,7 +803,9 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
 
         case path.contains("/MediaSegments"):
             // Decoded as a query result, not a bare array.
-            return try encode(MediaSegmentDtoQueryResult(items: [], totalRecordCount: 0))
+            let itemID = path.components(separatedBy: "/MediaSegments/").last ?? ""
+            let segments = mediaSegments(forItem: itemID)
+            return try encode(MediaSegmentDtoQueryResult(items: segments, totalRecordCount: segments.count))
 
         case path.hasSuffix("/Sessions"):
             return try encode([SessionInfoDto]())
@@ -679,6 +851,15 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
                 throw UnroutedPath(path: path)
             }
             var resolved = applyDeletePermission(item)
+            if UITestConfiguration.scenario == .largeCast, resolved.type == .movie {
+                resolved.people = (1...10).map { number in
+                    BaseItemPerson(id: "person-extra-\(number)", name: "Person \(number)", role: "Character \(number)", type: "Actor", primaryImageTag: nil)
+                }
+            }
+            if UITestConfiguration.scenario == .noBackdrop {
+                resolved.backdropImageTags = nil
+                resolved.parentBackdropImageTags = nil
+            }
             // The count `AssetDetailViewModel.resolveDeletionOutcome(for:)`
             // re-reads after a deletion. Computed live rather than baked into
             // the fixture, so it falls as episodes are deleted.
@@ -784,7 +965,9 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         case UITestFixtureLibrary.playlistsLibraryID:
             return item.type == .playlist
         case UITestFixtureLibrary.boxSetID:
-            return UITestFixtureLibrary.boxSetMembers.contains { $0.id == item.id }
+            // `.emptyBoxSet`: the set lists nothing.
+            return UITestConfiguration.scenario != .emptyBoxSet
+                && UITestFixtureLibrary.boxSetMembers.contains { $0.id == item.id }
         case UITestFixtureLibrary.seriesID:
             return item.seriesId == UITestFixtureLibrary.seriesID
         default:
@@ -808,7 +991,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             ordered = items.sorted { ($0.communityRating ?? 0, $0.name) < ($1.communityRating ?? 0, $1.name) }
         case "Runtime":
             ordered = items.sorted { ($0.runTimeTicks ?? 0, $0.name) < ($1.runTimeTicks ?? 0, $1.name) }
-        case "DateCreated", "DatePlayed":
+        case "DateCreated", "DateLastContentAdded", "DatePlayed":
             ordered = items.sorted { $0.id < $1.id }
         default:
             ordered = items.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
@@ -836,8 +1019,17 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     /// no-permission scenario, so both halves of the gate come from one
     /// catalogue.
     private static func applyDeletePermission(_ item: BaseItemDto) -> BaseItemDto {
-        guard UITestConfiguration.scenario == .noDeletePermission else { return item }
         var copy = item
+        // Every list and item route maps through here, so a watched change
+        // made this session shows wherever the item is next listed.
+        if let watched = watchedOverride(item.id) {
+            copy.userData?.played = watched
+            if watched { copy.userData?.playbackPositionTicks = 0 }
+        }
+        if UITestConfiguration.scenario == .manyGenres, item.type == .movie {
+            copy.genres = ["Genre \(item.id)"]
+        }
+        guard UITestConfiguration.scenario == .noDeletePermission else { return copy }
         copy.canDelete = false
         return copy
     }
@@ -870,6 +1062,31 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             )
         }
         return SearchHintResult(searchHints: hints, totalRecordCount: hints.count)
+    }
+
+    /// Segments for the player scenarios; none otherwise.
+    private static func mediaSegments(forItem itemID: String) -> [MediaSegmentDto] {
+        let ticksPerSecond: Int64 = 10_000_000
+        switch UITestConfiguration.scenario {
+        case .skipIntro:
+            // Listed twice, the shorter first, as a server with two segment
+            // providers does: one Skip must clear both.
+            return [
+                MediaSegmentDto(id: "intro-short-\(itemID)", itemId: itemID, type: .intro, startTicks: 0, endTicks: 4980 * ticksPerSecond),
+                MediaSegmentDto(id: "intro-\(itemID)", itemId: itemID, type: .intro, startTicks: 0, endTicks: 5000 * ticksPerSecond)
+            ]
+        case .introBeforeResume:
+            return [MediaSegmentDto(
+                id: "intro-\(itemID)", itemId: itemID, type: .intro, startTicks: 0, endTicks: 60 * ticksPerSecond
+            )]
+        case .earlyCredits where UITestFixtureLibrary.allItems[itemID]?.type == .episode:
+            return [MediaSegmentDto(
+                id: "outro-\(itemID)", itemId: itemID, type: .outro,
+                startTicks: 5 * ticksPerSecond, endTicks: 2880 * ticksPerSecond
+            )]
+        default:
+            return []
+        }
     }
 
     private static func playbackInfo(forPath path: String) -> PlaybackInfoResponse {
@@ -1048,6 +1265,23 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     /// enough that the row finishing is well inside an assertion's budget.
     static let slowVideoDownloadDelay: TimeInterval = 10
 
+    /// How long `.slowPlaybackInfo` holds `/PlaybackInfo`: far past the Menu
+    /// press its journey makes, so the player is certainly still loading.
+    static let slowPlaybackInfoDelay: TimeInterval = 30
+
+    /// How long `.slowBoxSet` and `.slowItems` hold their requests: well past the
+    /// shell's three-second hold on the sidebar, which is what used to open
+    /// it over a page with nothing to focus.
+    static let slowBoxSetDelay: TimeInterval = 8
+
+    /// How long `.slowPublicUsers` holds `/Users/Public`: long enough for its
+    /// journey to reach Change Server and press it before any user arrives.
+    static let slowPublicUsersDelay: TimeInterval = 20
+
+    /// How long `.slowSignIn` holds signing in: past the Apple TV splash's
+    /// three-second spinner delay, with time left to see the spinner.
+    static let slowSignInDelay: TimeInterval = 8
+
     /// Stand-in bytes for a font attachment.
     ///
     /// Deliberately not a real face. `CTFontManagerRegisterFontsForURL` refuses
@@ -1068,6 +1302,14 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             UIColor(red: 0.16, green: 0.14, blue: 0.24, alpha: 1).setFill()
             context.fill(CGRect(origin: .zero, size: size))
         }
+        return image.pngData() ?? Data()
+    }()
+
+    /// A fully transparent picture, served for every user's profile image.
+    private static let transparentPNG: Data = {
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = false
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8), format: format).image { _ in }
         return image.pngData() ?? Data()
     }()
 

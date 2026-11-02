@@ -241,6 +241,25 @@ struct ShowDetailView: View {
                     // last episode crosses a boundary. Guarded to Episode
                     // content and an actual mismatch, so it no-ops for every
                     // other `item` change.
+                    // Moves the picker off a season that's gone, which only
+                    // deleting it does: `AssetDetailViewModel` re-reads the
+                    // season list and moves `preselectedSeasonID` to one that's
+                    // left, but this selection is the view's own. Left on the
+                    // deleted id, the episode list re-fetched it and showed the
+                    // season as empty under the next season's name.
+                    // Whether a folderless season's Delete row can show
+                    // depends on its episodes; see
+                    // `AssetDetailViewModel.loadSeasonDeletability(seasonID:)`.
+                    // Keyed on the season list too, since the selection can
+                    // land before the seasons do.
+                    .task(id: [selectedSeasonID ?? ""] + viewModel.seasons.map(\.id)) {
+                        guard let selectedSeasonID else { return }
+                        await viewModel.loadSeasonDeletability(seasonID: selectedSeasonID)
+                    }
+                    .onChange(of: viewModel.seasons.map(\.id)) { _, seasonIDs in
+                        guard let selected = selectedSeasonID, !seasonIDs.contains(selected) else { return }
+                        selectedSeasonID = viewModel.preselectedSeasonID ?? seasonIDs.first
+                    }
                     .onChange(of: viewModel.item?.id) { _, _ in
                         if isEpisodeContent, let preselectedSeasonID = viewModel.preselectedSeasonID,
                            selectedSeasonID != preselectedSeasonID {
@@ -250,6 +269,16 @@ struct ShowDetailView: View {
                 }
             }
             .ignoresSafeArea(edges: .top)
+            // The poster spread on a book-pose iPhone Duo; see `DetailBookSpread`.
+            .detailBookSpread(
+                posterURL: viewModel.item?.posterImageURL,
+                backdropURL: viewModel.item.flatMap { $0.backdropImageURL ?? $0.primaryImageURL },
+                logoURL: viewModel.item?.logoImageURL,
+                title: viewModel.item?.railTitle ?? "",
+                episodeTitle: isEpisodeContent ? viewModel.item?.name : nil,
+                episodeNumberAccessibilityText: isEpisodeContent ? viewModel.item?.episodeLabelAccessibilityText : nil,
+                kind: viewModel.item?.kind
+            )
             // Keeps the bars legible once the hero scrolls away.
             .heroScrollEdgeScrim()
             // Trailing toolbar items float in the nav bar opposite the system
@@ -260,6 +289,7 @@ struct ShowDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     HeroActionButtons(viewModel: viewModel, selectedSeasonID: selectedSeasonID)
                 }
+                .duoVerticalPreferred()
                 // `ToolbarSpacer(.fixed)`, not just a second `ToolbarItem`: on
                 // iOS 26 adjacent trailing items share one Liquid Glass capsule,
                 // so delete drew as a third glyph inside the favorite/watched

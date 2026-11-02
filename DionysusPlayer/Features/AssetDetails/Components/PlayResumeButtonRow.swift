@@ -77,11 +77,11 @@ struct PlayResumeButtonRow: View {
     /// scheme entirely.
     private var buttonTitle: String {
         if let titleOverride {
-            return effectiveItem.isPartWatched
+            return effectiveItem.canResume
                 ? String(localized: "Resume \(titleOverride)")
                 : String(localized: "Play \(titleOverride)")
         }
-        switch (effectiveItem.isPartWatched, effectiveItem.episodeLabel) {
+        switch (effectiveItem.canResume, effectiveItem.episodeLabel) {
         case (true, let suffix?):  return String(localized: "Resume \(suffix)")
         case (true, nil):          return String(localized: "Resume")
         case (false, let suffix?): return String(localized: "Play \(suffix)")
@@ -94,7 +94,7 @@ struct PlayResumeButtonRow: View {
     /// hero (see `BackdropLogoOverlay.episodeNumberAccessibilityText`). Falls
     /// back to `buttonTitle` for Play, or when there's nothing to resume from.
     private var accessibilityLabelText: String {
-        guard effectiveItem.isPartWatched, let resumeText = effectiveItem.resumePositionAccessibilityText else {
+        guard effectiveItem.canResume, let resumeText = effectiveItem.resumePositionAccessibilityText else {
             return buttonTitle
         }
         return String(localized: "Resume from \(resumeText)")
@@ -102,7 +102,7 @@ struct PlayResumeButtonRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Button(action: { effectiveItem.isPartWatched ? onResume() : beginFreshStart(.play) }) {
+            Button(action: { effectiveItem.canResume ? onResume() : beginFreshStart(.play) }) {
                 Label {
                     Text(buttonTitle)
                 } icon: {
@@ -116,9 +116,9 @@ struct PlayResumeButtonRow: View {
             // watch state, the action doesn't, and a test shouldn't have to know
             // which it gets.
             .accessibilityIdentifier(A11yID.AssetDetail.playButton)
-            .resumeProgressOverlay(effectiveItem.isPartWatched ? effectiveItem.playedFraction : nil)
+            .resumeProgressOverlay(effectiveItem.canResume ? effectiveItem.playedFraction : nil)
 
-            if effectiveItem.isPartWatched {
+            if effectiveItem.canResume {
                 Button(action: { beginFreshStart(.restart) }) {
                     Image(systemName: "arrow.counterclockwise")
                 }

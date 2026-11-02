@@ -151,6 +151,9 @@ final class PlayerViewModel {
     }
 
     let engine: PlaybackEngine
+    /// The lip-sync offset for this title: the Audio panel's value, scope and
+    /// Reset, and when a change reaches the engine (`AudioOffsetController`).
+    let audioOffset: AudioOffsetController
     let itemID: String
     let startFromBeginning: Bool
     /// A Playlist's ordered, audio-filtered members; empty for every ordinary
@@ -200,17 +203,29 @@ final class PlayerViewModel {
     private let trackPreferenceStore: TrackPreferenceStore
     private let nextUpPreferenceStore: NextUpPreferenceStore
     private let streamPreferenceStore: StreamPreferenceStore
-    /// Set via `init`'s `downloadedItem:`. When non-nil, `start()`, `stop()` and
-    /// progress reporting route through the local-only offline paths rather than
-    /// the network. `itemID` should still be `downloadedItem.itemID` — the same
-    /// Jellyfin item, played from a local file — and `client`/`userID` remain
-    /// valid to pass through, so callers need no offline-only initializer.
-    private let downloadedItem: DownloadedItem?
-    private let downloadStore: DownloadStore?
+    private let spatialAudioStore: SpatialAudioStore
+    /// The Spatial Audio settings this session was loaded with, read once at
+    /// `start()` (a change applies from the next title). Nil where the
+    /// engine never renders: a server transcode and offline.
+    private var sessionSpatialAudio: SpatialAudioSettings?
+    /// The rebuild an audio switch asked for, if one is running.
+    private var spatialAudioCorrection: Task<Void, Never>?
+    #if DOWNLOADS
+    /// Set via the download-taking convenience `init`. When non-nil, `start()`,
+    /// `stop()` and progress reporting route through the local-only offline
+    /// paths rather than the network. `itemID` should still be
+    /// `downloadedItem.itemID` — the same Jellyfin item, played from a local
+    /// file — and `client`/`userID` remain valid to pass through.
+    @ObservationIgnored private var downloadedItem: DownloadedItem?
+    @ObservationIgnored private var downloadStore: DownloadStore?
     /// `true` for a session playing an offline download.
     /// `PlaybackStatsOverlay`'s Streaming section reads it to show "Download" as
     /// the play method and skip the network-only rows.
     var isOfflinePlayback: Bool { downloadedItem != nil }
+    #else
+    /// Always `false`: this platform has no downloads.
+    var isOfflinePlayback: Bool { false }
+    #endif
     private var progressReportTask: Task<Void, Never>?
     /// Resolved in `start()`/`startOffline()` once `activeMediaSourceID` is known.
     /// Existential rather than concrete, since `startOffline()` installs
@@ -376,6 +391,33 @@ final class PlayerViewModel {
     /// this segment's button again.
     private var skippedSegmentIDs: Set<String> = []
 
+    /// True from `start()` until a time update reaches `startTarget`, where
+    /// the load's resume seek (or 0:00) puts playback. Until then
+    /// `currentTime` holds the load's 0:00, not the position about to play.
+    private(set) var isAwaitingStart = true
+
+    /// Where `isAwaitingStart` waits for, set just before `start()` plays;
+    /// `nil` while the load and resume seek are still under way. An explicit
+    /// seek before it's reached moves it (`seek(to:)`).
+    private var startTarget: TimeInterval?
+
+    /// How far short of `startTarget` still counts as arrived: a seek lands
+    /// on the keyframe or HLS segment at or before its target.
+    static let startTargetTolerance: TimeInterval = 10
+
+    /// Called just before `start()` plays, with where the resume seek put
+    /// playback (0 from the top).
+    private func awaitStart(at target: TimeInterval) {
+        startTarget = target
+        settleStartIfReached()
+    }
+
+    private func settleStartIfReached() {
+        guard isAwaitingStart, let startTarget, currentTime >= startTarget - Self.startTargetTolerance else { return }
+        isAwaitingStart = false
+        self.startTarget = nil
+    }
+
     /// The segment (any kind) containing `currentTime` right now, if any —
     /// drives `SkipSegmentOverlay`'s plain "Skip Intro"/"Skip Recap"/etc.
     /// button. Suppressed for the item's end-credits segment specifically
@@ -388,8 +430,13 @@ final class PlayerViewModel {
     /// `skippedSegmentIDs` — the button needs to disappear the instant it's
     /// tapped, not once `currentTime` actually catches up to the seek
     /// target, which can lag behind by a buffering spell's worth of time.
+    ///
+    /// Nothing is offered until the session's start has landed
+    /// (`isAwaitingStart`): a resume reads 0:00 through its load and seek,
+    /// which put an intro starting at 0:00 under a press meant for something
+    /// else (Benjamin, 2026-10-30).
     var currentSkipSegment: PlaybackSegment? {
-        guard !isPictureInPictureActive,
+        guard !isAwaitingStart, !isPictureInPictureActive,
               let segment = mediaSegments.first(where: { $0.startSeconds <= currentTime && currentTime < $0.endSeconds }),
               !skippedSegmentIDs.contains(segment.id)
         else { return nil }
@@ -405,12 +452,12 @@ final class PlayerViewModel {
         trackPreferenceStore: TrackPreferenceStore = TrackPreferenceStore(),
         nextUpPreferenceStore: NextUpPreferenceStore = NextUpPreferenceStore(),
         streamPreferenceStore: StreamPreferenceStore = StreamPreferenceStore(),
-        // Non-nil routes this session through the offline playback path.
-        downloadedItem: DownloadedItem? = nil,
-        downloadStore: DownloadStore? = nil,
+        audioOffsetStore: AudioOffsetStore = AudioOffsetStore(),
+        spatialAudioStore: SpatialAudioStore = SpatialAudioStore(),
         playbackQueue: [MediaItem] = []
     ) {
         self.client = client
+        self.spatialAudioStore = spatialAudioStore
         self.userID = userID
         self.itemID = itemID
         self.engine = engine
@@ -419,9 +466,10 @@ final class PlayerViewModel {
         self.trackPreferenceStore = trackPreferenceStore
         self.nextUpPreferenceStore = nextUpPreferenceStore
         self.streamPreferenceStore = streamPreferenceStore
-        self.downloadedItem = downloadedItem
-        self.downloadStore = downloadStore
         self.playbackQueue = playbackQueue
+        self.audioOffset = AudioOffsetController(itemID: itemID, store: audioOffsetStore) { [weak engine] milliseconds in
+            engine?.setAudioOffset(AudioOffset.seconds(milliseconds))
+        }
 
         engine.onStateChange = { [weak self] state in
             guard let self else { return }
@@ -440,6 +488,7 @@ final class PlayerViewModel {
             guard let self else { return }
             self.currentTime = time
             self.duration = duration
+            self.settleStartIfReached()
             self.updateNextUpCountdownAnchor()
             // Item time on a transcode, the axis `assSeekHold` counts playback on.
             if self.assSeekHold != nil {
@@ -463,10 +512,42 @@ final class PlayerViewModel {
         engine.onPictureInPicturePossibleChange = { [weak self] possible in self?.isPictureInPicturePossible = possible }
         engine.onPictureInPictureActiveChange = { [weak self] active in self?.isPictureInPictureActive = active }
         engine.onSubtitleTrackChange = { [weak self] id in self?.handleSubtitleTrackChange(id) }
+        engine.onAudioOffsetAvailabilityChange = { [weak self] available in self?.audioOffset.isAvailable = available }
+        audioOffset.isAvailable = engine.isAudioOffsetAvailable
         // The render session is a plain object, so it pokes the view model to
         // re-run the overlay's body.
         assRenderSession.onFrameChange = { [weak self] in self?.assFrameGeneration &+= 1 }
     }
+
+    #if DOWNLOADS
+    /// The offline entry point: the same session, played from a download.
+    /// Non-nil `downloadedItem` routes it through the offline playback path.
+    convenience init(
+        client: JellyfinAPIClient, userID: String, itemID: String, engine: PlaybackEngine,
+        startFromBeginning: Bool = false, mediaSourceID: String? = nil,
+        trackPreferenceStore: TrackPreferenceStore = TrackPreferenceStore(),
+        nextUpPreferenceStore: NextUpPreferenceStore = NextUpPreferenceStore(),
+        streamPreferenceStore: StreamPreferenceStore = StreamPreferenceStore(),
+        audioOffsetStore: AudioOffsetStore = AudioOffsetStore(),
+        spatialAudioStore: SpatialAudioStore = SpatialAudioStore(),
+        downloadedItem: DownloadedItem?,
+        downloadStore: DownloadStore?,
+        playbackQueue: [MediaItem] = []
+    ) {
+        self.init(
+            client: client, userID: userID, itemID: itemID, engine: engine,
+            startFromBeginning: startFromBeginning, mediaSourceID: mediaSourceID,
+            trackPreferenceStore: trackPreferenceStore,
+            nextUpPreferenceStore: nextUpPreferenceStore,
+            streamPreferenceStore: streamPreferenceStore,
+            audioOffsetStore: audioOffsetStore,
+            spatialAudioStore: spatialAudioStore,
+            playbackQueue: playbackQueue
+        )
+        self.downloadedItem = downloadedItem
+        self.downloadStore = downloadStore
+    }
+    #endif
 
     /// - Parameter resumeSeconds: Seeks here after loading instead of consulting
     ///   the server's possibly-stale `resumePositionSeconds`. Used to resume in
@@ -475,10 +556,15 @@ final class PlayerViewModel {
     func start(resumeSeconds: TimeInterval? = nil) async {
         errorMessage = nil
         failureCategory = nil
+        cancelSpatialAudioCorrection()
+        isAwaitingStart = true
+        startTarget = nil
+        #if DOWNLOADS
         if let downloadedItem {
             await startOffline(downloadedItem, resumeSeconds: resumeSeconds)
             return
         }
+        #endif
         do {
             let images = await client.makeImageURLBuilder()
             // The one caller of `item(userID:itemID:)` needing `Trickplay`, for
@@ -575,23 +661,54 @@ final class PlayerViewModel {
             self.assFontTask = nil
             self.fetchedASSFonts = []
             let atmosAudioTrackIndices = Self.atmosAudioTrackIndices(from: source?.mediaStreams ?? [])
+            // AetherEngine renders object audio for the whole session in one
+            // layout, so the track that will play is predicted first and the
+            // rendering corrected once it's known (below).
+            sessionSpatialAudio = isRemoteHLS ? nil : spatialAudioStore.settings
+            let spatialAudio = sessionSpatialAudio.map { settings in
+                SpatialAudioRules.rendering(
+                    for: SpatialAudioRules.predictedAudioStream(
+                        in: mediaStreams,
+                        rememberedTrackID: trackPreferenceStore.selection(forItem: itemID, userID: userID)?.audioTrack
+                            .flatMap { Self.audioStream(forEngineTrackID: $0.id, in: mediaStreams) }?.index,
+                        settings: settings
+                    ),
+                    settings: settings
+                )
+            } ?? .off
 
             isRemoteHLSSession = isRemoteHLS
             try await engine.load(
-                url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: atmosAudioTrackIndices, isRemoteHLS: isRemoteHLS
+                url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: atmosAudioTrackIndices,
+                isRemoteHLS: isRemoteHLS, audioOffset: audioOffset.loadSeconds, spatialAudio: spatialAudio
             )
-            applyStoredTrackSelection()
+            let restoredAudioTrackID = applyStoredTrackSelection()
+            // Before the resume seek, so a rebuild doesn't follow it.
+            await correctSpatialAudio(
+                forEngineTrackID: restoredAudioTrackID ?? engine.audioTracks.first(where: \.isSelected)?.id
+            )
             // An explicit `resumeSeconds` wins over the server's last-known
             // position and ignores `startFromBeginning`: this recovers an
             // already-started session rather than honouring a play-from-the-top
             // request.
+            var startTime: TimeInterval = 0
             if let resumeSeconds, resumeSeconds > 0 {
-                await engine.seek(to: resumeSeconds)
+                startTime = resumeSeconds
             } else if !startFromBeginning, let resumeSeconds = mediaItem.resumePositionSeconds, resumeSeconds > 0 {
-                await engine.seek(to: resumeSeconds)
+                startTime = resumeSeconds
             }
+            if startTime > 0 {
+                // Exact: a late landing would skip what the viewer hasn't seen.
+                await engine.seek(to: startTime, exact: true)
+            }
+            // Closed during the load or the resume seek: `stop()` has already
+            // run and skipped its report (nothing had started), so playing or
+            // reporting a start now would leave a session open behind it.
+            try Task.checkCancellation()
+            awaitStart(at: startTime)
             engine.play()
 
+            hasReportedPlaybackStart = true
             try? await client.reportPlaybackStart(itemID: itemID, mediaSourceID: activeMediaSourceID, playSessionID: activePlaySessionID)
             startProgressReporting()
         } catch is CancellationError {
@@ -613,6 +730,7 @@ final class PlayerViewModel {
         }
     }
 
+    #if DOWNLOADS
     /// `start()`'s offline counterpart. Builds a `file://` URL and local
     /// `ExternalSubtitleSource`s from `DownloadFileStore`, and skips every
     /// network call `start()` makes — item fetch, `playbackInfo`,
@@ -648,7 +766,7 @@ final class PlayerViewModel {
         engine.setNowPlayingInfo(title: mediaItem.railTitle, subtitle: mediaItem.railSubtitle, artwork: nil)
 
         activeMediaSourceID = downloadedItem.mediaSourceID
-        mediaSegments = downloadedItem.segments.map(PlaybackSegment.init(downloaded:))
+        mediaSegments = PlaybackSegment.merged(downloadedItem.segments.map(PlaybackSegment.init(downloaded:)))
         endCreditsSegment = mediaSegments.filter { $0.kind == .outro }.max { $0.startSeconds < $1.startSeconds }
         // Empty for a download predating chapter support, or an item with no
         // chapters — the same no-chapter-UI outcome either way.
@@ -673,13 +791,23 @@ final class PlayerViewModel {
 
         do {
             isRemoteHLSSession = false
-            try await engine.load(url: videoURL, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: [])
+            // Downloads are always transcoded to HEVC/MP4: nothing to render.
+            sessionSpatialAudio = nil
+            try await engine.load(
+                url: videoURL, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: [],
+                isRemoteHLS: false, audioOffset: audioOffset.loadSeconds
+            )
             applyStoredTrackSelection()
+            var startTime: TimeInterval = 0
             if let resumeSeconds, resumeSeconds > 0 {
-                await engine.seek(to: resumeSeconds)
+                startTime = resumeSeconds
             } else if !startFromBeginning, downloadedItem.resumePositionTicks > 0 {
-                await engine.seek(to: Double(downloadedItem.resumePositionTicks) / 10_000_000)
+                startTime = Double(downloadedItem.resumePositionTicks) / 10_000_000
             }
+            if startTime > 0 {
+                await engine.seek(to: startTime, exact: true)
+            }
+            awaitStart(at: startTime)
             engine.play()
             startOfflineProgressReporting(downloadedItem)
         } catch is CancellationError {
@@ -739,6 +867,7 @@ final class PlayerViewModel {
         downloadedItem.pendingSync = true
         downloadStore?.save()
     }
+    #endif
 
     /// Fire-and-forget: fetches the poster and re-stages Now Playing with it.
     /// Title and subtitle already went in synchronously in `start()`, so this only
@@ -798,7 +927,7 @@ final class PlayerViewModel {
     private func loadMediaSegments(for item: MediaItem) {
         Task { [weak self] in
             guard let dtos = try? await self?.client.mediaSegments(itemID: item.id) else { return }
-            let segments = dtos.compactMap(PlaybackSegment.init(dto:))
+            let segments = PlaybackSegment.merged(dtos.compactMap(PlaybackSegment.init(dto:)))
             self?.mediaSegments = segments
             self?.endCreditsSegment = segments.filter { $0.kind == .outro }.max { $0.startSeconds < $1.startSeconds }
         }
@@ -809,7 +938,7 @@ final class PlayerViewModel {
     /// the seek to land, then jumps to the segment's end via `seek(to:)`.
     func skipSegment(_ segment: PlaybackSegment) {
         skippedSegmentIDs.insert(segment.id)
-        seek(to: segment.endSeconds)
+        seek(to: segment.endSeconds, exact: true)
     }
 
     /// `SkipSegmentOverlay`'s swipe-to-dismiss and its VoiceOver close button.
@@ -1017,6 +1146,7 @@ final class PlayerViewModel {
     /// the defect worth catching here (every track resolving to the same
     /// script) lives in this wiring rather than in either mapping.
     func assScriptSource(for track: PlaybackTrack) async -> ASSScriptSource? {
+        #if DOWNLOADS
         if let downloadedItem {
             guard let file = Self.registeredSidecar(
                 forTrack: track, engineTracks: engine.subtitleTracks,
@@ -1024,6 +1154,7 @@ final class PlayerViewModel {
             ), Self.isAuthoredASSPath(file.relativePath) else { return nil }
             return .localFile(DownloadFileStore.url(forRelativePath: file.relativePath))
         }
+        #endif
         guard let mediaSourceID = activeMediaSourceID else { return nil }
         // Two kinds of track reach here and they map differently. A track the
         // engine demuxed out of the container is paired with its `MediaStream`
@@ -1077,9 +1208,11 @@ final class PlayerViewModel {
     /// renders the script in a fallback one, which is how the app behaved
     /// before any of this and is not worth failing a subtitle over.
     private func fetchASSFonts() async -> [ASSFontAttachment] {
+        #if DOWNLOADS
         if let downloadedItem {
             return Self.assFonts(fromDownloaded: downloadedItem.fontFiles)
         }
+        #endif
         guard let mediaSourceID = activeMediaSourceID else { return [] }
         var fonts: [ASSFontAttachment] = []
         // Serial rather than a task group: a container carries a handful of
@@ -1109,6 +1242,7 @@ final class PlayerViewModel {
         return fonts
     }
 
+    #if DOWNLOADS
     /// Reads a download's stored font sidecars back into memory.
     ///
     /// A file that has gone missing is skipped rather than failing the set: the
@@ -1123,6 +1257,7 @@ final class PlayerViewModel {
             return ASSFontAttachment(filename: file.fileName, data: data)
         }
     }
+    #endif
 
     /// Shorter than `scriptRequestTimeout`, deliberately. The same on-demand
     /// extraction is behind both, but the script IS the subtitle while the
@@ -1324,13 +1459,48 @@ final class PlayerViewModel {
     /// numbers it. Subtracting the count of preceding external streams recovers
     /// the physical index.
     static func atmosAudioTrackIndices(from mediaStreams: [MediaStream]) -> Set<Int> {
-        let externalIndices = mediaStreams.filter { $0.isExternal == true }.map(\.index)
-        func physicalIndex(_ index: Int) -> Int {
-            index - externalIndices.filter { $0 < index }.count
-        }
-        return Set(mediaStreams
+        Set(mediaStreams
             .filter { $0.type == "Audio" && $0.audioSpatialFormat == "DolbyAtmos" }
-            .map { physicalIndex($0.index) })
+            .map { physicalIndex(of: $0.index, in: mediaStreams) })
+    }
+
+    /// A stream's position in the container AetherEngine demuxes, which is its
+    /// engine track id: Jellyfin numbers external streams into the same
+    /// sequence, so each one before it shifts `index` one higher.
+    static func physicalIndex(of index: Int, in mediaStreams: [MediaStream]) -> Int {
+        index - mediaStreams.filter { $0.isExternal == true && $0.index < index }.count
+    }
+
+    /// The audio `MediaStream` an engine track id names.
+    static func audioStream(forEngineTrackID id: Int, in mediaStreams: [MediaStream]) -> MediaStream? {
+        mediaStreams.first { $0.type == "Audio" && $0.isExternal != true && physicalIndex(of: $0.index, in: mediaStreams) == id }
+    }
+
+    /// Rebuilds the session with the rendering the playing track needs, when
+    /// the loaded one differs: a mispredicted track at start, or an audio
+    /// switch between formats. A failure keeps playing as loaded.
+    private func correctSpatialAudio(forEngineTrackID id: Int?) async {
+        guard let settings = sessionSpatialAudio else { return }
+        let needed = SpatialAudioRules.rendering(
+            for: id.flatMap { Self.audioStream(forEngineTrackID: $0, in: mediaStreams) }, settings: settings
+        )
+        guard needed != engine.spatialAudio, !Task.isCancelled else { return }
+        do {
+            try await engine.setSpatialAudio(needed)
+        } catch {
+            Self.logger.error("Spatial Audio rebuild failed, playing as loaded: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// For tests: waits for the rebuild an audio switch started.
+    func awaitSpatialAudioCorrection() async {
+        await spatialAudioCorrection?.value
+    }
+
+    /// A rebuild queued for one session mustn't run against the next.
+    private func cancelSpatialAudioCorrection() {
+        spatialAudioCorrection?.cancel()
+        spatialAudioCorrection = nil
     }
 
     /// Restores the tracks last explicitly picked for this item, overriding what
@@ -1343,11 +1513,16 @@ final class PlayerViewModel {
     /// exists: ids are physical container positions, so the same id can point at
     /// a different track after a layout change. A mismatch is skipped rather than
     /// passed through.
-    private func applyStoredTrackSelection() {
-        guard let selection = trackPreferenceStore.selection(forItem: itemID, userID: userID) else { return }
+    ///
+    /// Returns the audio track id it selected, if it selected one.
+    @discardableResult
+    private func applyStoredTrackSelection() -> Int? {
+        guard let selection = trackPreferenceStore.selection(forItem: itemID, userID: userID) else { return nil }
+        var restoredAudioTrackID: Int?
         if let audioTrack = selection.audioTrack,
            engine.audioTracks.contains(where: { $0.id == audioTrack.id && $0.title == audioTrack.title }) {
             engine.selectAudioTrack(id: audioTrack.id)
+            restoredAudioTrackID = audioTrack.id
         }
         switch selection.subtitlePreference {
         case .unset:
@@ -1359,23 +1534,49 @@ final class PlayerViewModel {
                 engine.selectSubtitleTrack(id: subtitleTrack.id)
             }
         }
+        return restoredAudioTrackID
     }
 
     func togglePlayPause() {
         engine.togglePlayPause()
     }
 
+    /// Explicit, for the Apple TV's scrub: a swipe or hold pauses, and a
+    /// commit plays, whatever the state was. iOS only toggles.
+    func play() {
+        engine.play()
+    }
+
+    func pause() {
+        engine.pause()
+    }
+
     /// Clears `nextUpCountdownAnchorTime` before seeking. This is the one choke
     /// point every explicit jump goes through — scrubber, skip buttons,
     /// VoiceOver's adjustable action — and each must re-anchor the end-credits
-    /// countdown where it lands rather than reuse a stale one.
-    func seek(to time: TimeInterval) {
+    /// countdown where it lands rather than reuse a stale one. `exact` as in
+    /// `PlaybackEngine.seek(to:exact:)`: a chapter or a segment's end passes
+    /// `true`; a scrub or a 10s skip lands wherever is quickest.
+    func seek(to time: TimeInterval, exact: Bool = false) {
         nextUpCountdownAnchorTime = nil
-        Task { await engine.seek(to: time) }
+        if isAwaitingStart, startTarget != nil { startTarget = time }
+        Task { await engine.seek(to: time, exact: exact) }
     }
 
     func selectAudioTrack(id: Int) {
-        engine.selectAudioTrack(id: id)
+        // A switch between formats whose settings differ (Atmos ↔ DTS:X, or
+        // to a format that's off) needs another rendering, and it goes
+        // first: AetherEngine's switch is a rebuild of its own that a later
+        // rebuild cancels, keeping the old track, while one that follows the
+        // rendering's rebuild carries the new rendering with it.
+        let previous = spatialAudioCorrection
+        spatialAudioCorrection = Task { [weak self] in
+            await previous?.value
+            guard let self, !Task.isCancelled else { return }
+            await self.correctSpatialAudio(forEngineTrackID: id)
+            guard !Task.isCancelled else { return }
+            self.engine.selectAudioTrack(id: id)
+        }
         guard let track = engine.audioTracks.first(where: { $0.id == id }) else { return }
         trackPreferenceStore.recordAudioSelection(
             TrackPreferenceStore.TrackChoice(id: track.id, title: track.title), forItem: itemID, userID: userID
@@ -1435,8 +1636,20 @@ final class PlayerViewModel {
         }
     }
 
-    func stop() async {
+    /// Set once `start()` has reported a start to the server; `stop()` reports
+    /// a stop only after one.
+    private var hasReportedPlaybackStart = false
+
+    /// `handingOff`: the engine plays the next item next, for another view
+    /// model, so it is left running for that item's `load()` to replace this
+    /// one (the Apple TV's Next Up, `TVPlayerHostController`). Only the stop
+    /// is reported.
+    func stop(handingOff: Bool = false) async {
+        // Already saved; the next load reads it, so only the engine call goes.
+        audioOffset.cancelPending()
         progressReportTask?.cancel()
+        cancelSpatialAudioCorrection()
+        #if DOWNLOADS
         if let downloadedItem {
             // Captured before `engine.stop()`, which synchronously zeroes
             // AetherEngine's clock and duration. Those reach
@@ -1449,8 +1662,9 @@ final class PlayerViewModel {
             writeOfflineProgress(downloadedItem, currentTime: capturedTime, duration: capturedDuration)
             return
         }
+        #endif
         let ticks = Int64(currentTime * 10_000_000)
-        engine.stop()
+        if !handingOff { engine.stop() }
         // Skipped while known-offline rather than awaited: a guaranteed failure
         // still costs `sendRaw`'s 20s timeout, stalling every caller of `stop()`
         // including `PlayerView.tearDown()`, so any close affordance sat doing
@@ -1459,7 +1673,11 @@ final class PlayerViewModel {
         // Keyed on live connectivity rather than `isOfflinePlayback`: a download
         // takes the branch above, and this one only runs for a live session whose
         // server became unreachable mid-session.
-        if !ConnectivityMonitor.shared.isOffline {
+        // Nothing reported as started, nothing to stop. Jellyfin writes a
+        // reported position straight to the resume point, so the 0 of a player
+        // closed while loading wiped it (and omitting the position marks the
+        // item played), in `UserDataManager.UpdatePlayState`.
+        if hasReportedPlaybackStart, !ConnectivityMonitor.shared.isOffline {
             try? await client.reportPlaybackStopped(itemID: itemID, positionTicks: ticks, mediaSourceID: activeMediaSourceID, playSessionID: activePlaySessionID)
         }
     }

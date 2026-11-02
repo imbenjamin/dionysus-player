@@ -38,6 +38,12 @@ enum UITestScenario: String {
     /// asserts the absence of `deleteButton`, not of the toolbar item.
     case noDeletePermission
 
+    /// `.standard`'s catalogue with the show's seasons made up by the server
+    /// (`LocationType: Virtual`, `CanDelete: false`), as for a show whose
+    /// episodes sit loose in its folder, and a `DELETE` of a season refused as
+    /// Jellyfin refuses it. Delete Season then goes episode by episode.
+    case folderlessSeasons
+
     /// `.standard`'s catalogue with every playlist's permissions lookup
     /// answering 404 — Jellyfin's "permissions not found" for a user who neither
     /// owns the playlist nor is shared on it — and any add or removal refused
@@ -111,6 +117,117 @@ enum UITestScenario: String {
     /// holds still on its code for as long as a test needs — an audit of it
     /// would otherwise race the approval that closes it.
     case quickConnectPending
+
+    /// `.standard`, with `/PlaybackInfo` held for
+    /// `UITestStubURLProtocol.slowPlaybackInfoDelay`, so the player stays in
+    /// `.loading` for as long as a test needs: the Apple TV journey that
+    /// presses Menu before the item has loaded.
+    case slowPlaybackInfo
+
+    /// `.standard`, but fetching one movie's own item (`movie-03`) answers
+    /// 500, so its detail page fails to load: the Apple TV journey that
+    /// checks the page offers Retry and Menu still pops it.
+    case failingDetail
+
+    /// `.standard`, but every request naming the box set (its own item, its
+    /// members) is held for `UITestStubURLProtocol.slowBoxSetDelay`, so its
+    /// Apple TV detail page stays loading: the journey that presses Menu
+    /// before anything on the page could take focus.
+    case slowBoxSet
+
+    /// `.standard`, but the box set lists no movies: the Apple TV journey that
+    /// checks an empty box set says so and Menu still pops it.
+    case emptyBoxSet
+
+    /// `.standard`, but every list of items (Home's rails, a library's
+    /// titles) is held for `UITestStubURLProtocol.slowBoxSetDelay`: the
+    /// Apple TV journeys that check Home and a library keep focus on their
+    /// loading indicator, so the sidebar doesn't open over them.
+    case slowItems
+
+    /// `.standard`, but a movie's own item lists ten people, so its Cast &
+    /// Crew rail runs well past the right edge of the action row above it:
+    /// the Apple TV journey that presses Up from a person far along it.
+    case largeCast
+
+    /// `.standard`, but an item fetched on its own has no backdrop, so its
+    /// Apple TV detail page shows its poster beside the title instead.
+    case noBackdrop
+
+    /// `.standard`, but the part-watched movie's artwork answers 404, so its
+    /// tile shows the placeholder: the Apple TV journey that checks such a
+    /// tile reads as one with artwork does (M5).
+    case missingTileArtwork
+
+    /// `.standard`, but every movie has a genre of its own, twelve in all,
+    /// so the Apple TV library's Genre list is long enough to scroll (M5).
+    case manyGenres
+
+    /// `.standard`, but listing the Movies library's items answers 500, so
+    /// its Apple TV page fails to load and offers Retry.
+    case failingLibrary
+
+    /// `.standard`, but Home's hero query (`/Users/{id}/Items` sorted at
+    /// random) answers 500, which fails Home's whole first load, so its Apple
+    /// TV page offers Retry. The libraries still load, so the sidebar works.
+    case failingHome
+
+    /// `.standard`, but `/Views` lists seven libraries (the four standard ones,
+    /// two more video libraries, and a Music one), so the Apple TV sidebar
+    /// folds them into its "Libraries" entry. Six are shown after the Music one
+    /// is suppressed, one over the fold threshold.
+    case manyLibraries
+
+    /// `.standard`, but `/Users/Public` lists six users, more than Who's
+    /// Watching? on Apple TV shows in one row.
+    case manyUsers
+
+    /// `.standard`, but `/Users/Public` is held for
+    /// `UITestStubURLProtocol.slowPublicUsersDelay`: the Apple TV journey
+    /// that checks Change Server works while Who's Watching? loads.
+    case slowPublicUsers
+
+    /// `.standard`, but signing in (`/Users/AuthenticateByName`, and
+    /// `/Users/Me` for a Quick Connect session) is held for
+    /// `UITestStubURLProtocol.slowSignInDelay`: a seeded session's launch
+    /// stays on the Apple TV splash past its spinner's delay.
+    case slowSignIn
+
+    /// `.standard`, but `/Views` answers 500 for five seconds after it is
+    /// first asked, as a server still starting up does: whatever loads the
+    /// libraries at launch fails, and a later retry succeeds.
+    case librariesFailAtFirst
+
+    /// `.standard`, but Home's dynamic rails are almost all too thin to show:
+    /// `/Persons` names a hundred people with no titles, `/Studios` names
+    /// none, and `/Genres` names one, Drama, whose five movies make the one
+    /// rail ("Drama Movies"). The first batches come up empty, so Home has to
+    /// keep loading while its spinner is on screen.
+    case thinDynamicRails
+
+    /// Every item has an intro from 0:00 to 83:20, long enough that a
+    /// resumed title starts inside it: Skip Intro shows at once. It is
+    /// listed twice, a copy ending 20s sooner first, as a server with two
+    /// segment providers lists it.
+    case skipIntro
+    /// Every episode's credits start at 0:05, so Next Up shows as soon as an
+    /// episode plays and counts down 10s.
+    case earlyCredits
+    /// `.standard`, but the fake engine reports the audio offset unavailable,
+    /// standing in for a server transcode (AetherEngine's `.remoteBypass`),
+    /// so the player's offset controls are hidden.
+    case audioOffsetUnavailable
+    /// `.standard`, but the fake engine stalls 2 s into playback, reporting
+    /// `.buffering` for 3 s before playing on: a mid-play rebuffer, as a
+    /// remux on a slow link has.
+    case rebuffering
+    /// `.standard`, but the fake engine holds every seek in `.seeking` for
+    /// 3 s before it lands: a long jump (a chapter) on a slow link.
+    case slowSeek
+    /// Every item has an intro from 0:00 to 1:00, and every seek is held 3 s
+    /// as in `slowSeek`, so a resume (the part-watched movie, at 20:00) sits
+    /// at 0:00 over an intro it never plays until its seek lands.
+    case introBeforeResume
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a
@@ -153,12 +270,24 @@ enum UITestConfiguration {
     /// detail page.
     static var seedsLongSearchHistory: Bool { flag("UITestSeedLongSearchHistory") }
 
+    /// Seed one recent search for `UITestFixtureIdentity.missingItemID`, an
+    /// item the stub answers 404 for, as one deleted since it was opened.
+    static var seedsMissingSearchHistory: Bool { flag("UITestSeedMissingSearchHistory") }
+
     static var disablesAnimations: Bool { flag("UITestDisableAnimations") }
 
     /// `PlayerControlsOverlay` hides 3s after the last interaction except under
     /// VoiceOver, which XCUITest doesn't enable, so every player assertion would
     /// otherwise race that timer.
     static var disablesControlAutoHide: Bool { flag("UITestDisableControlAutoHide") }
+
+    /// The tvOS player's accessible transport, which otherwise needs
+    /// VoiceOver or Switch Control running; XCUITest can run neither.
+    static var forcesAccessibleTransport: Bool { flag("UITestAccessibleTransport") }
+
+    /// Stand in `SystemCaptionStyle.uiTestStyle` for the Simulator's caption
+    /// settings, which a test can't change.
+    static var usesCustomCaptionStyle: Bool { flag("UITestCustomCaptionStyle") }
 
     /// The server address a seeded session points at. Arbitrary, since every
     /// request is intercepted, but it must be a real URL and must match what

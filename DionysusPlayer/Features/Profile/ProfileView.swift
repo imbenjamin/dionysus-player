@@ -46,6 +46,18 @@ private enum ProfileSettingsPane: Identifiable, Hashable {
         case .about: return "info.circle"
         }
     }
+
+    /// The sidebar row's identifier, so a UI test can open a pane on iPad
+    /// before reaching rows that live only there.
+    var accessibilityIdentifier: String {
+        switch self {
+        case .account: return A11yID.Profile.accountCard
+        case .appearance: return A11yID.Profile.appearancePane
+        case .playback: return A11yID.Profile.playbackPane
+        case .downloads: return A11yID.Profile.downloadsPane
+        case .about: return A11yID.Profile.aboutPane
+        }
+    }
 }
 
 /// Account/server settings: who's signed in and where, plus sign out and
@@ -87,6 +99,14 @@ struct ProfileView: View {
     /// Default `true`, matching `PlayerControlsOverlay`'s read of this key. See
     /// `chaptersInScrubberEnabledDefault` for what it does and doesn't gate.
     @AppStorage(chaptersInScrubberEnabledStorageKey) private var isChaptersInScrubberEnabled = chaptersInScrubberEnabledDefault
+    @AppStorage(subtitleAppearanceStorageKey) private var subtitleAppearance = subtitleAppearanceDefault
+    /// A copy of the stored global offset (`AudioOffsetStore`), which nothing
+    /// observes.
+    @State private var audioOffsetMilliseconds = AudioOffsetStore().globalOffsetMilliseconds
+    /// A copy of the stored Spatial Audio settings (`SpatialAudioStore`),
+    /// written back on every change.
+    @State private var spatialAudio = SpatialAudioStore().settings
+    @State private var showsSpatialAudioHelp = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showAccountDetails = false
     @State private var pendingAccountAction: AccountAction?
@@ -98,11 +118,19 @@ struct ProfileView: View {
     @State private var selectedPane: ProfileSettingsPane? = .appearance
 
     /// See `SettingsLayout` for why this ANDs both size classes rather than
-    /// testing width alone like the Home/Search/Downloads grids.
+    /// testing width alone like the Home/Search/Downloads grids, and for the
+    /// minimum width on top.
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    /// The width Profile is drawn in, measured on the container that holds
+    /// either layout, so it doesn't change with the choice it feeds.
+    @State private var containerWidth: CGFloat = 0
     private var usesSplitLayout: Bool {
-        horizontalSizeClass == .regular && verticalSizeClass == .regular
+        SettingsLayout.usesSplitLayout(
+            horizontalSizeClass: horizontalSizeClass,
+            verticalSizeClass: verticalSizeClass,
+            width: containerWidth
+        )
     }
 
     /// Recomputed on every `body` evaluation: a `FileManager` directory scan
@@ -166,7 +194,9 @@ struct ProfileView: View {
                 compactLayout
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { containerWidth = $0 }
         .task(id: appState.currentUser?.id) { await loadAvatarImageURL() }
+        .sheet(isPresented: $showsSpatialAudioHelp) { SpatialAudioHelpView() }
         // Sign Out and Change Server close the sheet first and run from here,
         // once it's gone — see `AccountAction`.
         .sheet(isPresented: $showAccountDetails, onDismiss: {
@@ -214,6 +244,8 @@ struct ProfileView: View {
                 } footer: {
                     playbackFooter
                 }
+
+                spatialAudioSection
 
                 Section { downloadsRow }
 
@@ -277,8 +309,15 @@ struct ProfileView: View {
 
             Section {
                 ForEach(ProfileSettingsPane.listed) { pane in
-                    Label(pane.title, systemImage: pane.systemImage)
-                        .tag(pane)
+                    // The identifier on the title alone: on the whole `Label`
+                    // it also overwrote the icon's own (its symbol name).
+                    Label {
+                        Text(pane.title)
+                            .accessibilityIdentifier(pane.accessibilityIdentifier)
+                    } icon: {
+                        Image(systemName: pane.systemImage)
+                    }
+                    .tag(pane)
                 }
             }
         }
@@ -312,6 +351,7 @@ struct ProfileView: View {
                 } footer: {
                     playbackFooter
                 }
+                spatialAudioSection
             }
             .navigationTitle("Playback")
         case .downloads:
@@ -431,6 +471,35 @@ struct ProfileView: View {
             }
         }
         Toggle("Chapters in Scrubber", isOn: $isChaptersInScrubberEnabled)
+        Picker("Subtitle Style", selection: $subtitleAppearance) {
+            ForEach(SubtitleAppearance.allCases) { appearance in
+                Text(appearance.displayName).tag(appearance)
+            }
+        }
+        .accessibilityIdentifier(A11yID.Profile.subtitleAppearance)
+        Stepper(
+            value: Binding(
+                get: { audioOffsetMilliseconds },
+                set: { newValue in
+                    let store = AudioOffsetStore()
+                    store.globalOffsetMilliseconds = newValue
+                    audioOffsetMilliseconds = store.globalOffsetMilliseconds
+                }
+            ),
+            in: AudioOffset.range, step: AudioOffset.step
+        ) {
+            LabeledContent("Audio Offset", value: AudioOffsetFormat.value(audioOffsetMilliseconds))
+                .monospacedDigit()
+        }
+        .accessibilityValue(Text(verbatim: AudioOffsetFormat.spoken(audioOffsetMilliseconds)))
+        .accessibilityIdentifier(A11yID.Profile.audioOffsetStepper)
+        if audioOffsetMilliseconds != 0 {
+            Button("Reset to 0 ms") {
+                AudioOffsetStore().globalOffsetMilliseconds = 0
+                audioOffsetMilliseconds = 0
+            }
+            .accessibilityIdentifier(A11yID.Profile.audioOffsetReset)
+        }
         // Streaming mode/bitrate and the Playback Stats toggle live on their
         // own pushed screen — see `AdvancedPlaybackSettingsView`. "Advanced"
         // is also `DownloadsQualityLadderView`'s link text, so the identifier
@@ -441,8 +510,80 @@ struct ProfileView: View {
         .accessibilityIdentifier(A11yID.Profile.advancedPlaybackLink)
     }
 
+    /// TrueHD Atmos and DTS:X as Spatial Audio (Benjamin, 2026-10-19): a
+    /// toggle each, and while one is on, its speaker layout. Hidden below
+    /// iOS 26, where AetherEngine has no APAC encoder.
+    @ViewBuilder
+    private var spatialAudioSection: some View {
+        let formats = SpatialAudioFormat.allCases.filter(SpatialAudioSupport.isOffered)
+        if !formats.isEmpty {
+            Section {
+                ForEach(formats, id: \.self) { format in
+                    spatialAudioRows(for: format)
+                }
+            } header: {
+                Text("Spatial Audio")
+            } footer: {
+                // One sentence; the rest, with #850's caveat, is a sheet of
+                // its own (`SpatialAudioHelp`, Benjamin, 2026-10-23).
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for AirPods.")
+                    // A footnote line is 16pt tall, under the audit's minimum
+                    // tap size (failed v1.2.0-beta.2's release on iOS 27): the
+                    // frame takes 44pt, and the negative padding gives the
+                    // extra back so the footer lays out as before.
+                    Button("Learn More…") { showsSpatialAudioHelp = true }
+                        .font(.footnote)
+                        .frame(minHeight: 44, alignment: .leading)
+                        .contentShape(.rect)
+                        .padding(.vertical, -14)
+                        .accessibilityIdentifier(A11yID.Profile.spatialAudioLearnMore)
+                }
+                .readableSettingsFooter()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func spatialAudioRows(for format: SpatialAudioFormat) -> some View {
+        let isAtmos = format == .dolbyAtmos
+        let enabled: WritableKeyPath<SpatialAudioSettings, Bool> = isAtmos ? \.atmosEnabled : \.dtsXEnabled
+        let layout: WritableKeyPath<SpatialAudioSettings, SpeakerLayout> = isAtmos ? \.atmosLayout : \.dtsXLayout
+        // Two `Text`s, not a ternary of literals, which would be a plain
+        // `String` and skip the String Catalog.
+        Toggle(isOn: spatialAudioBinding(enabled)) {
+            isAtmos ? Text("Dolby Atmos as Spatial Audio") : Text("DTS:X as Spatial Audio")
+        }
+            .accessibilityIdentifier(isAtmos ? A11yID.Profile.spatialAtmosToggle : A11yID.Profile.spatialDTSXToggle)
+        if spatialAudio[keyPath: enabled] {
+            // Named for its format, so the two rows don't share a label
+            // (Benjamin, 2026-10-19).
+            Picker(selection: spatialAudioBinding(layout)) {
+                ForEach(format.layouts, id: \.self) { option in
+                    Text(verbatim: option.optionLabel).tag(option)
+                }
+            } label: {
+                isAtmos ? Text("Dolby Atmos Speaker Layout") : Text("DTS:X Speaker Layout")
+            }
+            .accessibilityIdentifier(isAtmos ? A11yID.Profile.spatialAtmosLayout : A11yID.Profile.spatialDTSXLayout)
+        }
+    }
+
+    private func spatialAudioBinding<Value>(_ keyPath: WritableKeyPath<SpatialAudioSettings, Value>) -> Binding<Value> {
+        Binding(
+            get: { spatialAudio[keyPath: keyPath] },
+            set: { newValue in
+                let store = SpatialAudioStore()
+                var settings = store.settings
+                settings[keyPath: keyPath] = newValue
+                store.settings = settings
+                spatialAudio = store.settings
+            }
+        )
+    }
+
     private var playbackFooter: some View {
-        Text("Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging.")
+        Text("Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Subtitle Style can follow your choices in Settings › Accessibility › Subtitles & Captioning. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel.")
             .readableSettingsFooter()
     }
 

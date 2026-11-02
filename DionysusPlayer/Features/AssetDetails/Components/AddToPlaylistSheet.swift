@@ -47,7 +47,8 @@ struct AddToPlaylistSheet: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel", role: .cancel) { dismiss() }
+                        Button("Cancel", systemImage: "xmark", role: .cancel) { dismiss() }
+                            .toolbarTitleUnlessVertical()
                     }
                 }
                 .navigationDestination(isPresented: $isShowingCreateForm) {
@@ -262,7 +263,8 @@ private struct NewPlaylistForm: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button("Create") { isConfirming = true }
+                Button("Create", systemImage: "checkmark") { isConfirming = true }
+                    .toolbarTitleUnlessVertical()
                     .disabled(trimmedName.isEmpty || viewModel.isSubmitting)
                     .accessibilityIdentifier(A11yID.AddToPlaylist.createButton)
             }

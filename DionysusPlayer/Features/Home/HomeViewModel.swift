@@ -118,6 +118,7 @@ final class HomeViewModel {
     /// the real delays.
     private let reconnectRetrySchedule: [Double]
     /// Coalesces concurrent `retryLoadIfNeeded()` callers into one attempt.
+    private var inFlightLoad: Task<Void, Never>?
     private var inFlightRetry: Task<Void, Never>?
     /// Bumped at the top of every `performFullLoad(resetLoadState:)`, so
     /// `softRefresh()` can detect a concurrent `hardRefresh()` and defer to it.
@@ -151,9 +152,25 @@ final class HomeViewModel {
         self.reconnectRetrySchedule = reconnectRetrySchedule
     }
 
+    /// The first load runs in a task of its own rather than the caller's, so a
+    /// view's `.task` being cancelled when the view disappears (a tab switch
+    /// on iOS, a tab rebuild on tvOS) doesn't cancel it. Cancelled with the
+    /// caller, it left iOS on a spinner and tvOS on an empty Home for good,
+    /// since nothing calls this again once the view model exists. A caller
+    /// arriving mid-load joins it, the same shape as `inFlightRetry`.
     func loadIfNeeded() async {
+        if let inFlightLoad {
+            await inFlightLoad.value
+            return
+        }
         guard loadState == .idle else { return }
-        await load()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.load()
+        }
+        inFlightLoad = task
+        await task.value
+        inFlightLoad = nil
     }
 
     /// Every `loadState` write goes through this rather than a bare assignment,
@@ -208,6 +225,9 @@ final class HomeViewModel {
                 includeItemTypes: ["Movie", "Series"],
                 sortBy: "Random",
                 filters: ["IsUnplayed"],
+                // Only titles with a backdrop of their own, so no hero looks
+                // empty (Benjamin, 2026-10-04).
+                imageTypes: ["Backdrop"],
                 limit: 10
             )
             async let curated = fetchCuratedRails(
@@ -269,8 +289,15 @@ final class HomeViewModel {
         // once Dionysus Player supports audio/music playback.
         async let resume = client.resumeItems(userID: userID, excludeItemTypes: JellyfinAPIClient.audioItemTypeExclusions)
         async let upNext = client.nextUp(userID: userID, limit: 16)
-        async let latestMovies = client.latestItems(userID: userID, parentID: moviesLibraryID, limit: 16)
-        async let latestShows = client.latestItems(userID: userID, parentID: showsLibraryID, limit: 16)
+        // Without the library there's nothing to ask: unscoped, Latest answers
+        // from every library, music and books included (Benjamin, 2026-10-16).
+        let api = client, user = userID
+        func latest(in library: String?) async throws -> [BaseItemDto] {
+            guard let library else { return [] }
+            return try await api.latestItems(userID: user, parentID: library, limit: 16)
+        }
+        async let latestMovies = latest(in: moviesLibraryID)
+        async let latestShows = latest(in: showsLibraryID)
 
         var newRails: [MediaCollectionRail] = []
         func appendRail(_ title: String, _ dtos: [BaseItemDto], seeAllQuery: CollectionQuery? = nil) {
@@ -279,7 +306,10 @@ final class HomeViewModel {
             newRails.append(MediaCollectionRail(title: title, items: items, seeAllQuery: seeAllQuery))
         }
 
-        let resumeItems = try await resume.items
+        // Only what plays: a season or a show in progress is Next Up's to
+        // offer (Benjamin, 2026-10-07), for a server that ignores
+        // `resumeItems`' video-only filter.
+        let resumeItems = try await resume.items.filter { $0.type != .series && $0.type != .season }
         appendRail(String(localized: "Continue Watching"), resumeItems)
         // Jellyfin's `/Shows/NextUp` isn't guaranteed disjoint from
         // `/Users/{id}/Items/Resume` — a show can surface the same
@@ -351,7 +381,10 @@ final class HomeViewModel {
                 guard item.id == target.itemID else { return item }
                 let fetchedTicks = item.dto.userData?.playbackPositionTicks ?? 0
                 let played = item.dto.userData?.played ?? false
-                let caughtUp = fetchedTicks >= target.ticks - Self.optimisticPositionTolerance || played
+                // Played with no position is finished; played with one is a
+                // rewatch, whose position still has to catch up.
+                let finished = played && fetchedTicks == 0
+                let caughtUp = fetchedTicks >= target.ticks - Self.optimisticPositionTolerance || finished
                 if caughtUp {
                     // Jellyfin commits `playbackPositionTicks` and
                     // `playedPercentage` at different times, so a fetch whose
@@ -359,9 +392,8 @@ final class HomeViewModel {
                     // (notably after a backward scrub). `MediaItem.playedFraction`
                     // prefers the raw percentage, which would regress the
                     // progress bar, so recompute it from this fetch's ticks.
-                    // Skipped when `played`: the server resets position then,
-                    // and `hasResumeProgress` already gates on `!isPlayed`.
-                    guard !played, let runTimeTicks = item.dto.runTimeTicks, runTimeTicks > 0 else { return item }
+                    // Skipped when finished: the server has reset the position.
+                    guard !finished, let runTimeTicks = item.dto.runTimeTicks, runTimeTicks > 0 else { return item }
                     return item.withOptimisticPlaybackPosition(
                         seconds: Double(fetchedTicks) / 10_000_000, duration: Double(runTimeTicks) / 10_000_000
                     )

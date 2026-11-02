@@ -160,10 +160,15 @@ enum A11yID {
 
     enum AssetDetail {
         static let playButton = "assetDetail.playButton"
+        /// The poster page of an iPhone Duo's book spread
+        /// (`DetailBookSpread`), shown instead of the hero.
+        static let bookSpreadPoster = "assetDetail.bookSpreadPoster"
         static let restartButton = "assetDetail.restartButton"
         static let favoriteButton = "assetDetail.favoriteButton"
         static let watchedButton = "assetDetail.watchedButton"
         static let unsupportedAudioMessage = "assetDetail.unsupportedAudioMessage"
+        /// The item is gone from the server (`AssetDetailViewModel.LoadState.notFound`).
+        static let notFoundMessage = "assetDetail.notFoundMessage"
         /// The About panel's synopsis line: the synopsis, or "No synopsis
         /// available." without one. The line is always there when the panel
         /// is, so its absence on a playlist without a description proves the
@@ -290,7 +295,7 @@ enum A11yID {
         static let styledSubtitle = "player.styledSubtitle"
 
         /// A cue rendered by the app's OWN overlay rather than libass — every
-        /// SubRip/WebVTT track, and an ASS one with Subtitle Styling off.
+        /// SubRip/WebVTT track, and an ASS one with ASS/SSA Subtitles off.
         /// Several can be on screen at once (a sign alongside dialogue), so a
         /// query for this resolves to more than one element by design; match
         /// the first.
@@ -299,6 +304,8 @@ enum A11yID {
         static let playPauseButton = "player.playPauseButton"
         static let skipForwardButton = "player.skipForwardButton"
         static let skipBackwardButton = "player.skipBackwardButton"
+        /// `SkipSegmentOverlay`'s Skip Intro/Recap/Credits button.
+        static let skipSegmentButton = "player.skipSegmentButton"
         static let scrubber = "player.scrubber"
         static let elapsedLabel = "player.elapsedLabel"
         static let remainingLabel = "player.remainingLabel"
@@ -308,6 +315,13 @@ enum A11yID {
         static let rotationLockButton = "player.rotationLockButton"
         static let pictureInPictureButton = "player.pictureInPictureButton"
         static let statsButton = "player.statsButton"
+        /// `PlaybackStatsOverlay`'s "1/3" page counter.
+        static let statsPageIndicator = "player.stats.pageIndicator"
+        /// A stats row's VALUE text, keyed by the row's English label ("Codec",
+        /// "Sampling"), or its own key where two sections share a label ("Audio
+        /// Decoder"). Every page's rows resolve, not just the showing page's:
+        /// they all stay mounted, so read `statsPageIndicator` for the page.
+        static func statsValue(_ rowLabel: String) -> String { "player.stats.value.\(rowLabel)" }
 
         /// The track picker's root page — its two "Audio"/"Subtitles"
         /// navigation rows, keyed by `TrackPickerLeaf`'s raw kind ("audio"/
@@ -324,6 +338,16 @@ enum A11yID {
         /// The subtitle leaf's "Off" row, which has no `PlaybackTrack` of
         /// its own to key `trackOption(_:_:)` off.
         static let subtitleOffOption = "player.trackPicker.option.subtitle.off"
+        /// The Audio page's offset section (`PlayerControlsOverlay.audioOffsetSection`).
+        static let audioOffsetHeading = "player.audioOffset.heading"
+        /// The Audio Offset page's back row, to the Audio page.
+        static let audioOffsetBack = "player.audioOffset.back"
+        static let audioOffsetValue = "player.audioOffset.value"
+        static let audioOffsetDecrease = "player.audioOffset.decrease"
+        static let audioOffsetIncrease = "player.audioOffset.increase"
+        /// `thisTitle` or `allTitles`.
+        static func audioOffsetScope(_ scope: String) -> String { "player.audioOffset.scope.\(scope)" }
+        static let audioOffsetReset = "player.audioOffset.reset"
 
         /// A `ChapterPickerOverlay` row, keyed by `Chapter.index` — stable
         /// across the online/offline model swap `Chapter.id`'s own doc
@@ -348,6 +372,26 @@ enum A11yID {
 
     enum Profile {
         static let accountCard = "profile.accountCard"
+        /// The iPad sidebar's pane rows (`ProfileSettingsPane`). iPhone has
+        /// no sidebar; its sections sit in one list.
+        static let appearancePane = "profile.pane.appearance"
+        static let playbackPane = "profile.pane.playback"
+        static let downloadsPane = "profile.pane.downloads"
+        static let aboutPane = "profile.pane.about"
+        /// Playback → Audio Offset's stepper, and Reset to 0 ms beside it.
+        static let audioOffsetStepper = "profile.audioOffset.stepper"
+        static let audioOffsetReset = "profile.audioOffset.reset"
+        /// Playback → Subtitle Style's picker.
+        static let subtitleAppearance = "profile.subtitleAppearance"
+        static let spatialAtmosToggle = "profile.spatialAudio.atmos.toggle"
+        static let spatialAtmosLayout = "profile.spatialAudio.atmos.layout"
+        static let spatialDTSXToggle = "profile.spatialAudio.dtsx.toggle"
+        static let spatialDTSXLayout = "profile.spatialAudio.dtsx.layout"
+        /// The section footer's Learn More button, and the sheet it opens:
+        /// the page's text block (never the sheet's root) and its Done.
+        static let spatialAudioLearnMore = "profile.spatialAudio.learnMore"
+        static let spatialAudioHelp = "profile.spatialAudio.help"
+        static let spatialAudioHelpDone = "profile.spatialAudio.help.done"
         static let accountSheet = "profile.accountSheet"
         static let signOutButton = "profile.signOutButton"
         static let changeServerButton = "profile.changeServerButton"
@@ -355,6 +399,7 @@ enum A11yID {
         static let quickConnectRow = "profile.quickConnectRow"
         static let advancedPlaybackLink = "profile.advancedPlaybackLink"
         static let styledSubtitlesToggle = "profile.styledSubtitlesToggle"
+        static let readAheadBufferStepper = "profile.readAheadBuffer.stepper"
         static let downloadsSettingsLink = "profile.downloadsSettingsLink"
         static let qualityLadderLink = "profile.qualityLadderLink"
         static let licenseLink = "profile.licenseLink"
@@ -399,5 +444,257 @@ enum A11yID {
         static let error = "state.error"
         static let offline = "state.offline"
         static let retryButton = "state.retryButton"
+    }
+
+    /// The Apple TV app's identifiers. Never on a screen-root container (see the
+    /// file's header); each sits on a concrete element inside the screen.
+    enum TV {
+        enum Onboarding {
+            /// The splash's spinner, shown once restoring the session takes
+            /// three seconds; the splash itself is decorative.
+            static let splashSpinner = "tv.onboarding.splash.spinner"
+            static let findServerTitle = "tv.onboarding.findServer.title"
+            static let welcomeTitle = "tv.onboarding.welcome.title"
+            static let getStarted = "tv.onboarding.welcome.getStarted"
+            static let enterAddress = "tv.onboarding.findServer.enterAddress"
+            static let addressField = "tv.onboarding.findServer.addressField"
+            static let rescan = "tv.onboarding.findServer.rescan"
+            static func serverRow(_ id: String) -> String { "tv.onboarding.server.\(id)" }
+            static let whosWatchingTitle = "tv.onboarding.whosWatching.title"
+            static func user(_ id: String) -> String { "tv.onboarding.user.\(id)" }
+            static let otherUser = "tv.onboarding.user.other"
+            /// A user already signed in on this Apple TV, in place of `user(_:)`.
+            static func rememberedUser(_ id: String) -> String { "tv.onboarding.rememberedUser.\(id)" }
+            static let forgetAccount = "tv.onboarding.forgetAccount"
+            static let quickConnectCode = "tv.onboarding.quickConnect.code"
+            static let usePassword = "tv.onboarding.quickConnect.usePassword"
+            static let passwordField = "tv.onboarding.password.field"
+            static let changeServer = "tv.onboarding.whosWatching.changeServer"
+            static let signingInTo = "tv.onboarding.whosWatching.signingInTo"
+            static let passwordSignIn = "tv.onboarding.password.signIn"
+            static let getNewCode = "tv.onboarding.quickConnect.getNewCode"
+        }
+        enum Main {
+            static func tile(_ itemID: String) -> String { "tv.main.tile.\(itemID)" }
+            static let heroPlay = "tv.main.hero.play"
+            static let heroInfo = "tv.main.hero.info"
+            static let heroTitle = "tv.main.hero.title"
+            static let heroDots = "tv.main.hero.dots"
+            static func seeAll(_ title: String) -> String { "tv.main.seeAll.\(title)" }
+            /// A rail as one container named for its heading (not a screen
+            /// root, so its tiles keep their identifiers).
+            static func railGroup(_ title: String) -> String { "tv.main.railGroup.\(title)" }
+            static func rail(_ title: String) -> String { "tv.main.rail.\(title)" }
+            static func library(_ libraryID: String) -> String { "tv.main.library.\(libraryID)" }
+            static let retry = "tv.main.retry"
+        }
+        enum Search {
+            static func result(_ itemID: String) -> String { "tv.search.result.\(itemID)" }
+            static func section(_ id: String) -> String { "tv.search.section.\(id)" }
+            static func recent(_ itemID: String) -> String { "tv.search.recent.\(itemID)" }
+            static func recentSection(_ id: String) -> String { "tv.search.recentSection.\(id)" }
+            static let clearRecent = "tv.search.recent.clear"
+            static let noResults = "tv.search.noResults"
+            static let emptyHistory = "tv.search.emptyHistory"
+            /// Recent Searches' heading row, one container named for it (M5).
+            static let recentHeader = "tv.search.recentHeader"
+            static let recentHeading = "tv.search.recentHeading"
+        }
+        enum Library {
+            static let count = "tv.library.count"
+            static let sort = "tv.library.sort"
+            static func filter(_ facet: String) -> String { "tv.library.filter.\(facet)" }
+            static let resetFilters = "tv.library.resetFilters"
+            /// A choice in an open pill's list: "all", or the option's index.
+            static func option(_ pill: String, _ option: String) -> String { "tv.library.option.\(pill).\(option)" }
+            /// An open pill's list, one container named for its pill (M5).
+            static func list(_ pill: String) -> String { "tv.library.list.\(pill)" }
+            /// A long list's scrolled rows, named again: a scroll view is a
+            /// container of its own, and VoiceOver names the innermost (M5).
+            static func listRows(_ pill: String) -> String { "tv.library.list.\(pill).rows" }
+            /// A group of choices in an open list (the sort's fields, its order).
+            static func listSection(_ pill: String, _ index: Int) -> String { "tv.library.list.\(pill).\(index)" }
+            static let retry = "tv.library.retry"
+            static func title(_ libraryID: String) -> String { "tv.library.title.\(libraryID)" }
+            static func tile(_ itemID: String) -> String { "tv.library.tile.\(itemID)" }
+        }
+        enum Detail {
+            static let title = "tv.detail.title"
+            static let play = "tv.detail.play"
+            static let restart = "tv.detail.restart"
+            static let watched = "tv.detail.watched"
+            static let favorite = "tv.detail.favorite"
+            static let overview = "tv.detail.overview"
+            static let retry = "tv.detail.retry"
+            /// Go Back, on the page for an item gone from the server.
+            static let back = "tv.detail.back"
+            static func similar(_ itemID: String) -> String { "tv.detail.similar.\(itemID)" }
+            static func cast(_ memberID: String) -> String { "tv.detail.cast.\(memberID)" }
+            /// Cast & Crew, one container named for its heading (M5).
+            static let castGroup = "tv.detail.castGroup"
+            static let castHeading = "tv.detail.castHeading"
+            /// Cast & Crew's lazy row, named again: VoiceOver says the name of
+            /// the container it enters, and a lazy stack is one of its own.
+            static let castRow = "tv.detail.castRow"
+            /// More Like This: its heading, its container and its lazy row.
+            static let similarHeading = "tv.detail.similarHeading"
+            static let similarGroup = "tv.detail.similarGroup"
+            static let similarRow = "tv.detail.similarRow"
+            static let details = "tv.detail.details"
+            static let fullDetailsTitle = "tv.detail.fullDetails.title"
+            /// A Full Details section ("about", "audio.<version>"…), one container
+            /// named for its heading (M5), and that heading.
+            static func fullDetailsSection(_ id: String) -> String { "tv.detail.fullDetails.section.\(id)" }
+            static func fullDetailsSectionTitle(_ id: String) -> String { "tv.detail.fullDetails.sectionTitle.\(id)" }
+            /// Which episode a show page's Details describe.
+            static let detailsSubject = "tv.detail.details.subject"
+            static func season(_ seasonID: String) -> String { "tv.detail.season.\(seasonID)" }
+            static func episode(_ episodeID: String) -> String { "tv.detail.episode.\(episodeID)" }
+            static let noEpisodes = "tv.detail.noEpisodes"
+            /// A box set's movie or a playlist's entry.
+            static func member(_ id: String) -> String { "tv.detail.member.\(id)" }
+            static let emptyMessage = "tv.detail.empty"
+            static let loading = "tv.detail.loading"
+            /// The row of format badges, read as one element (M5).
+            static let badges = "tv.detail.badges"
+            /// The poster or still beside the title, for a title with no backdrop.
+            static let headerArt = "tv.detail.headerArt"
+            /// More Actions, after Favorite.
+            static let more = "tv.detail.more"
+        }
+        /// A detail page's More Actions: its menu's rows, the playlist
+        /// picker and the new-playlist form.
+        enum Actions {
+            /// Add to Playlist and Delete rows, keyed by the target's id.
+            static func addToPlaylist(_ itemID: String) -> String { "tv.actions.addToPlaylist.\(itemID)" }
+            static func delete(_ itemID: String) -> String { "tv.actions.delete.\(itemID)" }
+            /// The submenus offered when there are several targets.
+            static let addSubmenu = "tv.actions.addToPlaylist"
+            static let deleteSubmenu = "tv.actions.delete"
+            static let deleteConfirm = "tv.actions.delete.confirm"
+            static let newPlaylist = "tv.actions.newPlaylist"
+            /// An existing playlist the user may edit, keyed by its id.
+            static func playlistRow(_ playlistID: String) -> String { "tv.actions.playlist.\(playlistID)" }
+            static let emptyState = "tv.actions.playlists.empty"
+            static let playlistsRetry = "tv.actions.playlists.retry"
+            static let addConfirm = "tv.actions.add.confirm"
+            static let nameField = "tv.actions.newPlaylist.name"
+            static let visibilityToggle = "tv.actions.newPlaylist.visibility"
+            static let create = "tv.actions.newPlaylist.create"
+            static let createConfirm = "tv.actions.newPlaylist.create.confirm"
+        }
+        /// `TVConfirmation`'s Cancel, wherever it asks.
+        static let confirmationCancel = "tv.confirmation.cancel"
+        enum Profile {
+            static let name = "tv.profile.name"
+            static let server = "tv.profile.server"
+            static let switchUser = "tv.profile.switchUser"
+            static let changeServer = "tv.profile.changeServer"
+            static let changeServerConfirm = "tv.profile.changeServer.confirm"
+            static let signOutConfirm = "tv.profile.signOut.confirm"
+            static let followsAppleTVUsers = "tv.profile.followsAppleTVUsers"
+            static let selectsUserEveryRelaunch = "tv.profile.selectsUserEveryRelaunch"
+            static let approveQuickConnect = "tv.profile.approveQuickConnect"
+            static let signOut = "tv.profile.signOut"
+            static let autoCarousel = "tv.profile.autoCarousel"
+            static let nextUpCountdown = "tv.profile.nextUpCountdown"
+            static let chaptersInScrubber = "tv.profile.chaptersInScrubber"
+            static let subtitleAppearance = "tv.profile.subtitleAppearance"
+            static let advanced = "tv.profile.advanced"
+            static let license = "tv.profile.license"
+            static let privacyPolicy = "tv.profile.privacyPolicy"
+            static let version = "tv.profile.version"
+            static let streamingMode = "tv.profile.advanced.streamingMode"
+            static let maxBitrate = "tv.profile.advanced.maxBitrate"
+            static let subtitleStyling = "tv.profile.advanced.subtitleStyling"
+            static let statsButton = "tv.profile.advanced.statsButton"
+            static let quickConnectCode = "tv.profile.quickConnect.code"
+            static let quickConnectAuthorize = "tv.profile.quickConnect.authorize"
+            static let quickConnectMessage = "tv.profile.quickConnect.message"
+            static let textPage = "tv.profile.textPage"
+            /// Profile → Playback → Audio Offset (`TVAudioOffsetPage`).
+            static let audioOffset = "tv.profile.audioOffset"
+            static let spatialAtmos = "tv.profile.spatialAudio.atmos"
+            static let spatialAtmosLayout = "tv.profile.spatialAudio.atmos.layout"
+            static let spatialDTSX = "tv.profile.spatialAudio.dtsx"
+            static let spatialDTSXLayout = "tv.profile.spatialAudio.dtsx.layout"
+            /// Opens the About Spatial Audio page (a `TVTextPageView`).
+            static let spatialAudioAbout = "tv.profile.spatialAudio.about"
+            static let audioOffsetDecrease = "tv.profile.audioOffset.decrease"
+            static let audioOffsetIncrease = "tv.profile.audioOffset.increase"
+            static let audioOffsetValue = "tv.profile.audioOffset.value"
+            static let audioOffsetReset = "tv.profile.audioOffset.reset"
+            /// A section's rows, one container named for its heading (M5).
+            static func section(_ id: String) -> String { "tv.profile.section.\(id)" }
+            static func sectionHeading(_ id: String) -> String { "tv.profile.section.\(id).heading" }
+            /// A picker's or Advanced's title, and their rows as one
+            /// container named for it (M5).
+            static let pageTitle = "tv.profile.pageTitle"
+            static let pickerOptions = "tv.profile.picker.options"
+            static let advancedRows = "tv.profile.advanced.rows"
+            static let readAheadBuffer = "tv.profile.readAheadBuffer"
+            static let readAheadBufferValue = "tv.profile.readAheadBuffer.value"
+            static let readAheadBufferDecrease = "tv.profile.readAheadBuffer.decrease"
+            static let readAheadBufferIncrease = "tv.profile.readAheadBuffer.increase"
+            static let readAheadBufferReset = "tv.profile.readAheadBuffer.reset"
+            /// A choice on a setting's picker page, by the option's id
+            /// (`StreamDecisionMode.rawValue`, a countdown's seconds…).
+            static func option(_ id: String) -> String { "tv.profile.option.\(id)" }
+        }
+        /// The custom sidebar's rows (collapsed rail and open panel alike).
+        enum Sidebar {
+            /// The rail as one container, named for VoiceOver. Not a screen
+            /// root, so its rows keep their own identifiers.
+            static let container = "tv.sidebar"
+            static let profile = "tv.sidebar.profile"
+            static let home = "tv.sidebar.home"
+            static let search = "tv.sidebar.search"
+            static let librariesGroup = "tv.sidebar.libraries"
+            static func library(_ libraryID: String) -> String { "tv.sidebar.library.\(libraryID)" }
+        }
+        enum Player {
+            /// The Audio tab's offset rows (`TVPlayerPanelView.audioContent`).
+            static let audioTracksHeading = "tv.player.audioTracks.heading"
+            static let audioOffsetHeading = "tv.player.audioOffset.heading"
+            static let audioOffsetRow = "tv.player.audioOffset"
+            static let audioOffsetScope = "tv.player.audioOffset.scope"
+            static let audioOffsetReset = "tv.player.audioOffset.reset"
+            static let transport = "tv.player.transport"
+            static let titleBlock = "tv.player.title"
+            static let elapsed = "tv.player.elapsed"
+            static let remaining = "tv.player.remaining"
+            static let formatLabel = "tv.player.format"
+            static let scrubPreview = "tv.player.scrubPreview"
+            static let bufferedRange = "tv.player.buffered"
+            static let scanIndicator = "tv.player.scan"
+            static let actionFlash = "tv.player.flash"
+            /// The spinner drawn while playback loads or rebuffers.
+            static let buffering = "tv.player.buffering"
+            static let skipButton = "tv.player.skip"
+            static let nextUpCard = "tv.player.nextUp"
+            static let nextUpPlayNow = "tv.player.nextUp.playNow"
+            static let nextUpClose = "tv.player.nextUp.close"
+            /// Test-only: a 1pt element whose label is `TVPlayerFocusID`'s
+            /// id for what has focus, since the player doesn't use the focus
+            /// engine XCUITest's `hasFocus` reads.
+            static let focus = "tv.player.focus"
+            static func icon(_ id: String) -> String { "tv.player.icon.\(id)" }
+            /// The accessible transport's own buttons: back, playPause, forward, info.
+            static func control(_ id: String) -> String { "tv.player.control.\(id)" }
+            /// The scrubber as one adjustable element (accessible transport).
+            static let scrubber = "tv.player.scrubber"
+            /// The accessible transport's hidden state: one invisible
+            /// button that brings the controls back.
+            static let showControls = "tv.player.showControls"
+            static let panel = "tv.player.panel"
+            static let restart = "tv.player.restart"
+            static let infoArt = "tv.player.infoArt"
+            static func panelTab(_ id: String) -> String { "tv.player.tab.\(id)" }
+            static func panelRow(_ tab: String, _ index: Int) -> String { "tv.player.row.\(tab).\(index)" }
+            static let statsPanel = "tv.player.stats"
+            /// A row: labelled with its name, its value as the accessibility
+            /// value. Keyed by `PlaybackStatsReport.Row.id`.
+            static func statsValue(_ id: String) -> String { "tv.player.stats.\(id)" }
+        }
     }
 }

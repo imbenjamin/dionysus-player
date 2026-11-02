@@ -208,11 +208,18 @@ struct MediaItem: Identifiable {
         return String(localized: "season \(season) episode \(episode)")
     }
 
-    /// First line under a poster card. Episodes show their series name, so
-    /// Continue Watching reads as show titles rather than episode titles.
+    /// `numberedEpisodeName` worded out for VoiceOver: "season 1 episode 4,
+    /// Pilot".
+    var numberedEpisodeNameAccessibilityText: String {
+        episodeLabelAccessibilityText.map { "\($0), \(name)" } ?? name
+    }
+
+    /// First line under a poster card. Episodes and seasons show their series
+    /// name, so Continue Watching reads as show titles rather than episode
+    /// titles, and a season isn't just "Season 13".
     var railTitle: String {
         switch dto.type {
-        case .episode: return dto.seriesName ?? name
+        case .episode, .season: return dto.seriesName ?? name
         default:       return name
         }
     }
@@ -223,6 +230,8 @@ struct MediaItem: Identifiable {
     /// - Episodes: `S1:E4 · Episode Name` (falls back to the episode name
     ///   alone when the numbering isn't present).
     /// - Series: release year range from `yearText`.
+    /// - Seasons: the season's own name ("Season 13"), under its show's; nil
+    ///   when the title already fell back to it.
     var railSubtitle: String? {
         switch dto.type {
         case .movie:
@@ -232,6 +241,8 @@ struct MediaItem: Identifiable {
             return numberedEpisodeName
         case .series:
             return yearText
+        case .season:
+            return dto.seriesName == nil ? nil : name
         default:
             return nil
         }
@@ -249,7 +260,7 @@ struct MediaItem: Identifiable {
 
     /// `railSubtitle` with `durationAccessibilityText` in place of
     /// `durationText`. Only movies embed a duration, so only they diverge.
-    private var railSubtitleAccessibilityText: String? {
+    var railSubtitleAccessibilityText: String? {
         guard dto.type == .movie else { return railSubtitle }
         let parts = [yearText, durationAccessibilityText].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: ", ")
@@ -323,10 +334,15 @@ struct MediaItem: Identifiable {
     /// Not `dto.childCount`, which on a Series counts seasons.
     var episodeCount: Int? { dto.recursiveItemCount }
 
-    /// Started but not finished: a mid-playback position for a movie, some but
-    /// not all episodes watched for a show. Jellyfin reports both as
-    /// `playedPercentage`.
-    var isPartWatched: Bool {
+    /// Whether Play becomes Resume: a saved position, or for a show some but
+    /// not all episodes watched (Jellyfin reports both as `playedPercentage`).
+    ///
+    /// A saved position resumes even on a played item: a rewatch stopped
+    /// partway keeps `Played` and stores the new position (Benjamin,
+    /// 2026-10-14). A Series or Season has no position of its own, so a played
+    /// one stays Play.
+    var canResume: Bool {
+        if dto.type != .series, dto.type != .season, (resumePositionSeconds ?? 0) > 0 { return true }
         guard !isPlayed, let fraction = playedFraction else { return false }
         return fraction > 0 && fraction < 1
     }
@@ -408,6 +424,45 @@ struct MediaItem: Identifiable {
         }
     }
 
+    /// A badge as VoiceOver should read it: the handful it can't read on
+    /// their own are spelled out, and everything else (4K, HD, DTS, Dolby
+    /// Atmos…) passes through unchanged. Shared by iOS's `InfoMetadataRow`
+    /// and the Apple TV's `TVDetailHeader`, where "DD+" was read "DD plus"
+    /// (M5). `DownloadedInfoMetadataRow` keeps its own, which also spells
+    /// out a file size.
+    static func spokenBadge(_ badge: String) -> String {
+        switch badge {
+        case "CC": String(localized: "Closed Captions")
+        case "DD+": String(localized: "Dolby Digital Plus")
+        case "DD": String(localized: "Dolby Digital")
+        default: badge
+        }
+    }
+
+    /// `text` with each format abbreviation `spokenBadge` knows in words:
+    /// "DD+ · Atmos · 5.1" reads "Dolby Digital Plus · Atmos · 5.1". Only
+    /// whole tokens change, so "DD" inside a word is left alone. For an
+    /// audio track's line in either player's track list and the Apple TV's
+    /// Full Details, where VoiceOver read "DD" as letters (Benjamin, M5).
+    static func spokenFormats(in text: String) -> String {
+        // The boundary before is captured and kept: Swift's `Regex` has no
+        // lookbehind.
+        text.replacing(/(^|[^\w+])(DD\+|DD|CC|MA|HRA)(?![\w+])/) { match in
+            let token = String(match.output.2)
+            let spoken = switch token {
+            case "MA": String(localized: "Master Audio")
+            case "HRA": String(localized: "High Resolution Audio")
+            default: spokenBadge(token)
+            }
+            return match.output.1 + spoken
+        }
+    }
+
+    /// A row of badges read as one element: "Formats: HD, Dolby Digital Plus".
+    static func spokenBadges(_ badges: [String]) -> String {
+        String(localized: "Formats: \(badges.map(spokenBadge).joined(separator: ", "))")
+    }
+
     /// Badges for `InfoMetadataRow`: resolution class, dynamic range, audio
     /// format and accessibility tracks. Separate from `technicalDetails`, since
     /// a "4K"/"HD" badge needs a coarser bucket than that view's exact
@@ -427,10 +482,11 @@ struct MediaItem: Identifiable {
 
         var badges: [String] = []
 
-        if let width = videoStream?.width, let commonName = Self.resolutionCommonName(width: width) {
-            if commonName == "4K" {
-                badges.append("4K")
-            } else if ["1440p", "1080p", "720p"].contains(commonName) {
+        if let width = videoStream?.width, let height = videoStream?.height,
+           let commonName = Self.resolutionCommonName(width: width, height: height) {
+            if commonName == "4K" || commonName == "8K" {
+                badges.append(commonName)
+            } else if commonName == "1080p" || commonName == "720p" {
                 badges.append("HD")
             }
         }
@@ -478,7 +534,8 @@ struct MediaItem: Identifiable {
     private static func versionLabel(for source: MediaSourceInfo, fallbackIndex: Int) -> String {
         let videoStream = (source.mediaStreams ?? []).first { $0.type == "Video" }
         var parts: [String] = []
-        if let width = videoStream?.width, let commonName = resolutionCommonName(width: width) {
+        if let width = videoStream?.width, let height = videoStream?.height,
+           let commonName = resolutionCommonName(width: width, height: height) {
             parts.append(commonName)
         }
         if let dynamicRangeType = videoStream?.videoRangeType ?? videoStream?.videoRange,
@@ -612,20 +669,34 @@ struct MediaItem: Identifiable {
     /// show the same resolution two different ways.
     static func resolutionLabel(width: Int, height: Int) -> String {
         let dimensions = "\(width)\u{00D7}\(height)"
-        return resolutionCommonName(width: width).map { "\(dimensions) (\($0))" } ?? dimensions
+        return resolutionCommonName(width: width, height: height).map { "\(dimensions) (\($0))" } ?? dimensions
     }
 
-    /// Classifies by width: a letterboxed 2.39:1 source keeps its full width but
-    /// has reduced height, so bucketing by height would demote a true 4K
-    /// release. Shared by `resolutionLabel` and `metadataBadges`.
-    private static func resolutionCommonName(width: Int) -> String? {
-        switch width {
-        case 3840...:     "4K"
-        case 2560..<3840: "1440p"
-        case 1920..<2560: "1080p"
-        case 1280..<1920: "720p"
-        case 640..<1280:  "480p"
-        default:          nil
+    /// The smallest standard size the picture fits inside, width and height
+    /// both: Jellyfin's own rule (`MediaStream.GetResolutionText`), so the app
+    /// names a file as the server and its web client do. Neither dimension
+    /// alone works: a letterboxed encode crops its height (3840×1606 is 4K)
+    /// and often a few pixels of width with it (1916×800 is 1080p), and a
+    /// narrower film fills the height instead (1440×1080 is 1080p). Classing
+    /// by width alone called 28 of Benjamin's 1080p films 720p (2026-10-22).
+    /// No 1440p, as in Jellyfin: 2560×1080 ultrawide and 2560×1440 are 1080p.
+    /// Interlacing isn't decoded, so every size reads "p". Shared by
+    /// `resolutionLabel`, `metadataBadges` and the version picker.
+    static func resolutionCommonName(width: Int, height: Int) -> String? {
+        switch (width, height) {
+        case (...256, ...144):   "144p"
+        case (...426, ...240):   "240p"
+        case (...640, ...360):   "360p"
+        case (...682, ...384):   "384p"
+        case (...720, ...404):   "404p"
+        case (...854, ...480):   "480p"
+        case (...960, ...544):   "540p"
+        case (...1024, ...576):  "576p"
+        case (...1280, ...962):  "720p"
+        case (...2560, ...1440): "1080p"
+        case (...4096, ...3072): "4K"
+        case (...8192, ...6144): "8K"
+        default:                 nil
         }
     }
 
@@ -721,6 +792,20 @@ struct MediaItem: Identifiable {
 
     var primaryImageURL: URL? { imageURL(type: "Primary", maxWidth: 500) }
 
+    /// The portrait poster, for the book-pose detail spread
+    /// (`DetailBookSpread`): the item's own Primary, but an episode's show's,
+    /// since an episode's own Primary is a 16:9 still. `nil` rather than a
+    /// 404ing URL when there is none, so the spread can fall back to the
+    /// backdrop (the `thumbImageURL` reasoning).
+    var posterImageURL: URL? {
+        if dto.type == .episode {
+            guard let seriesID = dto.seriesId, let tag = dto.seriesPrimaryImageTag else { return nil }
+            return images.url(itemID: seriesID, imageType: "Primary", tag: tag, maxWidth: 1000)
+        }
+        guard let tag = dto.imageTags?["Primary"] else { return nil }
+        return images.url(itemID: id, imageType: "Primary", tag: tag, maxWidth: 1000)
+    }
+
     /// The 16:9 "Thumb" image: a still frame, which episodes almost always have
     /// and series sometimes do.
     ///
@@ -732,6 +817,13 @@ struct MediaItem: Identifiable {
     var thumbImageURL: URL? {
         guard let tag = dto.imageTags?["Thumb"] else { return nil }
         return images.url(itemID: id, imageType: "Thumb", tag: tag, maxWidth: 500)
+    }
+
+    /// The nearest ancestor's Thumb (an episode's season or show), `nil` when
+    /// none has one or the item has its own (`thumbImageURL`).
+    var parentThumbImageURL: URL? {
+        guard let parentID = dto.parentThumbItemId, let tag = dto.parentThumbImageTag else { return nil }
+        return images.url(itemID: parentID, imageType: "Thumb", tag: tag, maxWidth: 800)
     }
 
     /// Whether this item's rail tile uses `LandscapeMediaCard` rather than

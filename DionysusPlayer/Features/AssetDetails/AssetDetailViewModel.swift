@@ -9,6 +9,9 @@ final class AssetDetailViewModel {
         case loading
         case loaded
         case failed(String)
+        /// The server has no such item: deleted since it was listed, most
+        /// often a recent search. Unlike `.failed`, retrying can't help.
+        case notFound
     }
 
     /// What the detail views render as the page's hero, synopsis, metadata, Play
@@ -135,6 +138,7 @@ final class AssetDetailViewModel {
     private let client: JellyfinAPIClient
     private let userID: String
     private let versionPreferenceStore: MediaVersionPreferenceStore
+    private let searchHistoryStore: SearchHistoryStore
 
     /// Exposed read-only for `DownloadButton`'s call sites, which hold this view
     /// model but no `client` or `userID` of their own.
@@ -147,13 +151,15 @@ final class AssetDetailViewModel {
     /// list, so `load()` runs regardless and replaces it.
     init(
         client: JellyfinAPIClient, userID: String, itemID: String, preloadedItem: MediaItem? = nil,
-        versionPreferenceStore: MediaVersionPreferenceStore = MediaVersionPreferenceStore()
+        versionPreferenceStore: MediaVersionPreferenceStore = MediaVersionPreferenceStore(),
+        searchHistoryStore: SearchHistoryStore = SearchHistoryStore()
     ) {
         self.client = client
         self.userID = userID
         self.itemID = itemID
         self.item = preloadedItem
         self.versionPreferenceStore = versionPreferenceStore
+        self.searchHistoryStore = searchHistoryStore
     }
 
     /// The version a Resume tap continues with: whatever was chosen via the
@@ -172,16 +178,45 @@ final class AssetDetailViewModel {
     /// Guards on `loadState`, not `item`: a preloaded item makes `item` non-nil
     /// before `load()` has run, which would read as nothing to reload and skip
     /// fetching cast, technical details and the rails entirely.
+    ///
+    /// The load runs in a task of its own, as `HomeViewModel.loadIfNeeded()`'s
+    /// does, so the caller's cancellation doesn't reach it. On the Apple TV a
+    /// page pushed beneath the player is taken out of the window as the player
+    /// is presented, which cancels its `.task`: the show's episode lookups then
+    /// failed quietly, leaving a loaded show with no Play. A caller arriving
+    /// mid-load joins it.
     func loadIfNeeded() async {
+        if let inFlightLoad {
+            await inFlightLoad.value
+            return
+        }
         guard loadState == .idle else { return }
-        await load()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.load()
+        }
+        inFlightLoad = task
+        await task.value
+        inFlightLoad = nil
     }
+
+    private var inFlightLoad: Task<Void, Never>?
 
     func load() async {
         loadState = .loading
         do {
             let images = await client.makeImageURLBuilder()
-            let dto = try await client.item(userID: userID, itemID: itemID)
+            let dto: BaseItemDto
+            do {
+                dto = try await client.item(userID: userID, itemID: itemID)
+            } catch let error as JellyfinAPIError where error.isNotFound {
+                // Gone from the server. Only the item itself decides this: a
+                // 404 from a later, secondary fetch is an ordinary failure. A
+                // recent search for it can only lead back here, so it goes.
+                searchHistoryStore.remove(id: itemID, userID: userID)
+                loadState = .notFound
+                return
+            }
 
             // The one place that decides `item`, `seriesID`,
             // `preselectedSeasonID` and `displayedItemID`; see each for what a
@@ -269,7 +304,7 @@ final class AssetDetailViewModel {
                 : nil
 
             if let seriesID, let seasonsResult = try? await client.seasons(seriesID: seriesID, userID: userID) {
-                seasons = seasonsResult.items.map { MediaItem(dto: $0, images: images) }
+                seasons = listedSeasons(seasonsResult, images: images)
             }
 
             // Series tapped directly — see `showPlaybackEpisode`'s doc
@@ -349,6 +384,19 @@ final class AssetDetailViewModel {
         case popToRoot
     }
 
+    /// A folderless season's deletion that stopped partway: some episodes are
+    /// gone from the server and the rest aren't, which the message says, since
+    /// the plain error alone would read as nothing having happened.
+    struct PartialSeasonDeletionError: LocalizedError {
+        let deletedCount: Int
+        let totalCount: Int
+        let underlying: Error
+
+        var errorDescription: String? {
+            String(localized: "Deleted \(deletedCount) of \(totalCount) episodes, then stopped: \(underlying.localizedDescription)")
+        }
+    }
+
     /// Items with a deletion in flight, disabling the control and showing a
     /// spinner. A set rather than one flag, as `pendingFavoriteIDs` is, because
     /// a show page's menu offers Show, Season and Episode independently.
@@ -367,6 +415,10 @@ final class AssetDetailViewModel {
     func delete(_ target: MediaItem) async throws -> DeletionOutcome {
         deletingItemIDs.insert(target.id)
         defer { deletingItemIDs.remove(target.id) }
+
+        if target.kind == .season, !target.canDelete {
+            return try await deleteEpisodeByEpisode(season: target)
+        }
 
         try await client.deleteItem(itemID: target.id)
 
@@ -420,35 +472,150 @@ final class AssetDetailViewModel {
                 return .popToRoot
             }
 
-            if target.kind == .season { return .stayAndRefresh }
-            // An episode reached by its own push is this page, so pop. One picked
-            // in place isn't: `itemID` is still the show's, and that page remains
-            // valid.
-            return target.id == itemID ? .popOneLevel : .stayAndRefresh
+            // An episode reached by its own push is this page, so pop, whether
+            // it was deleted or went with its season. One picked in place isn't:
+            // `itemID` is still the show's, and that page remains valid.
+            guard deletionTakesDisplayedEpisode(target) else { return .stayAndRefresh }
+            return item?.id == itemID ? .popOneLevel : .stayAndRefresh
         default:
             return .popOneLevel
         }
+    }
+
+    /// Whether deleting `target` removes the episode the page is on: that
+    /// episode itself, or the season holding it, which an episode page offers
+    /// beside the episode and the show.
+    private func deletionTakesDisplayedEpisode(_ target: MediaItem) -> Bool {
+        displayedEpisodeIsAmong([target.id])
+    }
+
+    /// Whether the episode the page is on is one of `removedIDs`, or sits in a
+    /// season that is.
+    private func displayedEpisodeIsAmong(_ removedIDs: Set<String>) -> Bool {
+        guard let item, item.kind == .episode else { return false }
+        return removedIDs.contains(item.id) || item.dto.seasonId.map(removedIDs.contains) == true
+    }
+
+    // MARK: Folderless seasons
+
+    /// A folderless season's episodes, keyed by season id, fetched with
+    /// `CanDelete` by `loadSeasonDeletability(seasonID:)`. Missing episodes
+    /// (listed from metadata, no file) are left out: there's nothing of theirs
+    /// to delete, and they're never deletable.
+    private(set) var folderlessSeasonEpisodes: [String: [MediaItem]] = [:]
+
+    /// Folderless seasons emptied by `deleteEpisodeByEpisode`. Jellyfin's
+    /// `LibraryManager.DeleteItem` leaves a made-up season behind when its last
+    /// episode goes, listed with nothing in it until the next library scan, so
+    /// this page stops listing it itself.
+    private var emptiedSeasonIDs: Set<String> = []
+
+    private func listedSeasons(_ result: BaseItemDtoQueryResult, images: ImageURLBuilder) -> [MediaItem] {
+        result.items
+            .filter { !emptiedSeasonIDs.contains($0.id) }
+            .map { MediaItem(dto: $0, images: images) }
+    }
+
+    /// Fetches what `canDelete(season:)` needs for a season the server won't
+    /// delete as a unit: one with no folder of its own (`locationType`
+    /// `"Virtual"`), whose episodes sit loose in the show's folder. Jellyfin's
+    /// `BaseItem.CanDelete()` is `IsFileProtocol`, which a made-up season can
+    /// never be, admins included, so such a season is deleted episode by
+    /// episode instead. A no-op for any other season, and once fetched.
+    func loadSeasonDeletability(seasonID: String) async {
+        guard let seriesID, folderlessSeasonEpisodes[seasonID] == nil,
+              let season = seasons.first(where: { $0.id == seasonID }),
+              !season.canDelete, season.dto.locationType == "Virtual",
+              let result = try? await client.episodes(
+                  seriesID: seriesID, seasonID: seasonID, userID: userID, fields: "CanDelete"
+              ) else { return }
+        let images = await client.makeImageURLBuilder()
+        folderlessSeasonEpisodes[seasonID] = result.items
+            .filter { $0.locationType != "Virtual" }
+            .map { MediaItem(dto: $0, images: images) }
+    }
+
+    /// Whether the Delete menu may offer `season`: the server's own verdict,
+    /// or, for a folderless season, every episode in it being deletable. Never
+    /// for a folderless season with nothing to delete, or before
+    /// `loadSeasonDeletability(seasonID:)` has answered.
+    func canDelete(season: MediaItem) -> Bool {
+        if season.canDelete { return true }
+        guard let episodes = folderlessSeasonEpisodes[season.id], !episodes.isEmpty else { return false }
+        return episodes.allSatisfy(\.canDelete)
+    }
+
+    /// Deletes a folderless season one episode at a time, in order, stopping at
+    /// the first failure. Sequential so a refusal stops it with as little gone
+    /// as possible, and so the count in the error is exact.
+    ///
+    /// Announced once, not per episode: every announcement starts a
+    /// `refreshItem()` on any page beneath, each with its own user-data polling.
+    private func deleteEpisodeByEpisode(season: MediaItem) async throws -> DeletionOutcome {
+        let episodes = folderlessSeasonEpisodes[season.id] ?? []
+        var removedIDs: Set<String> = []
+        for episode in episodes {
+            do {
+                try await client.deleteItem(itemID: episode.id)
+            } catch {
+                // Nothing gone yet: the plain error, as a single delete gives.
+                guard !removedIDs.isEmpty else { throw error }
+                // The season stays, so the last episode that went is announced.
+                DeletedItemBroadcaster.shared.record(itemID: episodes[removedIDs.count - 1].id)
+                await repairPage(removing: removedIDs)
+                throw PartialSeasonDeletionError(
+                    deletedCount: removedIDs.count, totalCount: episodes.count, underlying: error
+                )
+            }
+            removedIDs.insert(episode.id)
+        }
+
+        emptiedSeasonIDs.insert(season.id)
+        DeletedItemBroadcaster.shared.record(itemID: season.id)
+        let outcome = await resolveDeletionOutcome(for: season)
+        if outcome == .stayAndRefresh {
+            await repairPage(removing: removedIDs.union([season.id]))
+        }
+        return outcome
     }
 
     /// Restores the page after deleting something it displayed but needn't leave
     /// over: swaps the hero back to the show, re-reads the season list, and
     /// forces the episode list to re-fetch.
     private func repairPageAfterDeletion(of target: MediaItem) async {
+        await repairPage(removing: [target.id])
+    }
+
+    /// `repairPageAfterDeletion(of:)` for a set of deleted ids: one item, or
+    /// the episodes (and perhaps the season) `deleteEpisodeByEpisode` removed.
+    private func repairPage(removing removedIDs: Set<String>) async {
         let images = await client.makeImageURLBuilder()
+        folderlessSeasonEpisodes = folderlessSeasonEpisodes.mapValues { episodes in
+            episodes.filter { !removedIDs.contains($0.id) }
+        }
 
         // The hero was showing an episode that no longer exists.
-        if target.kind == .episode, let seriesItem {
+        if displayedEpisodeIsAmong(removedIDs), let seriesItem {
             item = seriesItem
             displayedItemID = seriesItem.id
         }
 
         if let seriesID, let seasonsResult = try? await client.seasons(seriesID: seriesID, userID: userID) {
-            seasons = seasonsResult.items.map { MediaItem(dto: $0, images: images) }
+            seasons = listedSeasons(seasonsResult, images: images)
             // The picker could be pointing at the deleted season; fall back to
             // whichever now comes first.
             if let preselectedSeasonID, !seasons.contains(where: { $0.id == preselectedSeasonID }) {
                 self.preselectedSeasonID = seasons.first?.id
             }
+        }
+
+        // Play went with what was deleted: the episode itself, or the season
+        // holding it. Resolved again the way `load()` does, after the season
+        // list and `preselectedSeasonID` above, so it lands on what's left.
+        if let seriesID, let current = showPlaybackEpisode,
+           removedIDs.contains(current.id) || current.dto.seasonId.map(removedIDs.contains) == true {
+            showPlaybackEpisode = nil
+            await resolveShowPlaybackEpisode(seriesID: seriesID, images: images)
         }
 
         // `SeasonEpisodeList` fetches independently of `item`, so without this
@@ -531,8 +698,11 @@ final class AssetDetailViewModel {
     /// Toggles `itemID`'s favorite status. `itemID` is always `item.id` on a
     /// Movie or Episode page, but can be the Show's, the selected Season's or
     /// the current Episode's on a Show page. `currentlyFavorite` is the caller's
-    /// value, flipped rather than re-derived.
-    func toggleFavorite(itemID: String, currentlyFavorite: Bool) async {
+    /// value, flipped rather than re-derived. `written` is called with the new
+    /// value once the write succeeds, before the confirmation poll, for a
+    /// caller holding a copy of `itemID` this view model doesn't (the Apple TV
+    /// show page's chosen episode).
+    func toggleFavorite(itemID: String, currentlyFavorite: Bool, written: ((Bool) -> Void)? = nil) async {
         pendingFavoriteIDs.insert(itemID)
         defer { pendingFavoriteIDs.remove(itemID) }
         let newValue = !currentlyFavorite
@@ -540,17 +710,28 @@ final class AssetDetailViewModel {
         // Applied only once the write succeeded, so a failed request doesn't show
         // a false success. `applyOptimisticFavoriteWatched` covers why this can't
         // wait on the confirmation poll below.
-        if succeeded { applyOptimisticFavoriteWatched(itemID: itemID, favorite: newValue) }
+        if succeeded {
+            applyOptimisticFavoriteWatched(itemID: itemID, favorite: newValue)
+            written?(newValue)
+        }
         await refetchFavoriteWatchedTarget(itemID: itemID, expectedFavorite: newValue)
     }
 
-    /// `toggleFavorite(itemID:currentlyFavorite:)` for the watched status.
-    func toggleWatched(itemID: String, currentlyWatched: Bool) async {
+    /// `toggleFavorite(itemID:currentlyFavorite:written:)` for the watched
+    /// status.
+    func toggleWatched(itemID: String, currentlyWatched: Bool, written: ((Bool) -> Void)? = nil) async {
         pendingWatchedIDs.insert(itemID)
         defer { pendingWatchedIDs.remove(itemID) }
         let newValue = !currentlyWatched
         let succeeded = (try? await client.setWatched(newValue, itemID: itemID, userID: userID)) != nil
-        if succeeded { applyOptimisticFavoriteWatched(itemID: itemID, watched: newValue) }
+        if succeeded {
+            applyOptimisticFavoriteWatched(itemID: itemID, watched: newValue)
+            written?(newValue)
+            #if os(tvOS)
+            // Watched changes Continue Watching and Next Up (M6).
+            TopShelfRefresh.contentChanged()
+            #endif
+        }
         await refetchFavoriteWatchedTarget(itemID: itemID, expectedWatched: newValue)
     }
 
@@ -865,14 +1046,19 @@ final class AssetDetailViewModel {
     /// that season, rather than a Series tap's NextUp. Safe to rely on because
     /// this is only called for Show content — Episode content also sets
     /// `preselectedSeasonID` but never invokes this.
+    ///
+    /// Asks for `CanDelete`, which More Actions gates this episode's Delete
+    /// row on (`AssetActionTargets`). A season's lookup pays its per-item
+    /// cost on every episode, as `loadSeasonDeletability` already does.
     private func resolveShowPlaybackEpisode(seriesID: String, images: ImageURLBuilder) async {
+        let fields = JellyfinAPIClient.defaultFields + ",CanDelete"
         if let preselectedSeasonID {
             if let firstEpisodeDto = try? await client.episodes(
-                seriesID: seriesID, seasonID: preselectedSeasonID, userID: userID
+                seriesID: seriesID, seasonID: preselectedSeasonID, userID: userID, fields: fields
             ).items.first {
                 showPlaybackEpisode = MediaItem(dto: firstEpisodeDto, images: images)
             }
-        } else if let nextUpDto = try? await client.nextUp(userID: userID, seriesID: seriesID).items.first {
+        } else if let nextUpDto = try? await client.nextUp(userID: userID, seriesID: seriesID, fields: fields).items.first {
             showPlaybackEpisode = MediaItem(dto: nextUpDto, images: images)
         } else {
             // In season order, stopping at the first season with anything in
@@ -881,7 +1067,7 @@ final class AssetDetailViewModel {
             // episodes further on. Usually one request — an empty season is rare.
             for season in seasons {
                 if let firstEpisodeDto = try? await client.episodes(
-                    seriesID: seriesID, seasonID: season.id, userID: userID
+                    seriesID: seriesID, seasonID: season.id, userID: userID, fields: fields
                 ).items.first {
                     showPlaybackEpisode = MediaItem(dto: firstEpisodeDto, images: images)
                     return

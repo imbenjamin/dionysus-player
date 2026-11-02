@@ -54,38 +54,13 @@ settings:
     STRING_CATALOG_GENERATE_SYMBOLS: YES
 
 packages:
-  # `version:` pins one specific tag — XcodeGen's spelling of SPM's `.exact`
-  # requirement — deliberately NOT `from:` (SPM's "up to next major" rule),
-  # which is what this used to be. `from:` meant a fresh package resolution
-  # (no prior `Package.resolved`/DerivedData SPM cache to reuse — see
-  # `.gitignore`'s blanket `*.xcodeproj` rule, which is why that resolved
-  # file is never committed) silently picked up whatever the
-  # newest available 6.x release was, with zero commit in this repo to
-  # review or even notice — confirmed live more than once (PR #147: CI
-  # resolved 6.54.0 against a checked-in 6.52.0 pin with no other
-  # AetherEngine-related change on the branch at all). An exact pin makes
-  # that structurally impossible: a cold resolve always lands on this exact
-  # version, so a build today and a build from the same commit in a year
-  # resolve identically.
-  #
-  # Bumping this is meant to be automatic but reviewed, not manual: the
-  # "Bump AetherEngine" workflow (`.github/workflows/aetherengine-bump.yml`)
-  # runs weekly, finds the newest release tag within the *current* major
-  # (what `from: <major>.0.0`'s "up to next major" rule would resolve, just
-  # scoped to a scheduled job instead of every build), and opens a PR
-  # bumping this line if one exists. A major bump (e.g. 8.0.0) is exactly where
-  # AetherEngine's public API is allowed to break per semver, so the
-  # workflow never proposes one — that stays a deliberate manual edit here.
-  # The last one, 6.x → 7.x (2026-09-23), renamed no public symbols but
-  # raised AetherEngine's platform floor to iOS 18, which is why every
-  # `deploymentTarget` in this file moved from 17.0 to 18.0 alongside it.
-  #
-  # This line is the only thing a bump edits. The "AetherEngine Version"
-  # row in `PlaybackStatsOverlay` reads `AetherEngine.version` from the
-  # linked engine, so there is no constant here to keep in step.
-  AetherEngine:
-    url: https://github.com/superuser404notfound/AetherEngine
-    version: 7.19.0
+  # AetherEngine, through a local package that switches on its two
+  # object-audio traits (TrueHD Atmos and DTS:X as Spatial Audio), since
+  # XcodeGen can't set a remote package's traits. **The exact AetherEngine
+  # pin lives in that package's `Package.swift`**, with why it's exact and how
+  # the weekly bump workflow edits it.
+  AetherEngineWithObjectAudio:
+    path: Packages/AetherEngineWithObjectAudio
   # A small (single-file), MIT-licensed, dependency-free view modifier
   # (`.shimmering()`) — used by `MediaPlaceholderBox` for the "still
   # loading" placeholder animation. Purely a rendering effect — no
@@ -118,17 +93,24 @@ targets:
     platform: iOS
     deploymentTarget: "18.0"
     sources:
+      # Folder CLAUDE.md files are guidance for Claude Code, not app
+      # resources: left in, two in one target collide and both ship.
       - path: DionysusPlayer
+        excludes:
+          - "**/CLAUDE.md"
       - path: dionysus.icon
-      # Extensionless files (LICENSE, symlinked in from the repo root so
-      # there's a single source of truth) aren't auto-classified as a
-      # bundle resource by the `path: DionysusPlayer` folder reference
-      # above — force it into the Copy Bundle Resources phase explicitly.
+      # Extensionless files (LICENSE and THIRD-PARTY-NOTICES, symlinked in
+      # from the repo root so there's a single source of truth) aren't
+      # auto-classified as a bundle resource by the `path: DionysusPlayer`
+      # folder reference above — force them into the Copy Bundle Resources
+      # phase explicitly.
       - path: DionysusPlayer/Resources/LICENSE
         buildPhase: resources
+      - path: DionysusPlayer/Resources/THIRD-PARTY-NOTICES
+        buildPhase: resources
     dependencies:
-      - package: AetherEngine
-        product: AetherEngine
+      - package: AetherEngineWithObjectAudio
+        product: AetherEngineWithObjectAudio
       - package: SwiftUIShimmer
         product: Shimmer
       - package: SwiftAssRenderer
@@ -137,6 +119,9 @@ targets:
         product: SwiftLibass
     settings:
       base:
+        # Offline downloads exist only on iOS. Shared code guards its download
+        # paths with `#if DOWNLOADS`; the tvOS targets never define it.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DOWNLOADS"
         # No platform suffix (contrast the test target below) — this is the
         # ID Apple's Universal Purchase mechanism needs shared identically
         # across platforms if tvOS/macOS versions later join this same App
@@ -236,6 +221,254 @@ targets:
         NSBonjourServices:
           - _jellyfin._tcp
 
+  # The Apple TV app: its own UI under DionysusTV/, on the iOS app's Core,
+  # AppState and view models. Downloads are left out (no DOWNLOADS condition);
+  # see docs/superpowers/specs/2026-09-29-tvos-app-design.md.
+  DionysusTV:
+    type: application
+    platform: tvOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: DionysusTV
+        excludes:
+          - "**/CLAUDE.md"
+      - path: DionysusPlayer/Core
+        excludes:
+          - "Downloads/**"
+          - "Persistence/Download*.swift"
+          - "**/CLAUDE.md"
+      - path: DionysusPlayer/App/AppState.swift
+      - path: DionysusPlayer/Shared
+        includes:
+          - "BrandColors.swift"
+          - "AppVersion.swift"
+          - "AppVersionInfo.swift"
+          - "Accessibility/**"
+          - "Components/AsyncRemoteImage.swift"
+          - "Components/Toast.swift"
+          - "Components/LogoImageView.swift"
+          - "Components/MediaPlaceholderBox.swift"
+          - "Components/ArtworkShape.swift"
+          - "Components/Onboarding/UserAvatar.swift"
+          - "Navigation/AppRoute.swift"
+      - path: DionysusPlayer/Features
+        includes:
+          - "**/*ViewModel.swift"
+          - "AssetDetails/AssetActionTargets.swift"
+          - "Home/DynamicRailCandidate.swift"
+          - "Player/PlaybackSessionOutcome.swift"
+          - "Player/PlaybackRequest.swift"
+          - "Player/SubtitleOverlayView.swift"
+          - "Player/BottomChromeTopKey.swift"
+          - "Player/PlaybackStatsReport.swift"
+        excludes:
+          - "Downloads/**"
+      - path: DionysusPlayer/Resources/Assets.xcassets
+      - path: DionysusPlayer/Resources/Localizable.xcstrings
+      # Profile's License and Privacy Policy pages; LICENSE and
+      # THIRD-PARTY-NOTICES are extensionless, so forced into Copy Bundle
+      # Resources as on iOS.
+      - path: DionysusPlayer/Resources/LICENSE
+        buildPhase: resources
+      - path: DionysusPlayer/Resources/THIRD-PARTY-NOTICES
+        buildPhase: resources
+      - path: DionysusPlayer/Resources/PRIVACY.md
+        buildPhase: resources
+    dependencies:
+      - package: AetherEngineWithObjectAudio
+        product: AetherEngineWithObjectAudio
+      - package: SwiftUIShimmer
+        product: Shimmer
+      - package: SwiftAssRenderer
+        product: SwiftAssRenderer
+      - package: SwiftLibass
+        product: SwiftLibass
+      - target: DionysusTVTopShelf
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer
+        PRODUCT_NAME: Dionysus
+        TARGETED_DEVICE_FAMILY: "3"
+        SWIFT_EMIT_LOC_STRINGS: YES
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        # The brand-assets set in DionysusTV/Resources/TVAssets.xcassets:
+        # actool compiles no tvOS icon from dionysus.icon, so this set is
+        # rendered from it by Scripts/render-tvos-app-icon.py.
+        ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
+      configs:
+        # Release signs manually, as the iOS app target does (see its
+        # comment): the distribution identity and the "Dionysus tvOS App
+        # Store" profile release.yml's tvos-release job installs.
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: Dionysus tvOS App Store
+    # Each Apple TV user gets their own UserDefaults and Keychain, so their own
+    # Jellyfin sign-in; tvOS relaunches the app as the new user on a switch.
+    # Items written with kSecUseUserIndependentKeychain (the server
+    # configuration) are shared by every user. Without this capability tvOS
+    # runs the app as the default user for everyone.
+    entitlements:
+      path: Generated/DionysusTV.entitlements
+      properties:
+        com.apple.developer.user-management:
+          - runs-as-current-user-with-user-independent-keychain
+        # Shared with the Top Shelf extension: the session mirror
+        # (TopShelfSession) lives in the user-independent keychain under it.
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.imbenjamin.dionysusplayer
+    info:
+      path: Generated/Info-tvOS.plist
+      properties:
+        CFBundleDisplayName: Dionysus
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSApplicationCategoryType: public.app-category.entertainment
+        ITSAppUsesNonExemptEncryption: false
+        UIUserInterfaceStyle: Dark
+        # Resources/LaunchScreen.storyboard: iOS's launch screen at TV size,
+        # handing over to TVSplashView without a cut (see its doc comment).
+        UILaunchStoryboardName: LaunchScreen
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: "Dionysus looks for and connects to your Jellyfin media server on your local network."
+        NSBonjourServices:
+          - _jellyfin._tcp
+        # The Top Shelf's actions open the app here (TVDeepLink).
+        CFBundleURLTypes:
+          - CFBundleURLName: com.imbenjamin.dionysusplayer.deeplink
+            CFBundleURLSchemes: [dionysus]
+
+  # The Top Shelf (M6): Continue Watching, Next Up and Recently Added as an
+  # `.actions` carousel with the text drawn into the art, fetched live with
+  # the app's stored session. Compiles the networking and model layers and
+  # the session stores, never AetherEngine or UI, to stay inside an
+  # extension's memory limit.
+  DionysusTVTopShelf:
+    type: tv-app-extension
+    platform: tvOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: DionysusTVTopShelf
+        excludes:
+          - "**/CLAUDE.md"
+      - path: DionysusTV/TopShelf
+      - path: DionysusPlayer/Core/Networking
+        excludes:
+          - "ServerDiscovery.swift"
+          - "LocalNetworkPermission.swift"
+          - "TrickplayThumbnailProvider.swift"
+          - "RemoteImageLoader.swift"
+      - path: DionysusPlayer/Core/Models
+      # MediaItem's chapters; Foundation only.
+      - path: DionysusPlayer/Core/Playback/Chapter.swift
+      - path: DionysusPlayer/Core/Persistence/KeychainStore.swift
+      - path: DionysusPlayer/Core/Persistence/TopShelfSession.swift
+      - path: DionysusPlayer/Core/Persistence/DeviceIdentity.swift
+      - path: DionysusPlayer/Shared/AppVersion.swift
+      - path: DionysusPlayer/Resources/Localizable.xcstrings
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.topshelf
+        PRODUCT_NAME: DionysusTopShelf
+        SWIFT_EMIT_LOC_STRINGS: YES
+        TARGETED_DEVICE_FAMILY: "3"
+        # Xcode links a tv-app-extension with -e _TVExtensionMain; the
+        # TVTopShelfContentProvider API needs NSExtensionMain, or the
+        # extension exits at launch (spike, as Sodalite).
+        OTHER_LDFLAGS: -e _NSExtensionMain
+      configs:
+        # Signed manually in Release, as the app is.
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: Dionysus Top Shelf App Store
+    entitlements:
+      path: Generated/DionysusTVTopShelf.entitlements
+      properties:
+        # The session mirror lives in the user-independent keychain under
+        # this group. No user-management entitlement: with or without it the
+        # extension reads the default profile's keychain (spike).
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.imbenjamin.dionysusplayer
+        # The composited art goes here for tvOS to read
+        # (TopShelfArtworkStore), as Sodalite's does.
+        com.apple.security.application-groups:
+          - group.com.imbenjamin.dionysusplayer
+    info:
+      path: Generated/Info-TopShelf.plist
+      properties:
+        CFBundleDisplayName: Dionysus
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        # Self-hosted servers on plain http, as the app.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.tv-top-shelf
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ContentProvider
+
+  DionysusTVTests:
+    type: bundle.unit-test
+    platform: tvOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: DionysusPlayerTests
+        includes:
+          - "Support/**"
+          - "App/AppStateTests.swift"
+          - "Core/Networking/**"
+          - "Core/Models/**"
+          - "Core/Playback/**"
+          - "Core/Persistence/**"
+          - "Features/Home/**"
+          - "Features/Collection/**"
+          - "Features/AssetDetails/**"
+          - "Features/Search/**"
+          - "Features/ServerSetup/**"
+          - "Features/Login/**"
+          - "Features/Profile/**"
+          - "Features/Player/PlaybackRequestTests.swift"
+          - "Features/Player/PlayerViewModelTests.swift"
+          - "Features/Player/ASSSubtitleMappingTests.swift"
+          - "Features/Player/SubtitleOverlayLayoutTests.swift"
+          - "Features/Player/PlaybackStatsReportTests.swift"
+          - "Shared/AppVersionInfoTests.swift"
+          - "Shared/BrandColorsTests.swift"
+        excludes:
+          - "Core/Persistence/Download*.swift"
+          # iOS Profile's layout; the Apple TV has its own settings pages.
+          - "Features/Profile/SettingsLayoutTests.swift"
+      # TV-only unit tests.
+      - path: DionysusTVTests
+    dependencies:
+      - target: DionysusTV
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.tvtests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Dionysus.app/Dionysus"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+  # Siri Remote journeys for the Apple TV app, against the same in-process
+  # stub server as the iOS suite. Shares the selector and fixture-id files
+  # with the app for the reason DionysusPlayerUITests does (see there).
+  DionysusTVUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: DionysusTVUITests
+      - path: DionysusPlayer/Shared/Accessibility/AccessibilityIdentifiers.swift
+      - path: DionysusPlayer/Core/UITestSupport/UITestFixtureIdentity.swift
+    dependencies:
+      - target: DionysusTV
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.tvuitests
+        TEST_TARGET_NAME: DionysusTV
+
   DionysusPlayerTests:
     type: bundle.unit-test
     platform: iOS
@@ -248,6 +481,9 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: true
         PRODUCT_BUNDLE_IDENTIFIER: com.imbenjamin.dionysusplayer.tests
+        # Offline downloads exist only on iOS. Shared code guards its download
+        # paths with `#if DOWNLOADS`; the tvOS targets never define it.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DOWNLOADS"
         # DionysusPlayer's PRODUCT_NAME is "Dionysus" (not the target name),
         # so XcodeGen's auto-inferred host-application path is wrong —
         # override it explicitly to match.
@@ -301,5 +537,22 @@ schemes:
           defaultPlan: true
         - path: TestPlans/UITests-Smoke.xctestplan
         - path: TestPlans/UITests-Full.xctestplan
+    archive:
+      config: Release
+  DionysusTV:
+    build:
+      targets:
+        DionysusTV: all
+        DionysusTVTests: [test]
+        DionysusTVUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      testPlans:
+        - path: TestPlans/TVUnitTests.xctestplan
+          defaultPlan: true
+        - path: TestPlans/TVUITests.xctestplan
+        - path: TestPlans/TVUITests-Smoke.xctestplan
     archive:
       config: Release

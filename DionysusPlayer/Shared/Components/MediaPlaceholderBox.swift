@@ -39,14 +39,27 @@ struct MediaPlaceholderBox: View {
     /// of its own.
     private var isShimmering: Bool { !isSettled && !reduceMotion }
 
+    #if os(tvOS)
+    /// On the Apple TV the glyph scales with its tile (Benjamin, 2026-10-05):
+    /// a fixed 28pt was about 7% of a 375pt poster's width, too small to read
+    /// from across the room, where on an iPhone tile it's about 23%. A fifth
+    /// or so of the shorter side, never below iOS's size.
+    static func tvGlyphSize(for size: CGSize) -> CGFloat {
+        max(28, min(size.width, size.height) * 0.22)
+    }
+    #endif
+
     var body: some View {
         Rectangle().fill(Color.gray.opacity(0.2))
             .overlay {
-                Image(systemName: systemImage)
-                    .font(.system(size: glyphSize))
-                    .foregroundStyle(Color.dionysusHighlight)
-                    .opacity(isSettled ? 0.85 : 0.45)
-                    .shimmering(active: isShimmering)
+                #if os(tvOS)
+                GeometryReader { proxy in
+                    glyph(size: Self.tvGlyphSize(for: proxy.size))
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                }
+                #else
+                glyph(size: glyphSize)
+                #endif
             }
             // Purely decorative — every real call site already carries its
             // own accessibility label, via either the established
@@ -54,5 +67,13 @@ struct MediaPlaceholderBox: View {
             // `BackdropLogoOverlay`'s own dedicated label layer. This glyph
             // must never acquire a label of its own.
             .accessibilityHidden(true)
+    }
+
+    private func glyph(size: CGFloat) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: size))
+            .foregroundStyle(Color.dionysusHighlight)
+            .opacity(isSettled ? 0.85 : 0.45)
+            .shimmering(active: isShimmering)
     }
 }

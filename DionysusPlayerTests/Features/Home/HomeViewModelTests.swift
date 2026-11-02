@@ -91,6 +91,8 @@ final class HomeViewModelTests: XCTestCase {
                 XCTAssertEqual(query["IncludeItemTypes"], "Movie,Series")
                 XCTAssertEqual(query["SortBy"], "Random")
                 XCTAssertEqual(query["Filters"], "IsUnplayed")
+                // Only titles with a backdrop, so no hero looks empty.
+                XCTAssertEqual(query["ImageTypes"], "Backdrop")
                 return try MockURLProtocol.encodedJSONResponse(
                     for: request, value: BaseItemDtoQueryResult(items: [heroItem], totalRecordCount: 1)
                 )
@@ -148,6 +150,37 @@ final class HomeViewModelTests: XCTestCase {
         XCTAssertEqual(recentMovies.seeAllQuery?.initialSortOrder, .descending)
     }
 
+    /// With no Movies or TV Shows library there is nothing to ask: unscoped,
+    /// `/Items/Latest` answers from every library, and music or books would
+    /// fill a rail titled "Recently Added Movies" (Benjamin, 2026-10-16).
+    func test_load_withoutMoviesOrShowsLibrary_asksNoLatestAndShowsNoRecentlyAddedRails() async {
+        let musicLibrary = BaseItemDto(id: "lib-music", name: "Music", type: .collectionFolder, collectionType: "music")
+        let album = BaseItemDto(id: "album-1", name: "An Album", type: .musicAlbum)
+        var latestRequests = 0
+
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Views":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [musicLibrary], totalRecordCount: 1)
+                )
+            case "/Users/user-1/Items/Latest":
+                latestRequests += 1
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: [album])
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(latestRequests, 0)
+        XCTAssertFalse(viewModel.rails.contains { $0.title.hasPrefix("Recently Added") })
+    }
+
     /// `/Shows/NextUp` isn't guaranteed disjoint from `/Users/{id}/Items/Resume`
     /// — an item already surfaced in Continue Watching should be filtered
     /// out of Next Up rather than shown in both rails.
@@ -191,6 +224,39 @@ final class HomeViewModelTests: XCTestCase {
             nextUp?.items.map(\.id), ["episode-2"],
             "The item already in Continue Watching should be de-duplicated out of Next Up"
         )
+    }
+
+    /// Jellyfin 12 answers `/Items/Resume` with the in-progress seasons and
+    /// shows too. Continue Watching holds only what plays; a show waiting on
+    /// its next episode belongs to Next Up (Benjamin, 2026-10-07).
+    func test_load_continueWatching_dropsSeasonsAndShows() async {
+        let episode = BaseItemDto(id: "episode-1", name: "In Progress Episode", type: .episode)
+        let movie = BaseItemDto(id: "movie-1", name: "In Progress Movie", type: .movie)
+        let season = BaseItemDto(id: "season-1", name: "Season 1", type: .season)
+        let series = BaseItemDto(id: "series-1", name: "A Show", type: .series)
+
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Views", "/Users/user-1/Items", "/Shows/NextUp":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/user-1/Items/Resume":
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [episode, season, series, movie], totalRecordCount: 4)
+                )
+            case "/Users/user-1/Items/Latest":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]())
+            default:
+                XCTFail("Unexpected request to \(request.url?.path ?? "?")")
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+
+        await viewModel.load()
+
+        let continueWatching = viewModel.rails.first { $0.title == "Continue Watching" }
+        XCTAssertEqual(continueWatching?.items.map(\.id), ["episode-1", "movie-1"])
     }
 
     /// AUDIO SUPPRESSION: `/Users/{id}/Views` has no server-side type
@@ -1330,6 +1396,37 @@ final class HomeViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.curatedRails.first?.items.first?.isPlayed, true, "The played fetch should be adopted, not guarded against")
     }
 
+    /// A rewatch is played and has a position, so `played` alone isn't caught
+    /// up: a fetch still carrying the older position mustn't move the bar back.
+    func test_softRefresh_keepsTheNewPositionOfARewatchUntilTheServerCatchesUp() async {
+        let viewModel = makeViewModel()
+        let rewatch = BaseItemDto(
+            id: "resume-1", name: "Rewatch", type: .movie, runTimeTicks: 7200 * 10_000_000,
+            userData: UserItemDataDto(playbackPositionTicks: 100 * 10_000_000, playedPercentage: nil, played: true)
+        )
+        MockURLProtocol.requestHandler = { request in
+            if let stubbed = try Self.stubNoDynamicRailCandidates(request) { return stubbed }
+            switch request.url?.path {
+            case "/Users/user-1/Items/Resume":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [rewatch], totalRecordCount: 1))
+            case "/Users/user-1/Items/Latest":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]())
+            default:
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+        await viewModel.load()
+
+        RecentPlaybackBroadcaster.shared.record(
+            PlaybackSessionOutcome(itemID: "resume-1", positionSeconds: 3000, durationSeconds: 7200)
+        )
+        await viewModel.softRefresh()
+
+        let item = viewModel.curatedRails.first?.items.first
+        XCTAssertEqual(item?.resumePositionSeconds ?? 0, 3000, accuracy: 1)
+        XCTAssertEqual(item?.isPlayed, true)
+    }
+
     /// `hardRefresh()` shares `consumePendingOptimisticPlaybackPosition()`/
     /// `mergeGuardingAgainstPlaybackRegression(_:)` with `softRefresh()` via
     /// `performFullLoad(resetLoadState:)` — confirm the wiring actually
@@ -1584,5 +1681,42 @@ final class HomeViewModelTests: XCTestCase {
         _ = await (first, second)
 
         XCTAssertEqual(viewsRequestCount, 1, "Two concurrent callers should coalesce into a single attempt")
+    }
+
+    /// A view's `.task` is cancelled when it disappears — a tab switch on iOS,
+    /// a tab rebuild on tvOS. The first load must finish anyway: when it was
+    /// cancelled with the caller, iOS was left on a spinner for good and tvOS
+    /// on an empty Home (final review, 2026-09-30).
+    func test_loadIfNeeded_callerCancelled_loadStillFinishes() async throws {
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = Self.slowEmptyHome
+        let task = Task { await viewModel.loadIfNeeded() }
+        try await waitUntil { viewModel.loadState == .loading }
+        task.cancel()
+        await task.value
+        try await waitUntil(timeout: 10) { viewModel.loadState == .loaded }
+    }
+
+    /// A second caller arriving while the first load is in flight — a view
+    /// reappearing before the old task has unwound — joins that load rather
+    /// than returning at once to a state that may never settle.
+    func test_loadIfNeeded_secondCallerJoinsTheInFlightLoad() async throws {
+        let viewModel = makeViewModel()
+        MockURLProtocol.requestHandler = Self.slowEmptyHome
+        let first = Task { await viewModel.loadIfNeeded() }
+        try await waitUntil { viewModel.loadState == .loading }
+        first.cancel()
+        await viewModel.loadIfNeeded()
+        XCTAssertEqual(viewModel.loadState, .loaded)
+    }
+
+    /// An empty library, each request held briefly so a load can be caught
+    /// mid-flight.
+    nonisolated private static func slowEmptyHome(_ request: URLRequest) throws -> (HTTPURLResponse, Data) {
+        Thread.sleep(forTimeInterval: 0.1)
+        if request.url?.path == "/Users/user-1/Items/Latest" {
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: [BaseItemDto]())
+        }
+        return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
     }
 }

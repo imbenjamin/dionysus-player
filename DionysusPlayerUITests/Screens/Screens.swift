@@ -267,6 +267,15 @@ struct QuickConnectScreen: Screen {
 /// label-based selector silently breaks the day the string catalogue gains a
 /// second language. Tab *order* is fixed in `MainTabView` and is not
 /// localized.
+///
+/// On an iPhone Duo, where the tab bar joins the vertical bar at the side
+/// (closed, and the inner display held wide), it is neither: there is no
+/// `TabBar`, the tabs are buttons in a `Toolbar` beside any toolbar items, and
+/// on a tab's root screen they carry no identifier (on a pushed screen they
+/// do). Measured on the iPhone Duo Simulator, iOS 27.1, 2026-10-28. So the
+/// last fallback is the toolbars' unidentified buttons, by the same order.
+/// Which of the three shapes is up isn't known until the bar has drawn, so
+/// this waits for any of them before choosing.
 struct TabBar: Screen {
     let app: XCUIApplication
 
@@ -277,9 +286,18 @@ struct TabBar: Screen {
 
     private func tab(_ identifier: String, index: Int) -> XCUIElement {
         let identified = app.buttons.matching(identifier: identifier).firstMatch
-        guard identified.exists else {
-            return app.tabBars.buttons.element(boundBy: index)
-        }
+        let inTabBar = app.tabBars.buttons.element(boundBy: index)
+        let inVerticalBar = app.toolbars.buttons
+            .matching(NSPredicate(format: "identifier == ''"))
+            .element(boundBy: index)
+        let anyShown = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in identified.exists || inTabBar.exists || inVerticalBar.exists },
+            object: nil
+        )
+        _ = XCTWaiter().wait(for: [anyShown], timeout: UITestCase.defaultTimeout)
+        if identified.exists { return identified }
+        if inTabBar.exists { return inTabBar }
+        if inVerticalBar.exists { return inVerticalBar }
         return identified
     }
 }
@@ -369,10 +387,14 @@ struct HomeScreen: Screen {
     /// (non-lazy) off-screen element. A single, bounded swipe on the rail
     /// itself first — unlike the open-ended scroll gestures this suite
     /// otherwise avoids — reliably brings the later cards into view; a
-    /// no-op on a device where they were already visible.
+    /// no-op on a device where they were already visible. Skipped where the
+    /// rail is below the fold, which XCUITest can't swipe ("visible frame is
+    /// empty"): that's a wide window (an iPhone Duo's inner display, 669pt
+    /// tall under its hero), where all four cards fit and the tap scrolls
+    /// to them.
     func openLibrary(_ libraryID: String, file: StaticString = #filePath, line: UInt = #line) {
         let rail = app.descendants(matching: .any)[A11yID.Home.libraryRail]
-        if rail.exists {
+        if rail.exists, rail.isHittable {
             rail.swipeLeft()
         }
         openItem(libraryID, file: file, line: line)
@@ -458,6 +480,13 @@ struct AssetDetailScreen: Screen {
     /// One identifier covers Play and Resume — the label changes with watch
     /// state, the action does not.
     var playButton: XCUIElement { app.buttons[A11yID.AssetDetail.playButton] }
+
+    /// Whether the page is an iPhone Duo's book spread (inner display held
+    /// wide), whose poster page replaces the hero and its logo. The spread
+    /// follows the fold, read a moment after the page loads, hence the wait.
+    var isBookSpread: Bool {
+        app.descendants(matching: .any)[A11yID.AssetDetail.bookSpreadPoster].waitForExistence(timeout: 2)
+    }
     /// Only present for a part-watched item, alongside Resume.
     var restartButton: XCUIElement { app.buttons[A11yID.AssetDetail.restartButton] }
     var favoriteButton: XCUIElement { app.buttons[A11yID.AssetDetail.favoriteButton] }
@@ -494,6 +523,15 @@ struct AssetDetailScreen: Screen {
         openActionsOverflow(file: file, line: line)
         deleteButton.awaitExistence("the delete action", file: file, line: line)
         deleteButton.tap()
+    }
+
+    /// One row of the Show/Season/Episode submenu `openDelete()` opens on a
+    /// show page, by the entity's display name, as `addToPlaylistScope(_:)`.
+    /// SwiftUI drops an identifier set on a row inside a `Menu`, so there is
+    /// none to key on. Scoped to the menu's cells: "Season 1" is also the
+    /// season picker's label on the page behind.
+    func deleteTarget(_ entityName: String) -> XCUIElement {
+        app.collectionViews.cells.buttons[entityName]
     }
 
     /// Reaches "Add to Playlist" and taps it, opening `AddToPlaylistSheet`.
@@ -670,6 +708,7 @@ struct AddToPlaylistScreen: Screen {
         nameField.typeText(name)
 
         createButton.awaitExistence("the Create button", file: file, line: line)
+        createButton.awaitStableFrame()
         createButton.tap()
 
         createConfirmButton.awaitExistence("the create confirmation", file: file, line: line)
@@ -715,11 +754,21 @@ struct PlayerScreen: Screen {
     var playPauseButton: XCUIElement { app.buttons[A11yID.Player.playPauseButton] }
     var skipForwardButton: XCUIElement { app.buttons[A11yID.Player.skipForwardButton] }
     var skipBackwardButton: XCUIElement { app.buttons[A11yID.Player.skipBackwardButton] }
+    var skipSegmentButton: XCUIElement { app.descendants(matching: .any)[A11yID.Player.skipSegmentButton] }
     var scrubber: XCUIElement { app.descendants(matching: .any)[A11yID.Player.scrubber] }
     var elapsedLabel: XCUIElement { app.descendants(matching: .any)[A11yID.Player.elapsedLabel] }
     var tracksButton: XCUIElement { app.buttons[A11yID.Player.tracksButton] }
     var chaptersButton: XCUIElement { app.buttons[A11yID.Player.chaptersButton] }
     var chapterPicker: XCUIElement { app.descendants(matching: .any)[A11yID.Player.chapterPicker] }
+    var statsButton: XCUIElement { app.buttons[A11yID.Player.statsButton] }
+    var statsPageIndicator: XCUIElement { app.staticTexts[A11yID.Player.statsPageIndicator] }
+    var rotationLockButton: XCUIElement { app.buttons[A11yID.Player.rotationLockButton] }
+
+    /// The value half of a stats row, keyed by its English label. Rows on
+    /// every page resolve — see `A11yID.Player.statsValue(_:)`.
+    func statsValue(_ rowLabel: String) -> XCUIElement {
+        app.staticTexts[A11yID.Player.statsValue(rowLabel)]
+    }
 
     /// The close button appearing means the controls overlay is up and
     /// drivable, not merely that the cover presented. Launched with
@@ -770,6 +819,12 @@ struct PlayerScreen: Screen {
     }
 
     var subtitleOffOption: XCUIElement { app.descendants(matching: .any)[A11yID.Player.subtitleOffOption] }
+    var audioOffsetValue: XCUIElement { app.descendants(matching: .any)[A11yID.Player.audioOffsetValue] }
+    var audioOffsetDecrease: XCUIElement { app.buttons[A11yID.Player.audioOffsetDecrease] }
+    var audioOffsetIncrease: XCUIElement { app.buttons[A11yID.Player.audioOffsetIncrease] }
+    var audioOffsetReset: XCUIElement { app.buttons[A11yID.Player.audioOffsetReset] }
+    var audioOffsetBack: XCUIElement { app.descendants(matching: .any)[A11yID.Player.audioOffsetBack] }
+    func audioOffsetScope(_ key: String) -> XCUIElement { app.buttons[A11yID.Player.audioOffsetScope(key)] }
 
     /// The composited libass bitmap. Present only while an authored ASS
     /// track is selected AND libass has produced a frame, so its mere
@@ -885,15 +940,12 @@ struct QuickConnectApprovalScreen: Screen {
     }
 }
 
-/// Covers only what's reachable through the account card — sign out and
-/// change server. Every other Profile row (`advancedPlaybackLink`,
-/// `licenseLink`, ...) sits behind a device-specific fork this screen object
-/// deliberately doesn't absorb yet: iPhone reaches them by scrolling one
-/// continuous list, iPad by first selecting a sidebar pane
-/// (`ProfileSettingsPane`) that carries no identifier of its own. The
-/// account card is the one row that's a sidebar destination in its own
-/// right on both layouts (see `ProfileView.sidebar`), so it needs no such
-/// fork.
+/// Profile on both layouts. iPhone shows every section in one scrolling
+/// list; iPad shows a sidebar of panes (`ProfileSettingsPane`), so a row
+/// outside the account card is reached by first opening its pane
+/// (`openPlaybackSettings()`), then scrolling as on iPhone. The account card
+/// is a sidebar destination in its own right on both layouts (see
+/// `ProfileView.sidebar`), so it needs no such step.
 struct ProfileScreen: Screen {
     let app: XCUIApplication
 
@@ -904,6 +956,47 @@ struct ProfileScreen: Screen {
 
     func awaitLoaded(file: StaticString = #filePath, line: UInt = #line) {
         accountCard.awaitExistence("the Profile account card", file: file, line: line)
+    }
+
+    /// Whether `ProfileView` is in its split layout, which it takes when both
+    /// size classes are regular and it's at least 700pt wide
+    /// (`SettingsLayout.usesSplitLayout`). The runner can't read the app's
+    /// size classes, so both sides of the window at least 600pt stand in for
+    /// them: true on every iPad and on an iPhone Duo's inner display held
+    /// wide (951 by 669pt), false held tall (669pt wide), on every other
+    /// iPhone either way up and on the closed Duo (466 by 678pt). Not the
+    /// idiom: the Duo's inner display splits as an iPhone.
+    var usesSplitLayout: Bool {
+        let frame = app.windows.firstMatch.frame
+        return min(frame.width, frame.height) >= 600 && frame.width >= 700
+    }
+
+    /// Selects the split layout's Playback pane, where its rows and Spatial
+    /// Audio live. Nothing to do in the one-list layout, which has them all.
+    /// Keyed on the window (`usesSplitLayout`): checking for the row instead
+    /// raced the sidebar's first layout.
+    func openPlaybackSettings(file: StaticString = #filePath, line: UInt = #line) {
+        awaitLoaded(file: file, line: line)
+        guard usesSplitLayout else { return }
+        let pane = app.descendants(matching: .any).matching(identifier: A11yID.Profile.playbackPane).firstMatch
+        pane.awaitExistence("the Playback pane", file: file, line: line)
+        pane.tap()
+    }
+
+    /// Scrolls the settings list (the split layout's detail pane) up by about
+    /// half a screen.
+    ///
+    /// Never `app.swipeUp()`, which starts at the window's centre: on the Duo
+    /// that's on the fold, between the split's columns in book pose and across
+    /// the one list in tabletop, and it scrolled nothing (eight swipes left
+    /// the list at its top, v1.2.0-beta.6). So this starts below the centre,
+    /// in the detail column, and clear of a row's trailing stepper or switch.
+    func scrollSettings() {
+        let window = app.windows.firstMatch
+        let dx = usesSplitLayout ? 0.72 : 0.5
+        let start = window.coordinate(withNormalizedOffset: CGVector(dx: dx, dy: 0.7))
+        let end = window.coordinate(withNormalizedOffset: CGVector(dx: dx, dy: 0.2))
+        start.press(forDuration: 0.1, thenDragTo: end)
     }
 
     /// Opens `AccountDetailsContent` — a sheet on iPhone, a detail pane on

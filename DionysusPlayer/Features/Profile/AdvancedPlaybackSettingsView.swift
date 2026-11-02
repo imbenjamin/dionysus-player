@@ -30,6 +30,9 @@ struct AdvancedPlaybackSettingsView: View {
     /// which `PlayerViewModel.isStyledASSEnabled(_:)` reads — same
     /// declared-in-both-places arrangement as the properties above.
     @AppStorage(styledASSSubtitlesEnabledStorageKey) private var isStyledASSEnabled = styledASSSubtitlesEnabledDefault
+    /// `ReadAheadBufferStore.seconds()` reads the same key and default at
+    /// each load.
+    @AppStorage(readAheadBufferSecondsStorageKey) private var readAheadSeconds = ReadAheadBufferStore.defaultSeconds
 
     var body: some View {
         List {
@@ -67,7 +70,22 @@ struct AdvancedPlaybackSettingsView: View {
             }
 
             Section {
-                Toggle("Subtitle Styling", isOn: $isStyledASSEnabled)
+                Stepper(
+                    value: $readAheadSeconds,
+                    in: ReadAheadBufferStore.options.first!...ReadAheadBufferStore.options.last!,
+                    step: 30
+                ) {
+                    LabeledContent("Read-Ahead Buffer", value: ReadAheadBufferStore.displayName(seconds: readAheadSeconds))
+                }
+                .accessibilityValue(ReadAheadBufferStore.accessibilityLabel(seconds: readAheadSeconds))
+                .accessibilityIdentifier(A11yID.Profile.readAheadBufferStepper)
+            } footer: {
+                Text("How far ahead a file playing directly is loaded. Raise it if playback stops to buffer on a slow network; it uses more of this device's storage while playing. Not used when the server transcodes.")
+                    .readableSettingsFooter()
+            }
+
+            Section {
+                Toggle("ASS/SSA Subtitles", isOn: $isStyledASSEnabled)
                     .accessibilityIdentifier(A11yID.Profile.styledSubtitlesToggle)
             } footer: {
                 Text("Renders the fonts, colours and on-screen positioning authored into ASS and SSA subtitles. Turn this off to show them as plain text instead. Other subtitle formats are unaffected.")

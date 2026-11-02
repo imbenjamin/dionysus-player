@@ -65,22 +65,26 @@ final class Shooter: NSObject, WKNavigationDelegate {
                 FileHandle.standardError.write("snapshot failed: \(String(describing: err))\n".data(using: .utf8)!)
                 exit(1)
             }
-            // Force exact pixel dimensions regardless of backing scale.
-            guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
-                                             pixelsWide: Int(self.size.width),
-                                             pixelsHigh: Int(self.size.height),
-                                             bitsPerSample: 8, samplesPerPixel: 4,
-                                             hasAlpha: true, isPlanar: false,
-                                             colorSpaceName: .deviceRGB,
-                                             bytesPerRow: 0, bitsPerPixel: 0) else { exit(1) }
-            rep.size = self.size
+            // Force exact pixel dimensions regardless of backing scale, into
+            // an opaque context: App Store Connect rejects screenshots with an
+            // alpha channel (the iPhone Duo spec says so outright), and a
+            // `noneSkipLast` image writes as plain RGB.
+            let w = Int(self.size.width), h = Int(self.size.height)
+            guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { exit(1) }
+            ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+            ctx.interpolationQuality = .high
             NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-            NSGraphicsContext.current?.imageInterpolation = .high
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
             image.draw(in: NSRect(origin: .zero, size: self.size))
             NSGraphicsContext.restoreGraphicsState()
-            guard let data = rep.representation(using: .png, properties: [:]) else { exit(1) }
-            do { try data.write(to: self.out) } catch { exit(1) }
+            guard let flat = ctx.makeImage(),
+                  let dest = CGImageDestinationCreateWithURL(self.out as CFURL, "public.png" as CFString, 1, nil)
+            else { exit(1) }
+            CGImageDestinationAddImage(dest, flat, nil)
+            guard CGImageDestinationFinalize(dest) else { exit(1) }
             exit(0)
         }
     }

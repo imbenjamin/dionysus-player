@@ -32,6 +32,11 @@ enum UITestHarness {
             seedLongSearchHistory()
         }
 
+        if UITestConfiguration.seedsMissingSearchHistory {
+            let hint = SearchHint(id: UITestFixtureIdentity.missingItemID, name: UITestFixtureIdentity.missingItemName, type: .movie, productionYear: 2019)
+            SearchHistoryStore().record(SearchResult(hint: hint), userID: UITestConfiguration.stubUserID)
+        }
+
         if UITestConfiguration.disablesAnimations {
             UIView.setAnimationsEnabled(false)
         }
@@ -73,6 +78,14 @@ enum UITestHarness {
     /// leftovers. The Keychain matters most: it outlives the app container, so a
     /// signed-in run would otherwise seed every later first-launch test.
     private static func resetPersistentState() {
+        #if os(tvOS)
+        // A test that turned "Follow Apple TV Users" off left the setting and
+        // a session in the keychain every Apple TV user shares.
+        SessionScopeSetting.reset()
+        ServerSessionStore(sessionScope: .allUsers).clearAll()
+        SharedKeychainAudioOffsetStorage().removeAll()
+        SpatialAudioStore(storage: SharedKeychainAudioOffsetStorage()).removeAll()
+        #endif
         ServerSessionStore().clearAll()
 
         if let domain = Bundle.main.bundleIdentifier {
@@ -116,7 +129,10 @@ enum UITestHarness {
             username: UITestConfiguration.stubUsername,
             password: UITestConfiguration.stubPassword,
             accessToken: UITestConfiguration.stubAccessToken,
-            userID: UITestConfiguration.stubUserID
+            userID: UITestConfiguration.stubUserID,
+            // Bound to the seeded server, as a real sign-in is: tvOS only
+            // remembers an account it can place.
+            serverID: UITestConfiguration.stubServerURL.absoluteString
         ))
     }
 
