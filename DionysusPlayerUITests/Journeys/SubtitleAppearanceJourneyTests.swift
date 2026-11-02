@@ -54,7 +54,7 @@ final class SubtitleAppearanceJourneyTests: UITestCase {
         TabBar(app: app).profile.tap()
         ProfileScreen(app: app).openPlaybackSettings()
         let picker = app.buttons[A11yID.Profile.subtitleAppearance]
-        for _ in 0..<6 where !picker.isHittable { app.swipeUp() }
+        for _ in 0..<6 where !picker.isHittable { ProfileScreen(app: app).scrollSettings() }
         picker.awaitExistence("the Subtitle Style picker")
     }
 }

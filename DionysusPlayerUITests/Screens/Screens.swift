@@ -983,6 +983,22 @@ struct ProfileScreen: Screen {
         pane.tap()
     }
 
+    /// Scrolls the settings list (the split layout's detail pane) up by about
+    /// half a screen.
+    ///
+    /// Never `app.swipeUp()`, which starts at the window's centre: on the Duo
+    /// that's on the fold, between the split's columns in book pose and across
+    /// the one list in tabletop, and it scrolled nothing (eight swipes left
+    /// the list at its top, v1.2.0-beta.6). So this starts below the centre,
+    /// in the detail column, and clear of a row's trailing stepper or switch.
+    func scrollSettings() {
+        let window = app.windows.firstMatch
+        let dx = usesSplitLayout ? 0.72 : 0.5
+        let start = window.coordinate(withNormalizedOffset: CGVector(dx: dx, dy: 0.7))
+        let end = window.coordinate(withNormalizedOffset: CGVector(dx: dx, dy: 0.2))
+        start.press(forDuration: 0.1, thenDragTo: end)
+    }
+
     /// Opens `AccountDetailsContent` — a sheet on iPhone, a detail pane on
     /// iPad — where sign-out/change-server live.
     func openAccountDetails(file: StaticString = #filePath, line: UInt = #line) {
