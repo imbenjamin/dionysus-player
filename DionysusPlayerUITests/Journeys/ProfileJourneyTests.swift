@@ -67,6 +67,11 @@ final class ProfileJourneyTests: UITestCase {
             let picker = app.buttons[layoutID]
             XCTAssertFalse(picker.exists, "No layout while it's off")
             toggle.switches.firstMatch.tap()
+            // The toggle can sit at the foot of a short pane (the Duo in book
+            // pose), with the list yet to make the row below it.
+            for _ in 0..<4 where !picker.waitForExistence(timeout: 2) {
+                ProfileScreen(app: app).scrollSettings()
+            }
             picker.awaitExistence("the \(layoutID) picker")
             XCTAssertTrue(
                 "\(picker.value ?? "") \(picker.label)".contains("7.1.4"), "7.1.4 is the default layout"
