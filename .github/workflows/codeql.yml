@@ -155,6 +155,7 @@ jobs:
         run: |
           xcodebuild build \
             -project DionysusPlayer.xcodeproj \
+            -clonedSourcePackagesDirPath .build/SourcePackages \
             -scheme DionysusPlayer \
             -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO \

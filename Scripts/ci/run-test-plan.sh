@@ -51,6 +51,9 @@ args=(
   -testPlan "$TEST_PLAN"
   -destination "platform=$PLATFORM Simulator,id=$UDID"
   -collect-test-diagnostics never
+  # The directory setup-ios-project caches; the build used it too, so this
+  # run doesn't resolve the packages again.
+  -clonedSourcePackagesDirPath .build/SourcePackages
 )
 if [ "$RETRY_TESTS_ON_FAILURE" = "true" ]; then
   args+=(-retry-tests-on-failure)

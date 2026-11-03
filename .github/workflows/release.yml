@@ -345,6 +345,7 @@ jobs:
         run: |
           xcodebuild archive \
             -project DionysusPlayer.xcodeproj \
+            -clonedSourcePackagesDirPath .build/SourcePackages \
             -scheme DionysusPlayer \
             -configuration Release \
             -destination 'generic/platform=iOS' \
@@ -525,6 +526,7 @@ jobs:
           set -o pipefail
           xcodebuild archive \
             -project DionysusPlayer.xcodeproj \
+            -clonedSourcePackagesDirPath .build/SourcePackages \
             -scheme DionysusTV \
             -configuration Release \
             -destination 'generic/platform=tvOS' \

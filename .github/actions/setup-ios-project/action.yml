@@ -20,8 +20,8 @@ runs:
       # An exact version, not `latest-stable`. This used to take whatever
       # `latest-stable` resolved to, which is a silent toolchain change on the
       # next runner-image rollover — and it matters here: project.yml pins
-      # SWIFT_VERSION 6.0 against an iOS 18 deployment target, AetherEngine is
-      # resolved fresh (uncached) on every run, and the UI-test matrix
+      # SWIFT_VERSION 6.0 against an iOS 18 deployment target, AetherEngine's
+      # package checkouts are cached ("Cache Swift packages"), and the UI-test matrix
       # (ui-tests.yml) names simulator runtimes that only this Xcode's image
       # carries. The callers pin `runs-on: xcode-27` for the same reason: this
       # version exists on that image. Every job, iOS and Apple TV, builds with
@@ -37,23 +37,57 @@ runs:
     - name: Install XcodeGen and xcbeautify
       # xcbeautify's github-actions renderer turns compile errors and test
       # failures into inline PR annotations instead of leaving them buried in a
-      # 10k-line log. Installed rather than assumed present — it ships in some
-      # runner images and not others, and a missing binary would fail the pipe
-      # rather than degrade.
+      # 10k-line log. Only what the image lacks is installed: the xcode-27
+      # image ships xcbeautify (3.2.1 when checked) but not XcodeGen, and a
+      # `brew install` costs a brew update plus a network fetch, a flake of
+      # its own. A tool that is missing is installed, never assumed present:
+      # a missing xcbeautify would fail the pipe rather than degrade.
       #
       # `brew untap aws/tap` first: the macOS runner image ships that tap
       # pre-added but untrusted, and any `brew install`/`brew update` on the
       # runner logs an "ignoring formulae ... tap trust is required" warning
-      # about it — unrelated to anything this repo installs. `|| true` so a
+      # about it, unrelated to anything this repo installs. `|| true` so a
       # future runner image that no longer ships it doesn't turn this into a
       # new failure point.
       shell: bash
       run: |
-        brew untap aws/tap 2>/dev/null || true
-        brew install xcodegen xcbeautify
+        missing=()
+        for tool in xcodegen xcbeautify; do
+          command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+        done
+        if [ "${#missing[@]}" -gt 0 ]; then
+          echo "Installing: ${missing[*]}"
+          brew untap aws/tap 2>/dev/null || true
+          brew install "${missing[@]}"
+        fi
+        echo "xcodegen $(xcodegen --version)"
+        echo "xcbeautify $(xcbeautify --version)"
 
     - name: Generate Xcode project
       # No .xcodeproj is committed (see .gitignore's blanket `*.xcodeproj`) —
       # it's generated from project.yml. Without this there is nothing to build.
       shell: bash
       run: xcodegen generate
+
+    - name: Cache Swift packages
+      # AetherEngine and its dependencies (about a minute or more of cold
+      # clone and resolve per job, and a network flake each time) live in
+      # .build/SourcePackages, which every xcodebuild call here names with
+      # `-clonedSourcePackagesDirPath`. actions/cache restores it now and
+      # saves it after the job, only on a miss and only from a job that
+      # succeeded.
+      #
+      # The key holds every Package.swift under Packages/ (the local
+      # AetherEngineWithObjectAudio package carries the engine's `exact:` pin
+      # and its trait list) and project.yml, so any pin change is a new key.
+      # NO restore-keys: a partial match would hand xcodebuild an older
+      # checkout, which fails with "enables traits on package ... that
+      # declares no traits" (CLAUDE.md, "Pinning AetherEngine"). Package.resolved
+      # is gitignored, so the pin is the whole of the invalidation.
+      #
+      # The repository's cache is 10 GB and ui-tests.yml's iOS 18.6 runtime
+      # takes about 8.5 GB of it; this entry is small (see the commit).
+      uses: actions/cache@v4
+      with:
+        path: .build/SourcePackages
+        key: spm-${{ runner.os }}-xcode-${{ inputs.xcode-version }}-${{ hashFiles('Packages/**/Package.swift', 'project.yml') }}
