@@ -423,6 +423,8 @@ as "Iteration 2 of 3" in the log.
 
 ## Where they run in CI
 
+Each UI-test job's "Build and test" step has its own timeout, 10 minutes under the job's, so a hang fails that step and the bundle and logs still upload (the job timeout cancels the job with no log and no upload).
+
 **iOS** goes through one reusable workflow, `.github/workflows/ui-tests.yml`,
 which owns the matrix. A PR into `develop` runs the smoke plan; a PR into
 `stable`, the nightly and a release run the full plan, and no smoke (the full

@@ -185,6 +185,17 @@ jobs:
             device: iPad (A16)
 
     steps:
+      - name: Work out the test step's time limit
+        # The job's own timeout cancels the whole job: no log is kept and the
+        # failure-only upload steps never run. Stopping "Build and test" 10
+        # minutes earlier fails just that step, so they still run.
+        # (Expressions have no arithmetic.)
+        id: budget
+        shell: bash
+        env:
+          JOB_MINUTES: ${{ inputs.timeout-minutes }}
+        run: echo "minutes=$(( JOB_MINUTES - 10 ))" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         # Always the triggering commit. There is deliberately no `ref` input:
         # a reusable workflow that checks out a caller-chosen ref and then runs
@@ -258,6 +269,7 @@ jobs:
 
       - name: Build and test
         uses: ./.github/actions/build-and-test
+        timeout-minutes: ${{ fromJSON(steps.budget.outputs.minutes) }}
         with:
           test-plan: ${{ inputs.test-plan }}
           device-type: ${{ matrix.device }}
@@ -298,6 +310,17 @@ jobs:
         pose: ${{ fromJSON(inputs.duo-poses) }}
 
     steps:
+      - name: Work out the test step's time limit
+        # The job's own timeout cancels the whole job: no log is kept and the
+        # failure-only upload steps never run. Stopping "Build and test" 10
+        # minutes earlier fails just that step, so they still run.
+        # (Expressions have no arithmetic.)
+        id: budget
+        shell: bash
+        env:
+          JOB_MINUTES: ${{ inputs.timeout-minutes }}
+        run: echo "minutes=$(( JOB_MINUTES - 10 ))" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         # Always the triggering commit; see `ui-tests`.
         uses: actions/checkout@v7
@@ -340,6 +363,7 @@ jobs:
 
       - name: Build and test
         uses: ./.github/actions/build-and-test
+        timeout-minutes: ${{ fromJSON(steps.budget.outputs.minutes) }}
         env:
           # Reaches the tests as DUO_POSE (`UITestCase.duoPose`): a flat
           # display's fold looks the same to XCUITest as a partly folded one.
