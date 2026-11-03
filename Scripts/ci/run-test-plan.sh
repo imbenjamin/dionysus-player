@@ -17,7 +17,9 @@
 # Inputs, from the environment (the action's inputs of the same names):
 #   SCHEME, PROJECT, TEST_PLAN, PLATFORM ("iOS" or "tvOS"), UDID,
 #   RESULT_BUNDLE_PATH (attempt 2 writes "<name>-attempt-2.xcresult" beside
-#   it), RETRY_TESTS_ON_FAILURE ("true"/"false"), TEST_ITERATIONS,
+#   it), RETRY_TESTS_ON_FAILURE ("true"/"false"), RUN_TESTS_UNTIL_FAILURE
+#   ("true"/"false"; xcodebuild refuses it together with the retry flag, so
+#   both set is an error), TEST_ITERATIONS,
 #   ONLY_TESTING (space-separated), DUO_POSE (empty, or a pose for
 #   Scripts/duo-pose/set-duo-pose.sh).
 # For the tests: LOG_DIR (default .build) and DUO_POSE_SCRIPT.
@@ -33,6 +35,11 @@ for name in SCHEME PROJECT TEST_PLAN PLATFORM UDID RESULT_BUNDLE_PATH; do
   fi
 done
 
+if [ "$RETRY_TESTS_ON_FAILURE" = "true" ] && [ "$RUN_TESTS_UNTIL_FAILURE" = "true" ]; then
+  echo "::error::run-test-plan.sh: RETRY_TESTS_ON_FAILURE and RUN_TESTS_UNTIL_FAILURE can't both be true." >&2
+  exit 2
+fi
+
 here=$(cd "$(dirname "$0")" && pwd)
 log_dir=${LOG_DIR:-.build}
 pose_script=${DUO_POSE_SCRIPT:-$here/../duo-pose/set-duo-pose.sh}
@@ -47,6 +54,12 @@ args=(
 )
 if [ "$RETRY_TESTS_ON_FAILURE" = "true" ]; then
   args+=(-retry-tests-on-failure)
+  if [ -n "$TEST_ITERATIONS" ]; then
+    args+=(-test-iterations "$TEST_ITERATIONS")
+  fi
+fi
+if [ "$RUN_TESTS_UNTIL_FAILURE" = "true" ]; then
+  args+=(-run-tests-until-failure)
   if [ -n "$TEST_ITERATIONS" ]; then
     args+=(-test-iterations "$TEST_ITERATIONS")
   fi

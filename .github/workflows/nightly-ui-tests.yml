@@ -60,3 +60,78 @@ jobs:
       tvos-versions: '["26.5"]'
       allow-failure: true
       timeout-minutes: 40
+
+  unit-flake-hunt:
+    # Not UI tests, but the nightly is where an hour of runner time is free:
+    # each unit suite five times over in random order, which finds the tests
+    # that only pass in the order the PR plans happen to run them in, and the
+    # ones that fail one run in five. An allowed failure: it reports (the
+    # job's summary lists what failed), it never turns the nightly red and no
+    # ruleset requires it. The plans are the random-order copies
+    # (`UnitTests-Random`, `TVUnitTests-Random`): xcodebuild has no
+    # `-test-execution-ordering` flag. TESTING.md, "Where they run in CI".
+    name: Unit flake hunt / ${{ matrix.label }}
+    runs-on: xcode-27
+    timeout-minutes: 45
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: iOS
+            scheme: DionysusPlayer
+            test-plan: UnitTests-Random
+            platform: iOS
+            device-type: iPhone 16
+            os-version: "27.0"
+          - label: tvOS
+            scheme: DionysusTV
+            test-plan: TVUnitTests-Random
+            platform: tvOS
+            device-type: Apple TV 4K (3rd generation)
+            os-version: "27.0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up iOS project
+        uses: ./.github/actions/setup-ios-project
+
+      - name: Download the tvOS runtime if the image lacks it
+        if: matrix.platform == 'tvOS'
+        env:
+          TVOS_VERSION: ${{ matrix.os-version }}
+        run: |
+          if xcrun simctl list runtimes available -j \
+            | jq -e --arg v "$TVOS_VERSION" '.runtimes[] | select(.platform == "tvOS" and .version == $v)' > /dev/null; then
+            echo "tvOS $TVOS_VERSION is on the image"
+          else
+            xcodebuild -downloadPlatform tvOS -buildVersion "$TVOS_VERSION"
+          fi
+
+      - name: Build and test
+        uses: ./.github/actions/build-and-test
+        with:
+          scheme: ${{ matrix.scheme }}
+          test-plan: ${{ matrix.test-plan }}
+          platform: ${{ matrix.platform }}
+          device-type: ${{ matrix.device-type }}
+          ios-version: ${{ matrix.os-version }}
+          # Run the plan again until a test fails, five times at most: the
+          # opposite of a retry, which would hide the flake being hunted.
+          # (xcodebuild refuses the two together.)
+          run-tests-until-failure: "true"
+          test-iterations: "5"
+          result-bundle-path: .build/UnitFlakeHunt.xcresult
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-flake-hunt-${{ matrix.label }}
+          path: |
+            .build/UnitFlakeHunt.xcresult
+            .build/UnitFlakeHunt-attempt-2.xcresult
+            .build/test-attempt-*.log
+          retention-days: 7
+          if-no-files-found: ignore

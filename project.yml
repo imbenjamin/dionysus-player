@@ -538,6 +538,8 @@ schemes:
           defaultPlan: true
         - path: TestPlans/UITests-Smoke.xctestplan
         - path: TestPlans/UITests-Full.xctestplan
+        # Random order, for the nightly flake hunt only (nightly-ui-tests.yml).
+        - path: TestPlans/UnitTests-Random.xctestplan
     archive:
       config: Release
   DionysusTV:
@@ -555,5 +557,6 @@ schemes:
           defaultPlan: true
         - path: TestPlans/TVUITests.xctestplan
         - path: TestPlans/TVUITests-Smoke.xctestplan
+        - path: TestPlans/TVUnitTests-Random.xctestplan
     archive:
       config: Release

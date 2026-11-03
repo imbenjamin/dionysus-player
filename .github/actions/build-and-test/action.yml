@@ -59,11 +59,20 @@ inputs:
       flaky rather than as a break.
     required: false
     default: "false"
+  run-tests-until-failure:
+    description: >-
+      Pass `-run-tests-until-failure`: run the plan again and again until a
+      test fails, at most `test-iterations` times (xcodebuild's default is
+      100). For the nightly flake hunt. Can't be combined with
+      `retry-tests-on-failure`.
+    required: false
+    default: "false"
   test-iterations:
     description: >-
       With `retry-tests-on-failure`, how many attempts a failing test gets in
       all (`-test-iterations`). Empty keeps xcodebuild's default, 3. A test
       that passes is never run again, so this costs nothing on a green run.
+      With `run-tests-until-failure`, the most times the plan runs.
     required: false
     default: ""
   only-testing:
@@ -230,6 +239,7 @@ runs:
         UDID: ${{ steps.select_simulator.outputs.udid }}
         RESULT_BUNDLE_PATH: ${{ inputs.result-bundle-path }}
         RETRY_TESTS_ON_FAILURE: ${{ inputs.retry-tests-on-failure }}
+        RUN_TESTS_UNTIL_FAILURE: ${{ inputs.run-tests-until-failure }}
         TEST_ITERATIONS: ${{ inputs.test-iterations }}
         ONLY_TESTING: ${{ inputs.only-testing }}
         DUO_POSE: ${{ inputs.duo-pose }}
