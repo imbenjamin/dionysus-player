@@ -70,6 +70,9 @@ run_attempt() {
   { xcodebuild test-without-building "${args[@]}" -resultBundlePath "$2" \
       2>&1 1>&3 3>&- | tee "$err" 3>&- >&2; } 3>&1 \
     | tee "$log" | xcbeautify --renderer github-actions || status=$?
+  # A newline first: stdout may end mid-line, which would glue the stderr
+  # log's first line onto it.
+  echo >> "$log"
   cat "$err" >> "$log"
   return "$status"
 }
@@ -97,6 +100,8 @@ wait_for_boot() {
   fi
 }
 
+# A leftover marker from an earlier run must not claim a rerun that didn't happen.
+rm -f "$log_dir/test-rerun.txt"
 status=0
 run_attempt 1 "$RESULT_BUNDLE_PATH" || status=$?
 if [ "$status" -eq 0 ]; then
@@ -112,6 +117,7 @@ case "$classification" in
     ;;
 esac
 
+echo "$signature" > "$log_dir/test-rerun.txt" # read by xcresult_summary.py's step
 echo "::warning::Infrastructure failure ($signature); rebooting the simulator and running the plan once more"
 xcrun simctl shutdown "$UDID" || true
 if ! xcrun simctl boot "$UDID"; then

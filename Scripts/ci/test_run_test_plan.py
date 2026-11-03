@@ -269,6 +269,22 @@ class RunTestPlanTests(unittest.TestCase):
         self.assertIn(SIGNATURE, first)
         self.assertTrue(os.path.exists(os.path.join(self.logs, "test-attempt-2.log")))
 
+    def test_stderrLogStartsOnALineOfItsOwn(self):
+        self.run_script("infra pass")
+        with open(os.path.join(self.logs, "test-attempt-1.log")) as f:
+            lines = f.read().splitlines()
+        self.assertIn("Testing failed:", lines)
+
+    def test_noRerun_leavesNoMarker(self):
+        self.run_script("pass")
+        self.assertFalse(os.path.exists(os.path.join(self.logs, "test-rerun.txt")))
+
+    def test_rerun_leavesAMarkerNamingTheSignature(self):
+        marker = os.path.join(self.logs, "test-rerun.txt")
+        self.run_script("infra pass")
+        with open(marker) as f:
+            self.assertEqual(f.read().strip(), SIGNATURE)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -256,6 +256,7 @@ jobs:
           path: |
             .build/TestResults.xcresult
             .build/TestResults-attempt-2.xcresult
+            .build/test-attempt-*.log
           retention-days: 7
           if-no-files-found: ignore
 

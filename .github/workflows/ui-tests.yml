@@ -278,6 +278,7 @@ jobs:
           path: |
             .build/UITestResults.xcresult
             .build/UITestResults-attempt-2.xcresult
+            .build/test-attempt-*.log
           retention-days: 7
           if-no-files-found: ignore
 
@@ -361,5 +362,6 @@ jobs:
           path: |
             .build/UITestResults.xcresult
             .build/UITestResults-attempt-2.xcresult
+            .build/test-attempt-*.log
           retention-days: 7
           if-no-files-found: ignore

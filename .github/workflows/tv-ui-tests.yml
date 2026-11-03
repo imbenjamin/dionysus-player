@@ -161,6 +161,7 @@ jobs:
           path: |
             .build/TVUITestResults.xcresult
             .build/TVUITestResults-attempt-2.xcresult
+            .build/test-attempt-*.log
           retention-days: 7
           if-no-files-found: ignore
 
