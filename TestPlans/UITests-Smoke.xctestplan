@@ -13,7 +13,10 @@
       "name": "DionysusPlayer"
     },
     "testRepetitionMode": "retryOnFailure",
-    "maximumTestRepetitions": 2
+    "maximumTestRepetitions": 2,
+    "testTimeoutsEnabled": true,
+    "defaultTestExecutionTimeAllowance": 300,
+    "maximumTestExecutionTimeAllowance": 600
   },
   "testTargets": [
     {

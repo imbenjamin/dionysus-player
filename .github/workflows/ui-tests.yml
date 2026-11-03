@@ -272,8 +272,12 @@ jobs:
           # A failed UI test's .xcresult carries the screenshots and the
           # recorded interaction, which is the only practical way to see what
           # the runner actually saw.
+          # The second bundle exists only if the plan was run again after the
+          # test runner crashed (build-and-test's "Test" step).
           name: ui-test-results-${{ inputs.test-plan }}-${{ matrix.family }}-iOS-${{ matrix.os.version }}
-          path: .build/UITestResults.xcresult
+          path: |
+            .build/UITestResults.xcresult
+            .build/UITestResults-attempt-2.xcresult
           retention-days: 7
           if-no-files-found: ignore
 
@@ -343,6 +347,8 @@ jobs:
           test-plan: ${{ inputs.test-plan }}
           device-type: iPhone Duo
           ios-version: "27.1"
+          # So a rerun after a reboot sets the pose again.
+          duo-pose: ${{ matrix.pose }}
           retry-tests-on-failure: ${{ inputs.retry-tests-on-failure }}
           result-bundle-path: .build/UITestResults.xcresult
 
@@ -350,7 +356,10 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
+          # See `ui-tests` for the second bundle.
           name: ui-test-results-${{ inputs.test-plan }}-iPhone-Duo-${{ matrix.pose }}
-          path: .build/UITestResults.xcresult
+          path: |
+            .build/UITestResults.xcresult
+            .build/UITestResults-attempt-2.xcresult
           retention-days: 7
           if-no-files-found: ignore

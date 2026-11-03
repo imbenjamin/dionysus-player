@@ -155,8 +155,12 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
+          # The second bundle exists only if the plan was run again after the
+          # test runner crashed (build-and-test's "Test" step).
           name: tv-ui-test-results-${{ inputs.test-plan }}-tvOS-${{ matrix.tvos }}-part-${{ matrix.shard.index }}
-          path: .build/TVUITestResults.xcresult
+          path: |
+            .build/TVUITestResults.xcresult
+            .build/TVUITestResults-attempt-2.xcresult
           retention-days: 7
           if-no-files-found: ignore
 

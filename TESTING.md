@@ -15,6 +15,7 @@ comment); the index at the end says where to look.
 | `DionysusTVTests` | `TVUnitTests` | The Apple TV app's own tests, plus the shared ones run on tvOS | Every PR |
 | `DionysusTVUITests` | `TVUITests-Smoke` | Seven Apple TV journeys: first launch to sign-in, Home, a detail page from Home and from a library, Search, the player | Every PR, tvOS 27.0; nightly on tvOS 26.5 as an allowed failure |
 | | `TVUITests` | Every Apple TV journey and audit | Nightly and PRs into `stable`, tvOS 27.0 |
+| `Scripts/ci/test_*.py` | none (`unittest`) | The CI's own scripts: the UI-test rerun and its failure classifier | Every PR, `CI scripts` job, on Linux |
 
 Unit tests run in-process with no real network and take seconds. UI tests
 (XCUITest) drive the real app in the Simulator against an in-process stub
@@ -39,6 +40,9 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
   -testPlan TVUnitTests -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)'
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
   -testPlan TVUITests -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)'
+
+# The CI's own scripts (Scripts/ci/): python3 and bash, no Xcode
+python3 -m unittest discover -s Scripts/ci -v
 ```
 
 Use whatever `xcrun simctl list devices available` shows. Check Apple TV
@@ -452,7 +456,9 @@ simctl runtime add <dmg>`); iPad (A16) needs 18.3, so use iPad (10th
 generation), the same 820×1180pt screen. Each environment runs with
 `fail-fast: false` and uploads a failed `.xcresult` as
 `ui-test-results-<plan>-<device>-iOS-<version>` (the Duo's,
-`ui-test-results-<plan>-iPhone-Duo-<pose>`).
+`ui-test-results-<plan>-iPhone-Duo-<pose>`), with a second bundle,
+`UITestResults-attempt-2.xcresult`, when the plan was run again after the
+test runner crashed (below).
 
 **The iPhone Duo** runs on iOS 27.1, its only runtime; the image carries it
 and the `iPhone Duo` device type. One job per pose (`duo-poses`) boots it,
@@ -523,6 +529,49 @@ plan selects single tests and stays one job.
   build, giving up after 15 minutes (a poll in the shell: composite steps take
   no `timeout-minutes`). A device already booted, as the Duo job leaves it
   after posing, is not touched.
+- **One rerun, on a rebooted Simulator, when the test runner dies before any
+  test** (2026-11-03). In 21 of 84 failed UI-test jobs from 2026-10-12
+  to 2026-11-02 the runner crashed while bootstrapping (`Early unexpected exit,
+  operation never finished bootstrapping`, underlying error `The test runner
+  crashed while preparing to run tests`, in `handleStalledWait`) and no test
+  ran, so the plan's `retryOnFailure`, which retries a test, never came into
+  it. The action's "Test" step (`Scripts/ci/run-test-plan.sh`) keeps
+  xcodebuild's raw stdout and stderr in `.build/test-attempt-<n>.log`
+  (xcbeautify drops the `Test Case` lines and the stderr summary) and hands a
+  failed run's log to `Scripts/ci/xcodebuild_failure.py`. It is an
+  infrastructure failure when it holds one of five signatures (`Early
+  unexpected exit, operation never finished bootstrapping`, `Failed to get
+  background assertion`, `Timed out while launching application`, `Test
+  runner never began executing tests`, `The test runner crashed while
+  preparing to run tests`) and no sign that a test ran and failed: no `Test
+  Case '…' failed` line and no "Failing tests:" list. Then the step prints
+  `::warning::Infrastructure failure (<signature>); …`, shuts the Simulator
+  down, boots it, sets the Duo's pose again (the action's `duo-pose` input)
+  and runs the plan once more, writing `<bundle>-attempt-2.xcresult`, which
+  the upload steps take too. **Never a third time**: a regression that
+  crashes the app at launch reads the same, and must fail. Any other failure,
+  or a second one, fails the step with xcodebuild's status. In those logs the
+  background-assertion and launch-timeout messages came only from a test's
+  own `app.launch()`, listed under "Failing tests:", so there they stay test
+  failures for the plan's retry; they trigger the rerun only when the runner
+  itself hits them. `Scripts/ci/`'s tests run the step's script against fake
+  `xcodebuild`, `xcrun` and `xcbeautify`, on every PR in the `CI scripts` job
+  (Linux, not a required check).
+- **No test diagnostics** (`-collect-test-diagnostics never`, for the plan and
+  the warm-up): after a failure xcodebuild collected a sysdiagnose from the
+  Simulator, and in 18 of those 84 jobs gave up after 10 minutes ("Failure
+  collecting diagnostics from simulator: Timed out after 600.0 seconds").
+  Nobody read them; the `.xcresult` keeps each failure's message,
+  screenshots and recording.
+- **A time allowance per UI test**: the four UI plans set
+  `testTimeoutsEnabled`, a default allowance of 300 s and a maximum of 600 s
+  (a test's own `executionTimeAllowance` can raise it that far; XCTest rounds
+  up to whole minutes). A hung test fails at 5 minutes and gets the plan's
+  retry, instead of holding the job until its timeout. The unit plans have
+  none. The slowest passing UI test in 25 green jobs' logs took 259 s
+  (`HarnessTests.testStateResetClearsTheKeychainBetweenLaunches`, the smoke
+  plan's first test, on the iPad, 2026-11-01); if one gets near 300 s, raise
+  the default rather than let it time out.
 - **Why shards and five attempts** (2026-10-15, seven full runs): on tvOS 27.0
   the stale tree still hits about 5% of test attempts in CI (about 1.5% on a
   Mac), at random across ~40 journeys and evenly through a run. The

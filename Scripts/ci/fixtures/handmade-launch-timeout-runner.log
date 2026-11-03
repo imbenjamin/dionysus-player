@@ -1,0 +1,10 @@
+2026-11-02 04:26:06.429 xcodebuild[41576:101953] [MT] IDETestOperationsObserverDebug: 422.242 elapsed -- Testing started completed.
+2026-11-02 04:26:06.429 xcodebuild[41576:101953] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-11-02 04:26:06.429 xcodebuild[41576:101953] [MT] IDETestOperationsObserverDebug: 422.242 sec, +422.242 sec -- end
+Testing failed:
+	DionysusPlayerUITests-Runner (42740) encountered an error (Failed to launch DionysusPlayerUITests-Runner via Xcode: Timed out while launching application via Xcode.)
+
+** TEST EXECUTE FAILED **
+
+Test session results: /Users/runner/work/dionysus-player/dionysus-player/.build/UITestResults.xcresult
+Testing started

@@ -1,0 +1,33 @@
+2026-11-02 04:20:05.127 xcodebuild[41576:101953] [MT] IDESchemeActionSDKRecord: operatingSystemBuild = <DVTBuildVersion 24A94232>, error = invalidDigitCount(94232).
+2026-11-02 04:24:13.932 xcodebuild[41576:101953] [MT] IDESchemeActionSDKRecord: operatingSystemBuild = <DVTBuildVersion 24A94232>, error = invalidDigitCount(94232).
+2026-11-02 04:24:14.350 xcodebuild[41576:101953] [MT] IDESchemeActionSDKRecord: operatingSystemBuild = <DVTBuildVersion 24A94232>, error = invalidDigitCount(94232).
+2026-11-02 04:24:17.008 xcodebuild[41576:101953] [MT] IDESchemeActionSDKRecord: operatingSystemBuild = <DVTBuildVersion 24A94232>, error = invalidDigitCount(94232).
+2026-11-02 04:26:06.429 xcodebuild[41576:101953] [MT] IDETestOperationsObserverDebug: 422.242 elapsed -- Testing started completed.
+2026-11-02 04:26:06.429 xcodebuild[41576:101953] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-11-02 04:26:06.429 xcodebuild[41576:101953] [MT] IDETestOperationsObserverDebug: 422.242 sec, +422.242 sec -- end
+Testing failed:
+	DionysusPlayerUITests-Runner (42740) encountered an error (Early unexpected exit, operation never finished bootstrapping - no restart will be attempted. (Underlying Error: The test runner crashed while preparing to run tests: DionysusPlayerUITests-Runner at -[XCTWaiter(StallHandling) handleStalledWait:]))
+
+** TEST EXECUTE FAILED **
+
+
+----- xcbeautify -----
+Version: 3.2.1
+----------------------
+
+Resolving Package Graph
+Resolved source packages
+swift-ass-renderer - https://github.com/mihai8804858/swift-ass-renderer @ 1.3.1
+swift-concurrency-extras - https://github.com/pointfreeco/swift-concurrency-extras @ 1.4.3
+FFmpegBuild - https://github.com/superuser404notfound/FFmpegBuild @ 3.11.1
+LibDovi - https://github.com/superuser404notfound/LibDovi @ 2.1.0
+swift-issue-reporting - https://github.com/pointfreeco/swift-issue-reporting @ 2.1.2
+SMBClient - https://github.com/kishikawakatsumi/SMBClient @ 0.3.1
+LibTrueHD - https://github.com/superuser404notfound/LibTrueHD @ 3.1.0
+SwiftUI-Shimmer - https://github.com/markiv/SwiftUI-Shimmer @ 1.5.1
+combine-schedulers - https://github.com/pointfreeco/combine-schedulers @ 1.2.2
+AetherEngine - https://github.com/superuser404notfound/AetherEngine @ 7.54.0
+swift-libass - https://github.com/mihai8804858/swift-libass @ 1.4.0
+Test session results: /Users/runner/work/dionysus-player/dionysus-player/.build/UITestResults.xcresult
+Testing started
+##[error]Process completed with exit code 65.

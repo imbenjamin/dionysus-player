@@ -250,8 +250,12 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
+          # The second bundle exists only if the plan was run again after the
+          # test runner crashed (build-and-test's "Test" step).
           name: test-results
-          path: .build/TestResults.xcresult
+          path: |
+            .build/TestResults.xcresult
+            .build/TestResults-attempt-2.xcresult
           retention-days: 7
           if-no-files-found: ignore
 

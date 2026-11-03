@@ -1,0 +1,46 @@
+2026-10-14 11:18:26.839 xcodebuild[13754:42984] [MT] IDETestOperationsObserverDebug: 498.918 elapsed -- Testing started completed.
+2026-10-14 11:18:26.840 xcodebuild[13754:42984] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-10-14 11:18:26.840 xcodebuild[13754:42984] [MT] IDETestOperationsObserverDebug: 498.918 sec, +498.918 sec -- end
+Failing tests:
+	HarnessTests.testStateResetClearsTheKeychainBetweenLaunches()
+	HarnessTests.testStateResetClearsTheKeychainBetweenLaunches()
+
+** TEST EXECUTE FAILED **
+
+
+----- xcbeautify -----
+Version: 3.2.1
+----------------------
+
+Resolving Package Graph
+Resolved source packages
+SMBClient - https://github.com/kishikawakatsumi/SMBClient @ 0.3.1
+combine-schedulers - https://github.com/pointfreeco/combine-schedulers @ 1.2.2
+LibTrueHD - https://github.com/superuser404notfound/LibTrueHD @ 2.2.1
+LibDovi - https://github.com/superuser404notfound/LibDovi @ 2.1.0
+xctest-dynamic-overlay - https://github.com/pointfreeco/xctest-dynamic-overlay @ 1.13.1
+AetherEngine - https://github.com/superuser404notfound/AetherEngine @ 7.35.1
+FFmpegBuild - https://github.com/superuser404notfound/FFmpegBuild @ 3.7.1
+SwiftUI-Shimmer - https://github.com/markiv/SwiftUI-Shimmer @ 1.5.1
+swift-concurrency-extras - https://github.com/pointfreeco/swift-concurrency-extras @ 1.4.2
+swift-ass-renderer - https://github.com/mihai8804858/swift-ass-renderer @ 1.3.1
+swift-libass - https://github.com/mihai8804858/swift-libass @ 1.4.0
+Test Suite 'Selected tests' started at 2026-10-14 11:13:20.745.
+Test Suite 'DionysusPlayerUITests.xctest' started at 2026-10-14 11:13:20.746.
+Test Suite 'HarnessTests' started at 2026-10-14 11:13:20.747.
+##[error]    testStateResetClearsTheKeychainBetweenLaunches, Failed to launch <XCUIApplicationImpl: 0x10645e680 com.imbenjamin.dionysusplayer at /Users/runner/Library/Developer/Xcode/DerivedData/DionysusPlayer-gbyhnqwtuxxdpbbcwovfsyexrjth/Build/Products/Debug-iphonesimulator/Dionysus.app> via Xcode: Timed out while launching application via Xcode.
+##[error]    testStateResetClearsTheKeychainBetweenLaunches, Failed to get background assertion for target app with pid 0: No failure details provided
+Executed 2 tests, with 2 failures (0 unexpected) in 113.915 (113.926) seconds
+Test Suite 'SmokeJourneyTests' started at 2026-10-14 11:15:14.673.
+    ✔ testFirstRunSetupAndSignIn (37.335 seconds)
+    ✔ testOpeningAnItemFromACollectionGrid (26.428 seconds)
+    ✔ testOpeningAnItemFromHome (16.108 seconds)
+    ✔ testPlayingAndClosingAnItem (22.227 seconds)
+    ✔ testSearchingFindsAKnownTitle (17.358 seconds)
+    ✔ testSeededSessionOpensOnHome (15.315 seconds)
+Executed 6 tests, with 0 failures (0 unexpected) in 134.772 (134.778) seconds
+Test Suite 'DionysusPlayerUITests.xctest' failed at 2026-10-14 11:17:29.453.
+Executed 8 tests, with 2 failures (0 unexpected) in 248.687 (248.707) seconds
+Executed 8 tests, with 2 failures (0 unexpected) in 248.687 (248.710) seconds
+Test session results: /Users/runner/work/dionysus-player/dionysus-player/.build/UITestResults.xcresult
+Testing started

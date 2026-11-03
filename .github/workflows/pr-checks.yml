@@ -56,8 +56,12 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
+          # The second bundle exists only if the plan was run again after the
+          # test runner crashed (build-and-test's "Test" step).
           name: test-results
-          path: .build/TestResults.xcresult
+          path: |
+            .build/TestResults.xcresult
+            .build/TestResults-attempt-2.xcresult
           retention-days: 7
           if-no-files-found: ignore
 
@@ -147,6 +151,24 @@ jobs:
           path: .build/TVTestResults.xcresult
           retention-days: 7
           if-no-files-found: ignore
+
+  ci-scripts:
+    # The unit tests of the CI's own scripts (Scripts/ci/): the classifier
+    # that decides whether a failed UI-test run earns one rerun on a
+    # rebooted Simulator, and the script that does the rerun, run against
+    # fake xcodebuild, xcrun and xcbeautify. On Linux: they need only bash
+    # and python3. Not a required check (adding one means editing both
+    # rulesets).
+    name: CI scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run the scripts' tests
+        run: python3 -m unittest discover -s Scripts/ci -v
 
   ui-smoke:
     # A separate job from `build`, deliberately. That one's name is required
