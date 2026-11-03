@@ -23,6 +23,8 @@ final class AppStateTests: XCTestCase {
         defaults = UserDefaults(suiteName: suiteName)
         defaults.removePersistentDomain(forName: suiteName)
         URLProtocol.registerClass(MockURLProtocol.self)
+        // Requests on `URLSession.shared` can't be stamped with a generation.
+        MockURLProtocol.acceptsUnmarkedRequests = true
     }
 
     override func tearDown() async throws {

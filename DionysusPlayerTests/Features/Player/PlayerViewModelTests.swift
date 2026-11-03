@@ -530,6 +530,7 @@ final class PlayerViewModelTests: XCTestCase {
         // cannot reach. Registering globally for the length of this one test is
         // what puts the stub in front of it.
         URLProtocol.registerClass(MockURLProtocol.self)
+        MockURLProtocol.acceptsUnmarkedRequests = true
         addTeardownBlock { URLProtocol.unregisterClass(MockURLProtocol.self) }
         let (viewModel, engine) = makeViewModel()
         let assStream = transcodeSubtitleStream(index: 6, codec: "ass", deliveryMethod: "External")

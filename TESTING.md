@@ -90,6 +90,20 @@ under test is the client's real request building and decoding. View model
 tests reuse it, since view models take an already-built client. Three things
 that aren't guessable:
 
+- **A request from an earlier test can't reach the current one's handler.**
+  `requestHandler` is a shared static, and a request a finished test left in
+  flight used to land on the next test's stub ("3 requests where 1 expected", a
+  handler's `XCTFail` reported under another test). `reset()` bumps
+  `MockURLProtocol.generation`; `makeSession()` stamps its session's requests
+  with `X-MockURLProtocol-Generation: <generation at creation>`
+  (`httpAdditionalHeaders`), and a request naming an older generation, or none,
+  fails with `StaleRequest` without being recorded or reaching the handler. A
+  test that fails with `StaleRequest` was relying on a leak: make its request on
+  a current session or wait for it. Tests that register the mock process-wide
+  (below) can't stamp `URLSession.shared`'s requests, so they set
+  `MockURLProtocol.acceptsUnmarkedRequests = true` in `setUp` (`reset()` clears
+  it); they are only as isolated as the requests they make themselves.
+  `MockURLProtocolTests` pins this.
 - **`URLSession`'s async `data(for:)` moves a request's body into
   `httpBodyStream`** before a custom `URLProtocol` sees it, so
   `request.httpBody` reads `nil`; `URLRequest.capturedHTTPBody` drains

@@ -10,6 +10,8 @@ final class ServerSetupViewModelTests: XCTestCase {
     override func setUp() {
         super.setUp()
         URLProtocol.registerClass(MockURLProtocol.self)
+        // Requests on `URLSession.shared` can't be stamped with a generation.
+        MockURLProtocol.acceptsUnmarkedRequests = true
     }
 
     override func tearDown() {

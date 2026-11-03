@@ -25,22 +25,50 @@ final class MockURLProtocol: URLProtocol {
     /// assert on method/headers/query rather than just the decoded result.
     nonisolated(unsafe) static var lastRequest: URLRequest?
 
+    /// Thrown for a request that belongs to an earlier test (its session was
+    /// made before the last `reset()`) or that carries no generation at all
+    /// while `acceptsUnmarkedRequests` is false.
+    struct StaleRequest: Error {}
+
+    static let generationHeader = "X-MockURLProtocol-Generation"
+
+    /// Bumped by `reset()`. Each session from `makeSession()` stamps its
+    /// requests with the generation it was made in, so a late request from a
+    /// finished test can't reach the next test's handler.
+    nonisolated(unsafe) static var generation = 0
+
+    /// For tests that register the mock process-wide (`URLSession.shared`
+    /// requests can't be stamped). Set it in `setUp`; `reset()` clears it.
+    nonisolated(unsafe) static var acceptsUnmarkedRequests = false
+
     static func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
+        configuration.httpAdditionalHeaders = [generationHeader: String(generation)]
         return URLSession(configuration: configuration)
     }
 
     /// Call from `tearDown()` so a forgotten stub doesn't affect later tests.
     static func reset() {
+        generation += 1
         requestHandler = nil
         lastRequest = nil
+        acceptsUnmarkedRequests = false
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        if let stamp = request.value(forHTTPHeaderField: MockURLProtocol.generationHeader) {
+            guard Int(stamp) == MockURLProtocol.generation else {
+                client?.urlProtocol(self, didFailWithError: StaleRequest())
+                return
+            }
+        } else if !MockURLProtocol.acceptsUnmarkedRequests {
+            client?.urlProtocol(self, didFailWithError: StaleRequest())
+            return
+        }
         MockURLProtocol.lastRequest = request
         guard let handler = MockURLProtocol.requestHandler else {
             client?.urlProtocol(self, didFailWithError: UnhandledRequest())
