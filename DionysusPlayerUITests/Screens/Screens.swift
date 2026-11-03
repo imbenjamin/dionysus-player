@@ -271,8 +271,8 @@ struct QuickConnectScreen: Screen {
 /// On an iPhone Duo, where the tab bar joins the vertical bar at the side
 /// (closed, and the inner display held wide), it is neither: there is no
 /// `TabBar`, the tabs are buttons in a `Toolbar` beside any toolbar items, and
-/// on a tab's root screen they carry no identifier (on a pushed screen they
-/// do). Measured on the iPhone Duo Simulator, iOS 27.1, 2026-10-28. So the
+/// on a tab's root screen they can carry no identifier at first (on a pushed
+/// screen they do; see the paragraph below). Measured on the iPhone Duo Simulator, iOS 27.1, 2026-10-28. So the
 /// last fallback is the toolbars' buttons, by the same order.
 /// Which of the three shapes is up isn't known until the bar has drawn, so
 /// this waits for any of them before choosing.

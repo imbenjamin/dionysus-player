@@ -100,7 +100,8 @@ enum A11yID {
         static let errorMessage = "quickConnect.errorMessage"
     }
 
-    /// iPad only, in practice. SwiftUI's floating tab bar keeps an
+    /// iPad, in practice, and the iPhone Duo's side bar (its tabs are found
+    /// through `prefix`). SwiftUI's floating tab bar keeps an
     /// identifier set inside `.tabItem`; iPhone converts the same item into
     /// a UIKit `UITabBarItem`, which drops it. `DionysusPlayerUITests`'
     /// `TabBar` screen object falls back to tab order there — see its note.

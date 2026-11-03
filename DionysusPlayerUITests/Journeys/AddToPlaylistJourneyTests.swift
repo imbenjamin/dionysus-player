@@ -411,14 +411,28 @@ final class AddToPlaylistJourneyTests: UITestCase {
         for _ in 0..<3 {
             let back = app.navigationBackButton
             guard back.exists else { break }
+            // A NavigationStack keeps one navigation bar through a pop, and
+            // that bar has no title of its own (its identifier is the
+            // hosting class), so neither the bar count nor its identifier
+            // says the pop is over. The Back button does: it is labelled
+            // with the page beneath, so it is gone at the root and
+            // relabelled on the way down. (Two stacked pages whose
+            // predecessors share a title would read as unsettled and time
+            // out; none do here.)
+            let outgoing = back.label
             back.tap()
             // Let the pop finish before the next lookup. Mid-pop, the old
             // bar's button can pass `exists` and be gone by the time the tap
             // or a frame read resolves it, which fails the test (iPadOS 27).
-            // The pop is over when the outgoing bar has left the tree, so
-            // one navigation bar is all that remains.
-            let settled = NSPredicate { _, _ in self.app.navigationBars.count <= 1 }
-            _ = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: settled, object: nil)], timeout: 3)
+            let popped = NSPredicate { _, _ in
+                let button = self.app.navigationBackButton
+                return !button.exists || button.label != outgoing
+            }
+            let result = XCTWaiter().wait(
+                for: [XCTNSPredicateExpectation(predicate: popped, object: nil)], timeout: 5)
+            XCTAssertEqual(result, .completed,
+                           "The Back button labelled \"\(outgoing)\" was still there 5 s after tapping it",
+                           file: file, line: line)
         }
         HomeScreen(app: app).awaitLoaded(file: file, line: line)
 
