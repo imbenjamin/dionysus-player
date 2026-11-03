@@ -577,6 +577,17 @@ no edit), each giving a failing test **up to five attempts**. A last job named
 checks keep their names. Shard only a plan that runs whole classes: the smoke
 plan selects single tests and stays one job.
 
+**The package cache** (`setup-ios-project`): `.build/SourcePackages` is
+restored by every job and written only by the nightly on `develop`, because
+the repository's 10 GB Actions cache already holds the iOS 18.6 runtime
+(about 8.8 GB) and a save per PR scope or tag (about 0.93 GB each) would
+evict it. The key is the OS, the Xcode version, the hash of every
+`Packages/**/Package.swift` and the hash of `project.yml`'s `packages:` block;
+there are no `restore-keys`, since an older checkout fails with "enables
+traits on package ... that declares no traits". After a pin change, jobs
+resolve cold until the next nightly. Every `xcodebuild` call passes
+`-clonedSourcePackagesDirPath .build/SourcePackages`.
+
 **The nightly unit flake hunt** (`Unit flake hunt / iOS` and `/ tvOS` in
 `nightly-ui-tests.yml`, added 2026-11-03) runs the unit suites on an iPhone 16
 (iOS 27.0) and an Apple TV 4K (tvOS 27.0), five times over with

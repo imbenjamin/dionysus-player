@@ -69,25 +69,56 @@ runs:
       shell: bash
       run: xcodegen generate
 
-    - name: Cache Swift packages
-      # AetherEngine and its dependencies (about a minute or more of cold
-      # clone and resolve per job, and a network flake each time) live in
-      # .build/SourcePackages, which every xcodebuild call here names with
-      # `-clonedSourcePackagesDirPath`. actions/cache restores it now and
-      # saves it after the job, only on a miss and only from a job that
-      # succeeded.
-      #
-      # The key holds every Package.swift under Packages/ (the local
-      # AetherEngineWithObjectAudio package carries the engine's `exact:` pin
-      # and its trait list) and project.yml, so any pin change is a new key.
-      # NO restore-keys: a partial match would hand xcodebuild an older
-      # checkout, which fails with "enables traits on package ... that
-      # declares no traits" (CLAUDE.md, "Pinning AetherEngine"). Package.resolved
-      # is gitignored, so the pin is the whole of the invalidation.
-      #
-      # The repository's cache is 10 GB and ui-tests.yml's iOS 18.6 runtime
-      # takes about 8.5 GB of it; this entry is small (see the commit).
+    - name: Work out the package cache key
+      # The top-level `packages:` block of project.yml, not the whole file:
+      # project.yml changes often for reasons that have nothing to do with
+      # packages, and each distinct key is a new ~0.93 GB cache entry. The
+      # block names every package and its url/version/path; the local
+      # package's own Package.swift (the AetherEngine `exact:` pin and its
+      # traits) is hashed with it by the glob below.
+      id: spm_key
+      shell: bash
+      run: |
+        block=$(awk '/^packages:/ { f = 1; print; next } f && /^[^ #]/ { exit } f' project.yml)
+        if [ -z "$block" ]; then
+          echo "::error::No top-level 'packages:' block found in project.yml." >&2
+          exit 1
+        fi
+        hash=$(printf '%s\n' "$block" | shasum -a 256 | cut -c1-16)
+        echo "project.yml packages block hash: $hash"
+        echo "hash=$hash" >> "$GITHUB_OUTPUT"
+
+    # AetherEngine and its dependencies (a minute or more of cold clone and
+    # resolve per job, and a network flake each time) live in
+    # .build/SourcePackages, which every xcodebuild call here names with
+    # `-clonedSourcePackagesDirPath`.
+    #
+    # The cache is WRITTEN only by the nightly on develop, and only restored
+    # everywhere else (PRs, release tags, manual runs on other refs). The
+    # repository's Actions cache is 10 GB and ui-tests.yml's iOS 18.6 runtime
+    # entry takes about 8.8 GB of it; this entry is about 0.93 GB, and a
+    # save from every PR scope and tag would evict the runtime (LRU) and turn
+    # the iOS 18.6 legs red. Caches saved on the default branch are readable
+    # from every ref. After a pin change, the first runs are cold until the
+    # next nightly writes the new key.
+    #
+    # The key holds every Package.swift under Packages/ (the local
+    # AetherEngineWithObjectAudio package carries the engine's `exact:` pin
+    # and trait list) and the packages block of project.yml. NO restore-keys:
+    # a partial match would hand xcodebuild an older checkout, which fails
+    # with "enables traits on package ... that declares no traits"
+    # (CLAUDE.md, "Pinning AetherEngine"). Package.resolved is gitignored, so
+    # the pin is the whole of the invalidation.
+    - name: Cache Swift packages (restore and save)
+      if: github.ref == 'refs/heads/develop' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
       uses: actions/cache@v4
       with:
         path: .build/SourcePackages
-        key: spm-${{ runner.os }}-xcode-${{ inputs.xcode-version }}-${{ hashFiles('Packages/**/Package.swift', 'project.yml') }}
+        key: spm-${{ runner.os }}-xcode-${{ inputs.xcode-version }}-${{ hashFiles('Packages/**/Package.swift') }}-${{ steps.spm_key.outputs.hash }}
+
+    - name: Cache Swift packages (restore only)
+      if: ${{ !(github.ref == 'refs/heads/develop' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')) }}
+      uses: actions/cache/restore@v4
+      with:
+        path: .build/SourcePackages
+        key: spm-${{ runner.os }}-xcode-${{ inputs.xcode-version }}-${{ hashFiles('Packages/**/Package.swift') }}-${{ steps.spm_key.outputs.hash }}

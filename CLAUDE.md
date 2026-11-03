@@ -119,8 +119,10 @@ XcodeGen can't set: 2.45.4 drops a `traits:` key silently. It re-exports the
 engine, so `import AetherEngine` works as before. `Package.resolved` is
 gitignored with the generated project, so CI caches the package checkouts
 (`.build/SourcePackages`, in `setup-ios-project`) keyed on every
-`Packages/**/Package.swift` and `project.yml`, with no `restore-keys`, and the
-cache holds the pin and nothing older. A range let CI land on whatever
+`Packages/**/Package.swift` and `project.yml`'s `packages:` block, with no
+`restore-keys`. Only the nightly on `develop` writes it (about 0.93 GB, beside
+the 8.8 GB iOS 18.6 runtime in a 10 GB quota); every other run restores. After
+a pin change, runs are cold until the next nightly. A range let CI land on whatever
 release was newest with no commit here (PR #147: `6.54.0` resolved against a
 `6.52.0` pin). A cold resolve after changing the
 pin can fail with "enables traits on package … that declares no traits": a
