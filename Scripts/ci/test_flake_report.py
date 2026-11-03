@@ -111,3 +111,11 @@ class RenderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DefaultRepoTests(unittest.TestCase):
+    def test_ghRepoWins_thenTheRunnersRepository_thenTheBuiltInDefault(self):
+        both = {"GH_REPO": "a/b", "GITHUB_REPOSITORY": "c/d"}
+        self.assertEqual(report.default_repo(both), "a/b")
+        self.assertEqual(report.default_repo({"GITHUB_REPOSITORY": "c/d"}), "c/d")
+        self.assertEqual(report.default_repo({}), report.DEFAULT_REPO)

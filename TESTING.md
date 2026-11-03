@@ -686,7 +686,8 @@ for the PR plans too (a later decision, not made).
   numbers with `python3 Scripts/ci/flake-report.py --since YYYY-MM-DD [--until
   YYYY-MM-DD] [--workflow pr-checks.yml]` (needs `gh`; `--no-logs` skips the
   log downloads): runs green first time and rerun, failed jobs, failing tests
-  and infrastructure signatures.
+  and infrastructure signatures. The "Flake report" workflow runs it weekly
+  (see "Flaky tests").
 - **No test diagnostics** (`-collect-test-diagnostics never`, for the plan and
   the warm-up): after a failure xcodebuild collected a sysdiagnose from the
   Simulator, and in 18 of those 84 jobs gave up after 10 minutes ("Failure
@@ -739,6 +740,46 @@ becomes the previous major, 18 stays as the floor).
 
 Pipe `xcodebuild` through `xcbeautify` only with `pipefail` set: without it
 the nightly reported success for weeks while the iPad audits failed (#258).
+
+## Flaky tests
+
+A test is **flaky** if it fails and then passes with no code change. One that
+fails every attempt is broken, not flaky.
+
+- **Retries.** The plans' `retryOnFailure` runs a failing test again: twice in
+  all (`maximumTestRepetitions: 2`) on the iOS and tvOS smoke plans and
+  `UITests-Full`, up to five attempts on the full tvOS plan
+  (`retry-tests-on-failure` in `tv-ui-tests.yml`). The only other retry is the
+  "Test" step's single rerun of the whole plan for an infrastructure
+  signature (`xcodebuild_failure.py`), when no test ran. A retry never hides a
+  flake: the job summary's "Flaky" list and a `::warning title=Flaky test::`
+  annotation name it.
+- **First response.** Read the job's summary, then `gh run view <id>
+  --log-failed` for an infrastructure signature before suspecting the change.
+  Rerun with `gh run rerun <id> --failed`, never the whole run.
+- **Reproduce** with `-test-iterations 50 -run-tests-until-failure` on one
+  test (`-only-testing:`) before changing it.
+- **Quarantine** keeps a flake from blocking the PR gate only. The smoke plans
+  *select* their tests (`selectedTests`), so take the test out of that list;
+  a plan that runs everything (`UITests-Full`, `TVUITests`) takes it in
+  `skippedTests` instead, but quarantine never goes there: the test keeps
+  running nightly and in the full plans. Add a row to the table below in the
+  same commit. At most **3** at once, each for at most **14 days**. It comes
+  out with a root-cause fix, not after a quiet streak (a 1% flake passes 20
+  runs in a row 82% of the time).
+- **Never** add a sleep or lengthen a timeout without a measured reason in a
+  comment.
+- **The weekly report.** "Flake report" (`flake-report.yml`, Mondays 06:00
+  UTC, or dispatched with a number of `days`) writes
+  `Scripts/ci/flake-report.py`'s table to its run summary and posts nothing
+  elsewhere.
+
+### Quarantined
+
+| Test | Since | Signature | Issue / notes |
+| --- | --- | --- | --- |
+
+None.
 
 ## Checked by hand
 

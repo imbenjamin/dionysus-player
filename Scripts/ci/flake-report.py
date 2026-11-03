@@ -190,12 +190,18 @@ def job_log(repo: str, job_id: int, cache_dir: str) -> str:
     return text
 
 
+def default_repo(env: dict[str, str]) -> str:
+    """The repository to read: `GH_REPO`, else the runner's `GITHUB_REPOSITORY`."""
+    return env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or DEFAULT_REPO
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--since", required=True, help="YYYY-MM-DD")
     parser.add_argument("--until", help="YYYY-MM-DD, inclusive")
     parser.add_argument("--workflow", action="append", help="workflow file; repeatable")
-    parser.add_argument("--repo", default=DEFAULT_REPO)
+    parser.add_argument("--repo", default=default_repo(os.environ),
+                        help="owner/name; default $GH_REPO, then $GITHUB_REPOSITORY")
     parser.add_argument("--no-logs", action="store_true")
     parser.add_argument("--cache-dir", default=os.path.join(tempfile.gettempdir(), "flake-report-logs"))
     args = parser.parse_args(argv[1:])
