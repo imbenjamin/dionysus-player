@@ -421,6 +421,7 @@ targets:
           - "Core/Models/**"
           - "Core/Playback/**"
           - "Core/Persistence/**"
+          - "Core/Support/**"
           - "Features/Home/**"
           - "Features/Collection/**"
           - "Features/AssetDetails/**"

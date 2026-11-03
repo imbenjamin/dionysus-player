@@ -62,6 +62,9 @@ struct DionysusPlayerApp: App {
                 // page: see `HeroStatusBarScheme`.
                 .statusBarColorScheme(HeroStatusBarScheme.shared.scheme)
                 .task {
+                    // The unit-test host must not start a session: see
+                    // `TestHostDetection`.
+                    guard !TestHostDetection.isUnitTestHost else { return }
                     await appState.start()
                 }
                 .onChange(of: scenePhase) { _, newPhase in
@@ -88,7 +91,7 @@ struct DionysusPlayerApp: App {
                     // ConnectivityMonitor. Firing again on the very first
                     // activation alongside appState.start()'s own real
                     // request is harmless.
-                    guard newPhase == .active, let client = appState.apiClient else { return }
+                    guard !TestHostDetection.isUnitTestHost, newPhase == .active, let client = appState.apiClient else { return }
                     Task {
                         try? await client.healthCheck()
                         // Piggybacks on this same reconnect check rather

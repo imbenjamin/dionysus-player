@@ -97,6 +97,15 @@ that aren't guessable:
 - **`AppState` and `ServerSetupViewModel` build their own client on
   `URLSession.shared`**, so their tests register `MockURLProtocol` process-wide
   (`URLProtocol.registerClass`; see `AppStateTests`).
+- **The unit-test host app doesn't start a session.** The host is the real
+  app, and its `.task { appState.start() }` (and, on iOS, the foreground
+  reachability probe) made requests on `URLSession.shared` while a test had
+  `MockURLProtocol` registered process-wide, so a host request could reach
+  whichever test was running. Both apps skip them when
+  `TestHostDetection.isUnitTestHost` (`XCTestConfigurationFilePath` is set);
+  their `init()` still runs, so the UI-test harness and `TVAppLaunchTests`
+  are unchanged. UI tests launch the app as its own process, without that
+  variable, and are unaffected.
 - **The async polling helper `waitUntil` is `@MainActor`**, to match its
   callers; otherwise Swift 6 flags the closure as an unsafe cross-actor send.
 
