@@ -109,9 +109,6 @@ class RenderTests(unittest.TestCase):
         self.assertIn("`--no-logs`", text)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class DefaultRepoTests(unittest.TestCase):
     def test_ghRepoWins_thenTheRunnersRepository_thenTheBuiltInDefault(self):
@@ -119,3 +116,7 @@ class DefaultRepoTests(unittest.TestCase):
         self.assertEqual(report.default_repo(both), "a/b")
         self.assertEqual(report.default_repo({"GITHUB_REPOSITORY": "c/d"}), "c/d")
         self.assertEqual(report.default_repo({}), report.DEFAULT_REPO)
+
+
+if __name__ == "__main__":
+    unittest.main()
