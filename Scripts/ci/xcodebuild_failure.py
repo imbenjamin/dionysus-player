@@ -34,6 +34,7 @@ SIGNATURES = (
     "Timed out while launching application",
     "Test runner never began executing tests",
     "The test runner crashed while preparing to run tests",
+    "The test runner failed to initialize for UI testing",
 )
 
 # XCTest's line for a failed test, "Test Case '-[Module.Class test]' failed

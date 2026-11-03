@@ -547,11 +547,12 @@ plan selects single tests and stays one job.
   xcodebuild's raw stdout and stderr in `.build/test-attempt-<n>.log`
   (xcbeautify drops the `Test Case` lines and the stderr summary) and hands a
   failed run's log to `Scripts/ci/xcodebuild_failure.py`. It is an
-  infrastructure failure when it holds one of five signatures (`Early
+  infrastructure failure when it holds one of six signatures (`Early
   unexpected exit, operation never finished bootstrapping`, `Failed to get
   background assertion`, `Timed out while launching application`, `Test
   runner never began executing tests`, `The test runner crashed while
-  preparing to run tests`) and no sign that a test ran and failed: no `Test
+  preparing to run tests`, `The test runner failed to initialize for UI
+  testing` (seen 2026-11-03, iPad iOS 18.6)) and no sign that a test ran and failed: no `Test
   Case '…' failed` line and no "Failing tests:" list. Then the step prints
   `::warning::Infrastructure failure (<signature>); …`, shuts the Simulator
   down, boots it, sets the Duo's pose again (the action's `duo-pose` input)

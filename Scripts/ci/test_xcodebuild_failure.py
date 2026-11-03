@@ -29,6 +29,9 @@ both. Where a fixture is not a real excerpt its name starts `handmade-`.
   handmade-launch-timeout-runner.log: the same messages raised for the test
   runner itself before any test, which the sample doesn't contain. Built on
   early-exit.log's shape with the error text swapped.
+- runner-failed-to-initialize.log: job from the iPad UI test run (iOS 18.6,
+  2026-11-03), the Test step's output from its start, the runner timing out
+  waiting for its AX loaded notification before any test ran.
 - handmade-signature-after-a-test-failure.log: raw xcodebuild stdout (as
   run-test-plan.sh tees it) in which a test ran and failed and the runner then
   exited with an infrastructure signature.
@@ -71,6 +74,12 @@ class ClassifyTests(unittest.TestCase):
             ("infrastructure", LAUNCH_TIMEOUT),
         )
 
+    def test_runnerFailedToInitialize_isInfrastructure(self):
+        self.assertEqual(
+            classify(fixture("runner-failed-to-initialize.log")),
+            ("infrastructure", "The test runner failed to initialize for UI testing"),
+        )
+
     def test_assertionFailure_isTest(self):
         log = fixture("assertion-failure.log")
         self.assertIn("XCTAssertTrue failed", log)
@@ -104,7 +113,7 @@ class ClassifyTests(unittest.TestCase):
                 log = f"Testing failed:\n\tRunner (1) encountered an error ({signature} …)\n"
                 self.assertEqual(classify(log), ("infrastructure", signature))
 
-    def test_theFiveSignatures(self):
+    def test_theSixSignatures(self):
         self.assertEqual(
             SIGNATURES,
             (
@@ -113,6 +122,7 @@ class ClassifyTests(unittest.TestCase):
                 LAUNCH_TIMEOUT,
                 "Test runner never began executing tests",
                 "The test runner crashed while preparing to run tests",
+                "The test runner failed to initialize for UI testing",
             ),
         )
 
