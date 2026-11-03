@@ -11,18 +11,18 @@ import XCTest
 /// outside the harness) is the one exception, added specifically so this
 /// timing has *some* automated coverage instead of none.
 ///
-/// Both tests launch with the `slowLogoImage` scenario, which delays only
-/// the `Logo` image response (`UITestStubURLProtocol.slowLogoImageDelay`)
-/// — comfortably past `LogoImageView`'s own 1s reveal delay, so the
-/// fallback is guaranteed to appear. See that constant's own doc comment for
-/// why the delay also has to outlast every screen this journey passes through
-/// on the way, Home included, rather than just the reveal delay it beats on
-/// paper — and why that makes it long enough to need `logoArrivalTimeout`
-/// rather than the suite's default for the disappearance half.
+/// Both tests launch with the `slowLogoImage` scenario, which holds each
+/// `Logo` request for `UITestStubURLProtocol.slowLogoImageDelay` from that
+/// request, and stops `RemoteImageLoader` caching or sharing those logos. The
+/// view watched here therefore makes its own request when it mounts, whatever
+/// Home asked for at launch, and its fallback shows 1s later however long the
+/// navigation took. See that constant's doc comment for what still bounds the
+/// hold, and why it is long enough to need `logoArrivalTimeout` rather than
+/// the suite's default for the disappearance half.
 final class HeroLogoFallbackUITests: UITestCase {
-    /// The logo lands up to `slowLogoImageDelay` after the fallback appears
-    /// (sooner the slower the navigation was), which is longer than the
-    /// suite's 15s default.
+    /// The logo lands up to `slowLogoImageDelay` after the watched view asked
+    /// for it (sooner the longer the test took to look), which is longer than
+    /// the suite's 15s default.
     private let logoArrivalTimeout: TimeInterval = 30
 
     /// The asset-detail hero header: `BackdropLogoOverlay`'s

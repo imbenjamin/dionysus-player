@@ -264,7 +264,7 @@ JSON, so a DTO change is a compile error rather than silent rot.
 | `noDeletePermission` | `CanDelete: false` everywhere, `DELETE` refused |
 | `folderlessSeasons` | Made-up seasons, so Delete Season goes episode by episode |
 | `noPlaylistEditPermission` | Every playlist's permission lookup 404s; adds and removals 403 |
-| `slowLogoImage` | A hero logo held past the fallback's reveal delay |
+| `slowLogoImage` | Every logo held 18s from its own request, never cached or shared between views, so the watched view shows its fallback |
 | `slowSubtitleFonts` | The font attachments held, to prove fonts don't gate the script |
 | `showWithoutEpisodes` | The show's seasons with no episodes and no Next Up |
 | `customHTTPPort` | Nothing answers on 8096, so the HTTP fallback asks for the port |

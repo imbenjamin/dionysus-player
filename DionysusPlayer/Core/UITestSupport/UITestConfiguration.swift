@@ -60,10 +60,11 @@ enum UITestScenario: String {
     /// the normal case.
     case noPlaylistEditPermission
 
-    /// `.standard`'s catalogue with a hero item's `Logo` delayed past
-    /// `LogoImageView`'s fallback-reveal delay, every other image resolving as
-    /// usual. Lets a test observe the timeout-triggered fallback-text reveal
-    /// without depending on real network timing.
+    /// `.standard`'s catalogue with every `Logo` request held past
+    /// `LogoImageView`'s fallback-reveal delay, each from its own start and
+    /// never cached or shared by `RemoteImageLoader`, every other image
+    /// resolving as usual. Lets a test observe the timeout-triggered
+    /// fallback-text reveal without depending on real network timing.
     case slowLogoImage
 
     /// `.standard`'s catalogue with the font-attachment route held open long
