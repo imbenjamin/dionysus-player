@@ -519,11 +519,19 @@ plan selects single tests and stays one job.
   same lag shows on a tvOS 26.5 Simulator locally; "Running the tests" has
   the local warm-up.
 - **The Simulator boots while the app builds** (2026-11-03): left to
-  `xcodebuild test-without-building`, the boot started only after the build
-  and the first test came 413 to 617 s in on the iPhone 27.0 smoke jobs, 564 to
-  900 s on the iPad and 182 to 325 s on the Duo (`Testing started` in the
-  `IDETestOperationsObserverDebug` line, across 24 green runs), and some runners
-  crashed in `handleStalledWait` during bootstrap. The action's "Start booting
+  `xcodebuild test-without-building`, the boot started only after the build,
+  the Simulator's post-boot settling work competed with the test runner's
+  launch, and some runners crashed in `handleStalledWait` during bootstrap.
+  Measured per phase from the job steps (green smoke jobs, 2026-10-12 to
+  11-02), the iPhone 27.0 job built in 188 to 284 s and tested in 434 to
+  635 s, the iPad in 201 to 261 s and 576 to 929 s, and the Duo (booted before
+  its build) in 250 to 580 s and 203 to 281 s. Booting during the build moves
+  the settling out of the test step, so the runner launches against a settled
+  device, but it saves no time: the build gets slower while the Simulator
+  settles (the first iPhone run built in 843 s and tested in 292 s). The
+  `IDETestOperationsObserverDebug ... Testing started completed` figure is
+  printed when testing *finishes*, so it is the test run's duration and not
+  the time to the first test. The action's "Start booting
   the simulator" step boots a shut-down device right after "Select simulator"
   and "Wait for the simulator" blocks on `simctl bootstatus -b` after the
   build, giving up after 15 minutes (a poll in the shell: composite steps take
@@ -564,11 +572,12 @@ plan selects single tests and stays one job.
   "Flaky" list (tests that failed and passed on a retry, with the first
   failure's message), a "Failed" list, and a count of the rest. Each flaky
   test also raises a yellow `::warning title=Flaky test::` on the run page, so
-  a retry never hides a flake. Under them: the test bootstrap time of each
-  attempt (xcodebuild's "Testing started completed" figure, the one that
-  timed out in the bootstrap failures), the seconds "Wait for the simulator"
+  a retry never hides a flake. Under them: the time xcodebuild's testing
+  took in each attempt (its "Testing started completed" figure, launch to
+  finish), the seconds "Wait for the simulator"
   waited, and, when "Test" ran the plan a second time, which signature caused
-  it (`.build/test-rerun.txt`); the lists are then the second run's. **When a
+  it (`.build/test-rerun.txt`); the lists are then the second run's, or the
+  first's if the rerun wrote no bundle. **When a
   job fails, look at the summary first**, then the annotations, then the
   uploaded bundle and `.build/test-attempt-*.log` (raw output, on failure
   only). With no bundle, the build failed before testing. Check a period's

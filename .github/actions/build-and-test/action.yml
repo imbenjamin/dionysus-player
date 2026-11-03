@@ -285,16 +285,21 @@ runs:
             exit 0
           fi
           if [ -f .build/test-rerun.txt ]; then
-            echo "**The plan ran twice.** The test runner failed before running a test (\`$(cat .build/test-rerun.txt)\`), so the Simulator was rebooted and the plan run again. Below is the second run."
+            if [ -d "$attempt2" ]; then
+              echo "**The plan ran twice.** The test runner failed before running a test (\`$(cat .build/test-rerun.txt)\`), so the Simulator was rebooted and the plan run again. Below is the second run."
+            else
+              echo "**The plan ran twice.** The test runner failed before running a test (\`$(cat .build/test-rerun.txt)\`), so the Simulator was rebooted and the plan run again, but the rerun wrote no result bundle. Below is the first attempt's."
+            fi
             echo
           fi
-          # xcodebuild's own "Testing started completed" figure is the time from
-          # launch to the first test: the bootstrap that has timed out.
+          # xcodebuild's "Testing started completed" figure is printed when
+          # testing finishes: the whole test run's duration, not the time to
+          # the first test.
           for n in 1 2; do
             log=.build/test-attempt-$n.log
             [ -f "$log" ] || continue
             seconds=$(grep -o 'IDETestOperationsObserverDebug: [0-9.]* elapsed -- Testing started completed' "$log" | head -1 | awk '{print $2}')
-            echo "- Attempt $n: test bootstrap ${seconds:-unknown} s"
+            echo "- Attempt $n: xcodebuild testing took ${seconds:-unknown} s (launch to finish)"
           done
           [ -n "$SIMULATOR_WAIT_SECONDS" ] && echo "- Waited ${SIMULATOR_WAIT_SECONDS} s for the Simulator after the build"
           echo

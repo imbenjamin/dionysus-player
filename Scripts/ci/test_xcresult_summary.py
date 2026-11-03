@@ -66,6 +66,14 @@ class SummarizeTests(unittest.TestCase):
         (failed,) = summary.failed
         self.assertEqual((failed.attempts, failed.failure_messages), (1, ["boom"]))
 
+    def test_repetitionsUnderAnIntermediateNode_stillFlaky(self):
+        flaky = case("testA", "Passed", [("Failed", ["z"]), ("Passed", [])])
+        flaky["children"] = [{"nodeType": "Device", "name": "iPhone", "children": flaky["children"]}]
+        summary = xcresult_summary.summarize(tree(flaky))
+        (outcome,) = summary.flaky
+        self.assertEqual((outcome.attempts, outcome.failure_messages), (2, ["z"]))
+        self.assertEqual(summary.passed_count, 0)
+
     def test_skipped_isNotCountedAsPassed(self):
         summary = xcresult_summary.summarize(tree(case("testA", "Skipped")))
         self.assertEqual(summary.passed_count, 0)

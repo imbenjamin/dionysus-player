@@ -20,7 +20,8 @@ UI test that fails its first run only and one that always fails, run with
       > "Test Suite" > "Test Case"
           name "testX()", nodeIdentifier "Class/testX()",
           result "Passed" | "Failed" | "Skipped" | "Expected Failure"
-          children (only when the test ran more than once): "Repetition"
+          children (only when the test ran more than once): "Repetition", direct or
+          under an intermediate node,
               ("First Run", "Retry 1", ...), each with its own result and its
               "Failure Message" children (name "failed - <message>")
           children (a test that ran once and failed): "Failure Message"
@@ -56,8 +57,18 @@ def _messages(node: dict) -> list[str]:
             if c.get("nodeType") == "Failure Message"]
 
 
+def _repetitions(node: dict):
+    """Every Repetition below a node, however deep (a device or arguments node
+    can sit between a test case and its repetitions)."""
+    for child in node.get("children", []):
+        if child.get("nodeType") == "Repetition":
+            yield child
+        else:
+            yield from _repetitions(child)
+
+
 def _outcome(case: dict) -> TestOutcome:
-    repetitions = [c for c in case.get("children", []) if c.get("nodeType") == "Repetition"]
+    repetitions = list(_repetitions(case))
     identifier = case.get("nodeIdentifier") or case.get("name", "?")
     if not repetitions:
         return TestOutcome(identifier, 1, _messages(case))

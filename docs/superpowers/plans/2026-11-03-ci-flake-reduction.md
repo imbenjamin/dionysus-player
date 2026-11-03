@@ -22,7 +22,7 @@ Data: every PR-checks, nightly and release run from 2026-10-12 to 2026-11-02, th
 
 Failed jobs fall into five causes, largest first:
 
-1. **The Simulator boots cold inside the test step (about 21 jobs, the biggest single cause).** `ui-tests.yml` runs `simctl shutdown all` and never boots the iPhone or iPad, so `xcodebuild test-without-building` boots it. Even on **green** runs, iOS 27.0 spends 413 to 617 s (iPhone) and 564 to 900 s (iPad) from `xcodebuild` starting to "Testing started"; the Duo, booted before its build, spends 182 to 325 s. When that wait runs long the runner crashes before any test runs: `Early unexpected exit, operation never finished bootstrapping - no restart will be attempted … -[XCTWaiter(StallHandling) handleStalledWait:]`. The plan's `retryOnFailure` can't help, since no test ever started. Related signatures: "Failed to get background assertion" (`HarnessTests.testStateResetClearsTheKeychainBetweenLaunches`, 3 jobs) and "Timed out while launching application" (5).
+1. **The Simulator boots cold inside the test step (about 21 jobs, the biggest single cause).** `ui-tests.yml` runs `simctl shutdown all` and never boots the iPhone or iPad, so `xcodebuild test-without-building` boots it. On green runs the iPhone 27.0 test step takes 434 to 635 s and the iPad's 576 to 929 s, against 203 to 281 s for the Duo, booted before its build. When that wait runs long the runner crashes before any test runs: `Early unexpected exit, operation never finished bootstrapping - no restart will be attempted … -[XCTWaiter(StallHandling) handleStalledWait:]`. The plan's `retryOnFailure` can't help, since no test ever started. Related signatures: "Failed to get background assertion" (`HarnessTests.testStateResetClearsTheKeychainBetweenLaunches`, 3 jobs) and "Timed out while launching application" (5).
 2. **Diagnostics collection costs 10 minutes per failure.** 18 failed jobs log `Failure collecting diagnostics from simulator: Timed out after 600.0 seconds`. Nobody reads the sysdiagnose it is waiting for; the `.xcresult` keeps the screenshots and recording.
 3. **Specific flaky tests:**
    - `HarnessTests.testEmptyLibraryScenarioIsServed`: 8 jobs, **iPhone Duo only** (every pose), "Timed out after 15.0s waiting for the main tab bar". `TabBar.tab(_:index:)`'s Duo fallback (an unidentified `toolbars` button) finds nothing on the empty Home.
@@ -68,11 +68,12 @@ Failed jobs fall into five causes, largest first:
 **Interfaces:**
 - Produces: the Simulator `steps.select_simulator.outputs.udid` is in state `Booted` with `bootstatus` complete before any `test-without-building` runs. Later tasks rely on that.
 
-- [ ] **Step 1: Record the baseline.** From the 24 green smoke jobs above: iPhone 27.0 bootstrap 413 to 617 s, iPad 564 to 900 s, Duo 182 to 325 s (the `IDETestOperationsObserverDebug: N elapsed -- Testing started completed` line).
+- [ ] **Step 1: Record the baseline.** From the 24 green smoke jobs above, per phase from the job steps: build/test step seconds, iPhone 27.0 188-284/434-635, iPad 201-261/576-929, Duo 250-580/203-281.
+  *Corrected 2026-11-03 after the first CI round: the `IDETestOperationsObserverDebug: N elapsed -- Testing started completed` line is printed when testing finishes, so it is the whole run's duration, not a bootstrap time; the figures here were misread and are replaced.*
 - [ ] **Step 2: Add a "Start booting the simulator" step** right after "Select simulator": if `simctl list devices -j` reports the udid as `Shutdown`, run `xcrun simctl boot "$udid"` (it returns at once and boots in the background while the build compiles); if it's already `Booted` (the Duo job), do nothing. Never shut down a booted device here.
 - [ ] **Step 3: Add a "Wait for the simulator" step** after "Build": `xcrun simctl bootstatus "$udid" -b` under a 15-minute `timeout-minutes`, printing the seconds it waited. On timeout: `::error::` naming the device and runtime, then exit 1.
-- [ ] **Step 4: Verify.** Open a draft PR into `develop`; dispatch `nightly-ui-tests.yml` on the branch for the full matrix. Expected: iPhone and iPad 27.0 bootstrap under 300 s, Duo unchanged or lower, the pose steps still report their pose, every leg green or failing only on tests that failed before.
-- [ ] **Step 5: Document** in TESTING.md, next to the warm-up paragraph: the device boots during the build and why (the bootstrap times above and the `handleStalledWait` crash).
+- [ ] **Step 4: Verify.** Open a draft PR into `develop`; dispatch `nightly-ui-tests.yml` on the branch for the full matrix. Expected: iPhone and iPad 27.0 test step well under the 434-929 s baseline (build slower; net roughly neutral), Duo unchanged or lower, the pose steps still report their pose, every leg green or failing only on tests that failed before.
+- [ ] **Step 5: Document** in TESTING.md, next to the warm-up paragraph: the device boots during the build and why (the per-phase times above and the `handleStalledWait` crash).
 - [ ] **Step 6: Commit** (after sign-off): "Boot the UI-test Simulator while the app builds".
 
 ### Task 2: Fail fast, and retry an infrastructure failure once
@@ -119,7 +120,7 @@ Failed jobs fall into five causes, largest first:
 - [ ] **Step 3: Run** `python3 -m unittest discover Scripts/ci`. Expected: the new tests fail.
 - [ ] **Step 4: Implement** `summarize` and the Markdown/annotation output.
 - [ ] **Step 5: Run** the tests. Expected: pass.
-- [ ] **Step 6: Add the step**: for each bundle, `xcresulttool get test-results tests --path … > …json`, run the script, append to `$GITHUB_STEP_SUMMARY`. Also append the bootstrap time measured in Task 1 and whether Task 2's step-level retry fired.
+- [ ] **Step 6: Add the step**: for each bundle, `xcresulttool get test-results tests --path … > …json`, run the script, append to `$GITHUB_STEP_SUMMARY`. Also append xcodebuild's testing duration (launch to finish) and whether Task 2's step-level retry fired.
 - [ ] **Step 7: Verify** with the nightly dispatched on the branch: each job's summary lists its flaky tests; a green job with a retried test shows a yellow annotation on the run page. Also confirm here that #417 cleared the Duo Profile failures (none listed on any pose).
 - [ ] **Step 8: Check in `flake-report.py`**, run it with `--since 2026-10-12`, and check its counts match the Findings table (106 PR runs, 26 needing a rerun).
 - [ ] **Step 9: Commit** (after sign-off): "Summarize retried and failed tests on every test job".
