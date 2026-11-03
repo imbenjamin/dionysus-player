@@ -293,6 +293,9 @@ jobs:
             .build/test-attempt-*.log
           retention-days: 7
           if-no-files-found: ignore
+          # The glob makes `.build` the search root, and it is hidden: without
+          # this every path above is skipped and nothing uploads.
+          include-hidden-files: true
 
   duo-ui-tests:
     # ⚠️ Part of required status checks, as `ui-tests`' name is: "UI smoke
@@ -389,3 +392,6 @@ jobs:
             .build/test-attempt-*.log
           retention-days: 7
           if-no-files-found: ignore
+          # The glob makes `.build` the search root, and it is hidden: without
+          # this every path above is skipped and nothing uploads.
+          include-hidden-files: true

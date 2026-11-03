@@ -61,6 +61,8 @@ Failed jobs fall into five causes, largest first:
 
 ### Task 1: Boot the Simulator while the app builds
 
+> **Reverted 2026-11-03** after the branch's nightlies: booting during the build slowed builds (on the iOS 18.6 floor 32 minutes against 5.5) and pushed the full plan past the job's limit twice. "Wait for the simulator" stays, and now does the boot after the build (TESTING.md).
+
 **Files:**
 - Modify: `.github/actions/build-and-test/action.yml` (new steps between "Select simulator" and "Build", and between "Build" and "Warm up")
 - Modify: `TESTING.md` ("Where they run in CI")

@@ -65,6 +65,9 @@ jobs:
             .build/test-attempt-*.log
           retention-days: 7
           if-no-files-found: ignore
+          # The glob makes `.build` the search root, and it is hidden: without
+          # this every path above is skipped and nothing uploads.
+          include-hidden-files: true
 
   release-build:
     # Compiles the Release configuration, which nothing else on a PR does:

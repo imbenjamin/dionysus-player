@@ -141,34 +141,6 @@ runs:
         fi
         echo "udid=$udid" >> "$GITHUB_OUTPUT"
 
-    - name: Start booting the simulator
-      shell: bash
-      env:
-        UDID: ${{ steps.select_simulator.outputs.udid }}
-      run: |
-        # Boot now, so the device comes up while the app compiles. Left to
-        # `xcodebuild test-without-building`, the boot started only after the
-        # build and took 7 to 15 minutes before the first test (see
-        # TESTING.md). `simctl boot` returns at once; "Wait for the simulator"
-        # below blocks until it is ready. A device that is already booted (the
-        # Duo job boots and poses its own) is left exactly as it is, and so is
-        # one mid-transition ("Booting", "Shutting Down"), which is left to
-        # "Wait for the simulator"'s `bootstatus -b`.
-        #
-        # A failed boot is only a warning: bootstatus -b, and xcodebuild after
-        # it, boot the device themselves, just later.
-        state=$(xcrun simctl list devices -j \
-          | jq -r --arg u "$UDID" '[.devices[][] | select(.udid == $u)] | first | .state // empty')
-        if [ "$state" = "Shutdown" ]; then
-          if xcrun simctl boot "$UDID"; then
-            echo "Booting $UDID in the background while the app builds"
-          else
-            echo "::warning::'simctl boot' failed for $UDID; 'Wait for the simulator' boots it after the build instead."
-          fi
-        else
-          echo "$UDID is '${state:-unknown}'; leaving it alone"
-        fi
-
     - name: Build
       # `shell: bash` runs with `-eo pipefail`, so xcodebuild's exit status
       # survives the pipe into xcbeautify. Don't switch to `shell: sh` or an
@@ -192,6 +164,10 @@ runs:
         IOS_VERSION: ${{ inputs.ios-version }}
         PLATFORM: ${{ inputs.platform }}
       run: |
+        # Boots the device after the build (unless the Duo job already has)
+        # and blocks until it is ready, so the test runner launches against a
+        # booted Simulator; booting during the build slowed the build up to
+        # six-fold (TESTING.md, "Where they run in CI").
         # Composite steps can't use `timeout-minutes`, and macOS has no
         # `timeout`, so the 15-minute bound is a poll on bootstatus. Its
         # output is kept, and its tail printed if it fails or runs out.

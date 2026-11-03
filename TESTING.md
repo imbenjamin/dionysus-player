@@ -525,25 +525,20 @@ plan selects single tests and stays one job.
   runs one journey as a warm-up (`warm-up-test`), its result ignored. The
   same lag shows on a tvOS 26.5 Simulator locally; "Running the tests" has
   the local warm-up.
-- **The Simulator boots while the app builds** (2026-11-03): left to
-  `xcodebuild test-without-building`, the boot started only after the build,
-  the Simulator's post-boot settling work competed with the test runner's
-  launch, and some runners crashed in `handleStalledWait` during bootstrap.
-  Measured per phase from the job steps (green smoke jobs, 2026-10-12 to
-  11-02), the iPhone 27.0 job built in 188 to 284 s and tested in 434 to
-  635 s, the iPad in 201 to 261 s and 576 to 929 s, and the Duo (booted before
-  its build) in 250 to 580 s and 203 to 281 s. Booting during the build moves
-  the settling out of the test step, so the runner launches against a settled
-  device, but it saves no time: the build gets slower while the Simulator
-  settles (the first iPhone run built in 843 s and tested in 292 s). The
+- **The Simulator boots after the build, not during it** (2026-11-03).
+  Booting it while the app built, to give the test runner a settled device,
+  was tried and taken out: the first iPhone 27.0 run built in 843 s against
+  188 to 284 s on develop, and on the iOS 18.6 floor, whose runtime is freshly
+  installed in every job, the build took 32 minutes against 5.5 and the full
+  plan ran past the job's limit two nights running (the leg takes 54 to 57
+  minutes on develop). The action's "Wait for the simulator" step boots the
+  device after the build and blocks on `simctl bootstatus -b`, giving up
+  after 15 minutes (a poll in the shell: composite steps take no
+  `timeout-minutes`); the job summary gives the seconds it waited. A device
+  already booted, as the Duo job leaves it after posing, is not touched. The
   `IDETestOperationsObserverDebug ... Testing started completed` figure is
   printed when testing *finishes*, so it is the test run's duration and not
-  the time to the first test. The action's "Start booting
-  the simulator" step boots a shut-down device right after "Select simulator"
-  and "Wait for the simulator" blocks on `simctl bootstatus -b` after the
-  build, giving up after 15 minutes (a poll in the shell: composite steps take
-  no `timeout-minutes`). A device already booted, as the Duo job leaves it
-  after posing, is not touched.
+  the time to the first test.
 - **One rerun, on a rebooted Simulator, when the test runner dies before any
   test** (2026-11-03). In 21 of 84 failed UI-test jobs from 2026-10-12
   to 2026-11-02 the runner crashed while bootstrapping (`Early unexpected exit,
