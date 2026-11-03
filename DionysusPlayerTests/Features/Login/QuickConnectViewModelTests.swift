@@ -145,6 +145,8 @@ final class QuickConnectViewModelTests: XCTestCase {
         task.cancel()
         await task.value
         let pollsAtCancel = polls
+        // An absence (no further poll after the cancel): the loop's pause
+        // between polls is what this has to be seen to outlast.
         try await Task.sleep(for: .milliseconds(100))
 
         XCTAssertLessThanOrEqual(polls, pollsAtCancel + 1, "At most the poll already in flight")

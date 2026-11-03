@@ -138,6 +138,8 @@ final class TopShelfArtworkComposerTests: XCTestCase {
         async let first = TopShelfArtworkComposer.artwork(for: [entry], store: store, session: MockURLProtocol.makeSession())
         // Started while the first is fetching its backdrop.
         async let second: [String: URL] = {
+            // Half the first fetch's 200 ms hold: the overlap is the setup,
+            // and the first can't finish before it however slow the runner.
             try? await Task.sleep(for: .milliseconds(100))
             return await TopShelfArtworkComposer.artwork(for: [entry], store: store, session: MockURLProtocol.makeSession())
         }()

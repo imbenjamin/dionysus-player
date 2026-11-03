@@ -651,7 +651,7 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertTrue(message.contains("Try downloading again."))
     }
 
-    func test_retryableFailure_reArmsTheRowWithoutFailingIt() async {
+    func test_retryableFailure_reArmsTheRowWithoutFailingIt() async throws {
         let store = DownloadTestHelpers.makeInMemoryStore()
         var startedOrder: [String] = []
         let manager = makeManagerWithFakeStarter(store: store, maxConcurrentDownloads: 1) { startedOrder.append($0) }
@@ -662,13 +662,13 @@ final class DownloadManagerTests: XCTestCase {
 
         XCTAssertEqual(store.item(itemID: "item-1")?.status, .queued, "a transport failure must not surface as a failed download")
         XCTAssertNil(store.item(itemID: "item-1")?.errorMessage)
-        await waitForRetry()
+        try await waitUntil { startedOrder.count == 2 }
         XCTAssertEqual(startedOrder, ["item-1", "item-1"], "the transfer must be re-armed from the URL the row still carries")
     }
 
     /// Once the budget is spent the row does fail — visibly, and with real
     /// wording rather than the raw system string.
-    func test_retryableFailure_exhaustedBudget_failsWithAWrittenMessage() async {
+    func test_retryableFailure_exhaustedBudget_failsWithAWrittenMessage() async throws {
         let store = DownloadTestHelpers.makeInMemoryStore()
         let manager = makeManagerWithFakeStarter(store: store, maxConcurrentDownloads: 1)
         store.insert(DownloadTestHelpers.makeItem(itemID: "item-1", status: .queued, pendingDownloadURLString: "https://example.com/1"))
@@ -676,9 +676,12 @@ final class DownloadManagerTests: XCTestCase {
 
         // Two backoff steps are injected by `makeManagerWithFakeStarter`, so
         // the third failure is the one past the budget.
-        for _ in 0..<3 {
+        for attempt in 0..<3 {
             manager.test_simulateDownloadFailed(itemID: "item-1", error: URLError(.backgroundSessionWasDisconnected))
-            await waitForRetry()
+            // A retried failure is re-armed (back to `.downloading`) by its
+            // scheduled task; the one past the budget fails at once.
+            let expected: DownloadStatus = attempt < 2 ? .downloading : .failed
+            try await waitUntil { store.item(itemID: "item-1")?.status == expected }
         }
 
         XCTAssertEqual(store.item(itemID: "item-1")?.status, .failed)
@@ -688,7 +691,7 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertFalse(message.contains("background transfer service"))
     }
 
-    func test_cancelledFailure_failsImmediatelyWithoutRetrying() async {
+    func test_cancelledFailure_failsImmediatelyWithoutRetrying() async throws {
         let store = DownloadTestHelpers.makeInMemoryStore()
         var startedOrder: [String] = []
         let manager = makeManagerWithFakeStarter(store: store, maxConcurrentDownloads: 1) { startedOrder.append($0) }
@@ -696,15 +699,15 @@ final class DownloadManagerTests: XCTestCase {
         manager.queueVideoDownload(itemID: "item-1")
 
         manager.test_simulateDownloadFailed(itemID: "item-1", error: URLError(.cancelled))
-        await waitForRetry()
+        try await waitUntil { store.item(itemID: "item-1")?.status == .failed }
 
-        XCTAssertEqual(store.item(itemID: "item-1")?.status, .failed)
+        XCTAssertFalse(manager.test_hasPendingRetry(itemID: "item-1"), "a genuine cancellation schedules no retry at all")
         XCTAssertEqual(startedOrder, ["item-1"], "a genuine cancellation must not be re-armed")
     }
 
     /// The re-arm must not hold its concurrency slot across the backoff, or
     /// a queue behind it stalls for the whole window.
-    func test_retryableFailure_freesTheSlotForTheNextQueuedItem() async {
+    func test_retryableFailure_freesTheSlotForTheNextQueuedItem() async throws {
         let store = DownloadTestHelpers.makeInMemoryStore()
         var startedOrder: [String] = []
         let manager = makeManagerWithFakeStarter(store: store, maxConcurrentDownloads: 1) { startedOrder.append($0) }
@@ -716,11 +719,12 @@ final class DownloadManagerTests: XCTestCase {
         manager.test_simulateDownloadFailed(itemID: "item-1", error: URLError(.networkConnectionLost))
 
         XCTAssertEqual(startedOrder, ["item-1", "item-2"], "the freed slot must go to the next queued item immediately")
-        await waitForRetry()
+        // The zero-backoff retry fires and finds the slot taken.
+        try await waitUntil { !manager.test_hasPendingRetry(itemID: "item-1") }
         XCTAssertEqual(store.item(itemID: "item-1")?.status, .queued, "item-1 waits its turn behind item-2 rather than jumping the queue")
     }
 
-    func test_deleteDuringBackoff_cancelsTheScheduledRetry() async {
+    func test_deleteDuringBackoff_cancelsTheScheduledRetry() {
         let store = DownloadTestHelpers.makeInMemoryStore()
         var startedOrder: [String] = []
         let manager = makeManagerWithFakeStarter(store: store, maxConcurrentDownloads: 1) { startedOrder.append($0) }
@@ -729,8 +733,8 @@ final class DownloadManagerTests: XCTestCase {
         manager.test_simulateDownloadFailed(itemID: "item-1", error: URLError(.backgroundSessionWasDisconnected))
 
         manager.delete(itemID: "item-1")
-        await waitForRetry()
 
+        XCTAssertFalse(manager.test_hasPendingRetry(itemID: "item-1"), "delete cancels the scheduled retry")
         XCTAssertNil(store.item(itemID: "item-1"))
         XCTAssertEqual(startedOrder, ["item-1"], "a deleted row must not be re-armed by a retry already in flight")
     }
@@ -765,11 +769,6 @@ final class DownloadManagerTests: XCTestCase {
         let item = DownloadTestHelpers.makeItem(itemID: "item-1")
 
         XCTAssertEqual(item.videoFilePath, DownloadFileStore.videoRelativePath(itemID: "item-1"))
-    }
-
-    /// Lets a scheduled retry `Task` (zero backoff, injected below) run.
-    private func waitForRetry() async {
-        for _ in 0..<10 { await Task.yield() }
     }
 
     // MARK: ad-hoc fetch requests (Wi-Fi Only enforcement, per request)

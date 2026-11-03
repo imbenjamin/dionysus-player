@@ -155,6 +155,15 @@ app's own launch sets up, since the test host runs `DionysusTVApp.init`.
 3. Anything that talks to `JellyfinAPIClient` uses `MockURLProtocol`, never a
    real server.
 4. Prefer a pure helper with a unit test over logic inside a view's `body`.
+5. **Wait on state, never on time.** Use `waitUntil { ... }` (5 s, returns the
+   moment the condition holds) for anything that settles asynchronously; a
+   fixed `Task.sleep`, a run of `Task.yield()`s or a tight elapsed-time bound
+   is a guess that fails on a loaded CI runner. A sleep stays only when it is
+   the behaviour under test with a short injected duration, or when proving
+   something does *not* happen: then name the duration as a constant and say
+   what it proves. A `Thread.sleep` in a `MockURLProtocol` handler (holding a
+   response so a load can be caught mid-flight) is fine; the test still waits
+   on state.
 
 ## UI tests
 

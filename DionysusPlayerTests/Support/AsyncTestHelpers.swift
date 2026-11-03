@@ -14,7 +14,7 @@ struct TestTimedOut: Error, CustomStringConvertible {
 /// Swift 6 flags the closure argument as an unsafe cross-actor "send" —
 /// isolating this function to match its callers is the fix, not `@Sendable`.
 @MainActor
-func waitUntil(timeout: TimeInterval = 2, _ condition: @escaping () -> Bool) async throws {
+func waitUntil(timeout: TimeInterval = 5, _ condition: @escaping () -> Bool) async throws {
     let deadline = Date().addingTimeInterval(timeout)
     while !condition() {
         if Date() > deadline { throw TestTimedOut() }

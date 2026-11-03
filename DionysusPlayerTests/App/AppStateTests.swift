@@ -308,8 +308,10 @@ final class AppStateTests: XCTestCase {
         let client = try XCTUnwrap(appState.apiClient)
 
         appState.signOut()
+        // The client's forget is a fire-and-forget actor hop with nothing
+        // observable to wait on, so this lets it land: the test fails, not
+        // flakes, if it ever hasn't (the 401 below would be retried).
         try await Task.sleep(for: .milliseconds(50))
-
         var requestCount = 0
         MockURLProtocol.requestHandler = { request in
             requestCount += 1

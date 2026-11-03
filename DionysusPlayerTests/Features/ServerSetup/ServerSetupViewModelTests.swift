@@ -203,6 +203,8 @@ final class ServerSetupViewModelTests: XCTestCase {
         await viewModel.scanForServers()
         try await waitUntil { viewModel.serverVersions[self.flix.id] != nil }
         await viewModel.scanForServers()
+        // An absence (no second lookup): it would be a task started by the
+        // rescan itself, so this only has to outlast a few actor hops.
         try await Task.sleep(for: .milliseconds(100))
 
         let count = await lookups.value
@@ -540,7 +542,11 @@ final class ServerSetupViewModelTests: XCTestCase {
         XCTAssertNil(result)
         XCTAssertEqual(counter.count, 1)
         XCTAssertNotEqual(viewModel.errorMessage, ServerSetupViewModel.localNetworkDeniedMessage)
-        XCTAssertLessThan(clock.now - started, .milliseconds(500))
+        // The request count above is the proof that nothing retried. This
+        // bound only catches the wait that precedes a retry, which lasts
+        // 60 s (1 s at the least), so it is generous: a loaded runner took
+        // 0.6 s against a 0.5 s bound.
+        XCTAssertLessThan(clock.now - started, .seconds(10))
     }
 
     func test_connectToDiscoveredServer_failsBehindThePrompt_waitsAndRetries() async {

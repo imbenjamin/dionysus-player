@@ -1404,6 +1404,11 @@ final class DownloadManager: NSObject {
     /// Running transcode poll loops, so a test can assert that a queued item
     /// starts none. Compiled out of Release.
     var test_activeTranscodePollCount: Int { transcodeProgressPollTasks.count }
+
+    /// Whether a scheduled automatic retry is still waiting to run (it clears
+    /// itself the moment it fires, and `delete` cancels it), so a test can wait
+    /// on that instead of yielding and hoping. Compiled out of Release.
+    func test_hasPendingRetry(itemID: String) -> Bool { retryTasks[itemID] != nil }
     #endif
 }
 

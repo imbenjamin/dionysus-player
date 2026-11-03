@@ -5,6 +5,11 @@ import XCTest
 final class TVPlaybackSessionTests: XCTestCase {
     private let suiteName = "com.dionysusplayer.tests.TVPlaybackSessionTests"
 
+    /// How long a test waits to show that something did NOT happen, which
+    /// can't be waited on: longer than the main-actor hops the work it rules
+    /// out would take.
+    private static let absenceGrace: Duration = .milliseconds(300)
+
     override func tearDown() async throws {
         UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
         MockURLProtocol.reset()
@@ -15,6 +20,7 @@ final class TVPlaybackSessionTests: XCTestCase {
     /// session must cancel the start in flight, so the load it was waiting on
     /// never reaches the engine and nothing plays after the player has gone.
     func test_endWhileLoading_cancelsStart_soNothingLoadsOrPlays() async throws {
+        let infoRequested = RequestFlag(), infoAnswered = RequestFlag()
         MockURLProtocol.requestHandler = { request in
             switch request.url?.path {
             case "/Users/user-1/Items/item-1":
@@ -22,8 +28,12 @@ final class TVPlaybackSessionTests: XCTestCase {
                     for: request, value: BaseItemDto(id: "item-1", name: "Arrival", type: .movie)
                 )
             case "/Items/item-1/PlaybackInfo":
-                // Still outstanding when the session ends.
+                // Still outstanding when the session ends; the test ends it
+                // as soon as `infoRequested` is set, so the hold only has to
+                // outlast that.
+                infoRequested.set()
                 Thread.sleep(forTimeInterval: 0.6)
+                defer { infoAnswered.set() }
                 return try MockURLProtocol.encodedJSONResponse(
                     for: request,
                     value: PlaybackInfoResponse(mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")], playSessionId: "sess-1")
@@ -44,9 +54,12 @@ final class TVPlaybackSessionTests: XCTestCase {
         let session = TVPlaybackSession(viewModel: viewModel)
 
         session.begin()
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitUntil { infoRequested.isSet }
         session.end()
-        try await Task.sleep(for: .seconds(1))
+        // The answer the cancelled start was waiting for has now come back;
+        // what it does with it can only be shown by waiting a moment more.
+        try await waitUntil { infoAnswered.isSet }
+        try await Task.sleep(for: Self.absenceGrace)
 
         XCTAssertTrue(engine.loadedURLs.isEmpty, "The cancelled start must not load")
         XCTAssertEqual(engine.playCallCount, 0, "…or play")
@@ -75,7 +88,7 @@ final class TVPlaybackSessionTests: XCTestCase {
 
         session.end()
         session.begin()
-        try await Task.sleep(for: .milliseconds(300))
+        try await Task.sleep(for: Self.absenceGrace)
 
         XCTAssertNil(viewModel.item, "No item fetch after the session ended")
         XCTAssertTrue(engine.loadedURLs.isEmpty)
@@ -90,9 +103,10 @@ final class TVPlaybackSessionTests: XCTestCase {
             MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
         }
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let engine = FakePlaybackEngine()
         let viewModel = PlayerViewModel(
             client: JellyfinAPIClient(baseURL: URL(string: "https://jellyfin.example.com")!, accessToken: "tok", session: MockURLProtocol.makeSession()),
-            userID: "user-1", itemID: "item-1", engine: FakePlaybackEngine(),
+            userID: "user-1", itemID: "item-1", engine: engine,
             trackPreferenceStore: TrackPreferenceStore(defaults: defaults),
             nextUpPreferenceStore: NextUpPreferenceStore(defaults: defaults),
             streamPreferenceStore: StreamPreferenceStore(defaults: defaults)
@@ -102,7 +116,9 @@ final class TVPlaybackSessionTests: XCTestCase {
         let first = session.end()
         XCTAssertEqual(first?.itemID, "item-1")
         XCTAssertNil(session.end(), "A second end reports nothing")
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitUntil { engine.stopCallCount >= 1 }
+        try await Task.sleep(for: Self.absenceGrace)
+        XCTAssertEqual(engine.stopCallCount, 1, "…and the engine is stopped once")
     }
 
     /// Next Up's hand-off leaves the engine running for the next item, whose
@@ -124,9 +140,21 @@ final class TVPlaybackSessionTests: XCTestCase {
 
         makeSession(handedOff).end(handingOff: true)
         makeSession(closed).end()
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitUntil { closed.stopCallCount == 1 }
+        // Both ends ran the same synchronous path; a stop that the hand-off
+        // should have skipped would have landed with the other's.
+        try await Task.sleep(for: Self.absenceGrace)
 
         XCTAssertEqual(handedOff.stopCallCount, 0)
         XCTAssertEqual(closed.stopCallCount, 1)
     }
+}
+
+/// Set from a `MockURLProtocol` handler (a loading thread), read by the test.
+private final class RequestFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    func set() { lock.lock(); value = true; lock.unlock() }
+    var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
 }

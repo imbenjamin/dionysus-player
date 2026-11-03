@@ -216,12 +216,14 @@ final class PlayerViewModelTests: XCTestCase {
     /// response with no artificial delay, so in practice this resolves
     /// within a poll or two; the timeout is just a safety net against a hang
     /// reading as a slow test instead of an infinite one.
-    private func waitUntilNextEpisodeResolved(_ viewModel: PlayerViewModel, timeout: TimeInterval = 1) async {
-        let deadline = Date().addingTimeInterval(timeout)
-        while viewModel.nextEpisode == nil, Date() < deadline {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+    private func waitUntilNextEpisodeResolved(_ viewModel: PlayerViewModel, timeout: TimeInterval = 5) async {
+        try? await waitUntil(timeout: timeout) { viewModel.nextEpisode != nil }
     }
+
+    /// How long a test waits to show that something did NOT happen, which
+    /// can't be waited on: longer than the main-actor hops the work it rules
+    /// out would take.
+    private static let absenceGrace: Duration = .milliseconds(200)
 
     /// Standard item/playbackInfo/session-start stubbing shared by most
     /// `start()` tests; `itemDto` varies per test (e.g. to add a resume
@@ -613,9 +615,9 @@ final class PlayerViewModelTests: XCTestCase {
         )]
 
         engine.onSubtitleTrackChange?(40)
-        // Short and deliberate: this asserts an absence, settled as soon as the
-        // selection has been handled.
-        try? await Task.sleep(for: .milliseconds(200))
+        // This asserts an absence, settled as soon as the selection has been
+        // handled.
+        try? await Task.sleep(for: Self.absenceGrace)
 
         XCTAssertFalse(viewModel.isRenderingStyledASS)
         XCTAssertTrue(
@@ -1539,7 +1541,10 @@ final class PlayerViewModelTests: XCTestCase {
         stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie), mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")])
 
         await viewModel.start()
-        try? await Task.sleep(for: .milliseconds(50))
+        // An absence: the lookup, had the guard failed, is a fire-and-forget
+        // task that would have answered (or failed the test on its
+        // unstubbed request) within this.
+        try? await Task.sleep(for: Self.absenceGrace)
 
         XCTAssertNil(viewModel.nextEpisode)
     }
