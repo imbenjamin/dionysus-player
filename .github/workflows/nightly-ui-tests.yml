@@ -109,6 +109,11 @@ jobs:
             xcodebuild -downloadPlatform tvOS -buildVersion "$TVOS_VERSION"
           fi
 
+      - name: Shut down all simulators
+        # See ui-tests.yml: a simulator left mid-boot is the commonest
+        # source of test flake on a shared runner.
+        run: xcrun simctl shutdown all || true
+
       - name: Build and test
         uses: ./.github/actions/build-and-test
         with:
