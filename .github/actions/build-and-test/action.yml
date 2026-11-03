@@ -215,6 +215,8 @@ runs:
           exit 1
         fi
         echo "The simulator was ready after $((SECONDS - start)) s of waiting"
+        # For "Summarize results".
+        echo "SIMULATOR_WAIT_SECONDS=$((SECONDS - start))" >> "$GITHUB_ENV"
 
     - name: Warm up
       if: inputs.warm-up-test != ''
@@ -256,3 +258,51 @@ runs:
         ONLY_TESTING: ${{ inputs.only-testing }}
         DUO_POSE: ${{ inputs.duo-pose }}
       run: Scripts/ci/run-test-plan.sh
+
+    - name: Summarize results
+      # Lists the tests that failed and the ones that passed only on a retry
+      # on the job's summary, with a ::warning per flaky test, so a retry never
+      # hides a flake. Never fails the job: every problem becomes a warning.
+      # Bundles: attempt 1's, and attempt 2's if "Test" ran the plan again
+      # after an infrastructure failure; attempt 2 is then the result.
+      if: always()
+      shell: bash
+      env:
+        RESULT_BUNDLE_PATH: ${{ inputs.result-bundle-path }}
+        TEST_PLAN: ${{ inputs.test-plan }}
+      run: |
+        # No `set -e`: nothing here may fail the step.
+        summary=${GITHUB_STEP_SUMMARY:-/dev/stdout}
+        here="$GITHUB_ACTION_PATH/../../../Scripts/ci"
+        bundle=$RESULT_BUNDLE_PATH
+        attempt2="${RESULT_BUNDLE_PATH%.xcresult}-attempt-2.xcresult"
+        [ -d "$attempt2" ] && bundle=$attempt2
+        {
+          echo "### Test results: $TEST_PLAN"
+          echo
+          if [ ! -d "$bundle" ]; then
+            echo "No result bundle was written; the job failed before testing started."
+            exit 0
+          fi
+          if [ -f .build/test-rerun.txt ]; then
+            echo "**The plan ran twice.** The test runner failed before running a test (\`$(cat .build/test-rerun.txt)\`), so the Simulator was rebooted and the plan run again. Below is the second run."
+            echo
+          fi
+          # xcodebuild's own "Testing started completed" figure is the time from
+          # launch to the first test: the bootstrap that has timed out.
+          for n in 1 2; do
+            log=.build/test-attempt-$n.log
+            [ -f "$log" ] || continue
+            seconds=$(grep -o 'IDETestOperationsObserverDebug: [0-9.]* elapsed -- Testing started completed' "$log" | head -1 | awk '{print $2}')
+            echo "- Attempt $n: test bootstrap ${seconds:-unknown} s"
+          done
+          [ -n "$SIMULATOR_WAIT_SECONDS" ] && echo "- Waited ${SIMULATOR_WAIT_SECONDS} s for the Simulator after the build"
+          echo
+        } >> "$summary"
+        json=$(mktemp "${RUNNER_TEMP:-/tmp}/test-results.XXXXXX")
+        if xcrun xcresulttool get test-results tests --path "$bundle" > "$json"; then
+          python3 "$here/xcresult_summary.py" "$json" >> "$summary" || true
+        else
+          echo "::warning::Couldn't read $bundle with xcresulttool, so the test summary is missing."
+        fi
+        exit 0

@@ -557,6 +557,25 @@ plan selects single tests and stays one job.
   itself hits them. `Scripts/ci/`'s tests run the step's script against fake
   `xcodebuild`, `xcrun` and `xcbeautify`, on every PR in the `CI scripts` job
   (Linux, not a required check).
+- **Every job's summary lists its failed and retried tests.** The action's
+  last step, "Summarize results" (`if: always()`, never fails the job), reads
+  the result bundle with `xcresulttool get test-results tests` and
+  `Scripts/ci/xcresult_summary.py` writes, to the job's GitHub summary: a
+  "Flaky" list (tests that failed and passed on a retry, with the first
+  failure's message), a "Failed" list, and a count of the rest. Each flaky
+  test also raises a yellow `::warning title=Flaky test::` on the run page, so
+  a retry never hides a flake. Under them: the test bootstrap time of each
+  attempt (xcodebuild's "Testing started completed" figure, the one that
+  timed out in the bootstrap failures), the seconds "Wait for the simulator"
+  waited, and, when "Test" ran the plan a second time, which signature caused
+  it (`.build/test-rerun.txt`); the lists are then the second run's. **When a
+  job fails, look at the summary first**, then the annotations, then the
+  uploaded bundle and `.build/test-attempt-*.log` (raw output, on failure
+  only). With no bundle, the build failed before testing. Check a period's
+  numbers with `python3 Scripts/ci/flake-report.py --since YYYY-MM-DD [--until
+  YYYY-MM-DD] [--workflow pr-checks.yml]` (needs `gh`; `--no-logs` skips the
+  log downloads): runs green first time and rerun, failed jobs, failing tests
+  and infrastructure signatures.
 - **No test diagnostics** (`-collect-test-diagnostics never`, for the plan and
   the warm-up): after a failure xcodebuild collected a sysdiagnose from the
   Simulator, and in 18 of those 84 jobs gave up after 10 minutes ("Failure
