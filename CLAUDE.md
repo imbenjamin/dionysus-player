@@ -95,8 +95,12 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
   -testPlan UITests-Smoke -destination 'platform=iOS Simulator,name=iPhone 17'
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
-  -testPlan TVUnitTests -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)'
+  -testPlan TVUnitTests -destination 'platform=tvOS Simulator,name=Apple TV 4K (4th generation)'
 ```
+
+The Apple TV destination is the 4th generation on tvOS 27.2 locally: Xcode 27.2
+won't resolve the 3rd generation, whose Simulator is on tvOS 27.0. CI keeps the
+3rd generation (`TESTING.md`, "Running the tests").
 
 Plans live in `TestPlans/`: `UnitTests` (the iOS scheme's default),
 `UITests-Smoke` (the PR gate), `UITests-Full`, and on tvOS `TVUnitTests`,

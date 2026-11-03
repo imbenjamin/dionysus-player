@@ -371,7 +371,7 @@ the command line:
 
 ```sh
 xcodebuild build -project DionysusPlayer.xcodeproj -scheme DionysusTV \
-  -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)'
+  -destination 'platform=tvOS Simulator,name=Apple TV 4K (4th generation)'
 ```
 
 ## Testing
@@ -408,7 +408,7 @@ whose full plan gates every release. Its unit tests run with:
 ```sh
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
   -testPlan TVUnitTests \
-  -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)'
+  -destination 'platform=tvOS Simulator,name=Apple TV 4K (4th generation)'
 ```
 
 All tests passing as of this writing. See [`TESTING.md`](TESTING.md) for the
