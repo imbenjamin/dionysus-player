@@ -512,6 +512,17 @@ plan selects single tests and stays one job.
   runs one journey as a warm-up (`warm-up-test`), its result ignored. The
   same lag shows on a tvOS 26.5 Simulator locally; "Running the tests" has
   the local warm-up.
+- **The Simulator boots while the app builds** (2026-11-03): left to
+  `xcodebuild test-without-building`, the boot started only after the build
+  and the first test came 413 to 617 s in on the iPhone 27.0 smoke jobs, 564 to
+  900 s on the iPad and 182 to 325 s on the Duo (`Testing started` in the
+  `IDETestOperationsObserverDebug` line, across 24 green runs), and some runners
+  crashed in `handleStalledWait` during bootstrap. The action's "Start booting
+  the simulator" step boots a shut-down device right after "Select simulator"
+  and "Wait for the simulator" blocks on `simctl bootstatus -b` after the
+  build, giving up after 15 minutes (a poll in the shell: composite steps take
+  no `timeout-minutes`). A device already booted, as the Duo job leaves it
+  after posing, is not touched.
 - **Why shards and five attempts** (2026-10-15, seven full runs): on tvOS 27.0
   the stale tree still hits about 5% of test attempts in CI (about 1.5% on a
   Mac), at random across ~40 journeys and evenly through a run. The

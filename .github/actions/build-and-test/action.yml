@@ -129,6 +129,26 @@ runs:
         fi
         echo "udid=$udid" >> "$GITHUB_OUTPUT"
 
+    - name: Start booting the simulator
+      shell: bash
+      env:
+        UDID: ${{ steps.select_simulator.outputs.udid }}
+      run: |
+        # Boot now, so the device comes up while the app compiles. Left to
+        # `xcodebuild test-without-building`, the boot started only after the
+        # build and took 7 to 15 minutes before the first test (see
+        # TESTING.md). `simctl boot` returns at once; "Wait for the simulator"
+        # below blocks until it is ready. A device that is already booted (the
+        # Duo job boots and poses its own) is left exactly as it is.
+        state=$(xcrun simctl list devices -j \
+          | jq -r --arg u "$UDID" '[.devices[][] | select(.udid == $u)] | first | .state // empty')
+        if [ "$state" = "Shutdown" ]; then
+          xcrun simctl boot "$UDID"
+          echo "Booting $UDID in the background while the app builds"
+        else
+          echo "$UDID is '${state:-unknown}'; leaving it alone"
+        fi
+
     - name: Build
       # `shell: bash` runs with `-eo pipefail`, so xcodebuild's exit status
       # survives the pipe into xcbeautify. Don't switch to `shell: sh` or an
@@ -143,6 +163,34 @@ runs:
           -testPlan "${{ inputs.test-plan }}" \
           -destination "platform=${{ inputs.platform }} Simulator,id=${{ steps.select_simulator.outputs.udid }}" \
           | xcbeautify --renderer github-actions
+
+    - name: Wait for the simulator
+      shell: bash
+      env:
+        UDID: ${{ steps.select_simulator.outputs.udid }}
+        DEVICE_TYPE: ${{ inputs.device-type }}
+        IOS_VERSION: ${{ inputs.ios-version }}
+        PLATFORM: ${{ inputs.platform }}
+      run: |
+        # Composite steps can't use `timeout-minutes`, and macOS has no
+        # `timeout`, so the 15-minute bound is a poll on bootstatus.
+        limit=900
+        start=$SECONDS
+        xcrun simctl bootstatus "$UDID" -b >/dev/null 2>&1 &
+        pid=$!
+        while kill -0 "$pid" 2>/dev/null; do
+          if [ $((SECONDS - start)) -ge "$limit" ]; then
+            kill "$pid" 2>/dev/null || true
+            echo "::error::The '$DEVICE_TYPE' simulator ($PLATFORM $IOS_VERSION, $UDID) wasn't ready after $((SECONDS - start)) s." >&2
+            exit 1
+          fi
+          sleep 2
+        done
+        if ! wait "$pid"; then
+          echo "::error::'simctl bootstatus' failed for the '$DEVICE_TYPE' simulator ($PLATFORM $IOS_VERSION, $UDID) after $((SECONDS - start)) s." >&2
+          exit 1
+        fi
+        echo "The simulator was ready after $((SECONDS - start)) s of waiting"
 
     - name: Warm up
       if: inputs.warm-up-test != ''
