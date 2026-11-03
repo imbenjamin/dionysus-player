@@ -102,8 +102,10 @@ that aren't guessable:
   a current session or wait for it. Tests that register the mock process-wide
   (below) can't stamp `URLSession.shared`'s requests, so they set
   `MockURLProtocol.acceptsUnmarkedRequests = true` in `setUp` (`reset()` clears
-  it); they are only as isolated as the requests they make themselves.
-  `MockURLProtocolTests` pins this.
+  it); they are only as isolated as the requests they make themselves. A
+  session made before a test's `setUp` (e.g. in a stored-property initializer)
+  carries an older generation and is refused after the first `reset()`: make
+  sessions in `setUp` or the test. `MockURLProtocolTests` pins this.
 - **`URLSession`'s async `data(for:)` moves a request's body into
   `httpBodyStream`** before a custom `URLProtocol` sees it, so
   `request.httpBody` reads `nil`; `URLRequest.capturedHTTPBody` drains
@@ -634,7 +636,9 @@ for the PR plans too (a later decision, not made).
   printed when testing *finishes*, so it is the test run's duration and not
   the time to the first test.
 - **One rerun, on a rebooted Simulator, when the test runner dies before any
-  test** (2026-11-03). In 21 of 84 failed UI-test jobs from 2026-10-12
+  test** (2026-11-03), in every job that runs the action: the UI-test legs, the
+  required unit job ("Build and Test default scheme…") and `release.yml`'s unit
+  tests alike. In 21 of 84 failed UI-test jobs from 2026-10-12
   to 2026-11-02 the runner crashed while bootstrapping (`Early unexpected exit,
   operation never finished bootstrapping`, underlying error `The test runner
   crashed while preparing to run tests`, in `handleStalledWait`) and no test
@@ -648,8 +652,8 @@ for the PR plans too (a later decision, not made).
   background assertion`, `Timed out while launching application`, `Test
   runner never began executing tests`, `The test runner crashed while
   preparing to run tests`, `The test runner failed to initialize for UI
-  testing` (seen 2026-11-03, iPad iOS 18.6)) and no sign that a test ran and failed: no `Test
-  Case '…' failed` line and no "Failing tests:" list. Then the step prints
+  testing` (seen 2026-11-03, iPad iOS 18.6)) and no sign that a test ran and
+  failed: no `Test Case '…' failed` line and no "Failing tests:" list. Then the step prints
   `::warning::Infrastructure failure (<signature>); …`, shuts the Simulator
   down, boots it, sets the Duo's pose again (the action's `duo-pose` input)
   and runs the plan once more, writing `<bundle>-attempt-2.xcresult`, which
@@ -662,8 +666,9 @@ for the PR plans too (a later decision, not made).
   itself hits them. `Scripts/ci/`'s tests run the step's script against fake
   `xcodebuild`, `xcrun` and `xcbeautify`, on every PR in the `CI scripts` job
   (Linux, not a required check).
-- **Every job's summary lists its failed and retried tests.** The action's
-  last step, "Summarize results" (`if: always()`, never fails the job), reads
+- **Every job that runs the action has a summary listing its failed and
+  retried tests** (the tvOS unit job runs plain `xcodebuild test`, so it has
+  none). The action's last step, "Summarize results" (`if: always()`, never fails the job), reads
   the result bundle with `xcresulttool get test-results tests` and
   `Scripts/ci/xcresult_summary.py` writes, to the job's GitHub summary: a
   "Flaky" list (tests that failed and passed on a retry, with the first
@@ -751,7 +756,8 @@ fails every attempt is broken, not flaky.
   `UITests-Full`, up to five attempts on the full tvOS plan
   (`retry-tests-on-failure` in `tv-ui-tests.yml`). The only other retry is the
   "Test" step's single rerun of the whole plan for an infrastructure
-  signature (`xcodebuild_failure.py`), when no test ran. A retry never hides a
+  signature (`xcodebuild_failure.py`), when no test ran, in every caller of the
+  action, the required unit job and `release.yml` included. A retry never hides a
   flake: the job summary's "Flaky" list and a `::warning title=Flaky test::`
   annotation name it.
 - **First response.** Read the job's summary, then `gh run view <id>
@@ -760,10 +766,10 @@ fails every attempt is broken, not flaky.
 - **Reproduce** with `-test-iterations 50 -run-tests-until-failure` on one
   test (`-only-testing:`) before changing it.
 - **Quarantine** keeps a flake from blocking the PR gate only. The smoke plans
-  *select* their tests (`selectedTests`), so take the test out of that list;
-  a plan that runs everything (`UITests-Full`, `TVUITests`) takes it in
-  `skippedTests` instead, but quarantine never goes there: the test keeps
-  running nightly and in the full plans. Add a row to the table below in the
+  *select* their tests (`selectedTests`), so take the test out of that list.
+  Quarantine only removes the test from a smoke plan's `selectedTests`; never
+  add it to `skippedTests` in `UITests-Full` or `TVUITests`, which keep running
+  it nightly and on `stable` PRs. Add a row to the table below in the
   same commit. At most **3** at once, each for at most **14 days**. It comes
   out with a root-cause fix, not after a quiet streak (a 1% flake passes 20
   runs in a row 82% of the time).

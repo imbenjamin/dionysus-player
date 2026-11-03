@@ -122,10 +122,9 @@ gitignored with the generated project, so CI caches the package checkouts
 `Packages/**/Package.swift` and `project.yml`'s `packages:` block, with no
 `restore-keys`. Only the nightly on `develop` writes it (about 0.93 GB, beside
 the 8.8 GB iOS 18.6 runtime in a 10 GB quota); every other run restores. After
-a pin change, runs are cold until the next nightly. A range let CI land on whatever
-release was newest with no commit here (PR #147: `6.54.0` resolved against a
-`6.52.0` pin). A cold resolve after changing the
-pin can fail with "enables traits on package … that declares no traits": a
+a pin change, runs are cold until the next nightly. A range let CI land on
+whatever release was newest with no commit here (PR #147: `6.54.0` resolved
+against a `6.52.0` pin). A cold resolve after changing the pin can fail with "enables traits on package … that declares no traits": a
 cached older checkout was read; resolve into fresh DerivedData.
 
 The weekly "Bump AetherEngine" workflow (`aetherengine-bump.yml`) opens a PR

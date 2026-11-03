@@ -110,14 +110,14 @@ runs:
     # (CLAUDE.md, "Pinning AetherEngine"). Package.resolved is gitignored, so
     # the pin is the whole of the invalidation.
     - name: Cache Swift packages (restore and save)
-      if: github.ref == 'refs/heads/develop' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+      if: github.ref == 'refs/heads/develop' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.workflow == 'Nightly UI tests'
       uses: actions/cache@v4
       with:
         path: .build/SourcePackages
         key: spm-${{ runner.os }}-xcode-${{ inputs.xcode-version }}-${{ hashFiles('Packages/**/Package.swift') }}-${{ steps.spm_key.outputs.hash }}
 
     - name: Cache Swift packages (restore only)
-      if: ${{ !(github.ref == 'refs/heads/develop' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')) }}
+      if: ${{ !(github.ref == 'refs/heads/develop' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.workflow == 'Nightly UI tests') }}
       uses: actions/cache/restore@v4
       with:
         path: .build/SourcePackages
