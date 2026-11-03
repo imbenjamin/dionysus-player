@@ -5,6 +5,11 @@ import XCTest
 final class PlayerAccessibleTransportJourneyTests: TVUITestCase {
     private let accessible = ["-UITestAccessibleTransport", "YES"]
 
+    /// Proves the accessible transport never fades or comes back by itself:
+    /// past the remote mode's 4 s fade (`TVTransportChrome.visibleDuration`),
+    /// with a second to spare. Nothing happens to wait for.
+    private static let pastTheFade = 5
+
     private func control(_ app: XCUIApplication, _ id: String) -> XCUIElement {
         app.buttons[A11yID.TV.Player.control(id)]
     }
@@ -28,7 +33,7 @@ final class PlayerAccessibleTransportJourneyTests: TVUITestCase {
         press(.select)
         XCTAssertTrue(poll(timeout: 3) { playPause.label == playingLabel })
         // Playing again, and past the fade the remote's mode would apply.
-        sleep(UInt32(5))
+        sleep(UInt32(Self.pastTheFade))
         XCTAssertTrue(playPause.exists, "The transport stays up while playing")
         XCTAssertTrue(app.staticTexts[A11yID.TV.Player.elapsed].exists)
     }
@@ -92,7 +97,7 @@ final class PlayerAccessibleTransportJourneyTests: TVUITestCase {
             press(.menu)
             XCTAssertTrue(waitForFocus(show), "Hidden, Show Player Controls holds focus")
             XCTAssertFalse(playPause.exists)
-            sleep(5)
+            sleep(UInt32(Self.pastTheFade))
             XCTAssertFalse(playPause.exists, "Nothing brings them back by itself")
             press(key)
             XCTAssertTrue(waitForFocus(playPause), "\(key) brings them back on Play/Pause")

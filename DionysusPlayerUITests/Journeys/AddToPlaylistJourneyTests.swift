@@ -415,7 +415,10 @@ final class AddToPlaylistJourneyTests: UITestCase {
             // Let the pop finish before the next lookup. Mid-pop, the old
             // bar's button can pass `exists` and be gone by the time the tap
             // or a frame read resolves it, which fails the test (iPadOS 27).
-            Thread.sleep(forTimeInterval: 1)
+            // The pop is over when the outgoing bar has left the tree, so
+            // one navigation bar is all that remains.
+            let settled = NSPredicate { _, _ in self.app.navigationBars.count <= 1 }
+            _ = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: settled, object: nil)], timeout: 3)
         }
         HomeScreen(app: app).awaitLoaded(file: file, line: line)
 

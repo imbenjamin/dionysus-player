@@ -73,6 +73,8 @@ final class ProfileJourneyTests: TVUITestCase {
         XCUIRemote.shared.press(.select, forDuration: 2)
         let held = Self.milliseconds(value.label)
         XCTAssertGreaterThanOrEqual(held, 60, "A two-second hold steps more than once: \(value.label)")
+        // Proves the repeat stopped: a held step lands every ~0.1 s, so a
+        // second of no change is the absence of any.
         sleep(1)
         XCTAssertEqual(Self.milliseconds(value.label), held, "Letting go stops the repeat")
         press(.left)

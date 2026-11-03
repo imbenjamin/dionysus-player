@@ -442,6 +442,15 @@ it; everything in the modal is still audited.
 5. **Check it fails.** Break the thing it covers and watch it go red.
    `testOpeningAnItemFromHome` once passed with `PosterCard`'s destination
    broken, because `.firstMatch` resolved to the hero's tile.
+6. **Wait on state, not time.** A journey never sleeps to let something
+   happen: wait for the element, the focus (`waitForFocus`, the player's
+   `waitForPlayerFocus`) or the value the app produces, with a timeout that
+   is a ceiling, not a delay (`steadyLabel(of:)` waits for a ticking label
+   to hold still after a pause). A sleep stays only to prove something does
+   *not* happen (a fade that shouldn't come, a repeat that should have
+   stopped, the shell's three-second sidebar fallback): then it is a named
+   constant or has a comment that says what the duration proves. Polling
+   loops (`poll`, `awaitStableFrame`) are not sleeps.
 
 **An intermittent failure may be a crash, not flake.** The tell is an empty
 `app.debugDescription` (`Query chain: Find: Target Application`) with

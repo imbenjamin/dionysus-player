@@ -240,8 +240,8 @@ final class CollectionGridJourneyTests: TVUITestCase {
         XCTAssertTrue(poll(timeout: 5) { tiles.count > 1 && tiles.count < all }, "The filter narrowed the grid")
         let count = tiles.count
         XCTAssertLessThanOrEqual(count, 6, "One row, so Right reaches the last title")
-        // Focus is held on the pill for a moment while the grid reloads.
-        Thread.sleep(forTimeInterval: 1)
+        // Focus is held on the pill while the grid reloads.
+        XCTAssertTrue(waitForFocus(watchedPill), "Focus is back on the pill")
         press(.down)
         let anyTile = app.buttons.matching(NSPredicate(format: "hasFocus == true AND identifier BEGINSWITH %@", "tv.library.tile.")).firstMatch
         XCTAssertTrue(anyTile.waitForExistence(timeout: 5), "Down enters the grid")

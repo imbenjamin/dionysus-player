@@ -82,9 +82,8 @@ final class PlayerJourneyTests: TVUITestCase {
         let elapsed = app.staticTexts[A11yID.TV.Player.elapsed]
         XCTAssertTrue(elapsed.waitForExistence(timeout: 10))
         press(.playPause)
-        Thread.sleep(forTimeInterval: 1)
-        let pausedAt = elapsed.label
-        // Past `TVTransportChrome.visibleDuration` (4s).
+        let pausedAt = steadyLabel(of: elapsed)
+        // Proves the transport stays up: past `TVTransportChrome.visibleDuration` (4s).
         Thread.sleep(forTimeInterval: 6)
         XCTAssertTrue(elapsed.exists, "The transport should stay up while paused")
         XCTAssertEqual(elapsed.label, pausedAt, "Nothing should play while paused")

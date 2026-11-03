@@ -19,6 +19,7 @@ final class PlayerSegmentJourneyTests: TVUITestCase {
         press(.select)
         XCTAssertTrue(poll(timeout: 5) { (self.elapsedSeconds(app) ?? 0) >= 5000 }, "Skips to 83:20, past both copies")
         XCTAssertTrue(poll(timeout: 3) { !skip.exists })
+        // Proves it stays gone: a few seconds of playback past the intro.
         Thread.sleep(forTimeInterval: 2)
         XCTAssertFalse(skip.exists, "The intro's duplicate doesn't bring the button back")
     }
@@ -93,6 +94,7 @@ final class PlayerSegmentJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForPlayerFocus(app, "nextUp.close"))
         press(.select)
         XCTAssertTrue(poll(timeout: 3) { !card.exists })
+        // Proves nothing advances: the 10 s countdown would have ended by now.
         Thread.sleep(forTimeInterval: 12)
         XCTAssertFalse(card.exists, "Past where the countdown would have ended, nothing advanced")
     }
@@ -119,8 +121,8 @@ final class PlayerSegmentJourneyTests: TVUITestCase {
         XCTAssertTrue(poll(timeout: 10) { !elapsed.exists }, "The transport fades on the next episode")
         press(.playPause)
         XCTAssertTrue(elapsed.waitForExistence(timeout: 3), "Play/Pause brings the transport up")
-        Thread.sleep(forTimeInterval: 1)
-        let pausedAt = elapsed.label
+        let pausedAt = steadyLabel(of: elapsed)
+        // Proves it stays paused: three more ticks of the clock.
         Thread.sleep(forTimeInterval: 3)
         XCTAssertEqual(elapsed.label, pausedAt, "Play/Pause paused the next episode")
     }

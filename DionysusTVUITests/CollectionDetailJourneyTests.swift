@@ -66,6 +66,8 @@ final class CollectionDetailJourneyTests: TVUITestCase {
         let app = launchAtHome(scenario: "slowBoxSet")
         let tile = open(UITestFixtureIdentity.boxSetID, inLibrary: UITestFixtureIdentity.boxSetsLibraryID, app)
         XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Detail.loading].waitForExistence(timeout: 5))
+        // Proves the shell's three-second fallback doesn't open the sidebar:
+        // nothing happens to wait for, so wait it out with a second to spare.
         Thread.sleep(forTimeInterval: 4)
         XCTAssertFalse(app.buttons[A11yID.TV.Sidebar.home].hasFocus || app.buttons[A11yID.TV.Sidebar.library(UITestFixtureIdentity.boxSetsLibraryID)].hasFocus,
                        "The sidebar stays shut over a loading page")
