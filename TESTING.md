@@ -622,7 +622,12 @@ for the PR plans too (a later decision, not made).
   "Flaky" list (tests that failed and passed on a retry, with the first
   failure's message), a "Failed" list, and a count of the rest. Each flaky
   test also raises a yellow `::warning title=Flaky test::` on the run page, so
-  a retry never hides a flake. Under them: the time xcodebuild's testing
+  a retry never hides a flake. Each repetition's own result decides, not
+  their number: under `-test-iterations` every test has N repetitions, so a
+  test none of which failed counts as passed (the nightly unit flake hunt
+  would otherwise list every test), and one that passed and then failed under
+  `-run-tests-until-failure` is a failure, listed as "failed on iteration k of
+  n after k-1 passes". Under them: the time xcodebuild's testing
   took in each attempt (its "Testing started completed" figure, launch to
   finish), the seconds "Wait for the simulator"
   waited, and, when "Test" ran the plan a second time, which signature caused

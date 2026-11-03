@@ -1,0 +1,82 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "12AC1AA8-6CFA-4524-A05A-F56B387B013A",
+      "deviceName" : "iPhone Duo",
+      "modelName" : "iPhone",
+      "osBuildNumber" : "24B91016s",
+      "osVersion" : "27.2",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "children" : [
+                    {
+                      "duration" : "18s",
+                      "durationInSeconds" : 18.673014044761658,
+                      "name" : "Repetition 1",
+                      "nodeIdentifier" : "1",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/DionysusPlayer/DionysusPlayerUITests/HarnessTests/testZZProbeTabIdentifiers?i=1",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "14s",
+                      "durationInSeconds" : 14.367859959602356,
+                      "name" : "Repetition 2",
+                      "nodeIdentifier" : "2",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/DionysusPlayer/DionysusPlayerUITests/HarnessTests/testZZProbeTabIdentifiers?i=2",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "14s",
+                      "durationInSeconds" : 14.150668025016785,
+                      "name" : "Repetition 3",
+                      "nodeIdentifier" : "3",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/DionysusPlayer/DionysusPlayerUITests/HarnessTests/testZZProbeTabIdentifiers?i=3",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    }
+                  ],
+                  "duration" : "15s",
+                  "durationInSeconds" : 15.7305140097936,
+                  "name" : "testZZProbeTabIdentifiers()",
+                  "nodeIdentifier" : "HarnessTests/testZZProbeTabIdentifiers()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/DionysusPlayer/DionysusPlayerUITests/HarnessTests/testZZProbeTabIdentifiers",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "HarnessTests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/DionysusPlayer/DionysusPlayerUITests/HarnessTests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            }
+          ],
+          "name" : "DionysusPlayerUITests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/DionysusPlayer/DionysusPlayerUITests",
+          "nodeType" : "UI test bundle",
+          "result" : "Passed"
+        }
+      ],
+      "name" : "UITests-Smoke",
+      "nodeType" : "Test Plan",
+      "result" : "Passed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Configuration 1"
+    }
+  ]
+}
