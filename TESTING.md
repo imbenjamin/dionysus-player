@@ -517,8 +517,12 @@ script needs Accessibility access for the terminal, the Duo selected in
 Device Hub, and the Mac awake (`caffeinate -d`): a locked screen hides Device
 Hub's window.
 
-On the Duo the tabs sit in the vertical side bar, as unidentified toolbar
-buttons on a tab's root (`TabBar`'s last fallback). Journeys that turn the
+On the Duo the tabs sit in the vertical side bar, as toolbar buttons whose
+identifiers, on a tab's root, come and go: one launch can draw them
+unidentified and identify them a moment later. `TabBar`'s last fallback counts
+a toolbar button that is unidentified or a tab's (`A11yID.Tabs.prefix`), so it
+keeps the same tab either way; choosing "unidentified" once and waiting on it
+failed the empty-library harness test on every pose. Journeys that turn the
 device skip (`skipWhereXCUIDeviceCannotRotate()`: `XCUIDevice` can't turn
 it), and held wide a detail page's book spread replaces the hero
 (`AssetDetailScreen.isBookSpread`).

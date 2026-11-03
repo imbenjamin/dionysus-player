@@ -273,9 +273,19 @@ struct QuickConnectScreen: Screen {
 /// `TabBar`, the tabs are buttons in a `Toolbar` beside any toolbar items, and
 /// on a tab's root screen they carry no identifier (on a pushed screen they
 /// do). Measured on the iPhone Duo Simulator, iOS 27.1, 2026-10-28. So the
-/// last fallback is the toolbars' unidentified buttons, by the same order.
+/// last fallback is the toolbars' buttons, by the same order.
 /// Which of the three shapes is up isn't known until the bar has drawn, so
 /// this waits for any of them before choosing.
+///
+/// On a tab's root the side bar's tabs are unidentified only some of the
+/// time: the same launch can draw them without identifiers and gain them a
+/// moment later (CI, iPhone Duo closed, iOS 27.1, 2026-11-01: the wait saw
+/// unidentified buttons, chose this fallback, and the failure's tree had
+/// `tab.home` and no unidentified button, so the chosen element was gone for
+/// good; locally, iOS 27.2, two launches in three drew them unidentified for
+/// the first ~0.3s). So the fallback counts a toolbar button that is either unidentified
+/// or a tab's, and keeps pointing at the same tab whichever way the bar
+/// settles; other toolbar items carry identifiers of their own and stay out.
 struct TabBar: Screen {
     let app: XCUIApplication
 
@@ -288,7 +298,7 @@ struct TabBar: Screen {
         let identified = app.buttons.matching(identifier: identifier).firstMatch
         let inTabBar = app.tabBars.buttons.element(boundBy: index)
         let inVerticalBar = app.toolbars.buttons
-            .matching(NSPredicate(format: "identifier == ''"))
+            .matching(NSPredicate(format: "identifier == '' OR identifier BEGINSWITH %@", A11yID.Tabs.prefix))
             .element(boundBy: index)
         let anyShown = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in identified.exists || inTabBar.exists || inVerticalBar.exists },

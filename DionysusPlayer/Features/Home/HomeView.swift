@@ -192,7 +192,11 @@ struct HomeView: View {
                 Task { await viewModel?.retryLoadIfNeeded() }
             }
         case .empty:
-            ErrorStateView(message: String(localized: "Nothing here yet."), retry: nil)
+            ErrorStateView(
+                message: String(localized: "Nothing here yet."),
+                retry: nil,
+                identifier: A11yID.Home.emptyState
+            )
         }
     }
 

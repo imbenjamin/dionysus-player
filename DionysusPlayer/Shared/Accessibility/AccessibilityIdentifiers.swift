@@ -105,6 +105,9 @@ enum A11yID {
     /// a UIKit `UITabBarItem`, which drops it. `DionysusPlayerUITests`'
     /// `TabBar` screen object falls back to tab order there — see its note.
     enum Tabs {
+        /// What every tab's identifier starts with, so a UI test can tell the
+        /// tabs from other buttons in the same bar (the iPhone Duo's side bar).
+        static let prefix = "tab."
         static let home = "tab.home"
         static let search = "tab.search"
         static let downloads = "tab.downloads"
@@ -115,6 +118,9 @@ enum A11yID {
         static let heroCarousel = "home.heroCarousel"
         static let refreshButton = "home.refreshButton"
         static let libraryRail = "home.libraryRail"
+        /// Home's "Nothing here yet." state: loaded, and the server had
+        /// nothing to show. Not `State.error`, which a failed load shows too.
+        static let emptyState = "home.emptyState"
 
         /// A rail header's link to its full collection (the title and its
         /// chevron, once a separate "See All"; the name is kept so existing
