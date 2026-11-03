@@ -9,13 +9,16 @@
     }
   ],
   "defaultOptions" : {
+    "defaultTestExecutionTimeAllowance" : 300,
+    "maximumTestExecutionTimeAllowance" : 600,
     "maximumTestRepetitions" : 2,
     "targetForVariableExpansion" : {
       "containerPath" : "container:DionysusPlayer.xcodeproj",
       "identifier" : "DionysusTV",
       "name" : "DionysusTV"
     },
-    "testRepetitionMode" : "retryOnFailure"
+    "testRepetitionMode" : "retryOnFailure",
+    "testTimeoutsEnabled" : true
   },
   "testTargets" : [
     {

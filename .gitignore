@@ -148,3 +148,6 @@ xcuserdata
 # future team-shared .claude/settings.json or shared commands/skills can
 # still be committed intentionally.
 .claude/settings.local.json
+
+# Python bytecode, written when Scripts/ci/'s tests run.
+__pycache__/

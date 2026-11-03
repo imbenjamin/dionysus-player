@@ -1,0 +1,19 @@
+  RESULT_BUNDLE_PATH: .build/UITestResults.xcresult
+  RETRY_TESTS_ON_FAILURE: true
+  TEST_ITERATIONS: 
+  ONLY_TESTING: 
+  DUO_POSE: 
+##[endgroup]
+2026-11-03 12:49:17.058 xcodebuild[46011:118034] [MT] IDESchemeActionSDKRecord: operatingSystemBuild = <DVTBuildVersion 24A94232>, error = invalidDigitCount(94232).
+2026-11-03 12:53:49.955 xcodebuild[46011:118034] [MT] IDESchemeActionSDKRecord: operatingSystemBuild = <DVTBuildVersion 24A94232>, error = invalidDigitCount(94232).
+2026-11-03 12:53:50.134 xcodebuild[46011:118034] [MT] IDESchemeActionSDKRecord: operatingSystemBuild = <DVTBuildVersion 24A94232>, error = invalidDigitCount(94232).
+2026-11-03 12:53:52.466 xcodebuild[46011:118034] [MT] IDETestOperationsObserverDebug: 346.460 elapsed -- Testing started completed.
+2026-11-03 12:53:52.466 xcodebuild[46011:118034] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-11-03 12:53:52.466 xcodebuild[46011:118034] [MT] IDETestOperationsObserverDebug: 346.460 sec, +346.460 sec -- end
+Testing failed:
+	DionysusPlayerUITests-Runner (53753) encountered an error (The test runner failed to initialize for UI testing. (Underlying Error: Timed out waiting for AX loaded notification))
+
+** TEST EXECUTE FAILED **
+
+
+----- xcbeautify -----

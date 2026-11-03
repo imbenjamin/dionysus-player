@@ -1,0 +1,84 @@
+{
+  "devices": [
+    {
+      "architecture": "arm64",
+      "deviceId": "560CD3F0-A41E-4DC1-8E80-A52D76E51230",
+      "deviceName": "iPhone 17",
+      "modelName": "iPhone 17",
+      "osBuildNumber": "24A434",
+      "osVersion": "27.0",
+      "platform": "iOS Simulator"
+    }
+  ],
+  "testNodes": [
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [
+                    {
+                      "children": [
+                        {
+                          "name": "failed - first attempt only (fixture)",
+                          "nodeType": "Failure Message",
+                          "sourceLocation": {
+                            "filePath": "DionysusPlayerUITests/Journeys/HarnessTests.swift",
+                            "lineNumber": 21
+                          }
+                        }
+                      ],
+                      "duration": "15s",
+                      "durationInSeconds": 15.521051049232483,
+                      "name": "First Run",
+                      "nodeIdentifier": "1",
+                      "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusPlayerUITests/HarnessTests/testEmptyLibraryScenarioIsServed?i=1",
+                      "nodeType": "Repetition",
+                      "result": "Failed"
+                    },
+                    {
+                      "duration": "9s",
+                      "durationInSeconds": 9.040385007858276,
+                      "name": "Retry 1",
+                      "nodeIdentifier": "2",
+                      "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusPlayerUITests/HarnessTests/testEmptyLibraryScenarioIsServed?i=2",
+                      "nodeType": "Repetition",
+                      "result": "Passed"
+                    }
+                  ],
+                  "details": "\u26a0\ufe0f Passed after 1 retry",
+                  "duration": "12s",
+                  "durationInSeconds": 12.28071802854538,
+                  "name": "testEmptyLibraryScenarioIsServed()",
+                  "nodeIdentifier": "HarnessTests/testEmptyLibraryScenarioIsServed()",
+                  "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusPlayerUITests/HarnessTests/testEmptyLibraryScenarioIsServed",
+                  "nodeType": "Test Case",
+                  "result": "Passed"
+                }
+              ],
+              "name": "HarnessTests",
+              "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusPlayerUITests/HarnessTests",
+              "nodeType": "Test Suite",
+              "result": "Failed"
+            }
+          ],
+          "name": "DionysusPlayerUITests",
+          "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusPlayerUITests",
+          "nodeType": "UI test bundle",
+          "result": "Failed"
+        }
+      ],
+      "name": "UITests-Smoke",
+      "nodeType": "Test Plan",
+      "result": "Failed"
+    }
+  ],
+  "testPlanConfigurations": [
+    {
+      "configurationId": "1",
+      "configurationName": "Configuration 1"
+    }
+  ]
+}

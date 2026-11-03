@@ -15,6 +15,7 @@ comment); the index at the end says where to look.
 | `DionysusTVTests` | `TVUnitTests` | The Apple TV app's own tests, plus the shared ones run on tvOS | Every PR |
 | `DionysusTVUITests` | `TVUITests-Smoke` | Seven Apple TV journeys: first launch to sign-in, Home, a detail page from Home and from a library, Search, the player | Every PR, tvOS 27.0; nightly on tvOS 26.5 as an allowed failure |
 | | `TVUITests` | Every Apple TV journey and audit | Nightly and PRs into `stable`, tvOS 27.0 |
+| `Scripts/ci/test_*.py` | none (`unittest`) | The CI's own scripts: the UI-test rerun and its failure classifier | Every PR, `CI scripts` job, on Linux |
 
 Unit tests run in-process with no real network and take seconds. UI tests
 (XCUITest) drive the real app in the Simulator against an in-process stub
@@ -39,6 +40,9 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
   -testPlan TVUnitTests -destination 'platform=tvOS Simulator,name=Apple TV 4K (4th generation)'
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
   -testPlan TVUITests -destination 'platform=tvOS Simulator,name=Apple TV 4K (4th generation)'
+
+# The CI's own scripts (Scripts/ci/): python3 and bash, no Xcode
+python3 -m unittest discover -s Scripts/ci -v
 ```
 
 Use whatever `xcrun simctl list devices available` shows. Check Apple TV
@@ -424,6 +428,8 @@ as "Iteration 2 of 3" in the log.
 
 ## Where they run in CI
 
+Each UI-test job's "Build and test" step has its own timeout, 10 minutes under the job's, so a hang fails that step and the bundle and logs still upload (the job timeout cancels the job with no log and no upload).
+
 **iOS** goes through one reusable workflow, `.github/workflows/ui-tests.yml`,
 which owns the matrix. A PR into `develop` runs the smoke plan; a PR into
 `stable`, the nightly and a release run the full plan, and no smoke (the full
@@ -457,7 +463,9 @@ simctl runtime add <dmg>`); iPad (A16) needs 18.3, so use iPad (10th
 generation), the same 820×1180pt screen. Each environment runs with
 `fail-fast: false` and uploads a failed `.xcresult` as
 `ui-test-results-<plan>-<device>-iOS-<version>` (the Duo's,
-`ui-test-results-<plan>-iPhone-Duo-<pose>`).
+`ui-test-results-<plan>-iPhone-Duo-<pose>`), with a second bundle,
+`UITestResults-attempt-2.xcresult`, when the plan was run again after the
+test runner crashed (below).
 
 **The iPhone Duo** runs on iOS 27.1, its only runtime; the image carries it
 and the `iPhone Duo` device type. One job per pose (`duo-poses`) boots it,
@@ -517,6 +525,84 @@ plan selects single tests and stays one job.
   runs one journey as a warm-up (`warm-up-test`), its result ignored. The
   same lag shows on a tvOS 26.5 Simulator locally; "Running the tests" has
   the local warm-up.
+- **The Simulator boots after the build, not during it** (2026-11-03).
+  Booting it while the app built, to give the test runner a settled device,
+  was tried and taken out: the first iPhone 27.0 run built in 843 s against
+  188 to 284 s on develop, and on the iOS 18.6 floor, whose runtime is freshly
+  installed in every job, the build took 32 minutes against 5.5 and the full
+  plan ran past the job's limit two nights running (the leg takes 54 to 57
+  minutes on develop). The action's "Wait for the simulator" step boots the
+  device after the build and blocks on `simctl bootstatus -b`, giving up
+  after 15 minutes (a poll in the shell: composite steps take no
+  `timeout-minutes`); the job summary gives the seconds it waited. A device
+  already booted, as the Duo job leaves it after posing, is not touched. The
+  `IDETestOperationsObserverDebug ... Testing started completed` figure is
+  printed when testing *finishes*, so it is the test run's duration and not
+  the time to the first test.
+- **One rerun, on a rebooted Simulator, when the test runner dies before any
+  test** (2026-11-03). In 21 of 84 failed UI-test jobs from 2026-10-12
+  to 2026-11-02 the runner crashed while bootstrapping (`Early unexpected exit,
+  operation never finished bootstrapping`, underlying error `The test runner
+  crashed while preparing to run tests`, in `handleStalledWait`) and no test
+  ran, so the plan's `retryOnFailure`, which retries a test, never came into
+  it. The action's "Test" step (`Scripts/ci/run-test-plan.sh`) keeps
+  xcodebuild's raw stdout and stderr in `.build/test-attempt-<n>.log`
+  (xcbeautify drops the `Test Case` lines and the stderr summary) and hands a
+  failed run's log to `Scripts/ci/xcodebuild_failure.py`. It is an
+  infrastructure failure when it holds one of six signatures (`Early
+  unexpected exit, operation never finished bootstrapping`, `Failed to get
+  background assertion`, `Timed out while launching application`, `Test
+  runner never began executing tests`, `The test runner crashed while
+  preparing to run tests`, `The test runner failed to initialize for UI
+  testing` (seen 2026-11-03, iPad iOS 18.6)) and no sign that a test ran and failed: no `Test
+  Case '…' failed` line and no "Failing tests:" list. Then the step prints
+  `::warning::Infrastructure failure (<signature>); …`, shuts the Simulator
+  down, boots it, sets the Duo's pose again (the action's `duo-pose` input)
+  and runs the plan once more, writing `<bundle>-attempt-2.xcresult`, which
+  the upload steps take too. **Never a third time**: a regression that
+  crashes the app at launch reads the same, and must fail. Any other failure,
+  or a second one, fails the step with xcodebuild's status. In those logs the
+  background-assertion and launch-timeout messages came only from a test's
+  own `app.launch()`, listed under "Failing tests:", so there they stay test
+  failures for the plan's retry; they trigger the rerun only when the runner
+  itself hits them. `Scripts/ci/`'s tests run the step's script against fake
+  `xcodebuild`, `xcrun` and `xcbeautify`, on every PR in the `CI scripts` job
+  (Linux, not a required check).
+- **Every job's summary lists its failed and retried tests.** The action's
+  last step, "Summarize results" (`if: always()`, never fails the job), reads
+  the result bundle with `xcresulttool get test-results tests` and
+  `Scripts/ci/xcresult_summary.py` writes, to the job's GitHub summary: a
+  "Flaky" list (tests that failed and passed on a retry, with the first
+  failure's message), a "Failed" list, and a count of the rest. Each flaky
+  test also raises a yellow `::warning title=Flaky test::` on the run page, so
+  a retry never hides a flake. Under them: the time xcodebuild's testing
+  took in each attempt (its "Testing started completed" figure, launch to
+  finish), the seconds "Wait for the simulator"
+  waited, and, when "Test" ran the plan a second time, which signature caused
+  it (`.build/test-rerun.txt`); the lists are then the second run's, or the
+  first's if the rerun wrote no bundle. **When a
+  job fails, look at the summary first**, then the annotations, then the
+  uploaded bundle and `.build/test-attempt-*.log` (raw output, on failure
+  only). With no bundle, the build failed before testing. Check a period's
+  numbers with `python3 Scripts/ci/flake-report.py --since YYYY-MM-DD [--until
+  YYYY-MM-DD] [--workflow pr-checks.yml]` (needs `gh`; `--no-logs` skips the
+  log downloads): runs green first time and rerun, failed jobs, failing tests
+  and infrastructure signatures.
+- **No test diagnostics** (`-collect-test-diagnostics never`, for the plan and
+  the warm-up): after a failure xcodebuild collected a sysdiagnose from the
+  Simulator, and in 18 of those 84 jobs gave up after 10 minutes ("Failure
+  collecting diagnostics from simulator: Timed out after 600.0 seconds").
+  Nobody read them; the `.xcresult` keeps each failure's message,
+  screenshots and recording.
+- **A time allowance per UI test**: the four UI plans set
+  `testTimeoutsEnabled`, a default allowance of 300 s and a maximum of 600 s
+  (a test's own `executionTimeAllowance` can raise it that far; XCTest rounds
+  up to whole minutes). A hung test fails at 5 minutes and gets the plan's
+  retry, instead of holding the job until its timeout. The unit plans have
+  none. The slowest passing UI test in 25 green jobs' logs took 259 s
+  (`HarnessTests.testStateResetClearsTheKeychainBetweenLaunches`, the smoke
+  plan's first test, on the iPad, 2026-11-01); if one gets near 300 s, raise
+  the default rather than let it time out.
 - **Why shards and five attempts** (2026-10-15, seven full runs): on tvOS 27.0
   the stale tree still hits about 5% of test attempts in CI (about 1.5% on a
   Mac), at random across ~40 journeys and evenly through a run. The

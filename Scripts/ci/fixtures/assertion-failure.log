@@ -1,0 +1,57 @@
+2026-10-12 07:06:21.370 xcodebuild[21980:63847] [MT] IDELaunchParametersSnapshot: no debugger version
+2026-10-12 07:16:49.583 xcodebuild[21980:71327]  IDETestOperationsObserverDebug: Failure collecting diagnostics from simulator: Timed out after 600.0 seconds while waiting for a response from the invoked process
+2026-10-12 07:16:49.635 xcodebuild[21980:63847] [MT] IDETestOperationsObserverDebug: 861.346 elapsed -- Testing started completed.
+2026-10-12 07:16:49.635 xcodebuild[21980:63847] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-10-12 07:16:49.635 xcodebuild[21980:63847] [MT] IDETestOperationsObserverDebug: 861.346 sec, +861.346 sec -- end
+Failing tests:
+	CollectionGridJourneyTests.test_tile_opensItsDetailPage_andMenuReturnsToIt()
+
+** TEST EXECUTE FAILED **
+
+
+----- xcbeautify -----
+Version: 3.2.1
+----------------------
+
+Resolving Package Graph
+Resolved source packages
+SwiftUI-Shimmer - https://github.com/markiv/SwiftUI-Shimmer @ 1.5.1
+SMBClient - https://github.com/kishikawakatsumi/SMBClient @ 0.3.1
+swift-issue-reporting - https://github.com/pointfreeco/swift-issue-reporting @ 2.1.1
+LibDovi - https://github.com/superuser404notfound/LibDovi @ 2.1.0
+combine-schedulers - https://github.com/pointfreeco/combine-schedulers @ 1.2.2
+swift-concurrency-extras - https://github.com/pointfreeco/swift-concurrency-extras @ 1.4.1
+swift-libass - https://github.com/mihai8804858/swift-libass @ 1.4.0
+AetherEngine - https://github.com/superuser404notfound/AetherEngine @ 7.27.2
+swift-ass-renderer - https://github.com/mihai8804858/swift-ass-renderer @ 1.3.1
+FFmpegBuild - https://github.com/superuser404notfound/FFmpegBuild @ 3.6.0
+Test Suite 'Selected tests' started at 2026-10-12 07:03:47.450.
+Test Suite 'DionysusTVUITests.xctest' started at 2026-10-12 07:03:47.453.
+Test Suite 'CollectionGridJourneyTests' started at 2026-10-12 07:03:47.453.
+##[error]    test_tile_opensItsDetailPage_andMenuReturnsToIt, XCTAssertTrue failed
+##[error]    test_tile_opensItsDetailPage_andMenuReturnsToIt, XCTAssertTrue failed
+Executed 2 tests, with 2 failures (0 unexpected) in 66.601 (66.606) seconds
+Test Suite 'DetailJourneyTests' started at 2026-10-12 07:04:54.060.
+    ✔ test_tile_opensItsDetailPage_besideTheRail_andMenuReturnsToTheTile (16.277 seconds)
+Executed 1 test, with 0 failures (0 unexpected) in 16.277 (16.280) seconds
+Test Suite 'HomeJourneyTests' started at 2026-10-12 07:05:10.341.
+    ✔ test_home_opensOnTheHero_withRailsBelow (11.143 seconds)
+Executed 1 test, with 0 failures (0 unexpected) in 11.143 (11.144) seconds
+Test Suite 'LaunchJourneyTests' started at 2026-10-12 07:05:21.486.
+    ✔ test_firstLaunch_showsWelcome_thenGetStartedFindsServers (10.015 seconds)
+Executed 1 test, with 0 failures (0 unexpected) in 10.015 (10.016) seconds
+Test Suite 'OnboardingJourneyTests' started at 2026-10-12 07:05:31.503.
+    ✔ test_selectDiscoveredServer_thenUser_reachesMain (17.423 seconds)
+Executed 1 test, with 0 failures (0 unexpected) in 17.423 (17.425) seconds
+Test Suite 'PlayerJourneyTests' started at 2026-10-12 07:05:48.928.
+    ✔ test_openPlayer_skipForward_menuDismisses (27.369 seconds)
+Executed 1 test, with 0 failures (0 unexpected) in 27.369 (27.370) seconds
+Test Suite 'SearchJourneyTests' started at 2026-10-12 07:06:16.298.
+    ✔ test_search_findsATitle_andOpensItsDetailPage (32.488 seconds)
+Executed 1 test, with 0 failures (0 unexpected) in 32.488 (32.489) seconds
+Test Suite 'DionysusTVUITests.xctest' failed at 2026-10-12 07:06:48.787.
+Executed 8 tests, with 2 failures (0 unexpected) in 181.317 (181.334) seconds
+Executed 8 tests, with 2 failures (0 unexpected) in 181.317 (181.337) seconds
+Test session results: /Users/runner/work/dionysus-player/dionysus-player/.build/TVUITestResults.xcresult
+Testing started
+##[error]Process completed with exit code 65.

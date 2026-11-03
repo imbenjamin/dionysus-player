@@ -106,6 +106,17 @@ jobs:
         shard: ${{ fromJSON(needs.plan.outputs.shards) }}
 
     steps:
+      - name: Work out the test step's time limit
+        # The job's own timeout cancels the whole job: no log is kept and the
+        # failure-only upload steps never run. Stopping "Build and test" 10
+        # minutes earlier fails just that step, so they still run.
+        # (Expressions have no arithmetic.)
+        id: budget
+        shell: bash
+        env:
+          JOB_MINUTES: ${{ inputs.timeout-minutes }}
+        run: echo "minutes=$(( JOB_MINUTES - 10 ))" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         # No `ref` input, for the reason ui-tests.yml gives (PR #258).
         uses: actions/checkout@v7
@@ -135,6 +146,7 @@ jobs:
 
       - name: Build and test
         uses: ./.github/actions/build-and-test
+        timeout-minutes: ${{ fromJSON(steps.budget.outputs.minutes) }}
         with:
           scheme: DionysusTV
           test-plan: ${{ inputs.test-plan }}
@@ -155,10 +167,18 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
+          # The second bundle exists only if the plan was run again after the
+          # test runner crashed (build-and-test's "Test" step).
           name: tv-ui-test-results-${{ inputs.test-plan }}-tvOS-${{ matrix.tvos }}-part-${{ matrix.shard.index }}
-          path: .build/TVUITestResults.xcresult
+          path: |
+            .build/TVUITestResults.xcresult
+            .build/TVUITestResults-attempt-2.xcresult
+            .build/test-attempt-*.log
           retention-days: 7
           if-no-files-found: ignore
+          # The glob makes `.build` the search root, and it is hidden: without
+          # this every path above is skipped and nothing uploads.
+          include-hidden-files: true
 
   tv-ui-tests:
     # ⚠️ This name is half of each check's context, "<caller job name> /
