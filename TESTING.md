@@ -37,9 +37,9 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
 
 # Apple TV
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
-  -testPlan TVUnitTests -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)'
+  -testPlan TVUnitTests -destination 'platform=tvOS Simulator,name=Apple TV 4K (4th generation)'
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
-  -testPlan TVUITests -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)'
+  -testPlan TVUITests -destination 'platform=tvOS Simulator,name=Apple TV 4K (4th generation)'
 
 # The CI's own scripts (Scripts/ci/): python3 and bash, no Xcode
 python3 -m unittest discover -s Scripts/ci -v
@@ -49,12 +49,17 @@ Use whatever `xcrun simctl list devices available` shows. Check Apple TV
 journeys on a tvOS 26 Simulator as well as 27: 26.0 is the floor and focus
 behaves differently there.
 
+The Apple TV commands name the 4th generation, on tvOS 27.2: Xcode 27.2 on the
+Mac won't resolve `name=Apple TV 4K (3rd generation)`, whose Simulator is on
+tvOS 27.0 (2026-11-03). CI keeps the 3rd generation on tvOS 27.0 with Xcode
+27.1. Both have the same 1920×1080pt screen.
+
 **Before a full Apple TV UI run, run one journey on its own as a warm-up**,
 as CI does ("The first test's warm-up", below), and ignore how it ends:
 
 ```sh
 xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
-  -testPlan TVUITests -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)' \
+  -testPlan TVUITests -destination 'platform=tvOS Simulator,name=Apple TV 4K (4th generation)' \
   -only-testing:DionysusTVUITests/CollectionGridJourneyTests/test_tile_opensItsDetailPage_andMenuReturnsToIt
 ```
 

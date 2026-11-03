@@ -105,7 +105,8 @@ first screen came back at the top.
   Home, the hero's Play, however far down focus had been). The shell bumps it
   when focus leaves without a row chosen; the page takes what it had when the
   rail opened, since tvOS's own move lands first and is remembered.
-- **The app is built with Xcode 27.1 (the tvOS 27 SDK), in CI as here.**
+- **The app is built with the tvOS 27 SDK: Xcode 27.1 in CI and the release
+  archive, Xcode 27.2 on the Mac (since 2026-11-03).**
   Built with Xcode 26.6, as `release.yml` archived v1.2.0-alpha.4 and alpha.5,
   it ran on tvOS 27 with tvOS 26's focus rendering: a focused button's label
   was drawn light on its white platter, except where the label set `.primary`
