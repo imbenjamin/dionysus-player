@@ -23,6 +23,8 @@ final class AppStateTests: XCTestCase {
         defaults = UserDefaults(suiteName: suiteName)
         defaults.removePersistentDomain(forName: suiteName)
         URLProtocol.registerClass(MockURLProtocol.self)
+        // Requests on `URLSession.shared` can't be stamped with a generation.
+        MockURLProtocol.acceptsUnmarkedRequests = true
     }
 
     override func tearDown() async throws {
@@ -306,8 +308,10 @@ final class AppStateTests: XCTestCase {
         let client = try XCTUnwrap(appState.apiClient)
 
         appState.signOut()
+        // The client's forget is a fire-and-forget actor hop with nothing
+        // observable to wait on, so this lets it land: the test fails, not
+        // flakes, if it ever hasn't (the 401 below would be retried).
         try await Task.sleep(for: .milliseconds(50))
-
         var requestCount = 0
         MockURLProtocol.requestHandler = { request in
             requestCount += 1

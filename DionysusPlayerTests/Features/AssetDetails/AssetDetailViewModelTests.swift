@@ -811,7 +811,8 @@ final class AssetDetailViewModelTests: XCTestCase {
 
         let task = Task { await viewModel.toggleFavorite(itemID: "movie-1", currentlyFavorite: false) }
         viewModel.track(task)
-        try? await Task.sleep(for: .milliseconds(50))
+        // The poll has begun once its first re-fetch has been asked.
+        try? await waitUntil { refetchCount >= 1 }
         viewModel.cancelBackgroundWork()
         await task.value
 

@@ -90,6 +90,20 @@ under test is the client's real request building and decoding. View model
 tests reuse it, since view models take an already-built client. Three things
 that aren't guessable:
 
+- **A request from an earlier test can't reach the current one's handler.**
+  `requestHandler` is a shared static, and a request a finished test left in
+  flight used to land on the next test's stub ("3 requests where 1 expected", a
+  handler's `XCTFail` reported under another test). `reset()` bumps
+  `MockURLProtocol.generation`; `makeSession()` stamps its session's requests
+  with `X-MockURLProtocol-Generation: <generation at creation>`
+  (`httpAdditionalHeaders`), and a request naming an older generation, or none,
+  fails with `StaleRequest` without being recorded or reaching the handler. A
+  test that fails with `StaleRequest` was relying on a leak: make its request on
+  a current session or wait for it. Tests that register the mock process-wide
+  (below) can't stamp `URLSession.shared`'s requests, so they set
+  `MockURLProtocol.acceptsUnmarkedRequests = true` in `setUp` (`reset()` clears
+  it); they are only as isolated as the requests they make themselves.
+  `MockURLProtocolTests` pins this.
 - **`URLSession`'s async `data(for:)` moves a request's body into
   `httpBodyStream`** before a custom `URLProtocol` sees it, so
   `request.httpBody` reads `nil`; `URLRequest.capturedHTTPBody` drains
@@ -97,6 +111,15 @@ that aren't guessable:
 - **`AppState` and `ServerSetupViewModel` build their own client on
   `URLSession.shared`**, so their tests register `MockURLProtocol` process-wide
   (`URLProtocol.registerClass`; see `AppStateTests`).
+- **The unit-test host app doesn't start a session.** The host is the real
+  app, and its `.task { appState.start() }` (and, on iOS, the foreground
+  reachability probe) made requests on `URLSession.shared` while a test had
+  `MockURLProtocol` registered process-wide, so a host request could reach
+  whichever test was running. Both apps skip them when
+  `TestHostDetection.isUnitTestHost` (`XCTestConfigurationFilePath` is set);
+  their `init()` still runs, so the UI-test harness and `TVAppLaunchTests`
+  are unchanged. UI tests launch the app as its own process, without that
+  variable, and are unaffected.
 - **The async polling helper `waitUntil` is `@MainActor`**, to match its
   callers; otherwise Swift 6 flags the closure as an unsafe cross-actor send.
 
@@ -132,6 +155,15 @@ app's own launch sets up, since the test host runs `DionysusTVApp.init`.
 3. Anything that talks to `JellyfinAPIClient` uses `MockURLProtocol`, never a
    real server.
 4. Prefer a pure helper with a unit test over logic inside a view's `body`.
+5. **Wait on state, never on time.** Use `waitUntil { ... }` (5 s, returns the
+   moment the condition holds) for anything that settles asynchronously; a
+   fixed `Task.sleep`, a run of `Task.yield()`s or a tight elapsed-time bound
+   is a guess that fails on a loaded CI runner. A sleep stays only when it is
+   the behaviour under test with a short injected duration, or when proving
+   something does *not* happen: then name the duration as a constant and say
+   what it proves. A `Thread.sleep` in a `MockURLProtocol` handler (holding a
+   response so a load can be caught mid-flight) is fine; the test still waits
+   on state.
 
 ## UI tests
 
@@ -509,6 +541,21 @@ no edit), each giving a failing test **up to five attempts**. A last job named
 checks keep their names. Shard only a plan that runs whole classes: the smoke
 plan selects single tests and stays one job.
 
+**The nightly unit flake hunt** (`Unit flake hunt / iOS` and `/ tvOS` in
+`nightly-ui-tests.yml`, added 2026-11-03) runs the unit suites on an iPhone 16
+(iOS 27.0) and an Apple TV 4K (tvOS 27.0), five times over with
+`-run-tests-until-failure`, in random order. xcodebuild has no
+`-test-execution-ordering` flag, so the order comes from `UnitTests-Random`
+and `TVUnitTests-Random`: copies of the unit plans with
+`"testExecutionOrdering": "random"` in `defaultOptions`, listed in `project.yml`
+and used nowhere else. It is **allowed to fail** (`continue-on-error`, no
+ruleset requires it) and never retries, which would hide what it hunts. When it
+reports a failure, open the job's summary: a test that fails in some orders
+but not the PR plans' is order-dependent, shared state to isolate; one that
+fails on a later iteration is flaky. Fix it, or file it with the log, rather
+than waiting. Once it has been green 14 nights running, consider random order
+for the PR plans too (a later decision, not made).
+
 - **Not tvOS 26.5, and not `macos-26`** (#319): on tvOS 26.x in CI the
   accessibility tree never shows a page the shell opens after launch. The
   recording shows the page, but every tree XCUITest reads still lists Home, so
@@ -575,7 +622,12 @@ plan selects single tests and stays one job.
   "Flaky" list (tests that failed and passed on a retry, with the first
   failure's message), a "Failed" list, and a count of the rest. Each flaky
   test also raises a yellow `::warning title=Flaky test::` on the run page, so
-  a retry never hides a flake. Under them: the time xcodebuild's testing
+  a retry never hides a flake. Each repetition's own result decides, not
+  their number: under `-test-iterations` every test has N repetitions, so a
+  test none of which failed counts as passed (the nightly unit flake hunt
+  would otherwise list every test), and one that passed and then failed under
+  `-run-tests-until-failure` is a failure, listed as "failed on iteration k of
+  n after k-1 passes". Under them: the time xcodebuild's testing
   took in each attempt (its "Testing started completed" figure, launch to
   finish), the seconds "Wait for the simulator"
   waited, and, when "Test" ran the plan a second time, which signature caused

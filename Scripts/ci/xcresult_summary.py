@@ -26,8 +26,14 @@ UI test that fails its first run only and one that always fails, run with
               "Failure Message" children (name "failed - <message>")
           children (a test that ran once and failed): "Failure Message"
 
-A test case's own result is its last repetition's, so "Passed" with more than
-one repetition is a flaky test. Stdlib only.
+A test case's own result is its last repetition's, so it can't tell a retried
+test from one that was simply run several times: each Repetition's own result
+decides. Two modes make repetitions. With `-retry-tests-on-failure` a test is
+flaky when some repetition failed and the last passed. With `-test-iterations N`
+(the nightly unit flake hunt, plus `-run-tests-until-failure`) every test has N
+repetitions, so a test none of which failed is just passed, and one that passed
+and then failed under run-until-failure is a failure, reported as "failed on
+iteration k of n after k-1 passes". Stdlib only.
 """
 
 from __future__ import annotations
@@ -43,13 +49,15 @@ class TestOutcome:
     identifier: str
     attempts: int
     failure_messages: list[str] = field(default_factory=list)
+    failed_count: int = 0  # repetitions that failed
+    first_failure: int = 0  # 1-based index of the first failed repetition
 
 
 @dataclass
 class Summary:
     flaky: list[TestOutcome] = field(default_factory=list)
     failed: list[TestOutcome] = field(default_factory=list)
-    passed_count: int = 0  # passed on the first attempt
+    passed_count: int = 0  # no repetition failed, however many there were
 
 
 def _messages(node: dict) -> list[str]:
@@ -71,9 +79,13 @@ def _outcome(case: dict) -> TestOutcome:
     repetitions = list(_repetitions(case))
     identifier = case.get("nodeIdentifier") or case.get("name", "?")
     if not repetitions:
-        return TestOutcome(identifier, 1, _messages(case))
+        failed = 1 if case.get("result") == "Failed" else 0
+        return TestOutcome(identifier, 1, _messages(case), failed, 1 if failed else 0)
     messages = [m for r in repetitions for m in _messages(r)]
-    return TestOutcome(identifier, len(repetitions), messages)
+    results = [r.get("result") for r in repetitions]
+    failed = [i for i, r in enumerate(results, 1) if r == "Failed"]
+    return TestOutcome(identifier, len(repetitions), messages, len(failed),
+                       failed[0] if failed else 0)
 
 
 def _cases(node: dict):
@@ -93,7 +105,7 @@ def summarize(nodes: dict) -> Summary:
             outcome = _outcome(case)
             if result == "Failed":
                 summary.failed.append(outcome)
-            elif result == "Passed" and outcome.attempts > 1:
+            elif result == "Passed" and outcome.failed_count > 0:
                 summary.flaky.append(outcome)
             elif result == "Passed":
                 summary.passed_count += 1
@@ -102,6 +114,17 @@ def summarize(nodes: dict) -> Summary:
 
 def _first(messages: list[str]) -> str:
     return messages[0] if messages else "no message recorded"
+
+
+def _failure_line(t: TestOutcome) -> str:
+    """"failed k of n attempts", or, when passes came first and the failure was
+    the last word (run-until-failure), where in the run it broke."""
+    if t.attempts > 1 and t.first_failure > 1 and t.failed_count == 1:
+        k = t.first_failure
+        passes = k - 1
+        noun = "pass" if passes == 1 else "passes"
+        return f"failed on iteration {k} of {t.attempts} after {passes} {noun}"
+    return f"failed {t.failed_count} of {t.attempts} attempts"
 
 
 def markdown(summary: Summary) -> str:
@@ -115,7 +138,8 @@ def markdown(summary: Summary) -> str:
         lines += ["### Flaky (passed only on a retry)", ""]
         for t in summary.flaky:
             lines.append(
-                f"- `{t.identifier}`: passed on attempt {t.attempts} of {t.attempts}; "
+                f"- `{t.identifier}`: failed {t.failed_count} of {t.attempts} attempts, "
+                f"then passed on attempt {t.attempts}; "
                 f"first failure: {_first(t.failure_messages)}"
             )
         lines.append("")
@@ -123,7 +147,7 @@ def markdown(summary: Summary) -> str:
         lines += ["### Failed", ""]
         for t in summary.failed:
             lines.append(
-                f"- `{t.identifier}`: failed {t.attempts} of {t.attempts} attempts; "
+                f"- `{t.identifier}`: {_failure_line(t)}; "
                 f"{_first(t.failure_messages)}"
             )
         lines.append("")

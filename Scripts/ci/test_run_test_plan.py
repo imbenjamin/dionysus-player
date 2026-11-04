@@ -120,6 +120,7 @@ class RunTestPlanTests(unittest.TestCase):
             "UDID": "4B0BE77E-AB8A-41A1-8820-8A2922D761E0",
             "RESULT_BUNDLE_PATH": ".build/UITestResults.xcresult",
             "RETRY_TESTS_ON_FAILURE": "false",
+            "RUN_TESTS_UNTIL_FAILURE": "false",
             "TEST_ITERATIONS": "",
             "ONLY_TESTING": "",
             "DUO_POSE": "",
@@ -257,6 +258,30 @@ class RunTestPlanTests(unittest.TestCase):
         self.assertNotIn("-retry-tests-on-failure", call)
         self.assertNotIn("-test-iterations", call)
         self.assertNotIn("-only-testing", call)
+
+    def test_runUntilFailure_passesItsFlagAndTheIterationCount(self):
+        self.run_script("pass", RUN_TESTS_UNTIL_FAILURE="true", TEST_ITERATIONS="5")
+        (call,) = self.xcodebuild_calls()
+        self.assertIn("-run-tests-until-failure -test-iterations 5", call)
+        self.assertNotIn("-retry-tests-on-failure", call)
+
+    def test_runUntilFailureWithoutIterations_leavesTheDefault(self):
+        self.run_script("pass", RUN_TESTS_UNTIL_FAILURE="true")
+        (call,) = self.xcodebuild_calls()
+        self.assertIn("-run-tests-until-failure", call)
+        self.assertNotIn("-test-iterations", call)
+
+    def test_bothRepeatModes_isAnErrorAndRunsNothing(self):
+        result = self.run_script(
+            "pass", RUN_TESTS_UNTIL_FAILURE="true", RETRY_TESTS_ON_FAILURE="true"
+        )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertEqual(self.xcodebuild_calls(), [])
+
+    def test_noUntilFailureFlagUnlessAskedFor(self):
+        self.run_script("pass", TEST_ITERATIONS="5")
+        (call,) = self.xcodebuild_calls()
+        self.assertNotIn("-run-tests-until-failure", call)
 
     def test_stdoutGoesThroughXcbeautify_stderrDoesNot_andTheLogKeepsBoth(self):
         result = self.run_script("infra pass")

@@ -55,6 +55,37 @@ class SummarizeTests(unittest.TestCase):
         self.assertEqual(len(failed.failure_messages), 2)
         self.assertEqual(summary.flaky, [])
 
+    def test_iterationsAllPassed_isPassedNotFlaky(self):
+        # `-test-iterations 3`, no retry: three Repetitions, none failed.
+        summary = xcresult_summary.summarize(load("test-results-iterations-passed.json"))
+        self.assertEqual((summary.flaky, summary.failed), ([], []))
+        self.assertEqual(summary.passed_count, 1)
+
+    def test_passesThenFailure_isFailedOnIterationK(self):
+        # `-test-iterations 3 -run-tests-until-failure`: passes, passes, fails.
+        summary = xcresult_summary.summarize(load("test-results-iterations-then-failure.json"))
+        (failed,) = summary.failed
+        self.assertEqual((failed.attempts, failed.failed_count, failed.first_failure), (3, 1, 3))
+        self.assertEqual(summary.flaky, [])
+        text = xcresult_summary.markdown(summary)
+        self.assertIn("failed on iteration 3 of 3 after 2 passes", text)
+        self.assertNotIn("failed 3 of 3", text)
+
+    def test_manyPassingIterations_raiseNoWarnings(self):
+        summary = xcresult_summary.summarize(tree(
+            case("testA", "Passed", [("Passed", [])] * 5),
+            case("testB", "Passed", [("Passed", [])] * 5)))
+        self.assertEqual((summary.flaky, summary.passed_count), ([], 2))
+        self.assertEqual(xcresult_summary.warnings(summary), [])
+
+    def test_failedKOfN_countsFailedRepetitionsOnly(self):
+        # Retry mode: fails, passes, fails, fails -> final Failed, 3 of 4.
+        summary = xcresult_summary.summarize(tree(case("testA", "Failed", [
+            ("Failed", ["a"]), ("Passed", []), ("Failed", ["b"]), ("Failed", ["c"])])))
+        (failed,) = summary.failed
+        self.assertEqual(failed.failed_count, 3)
+        self.assertIn("failed 3 of 4 attempts", xcresult_summary.markdown(summary))
+
     def test_passedFirstTime_isNeither(self):
         summary = xcresult_summary.summarize(tree(case("testA", "Passed")))
         self.assertEqual((summary.flaky, summary.failed), ([], []))
@@ -93,7 +124,8 @@ class MarkdownTests(unittest.TestCase):
         text = xcresult_summary.markdown(summary)
         self.assertLess(text.index("Flaky"), text.index("Failed"))
         self.assertIn("Suite/testFlaky()", text)
-        self.assertIn("passed on attempt 2 of 2", text)
+        self.assertIn("failed 1 of 2 attempts, then passed on attempt 2", text)
+        self.assertIn("failed 2 of 2 attempts", text)
         self.assertIn("Suite/testFailed()", text)
         self.assertIn("1 passed first time", text)
 

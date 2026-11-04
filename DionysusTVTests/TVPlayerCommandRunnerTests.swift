@@ -3,7 +3,8 @@ import XCTest
 
 @MainActor
 final class TVPlayerCommandRunnerTests: XCTestCase {
-    private let suiteName = "com.dionysusplayer.tests.TVPlayerCommandRunnerTests"
+    /// Unique per test: a shared suite let one test see another's saved offset.
+    private let suiteName = "com.dionysusplayer.tests.TVPlayerCommandRunnerTests.\(UUID().uuidString)"
 
     override func tearDown() async throws {
         UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
@@ -25,11 +26,14 @@ final class TVPlayerCommandRunnerTests: XCTestCase {
         let runner = TVPlayerCommandRunner(viewModel: viewModel, close: { closed += 1 }, playNext: { advanced += 1 })
 
         runner.run([.pause, .play, .togglePlayPause, .seek(42), .selectAudio(id: 3), .selectSubtitle(id: nil), .playNext, .close])
-        try await Task.sleep(for: .milliseconds(100))
+        try await waitUntil {
+            engine.pauseCallCount == 1 && engine.playCallCount == 1 && engine.togglePlayPauseCallCount == 1
+                && engine.seekedTimes == [42] && engine.selectedAudioTrackIDs == [3]
+                && engine.selectedSubtitleTrackIDs == [nil] && advanced == 1 && closed == 1
+        }
         XCTAssertEqual(engine.exactSeekedTimes, [])
         runner.run([.seekExact(60)])
-        try await Task.sleep(for: .milliseconds(100))
-        XCTAssertEqual(engine.exactSeekedTimes, [60])
+        try await waitUntil { engine.exactSeekedTimes == [60] }
 
         XCTAssertEqual(engine.pauseCallCount, 1)
         XCTAssertEqual(engine.playCallCount, 1)
@@ -55,17 +59,15 @@ final class TVPlayerCommandRunnerTests: XCTestCase {
         )
         let runner = TVPlayerCommandRunner(viewModel: viewModel, close: {}, playNext: {})
 
+        // The offset controller is synchronous: nothing to wait for.
         runner.run([.stepAudioOffset(2)])
-        try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(viewModel.audioOffset.milliseconds, 20)
         XCTAssertTrue(viewModel.audioOffset.hasTitleOffset)
 
         runner.run([.resetAudioOffset])
-        try await Task.sleep(for: .milliseconds(100))
         XCTAssertFalse(viewModel.audioOffset.hasTitleOffset)
 
         runner.run([.setAudioOffsetScope(.allTitles)])
-        try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(viewModel.audioOffset.scope, .allTitles)
     }
 }

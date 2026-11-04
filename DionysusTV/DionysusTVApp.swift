@@ -24,7 +24,12 @@ struct DionysusTVApp: App {
         WindowGroup {
             TVRootView()
                 .environment(appState)
-                .task { await appState.start() }
+                .task {
+                    // The unit-test host must not start a session: see
+                    // `TestHostDetection`.
+                    guard !TestHostDetection.isUnitTestHost else { return }
+                    await appState.start()
+                }
         }
     }
 }
