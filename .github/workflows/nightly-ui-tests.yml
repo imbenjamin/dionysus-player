@@ -13,9 +13,11 @@ name: Nightly UI tests
 # rather than adding a third tier.
 on:
   schedule:
-    # 03:00 UTC. Nothing depends on the hour beyond it being outside the
-    # working day, when the runner pool is least contended.
-    - cron: "0 3 * * *"
+    # 21:00 UTC (since 2026-11-04; was 03:00). GitHub started the 03:00
+    # run 5½–7½ hours late all week, into the working day, where it
+    # contended with PR checks and a manual branch run cancelled it
+    # (`cancel-in-progress`). Nothing else depends on the hour.
+    - cron: "0 21 * * *"
   workflow_dispatch:
 
 permissions:
