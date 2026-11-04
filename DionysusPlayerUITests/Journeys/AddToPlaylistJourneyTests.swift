@@ -414,24 +414,31 @@ final class AddToPlaylistJourneyTests: UITestCase {
             // A NavigationStack keeps one navigation bar through a pop, and
             // that bar has no title of its own (its identifier is the
             // hosting class), so neither the bar count nor its identifier
-            // says the pop is over. The Back button does: it is labelled
-            // with the page beneath, so it is gone at the root and
-            // relabelled on the way down. (Two stacked pages whose
-            // predecessors share a title would read as unsettled and time
-            // out; none do here.)
+            // says the pop is over. Two things do. In a horizontal bar the
+            // Back button is labelled with the page beneath, so it is gone
+            // at the root and relabelled on the way down. In the iPhone
+            // Duo's vertical side bar it has no label at all (closed, and
+            // held wide; measured 2026-11-04, iOS 27.2), so there the
+            // outgoing page's own bar items say it: they leave the bar with
+            // their page (a detail page's Favorite, Watched and More; a
+            // grid's Sort and Random). Mid-pop, the old bar's button can
+            // pass `exists` and be gone by the time a tap or a frame read
+            // resolves it, which fails the test (iPadOS 27), hence a wait.
             let outgoing = back.label
+            let outgoingItems = pageBarItemIdentifiers()
             back.tap()
-            // Let the pop finish before the next lookup. Mid-pop, the old
-            // bar's button can pass `exists` and be gone by the time the tap
-            // or a frame read resolves it, which fails the test (iPadOS 27).
             let popped = NSPredicate { _, _ in
                 let button = self.app.navigationBackButton
-                return !button.exists || button.label != outgoing
+                if !button.exists { return true }
+                if !outgoing.isEmpty, button.label != outgoing { return true }
+                return !outgoingItems.isEmpty && self.app.buttons
+                    .matching(NSPredicate(format: "identifier IN %@", outgoingItems))
+                    .count == 0
             }
             let result = XCTWaiter().wait(
                 for: [XCTNSPredicateExpectation(predicate: popped, object: nil)], timeout: 5)
             XCTAssertEqual(result, .completed,
-                           "The Back button labelled \"\(outgoing)\" was still there 5 s after tapping it",
+                           "The page behind the Back button (labelled \"\(outgoing)\", bar items \(outgoingItems)) was still there 5 s after tapping it",
                            file: file, line: line)
         }
         HomeScreen(app: app).awaitLoaded(file: file, line: line)
@@ -440,6 +447,22 @@ final class AddToPlaylistJourneyTests: UITestCase {
         for _ in 0..<4 where !rail.isHittable {
             app.swipeDown()
         }
+    }
+
+    /// The identifiers of the top page's own items in the bar that holds
+    /// the Back button (the navigation bar, or the Duo's side bar): not the
+    /// Back button, not the tabs, not the unidentified buttons the system
+    /// adds around them. Only that bar: on the Duo another `Toolbar`
+    /// element spans the whole screen, the page's content included.
+    private func pageBarItemIdentifiers() -> [String] {
+        let holdsBack = NSPredicate(format: "identifier == 'BackButton'")
+        let bar = app.toolbars.containing(holdsBack).firstMatch.exists
+            ? app.toolbars.containing(holdsBack).firstMatch
+            : app.navigationBars.containing(holdsBack).firstMatch
+        guard bar.exists else { return [] }
+        return Array(Set(bar.buttons.allElementsBoundByIndex.map(\.identifier).filter {
+            !$0.isEmpty && $0 != "BackButton" && !$0.hasPrefix(A11yID.Tabs.prefix)
+        }))
     }
 
     /// Opens `secondPlaylist`, which ships empty — so anything listed there
