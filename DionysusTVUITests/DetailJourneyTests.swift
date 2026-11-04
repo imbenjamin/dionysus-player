@@ -43,7 +43,9 @@ final class DetailJourneyTests: TVUITestCase {
         let tile = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
         let next = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.episodeID(season: 1, episode: 1))]
         XCTAssertTrue(waitForFocusOrLift(tile, beside: next), "Menu pops the page and focus returns to the tile")
-        XCTAssertTrue(isCollapsed(app.buttons[A11yID.TV.Sidebar.home]), "Menu popped; it did not open the rail")
+        let home = app.buttons[A11yID.TV.Sidebar.home]
+        XCTAssertTrue(waitForCollapsed(home), "Menu popped; it did not open the rail")
+        XCTAssertFalse(waitForExpanded(home, timeout: 1), "…and the rail stays closed")
     }
 
     func test_watched_andFavorite_toggle() {
