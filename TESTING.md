@@ -372,6 +372,16 @@ and launch arguments (`TVUITestCase.launch`); selectors live under
   check it with `TVUITestCase.waitForFocus`, never a bare `hasFocus` read. A
   failed wait attaches the element tree to the result. `waitForFocus` checks
   once a second; poll when something must land sooner.
+- **After the player has been up, a pop's focus can go unreported**
+  (2026-11-04): Menu from the detail page back to Home lands on the tile
+  (its `@FocusState`, UIKit's focused item, the lift in the recording, and
+  Right going on to its neighbour all say so), yet no element reports
+  `hasFocus` until the next move. It failed 7 of 8 CI attempts on tvOS 27.0
+  and about half of attempts locally under CPU load (`yes` × 10); never on a
+  pop without the player first, and not from Home's refresh (skipping it
+  changed nothing). So `test_play_thenMenu_returnsToTheDetailPage` waits with
+  `waitForFocusOrLift`: with nothing reported focused, the tile drawn larger
+  than an unfocused one of its shape beside it stands in.
 - **Rails are lazy**: only what's on screen is in the tree, so a journey
   presses down to a later rail rather than querying for it, and walks a row to
   reach its end (a See All).

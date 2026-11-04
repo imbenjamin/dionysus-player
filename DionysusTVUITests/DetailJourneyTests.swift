@@ -39,7 +39,11 @@ final class DetailJourneyTests: TVUITestCase {
         XCTAssertTrue(play.waitForExistence(timeout: 5))
         XCTAssertTrue(poll(timeout: 5) { !app.staticTexts[A11yID.TV.Player.elapsed].exists })
         press(.menu)
-        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]))
+        // Continue Watching's next tile is the same shape, unfocused.
+        let tile = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.partWatchedMovieID)]
+        let next = app.buttons[A11yID.TV.Main.tile(UITestFixtureIdentity.episodeID(season: 1, episode: 1))]
+        XCTAssertTrue(waitForFocusOrLift(tile, beside: next), "Menu pops the page and focus returns to the tile")
+        XCTAssertTrue(isCollapsed(app.buttons[A11yID.TV.Sidebar.home]), "Menu popped; it did not open the rail")
     }
 
     func test_watched_andFavorite_toggle() {
