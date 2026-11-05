@@ -359,6 +359,10 @@ jobs:
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
 
       - name: Set the ${{ matrix.pose }} pose
+        # Measured at 3 to 12 minutes over 38 runs (2026-11). It once hung
+        # until the job's 45-minute limit (PR #427, 2026-11-05); 20 fails a
+        # hang early and leaves room for a slow Device Hub launch.
+        timeout-minutes: 20
         env:
           UDID: ${{ steps.duo.outputs.udid }}
           POSE: ${{ matrix.pose }}
