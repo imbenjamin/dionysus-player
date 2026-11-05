@@ -284,7 +284,8 @@ session/transcode state via `/Sessions`.
 remembers the last credentials that succeeded and, on a 401, signs in again
 and retries with backoff (`reauthBackoffSchedule`) before giving up as
 `.notAuthenticated`; a shared server can invalidate a token for reasons
-outside the app. Concurrent 401s share one re-authentication. A wrong
+outside the app. Concurrent 401s share one re-authentication, and a 401 on a
+token another request has already replaced retries with the new one. A wrong
 password at first sign-in isn't affected (`authenticate` is sent with
 `requiresAuth: false`). `AppState.signOut()` clears the remembered
 credentials, so a request still in flight can't sign the signed-out user back

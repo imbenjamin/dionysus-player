@@ -87,7 +87,7 @@ protocol, so there's no fake client: `Support/MockURLProtocol.swift` is a
 `URLProtocol` stub. Make a session with `MockURLProtocol.makeSession()`, inject
 it into a real client, and script `MockURLProtocol.requestHandler`. What's
 under test is the client's real request building and decoding. View model
-tests reuse it, since view models take an already-built client. Three things
+tests reuse it, since view models take an already-built client. Four things
 that aren't guessable:
 
 - **A request from an earlier test can't reach the current one's handler.**
@@ -110,6 +110,12 @@ that aren't guessable:
   `httpBodyStream`** before a custom `URLProtocol` sees it, so
   `request.httpBody` reads `nil`; `URLRequest.capturedHTTPBody` drains
   whichever is populated.
+- **To order two requests' answers, hold one; don't block in the handler.**
+  The session answers every request on one thread, so a handler that waits
+  stalls the request it's waiting for. `MockURLProtocol.holdsRequest` keeps
+  the requests it matches unanswered until `releaseHeldRequests()`, which can
+  be called from inside the handler (`reset()` clears both;
+  `test_401_onATokenAlreadyReplaced_retriesWithoutReauthenticating` uses it).
 - **`AppState` and `ServerSetupViewModel` build their own client on
   `URLSession.shared`**, so their tests register `MockURLProtocol` process-wide
   (`URLProtocol.registerClass`; see `AppStateTests`).

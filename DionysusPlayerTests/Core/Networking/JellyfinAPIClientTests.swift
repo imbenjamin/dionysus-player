@@ -461,6 +461,53 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(reauthCounter.count, 1, "three concurrent 401s should share one reauthentication, not each trigger their own")
     }
 
+    /// A request sent with the old token whose 401 comes back only after
+    /// another request has already re-authenticated must retry with the new
+    /// token, not sign in a second time. The concurrent test above reaches
+    /// this ordering only by chance (it flaked on PR #426, 2026-11-05); here
+    /// the first old-token request is held (`MockURLProtocol.holdsRequest`)
+    /// until the other request's retry with the new token has arrived.
+    func test_401_onATokenAlreadyReplaced_retriesWithoutReauthenticating() async throws {
+        let client = makeClient()
+        _ = try await authenticateSuccessfully(client, token: "token-1")
+
+        let oldTokenArrivals = RequestCounter()
+        let reauthCounter = RequestCounter()
+        let newTokenRequests = RequestCounter()
+        MockURLProtocol.holdsRequest = { request in
+            (request.value(forHTTPHeaderField: "Authorization") ?? "").contains(#"Token="token-1""#)
+                && oldTokenArrivals.increment() == 1
+        }
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Views":
+                if (request.value(forHTTPHeaderField: "Authorization") ?? "").contains(#"Token="token-1""#) {
+                    return MockURLProtocol.jsonResponse(for: request, status: 401, body: Self.jellyfinHTML401Body)
+                }
+                // The other request's retry: the token has been replaced, so
+                // let the held old-token request answer its 401 now.
+                if newTokenRequests.increment() == 1 { MockURLProtocol.releaseHeldRequests() }
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Users/AuthenticateByName":
+                reauthCounter.increment()
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: AuthenticationResult(user: UserDto(id: "user-1", name: "demo"), accessToken: "token-2")
+                )
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+        }
+
+        async let first = client.userViews(userID: "user-1")
+        async let second = client.userViews(userID: "user-1")
+        _ = try await (first, second)
+
+        XCTAssertEqual(newTokenRequests.count, 2, "both requests should have retried with the new token")
+        XCTAssertEqual(reauthCounter.count, 1, "a 401 on a token already replaced should retry with the new one, not sign in again")
+    }
+
     private static let jellyfinHTML401Body = Data("""
     <html><body>Unauthorized (HTTP 401): Request not authorized; please log in first.</body></html>
     """.utf8)
