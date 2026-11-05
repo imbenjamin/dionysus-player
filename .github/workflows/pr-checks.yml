@@ -136,23 +136,40 @@ jobs:
       - name: Set up iOS project
         uses: ./.github/actions/setup-ios-project
 
-      - name: List tvOS runtimes
-        run: xcrun simctl list runtimes | grep -i tvos || (echo "::error::No tvOS runtime on this image" && exit 1)
+      - name: Download the tvOS runtime if the image lacks it
+        run: |
+          if xcrun simctl list runtimes available -j \
+            | jq -e '.runtimes[] | select(.platform == "tvOS" and .version == "27.0")' > /dev/null; then
+            echo "tvOS 27.0 is on the image"
+          else
+            xcodebuild -downloadPlatform tvOS -buildVersion 27.0
+          fi
 
       - name: Build and test (tvOS)
-        run: |
-          set -o pipefail
-          xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
-            -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)' \
-            -resultBundlePath .build/TVTestResults.xcresult \
-            | xcbeautify --renderer github-actions
+        # Through the shared action, which finds or creates exactly this
+        # device type on exactly tvOS 27.0. A destination by name alone broke
+        # on image 20261104.0337.1 (2026-11-05), which carries the tvOS 27.0
+        # runtime but no Apple TV 4K (3rd generation) on it.
+        uses: ./.github/actions/build-and-test
+        with:
+          scheme: DionysusTV
+          test-plan: TVUnitTests
+          platform: tvOS
+          device-type: Apple TV 4K (3rd generation)
+          ios-version: "27.0"
+          result-bundle-path: .build/TVTestResults.xcresult
 
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: tvos-test-results
-          path: .build/TVTestResults.xcresult
+          path: |
+            .build/TVTestResults.xcresult
+            .build/TVTestResults-attempt-2.xcresult
+            .build/test-attempt-*.log
+          # `.build` is hidden, and upload-artifact skips hidden files.
+          include-hidden-files: true
           retention-days: 7
           if-no-files-found: ignore
 
