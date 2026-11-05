@@ -402,13 +402,35 @@ struct HomeScreen: Screen {
     /// empty"): that's a wide window (an iPhone Duo's inner display, 669pt
     /// tall under its hero), where all four cards fit and the tap scrolls
     /// to them.
+    ///
+    /// On the closed iPhone Duo in CI (iOS 27.1) the swiped-in Playlists card
+    /// can report a frame far wider than any library card (1137pt for a
+    /// 160pt card, its leading edge right; held for the whole attempt), and
+    /// XCUITest then aims at the screen's edge under the side bar, so every
+    /// tap misses (nightlies 2026-11-01 to 11-05, `grid tile for
+    /// playlist-…` timeouts; never seen locally on iOS 27.2, where it reads
+    /// 160pt). A frame that wide is tapped from its leading edge instead,
+    /// a card's half width in, which lands on the card either way.
     func openLibrary(_ libraryID: String, file: StaticString = #filePath, line: UInt = #line) {
         let rail = app.descendants(matching: .any)[A11yID.Home.libraryRail]
         if rail.exists, rail.isHittable {
             rail.swipeLeft()
         }
-        openItem(libraryID, file: file, line: line)
+        let tile = card(libraryID)
+        tile.awaitExistence("the tile for \(libraryID)", file: file, line: line)
+        guard tile.frame.width > Self.widestLibraryCard else {
+            tile.tapToLeave()
+            return
+        }
+        tile.tapToLeave(at: {
+            tile.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
+                .withOffset(CGVector(dx: Self.narrowestLibraryCard / 2, dy: 0))
+        })
     }
+
+    /// `LibraryRailView`'s card widths: 160 compact, 200 regular.
+    private static let narrowestLibraryCard: CGFloat = 160
+    private static let widestLibraryCard: CGFloat = 200
 }
 
 // MARK: - Collection grid

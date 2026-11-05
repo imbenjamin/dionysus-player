@@ -216,10 +216,15 @@ extension XCUIElement {
     /// runs. So this checks the outcome instead of guessing a delay.
     ///
     /// Gives up quietly after `attempts`, leaving the caller's next wait to
-    /// report what never appeared.
-    func tapToLeave(attempts: Int = 3, settle: TimeInterval = 5) {
+    /// report what never appeared. `point`, when given, is tapped instead of
+    /// the element's own hit point (see `HomeScreen.openLibrary`).
+    func tapToLeave(
+        attempts: Int = 3,
+        settle: TimeInterval = 5,
+        at point: (() -> XCUICoordinate)? = nil
+    ) {
         for _ in 1...attempts {
-            tap()
+            if let point { point().tap() } else { tap() }
             let gone = XCTNSPredicateExpectation(
                 predicate: NSPredicate(format: "exists == false"),
                 object: self
