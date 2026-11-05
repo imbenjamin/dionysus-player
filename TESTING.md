@@ -264,7 +264,7 @@ JSON, so a DTO change is a compile error rather than silent rot.
 | `noDeletePermission` | `CanDelete: false` everywhere, `DELETE` refused |
 | `folderlessSeasons` | Made-up seasons, so Delete Season goes episode by episode |
 | `noPlaylistEditPermission` | Every playlist's permission lookup 404s; adds and removals 403 |
-| `slowLogoImage` | A hero logo held past the fallback's reveal delay |
+| `slowLogoImage` | Every logo held 18s from its own request, never cached or shared between views, so the watched view shows its fallback |
 | `slowSubtitleFonts` | The font attachments held, to prove fonts don't gate the script |
 | `showWithoutEpisodes` | The show's seasons with no episodes and no Next Up |
 | `customHTTPPort` | Nothing answers on 8096, so the HTTP fallback asks for the port |
@@ -372,6 +372,24 @@ and launch arguments (`TVUITestCase.launch`); selectors live under
   check it with `TVUITestCase.waitForFocus`, never a bare `hasFocus` read. A
   failed wait attaches the element tree to the result. `waitForFocus` checks
   once a second; poll when something must land sooner.
+- **After playback, focus restored to a rail tile can go unreported**
+  (2026-11-04): Menu from the detail page back to Home lands on the
+  Continue Watching tile (its `@FocusState`, UIKit's focused item, the lift
+  in the recording, and Right going on to its neighbour all say so), yet no
+  element reports `hasFocus` until the next move. It failed 7 of 8 CI
+  attempts on tvOS 27.0 and about half of attempts locally under CPU load
+  (`yes` × 10). Not seen in 12 of 12 runs under load of the same pop without
+  the player first, nor of the hero's pop after playback
+  (`test_heroPlay_startsPlayback_andLeavingItLandsOnTheDetailPage`, where
+  tvOS's own pick is the target); not from Home's refresh (skipping it
+  changed nothing). Unconfirmed lead: after the full-screen player, Home's
+  restore (`tvClaimsFocus` moving focus from the hero's Play, tvOS's pick,
+  to the tile) doesn't reach accessibility. So
+  `test_play_thenMenu_returnsToTheDetailPage` waits with
+  `waitForFocusOrLift`: with nothing reported focused, the tile drawn larger
+  than an unfocused one of its shape beside it stands in. That passes
+  whether or not VoiceOver announces the tile on landing, which is
+  unverified and needs a check on the Apple TV.
 - **Rails are lazy**: only what's on screen is in the tree, so a journey
   presses down to a later rail rather than querying for it, and walks a row to
   reach its end (a See All).
@@ -442,6 +460,15 @@ it; everything in the modal is still audited.
 5. **Check it fails.** Break the thing it covers and watch it go red.
    `testOpeningAnItemFromHome` once passed with `PosterCard`'s destination
    broken, because `.firstMatch` resolved to the hero's tile.
+6. **Wait on state, not time.** A journey never sleeps to let something
+   happen: wait for the element, the focus (`waitForFocus`, the player's
+   `waitForPlayerFocus`) or the value the app produces, with a timeout that
+   is a ceiling, not a delay (`steadyLabel(of:)` waits for a ticking label
+   to hold still after a pause). A sleep stays only to prove something does
+   *not* happen (a fade that shouldn't come, a repeat that should have
+   stopped, the shell's three-second sidebar fallback): then it is a named
+   constant or has a comment that says what the duration proves. Polling
+   loops (`poll`, `awaitStableFrame`) are not sleeps.
 
 **An intermittent failure may be a crash, not flake.** The tell is an empty
 `app.debugDescription` (`Query chain: Find: Target Application`) with
@@ -517,8 +544,12 @@ script needs Accessibility access for the terminal, the Duo selected in
 Device Hub, and the Mac awake (`caffeinate -d`): a locked screen hides Device
 Hub's window.
 
-On the Duo the tabs sit in the vertical side bar, as unidentified toolbar
-buttons on a tab's root (`TabBar`'s last fallback). Journeys that turn the
+On the Duo the tabs sit in the vertical side bar, as toolbar buttons whose
+identifiers, on a tab's root, come and go: one launch can draw them
+unidentified and identify them a moment later. `TabBar`'s last fallback counts
+a toolbar button that is unidentified or a tab's (`A11yID.Tabs.prefix`), so it
+keeps the same tab either way; choosing "unidentified" once and waiting on it
+failed the empty-library harness test on every pose. Journeys that turn the
 device skip (`skipWhereXCUIDeviceCannotRotate()`: `XCUIDevice` can't turn
 it), and held wide a detail page's book spread replaces the hero
 (`AssetDetailScreen.isBookSpread`).

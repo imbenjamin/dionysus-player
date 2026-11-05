@@ -40,6 +40,10 @@ struct ErrorStateView: View {
     /// in this same file rather than inventing a new shape.
     var secondaryActionTitle: String?
     var secondaryAction: (() -> Void)?
+    /// `State.error` for a failure; a caller showing an outcome that isn't
+    /// one (Home's empty library) passes its own, so a test can tell them
+    /// apart.
+    var identifier: String = A11yID.State.error
 
     var body: some View {
         VStack(spacing: 12) {
@@ -64,7 +68,7 @@ struct ErrorStateView: View {
         // On the container, not the message `Text`: a test asserting "this
         // screen failed" wants the state to exist, and the message itself
         // is localized copy that changes.
-        .accessibilityIdentifier(A11yID.State.error)
+        .accessibilityIdentifier(identifier)
     }
 }
 

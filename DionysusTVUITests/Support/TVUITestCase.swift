@@ -48,6 +48,22 @@ class TVUITestCase: XCTestCase {
         add(attachment)
     }
 
+    /// Waits for a label that was changing (the elapsed time of a player that
+    /// was just paused) to hold still, and returns it. The label ticks once a
+    /// second, so a quiet spell a little longer than that means it stopped.
+    /// Replaces a fixed `sleep(1)` after a pause: it ends the moment the
+    /// label is steady, and fails with the tree attached if it never is.
+    func steadyLabel(of element: XCUIElement, quietFor quiet: TimeInterval = 1.3, timeout: TimeInterval = 8) -> String {
+        var last = element.label
+        var since = Date()
+        _ = poll(timeout: timeout) {
+            let now = element.label
+            if now != last { last = now; since = Date() }
+            return Date().timeIntervalSince(since) >= quiet
+        }
+        return last
+    }
+
     func press(_ button: XCUIRemote.Button, times: Int = 1) {
         for _ in 0..<times { XCUIRemote.shared.press(button) }
     }

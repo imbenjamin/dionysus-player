@@ -23,8 +23,7 @@ final class PlayerScrubJourneyTests: TVUITestCase {
     func test_pausedRightThrice_previewsThirtySecondsOn_andSelectGoesThere() throws {
         let app = openPlayer(extraArguments: keepTransportUp)
         press(.playPause)
-        Thread.sleep(forTimeInterval: 1)
-        let pausedAt = try XCTUnwrap(elapsedSeconds(app))
+        let pausedAt = try XCTUnwrap(Self.seconds(steadyLabel(of: app.staticTexts[A11yID.TV.Player.elapsed])))
         press(.right, times: 3)
         XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.scrubPreview].waitForExistence(timeout: 3))
         XCTAssertTrue(poll(timeout: 3) { abs((self.elapsedSeconds(app) ?? 0) - (pausedAt + 30)) <= 1 }, "The preview reads 30s on, still paused")
@@ -46,11 +45,11 @@ final class PlayerScrubJourneyTests: TVUITestCase {
         XCTAssertEqual(indicator.value as? String, "1")
         press(.right, times: 4)
         XCTAssertTrue(poll(timeout: 3) { indicator.value as? String == "4" }, "Capped at level 4")
-        Thread.sleep(forTimeInterval: 2)
-        XCTAssertGreaterThan(elapsedSeconds(app) ?? 0, before + 40, "Scanning moved the preview on")
+        XCTAssertTrue(poll(timeout: 8) { (self.elapsedSeconds(app) ?? 0) > before + 40 }, "Scanning moved the preview on")
         press(.left, times: 4)
         XCTAssertTrue(poll(timeout: 3) { indicator.value as? String == "0" }, "Back through the levels to a stop")
         let stopped = elapsedSeconds(app)
+        // Proves the scan holds still: a second would have moved it on.
         Thread.sleep(forTimeInterval: 1)
         XCTAssertEqual(elapsedSeconds(app), stopped, "A stopped scan holds still")
         press(.menu)

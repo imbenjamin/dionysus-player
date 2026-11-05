@@ -14,10 +14,14 @@ final class HarnessTests: UITestCase {
     func testEmptyLibraryScenarioIsServed() {
         launch(scenario: "emptyLibrary")
 
-        // No tile for any fixture item, but the app is signed in and past
-        // the splash, which is what distinguishes "stub served nothing" from
-        // "nothing loaded at all".
-        TabBar(app: app).home.awaitExistence("the main tab bar")
+        // Home's own empty state, not the tab bar: it shows only once the
+        // app is signed in, past the splash and Home's load has succeeded
+        // with nothing in it, which is what distinguishes "stub served
+        // nothing" from "nothing loaded at all" (a failed load shows
+        // `State.error`). The tab bar alone proved less, and on the iPhone
+        // Duo its tabs' identifiers come and go (see `TabBar`).
+        app.descendants(matching: .any)[A11yID.Home.emptyState]
+            .awaitExistence("Home's empty state")
         XCTAssertFalse(
             HomeScreen(app: app).card(UITestFixtureIdentity.primaryMovieID).exists,
             "The empty-library scenario should serve no items."

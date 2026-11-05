@@ -5,6 +5,11 @@ import XCTest
 /// Menu on a top-level page leaves the app (Benjamin, 2026-10-05; seen on a
 /// slow server). Once the content lands, the page's first item takes focus.
 final class LoadingJourneyTests: TVUITestCase {
+    /// Proves the shell's three-second fallback (which would open the sidebar
+    /// over a page with nothing focused) does not fire while the page loads:
+    /// past it, with a second to spare. Nothing happens to wait for.
+    private let pastTheShellFallback: TimeInterval = 4
+
     private func loading(_ app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any)[A11yID.TV.Detail.loading]
     }
@@ -12,7 +17,7 @@ final class LoadingJourneyTests: TVUITestCase {
     func test_homeLoadingSlowly_keepsTheSidebarShut_thenFocusesPlay() {
         let app = launch(scenario: "slowItems", seedSession: true)
         XCTAssertTrue(waitForFocus(loading(app), timeout: 10), "The loading indicator has focus")
-        Thread.sleep(forTimeInterval: 4)
+        Thread.sleep(forTimeInterval: pastTheShellFallback)
         XCTAssertTrue(loading(app).hasFocus, "Past the shell's three seconds, still on the indicator")
         XCTAssertTrue(waitForCollapsed(app.buttons[A11yID.TV.Sidebar.home]), "The sidebar stays shut")
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.heroPlay], timeout: 20), "Play takes focus once Home loads")
@@ -25,7 +30,7 @@ final class LoadingJourneyTests: TVUITestCase {
         pressDown(until: app.buttons[A11yID.TV.Sidebar.library(UITestFixtureIdentity.moviesLibraryID)])
         press(.select)
         XCTAssertTrue(waitForFocus(loading(app), timeout: 10), "The loading indicator has focus")
-        Thread.sleep(forTimeInterval: 4)
+        Thread.sleep(forTimeInterval: pastTheShellFallback)
         XCTAssertTrue(loading(app).hasFocus, "Past the shell's three seconds, still on the indicator")
         XCTAssertTrue(waitForFocus(firstLibraryTile(app), timeout: 20), "The first title takes focus once the library loads")
     }

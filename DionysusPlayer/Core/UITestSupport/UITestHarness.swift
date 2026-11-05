@@ -56,6 +56,27 @@ enum UITestHarness {
         configuration.protocolClasses = [UITestStubURLProtocol.self] + (configuration.protocolClasses ?? [])
     }
 
+    /// Whether `url` is a logo `.slowLogoImage` holds
+    /// (`UITestStubURLProtocol.slowLogoImageDelay`). The stub and
+    /// `RemoteImageLoader` both ask, so they agree on which requests those are.
+    nonisolated static func isHeldSlowLogo(_ url: URL) -> Bool {
+        UITestConfiguration.isActive
+            && UITestConfiguration.scenario == .slowLogoImage
+            && url.path.hasSuffix("/Images/Logo")
+    }
+
+    /// Whether `RemoteImageLoader` must fetch `url` afresh for every caller:
+    /// no memory cache, no joining another caller's request.
+    ///
+    /// True only for `.slowLogoImage`'s held logos. The hold has to start at
+    /// the request of the view a test watches; shared, it starts at whichever
+    /// screen asked first (Home's hero, at launch), and a slow runner's
+    /// navigation could outlast it, so the watched view got a finished logo
+    /// and never showed its fallback. Always false outside a UI test run.
+    nonisolated static func bypassesImageCache(for url: URL) -> Bool {
+        isHeldSlowLogo(url)
+    }
+
     /// Keeps the player's controls on screen. `PlayerView`'s auto-hide timer
     /// otherwise races every assertion: the overlay hides 3s after the last
     /// interaction unless VoiceOver is running, which XCUITest doesn't enable.

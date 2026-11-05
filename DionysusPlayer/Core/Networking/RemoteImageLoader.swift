@@ -84,7 +84,10 @@ actor RemoteImageLoader {
 
     /// Synchronous cache peek — neither joins nor starts a fetch.
     nonisolated func cachedImage(for url: URL) -> UIImage? {
-        memoryCache.object(forKey: url as NSURL)
+        #if DEBUG
+        if UITestHarness.bypassesImageCache(for: url) { return nil }
+        #endif
+        return memoryCache.object(forKey: url as NSURL)
     }
 
     /// Returns the decoded image at `url` from cache, an in-flight request, or
@@ -94,6 +97,18 @@ actor RemoteImageLoader {
     /// call (see `heroMaxAttempts`). Concurrent callers requesting the same URL
     /// with different overrides share one task, so the first caller's win.
     func image(for url: URL, maxAttempts: Int? = nil, retryBaseDelay: Duration? = nil) async throws -> UIImage {
+        #if DEBUG
+        // A UI test's held logo: every caller makes, and waits on, its own
+        // request (see `UITestHarness.bypassesImageCache(for:)`).
+        if UITestHarness.bypassesImageCache(for: url) {
+            return try await Self.fetchWithRetry(
+                url: url,
+                session: session,
+                maxAttempts: maxAttempts ?? self.maxAttempts,
+                retryBaseDelay: retryBaseDelay ?? self.retryBaseDelay
+            )
+        }
+        #endif
         if let cached = memoryCache.object(forKey: url as NSURL) {
             return cached
         }

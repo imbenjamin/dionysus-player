@@ -59,6 +59,27 @@ extension TVUITestCase {
         poll(timeout: timeout) { self.isCollapsed(row) }
     }
 
+    /// Focus back on Home's `tile` after a page that played something is
+    /// popped. On tvOS 27, after playback, focus Home's restore puts back on
+    /// a rail tile sometimes goes unreported (2026-11-04): the app has the
+    /// tile focused (its `@FocusState`, UIKit's focused item, the lift on
+    /// screen, and Right going on to its neighbour all say so), but no element
+    /// in any tree XCUITest reads reports focus until the next focus move.
+    /// Not seen without the player first, nor when the pop lands on the
+    /// hero's Play (12 of 12 runs under load each); why is unconfirmed
+    /// (`TESTING.md`). So with nothing reported focused, the tile's lift
+    /// stands in: `.card` draws only a focused tile larger than `peer`, an
+    /// unfocused tile of the same shape in the same rail. It can't tell
+    /// whether VoiceOver announces the tile.
+    func waitForFocusOrLift(_ tile: XCUIElement, beside peer: XCUIElement, timeout: TimeInterval = 5) -> Bool {
+        let anyFocused = XCUIApplication().descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true"))
+        return poll(timeout: timeout) {
+            if tile.hasFocus { return true }
+            guard tile.exists, peer.exists, anyFocused.count == 0 else { return false }
+            return tile.frame.width > peer.frame.width * 1.05
+        }
+    }
+
     /// `frame` can't be read through an `NSPredicate` key path (it never
     /// matches), so geometry is polled.
     func poll(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {

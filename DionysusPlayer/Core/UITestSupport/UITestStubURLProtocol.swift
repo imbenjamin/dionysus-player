@@ -63,7 +63,13 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         // data endpoints, and failing artwork too would park every assertion on
         // a placeholder. `.slowLogoImage` is the one exception.
         if path.contains("/Images/") || path.hasSuffix("/Branding/Splashscreen") {
-            if scenario == .slowLogoImage, path.hasSuffix("/Images/Logo") {
+            if UITestHarness.isHeldSlowLogo(url) {
+                // Held from *this* request, so each `LogoImageView` asking
+                // for the logo starts its own clock: `RemoteImageLoader`
+                // neither caches these logos nor shares one request between
+                // callers under this scenario
+                // (`UITestHarness.bypassesImageCache(for:)`).
+                //
                 // Scheduled on a background queue, *never* `Thread.sleep`ed
                 // here. `startLoading()` runs on one serial queue per
                 // `URLSession`, so sleeping in it delays every other request
@@ -1221,36 +1227,33 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
 
     // MARK: - Artwork
 
-    /// How long `.slowLogoImage` holds a `Logo` response: past
-    /// `LogoImageView.fallbackRevealDelay` so the reveal is deterministically
-    /// observable, but inside `HeroLogoFallbackUITests`' disappearance budget.
+    /// How long `.slowLogoImage` holds a `Logo` response, counted from that
+    /// request: past `LogoImageView.fallbackRevealDelay` so the reveal is
+    /// deterministically observable, but inside `HeroLogoFallbackUITests`'
+    /// disappearance budget.
     ///
-    /// The window this has to land in is bounded on *both* sides, and by
-    /// events that happen at different times in the run, which is why it is
-    /// this much larger than the 1s reveal delay it only has to beat on
-    /// paper:
+    /// The window is bounded on one side only, by the watched view itself.
+    /// Each request is held from its own start, and `RemoteImageLoader`
+    /// neither caches a held logo nor joins one caller to another's request
+    /// (`UITestHarness.bypassesImageCache(for:)`), so the view a test watches
+    /// makes its own request when it mounts and can't be handed a logo Home
+    /// asked for at launch. However slow Home or the navigation is, the
+    /// fallback reveals 1s after the watched view mounts and stays up for the
+    /// rest of the hold.
     ///
-    /// - **Too short** and the logo is already resolved (or cached) by the
-    ///   time the view being watched mounts, so its fallback never reveals
-    ///   at all and the `awaitExistence` half fails. The clock does *not*
-    ///   start at that view: `RemoteImageLoader` de-duplicates in-flight
-    ///   requests and caches the result, and Home's hero rail asks for the
-    ///   same item's logo before either journey has navigated anywhere. So
-    ///   this must outlast Home → detail (→ player) navigation plus the 1s
-    ///   reveal delay, not just the reveal delay.
-    /// - **Too long** and the logo hasn't arrived within the
-    ///   `awaitDisappearance` that follows, so the other half fails.
+    /// Until 2026-11-03 the clock started at the first request, Home's hero
+    /// at launch, so the window was bounded on both sides and depended on
+    /// navigation speed: a Duo runner took 25-42s from launch to the detail
+    /// page (PR checks run 41442838318, both attempts), the logo was cached
+    /// by then, and the fallback never showed.
     ///
-    /// - **Not 20s or more**, which is `RemoteImageLoader`'s request timeout:
-    ///   a held response past it times out and retries instead of arriving.
-    ///
-    /// 18s, up from 10s. 10s assumed the navigation takes ~2-4s, as it does
-    /// locally, but a loaded release runner took ~10s to get from launch to the
-    /// player (v1.1.0-alpha.5, twice in a row), so the logo was cached before
-    /// the title row mounted. 18s allows ~17s for it while staying under the
-    /// timeout. It widens the window rather than removing the dependency on
-    /// navigation speed; anchoring the hold on navigation instead runs into
-    /// that same timeout, since Home's hero asks at launch.
+    /// What still bounds it: the hold has to outlast the time from the
+    /// watched view mounting to the test's first look (the detail page's
+    /// `awaitLoaded` and book-spread probe, or the player's `awaitControls`;
+    /// ~13s on that same slow runner), and stay under 20s,
+    /// `RemoteImageLoader`'s request timeout, past which a held response
+    /// times out and retries instead of arriving. 18s keeps the most margin
+    /// under that timeout.
     static let slowLogoImageDelay: TimeInterval = 18
 
     /// How long `.slowSubtitleFonts` holds an attachment response. Far past any

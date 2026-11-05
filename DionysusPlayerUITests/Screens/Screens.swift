@@ -271,11 +271,21 @@ struct QuickConnectScreen: Screen {
 /// On an iPhone Duo, where the tab bar joins the vertical bar at the side
 /// (closed, and the inner display held wide), it is neither: there is no
 /// `TabBar`, the tabs are buttons in a `Toolbar` beside any toolbar items, and
-/// on a tab's root screen they carry no identifier (on a pushed screen they
-/// do). Measured on the iPhone Duo Simulator, iOS 27.1, 2026-10-28. So the
-/// last fallback is the toolbars' unidentified buttons, by the same order.
+/// on a tab's root screen they can carry no identifier at first (on a pushed
+/// screen they do; see the paragraph below). Measured on the iPhone Duo Simulator, iOS 27.1, 2026-10-28. So the
+/// last fallback is the toolbars' buttons, by the same order.
 /// Which of the three shapes is up isn't known until the bar has drawn, so
 /// this waits for any of them before choosing.
+///
+/// On a tab's root the side bar's tabs are unidentified only some of the
+/// time: the same launch can draw them without identifiers and gain them a
+/// moment later (CI, iPhone Duo closed, iOS 27.1, 2026-11-01: the wait saw
+/// unidentified buttons, chose this fallback, and the failure's tree had
+/// `tab.home` and no unidentified button, so the chosen element was gone for
+/// good; locally, iOS 27.2, two launches in three drew them unidentified for
+/// the first ~0.3s). So the fallback counts a toolbar button that is either unidentified
+/// or a tab's, and keeps pointing at the same tab whichever way the bar
+/// settles; other toolbar items carry identifiers of their own and stay out.
 struct TabBar: Screen {
     let app: XCUIApplication
 
@@ -288,7 +298,7 @@ struct TabBar: Screen {
         let identified = app.buttons.matching(identifier: identifier).firstMatch
         let inTabBar = app.tabBars.buttons.element(boundBy: index)
         let inVerticalBar = app.toolbars.buttons
-            .matching(NSPredicate(format: "identifier == ''"))
+            .matching(NSPredicate(format: "identifier == '' OR identifier BEGINSWITH %@", A11yID.Tabs.prefix))
             .element(boundBy: index)
         let anyShown = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in identified.exists || inTabBar.exists || inVerticalBar.exists },
@@ -392,13 +402,35 @@ struct HomeScreen: Screen {
     /// empty"): that's a wide window (an iPhone Duo's inner display, 669pt
     /// tall under its hero), where all four cards fit and the tap scrolls
     /// to them.
+    ///
+    /// On the closed iPhone Duo in CI (iOS 27.1) the swiped-in Playlists card
+    /// can report a frame far wider than any library card (1137pt for a
+    /// 160pt card, its leading edge right; held for the whole attempt), and
+    /// XCUITest then aims at the screen's edge under the side bar, so every
+    /// tap misses (nightlies 2026-11-01 to 11-05, `grid tile for
+    /// playlist-…` timeouts; never seen locally on iOS 27.2, where it reads
+    /// 160pt). A frame that wide is tapped from its leading edge instead,
+    /// a card's half width in, which lands on the card either way.
     func openLibrary(_ libraryID: String, file: StaticString = #filePath, line: UInt = #line) {
         let rail = app.descendants(matching: .any)[A11yID.Home.libraryRail]
         if rail.exists, rail.isHittable {
             rail.swipeLeft()
         }
-        openItem(libraryID, file: file, line: line)
+        let tile = card(libraryID)
+        tile.awaitExistence("the tile for \(libraryID)", file: file, line: line)
+        guard tile.frame.width > Self.widestLibraryCard else {
+            tile.tapToLeave()
+            return
+        }
+        tile.tapToLeave(at: {
+            tile.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
+                .withOffset(CGVector(dx: Self.narrowestLibraryCard / 2, dy: 0))
+        })
     }
+
+    /// `LibraryRailView`'s card widths: 160 compact, 200 regular.
+    private static let narrowestLibraryCard: CGFloat = 160
+    private static let widestLibraryCard: CGFloat = 200
 }
 
 // MARK: - Collection grid
