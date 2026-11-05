@@ -562,7 +562,12 @@ one job per tvOS version. `TVUITests-Smoke` runs on tvOS 27.0 on PRs into `devel
 the same Xcode and image, so what's tested is what ships: built with Xcode
 26.6, the app got tvOS 26's focus rendering on tvOS 27, light labels on a
 focused button's white platter. `pr-checks.yml`'s Release build compiles the
-Apple TV app and its extension as well as iOS, with the same Xcode 27.1. A failed job uploads
+Apple TV app and its extension as well as iOS, with the same Xcode 27.1. Every
+tvOS job picks its Simulator through `.github/actions/build-and-test` (that
+device type on exactly tvOS 27.0, created when the image has none), never by
+name: image 20261104.0337.1 (2026-11-05) carries tvOS 27.0 but no Apple TV 4K
+(3rd generation) on it, and `pr-checks.yml`'s and `release.yml`'s tvOS unit
+tests, then named by destination, failed there. A failed job uploads
 `tv-ui-test-results-<plan>-tvOS-<version>-part-<n>`.
 
 The full plan runs as **four parallel jobs** (`shards: 4`), split by test class
