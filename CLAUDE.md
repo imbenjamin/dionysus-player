@@ -117,10 +117,14 @@ switch on AetherEngine's `TrueHDObjectAudio` and `DTSXObjectAudio` traits
 (TrueHD Atmos and DTS:X as Spatial Audio; off by default since 7.39.0), which
 XcodeGen can't set: 2.45.4 drops a `traits:` key silently. It re-exports the
 engine, so `import AetherEngine` works as before. `Package.resolved` is
-gitignored with the generated project, so every CI run resolves cold, and a
-range let CI land on whatever release was newest with no commit here (PR #147:
-`6.54.0` resolved against a `6.52.0` pin). A cold resolve after changing the
-pin can fail with "enables traits on package … that declares no traits": a
+gitignored with the generated project, so CI caches the package checkouts
+(`.build/SourcePackages`, in `setup-ios-project`) keyed on every
+`Packages/**/Package.swift` and `project.yml`'s `packages:` block, with no
+`restore-keys`. Only the nightly on `develop` writes it (about 0.93 GB, beside
+the 8.8 GB iOS 18.6 runtime in a 10 GB quota); every other run restores. After
+a pin change, runs are cold until the next nightly. A range let CI land on
+whatever release was newest with no commit here (PR #147: `6.54.0` resolved
+against a `6.52.0` pin). A cold resolve after changing the pin can fail with "enables traits on package … that declares no traits": a
 cached older checkout was read; resolve into fresh DerivedData.
 
 The weekly "Bump AetherEngine" workflow (`aetherengine-bump.yml`) opens a PR
@@ -280,7 +284,8 @@ session/transcode state via `/Sessions`.
 remembers the last credentials that succeeded and, on a 401, signs in again
 and retries with backoff (`reauthBackoffSchedule`) before giving up as
 `.notAuthenticated`; a shared server can invalidate a token for reasons
-outside the app. Concurrent 401s share one re-authentication. A wrong
+outside the app. Concurrent 401s share one re-authentication, and a 401 on a
+token another request has already replaced retries with the new one. A wrong
 password at first sign-in isn't affected (`authenticate` is sent with
 `requiresAuth: false`). `AppState.signOut()` clears the remembered
 credentials, so a request still in flight can't sign the signed-out user back

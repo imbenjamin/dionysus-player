@@ -1,0 +1,39 @@
+name: Flake report
+
+# Once a week, the CI flake report for the last seven days
+# (Scripts/ci/flake-report.py), written to this run's summary page. Nothing is
+# posted anywhere else. Dispatch it by hand with a different number of days.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "How many days back to report"
+        required: false
+        default: "7"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  report:
+    name: Flake report
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Write the report to the summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DAYS: ${{ inputs.days || '7' }}
+        run: |
+          case "$DAYS" in
+            ''|*[!0-9]*) echo "days must be a whole number, got '$DAYS'" >&2; exit 1 ;;
+          esac
+          SINCE=$(date -u -d "$DAYS days ago" +%F)
+          python3 Scripts/ci/flake-report.py --since "$SINCE" >> "$GITHUB_STEP_SUMMARY"

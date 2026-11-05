@@ -162,6 +162,7 @@ runs:
           -scheme "${{ inputs.scheme }}" \
           -project "${{ inputs.project }}" \
           -testPlan "${{ inputs.test-plan }}" \
+          -clonedSourcePackagesDirPath .build/SourcePackages \
           -destination "platform=${{ inputs.platform }} Simulator,id=${{ steps.select_simulator.outputs.udid }}" \
           | xcbeautify --renderer github-actions
 
@@ -215,6 +216,7 @@ runs:
           -project "${{ inputs.project }}" \
           -testPlan "${{ inputs.test-plan }}" \
           -destination "platform=${{ inputs.platform }} Simulator,id=${{ steps.select_simulator.outputs.udid }}" \
+          -clonedSourcePackagesDirPath .build/SourcePackages \
           -only-testing:"${{ inputs.warm-up-test }}" \
           -collect-test-diagnostics never \
           | xcbeautify --renderer github-actions; then

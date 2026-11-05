@@ -3,13 +3,11 @@ import XCTest
 
 @MainActor
 final class ConnectivityMonitorTests: XCTestCase {
-    override func tearDown() async throws {
-        ConnectivityMonitor.shared.reset()
-        try await super.tearDown()
-    }
-
+    /// A fresh monitor, not `shared`: any other test's request, including one
+    /// still finishing after its test ended, writes to `shared`, which once
+    /// left it offline as this test started (2026-11).
     func test_reportFailureThenSuccess_updatesIsOffline() {
-        let monitor = ConnectivityMonitor.shared
+        let monitor = ConnectivityMonitor()
         XCTAssertFalse(monitor.isOffline)
 
         monitor.reportFailure()

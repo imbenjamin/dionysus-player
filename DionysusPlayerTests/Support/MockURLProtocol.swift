@@ -41,6 +41,29 @@ final class MockURLProtocol: URLProtocol {
     /// requests can't be stamped). Set it in `setUp`; `reset()` clears it.
     nonisolated(unsafe) static var acceptsUnmarkedRequests = false
 
+    /// Requests this answers `true` for get no response until
+    /// `releaseHeldRequests()`, so a test can make one request's answer
+    /// arrive after another's. Blocking inside `requestHandler` instead stalls
+    /// every request: the session loads them all on one thread.
+    nonisolated(unsafe) static var holdsRequest: ((URLRequest) -> Bool)?
+
+    private static let heldLock = NSLock()
+    nonisolated(unsafe) private static var held: [(MockURLProtocol, Thread)] = []
+
+    /// Answers every held request through `requestHandler`, each on the thread
+    /// that started loading it, as `URLProtocol` requires. Safe to call from
+    /// inside `requestHandler`: the answers run after it returns.
+    static func releaseHeldRequests() {
+        heldLock.lock()
+        let released = held
+        held = []
+        heldLock.unlock()
+        for (loader, thread) in released {
+            loader.perform(#selector(answer), on: thread, with: nil, waitUntilDone: false,
+                           modes: [RunLoop.Mode.common.rawValue])
+        }
+    }
+
     static func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
@@ -54,6 +77,10 @@ final class MockURLProtocol: URLProtocol {
         requestHandler = nil
         lastRequest = nil
         acceptsUnmarkedRequests = false
+        holdsRequest = nil
+        heldLock.lock()
+        held = []
+        heldLock.unlock()
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -70,6 +97,16 @@ final class MockURLProtocol: URLProtocol {
             return
         }
         MockURLProtocol.lastRequest = request
+        if MockURLProtocol.holdsRequest?(request) == true {
+            MockURLProtocol.heldLock.lock()
+            MockURLProtocol.held.append((self, Thread.current))
+            MockURLProtocol.heldLock.unlock()
+            return
+        }
+        answer()
+    }
+
+    @objc private func answer() {
         guard let handler = MockURLProtocol.requestHandler else {
             client?.urlProtocol(self, didFailWithError: UnhandledRequest())
             return

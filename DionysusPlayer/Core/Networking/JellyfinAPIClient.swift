@@ -1243,6 +1243,17 @@ actor JellyfinAPIClient {
             // server can invalidate a session token on its own. Re-authenticate
             // with the last-successful credentials and retry before giving up.
             if let reauthCredentials, reauthAttempt < maxReauthAttempts {
+                // Sent with a token another request has since replaced: that
+                // re-authentication already happened, so retry with the new
+                // token rather than sign in again. Coalescing through
+                // `inFlightReauth` covers only a 401 that arrives while it's
+                // still running.
+                let currentHeader = JellyfinAuthorization.headerValue(token: accessToken)
+                if accessToken != nil, request.value(forHTTPHeaderField: "Authorization") != currentHeader {
+                    var retried = request
+                    retried.setValue(currentHeader, forHTTPHeaderField: "Authorization")
+                    return try await sendRaw(retried, reauthAttempt: reauthAttempt + 1, maxReauthAttempts: maxReauthAttempts)
+                }
                 do {
                     try await reauthenticate(using: reauthCredentials, attempt: reauthAttempt)
                 } catch {

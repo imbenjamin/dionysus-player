@@ -16,7 +16,9 @@ final class ConnectivityMonitor {
 
     private(set) var isOffline = false
 
-    private init() {}
+    /// Internal rather than private so a test can observe an instance of its
+    /// own: every test that sends a request writes to `shared`.
+    init() {}
 
     func reportFailure() {
         // `@Observable` fires on every assignment, equal or not. This runs on

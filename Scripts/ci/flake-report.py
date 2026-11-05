@@ -32,6 +32,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import date, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -149,11 +150,16 @@ def render(
 # ---- the thin gh layer (untested) ----
 
 
-def gh(*args: str) -> str:
-    result = subprocess.run(["gh", *args], capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(f"gh {' '.join(args)}: {result.stderr.strip()}")
-    return result.stdout
+def gh(*args: str, attempts: int = 3, backoff: float = 2.0) -> str:
+    """Runs `gh`, trying again after a non-zero exit (a transient 5xx)."""
+    for attempt in range(1, attempts + 1):
+        result = subprocess.run(["gh", *args], capture_output=True, text=True)
+        if result.returncode == 0:
+            return result.stdout
+        if attempt == attempts:
+            raise RuntimeError(f"gh {' '.join(args)}: {result.stderr.strip()}")
+        time.sleep(backoff * attempt)
+    raise AssertionError("unreachable")
 
 
 def list_runs(workflow: str, since: str, until: str | None) -> list[dict]:
@@ -190,12 +196,18 @@ def job_log(repo: str, job_id: int, cache_dir: str) -> str:
     return text
 
 
+def default_repo(env: dict[str, str]) -> str:
+    """The repository to read: `GH_REPO`, else the runner's `GITHUB_REPOSITORY`."""
+    return env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or DEFAULT_REPO
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--since", required=True, help="YYYY-MM-DD")
     parser.add_argument("--until", help="YYYY-MM-DD, inclusive")
     parser.add_argument("--workflow", action="append", help="workflow file; repeatable")
-    parser.add_argument("--repo", default=DEFAULT_REPO)
+    parser.add_argument("--repo", default=default_repo(os.environ),
+                        help="owner/name; default $GH_REPO, then $GITHUB_REPOSITORY")
     parser.add_argument("--no-logs", action="store_true")
     parser.add_argument("--cache-dir", default=os.path.join(tempfile.gettempdir(), "flake-report-logs"))
     args = parser.parse_args(argv[1:])
