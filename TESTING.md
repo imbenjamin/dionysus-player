@@ -10,7 +10,7 @@ comment); the index at the end says where to look.
 | Target | Plan | What it is | Where it runs |
 | --- | --- | --- | --- |
 | `DionysusPlayerTests` | `UnitTests` | iOS unit tests (the scheme's default plan) | Every PR, every release |
-| `DionysusPlayerUITests` | `UITests-Smoke` | Seven iOS journeys and the keychain-reset check | Every PR, iPhone and iPad, latest iOS |
+| `DionysusPlayerUITests` | `UITests-Smoke` | Seven iOS journeys (first-run sign-in, a seeded session, Home and a grid to a detail page, the player, Search, Profile's Spatial Audio settings) and the keychain-reset check | Every PR into `develop`: iPhone and iPad on iOS 27.0, the Duo closed and open on 27.1 |
 | | `UITests-Full` | Every iOS journey and audit | Nightly, PRs into `stable`, releases; iPhone and iPad on every supported iOS |
 | `DionysusTVTests` | `TVUnitTests` | The Apple TV app's own tests, plus the shared ones run on tvOS | Every PR |
 | `DionysusTVUITests` | `TVUITests-Smoke` | Seven Apple TV journeys: first launch to sign-in, Home, a detail page from Home and from a library, Search, the player | Every PR, tvOS 27.0; nightly on tvOS 26.5 as an allowed failure |
@@ -1043,7 +1043,7 @@ the detail.
 | `HomeJourneyTests` | The hero, See All, and a refresh scrolling rails back to their start |
 | `OfflineErrorJourneyTests` | `serverError`, `unauthorized` and `offline` |
 | `PlayerJourneyTests` | Skips, the track and chapter pickers, Playback Stats' pages, the end of an item |
-| `ProfileJourneyTests` | Quick Connect approval, Sign Out, Change Server |
+| `ProfileJourneyTests` | The audio offset, Read-Ahead Buffer and Spatial Audio settings (the Spatial Audio toggles also in smoke: Profile broke on some devices for days, 2026-10), Quick Connect approval, Sign Out, Change Server |
 | `SearchJourneyTests` | No results, a long history keeping the field visible, history across a relaunch |
 | `SmokeJourneyTests` | The PR gate's journeys |
 | `StyledSubtitleJourneyTests` | Styled subtitles, the styling setting, fonts not gating the script |

@@ -22,6 +22,7 @@
     {
       "selectedTests": [
         "HarnessTests/testStateResetClearsTheKeychainBetweenLaunches()",
+        "ProfileJourneyTests/testSpatialAudioTogglesRevealTheirLayoutPickers()",
         "SmokeJourneyTests/testFirstRunSetupAndSignIn()",
         "SmokeJourneyTests/testOpeningAnItemFromACollectionGrid()",
         "SmokeJourneyTests/testOpeningAnItemFromHome()",
