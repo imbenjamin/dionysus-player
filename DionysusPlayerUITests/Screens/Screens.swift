@@ -787,6 +787,9 @@ struct PlayerScreen: Screen {
     var skipForwardButton: XCUIElement { app.buttons[A11yID.Player.skipForwardButton] }
     var skipBackwardButton: XCUIElement { app.buttons[A11yID.Player.skipBackwardButton] }
     var skipSegmentButton: XCUIElement { app.descendants(matching: .any)[A11yID.Player.skipSegmentButton] }
+    var nextUpCard: XCUIElement { app.descendants(matching: .any)[A11yID.Player.nextUpCard] }
+    var nextUpPlayNow: XCUIElement { app.buttons[A11yID.Player.nextUpPlayNow] }
+    var nextUpCancel: XCUIElement { app.buttons[A11yID.Player.nextUpCancel] }
     var scrubber: XCUIElement { app.descendants(matching: .any)[A11yID.Player.scrubber] }
     var elapsedLabel: XCUIElement { app.descendants(matching: .any)[A11yID.Player.elapsedLabel] }
     var tracksButton: XCUIElement { app.buttons[A11yID.Player.tracksButton] }

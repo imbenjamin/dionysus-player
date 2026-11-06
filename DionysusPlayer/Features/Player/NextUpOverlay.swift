@@ -73,9 +73,13 @@ struct NextUpOverlay: View {
         .animation(.easeInOut(duration: 0.25), value: isVisible)
     }
 
+    /// Built only while it shows; the overlay around it stays mounted (this
+    /// view's doc comment). Hidden but built, it stayed in the accessibility
+    /// tree after Cancel, its buttons with it, over Skip Credits in the same
+    /// slot: `accessibilityHidden` on a mounted view didn't take it out.
     @ViewBuilder
     private var card: some View {
-        if let nextEpisode {
+        if let nextEpisode, isVisible {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top, spacing: 8) {
                     thumbnail(for: nextEpisode)
@@ -85,11 +89,13 @@ struct NextUpOverlay: View {
                 HStack(spacing: 8) {
                     Button("Cancel", action: onCancel)
                         .buttonStyle(.bordered)
+                        .accessibilityIdentifier(A11yID.Player.nextUpCancel)
                     // The ▶ matches the Apple TV's `TVNextUpCard`.
                     Button(action: onPlayNow) {
                         Label("Play Now", systemImage: "play.fill")
                     }
                     .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier(A11yID.Player.nextUpPlayNow)
                 }
                 .controlSize(.small)
             }
@@ -97,6 +103,9 @@ struct NextUpOverlay: View {
             .frame(width: 260)
             .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
             .foregroundStyle(.white)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(A11yID.Player.nextUpCard)
+            .transition(.opacity)
         }
     }
 

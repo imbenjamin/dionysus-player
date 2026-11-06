@@ -313,6 +313,11 @@ enum A11yID {
         static let skipBackwardButton = "player.skipBackwardButton"
         /// `SkipSegmentOverlay`'s Skip Intro/Recap/Credits button.
         static let skipSegmentButton = "player.skipSegmentButton"
+        /// `NextUpOverlay`'s card (a container, so its buttons keep their
+        /// own identifiers) and its two buttons.
+        static let nextUpCard = "player.nextUp"
+        static let nextUpPlayNow = "player.nextUp.playNow"
+        static let nextUpCancel = "player.nextUp.cancel"
         static let scrubber = "player.scrubber"
         static let elapsedLabel = "player.elapsedLabel"
         static let remainingLabel = "player.remainingLabel"
