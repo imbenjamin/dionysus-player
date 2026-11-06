@@ -42,15 +42,13 @@ struct HeroRailView: View {
         self.foldBand = foldBand
         self.safeArea = safeArea
         self.loopedItems = Self.loop(items)
-        _scrollPosition = State(initialValue: Self.firstPagePosition(for: items))
+        _scrollPosition = State(initialValue: HeroCarouselPaging(count: items.count).firstPagePosition)
     }
 
-    /// The `loopedItems` index of the first *real* item — `1` past the leading
-    /// duplicate, or `0` when `loop(_:)` didn't pad. Shared by `init` and the
-    /// `resetToken` reset so the two can't disagree.
-    private static func firstPagePosition(for items: [MediaItem]) -> Int {
-        items.count > 1 ? 1 : 0
-    }
+    /// The page arithmetic and countdown, shared by `init`, the `resetToken`
+    /// reset, `tick()`, `advance(by:)` and `snapIfNeeded(from:)` so they
+    /// can't disagree.
+    private var paging: HeroCarouselPaging { HeroCarouselPaging(count: items.count) }
 
     /// Tracked only to re-run `body` on rotation: `heroHeight` is a plain UIKit
     /// read, which SwiftUI can't know `body` depends on unless something here is
@@ -146,10 +144,7 @@ struct HeroRailView: View {
 
     /// `scrollPosition` in `items`' index space, so the dot indicator never
     /// shows the padding pages.
-    private var currentIndex: Int {
-        guard items.count > 1, let scrollPosition else { return 0 }
-        return (scrollPosition - 1 + items.count) % items.count
-    }
+    private var currentIndex: Int { paging.index(atPosition: scrollPosition) }
 
     /// Where the tab bar is; see `TabBarTintModel.isBarOverHero(_:)`.
     @Environment(\.tabBarPlacement) private var tabBarPlacement
@@ -203,7 +198,7 @@ struct HeroRailView: View {
 
     /// `fileprivate` so `HeroPageIndicator` below can lock its countdown-fill
     /// animation to the same timing rather than duplicating the numbers.
-    fileprivate static let autoAdvanceInterval = 5
+    fileprivate static let autoAdvanceInterval = HeroCarouselPaging.autoAdvanceInterval
 
     /// The auto-advance page-slide's duration. Named because `snapIfNeeded` must
     /// wait at least this long before the loop's silent snap-back, or it cuts
@@ -356,7 +351,7 @@ struct HeroRailView: View {
                 // when it is on screen and settled, the same gap it exists to
                 // cover on reappearance.
                 .onChange(of: resetToken) { _, _ in
-                    scrollPosition = Self.firstPagePosition(for: items)
+                    scrollPosition = paging.firstPagePosition
                     idleSeconds = 0
                     resyncScrollPosition(using: scrollProxy)
                 }
@@ -498,12 +493,11 @@ struct HeroRailView: View {
     /// which is what stops `tickTimer` writing state and re-rendering this
     /// subtree while nobody can see it.
     private func tick() {
-        guard items.count > 1 else { return }
-        guard !isInteracting, isVisible, !manualCarouselModeEnabled else { return }
-        idleSeconds += 1
-        guard idleSeconds >= Self.autoAdvanceInterval else { return }
-        idleSeconds = 0
-        advance(by: 1)
+        let isPaused = isInteracting || !isVisible || manualCarouselModeEnabled
+        let (counted, advances) = paging.tick(idleSeconds: idleSeconds, isPaused: isPaused)
+        // Written only when it changed: a paused tick writes nothing.
+        if counted != idleSeconds { idleSeconds = counted }
+        if advances { advance(by: 1) }
     }
 
     /// Moves the carousel by `delta` pages. Both the automatic advance and the
@@ -512,18 +506,13 @@ struct HeroRailView: View {
     /// `nil` `scrollPosition`, before the first layout pass, still needs a valid
     /// page to advance from.
     private func advance(by delta: Int) {
-        guard items.count > 1 else { return }
-        var currentPosition = scrollPosition ?? 1
         // A rapid second Previous/Next tap can land before `snapIfNeeded`'s
-        // deferred correction runs, leaving `scrollPosition` on a padding index.
-        // Normalize first, or `nextPosition` walks off `loopedItems`' bounds.
-        // `tick()`'s slower cadence never raced this.
-        if currentPosition == 0 {
-            currentPosition = items.count
-        } else if currentPosition == loopedItems.count - 1 {
-            currentPosition = 1
-        }
-        let nextPosition = currentPosition + delta
+        // deferred correction runs, leaving `scrollPosition` on a padding index;
+        // `position(from:movingBy:)` reads that as the real page first, or
+        // `nextPosition` walks off `loopedItems`' bounds. `tick()`'s slower
+        // cadence never raced this.
+        guard let nextPosition = paging.position(from: scrollPosition, movingBy: delta) else { return }
+        let currentPosition = nextPosition - delta
         guard reduceMotion else {
             withAnimation(.easeInOut(duration: Self.autoAdvanceAnimationDuration)) {
                 scrollPosition = nextPosition
@@ -593,11 +582,7 @@ struct HeroRailView: View {
     /// cut that slide off after a frame or two, reading as a pop rather than a
     /// swipe.
     private func snapIfNeeded(from newValue: Int) {
-        guard items.count > 1 else { return }
-        let leadingPad = 0
-        let trailingPad = loopedItems.count - 1
-        guard newValue == leadingPad || newValue == trailingPad else { return }
-        let target = newValue == leadingPad ? items.count : 1
+        guard let target = paging.snapTarget(from: newValue) else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.autoAdvanceAnimationDuration) {
             var transaction = Transaction()
             transaction.disablesAnimations = true
