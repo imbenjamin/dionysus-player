@@ -1037,6 +1037,7 @@ the detail.
 | `AssetDetailJourneyTests` | The detail layouts (favourite and watched, resume, episodes, box sets, playlists), deletion and its permission gate, deleting a season (folderless too), removing a playlist item |
 | `AuthJourneyTests` | Welcome, server setup, discovery, the HTTP fallback, every sign-in path |
 | `CollectionJourneyTests` | Grid filters (combined, never emptying the grid), Random |
+| `DuoFoldJourneyTests` | The iPhone Duo's fold layouts checked against the fold in their pose: the player (tabletop, book), the detail spread (book), Home's hero (tabletop), Search's empty state (book, tabletop); skipped elsewhere |
 | `DownloadsJourneyTests` | Downloading to completion, the row updating while open, bulk delete, cancelling a selection, and a downloaded movie and episode opened and played offline, after a relaunch with `offline` |
 | `HarnessTests` | The harness itself: scenarios served, state cleared between launches |
 | `HeroLogoFallbackUITests` | The logo's text fallback timing |
