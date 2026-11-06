@@ -117,12 +117,37 @@ private struct TVDefaultFocus<ID: Hashable>: ViewModifier {
         claiming()
         focus.wrappedValue = id
         Task { @MainActor in
-            for _ in 0..<10 {
-                try? await Task.sleep(for: .milliseconds(50))
-                if focus.wrappedValue == id || moves != pressesBefore { break }
-                focus.wrappedValue = id
-            }
+            await TVFocusClaim.reclaim(
+                id,
+                current: { focus.wrappedValue },
+                set: { focus.wrappedValue = $0 },
+                pressesSinceClaim: { moves - pressesBefore }
+            )
             claimed()
+        }
+    }
+}
+
+/// A focus claim's retry loop, apart from the view so it can be tested
+/// (`TVFocusClaimTests`): after the first set, focus is set again every
+/// `interval` until it holds, at most `attempts` times, and never once a
+/// direction press has been made since the claim began (#311: re-setting
+/// it then pulled the press straight back).
+enum TVFocusClaim {
+    @MainActor
+    static func reclaim<ID: Equatable>(
+        _ target: ID,
+        attempts: Int = 10,
+        interval: Duration = .milliseconds(50),
+        current: () -> ID?,
+        set: (ID) -> Void,
+        pressesSinceClaim: () -> Int,
+        sleep: (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+    ) async {
+        for _ in 0..<attempts {
+            await sleep(interval)
+            if current() == target || pressesSinceClaim() > 0 { return }
+            set(target)
         }
     }
 }
