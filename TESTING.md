@@ -1037,7 +1037,7 @@ the detail.
 | `AssetDetailJourneyTests` | The detail layouts (favourite and watched, resume, episodes, box sets, playlists), deletion and its permission gate, deleting a season (folderless too), removing a playlist item |
 | `AuthJourneyTests` | Welcome, server setup, discovery, the HTTP fallback, every sign-in path |
 | `CollectionJourneyTests` | Grid filters (combined, never emptying the grid), Random |
-| `DownloadsJourneyTests` | Downloading to completion, the row updating while open, bulk delete, cancelling a selection |
+| `DownloadsJourneyTests` | Downloading to completion, the row updating while open, bulk delete, cancelling a selection, and a downloaded movie and episode opened and played offline, after a relaunch with `offline` |
 | `HarnessTests` | The harness itself: scenarios served, state cleared between launches |
 | `HeroLogoFallbackUITests` | The logo's text fallback timing |
 | `HomeJourneyTests` | The hero, See All, and a refresh scrolling rails back to their start |

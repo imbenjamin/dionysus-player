@@ -139,5 +139,62 @@ final class DownloadsJourneyTests: UITestCase {
         XCTAssertFalse(downloads.deleteSelectedButton.exists, "trash outside selection mode")
         XCTAssertTrue(downloads.list.exists, "the download, still there")
     }
-}
 
+    // MARK: - Offline (TQ-05)
+
+    /// Downloads `itemID` from its detail page, opened from Home, answering
+    /// the audio-track prompt when the item has more than one track.
+    private func download(_ itemID: String) {
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(itemID)
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.downloadButton.tap()
+        let audioChoice = app.buttons["ENG EAC3"]
+        if audioChoice.waitForExistence(timeout: 3) { audioChoice.tap() }
+        detail.awaitDownloadCompletion()
+    }
+
+    /// Relaunches with the server unreachable, keeping the download, and
+    /// opens the Downloads tab.
+    private func relaunchOffline() -> DownloadsScreen {
+        launch(scenario: "offline", resetsState: false)
+        TabBar(app: app).downloads.awaitExistence("the Downloads tab, offline").tap()
+        return DownloadsScreen(app: app)
+    }
+
+    /// The point of a download: with no server, the movie's downloaded page
+    /// opens from the Downloads tab and plays.
+    func testADownloadedMovieOpensAndPlaysOffline() {
+        launch()
+        download(UITestFixtureIdentity.primaryMovieID)
+
+        let downloads = relaunchOffline()
+        downloads.standaloneRow(itemID: UITestFixtureIdentity.primaryMovieID)
+            .awaitExistence("the movie's row, offline").tap()
+        let play = app.buttons[A11yID.Downloads.playButton]
+        play.awaitExistence("the downloaded page's Play").tap()
+
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        player.close()
+        player.closeButton.awaitDisappearance("the player")
+        play.awaitExistence("back on the downloaded page")
+    }
+
+    /// A lone downloaded episode is listed on its own (not under its show),
+    /// and its downloaded page opens and plays offline. (Two episodes of a
+    /// show group under it; that page has no journey yet.)
+    func testADownloadedEpisodeOpensAndPlaysOffline() {
+        let episodeID = UITestFixtureIdentity.episodeID(season: 1, episode: 1)
+        launch()
+        download(episodeID)
+
+        relaunchOffline().standaloneRow(itemID: episodeID)
+            .awaitExistence("the episode's row, offline").tap()
+        app.buttons[A11yID.Downloads.playButton].awaitExistence("the downloaded episode's Play").tap()
+
+        PlayerScreen(app: app).awaitControls()
+    }
+}

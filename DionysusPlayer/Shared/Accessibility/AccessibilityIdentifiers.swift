@@ -369,6 +369,8 @@ enum A11yID {
         /// One row of the landing list or grid, keyed by `DownloadsRow.id`
         /// (`standalone-<itemID>` or `show-<seriesID>`).
         static func row(_ rowID: String) -> String { "downloads.row.\(rowID)" }
+        /// The downloaded item page's Play (or Resume) button.
+        static let playButton = "downloads.detail.playButton"
         /// The shared `DownloadsSelectionToolbar`'s controls, the same on the
         /// Downloads tab and the downloaded show and season pages.
         static let selectButton = "downloads.selectButton"
