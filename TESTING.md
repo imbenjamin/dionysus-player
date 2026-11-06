@@ -1063,7 +1063,7 @@ the detail.
 | `LoadingJourneyTests` | Home and a library loading slowly keep focus off the sidebar |
 | `MenuToLandingJourneyTests` | Menu back to a page's landing view |
 | `MoreActionsJourneyTests` | A detail page's ⋯: its menu, Add to Playlist, New Playlist, Delete and where each lands |
-| `OnboardingJourneyTests` | Find Your Server, Who's Watching?, Quick Connect, the password screen |
+| `OnboardingJourneyTests` | Find Your Server, Who's Watching?, Quick Connect, the password screen; a wrong password, Other without Quick Connect, and an unverifiable HTTPS server explained in red |
 | `PlayerAccessibleTransportJourneyTests` | The accessible transport, forced on |
 | `PlayerJourneyTests` | The player opens, takes the remote and closes, loading too |
 | `PlayerPanelJourneyTests` | The swipe-down panel's tabs and choices |

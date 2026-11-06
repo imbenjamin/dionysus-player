@@ -486,6 +486,13 @@ enum A11yID {
             static let changeServer = "tv.onboarding.whosWatching.changeServer"
             static let signingInTo = "tv.onboarding.whosWatching.signingInTo"
             static let passwordSignIn = "tv.onboarding.password.signIn"
+            /// Why a sign-in was refused, in red: on Who's Watching, the
+            /// password screen and Other's form.
+            static let signInError = "tv.onboarding.signIn.error"
+            /// Why a server couldn't be reached, in red, on Find Your Server.
+            static let serverSetupError = "tv.onboarding.findServer.error"
+            /// Other's username field, with Quick Connect off.
+            static let manualUsername = "tv.onboarding.manual.username"
             static let getNewCode = "tv.onboarding.quickConnect.getNewCode"
         }
         enum Main {

@@ -84,6 +84,7 @@ struct TVServerSetupView: View {
                     }
                     if let error = viewModel.errorMessage {
                         Text(error).foregroundStyle(.red).font(.callout)
+                            .accessibilityIdentifier(A11yID.TV.Onboarding.serverSetupError)
                     }
                 }
             }
