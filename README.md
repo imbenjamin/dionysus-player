@@ -15,6 +15,7 @@
 <p align="center">
   <a href="https://testflight.apple.com/join/M6cu7Afs"><img src="https://img.shields.io/badge/TestFlight-Alpha%20Releases-blue?logo=appstore" alt="TestFlight Alpha Releases"></a>
   <a href="https://testflight.apple.com/join/sHQMQtjM"><img src="https://img.shields.io/badge/TestFlight-Beta%20Releases-blue?logo=appstore" alt="TestFlight Beta Releases"></a>
+  <a href="https://testflight.apple.com/join/2Apu47vM"><img src="https://img.shields.io/badge/TestFlight-Stable%20Releases-blue?logo=appstore" alt="TestFlight Beta Releases"></a>
 </p>
 
 ## About Dionysus
@@ -86,6 +87,25 @@ sets (see [Store screenshots](#store-screenshots)).
   <img src="store-screenshots/appstore-appletv/07.png" alt="Who's Watching?" width="49%">
 </p>
 
+## Downloading Dionysus
+
+Dionysus Player v1.2.0 has been submitted to Apple for review. However there
+is a long lead time, and there have been some struggles with reviewing a
+couple of times. When the app is approved, the App Store listing link will
+be added to this page.
+
+In the meantime, please use the TestFlight links for installing both iOS and
+tvOS releases to your device. There are different links for releases.
+
+If you are unsure, please use the Stable Releases link.
+
+- **[Alpha Releases](https://testflight.apple.com/join/M6cu7Afs)** - 
+  unstable, cutting-edge, first view of features.
+- **[Beta Releases](https://testflight.apple.com/join/sHQMQtjM)** -
+  considered release candidates, may have minor bugs.
+- **[Stable Releases](https://testflight.apple.com/join/2Apu47vM)** - mirrors
+  the Apple App Store submissions with the exact same builds.
+
 ## Features
 
 - **Welcome and sign-in** — a first-run welcome, then server setup that
@@ -103,14 +123,15 @@ sets (see [Store screenshots](#store-screenshots)).
 - **Playback** — AetherEngine (FFmpeg + VideoToolbox), HDR10/HDR10+/Dolby
   Vision on supported source+device combinations, trickplay-thumbnail
   scrubbing, subtitle/audio track selection, audio offset (lip sync, global
-  and per title), Atmos and DTS:X heights as Spatial Audio (see below), intro/outro skip segments, Picture in Picture, Now Playing/lock-screen/Control Center integration,
-  a live "stats for nerds" overlay (codec, pixel format and colour
-  description, bitrate, resolution, audio profile and sampling, dropped
-  frames and throughput, streaming session info, offline-vs-live playback
-  method), and
-  sequential playlist playback (mixed movies/episodes, start-to-finish with
-  its own client-driven "Up Next" — Jellyfin has no server-side equivalent
-  for playlists).
+  and per title), Atmos and DTS:X heights as Spatial Audio (see below),
+  intro/outro skip segments, Picture in Picture,
+  Now Playing/lock-screen/Control Center integration, a live "stats for
+  nerds" overlay (codec, pixel format and colour description, bitrate,
+  resolution, audio profile and sampling, dropped frames and throughput,
+  streaming session info, offline-vs-live playback method), and sequential
+  playlist playback (mixed movies/episodes, start-to-finish with its own
+  client-driven "Up Next" — Jellyfin has no server-side equivalent for
+  playlists).
 - **Subtitles** — authored ASS/SSA tracks render with their real typesetting
   through libass: the script's own fonts, positioning and on-picture signs,
   rather than just the dialogue text. Fonts the source container carries as
