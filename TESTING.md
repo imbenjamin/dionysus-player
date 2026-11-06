@@ -401,10 +401,12 @@ and launch arguments (`TVUITestCase.launch`); selectors live under
 - **Rails are lazy**: only what's on screen is in the tree, so a journey
   presses down to a later rail rather than querying for it, and walks a row to
   reach its end (a See All).
-- **The sidebar's state is read from its container's width** (under 100pt
-  collapsed, over 300pt open) and polled (`waitForExpanded`/`waitForCollapsed`,
-  `TVShellJourney.isCollapsed`): an `NSPredicate` on `frame` never matches, and
-  on tvOS 27 the one row left reports the whole rail's frame.
+- **The sidebar's state is read from how many of its rows are enabled**
+  (one, the anchor, collapsed; every row open, `TVShellNavigation.focusableRows`)
+  and polled (`waitForExpanded`/`waitForCollapsed`,
+  `TVShellJourney.isCollapsed`). Not from its width: on tvOS 27 the one row
+  left reports the whole rail's frame, and on tvOS 27.2 the container goes on
+  reporting its open 520pt width after the rail has closed (2026-11-05).
 - **Helpers**: `launchAtHome` waits for the hero's Play; `launchAtHomeTile`
   (or `focusFirstRailTile`) moves to Continue Watching's first tile;
   `openDetailFromFocusedTile` and `playFromFocusedTile` reach a detail page
