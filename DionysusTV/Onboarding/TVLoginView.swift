@@ -50,6 +50,7 @@ struct TVLoginView: View {
                 users
                 if let error = viewModel.errorMessage {
                     Text(error).foregroundStyle(.red).padding(.top, 30)
+                        .accessibilityIdentifier(A11yID.TV.Onboarding.signInError)
                 }
                 Spacer(minLength: 60)
                 // The screen's width, so Down reaches it from every lockup,
@@ -310,6 +311,7 @@ struct TVManualSignInForm: View {
         VStack(spacing: 24) {
             TextField("Username", text: $viewModel.username)
                 .frame(width: 600)
+                .accessibilityIdentifier(A11yID.TV.Onboarding.manualUsername)
             SecureField("Password", text: $viewModel.password)
                 .frame(width: 600)
             Button("Sign In") { Task { await viewModel.signIn(using: appState) } }
@@ -334,6 +336,7 @@ private struct TVManualSignInView: View {
                 TVManualSignInForm(viewModel: viewModel)
                 if let error = viewModel.errorMessage {
                     Text(error).foregroundStyle(.red)
+                        .accessibilityIdentifier(A11yID.TV.Onboarding.signInError)
                 }
                 Button("Cancel") { dismiss() }
             }

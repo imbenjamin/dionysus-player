@@ -794,9 +794,10 @@ Measured on the tvOS 26.5 Simulator, VoiceOver's speech read from its log
 - **A disabled button is read as content** ("dimmed") after each move, so the
   collapsed rail hides the rows it can't focus
   (`TVSidebarLayout.isHiddenFromAccessibility`, unit-tested since XCUITest
-  still lists them). On tvOS 27 the one row left reports the whole rail's
-  frame, so journeys read collapsed or open from the sidebar container's
-  width (`TVShellJourney.isCollapsed`).
+  still lists them, as disabled). Neither that row's frame nor the
+  container's says whether the rail is open (on tvOS 27.2 the container keeps
+  its open width once closed), so journeys count the rail's enabled rows
+  (`TVShellJourney.isCollapsed`).
 - **A container's label is spoken as focus enters it** with
   `.accessibilityElement(children: .contain)`: the sidebar ("Sidebar") and each
   rail. Without `.contain` the label and identifier land on every child.

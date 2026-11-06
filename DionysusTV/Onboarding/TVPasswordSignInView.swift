@@ -31,6 +31,7 @@ struct TVPasswordSignInView: View {
                         .accessibilityIdentifier(A11yID.TV.Onboarding.passwordField)
                     if let error = viewModel.errorMessage {
                         Text(error).foregroundStyle(.red)
+                            .accessibilityIdentifier(A11yID.TV.Onboarding.signInError)
                     }
                     HStack(spacing: 26) {
                         Button("Sign In", action: signIn)

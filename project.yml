@@ -440,6 +440,8 @@ targets:
           - "Core/Persistence/Download*.swift"
           # iOS Profile's layout; the Apple TV has its own settings pages.
           - "Features/Profile/SettingsLayoutTests.swift"
+          # iOS Home's hero carousel; the Apple TV's hero is its own.
+          - "Features/Home/HeroCarouselPagingTests.swift"
       # TV-only unit tests.
       - path: DionysusTVTests
     dependencies:

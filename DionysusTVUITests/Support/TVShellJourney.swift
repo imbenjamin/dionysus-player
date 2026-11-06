@@ -1,8 +1,8 @@
 import XCTest
 
-/// Getting around the signed-in shell: the rail is always on screen, and its
-/// width tells whether it's open (72pt icon circles collapsed, full-width
-/// pill rows open).
+/// Getting around the signed-in shell: the rail is always on screen, and
+/// how many of its rows are enabled tells whether it's open (only the
+/// anchor collapsed, every row open).
 extension TVUITestCase {
     /// Signed in, on Home, with focus on the hero's Play.
     func launchAtHome(scenario: String = "standard") -> XCUIApplication {
@@ -40,18 +40,24 @@ extension TVUITestCase {
         return tile
     }
 
-    /// The rail's width is read from its container, not the row: on tvOS 27,
-    /// with every other row hidden from accessibility (collapsed, M5), the
-    /// one row left reports the whole rail's frame.
-    private var railWidth: CGFloat {
-        XCUIApplication().descendants(matching: .any)[A11yID.TV.Sidebar.container].frame.width
+    /// Whether the rail is open is read from how many of its rows can take
+    /// focus, not from its width: collapsed, only the anchor row can
+    /// (`TVShellNavigation.focusableRows`), the rest disabled, and open,
+    /// every row can. Width can't be trusted: on tvOS 27.2, once the rail has
+    /// opened, XCUITest goes on reporting the container's (and the anchor
+    /// row's) open 520pt frame after it closes, while the screen shows the
+    /// narrow rail (2026-11-05, TQ-15). Rows hidden from accessibility while
+    /// collapsed (M5) are either absent or disabled, so they never count.
+    private var enabledRailRows: Int {
+        XCUIApplication().descendants(matching: .any)[A11yID.TV.Sidebar.container]
+            .buttons.matching(NSPredicate(format: "isEnabled == true")).count
     }
 
-    func isCollapsed(_ row: XCUIElement) -> Bool { row.exists && railWidth < 200 }
+    func isCollapsed(_ row: XCUIElement) -> Bool { row.exists && enabledRailRows == 1 }
 
-    /// Waits for the rail to open: it widens as focus enters it.
+    /// Waits for the rail to open: every row takes focus as focus enters it.
     func waitForExpanded(_ row: XCUIElement, timeout: TimeInterval = 5) -> Bool {
-        poll(timeout: timeout) { row.exists && self.railWidth > 300 }
+        poll(timeout: timeout) { row.exists && self.enabledRailRows > 1 }
     }
 
     /// Waits for the rail to close again after focus leaves it.

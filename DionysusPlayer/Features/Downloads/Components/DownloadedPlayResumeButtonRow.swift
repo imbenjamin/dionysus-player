@@ -66,6 +66,7 @@ struct DownloadedPlayResumeButtonRow: View {
                 }
                 .primaryActionButtonStyle()
                 .accessibilityLabel(accessibilityLabelText)
+                .accessibilityIdentifier(A11yID.Downloads.playButton)
                 .resumeProgressOverlay(isPartWatched ? item.playedPercentage / 100 : nil)
 
                 if isPartWatched {

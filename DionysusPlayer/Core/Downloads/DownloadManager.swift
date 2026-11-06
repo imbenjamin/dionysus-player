@@ -130,7 +130,12 @@ final class DownloadManager: NSObject {
     /// configuration: it is re-evaluated per fetch, so a preference change
     /// takes effect immediately against a single session, and
     /// `allowsExpensiveNetworkAccess` also covers a personal hotspot.
-    private let adHocFetchSession: URLSession = {
+    ///
+    /// Injectable (`init`'s `fetchSession`) so tests can answer these fetches
+    /// with `MockURLProtocol`.
+    private let adHocFetchSession: URLSession
+
+    private static func makeAdHocFetchSession() -> URLSession {
         let configuration = URLSessionConfiguration.default
         // Permitted here; the real gate is per-request in `makeFetchRequest`.
         configuration.allowsCellularAccess = true
@@ -138,7 +143,7 @@ final class DownloadManager: NSObject {
         UITestHarness.decorate(configuration)
         #endif
         return URLSession(configuration: configuration)
-    }()
+    }
 
     /// Applies `DownloadPreferencesStore.wifiOnly` to one request. A transfer's
     /// effective policy is the AND of session and request flags, so gating here
@@ -242,9 +247,11 @@ final class DownloadManager: NSObject {
         automaticRetryBackoff: [Duration] = [.seconds(2), .seconds(8), .seconds(20)],
         startVideoDownloadOverride: ((String, URL, String) -> Void)? = nil,
         cancelVideoDownloadOverride: ((String) -> Void)? = nil,
-        reattachVideoDownloadOverride: ((String) -> Void)? = nil
+        reattachVideoDownloadOverride: ((String) -> Void)? = nil,
+        fetchSession: URLSession? = nil
     ) {
         self.store = store
+        self.adHocFetchSession = fetchSession ?? Self.makeAdHocFetchSession()
         self.preferences = preferences
         self.automaticRetryBackoff = automaticRetryBackoff
         self.startVideoDownloadOverride = startVideoDownloadOverride
@@ -493,7 +500,12 @@ final class DownloadManager: NSObject {
         for stream in tracks where !JellyfinAPIClient.isImageBasedSubtitleCodec(stream.codec) {
             guard let url = await client.subtitleURL(itemID: itemID, mediaSourceID: mediaSourceID, streamIndex: stream.index, codec: stream.codec) else { continue }
             do {
-                let (data, _) = try await session.data(for: makeFetchRequest(url: url))
+                let (data, response) = try await session.data(for: makeFetchRequest(url: url))
+                // `URLSession` doesn't throw on a 404: an error body saved as
+                // a `.srt` would be offered offline as a track of garbage.
+                // The same guard as `downloadFontAttachments`.
+                guard let http = response as? HTTPURLResponse,
+                      (200..<300).contains(http.statusCode), !data.isEmpty else { continue }
                 let ext = JellyfinAPIClient.subtitleFileExtension(forCodec: stream.codec)
                 let relativePath = DownloadFileStore.subtitleRelativePath(itemID: itemID, index: stream.index, language: stream.language, fileExtension: ext)
                 try DownloadFileStore.write(data, toRelativePath: relativePath)

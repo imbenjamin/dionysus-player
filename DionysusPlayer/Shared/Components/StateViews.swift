@@ -67,7 +67,10 @@ struct ErrorStateView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // On the container, not the message `Text`: a test asserting "this
         // screen failed" wants the state to exist, and the message itself
-        // is localized copy that changes.
+        // is localized copy that changes. `.contain` keeps it on the
+        // container: without it the identifier landed on every child, Try
+        // Again's own `retryButton` included, so nothing could find it.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier(identifier)
     }
 }
@@ -104,6 +107,8 @@ struct OfflineStateView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // A container, as `ErrorStateView`'s, so Try Again keeps its own id.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11yID.State.offline)
     }
 }

@@ -319,6 +319,72 @@ final class PlayerJourneyTests: UITestCase {
         wait(untilLandscape: false, "Unlocking should let the app follow the device upright.")
     }
 
+    // MARK: - Next Up
+
+    /// Opens S1:E1 from Continue Watching under `.earlyCredits`: it resumes
+    /// at 12:00, inside credits that start at 0:05, so Next Up shows at once
+    /// and counts down 10 s.
+    private func openEpisodeOneInItsCredits() -> PlayerScreen {
+        launch(scenario: "earlyCredits")
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.episodeID(season: 1, episode: 1))
+        AssetDetailScreen(app: app).play()
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        return player
+    }
+
+    /// The scrubber's position in seconds ("12:03" or "1:12:03"), or `nil`
+    /// before it reads as a time.
+    private func position(_ player: PlayerScreen) -> Double? {
+        let parts = ((player.scrubber.value as? String) ?? "").split(separator: ":").compactMap { Double($0) }
+        return parts.count >= 2 ? parts.reduce(0) { $0 * 60 + $1 } : nil
+    }
+
+    func testNextUpPlayNowPlaysTheNextEpisodeFromItsStart() {
+        let player = openEpisodeOneInItsCredits()
+        player.nextUpCard.awaitExistence("the Next Up card, in the credits")
+        XCTAssertGreaterThan(position(player) ?? 0, 600, "Still on S1:E1, resumed at 12:00")
+        player.nextUpPlayNow.tap()
+        XCTAssertTrue(
+            poll(timeout: 15) { (self.position(player) ?? 999) < 20 && player.closeButton.exists },
+            "S1:E2 plays from its start, in a player again"
+        )
+    }
+
+    /// Cancel hides the card, and the countdown it showed no longer advances.
+    func testNextUpCancelHidesTheCardAndNothingAdvances() {
+        let player = openEpisodeOneInItsCredits()
+        player.nextUpCard.awaitExistence("the Next Up card, in the credits")
+        player.nextUpCancel.tap()
+        XCTAssertTrue(poll(timeout: 3) { !player.nextUpCard.exists }, "Cancel takes the card off screen and out of VoiceOver's reach")
+        // Past where the 10 s countdown would have ended.
+        RunLoop.current.run(until: Date().addingTimeInterval(12))
+        XCTAssertGreaterThan(position(player) ?? 0, 600, "Still on S1:E1: nothing advanced")
+        XCTAssertFalse(player.nextUpCard.exists, "The card stays hidden for the rest of the episode")
+    }
+
+    func testNextUpCountdownReachingZeroPlaysTheNextEpisode() {
+        let player = openEpisodeOneInItsCredits()
+        player.nextUpCard.awaitExistence("the Next Up card, in the credits")
+        XCTAssertTrue(
+            poll(timeout: 20) { (self.position(player) ?? 999) < 20 && player.closeButton.exists },
+            "The next episode starts when the countdown ends"
+        )
+    }
+
+    /// `frame` and `value` can't be read through an `NSPredicate` reliably,
+    /// so the condition is polled.
+    private func poll(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if condition() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        } while Date() < deadline
+        return false
+    }
+
     /// A movie has nothing queued after it, so reaching the end closes the
     /// player back to its detail page rather than holding on the last frame.
     func testReachingTheEndWithNothingQueuedReturnsToDetail() {

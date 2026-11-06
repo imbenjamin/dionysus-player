@@ -179,11 +179,19 @@ struct LANServerDiscovery: ServerDiscovering {
             let cancelled = CancellationFlag()
             let activity = AppActivityMonitor()
             continuation.onTermination = { _ in cancelled.set() }
-            let scan = self
+            let timing = self.timing
             DispatchQueue.global(qos: .userInitiated).async {
                 defer { activity.stop() }
                 do {
-                    try scan.run(cancelled: cancelled, activity: activity) { continuation.yield($0) }
+                    let targets = LocalSubnet.current().flatMap(\.hostAddresses)
+                    guard !targets.isEmpty else { throw ServerDiscoveryError.noLocalNetwork }
+                    guard let transport = UDPDiscoveryTransport() else { throw ServerDiscoveryError.noLocalNetwork }
+                    try DiscoveryScan(targets: targets, transport: transport, timing: timing).run(
+                        now: Date.init,
+                        activity: { activity.state },
+                        isCancelled: { cancelled.isSet },
+                        found: { continuation.yield($0) }
+                    )
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -191,53 +199,79 @@ struct LANServerDiscovery: ServerDiscovering {
             }
         }
     }
+}
 
-    /// Blocking; runs on a background queue for at most
-    /// `timing.maximumDuration`.
-    private func run(cancelled: CancellationFlag, activity: AppActivityMonitor, found: (DiscoveredServer) -> Void) throws {
-        let targets = LocalSubnet.current().flatMap(\.hostAddresses)
-        guard !targets.isEmpty else { throw ServerDiscoveryError.noLocalNetwork }
+/// Sends the probe and reads replies: the UDP socket, behind a protocol so
+/// `DiscoveryScan` can be tested without a network (`ServerDiscoveryTests`).
+protocol DiscoveryTransport {
+    /// One probe to every target. `true` if any send was accepted, the only
+    /// available signal that Local Network access has been granted, since a
+    /// denied app has every send refused with `EHOSTUNREACH`.
+    func sendProbe(to targets: [UInt32]) -> Bool
+    /// The datagrams that arrive within `timeout`; empty if none did.
+    func receive(waitingUpTo timeout: TimeInterval) -> [Data]
+}
 
-        let socket = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-        guard socket >= 0 else { throw ServerDiscoveryError.noLocalNetwork }
-        defer { close(socket) }
-        _ = fcntl(socket, F_SETFL, fcntl(socket, F_GETFL) | O_NONBLOCK)
+/// One discovery scan's loop: probe rounds, replies, the Local Network
+/// prompt, and when to stop (`ScanSchedule`). Blocking; runs on a
+/// background queue for at most `timing.maximumDuration`.
+struct DiscoveryScan {
+    let targets: [UInt32]
+    let transport: DiscoveryTransport
+    var timing = ScanSchedule.Timing()
+    /// How long each wait for replies lasts before the loop looks again.
+    var pollInterval: TimeInterval = 0.1
 
-        var schedule = ScanSchedule(start: Date(), timing: timing)
-        var activations = activity.state.activations
+    func run(
+        now: () -> Date,
+        activity: () -> AppActivityState,
+        isCancelled: () -> Bool,
+        found: (DiscoveredServer) -> Void
+    ) throws {
+        var schedule = ScanSchedule(start: now(), timing: timing)
+        var activations = activity().activations
         var seen = Set<String>()
 
-        while !cancelled.isSet {
-            let now = Date()
-            let state = activity.state
+        while !isCancelled() {
+            let state = activity()
             if state.activations != activations {
                 activations = state.activations
-                schedule.appBecameActive(at: now)
+                schedule.appBecameActive(at: now())
             }
-            if schedule.isFinished(at: now, appIsActive: state.isActive) { break }
+            if schedule.isFinished(at: now(), appIsActive: state.isActive) { break }
 
-            if schedule.isRoundDue(at: now) {
-                schedule.roundSent(accepted: send(to: targets, on: socket), at: Date())
+            if schedule.isRoundDue(at: now()) {
+                let accepted = transport.sendProbe(to: targets)
+                schedule.roundSent(accepted: accepted, at: now())
             }
 
-            var pollDescriptor = pollfd(fd: socket, events: Int16(POLLIN), revents: 0)
-            guard poll(&pollDescriptor, 1, 100) > 0 else { continue }
-            while let datagram = receive(on: socket) {
+            for datagram in transport.receive(waitingUpTo: pollInterval) {
                 if let server = JellyfinDiscoveryProtocol.parseReply(datagram), seen.insert(server.id).inserted {
                     found(server)
                 }
             }
         }
 
-        if schedule.accessLooksDenied, seen.isEmpty, !cancelled.isSet {
+        if schedule.accessLooksDenied, seen.isEmpty, !isCancelled() {
             throw ServerDiscoveryError.localNetworkAccessDenied
         }
     }
+}
 
-    /// One probe to every target. `true` if any send was accepted — the only
-    /// available signal that Local Network access has been granted, since a
-    /// denied app has every send refused with `EHOSTUNREACH`.
-    private func send(to targets: [UInt32], on socket: Int32) -> Bool {
+/// The live transport: one non-blocking UDP socket, closed when released.
+private final class UDPDiscoveryTransport: DiscoveryTransport {
+    private let socket: Int32
+
+    init?() {
+        let socket = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+        guard socket >= 0 else { return nil }
+        _ = fcntl(socket, F_SETFL, fcntl(socket, F_GETFL) | O_NONBLOCK)
+        self.socket = socket
+    }
+
+    deinit { close(socket) }
+
+    func sendProbe(to targets: [UInt32]) -> Bool {
         var anyAccepted = false
         JellyfinDiscoveryProtocol.probe.withUnsafeBytes { bytes in
             for target in targets {
@@ -257,11 +291,17 @@ struct LANServerDiscovery: ServerDiscovering {
         return anyAccepted
     }
 
-    private func receive(on socket: Int32) -> Data? {
+    func receive(waitingUpTo timeout: TimeInterval) -> [Data] {
+        var pollDescriptor = pollfd(fd: socket, events: Int16(POLLIN), revents: 0)
+        guard poll(&pollDescriptor, 1, Int32(timeout * 1000)) > 0 else { return [] }
+        var datagrams: [Data] = []
         var buffer = [UInt8](repeating: 0, count: 4096)
-        let count = recv(socket, &buffer, buffer.count, 0)
-        guard count > 0 else { return nil }
-        return Data(buffer[..<count])
+        while true {
+            let count = recv(socket, &buffer, buffer.count, 0)
+            guard count > 0 else { break }
+            datagrams.append(Data(buffer[..<count]))
+        }
+        return datagrams
     }
 }
 

@@ -217,6 +217,62 @@ final class OnboardingJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForFocus(getNewCode))
     }
 
+    // MARK: - Errors (TQ-10)
+
+    /// A wrong password is refused on the password screen itself, in red,
+    /// with the field still there to try again.
+    func test_wrongPassword_saysWhyOnThePasswordScreen() {
+        let app = launch(scenario: "quickConnectDisabled")
+        connectToDiscoveredServer(app)
+        let user = app.buttons[A11yID.TV.Onboarding.user(UITestFixtureIdentity.userID)]
+        XCTAssertTrue(waitForFocus(user))
+        press(.select)
+        let field = app.secureTextFields[A11yID.TV.Onboarding.passwordField]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForFocus(field))
+        press(.select)
+        field.typeText("not-the-password")
+        press(.menu)
+        let signIn = app.buttons[A11yID.TV.Onboarding.passwordSignIn]
+        for _ in 0..<3 where !signIn.hasFocus { press(.down) }
+        XCTAssertTrue(waitForFocus(signIn))
+        press(.select)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.signInError].waitForExistence(timeout: 10), "The refusal is explained")
+        XCTAssertTrue(field.exists, "Still on the password screen, to try again")
+        XCTAssertFalse(app.buttons[A11yID.TV.Main.heroPlay].exists, "Not signed in")
+    }
+
+    /// "Other" with Quick Connect off opens the username and password form.
+    func test_other_withoutQuickConnect_opensTheUsernameAndPasswordForm() {
+        let app = launch(scenario: "quickConnectDisabled")
+        connectToDiscoveredServer(app)
+        let other = app.buttons[A11yID.TV.Onboarding.otherUser]
+        XCTAssertTrue(other.waitForExistence(timeout: 10))
+        for _ in 0..<6 where !other.hasFocus {
+            press(.right)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        }
+        XCTAssertTrue(waitForFocus(other))
+        press(.select)
+        XCTAssertTrue(app.textFields[A11yID.TV.Onboarding.manualUsername].waitForExistence(timeout: 5), "The username field")
+        XCTAssertFalse(app.staticTexts[A11yID.TV.Onboarding.quickConnectCode].exists, "Not a Quick Connect code")
+    }
+
+    /// A discovered HTTPS server whose certificate can't be verified says so
+    /// on Find Your Server, in red, and doesn't connect. The Apple TV offers
+    /// no plain-HTTP fallback yet (iOS asks; #429): when it does, this
+    /// journey goes on to it.
+    func test_unverifiableHTTPSServer_saysWhy_andStaysOnFindYourServer() {
+        let app = launch()
+        let https = app.buttons[A11yID.TV.Onboarding.serverRow(UITestFixtureIdentity.serverSystemID)]
+        XCTAssertTrue(https.waitForExistence(timeout: 10))
+        for _ in 0..<3 where !https.hasFocus { press(.down) }
+        XCTAssertTrue(waitForFocus(https))
+        press(.select)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.serverSetupError].waitForExistence(timeout: 10), "The certificate is explained")
+        XCTAssertFalse(app.staticTexts[A11yID.TV.Onboarding.whosWatchingTitle].exists, "Not connected")
+    }
+
     private func connectToDiscoveredServer(_ app: XCUIApplication) {
         let server = app.buttons[A11yID.TV.Onboarding.serverRow(UITestFixtureIdentity.discoveredServerID)]
         XCTAssertTrue(server.waitForExistence(timeout: 10))

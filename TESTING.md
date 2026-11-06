@@ -10,7 +10,7 @@ comment); the index at the end says where to look.
 | Target | Plan | What it is | Where it runs |
 | --- | --- | --- | --- |
 | `DionysusPlayerTests` | `UnitTests` | iOS unit tests (the scheme's default plan) | Every PR, every release |
-| `DionysusPlayerUITests` | `UITests-Smoke` | Seven iOS journeys and the keychain-reset check | Every PR, iPhone and iPad, latest iOS |
+| `DionysusPlayerUITests` | `UITests-Smoke` | Seven iOS journeys (first-run sign-in, a seeded session, Home and a grid to a detail page, the player, Search, Profile's Spatial Audio settings) and the keychain-reset check | Every PR into `develop`: iPhone and iPad on iOS 27.0, the Duo closed and open on 27.1 |
 | | `UITests-Full` | Every iOS journey and audit | Nightly, PRs into `stable`, releases; iPhone and iPad on every supported iOS |
 | `DionysusTVTests` | `TVUnitTests` | The Apple TV app's own tests, plus the shared ones run on tvOS | Every PR |
 | `DionysusTVUITests` | `TVUITests-Smoke` | Seven Apple TV journeys: first launch to sign-in, Home, a detail page from Home and from a library, Search, the player | Every PR, tvOS 27.0; nightly on tvOS 26.5 as an allowed failure |
@@ -401,10 +401,12 @@ and launch arguments (`TVUITestCase.launch`); selectors live under
 - **Rails are lazy**: only what's on screen is in the tree, so a journey
   presses down to a later rail rather than querying for it, and walks a row to
   reach its end (a See All).
-- **The sidebar's state is read from its container's width** (under 100pt
-  collapsed, over 300pt open) and polled (`waitForExpanded`/`waitForCollapsed`,
-  `TVShellJourney.isCollapsed`): an `NSPredicate` on `frame` never matches, and
-  on tvOS 27 the one row left reports the whole rail's frame.
+- **The sidebar's state is read from how many of its rows are enabled**
+  (one, the anchor, collapsed; every row open, `TVShellNavigation.focusableRows`)
+  and polled (`waitForExpanded`/`waitForCollapsed`,
+  `TVShellJourney.isCollapsed`). Not from its width: on tvOS 27 the one row
+  left reports the whole rail's frame, and on tvOS 27.2 the container goes on
+  reporting its open 520pt width after the rail has closed (2026-11-05).
 - **Helpers**: `launchAtHome` waits for the hero's Play; `launchAtHomeTile`
   (or `focusFirstRailTile`) moves to Continue Watching's first tile;
   `openDetailFromFocusedTile` and `playFromFocusedTile` reach a detail page
@@ -1035,13 +1037,14 @@ the detail.
 | `AssetDetailJourneyTests` | The detail layouts (favourite and watched, resume, episodes, box sets, playlists), deletion and its permission gate, deleting a season (folderless too), removing a playlist item |
 | `AuthJourneyTests` | Welcome, server setup, discovery, the HTTP fallback, every sign-in path |
 | `CollectionJourneyTests` | Grid filters (combined, never emptying the grid), Random |
-| `DownloadsJourneyTests` | Downloading to completion, the row updating while open, bulk delete, cancelling a selection |
+| `DuoFoldJourneyTests` | The iPhone Duo's fold layouts checked against the fold in their pose: the player (tabletop, book), the detail spread (book), Home's hero (tabletop), Search's empty state (book, tabletop); skipped elsewhere |
+| `DownloadsJourneyTests` | Downloading to completion, the row updating while open, bulk delete, cancelling a selection, and a downloaded movie and episode opened and played offline, after a relaunch with `offline` |
 | `HarnessTests` | The harness itself: scenarios served, state cleared between launches |
 | `HeroLogoFallbackUITests` | The logo's text fallback timing |
 | `HomeJourneyTests` | The hero, See All, and a refresh scrolling rails back to their start |
-| `OfflineErrorJourneyTests` | `serverError`, `unauthorized` and `offline` |
-| `PlayerJourneyTests` | Skips, the track and chapter pickers, Playback Stats' pages, the end of an item |
-| `ProfileJourneyTests` | Quick Connect approval, Sign Out, Change Server |
+| `OfflineErrorJourneyTests` | `serverError`, `unauthorized` and `offline`; Try Again loading Home once the server answers (`librariesFailAtFirst`) |
+| `PlayerJourneyTests` | Skips, the track and chapter pickers, Playback Stats' pages, the end of an item, Next Up (Play Now, Cancel, the countdown; `earlyCredits`) |
+| `ProfileJourneyTests` | The audio offset, Read-Ahead Buffer and Spatial Audio settings (the Spatial Audio toggles also in smoke: Profile broke on some devices for days, 2026-10), Quick Connect approval, Sign Out, Change Server |
 | `SearchJourneyTests` | No results, a long history keeping the field visible, history across a relaunch |
 | `SmokeJourneyTests` | The PR gate's journeys |
 | `StyledSubtitleJourneyTests` | Styled subtitles, the styling setting, fonts not gating the script |
@@ -1060,7 +1063,7 @@ the detail.
 | `LoadingJourneyTests` | Home and a library loading slowly keep focus off the sidebar |
 | `MenuToLandingJourneyTests` | Menu back to a page's landing view |
 | `MoreActionsJourneyTests` | A detail page's ⋯: its menu, Add to Playlist, New Playlist, Delete and where each lands |
-| `OnboardingJourneyTests` | Find Your Server, Who's Watching?, Quick Connect, the password screen |
+| `OnboardingJourneyTests` | Find Your Server, Who's Watching?, Quick Connect, the password screen; a wrong password, Other without Quick Connect, and an unverifiable HTTPS server explained in red |
 | `PlayerAccessibleTransportJourneyTests` | The accessible transport, forced on |
 | `PlayerJourneyTests` | The player opens, takes the remote and closes, loading too |
 | `PlayerPanelJourneyTests` | The swipe-down panel's tabs and choices |

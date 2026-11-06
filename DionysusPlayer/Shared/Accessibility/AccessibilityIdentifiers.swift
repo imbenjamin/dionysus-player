@@ -313,6 +313,11 @@ enum A11yID {
         static let skipBackwardButton = "player.skipBackwardButton"
         /// `SkipSegmentOverlay`'s Skip Intro/Recap/Credits button.
         static let skipSegmentButton = "player.skipSegmentButton"
+        /// `NextUpOverlay`'s card (a container, so its buttons keep their
+        /// own identifiers) and its two buttons.
+        static let nextUpCard = "player.nextUp"
+        static let nextUpPlayNow = "player.nextUp.playNow"
+        static let nextUpCancel = "player.nextUp.cancel"
         static let scrubber = "player.scrubber"
         static let elapsedLabel = "player.elapsedLabel"
         static let remainingLabel = "player.remainingLabel"
@@ -369,6 +374,8 @@ enum A11yID {
         /// One row of the landing list or grid, keyed by `DownloadsRow.id`
         /// (`standalone-<itemID>` or `show-<seriesID>`).
         static func row(_ rowID: String) -> String { "downloads.row.\(rowID)" }
+        /// The downloaded item page's Play (or Resume) button.
+        static let playButton = "downloads.detail.playButton"
         /// The shared `DownloadsSelectionToolbar`'s controls, the same on the
         /// Downloads tab and the downloaded show and season pages.
         static let selectButton = "downloads.selectButton"
@@ -479,6 +486,13 @@ enum A11yID {
             static let changeServer = "tv.onboarding.whosWatching.changeServer"
             static let signingInTo = "tv.onboarding.whosWatching.signingInTo"
             static let passwordSignIn = "tv.onboarding.password.signIn"
+            /// Why a sign-in was refused, in red: on Who's Watching, the
+            /// password screen and Other's form.
+            static let signInError = "tv.onboarding.signIn.error"
+            /// Why a server couldn't be reached, in red, on Find Your Server.
+            static let serverSetupError = "tv.onboarding.findServer.error"
+            /// Other's username field, with Quick Connect off.
+            static let manualUsername = "tv.onboarding.manual.username"
             static let getNewCode = "tv.onboarding.quickConnect.getNewCode"
         }
         enum Main {

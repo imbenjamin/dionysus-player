@@ -14,6 +14,24 @@ final class OfflineErrorJourneyTests: UITestCase {
         StateViewsScreen(app: app).errorState.awaitExistence("Home's error state")
     }
 
+    /// "Try Again" on a failed Home loads it once the server answers: the
+    /// state's own button, not a relaunch. `.librariesFailAtFirst` fails
+    /// `/Views` for five seconds from its first request, as a server still
+    /// starting up does.
+    func testTryAgainLoadsHomeOnceTheServerAnswers() {
+        launch(scenario: "librariesFailAtFirst")
+
+        let states = StateViewsScreen(app: app)
+        states.errorState.awaitExistence("Home's error state, while the libraries fail")
+        // Past the stub's five seconds.
+        RunLoop.current.run(until: Date().addingTimeInterval(6))
+        XCTAssertTrue(states.errorState.exists, "Nothing retries by itself while online")
+        states.retryButton.tap()
+
+        HomeScreen(app: app).awaitLoaded()
+        XCTAssertFalse(states.errorState.exists, "The error state is gone")
+    }
+
     /// `.unauthorized` fails each path with 401 exactly once, then succeeds
     /// — `JellyfinAPIClient.sendRaw`'s silent re-authentication should
     /// recover transparently, with Home ending up fully loaded rather than
@@ -81,4 +99,5 @@ private struct StateViewsScreen: Screen {
 
     var errorState: XCUIElement { app.descendants(matching: .any)[A11yID.State.error] }
     var offlineState: XCUIElement { app.descendants(matching: .any)[A11yID.State.offline] }
+    var retryButton: XCUIElement { app.buttons[A11yID.State.retryButton] }
 }
