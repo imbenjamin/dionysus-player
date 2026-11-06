@@ -154,4 +154,116 @@ final class ServerDiscoveryTests: XCTestCase {
         XCTAssertFalse(schedule.isFinished(at: at(59.9), appIsActive: false))
         XCTAssertTrue(schedule.isFinished(at: at(60), appIsActive: false))
     }
+
+    // MARK: DiscoveryScan (the loop, over a fake socket and clock)
+
+    /// A socket and a clock in one: each wait for replies moves the clock on
+    /// by its timeout, and replies arrive at the times they're scripted for.
+    private final class FakeLAN: DiscoveryTransport {
+        var clock: TimeInterval = 0
+        /// Whether sends are accepted, by time (Local Network access).
+        var accepts: (TimeInterval) -> Bool = { _ in true }
+        /// Replies, by the time they arrive.
+        var replies: [(at: TimeInterval, data: Data)] = []
+        var activity = AppActivityState()
+        /// Changes to make at a time: the app going inactive under the prompt.
+        var events: [(at: TimeInterval, change: (FakeLAN) -> Void)] = []
+        private(set) var rounds: [TimeInterval] = []
+        private(set) var targetsProbed: [[UInt32]] = []
+
+        func sendProbe(to targets: [UInt32]) -> Bool {
+            rounds.append(clock)
+            targetsProbed.append(targets)
+            return accepts(clock)
+        }
+
+        func receive(waitingUpTo timeout: TimeInterval) -> [Data] {
+            clock += timeout
+            for event in events where event.at <= clock { event.change(self) }
+            events.removeAll { $0.at <= clock }
+            let due = replies.filter { $0.at <= clock }.map(\.data)
+            replies.removeAll { $0.at <= clock }
+            return due
+        }
+
+        func scan(timing: ScanSchedule.Timing = .init(), cancelAt: TimeInterval = .infinity) throws -> [DiscoveredServer] {
+            var found: [DiscoveredServer] = []
+            try DiscoveryScan(targets: [0x0A00_0002, 0x0A00_0003], transport: self, timing: timing).run(
+                now: { Date(timeIntervalSince1970: self.clock) },
+                activity: { self.activity },
+                isCancelled: { self.clock >= cancelAt },
+                found: { found.append($0) }
+            )
+            return found
+        }
+    }
+
+    private func reply(id: String, name: String = "Server") -> Data {
+        Data(#"{"Address":"http://10.0.0.2:8096","Id":"\#(id)","Name":"\#(name)"}"#.utf8)
+    }
+
+    func test_scan_probesEveryTargetEachSecond_andYieldsEachServerOnce() throws {
+        let lan = FakeLAN()
+        lan.replies = [(0.3, reply(id: "a")), (1.2, reply(id: "a")), (1.5, reply(id: "b")), (2.5, Data("noise".utf8))]
+
+        let found = try lan.scan()
+
+        XCTAssertEqual(found.map(\.id), ["a", "b"], "The second reply from a is a duplicate; noise isn't a server")
+        XCTAssertEqual(lan.targetsProbed.first, [0x0A00_0002, 0x0A00_0003])
+        XCTAssertEqual(lan.rounds.count, 3, "A round a second through the 3 s listening window")
+        XCTAssertEqual(lan.clock, 3, accuracy: 0.15, "Stops when the window closes")
+    }
+
+    func test_scan_emptyNetwork_finishesEmpty_withoutCallingItDenied() throws {
+        let lan = FakeLAN()
+        XCTAssertEqual(try lan.scan(), [])
+    }
+
+    func test_scan_everySendRefused_endsDenied_afterTheGrace() {
+        let lan = FakeLAN()
+        lan.accepts = { _ in false }
+
+        XCTAssertThrowsError(try lan.scan()) {
+            XCTAssertEqual($0 as? ServerDiscoveryError, .localNetworkAccessDenied)
+        }
+        XCTAssertEqual(lan.clock, 8, accuracy: 0.15)
+    }
+
+    /// The prompt: sends accepted but dropped while the app is inactive, then
+    /// "Allow". The scan starts over once active, and finds the server.
+    func test_scan_underThePrompt_startsOverOnceActive_andFindsTheServer() throws {
+        let lan = FakeLAN()
+        lan.events = [
+            (0.2, { $0.activity.isActive = false; $0.activity.deactivations += 1 }),
+            (20, { $0.activity.isActive = true; $0.activity.activations += 1 }),
+        ]
+        lan.replies = [(20.5, reply(id: "a"))]
+
+        let found = try lan.scan()
+
+        XCTAssertEqual(found.map(\.id), ["a"])
+        XCTAssertGreaterThan(lan.clock, 22.9, "Listened a full window after coming back")
+        XCTAssertLessThan(lan.clock, 23.2)
+    }
+
+    /// "Don't Allow": back to active with every send now refused.
+    func test_scan_promptAnsweredDontAllow_endsDenied() {
+        let lan = FakeLAN()
+        lan.accepts = { $0 < 10 }
+        lan.events = [
+            (0.2, { $0.activity.isActive = false }),
+            (10, { $0.activity.isActive = true; $0.activity.activations += 1 }),
+        ]
+
+        XCTAssertThrowsError(try lan.scan()) {
+            XCTAssertEqual($0 as? ServerDiscoveryError, .localNetworkAccessDenied)
+        }
+    }
+
+    func test_scan_cancelled_stopsAtOnce_andThrowsNothing() throws {
+        let lan = FakeLAN()
+        lan.accepts = { _ in false }
+        XCTAssertEqual(try lan.scan(cancelAt: 1), [])
+        XCTAssertEqual(lan.clock, 1, accuracy: 0.15)
+    }
 }
