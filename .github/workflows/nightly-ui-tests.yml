@@ -51,9 +51,10 @@ jobs:
 
   tv-ui-floor:
     # The smoke journeys on tvOS 26.5, the deployment floor's major. They
-    # fail in CI on tvOS 26.x for a reason not yet found (tv-ui-tests.yml's
-    # header), so this is an allowed failure: it reports, and passing again
-    # is the signal to make it a PR check. The smoke plan, not the full
+    # fail in CI on tvOS 26.x, a limit of the CI machines rather than the app
+    # (tv-ui-tests.yml's header), so this is an allowed failure: it reports,
+    # and passing again (a new image, say) is the signal to make it a PR
+    # check. The smoke plan, not the full
     # one, which would spend its whole timeout failing.
     name: tvOS floor smoke tests
     uses: ./.github/workflows/tv-ui-tests.yml
