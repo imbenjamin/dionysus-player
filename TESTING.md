@@ -829,8 +829,12 @@ What no suite can reach, and how it was or should be checked.
   was checked on device with a nonexistent item id.
 - **Downloads in the background**: a real background transfer landing bytes,
   surviving backgrounding and resuming after a relaunch. `MockURLProtocol`
-  can't intercept delegate-based download tasks and the Simulator's background
-  sessions differ from a device's. Check: download an item, play it in
+  can't intercept a background session's tasks, which run in `nsurlsessiond`,
+  and the Simulator's background sessions differ from a device's.
+  `DownloadManagerBackgroundTests` pins the manager's side over an in-process
+  session (adopting the tasks a relaunch finds, answering the relaunch's
+  completion handler); whether the OS hands those tasks and events back is
+  what this checks. Check: download an item, play it in
   Airplane Mode (HEVC, audio track, subtitles; HDR sources play tone-mapped to
   SDR, a Jellyfin limitation), background the app mid-download (don't
   force-quit), and confirm reconnecting syncs watched and resume state.
@@ -917,6 +921,8 @@ the detail.
 | `App/AppStateTests` | The phase machine, sign-in and silent sign-in, sign-out, offline launch, and tvOS's Who's Watching? launches |
 | `Core/Downloads/DownloadFileStoreTests` | Download file paths, sidecars and cleanup |
 | `Core/Downloads/DownloadManagerTests` | Delete (cancelling the task), the queue, one background session, retry budget and error classification |
+| `Core/Downloads/DownloadManagerBackgroundTests` | Adopting in-flight transfers after a relaunch, answering a background relaunch's completion handler, trickplay sheets, a retry that succeeds |
+| `Core/Downloads/DownloadManagerExtrasTests` | The subtitles and fonts fetched beside a video |
 | `Core/Downloads/DownloadStoreTests` | SwiftData round-trips for downloads |
 | `Core/Downloads/DownloadSyncManagerTests` | Pushing offline watched and resume state on reconnect |
 | `Core/Downloads/DownloadTypesTests` | The quality ladder's bits-per-pixel rule (`DOWNLOADS.md`) |
