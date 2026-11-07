@@ -16,7 +16,10 @@ name: tvOS UI tests
 # tvOS 26.5, the deployment floor's major, isn't on the image and is
 # downloaded (3.76 GB, about five minutes). Until it passes in CI it runs
 # nightly only, as an allowed failure, so it neither gates a PR nor turns
-# the nightly red.
+# the nightly red. Since 2026-11-07 that's taken as a limit of the CI
+# machines (TQ-04): the same Xcode, runtime build and device pass on a Mac,
+# and Xcode 27.2, tvOS 26.0 and no result bundle all failed alike in CI
+# (TESTING.md, "Not tvOS 26.5").
 #
 # On tvOS 27.0 the same stale tree still shows up now and then: about 5% of
 # test attempts in CI see a page or a focus change late or never, spread

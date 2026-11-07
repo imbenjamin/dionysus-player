@@ -495,7 +495,7 @@ The first `develop` nightly after it (run 42142259742, 2026-11-06, at
 | tvOS: VoiceOver's announcement after a post-playback pop | Owed on the Apple TV itself; not checked. |
 | iPhone 17: Add to Playlist sheet one-off | Didn't recur. |
 | Duo: `testEmptyLibraryScenarioIsServed` and the slow-logo retries | Every Duo pose passed first time. |
-| tvOS 26.5 floor failures | Still failing: search, a grid tile, a rail tile, the player's skip (TQ-04). |
+| tvOS 26.5 floor failures | Still failing: search, a grid tile, a rail tile, the player's skip (TQ-04). Closed 2026-11-07 as a limit of CI's machines: VoiceOver is unaffected and no CI setup tried passed (`TESTING.md`, "Not tvOS 26.5"). |
 
 **What the night shows besides.** Every iOS job passed (iPhone and iPad on
 27.0 and 18.6, the Duo in every pose), with one failure absorbed by a retry

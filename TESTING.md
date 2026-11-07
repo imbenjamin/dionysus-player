@@ -623,6 +623,22 @@ for the PR plans too (a later decision, not made).
   runs nightly only, as `tvOS floor smoke tests` with `allow-failure`
   (downloading its runtime, about five minutes). When it passes, make it a PR
   check.
+
+  **Settled as a limitation of CI's machines, not chased further** (TQ-04,
+  2026-11-07). A probe of a Home tile's detail page and a sidebar move, 64
+  cases a run, read a stale tree in 69–81% of cases in CI on every setup
+  tried: Xcode 27.1 and 27.2 (27B52), with and without a result bundle, tvOS
+  26.5 (23L470) and 26.0 (23J352); switching on the Simulator's
+  `ApplicationAccessibilityEnabled`/`AutomationEnabled` made it 100%. A Mac
+  with the same Xcode, runtime build and device model saw it once in 109
+  cases. In a stale tree frames stay live (the sidebar has its open width)
+  while structure and enabled state freeze near launch: every sidebar row
+  Disabled (`railHeld`), the detail page absent. Nothing in the same launch
+  brings it back (waiting 15 s, a full snapshot, `activate()`, remote
+  presses), and a relaunch only sometimes does, so journeys can't wait it
+  out. VoiceOver isn't affected: on the 26.5 Simulator it read Resume, Search
+  and Movies right every time, by ear and in 15 scripted trials. Check floor
+  journeys on a tvOS 26.5 Simulator locally.
 - **The first test's warm-up**: on tvOS 27.0 in CI the first UI test sometimes
   read a tree seconds behind the app (PR #325), failing its retry too, while
   every later test and a job re-run passed. So before the plan the workflow
