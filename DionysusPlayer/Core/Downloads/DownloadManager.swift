@@ -171,8 +171,18 @@ final class DownloadManager: NSObject {
     /// `startVideoDownloadOverride` never construct one; `@ObservationIgnored`
     /// because `@Observable` can't make a tracked property `lazy`.
     @ObservationIgnored private lazy var backgroundSession: URLSession = {
-        URLSession(configuration: Self.makeBackgroundConfiguration(), delegate: router, delegateQueue: nil)
+        if let makeBackgroundSession { return makeBackgroundSession(router) }
+        return URLSession(configuration: Self.makeBackgroundConfiguration(), delegate: router, delegateQueue: nil)
     }()
+    /// Test seam: builds `backgroundSession` from the router instead of a real
+    /// background configuration, whose transfers run in `nsurlsessiond` out of
+    /// a test's reach. Lets `DownloadManagerBackgroundTests` hand relaunch
+    /// adoption and background-event handling a session whose task list it
+    /// controls.
+    private let makeBackgroundSession: ((URLSessionDelegate) -> URLSession)?
+    /// How long `handleBackgroundSessionEvents` waits before answering the
+    /// completion handler on its own. Injectable so a test needn't wait 25s.
+    private let backgroundEventsBackstop: Duration
     /// Item IDs whose video transfer is running: the in-flight count for
     /// `canStartAnotherDownload`, and the once-only gate that makes completion
     /// handling idempotent.
@@ -248,7 +258,9 @@ final class DownloadManager: NSObject {
         startVideoDownloadOverride: ((String, URL, String) -> Void)? = nil,
         cancelVideoDownloadOverride: ((String) -> Void)? = nil,
         reattachVideoDownloadOverride: ((String) -> Void)? = nil,
-        fetchSession: URLSession? = nil
+        fetchSession: URLSession? = nil,
+        makeBackgroundSession: ((URLSessionDelegate) -> URLSession)? = nil,
+        backgroundEventsBackstop: Duration = .seconds(25)
     ) {
         self.store = store
         self.adHocFetchSession = fetchSession ?? Self.makeAdHocFetchSession()
@@ -257,6 +269,8 @@ final class DownloadManager: NSObject {
         self.startVideoDownloadOverride = startVideoDownloadOverride
         self.cancelVideoDownloadOverride = cancelVideoDownloadOverride
         self.reattachVideoDownloadOverride = reattachVideoDownloadOverride
+        self.makeBackgroundSession = makeBackgroundSession
+        self.backgroundEventsBackstop = backgroundEventsBackstop
         super.init()
         router.onProgress = { [weak self] itemID, downloaded, expected in
             self?.handleDownloadProgress(itemID: itemID, downloaded: downloaded, expected: expected)
@@ -1005,7 +1019,7 @@ final class DownloadManager: NSObject {
     /// app still being busy and reclaims its background time more aggressively.
     /// The remaining hole — events delivered before the handler was stashed —
     /// is closed by the empty-task-list check and the timed backstop below.
-    private func handleBackgroundSessionEvents(identifier: String, completionHandler: @escaping () -> Void) {
+    func handleBackgroundSessionEvents(identifier: String, completionHandler: @escaping () -> Void) {
         guard identifier == Self.backgroundSessionIdentifier else {
             // A per-item scheme identifier: nothing left to route callbacks to,
             // but the handler must still be answered and the session reclaimed.
@@ -1033,8 +1047,9 @@ final class DownloadManager: NSObject {
         }
         // Backstop, well inside the ~30s the OS allows: answering early beats
         // leaving it unanswered on an unanticipated path.
+        let backstop = backgroundEventsBackstop
         Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(25))
+            try? await Task.sleep(for: backstop)
             self?.answerBackgroundCompletionHandler()
         }
     }
@@ -1421,6 +1436,11 @@ final class DownloadManager: NSObject {
     /// itself the moment it fires, and `delete` cancels it), so a test can wait
     /// on that instead of yielding and hoping. Compiled out of Release.
     func test_hasPendingRetry(itemID: String) -> Bool { retryTasks[itemID] != nil }
+
+    /// Items whose transfer task this manager holds, so a test can see relaunch
+    /// adoption finish: it records each adopted task here, and an adopted
+    /// row's status doesn't change. Compiled out of Release.
+    var test_trackedDownloadTaskItemIDs: Set<String> { Set(downloadTasks.keys) }
     #endif
 }
 

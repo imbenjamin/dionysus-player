@@ -1,14 +1,14 @@
 import XCTest
 @testable import Dionysus
 
-/// `DownloadManager.delete(itemID:)`'s own logic — the real download engine
-/// (background `URLSessionDownloadTask`/`AppDelegate` relaunch wiring) is
-/// explicitly not unit-tested here, per the offline-downloads plan's
-/// Testing section — Simulator background-session behavior diverges from
-/// device and `MockURLProtocol` doesn't intercept delegate-based download
-/// tasks. This exercises delete's own file-cleanup/row-survival rules
-/// directly against a real `DownloadFileStore` (cleaned up in `tearDown`)
-/// and an in-memory `DownloadStore`.
+/// `DownloadManager.delete(itemID:)`'s own logic. The real background
+/// session isn't used here: its transfers run in `nsurlsessiond`, out of
+/// `MockURLProtocol`'s reach. Relaunch adoption and background events run
+/// over an in-process session in `DownloadManagerBackgroundTests`; the OS's
+/// side stays a device check (`TESTING.md`). This exercises delete's own
+/// file-cleanup/row-survival rules directly against a real
+/// `DownloadFileStore` (cleaned up in `tearDown`) and an in-memory
+/// `DownloadStore`.
 @MainActor
 final class DownloadManagerTests: XCTestCase {
     private var touchedRelativePaths: [String] = []
