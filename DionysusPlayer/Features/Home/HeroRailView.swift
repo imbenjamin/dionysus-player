@@ -67,7 +67,7 @@ struct HeroRailView: View {
     /// its place, so the carousel stays navigable. Enforced regardless of
     /// `autoCarouselEnabled`; `manualCarouselModeEnabled` is the combined gate
     /// most of this view reads.
-    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @VoiceOverEnabled private var voiceOverEnabled
 
     /// `ProfileView`'s "Auto Carousel on Home" toggle: the manual navigation
     /// VoiceOver enforces above, as a standing preference. Its default must
@@ -235,8 +235,6 @@ struct HeroRailView: View {
         .frame(height: heroHeight)
         // For `HeroScrollEdgeScrim` on Home's scroll view.
         .preference(key: HeroHeightKey.self, value: heroHeight)
-        .accessibilityIdentifier(A11yID.Home.heroCarousel)
-        // Below the identifier, so the hero's frame doesn't take in the gap.
         .padding(.bottom, foldLayout.bottomGap)
         // `proxy.size` reports the size within the safe area, not the full
         // available width: nothing above `HeroRailView` ignores the horizontal
@@ -332,6 +330,10 @@ struct HeroRailView: View {
                 .scrollPosition(id: $scrollPosition)
                 .scrollIndicators(.hidden)
                 .scrollDisabled(items.count <= 1)
+                // On the scroll view, not the hero's `GeometryReader`: there it
+                // overwrote the Previous/Next buttons' own identifiers (TQ-12).
+                // The scroll view fills the hero, so the frame is the same.
+                .accessibilityIdentifier(A11yID.Home.heroCarousel)
                 .onChange(of: scrollPosition) { _, newValue in
                     guard let newValue else { return }
                     snapIfNeeded(from: newValue)
@@ -425,11 +427,11 @@ struct HeroRailView: View {
                 // that nothing else on this page occupies.
                 if manualCarouselModeEnabled, items.count > 1 {
                     HStack {
-                        heroNavigationButton(systemImage: "chevron.left", label: String(localized: "Previous Item")) {
+                        heroNavigationButton(systemImage: "chevron.left", label: String(localized: "Previous Item"), identifier: A11yID.Home.heroPrevious) {
                             advance(by: -1)
                         }
                         Spacer()
-                        heroNavigationButton(systemImage: "chevron.right", label: String(localized: "Next Item")) {
+                        heroNavigationButton(systemImage: "chevron.right", label: String(localized: "Next Item"), identifier: A11yID.Home.heroNext) {
                             advance(by: 1)
                         }
                     }
@@ -450,7 +452,7 @@ struct HeroRailView: View {
     }
 
     @ViewBuilder
-    private func heroNavigationButton(systemImage: String, label: String, action: @escaping () -> Void) -> some View {
+    private func heroNavigationButton(systemImage: String, label: String, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.title2)
@@ -460,6 +462,7 @@ struct HeroRailView: View {
                 .contentShape(Rectangle())
         }
         .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier)
     }
 
     /// Forces the backing `UIScrollView` to jump, unanimated, to wherever
@@ -541,7 +544,7 @@ struct HeroRailView: View {
         // transition's duration gives it a clear turn, and lands the speech as
         // the new card settles rather than mid-motion.
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.autoAdvanceAnimationDuration + 0.2) {
-            AccessibilityNotification.Announcement(description).post()
+            VoiceOverAnnouncement.post(description)
         }
     }
 

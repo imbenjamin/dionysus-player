@@ -191,6 +191,11 @@ regions). A decorative `Image(systemName:)` without
 Symbol's name. Contrast, Dynamic Type and text clipping are deliberately not
 gated (`TESTING.md`, "Accessibility audits").
 
+**A view that changes under VoiceOver reads `@VoiceOverEnabled`**, never
+`@Environment(\.accessibilityVoiceOverEnabled)`: XCUITest can't turn
+VoiceOver on, and the wrapper is what `-UITestSimulateVoiceOver` sets, so
+`VoiceOverJourneyTests` can reach the controls that only mount under it.
+
 For exploratory checks (a new design, something a journey can't express),
 prefer the `ios-simulator-skill` over coordinate taps: it drives the
 Simulator through `idb`'s accessibility tree. It needs `idb-companion`

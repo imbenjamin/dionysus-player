@@ -118,6 +118,10 @@ enum A11yID {
     enum Home {
         static let heroCarousel = "home.heroCarousel"
         static let refreshButton = "home.refreshButton"
+        /// The hero's Previous/Next buttons, shown when the carousel doesn't
+        /// advance by itself (auto-advance off, or VoiceOver running).
+        static let heroPrevious = "home.hero.previous"
+        static let heroNext = "home.hero.next"
         static let libraryRail = "home.libraryRail"
         /// Home's "Nothing here yet." state: loaded, and the server had
         /// nothing to show. Not `State.error`, which a failed load shows too.
@@ -336,6 +340,11 @@ enum A11yID {
         static let skipBackwardButton = "player.skipBackwardButton"
         /// `SkipSegmentOverlay`'s Skip Intro/Recap/Credits button.
         static let skipSegmentButton = "player.skipSegmentButton"
+        /// The VoiceOver-only button dismissing it, beside it.
+        static let skipSegmentDismissButton = "player.skipSegmentDismissButton"
+        /// The VoiceOver-only Show/Hide Player Controls button, on the leading
+        /// edge, mounted whatever `showControls` says.
+        static let voiceOverControlsButton = "player.voiceOverControlsButton"
         /// `NextUpOverlay`'s card (a container, so its buttons keep their
         /// own identifiers) and its two buttons.
         static let nextUpCard = "player.nextUp"
@@ -531,6 +540,13 @@ enum A11yID {
         static let error = "state.error"
         static let offline = "state.offline"
         static let retryButton = "state.retryButton"
+    }
+
+    /// The UI-test harness's own probes, mounted only under its launch flags.
+    enum UITest {
+        /// `UITestAnnouncementProbe`: its label is the last VoiceOver
+        /// announcement, under `-UITestSimulateVoiceOver`.
+        static let lastAnnouncement = "uitest.lastAnnouncement"
     }
 
     /// The Apple TV app's identifiers. Never on a screen-root container (see the

@@ -50,7 +50,7 @@ struct PlayerView: View {
     /// VoiceOver: it isn't enough time to swipe to a control and double-tap it
     /// before the row fades and goes `.accessibilityHidden`. Controls never
     /// auto-hide under VoiceOver, staying dismissible by blank-space tap.
-    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @VoiceOverEnabled private var voiceOverEnabled
     @State private var viewModel: PlayerViewModel?
     /// Set when `setUpIfNeeded()`'s engine construction throws. Swallowing it
     /// left this view on `LoadingView()` forever, with no `viewModel` to hold an
@@ -312,6 +312,7 @@ struct PlayerView: View {
                             ? String(localized: "Hide Player Controls")
                             : String(localized: "Show Player Controls")
                     )
+                    .accessibilityIdentifier(A11yID.Player.voiceOverControlsButton)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     .padding()
                     // Centred below a tabletop fold rather than on it.

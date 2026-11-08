@@ -25,7 +25,7 @@ struct SkipSegmentOverlay: View {
     let onSkip: (PlaybackSegment) -> Void
     let onDismiss: (PlaybackSegment) -> Void
 
-    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @VoiceOverEnabled private var voiceOverEnabled
     /// Horizontal offset the swipe-to-dismiss gesture drives. This view is never
     /// rebuilt, so it must be reset by hand whenever a different segment takes
     /// this slot, or the next one renders pre-shifted from the last gesture. See
@@ -145,6 +145,7 @@ struct SkipSegmentOverlay: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(String(localized: "Dismiss \(segment.kind.skipButtonTitle)"))
+                    .accessibilityIdentifier(A11yID.Player.skipSegmentDismissButton)
                 }
             }
         }

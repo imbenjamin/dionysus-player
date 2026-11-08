@@ -204,6 +204,13 @@ Keychain as it's made.
   `UserDefaults`' argument domain instead of driving the settings screen.
 - `-UITestAccessibleTransport YES` forces the Apple TV player's accessible
   transport, since XCUITest can run neither VoiceOver nor Switch Control.
+- `-UITestSimulateVoiceOver YES` makes the iOS app act as if VoiceOver were
+  running (`VoiceOverEnabled`, which every iOS view reads in place of the
+  read-only environment value), so the controls that only mount under it can
+  be driven. Its announcements (`VoiceOverAnnouncement.post`) are recorded as
+  the label of a one-point probe over the main app,
+  `A11yID.UITest.lastAnnouncement`; only the hero's go through it so far.
+  Nothing is spoken: it tests what the app does, not VoiceOver.
 - `-UITestCustomCaptionStyle YES` stands `SystemCaptionStyle.uiTestStyle`
   (twice the size, yellow, a window) in for the Simulator's caption settings,
   which a test can't change; the Subtitle Style journeys compare the
@@ -1082,6 +1089,7 @@ the detail.
 | `SearchJourneyTests` | No results, a long history keeping the field visible, history across a relaunch |
 | `SmokeJourneyTests` | The PR gate's journeys |
 | `StyledSubtitleJourneyTests` | Styled subtitles, the styling setting, fonts not gating the script |
+| `VoiceOverJourneyTests` | Under `-UITestSimulateVoiceOver`: the player's Show/Hide Player Controls button, Skip Intro's dismiss button, the hero's announcement on Next, Home's Refresh button; and none of them without it |
 
 ### Apple TV journeys (`DionysusTVUITests/`)
 

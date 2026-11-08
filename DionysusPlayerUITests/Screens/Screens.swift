@@ -321,6 +321,20 @@ struct HomeScreen: Screen {
     let app: XCUIApplication
 
     var heroCarousel: XCUIElement { app.descendants(matching: .any)[A11yID.Home.heroCarousel] }
+    var heroNextButton: XCUIElement { app.buttons[A11yID.Home.heroNext] }
+    /// VoiceOver-only: mounted under `-UITestSimulateVoiceOver`.
+    var refreshButton: XCUIElement { app.buttons[A11yID.Home.refreshButton] }
+    /// The harness's record of the last VoiceOver announcement, as its label.
+    /// Mounted only under `-UITestSimulateVoiceOver`.
+    var lastAnnouncement: XCUIElement { app.staticTexts[A11yID.UITest.lastAnnouncement] }
+
+    /// Every hero card's label, off-screen pages and the carousel's looping
+    /// copies included: what a hero announcement may say.
+    var heroCardLabels: Set<String> {
+        let cards = heroCarousel.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", A11yID.Media.card("")))
+        return Set(cards.allElementsBoundByIndex.map(\.label))
+    }
 
     /// The "Recently Added Movies" rail's header link (title and chevron), pushing the
     /// Movies library's collection grid. The identifier key mirrors
@@ -812,6 +826,11 @@ struct PlayerScreen: Screen {
     var skipForwardButton: XCUIElement { app.buttons[A11yID.Player.skipForwardButton] }
     var skipBackwardButton: XCUIElement { app.buttons[A11yID.Player.skipBackwardButton] }
     var skipSegmentButton: XCUIElement { app.descendants(matching: .any)[A11yID.Player.skipSegmentButton] }
+    /// VoiceOver-only, like `voiceOverControlsButton`.
+    var skipSegmentDismissButton: XCUIElement { app.buttons[A11yID.Player.skipSegmentDismissButton] }
+    /// VoiceOver-only: mounted under `-UITestSimulateVoiceOver`, whether or
+    /// not the controls are showing.
+    var voiceOverControlsButton: XCUIElement { app.buttons[A11yID.Player.voiceOverControlsButton] }
     var nextUpCard: XCUIElement { app.descendants(matching: .any)[A11yID.Player.nextUpCard] }
     var nextUpPlayNow: XCUIElement { app.buttons[A11yID.Player.nextUpPlayNow] }
     var nextUpCancel: XCUIElement { app.buttons[A11yID.Player.nextUpCancel] }

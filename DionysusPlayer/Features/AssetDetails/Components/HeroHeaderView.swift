@@ -40,7 +40,7 @@ struct HeroHeaderView: View {
     /// gets no benefit from parallax and there's no reason to keep the sensor
     /// running and `body` re-rendering at 30 Hz for them.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @VoiceOverEnabled private var voiceOverEnabled
     @AppStorage(hero3DDepthEnabledStorageKey) private var depthEffectPreference = true
     private var is3DDepthEnabled: Bool { depthEffectPreference && !reduceMotion && !voiceOverEnabled }
     /// Whether this view instance has an outstanding `tiltObserver.acquire()`,

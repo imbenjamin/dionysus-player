@@ -84,6 +84,12 @@ enum UITestHarness {
         UITestConfiguration.isActive && UITestConfiguration.disablesControlAutoHide
     }
 
+    /// Whether `VoiceOverEnabled` reads `true` with VoiceOver off. Also turns on
+    /// `UITestAnnouncementLog`, so a test can read what would have been spoken.
+    nonisolated static var simulatesVoiceOver: Bool {
+        UITestConfiguration.isActive && UITestConfiguration.simulatesVoiceOver
+    }
+
     /// Holds the pre-sign-in journey's ambient motion still — the drifting
     /// background and the scan radar. Continuously
     /// redrawing views keep the accessibility tree in motion under every
