@@ -29,9 +29,9 @@ final class TopShelfArtworkLayoutTests: XCTestCase {
         XCTAssertEqual(wide.minX, tall.minX, accuracy: 0.5)
     }
 
-    private static func jpeg(width: Int, height: Int) -> Data {
+    private static func jpeg(width: Int, height: Int, color: UIColor = .gray) -> Data {
         UIGraphicsImageRenderer(size: CGSize(width: width, height: height)).jpegData(withCompressionQuality: 0.8) { context in
-            UIColor.gray.setFill()
+            color.setFill()
             context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         }
     }
@@ -66,12 +66,40 @@ final class TopShelfArtworkLayoutTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(UIImage(data: data)).size, CGSize(width: 1280, height: 720))
     }
 
-    func test_render_withALogo() throws {
-        let logo = UIGraphicsImageRenderer(size: CGSize(width: 400, height: 100)).pngData { _ in }
-        XCTAssertNotNil(TopShelfArtworkRenderer.render(
-            backdrop: Self.jpeg(width: 1920, height: 1080), logo: logo,
-            title: "Arrival", context: "Next Up", remaining: nil
+    /// A solid red logo lands, red, in its box, and the name isn't drawn
+    /// there instead (TQ-22: this only checked that some image came back).
+    func test_render_withALogo_drawsItInTheLogoBox() throws {
+        // Square, so it fills only the box's leading 200 points and leaves
+        // room beside it where a name drawn as well would show.
+        let logoSize = CGSize(width: 100, height: 100)
+        let logo = UIGraphicsImageRenderer(size: logoSize).pngData { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(origin: .zero, size: logoSize))
+        }
+        let data = try XCTUnwrap(TopShelfArtworkRenderer.render(
+            backdrop: Self.jpeg(width: 1920, height: 1080, color: .black), logo: logo,
+            title: "Arrival", context: "Next Up", remaining: nil, pixelWidth: 1280
         ))
+        let pixels = try XCTUnwrap(RenderedPixels(data))
+        let box = TopShelfArtworkLayout.logoRect(logoSize: logoSize)
+        let centre = pixels.colour(at: CGPoint(x: box.midX, y: box.midY))
+        XCTAssertGreaterThan(centre.red, 200, "The logo's red, at \(centre)")
+        XCTAssertLessThan(centre.green, 60)
+        XCTAssertLessThan(centre.blue, 60)
+        // Beside the logo, the name's box stays the backdrop's black: no
+        // white title drawn as well.
+        let besideLogo = CGRect(x: box.maxX + 10, y: box.minY, width: 200, height: box.height)
+        XCTAssertLessThan(pixels.brightest(in: besideLogo), 60)
+    }
+
+    /// Without a logo, the name is drawn in white in the logo's box.
+    func test_render_withoutALogo_drawsTheName() throws {
+        let data = try XCTUnwrap(TopShelfArtworkRenderer.render(
+            backdrop: Self.jpeg(width: 1920, height: 1080, color: .black), logo: nil,
+            title: "Arrival", context: "Next Up", remaining: nil, pixelWidth: 1280
+        ))
+        let pixels = try XCTUnwrap(RenderedPixels(data))
+        XCTAssertGreaterThan(pixels.brightest(in: TopShelfArtworkLayout.logoRect(logoSize: .zero)), 220)
     }
 
     func test_render_isNil_forBytesThatArentAnImage() {
@@ -111,5 +139,58 @@ final class TopShelfArtworkStoreTests: XCTestCase {
         store.prune(keeping: ["k2"])
         XCTAssertNil(store.existing(for: "k1"))
         XCTAssertNotNil(store.existing(for: "k2"))
+    }
+}
+
+/// A rendered Top Shelf image's pixels, read in `TopShelfArtworkLayout`'s
+/// 1920-point top-left space whatever the image's pixel width, so a test can
+/// look inside the layout's own rects.
+struct RenderedPixels {
+    struct Colour { let red, green, blue: Int }
+
+    private let bytes: [UInt8]
+    private let width: Int
+    private let height: Int
+
+    init?(_ data: Data) {
+        guard let image = UIImage(data: data)?.cgImage,
+              let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        let width = image.width, height = image.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = bytes.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                bytesPerRow: width * 4, space: space, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+            ) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return nil }
+        self.bytes = bytes
+        self.width = width
+        self.height = height
+    }
+
+    /// The pixel at a point of the 1920 layout. Row 0 of the buffer is the
+    /// image's top.
+    func colour(at point: CGPoint) -> Colour {
+        let scale = CGFloat(width) / TopShelfArtworkLayout.canvas.width
+        let x = min(width - 1, max(0, Int(point.x * scale)))
+        let y = min(height - 1, max(0, Int(point.y * scale)))
+        let offset = (y * width + x) * 4
+        return Colour(red: Int(bytes[offset]), green: Int(bytes[offset + 1]), blue: Int(bytes[offset + 2]))
+    }
+
+    /// The brightest channel value of any pixel in a rect of the 1920 layout.
+    func brightest(in rect: CGRect) -> Int {
+        let scale = CGFloat(width) / TopShelfArtworkLayout.canvas.width
+        var brightest = 0
+        for y in Int(rect.minY * scale)..<min(height, Int(rect.maxY * scale)) {
+            for x in Int(rect.minX * scale)..<min(width, Int(rect.maxX * scale)) {
+                let offset = (y * width + x) * 4
+                brightest = max(brightest, Int(bytes[offset]), Int(bytes[offset + 1]), Int(bytes[offset + 2]))
+            }
+        }
+        return brightest
     }
 }

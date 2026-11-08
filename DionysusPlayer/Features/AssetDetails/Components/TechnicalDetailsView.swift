@@ -49,8 +49,8 @@ struct TechnicalDetailsView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
-                    if let container = details.container { SummaryRow(label: "Container", value: container) }
-                    if let codec = details.videoCodec { SummaryRow(label: "Video Codec", value: codec) }
+                    if let container = details.container { SummaryRow(label: "Container", value: container, valueIdentifier: A11yID.AssetDetail.detailsContainer) }
+                    if let codec = details.videoCodec { SummaryRow(label: "Video Codec", value: codec, valueIdentifier: A11yID.AssetDetail.detailsVideoCodec) }
                     if let resolution = details.resolution { SummaryRow(label: "Resolution", value: resolution) }
                     if let frameRate = details.frameRate { SummaryRow(label: "Frame Rate", value: frameRate) }
                     if let dynamicRange = details.dynamicRange { SummaryRow(label: "Dynamic Range", value: dynamicRange) }

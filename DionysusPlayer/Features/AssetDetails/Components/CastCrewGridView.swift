@@ -62,5 +62,6 @@ private struct CastMemberCard: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
+        .accessibilityIdentifier(A11yID.AssetDetail.castMember(person.id))
     }
 }

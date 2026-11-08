@@ -34,6 +34,34 @@ final class AssetDetailJourneyTests: UITestCase {
         XCTAssertEqual(detail.watchedButton.label, "Mark as Unwatched")
     }
 
+    /// The Cast & Crew and Details tabs (TQ-19): each shows its own content
+    /// and drops the About tab's. Every fixture movie credits three people
+    /// and has one MKV source (`UITestFixtureLibrary`).
+    func testCastAndDetailsTabsShowTheirContent() {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+
+        let detail = AssetDetailScreen(app: app)
+        detail.synopsis.awaitExistence("the About tab's synopsis")
+        XCTAssertEqual(detail.castMembers.count, 0)
+
+        detail.openTab("cast")
+        detail.castMembers.firstMatch.awaitExistence("a Cast & Crew card")
+        XCTAssertEqual(detail.castMembers.count, 3)
+        XCTAssertFalse(detail.synopsis.exists)
+
+        detail.openTab("details")
+        detail.detailsContainer.awaitExistence("the Details tab's container")
+        XCTAssertEqual(detail.detailsContainer.label, "MKV")
+        XCTAssertTrue(detail.detailsVideoCodec.exists)
+        XCTAssertEqual(detail.castMembers.count, 0)
+
+        detail.openTab("about")
+        detail.synopsis.awaitExistence("the synopsis, back on About")
+    }
+
     /// The one part-watched fixture movie shows Resume (not Play) alongside
     /// a Restart button — `PlayResumeButtonRow`'s `canResume` branch. The
     /// fixture is played with a position (a rewatch stopped partway), which

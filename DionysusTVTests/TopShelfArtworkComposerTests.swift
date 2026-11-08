@@ -61,7 +61,11 @@ final class TopShelfArtworkComposerTests: XCTestCase {
             return MockURLProtocol.jsonResponse(for: request, status: isLogo ? 404 : 200, body: isLogo ? Data() : Self.png)
         }
         let art = await TopShelfArtworkComposer.artwork(for: entries(), store: store, session: MockURLProtocol.makeSession())
-        XCTAssertNotNil(art["m1"])
+        let url = try XCTUnwrap(art["m1"])
+        // White text in the logo's box, over a mid-grey backdrop the wash
+        // only darkens (TQ-22: this only checked that some art came back).
+        let pixels = try XCTUnwrap(RenderedPixels(Data(contentsOf: url)))
+        XCTAssertGreaterThan(pixels.brightest(in: TopShelfArtworkLayout.logoRect(logoSize: .zero)), 220)
     }
 
     /// A render that killed the extension (Bedroom, 2026-10-14) would kill
