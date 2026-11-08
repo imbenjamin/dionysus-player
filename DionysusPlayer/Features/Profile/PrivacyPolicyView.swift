@@ -77,6 +77,7 @@ struct PrivacyPolicyView: View {
     var body: some View {
         ScrollView {
             Text(privacyText)
+                .accessibilityIdentifier(A11yID.About.privacyPolicyText)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
         }

@@ -29,6 +29,11 @@ struct DownloadsQualityLadderView: View {
     /// `commitIfValid(_:for:)`/`reset(_:_:)`/`resetAll()` write to the store.
     @State private var editedKbpsText: [String: String] = [:]
     @State private var isConfirmingResetAll = false
+    /// The cell being edited, by `cellKey`. Dropped by both resets: on
+    /// iPadOS 27.2 the number pad is a popover that comes back with the
+    /// confirmation dialog while its field keeps focus, and the dialog's
+    /// button tap then only closes the pad, resetting nothing (TQ-11).
+    @FocusState private var focusedCell: String?
 
     private func cellKey(_ resolution: DownloadResolution, _ preset: DownloadBitratePreset) -> String {
         "\(resolution.rawValue).\(preset.rawValue)"
@@ -133,10 +138,12 @@ struct DownloadsQualityLadderView: View {
             // reset reads in iOS Settings.
             ToolbarItem(placement: .primaryAction) {
                 Button("Reset All", systemImage: "arrow.counterclockwise", role: .destructive) {
+                    focusedCell = nil
                     isConfirmingResetAll = true
                 }
                 .toolbarTitleUnlessVertical()
                 .disabled(!store.hasAnyOverride)
+                .accessibilityIdentifier(A11yID.DownloadsSettings.ladderResetAll)
             }
         }
         .confirmationDialog(
@@ -145,6 +152,7 @@ struct DownloadsQualityLadderView: View {
             titleVisibility: .visible
         ) {
             Button("Reset All to Defaults", role: .destructive) { resetAll() }
+                .accessibilityIdentifier(A11yID.DownloadsSettings.ladderResetAllConfirm)
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This clears every custom bitrate you've set above. It can't be undone.")
@@ -172,7 +180,9 @@ struct DownloadsQualityLadderView: View {
                     .keyboardType(.numberPad)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 64)
+                    .focused($focusedCell, equals: cellKey(resolution, preset))
                     .accessibilityLabel(Text("\(preset.displayName) bitrate, in kilobits per second"))
+                    .accessibilityIdentifier(A11yID.DownloadsSettings.ladderField(resolution.rawValue, preset.rawValue))
                 // A decorative unit suffix, hidden rather than read as a second
                 // element.
                 Text("Kbps")
@@ -181,12 +191,18 @@ struct DownloadsQualityLadderView: View {
             }
             if isOverridden {
                 Button {
+                    focusedCell = nil
                     reset(resolution, preset)
                 } label: {
+                    // The glyph alone was a 20pt target, which the
+                    // accessibility audit flags (TQ-11); 44pt is the minimum.
                     Image(systemName: "arrow.uturn.backward.circle")
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
                 .accessibilityLabel(Text("Reset \(preset.displayName) to Default"))
+                .accessibilityIdentifier(A11yID.DownloadsSettings.ladderReset(resolution.rawValue, preset.rawValue))
             }
         }
     }

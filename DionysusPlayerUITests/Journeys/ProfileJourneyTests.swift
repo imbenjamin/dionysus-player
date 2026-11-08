@@ -1,9 +1,8 @@
 import XCTest
 
-/// Profile coverage: the two destructive account actions reachable through
-/// the account card (`ProfileScreen`'s doc comment explains why this
-/// stays scoped to just those — the rest of Profile forks by device in a
-/// way this suite doesn't yet absorb).
+/// Profile coverage: the Playback settings, Quick Connect approval, the
+/// account actions, and the Downloads and About pages. `ProfileScreen`
+/// absorbs the iPad's split layout, where each section is a pane.
 final class ProfileJourneyTests: UITestCase {
     /// The stepper steps 10 ms; Reset shows only off 0 ms.
     func testAudioOffsetStepperAndReset() {
@@ -187,5 +186,105 @@ final class ProfileJourneyTests: UITestCase {
 
         ServerSetupScreen(app: app).awaitLoaded()
         XCTAssertFalse(app.descendants(matching: .any)[A11yID.Profile.accountSheet].exists)
+    }
+
+    // MARK: - Downloads settings and About (TQ-11)
+
+    /// Simultaneous Downloads is 3 by default and its slider's far left is
+    /// Unlimited; Wi-Fi Only starts on and turns off.
+    func testDownloadsSettingsSliderReachesUnlimited() {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        let settings = ProfileScreen(app: app).openDownloadsSettings()
+
+        let slider = settings.simultaneousSlider.awaitExistence("the Simultaneous Downloads slider")
+        XCTAssertEqual(slider.value as? String, "3")
+        slider.adjust(toNormalizedSliderPosition: 0)
+        XCTAssertEqual(slider.value as? String, "Unlimited")
+
+        let wifiOnly = settings.wifiOnlyToggle
+        XCTAssertEqual(wifiOnly.value as? String, "1", "Wi-Fi Only is on by default")
+        wifiOnly.switches.firstMatch.tap()
+        XCTAssertEqual(wifiOnly.value as? String, "0")
+    }
+
+    /// A ladder override shows in Downloads settings' Quality on return; a
+    /// cell's reset puts back its default, and Reset All, once confirmed,
+    /// every cell's.
+    func testQualityLadderOverrideShowsInDownloadsSettingsAndResets() {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        let settings = ProfileScreen(app: app).openDownloadsSettings()
+        let defaultQuality = settings.qualityReading
+
+        let ladder = settings.openQualityLadder()
+        let resolution = QualityLadderScreen.defaultResolution
+        let field = ladder.revealField(resolution, "normal")
+        let defaultKbps = field.value as? String
+        XCTAssertFalse(ladder.resetAll.isEnabled, "Nothing to reset yet")
+
+        ladder.type("2000", into: field)
+        XCTAssertEqual(field.value as? String, "2000")
+        ladder.resetButton(resolution, "normal").awaitExistence("the cell's reset, once overridden")
+        ladder.dismissNumberPad(from: field)
+        XCTAssertTrue(ladder.resetAll.isEnabled)
+
+        app.navigationBackButton.tap()
+        settings.qualityPicker.awaitExistence("Downloads settings, back from the ladder")
+        let showsOverride = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in settings.qualityReading != defaultQuality }, object: nil
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [showsOverride], timeout: 5), .completed,
+            "Quality should show the override, still \(defaultQuality)"
+        )
+
+        settings.openQualityLadder()
+        _ = ladder.revealField(resolution, "normal")
+        ladder.resetButton(resolution, "normal").tap()
+        XCTAssertEqual(field.value as? String, defaultKbps)
+        ladder.resetButton(resolution, "normal").awaitDisappearance("the cell's reset, back at its default")
+        XCTAssertFalse(ladder.resetAll.isEnabled)
+
+        ladder.type("2000", into: field)
+        ladder.dismissNumberPad(from: field)
+        ladder.resetAll.tap()
+        ladder.resetAllConfirm.awaitExistence("Reset All's confirmation").tap()
+        XCTAssertEqual(field.value as? String, defaultKbps)
+        XCTAssertFalse(ladder.resetAll.isEnabled)
+
+        app.navigationBackButton.tap()
+        settings.qualityPicker.awaitExistence("Downloads settings, after Reset All")
+        XCTAssertEqual(settings.qualityReading, defaultQuality)
+    }
+
+    /// License opens on the app's own licence, with a heading per bundled
+    /// library (`LicenseDocumentTests` checks which).
+    func testLicenseShowsTheAppsLicenceAndEachLibrary() {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).openAboutPage(A11yID.Profile.licenseLink)
+
+        let appLicense = app.staticTexts[A11yID.About.appLicense].awaitExistence("the app's licence")
+        XCTAssertTrue(appLicense.label.contains("GNU GENERAL PUBLIC LICENSE"), "The app's own licence (GPLv3) comes first")
+        for library in ["AetherEngine", "FFmpeg"] {
+            app.staticTexts[A11yID.About.licenseComponent(library)].awaitExistence("the \(library) heading")
+        }
+    }
+
+    /// Privacy Policy renders the bundled `PRIVACY.md`, not its fallback.
+    func testPrivacyPolicyShowsTheBundledPolicy() {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).openAboutPage(A11yID.Profile.privacyPolicyLink)
+
+        let policy = app.staticTexts[A11yID.About.privacyPolicyText].awaitExistence("the privacy policy")
+        // Its first heading, in the document rather than the app's strings.
+        XCTAssertTrue(policy.label.contains("Privacy Policy"), "Got: \(policy.label.prefix(80))")
+        XCTAssertGreaterThan(policy.label.count, 1_000, "The whole policy, not the unavailable message")
     }
 }

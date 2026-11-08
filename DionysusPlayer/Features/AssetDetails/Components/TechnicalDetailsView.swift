@@ -92,17 +92,28 @@ struct SummaryRow: View {
     /// Quality/File Size) leaves `value` read exactly as VoiceOver would
     /// unprompted.
     var accessibilityValue: String? = nil
+    /// On the value's own `Text`, never the row: an identifier on the
+    /// `HStack` can overwrite its children's (see `A11yID`).
+    var valueIdentifier: String? = nil
 
     var body: some View {
         HStack {
             Text(label)
                 .foregroundStyle(.secondary)
             Spacer()
-            Text(value)
-                .multilineTextAlignment(.trailing)
-                .accessibilityLabel(accessibilityValue ?? value)
+            if let valueIdentifier {
+                valueText.accessibilityIdentifier(valueIdentifier)
+            } else {
+                valueText
+            }
         }
         .font(.subheadline)
+    }
+
+    private var valueText: some View {
+        Text(value)
+            .multilineTextAlignment(.trailing)
+            .accessibilityLabel(accessibilityValue ?? value)
     }
 }
 

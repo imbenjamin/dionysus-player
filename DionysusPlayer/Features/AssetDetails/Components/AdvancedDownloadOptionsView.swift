@@ -108,12 +108,16 @@ struct AdvancedDownloadOptionsView: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    .accessibilityIdentifier(A11yID.AdvancedDownloadOptions.resolutionPicker)
                     Picker("Quality", selection: $preset) {
                         ForEach(DownloadBitratePreset.allCases) { preset in
-                            Text(preset.displayName(bitrate: ladder.videoBitrate(resolution: resolution, preset: preset))).tag(preset)
+                            Text(preset.displayName(bitrate: ladder.videoBitrate(resolution: resolution, preset: preset)))
+                                .accessibilityIdentifier(A11yID.AdvancedDownloadOptions.qualityOption(preset.rawValue))
+                                .tag(preset)
                         }
                     }
                     .pickerStyle(.menu)
+                    .accessibilityIdentifier(A11yID.AdvancedDownloadOptions.qualityPicker)
                     // Omitted entirely, not shown as "—", when there's
                     // nothing to estimate from — a dash reads as a loading
                     // state that never resolves, worse than no row at all.
@@ -121,7 +125,8 @@ struct AdvancedDownloadOptionsView: View {
                         SummaryRow(
                             label: String(localized: "Estimated Size"),
                             value: estimatedSizeText,
-                            accessibilityValue: estimatedSizeAccessibilityText
+                            accessibilityValue: estimatedSizeAccessibilityText,
+                            valueIdentifier: A11yID.AdvancedDownloadOptions.estimatedSize
                         )
                     }
                 } footer: {
@@ -139,6 +144,7 @@ struct AdvancedDownloadOptionsView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", systemImage: "xmark", role: .cancel) { dismiss() }
                         .toolbarTitleUnlessVertical()
+                        .accessibilityIdentifier(A11yID.AdvancedDownloadOptions.cancelButton)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Download", systemImage: "arrow.down.circle") {
@@ -146,6 +152,7 @@ struct AdvancedDownloadOptionsView: View {
                         dismiss()
                     }
                     .toolbarTitleUnlessVertical()
+                    .accessibilityIdentifier(A11yID.AdvancedDownloadOptions.downloadButton)
                 }
             }
         }

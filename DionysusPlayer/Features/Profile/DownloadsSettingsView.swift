@@ -35,10 +35,15 @@ struct DownloadsSettingsView: View {
         DeviceStorageBreakdown.current()
     }
 
-    /// A fresh read on every access, like `storageBreakdown`, so a ladder override
-    /// made on the pushed Advanced screen appears on return with no observation
-    /// wiring.
+    /// A fresh read on every access, like `storageBreakdown`.
     private var qualityLadder: DownloadQualityLadderStore { DownloadQualityLadderStore() }
+
+    /// The ladder's overrides, watched so the Quality picker can be rebuilt
+    /// (`.id`) when the pushed Advanced screen changes a cell. The menu
+    /// picker keeps the text of its selected option while the selection
+    /// stays the same, so without it Quality kept showing the old bitrate on
+    /// return (found by TQ-11's journey).
+    @AppStorage(DownloadQualityLadderStore.storageKey) private var ladderOverrides: Data?
 
     /// "Unlimited" at the slider's `0` position, else the plain count, mirroring
     /// `DownloadPreferencesStore.maxConcurrentDownloads`.
@@ -80,6 +85,7 @@ struct DownloadsSettingsView: View {
                         Text(resolution.pickerDisplayName).tag(resolution)
                     }
                 }
+                .accessibilityIdentifier(A11yID.DownloadsSettings.resolutionPicker)
                 Picker("Quality", selection: $downloadBitratePreset) {
                     ForEach(DownloadBitratePreset.allCases) { preset in
                         let bitrate = qualityLadder.videoBitrate(resolution: downloadResolution, preset: preset)
@@ -88,6 +94,9 @@ struct DownloadsSettingsView: View {
                             .tag(preset)
                     }
                 }
+                .accessibilityIdentifier(A11yID.DownloadsSettings.qualityPicker)
+                // See `ladderOverrides`.
+                .id(ladderOverrides)
                 // See `ProfileView`'s "Advanced" link: two screens share this
                 // title, and only the identifier distinguishes them.
                 NavigationLink("Advanced") {
@@ -112,8 +121,10 @@ struct DownloadsSettingsView: View {
                     // the "Unlimited" the `LabeledContent` shows there.
                     .accessibilityLabel(String(localized: "Simultaneous Downloads"))
                     .accessibilityValue(downloadMaxConcurrentDisplayText)
+                    .accessibilityIdentifier(A11yID.DownloadsSettings.simultaneousSlider)
                 }
                 Toggle("Wi-Fi Only", isOn: $downloadWifiOnly)
+                    .accessibilityIdentifier(A11yID.DownloadsSettings.wifiOnlyToggle)
             } header: {
                 Text("Quality & Network")
             } footer: {

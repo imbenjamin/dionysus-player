@@ -440,6 +440,49 @@ enum A11yID {
         static let privacyPolicyLink = "profile.privacyPolicyLink"
     }
 
+    /// Profile → Downloads (`DownloadsSettingsView`), and the quality ladder
+    /// pushed from its Advanced link (`DownloadsQualityLadderView`).
+    enum DownloadsSettings {
+        static let resolutionPicker = "downloadsSettings.resolution"
+        static let qualityPicker = "downloadsSettings.quality"
+        static let simultaneousSlider = "downloadsSettings.simultaneous"
+        static let wifiOnlyToggle = "downloadsSettings.wifiOnly"
+        /// A ladder cell's Kbps field, and the reset button shown beside it
+        /// while it's overridden. Keyed by the raw values of
+        /// `DownloadResolution` and `DownloadBitratePreset`.
+        static func ladderField(_ resolution: String, _ preset: String) -> String {
+            "downloadsSettings.ladder.\(resolution).\(preset).field"
+        }
+        static func ladderReset(_ resolution: String, _ preset: String) -> String {
+            "downloadsSettings.ladder.\(resolution).\(preset).reset"
+        }
+        static let ladderResetAll = "downloadsSettings.ladder.resetAll"
+        /// The confirmation dialog's own Reset All to Defaults.
+        static let ladderResetAllConfirm = "downloadsSettings.ladder.resetAll.confirm"
+    }
+
+    /// The sheet a long press on a detail page's Download button opens
+    /// (`AdvancedDownloadOptionsView`).
+    enum AdvancedDownloadOptions {
+        static let resolutionPicker = "advancedDownload.resolution"
+        static let qualityPicker = "advancedDownload.quality"
+        /// A Quality menu option, by `DownloadBitratePreset`'s raw value.
+        static func qualityOption(_ preset: String) -> String { "advancedDownload.quality.\(preset)" }
+        /// The Estimated Size row's value.
+        static let estimatedSize = "advancedDownload.estimatedSize"
+        static let downloadButton = "advancedDownload.download"
+        static let cancelButton = "advancedDownload.cancel"
+    }
+
+    /// Profile → About's License and Privacy Policy pages.
+    enum About {
+        /// The app's own licence text, first on the License page.
+        static let appLicense = "about.license.app"
+        /// A bundled library's heading on the License page, by its name.
+        static func licenseComponent(_ name: String) -> String { "about.license.component.\(name)" }
+        static let privacyPolicyText = "about.privacyPolicy.text"
+    }
+
     /// Shared across every surface that renders a media tile, so a test can
     /// address one specific item wherever it appears.
     /// Approving another device's code, pushed from the Account screen.

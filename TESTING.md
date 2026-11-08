@@ -487,7 +487,10 @@ it; everything in the modal is still audited.
    button was. The helper waits for the keyboard first, then a still frame.
    The iPad's number pad is a popover from 27.2, whose first outside tap only
    closes it, so a screen typed into on it submits by itself (the Quick
-   Connect approval code) or the audit closes it first.
+   Connect approval code) or the audit closes it first. Closing it leaves
+   the field focused, and the pad comes back with the next dialog, eating
+   that dialog's tap too: a button that opens a dialog over a field drops
+   its focus first (`DownloadsQualityLadderView`'s Reset All).
 
 **An intermittent failure may be a crash, not flake.** The tell is an empty
 `app.debugDescription` (`Query chain: Find: Target Application`) with
