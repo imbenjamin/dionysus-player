@@ -163,6 +163,32 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen()
     }
 
+    /// The movie page's Cast & Crew and Details tabs, which the audit above
+    /// (on About) never sees (TQ-19).
+    func testMovieCastTabHasNoAccessibilityIssues() throws {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+        let detail = AssetDetailScreen(app: app)
+        detail.openTab("cast")
+        detail.castMembers.firstMatch.awaitExistence("a Cast & Crew card")
+
+        try auditCurrentScreen()
+    }
+
+    func testMovieDetailsTabHasNoAccessibilityIssues() throws {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+        let detail = AssetDetailScreen(app: app)
+        detail.openTab("details")
+        detail.detailsContainer.awaitExistence("the Details tab's container")
+
+        try auditCurrentScreen()
+    }
+
     /// The show layout is structurally different from the movie one — a
     /// season picker and an episode list rather than a single action row —
     /// so it is audited separately rather than treated as the same screen.
@@ -313,10 +339,13 @@ final class AccessibilityAuditTests: UITestCase {
         // "Potentially inaccessible text" with no element attached, so the
         // result depended on how many rows sit above it. At the end the
         // list's bottom inset keeps every line clear of the bar.
+        // `scrollSettings()`, never `app.swipeUp()`: on the Duo that starts
+        // on the fold and scrolls nothing (TQ-18).
+        let profile = ProfileScreen(app: app)
         let lastRow = app.descendants(matching: .any)[A11yID.Profile.privacyPolicyLink]
         for _ in 0..<8 {
             let before = lastRow.exists ? lastRow.frame : .zero
-            app.swipeUp()
+            profile.scrollSettings()
             if lastRow.exists, lastRow.frame == before { break }
         }
 

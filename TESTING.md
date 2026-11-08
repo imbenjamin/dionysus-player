@@ -1068,7 +1068,7 @@ the detail.
 | --- | --- |
 | `AccessibilityAuditTests` | The structural audit over every screen |
 | `AddToPlaylistJourneyTests` | Adding to a playlist: the editable filter, confirmations, creating one |
-| `AssetDetailJourneyTests` | The detail layouts (favourite and watched, resume, episodes, box sets, playlists), deletion and its permission gate, deleting a season (folderless too), removing a playlist item |
+| `AssetDetailJourneyTests` | The detail layouts (favourite and watched, resume, episodes, box sets, playlists), the Cast & Crew and Details tabs, deletion and its permission gate, deleting a season (folderless too), removing a playlist item |
 | `AuthJourneyTests` | Welcome, server setup, discovery, the HTTP fallback, every sign-in path |
 | `CollectionJourneyTests` | Grid filters (combined, never emptying the grid), Random |
 | `DuoFoldJourneyTests` | The iPhone Duo's fold layouts checked against the fold in their pose: the player (tabletop, book), the detail spread (book), Home's hero (tabletop), Search's empty state (book, tabletop); skipped elsewhere |

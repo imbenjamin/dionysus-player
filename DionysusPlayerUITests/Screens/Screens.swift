@@ -625,6 +625,28 @@ struct AssetDetailScreen: Screen {
         playButton.tap()
     }
 
+    /// `DetailTabsView`'s segment by `A11yID.AssetDetail.tab(_:)`'s name.
+    func tab(_ name: String) -> XCUIElement { app.buttons[A11yID.AssetDetail.tab(name)] }
+
+    /// Every Cast & Crew card on the page.
+    var castMembers: XCUIElementQuery {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", A11yID.AssetDetail.castMember("")))
+    }
+    var detailsContainer: XCUIElement { app.staticTexts[A11yID.AssetDetail.detailsContainer] }
+    var detailsVideoCodec: XCUIElement { app.staticTexts[A11yID.AssetDetail.detailsVideoCodec] }
+
+    /// Scrolls the tabs into view, then taps one. The swipe is on the About
+    /// tab's synopsis, never `app.swipeUp()`, which on the Duo starts on the
+    /// fold; the tabs fill only part of a phone's first screen below the hero.
+    func openTab(_ name: String, file: StaticString = #filePath, line: UInt = #line) {
+        awaitLoaded(file: file, line: line)
+        let segment = tab(name)
+        segment.awaitExistence("the \(name) tab", file: file, line: line)
+        for _ in 0..<4 where !segment.isHittable && synopsis.exists { synopsis.swipeUp() }
+        segment.tap()
+    }
+
     /// One playlist member row — see `A11yID.Playlist.row(_:)`'s doc
     /// comment for why this needs its own identifier rather than being
     /// found by label.

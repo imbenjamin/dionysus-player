@@ -1306,19 +1306,30 @@ final class PlayerViewModelTests: XCTestCase {
     /// used to always attempt `reportPlaybackStopped` regardless, which
     /// `sendRaw`'s own 20s timeout race turned into a real, user-visible
     /// stall on every close path while genuinely offline (confirmed live:
-    /// tapping Close read as completely unresponsive). Fails
-    /// loudly (via a request handler that throws) rather than merely
-    /// asserting the field-of-interest, so a regression that reintroduces
-    /// the network call shows up as a hard failure here, not just a slow
-    /// test.
+    /// tapping Close read as completely unresponsive).
+    ///
+    /// Playback starts first, so a stop report would otherwise be due
+    /// (`test_stop_reportsCurrentPositionAsTicksAndStopsEngine`): only the
+    /// offline guard can skip it. Without the start, the "nothing reported
+    /// as started" guard skipped it too and the test couldn't fail (TQ-17).
     func test_stop_whileOffline_skipsNetworkCallAndStillStopsEngine() async {
         let (viewModel, engine) = makeViewModel()
+        stubStart(itemDto: BaseItemDto(id: "item-1", name: "Arrival", type: .movie), mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")])
+        await viewModel.start()
+        engine.onTimeUpdate?(75, 5400)
+
         ConnectivityMonitor.shared.reportFailure()
-        MockURLProtocol.requestHandler = { _ in throw URLError(.notConnectedToInternet) }
+        XCTAssertTrue(ConnectivityMonitor.shared.isOffline)
+        var requestedPaths: [String] = []
+        MockURLProtocol.requestHandler = { request in
+            requestedPaths.append(request.url?.path ?? "?")
+            throw URLError(.notConnectedToInternet)
+        }
 
         await viewModel.stop()
 
         XCTAssertEqual(engine.stopCallCount, 1)
+        XCTAssertFalse(requestedPaths.contains("/Sessions/Playing/Stopped"), "Sent while offline: \(requestedPaths)")
     }
 
     // MARK: engine → ViewModel callbacks

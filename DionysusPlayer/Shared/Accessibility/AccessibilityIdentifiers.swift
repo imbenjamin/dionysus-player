@@ -181,6 +181,15 @@ enum A11yID {
         /// is, so its absence on a playlist without a description proves the
         /// whole panel was left out (see `PlaylistDetailView`).
         static let synopsis = "assetDetail.synopsis"
+        /// `DetailTabsView`'s segmented About / Cast & Crew / Details picker.
+        static let tabPicker = "assetDetail.tabPicker"
+        /// One of `tabPicker`'s segments: `about`, `cast` or `details`.
+        static func tab(_ name: String) -> String { "assetDetail.tab.\(name)" }
+        /// A Cast & Crew card, by the person's id.
+        static func castMember(_ personID: String) -> String { "assetDetail.castMember.\(personID)" }
+        /// The Details tab's Container and Video Codec values.
+        static let detailsContainer = "assetDetail.details.container"
+        static let detailsVideoCodec = "assetDetail.details.videoCodec"
         /// `SeasonEpisodeList`'s empty state, for a season holding no episodes.
         static let noEpisodesMessage = "assetDetail.noEpisodesMessage"
 

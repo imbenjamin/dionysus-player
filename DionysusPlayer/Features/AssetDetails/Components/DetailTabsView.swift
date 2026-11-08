@@ -10,6 +10,15 @@ struct DetailTabsView: View {
         case cast = "Cast & Crew"
         case details = "Details"
         var id: String { rawValue }
+
+        /// Not `rawValue`, which is the English segment title.
+        var identifier: String {
+            switch self {
+            case .about: A11yID.AssetDetail.tab("about")
+            case .cast: A11yID.AssetDetail.tab("cast")
+            case .details: A11yID.AssetDetail.tab("details")
+            }
+        }
     }
 
     let item: MediaItem
@@ -44,11 +53,14 @@ struct DetailTabsView: View {
             if availableTabs.count > 1 {
                 Picker("Section", selection: $selectedTab) {
                     ForEach(availableTabs) { tab in
-                        Text(tab.rawValue).tag(tab)
+                        Text(tab.rawValue)
+                            .accessibilityIdentifier(tab.identifier)
+                            .tag(tab)
                     }
                 }
                 .pickerStyle(.segmented)
                 .tint(.dionysusPrimary)
+                .accessibilityIdentifier(A11yID.AssetDetail.tabPicker)
             }
 
             switch selectedTab {
