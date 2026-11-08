@@ -162,6 +162,10 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             }
             return
         }
+        if scenario == .revokedSessions, path.hasSuffix("/Users/AuthenticateByName") || path.hasSuffix("/Users/Me") {
+            finish(.success((401, Data("{}".utf8), "application/json")))
+            return
+        }
         if scenario == .slowSignIn, path.hasSuffix("/Users/AuthenticateByName") || path.hasSuffix("/Users/Me") {
             let request = request
             DispatchQueue.global().asyncAfter(deadline: .now() + Self.slowSignInDelay) {
@@ -593,7 +597,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
              .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort,
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
              .slowVideoDownload, .slowPlaybackInfo, .slowBoxSet, .emptyBoxSet, .slowItems, .manyLibraries, .manyUsers,
-             .slowPublicUsers, .slowSignIn:
+             .slowPublicUsers, .slowSignIn, .revokedSessions:
             return nil
         case .largeCast, .noBackdrop, .missingTileArtwork, .manyGenres, .failingLibrary, .failingHome, .thinDynamicRails, .skipIntro, .earlyCredits,
              .audioOffsetUnavailable, .rebuffering, .slowSeek, .introBeforeResume:

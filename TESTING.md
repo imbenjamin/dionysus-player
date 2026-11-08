@@ -268,6 +268,7 @@ JSON, so a DTO change is a compile error rather than silent rot.
 | `emptyLibrary` | Every list is empty |
 | `serverError` | Browse endpoints 500; sign-in still works |
 | `unauthorized` | Browse endpoints 401 once per path, then succeed (silent re-auth) |
+| `revokedSessions` | Password sign-in and a Quick Connect token's `/Users/Me` answer 401; Quick Connect still signs in |
 | `offline` | Every request fails as unreachable |
 | `noDeletePermission` | `CanDelete: false` everywhere, `DELETE` refused |
 | `folderlessSeasons` | Made-up seasons, so Delete Season goes episode by episode |
@@ -1076,7 +1077,7 @@ the detail.
 | File | Covers |
 | --- | --- |
 | `AccessibilityAuditTests` | The structural audit over every Apple TV screen |
-| `AccountSwitchingJourneyTests` | Remembered accounts, Forget This Account, Follow Apple TV Users, Select a User Every Relaunch |
+| `AccountSwitchingJourneyTests` | Remembered accounts (a Quick Connect one too; refused, a password account opens its password screen and a Quick Connect one asks for a new code, `revokedSessions`), Forget This Account, Follow Apple TV Users, Select a User Every Relaunch |
 | `CollectionDetailJourneyTests` | Box sets and playlists, empty and loading |
 | `CollectionGridJourneyTests` | A library's grid: pills, sort, filters, Reset, returning from a detail page |
 | `DetailJourneyTests` | Detail pages: Menu, the keep-alive cap, rows, Full Details, no backdrop, failures |

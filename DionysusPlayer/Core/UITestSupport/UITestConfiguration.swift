@@ -194,6 +194,13 @@ enum UITestScenario: String {
     /// stays on the Apple TV splash past its spinner's delay.
     case slowSignIn
 
+    /// `.standard`, but the server refuses every stored session: a password
+    /// sign-in (`/Users/AuthenticateByName`) and a Quick Connect token's
+    /// check (`/Users/Me`) both answer 401, as after a password change or a
+    /// revoked device. Quick Connect itself still signs in, so a refused
+    /// remembered account on the Apple TV can recover with a new code.
+    case revokedSessions
+
     /// `.standard`, but `/Views` answers 500 for five seconds after it is
     /// first asked, as a server still starting up does: whatever loads the
     /// libraries at launch fails, and a later retry succeeds.
