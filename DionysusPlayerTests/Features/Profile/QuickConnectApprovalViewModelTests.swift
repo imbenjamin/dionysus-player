@@ -53,6 +53,55 @@ final class QuickConnectApprovalViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.canSubmit)
     }
 
+    // MARK: Completing the code (submits on iPhone and iPad)
+
+    func test_setCode_theSixthDigitCompletesTheCode() {
+        let viewModel = makeViewModel(code: "48291")
+
+        XCTAssertTrue(viewModel.setCode("482913"))
+    }
+
+    func test_setCode_digitsShortOfSixDontCompleteIt() {
+        let viewModel = makeViewModel(code: nil)
+
+        XCTAssertFalse(viewModel.setCode("4"))
+        XCTAssertFalse(viewModel.setCode("48291"))
+    }
+
+    func test_setCode_pastingAWholeCodeCompletesIt() {
+        let viewModel = makeViewModel(code: nil)
+
+        XCTAssertTrue(viewModel.setCode("Code: 482 913"))
+    }
+
+    /// A seventh digit is dropped, leaving the code as it was: nothing new
+    /// to submit.
+    func test_setCode_aDigitPastSixDoesntCompleteItAgain() {
+        let viewModel = makeViewModel(code: "482913")
+
+        XCTAssertFalse(viewModel.setCode("4829137"))
+        XCTAssertEqual(viewModel.code, "482913")
+    }
+
+    func test_setCode_pastingADifferentWholeCodeOverOneCompletesIt() {
+        let viewModel = makeViewModel(code: "482913")
+
+        XCTAssertTrue(viewModel.setCode("135790"))
+    }
+
+    /// After a wrong code, deleting a digit and typing it again resubmits.
+    func test_setCode_retypingTheLastDigitAfterAFailureCompletesIt() async {
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 404, body: Data())
+        }
+        let viewModel = makeViewModel()
+        await viewModel.authorize()
+        XCTAssertNotNil(failureMessage(viewModel))
+
+        XCTAssertFalse(viewModel.setCode("48291"))
+        XCTAssertTrue(viewModel.setCode("482913"))
+    }
+
     func test_editingAfterAFailure_clearsIt() async {
         MockURLProtocol.requestHandler = { request in
             MockURLProtocol.jsonResponse(for: request, status: 404, body: Data())

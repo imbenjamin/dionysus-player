@@ -358,7 +358,26 @@ final class AccessibilityAuditTests: UITestCase {
         launch()
         HomeScreen(app: app).awaitLoaded()
         TabBar(app: app).profile.tap()
-        ProfileScreen(app: app).openQuickConnect()
+        let quickConnect = ProfileScreen(app: app).openQuickConnect()
+
+        // The code field takes focus on appear. From iPadOS 27.2 the iPad
+        // shows its number pad as a popover anchored to the field, over the
+        // instructions above it, and the audit reads the words left showing
+        // ("On th… se Quick Connect …ere") as "Potentially inaccessible
+        // text" with no element (TQ-20). The keypad isn't this screen's, so
+        // it goes before the audit, as Search's keyboard does: a tap outside
+        // dismisses the popover, and Authorize is outside it and does
+        // nothing with no code entered. On the iPhone the keypad is docked
+        // below the content and stays, which never troubled the audit.
+        quickConnect.authorizeButton.tap()
+        let uncovered = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "isHittable == true"),
+            object: quickConnect.instructions
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [uncovered], timeout: Self.defaultTimeout), .completed,
+            "The instructions should be uncovered once the keypad is dismissed."
+        )
 
         try auditCurrentScreen()
     }

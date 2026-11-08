@@ -479,7 +479,15 @@ it; everything in the modal is still audited.
    *not* happen (a fade that shouldn't come, a repeat that should have
    stopped, the shell's three-second sidebar fallback): then it is a named
    constant or has a comment that says what the duration proves. Polling
-   loops (`poll`, `awaitStableFrame`) are not sleeps.
+   loops (`poll`, `awaitStillAfterTyping`) are not sleeps.
+7. **A tap straight after `typeText` goes through
+   `awaitStillAfterTyping(keyboard:)`.** On the iPad, from iPadOS 27, the
+   keyboard leaves for a moment after XCUITest types and comes back, and a
+   layout above it holds still meanwhile, then jumps: the tap lands where the
+   button was. The helper waits for the keyboard first, then a still frame.
+   The iPad's number pad is a popover from 27.2, whose first outside tap only
+   closes it, so a screen typed into on it submits by itself (the Quick
+   Connect approval code) or the audit closes it first.
 
 **An intermittent failure may be a crash, not flake.** The tell is an empty
 `app.debugDescription` (`Query chain: Find: Target Application`) with
