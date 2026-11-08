@@ -107,6 +107,72 @@ final class AccountSwitchingJourneyTests: TVUITestCase {
         XCTAssertTrue(relaunched.buttons[A11yID.TV.Main.heroPlay].waitForExistence(timeout: 10))
     }
 
+    // MARK: - Remembered accounts the server refuses, and Quick Connect ones (TQ-10)
+
+    /// An account signed in through Quick Connect is remembered with its
+    /// token, not a password: one press checks the token and signs in, with
+    /// no new code. Relaunched where no code is ever approved, so a press
+    /// that asked for one would stay on it.
+    func test_rememberedQuickConnectAccount_signsBackInOnOnePress() {
+        signInThroughQuickConnect().terminate()
+        let app = launch(scenario: "quickConnectPending", resetsState: false)
+        XCTAssertTrue(app.buttons[A11yID.TV.Main.heroPlay].waitForExistence(timeout: 10), "Launch resumes the session from its token")
+        _ = openProfile(app)
+        press(.select)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.whosWatchingTitle].waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(remembered), "The Quick Connect account is remembered")
+        press(.select)
+        XCTAssertTrue(app.buttons[A11yID.TV.Main.heroPlay].waitForExistence(timeout: 10), "Its token signs it back in")
+        XCTAssertFalse(app.staticTexts[A11yID.TV.Onboarding.quickConnectCode].exists, "No new code")
+    }
+
+    /// A remembered Quick Connect account whose token the server now refuses
+    /// has no password to ask for: one press asks for a new code instead, and
+    /// approving it signs in.
+    func test_refusedQuickConnectAccount_asksForANewCode() {
+        signInThroughQuickConnect().terminate()
+        // Launch checks the token too, is refused, and lands on Who's Watching?.
+        let app = launch(scenario: "revokedSessions", resetsState: false)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.whosWatchingTitle].waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(remembered, timeout: 10), "Still remembered after the refusal")
+        press(.select)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.quickConnectCode].waitForExistence(timeout: 10), "A new code")
+        XCTAssertFalse(app.secureTextFields[A11yID.TV.Onboarding.passwordField].exists, "Not a password")
+        XCTAssertTrue(app.buttons[A11yID.TV.Main.heroPlay].waitForExistence(timeout: 15), "Approved, it signs in")
+    }
+
+    /// A remembered password account the server now refuses (the password
+    /// was changed) opens its password screen, saying why.
+    func test_refusedPasswordAccount_opensItsPasswordScreen_sayingWhy() {
+        // The seeded session is refused at launch, which lands here with the
+        // account still remembered.
+        let app = launch(scenario: "revokedSessions", seedSession: true)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.whosWatchingTitle].waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(remembered, timeout: 10))
+        press(.select)
+        XCTAssertTrue(app.secureTextFields[A11yID.TV.Onboarding.passwordField].waitForExistence(timeout: 10), "Its password screen")
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.signInError].waitForExistence(timeout: 5), "The refusal is explained")
+        XCTAssertFalse(app.staticTexts[A11yID.TV.Onboarding.quickConnectCode].exists, "Not a Quick Connect code")
+        XCTAssertFalse(app.buttons[A11yID.TV.Main.heroPlay].exists, "Not signed in")
+    }
+
+    /// From a fresh launch: the discovered server, then the user with a
+    /// password, who goes to Quick Connect; the stub approves the first poll.
+    private func signInThroughQuickConnect() -> XCUIApplication {
+        let app = launch()
+        let server = app.buttons[A11yID.TV.Onboarding.serverRow(UITestFixtureIdentity.discoveredServerID)]
+        XCTAssertTrue(server.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(server))
+        press(.select)
+        let user = app.buttons[A11yID.TV.Onboarding.user(UITestFixtureIdentity.userID)]
+        XCTAssertTrue(user.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(user))
+        press(.select)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.quickConnectCode].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons[A11yID.TV.Main.heroPlay].waitForExistence(timeout: 15))
+        return app
+    }
+
     /// From Home to Profile, with Switch User focused.
     private func openProfile(_ app: XCUIApplication) -> XCUIApplication {
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Main.heroPlay], timeout: 10))
