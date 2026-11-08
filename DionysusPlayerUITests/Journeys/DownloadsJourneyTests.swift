@@ -273,4 +273,43 @@ final class DownloadsJourneyTests: UITestCase {
         app.buttons[A11yID.Downloads.playButton].awaitExistence("the downloaded episode's Play").tap()
         PlayerScreen(app: app).awaitControls()
     }
+
+    // MARK: - Advanced options (TQ-11)
+
+    /// Holding Download opens the per-item options instead of downloading:
+    /// Cancel starts nothing, a lower Quality lowers the estimate, and the
+    /// sheet's Download goes on through the usual audio prompt to a
+    /// finished download.
+    func testHoldingDownloadOffersPerItemQuality() {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+
+        let sheet = detail.openAdvancedDownloadOptions()
+        sheet.cancelButton.tap()
+        sheet.downloadButton.awaitDisappearance("the advanced options sheet, cancelled")
+        XCTAssertFalse(app.buttons["ENG EAC3"].exists, "Cancel shouldn't start a download")
+        XCTAssertFalse(detail.downloadButton.label.localizedCaseInsensitiveContains("Downloaded"))
+
+        detail.openAdvancedDownloadOptions()
+        let estimate = sheet.estimatedSize.awaitExistence("the Estimated Size")
+        let normalEstimate = estimate.label
+        sheet.selectQuality("dataSaver")
+        let changed = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label != %@", normalEstimate), object: estimate
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [changed], timeout: 5), .completed,
+            "Data Saver should change the estimate from \(normalEstimate)"
+        )
+
+        sheet.downloadButton.tap()
+        let audioChoice = app.buttons["ENG EAC3"]
+        audioChoice.awaitExistence("the audio-track prompt, after the sheet's Download")
+        audioChoice.tap()
+        detail.awaitDownloadCompletion()
+    }
 }

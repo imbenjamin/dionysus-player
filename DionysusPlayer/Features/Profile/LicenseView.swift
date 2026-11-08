@@ -26,12 +26,14 @@ struct LicenseView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 licenseBody(licenseText)
+                    .accessibilityIdentifier(A11yID.About.appLicense)
                 ForEach(LicenseDocument.components(), id: \.name) { component in
                     VStack(alignment: .leading, spacing: 8) {
                         // A library's name: not localized.
                         Text(verbatim: component.name)
                             .font(.headline)
                             .accessibilityAddTraits(.isHeader)
+                            .accessibilityIdentifier(A11yID.About.licenseComponent(component.name))
                         licenseBody(component.text)
                     }
                 }

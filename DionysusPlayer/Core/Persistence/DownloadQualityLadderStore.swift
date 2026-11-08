@@ -16,7 +16,9 @@ import Foundation
 /// Stored and returned in Kbps, the unit the settings UI collects, and converted
 /// to bits/sec only in `videoBitrate(resolution:preset:)`.
 struct DownloadQualityLadderStore {
-    private static let storageKey = "downloadBitrateLadderOverridesKbps"
+    /// Not private: `DownloadsSettingsView` watches it with `@AppStorage`,
+    /// since this store isn't observable.
+    static let storageKey = "downloadBitrateLadderOverridesKbps"
 
     /// A ceiling against a fat-fingered extra digit producing a
     /// multi-hundred-megabit download, not a meaningful quality cap.

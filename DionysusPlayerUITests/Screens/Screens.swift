@@ -888,6 +888,16 @@ extension AssetDetailScreen {
     /// (idle/resolving/downloading/downloaded) — see its doc comment.
     var downloadButton: XCUIElement { app.buttons[A11yID.AssetDetail.downloadButton] }
 
+    /// Holds the Download button, which opens the advanced options sheet
+    /// instead of starting a download.
+    @discardableResult
+    func openAdvancedDownloadOptions(file: StaticString = #filePath, line: UInt = #line) -> AdvancedDownloadOptionsScreen {
+        downloadButton.awaitExistence("the Download button", file: file, line: line).press(forDuration: 1)
+        let sheet = AdvancedDownloadOptionsScreen(app: app)
+        sheet.downloadButton.awaitExistence("the advanced options sheet's Download", file: file, line: line)
+        return sheet
+    }
+
     /// Waits for the download button to reach its "Downloaded" state.
     ///
     /// Asserts on the *label* rather than existence, because the identifier
@@ -1139,5 +1149,139 @@ struct ProfileScreen: Screen {
         let confirm = app.sheets.buttons["Change Server"]
         confirm.awaitExistence("the change-server confirmation dialog", file: file, line: line)
         confirm.tap()
+    }
+
+    /// Opens Downloads settings: the Downloads row on the one list, the
+    /// Downloads pane in the split layout, whose root it is.
+    @discardableResult
+    func openDownloadsSettings(file: StaticString = #filePath, line: UInt = #line) -> DownloadsSettingsScreen {
+        awaitLoaded(file: file, line: line)
+        if usesSplitLayout {
+            selectPane(A11yID.Profile.downloadsPane, file: file, line: line)
+        } else {
+            tapRow(A11yID.Profile.downloadsSettingsLink, file: file, line: line)
+        }
+        let screen = DownloadsSettingsScreen(app: app)
+        screen.resolutionPicker.awaitExistence("Downloads settings' Resolution picker", file: file, line: line)
+        return screen
+    }
+
+    /// Opens License or Privacy Policy (`link` is its row's identifier),
+    /// from the About pane in the split layout.
+    func openAboutPage(_ link: String, file: StaticString = #filePath, line: UInt = #line) {
+        awaitLoaded(file: file, line: line)
+        if usesSplitLayout { selectPane(A11yID.Profile.aboutPane, file: file, line: line) }
+        tapRow(link, file: file, line: line)
+    }
+
+    private func selectPane(_ pane: String, file: StaticString, line: UInt) {
+        let row = app.descendants(matching: .any).matching(identifier: pane).firstMatch
+        row.awaitExistence("the \(pane) pane", file: file, line: line)
+        row.tap()
+    }
+
+    /// Scrolls the settings list until the row is hittable, then taps it.
+    /// Scrolling first: the list makes a row only once it's near the screen.
+    private func tapRow(_ identifier: String, file: StaticString, line: UInt) {
+        let row = app.buttons[identifier]
+        for _ in 0..<8 where !(row.exists && row.isHittable) { scrollSettings() }
+        row.awaitExistence("the \(identifier) row", file: file, line: line)
+        row.tap()
+    }
+}
+
+/// Profile → Downloads (`DownloadsSettingsView`).
+struct DownloadsSettingsScreen: Screen {
+    let app: XCUIApplication
+
+    var resolutionPicker: XCUIElement { app.buttons[A11yID.DownloadsSettings.resolutionPicker] }
+    var qualityPicker: XCUIElement { app.buttons[A11yID.DownloadsSettings.qualityPicker] }
+    var simultaneousSlider: XCUIElement { app.sliders[A11yID.DownloadsSettings.simultaneousSlider] }
+    var wifiOnlyToggle: XCUIElement { app.switches[A11yID.DownloadsSettings.wifiOnlyToggle] }
+    var advancedLink: XCUIElement { app.buttons[A11yID.Profile.qualityLadderLink] }
+
+    /// What the Quality picker shows: its label and value together, since
+    /// the menu-style picker puts the choice in one or the other by OS.
+    var qualityReading: String {
+        "\(qualityPicker.label)|\(qualityPicker.value as? String ?? "")"
+    }
+
+    /// Pushes the quality ladder from the Advanced row.
+    @discardableResult
+    func openQualityLadder(file: StaticString = #filePath, line: UInt = #line) -> QualityLadderScreen {
+        advancedLink.awaitExistence("the Advanced row", file: file, line: line).tap()
+        let screen = QualityLadderScreen(app: app)
+        screen.resetAll.awaitExistence("the ladder's Reset All", file: file, line: line)
+        return screen
+    }
+}
+
+/// Downloads → Advanced (`DownloadsQualityLadderView`).
+struct QualityLadderScreen: Screen {
+    let app: XCUIApplication
+
+    var resetAll: XCUIElement { app.buttons[A11yID.DownloadsSettings.ladderResetAll] }
+    /// The dialog's button. `firstMatch`: the iPhone's dialog reports it twice.
+    var resetAllConfirm: XCUIElement {
+        app.buttons.matching(identifier: A11yID.DownloadsSettings.ladderResetAllConfirm).firstMatch
+    }
+
+    /// The device's default resolution (`DownloadResolution.deviceClassDefault`:
+    /// 1080p on an iPad, 720p on an iPhone, the Duo included), whose cells
+    /// set what Downloads settings' Quality shows.
+    static var defaultResolution: String {
+        UIDevice.current.userInterfaceIdiom == .pad ? "hd1080p" : "hd720p"
+    }
+
+    /// A cell's field, scrolled into view: the list makes a section only
+    /// once it's near the screen, and 720p is the third.
+    func revealField(_ resolution: String, _ preset: String, file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        let cell = field(resolution, preset)
+        for _ in 0..<6 where !(cell.exists && cell.isHittable) { ProfileScreen(app: app).scrollSettings() }
+        return cell.awaitExistence("the \(resolution) \(preset) cell", file: file, line: line)
+    }
+
+    /// Replaces a cell's digits with `kbps`. Taps at the field's trailing
+    /// edge, where its right-aligned digits end: a tap at its centre put the
+    /// cursor before them, so the deletes removed nothing.
+    func type(_ kbps: String, into field: XCUIElement) {
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        let existing = (field.value as? String)?.count ?? 0
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existing) + kbps)
+    }
+
+    /// Closes the iPad's number-pad popover, whose first outside tap does
+    /// nothing else (TQ-20), by tapping the row left of `field`, where its
+    /// labels are. Harmless on an iPhone, where the docked pad stays up
+    /// and the bar's buttons stay reachable above it.
+    func dismissNumberPad(from field: XCUIElement) {
+        field.coordinate(withNormalizedOffset: CGVector(dx: -1.5, dy: 0.5)).tap()
+    }
+
+    func field(_ resolution: String, _ preset: String) -> XCUIElement {
+        app.textFields[A11yID.DownloadsSettings.ladderField(resolution, preset)]
+    }
+
+    func resetButton(_ resolution: String, _ preset: String) -> XCUIElement {
+        app.buttons[A11yID.DownloadsSettings.ladderReset(resolution, preset)]
+    }
+}
+
+/// The sheet a long press on the detail page's Download button opens
+/// (`AdvancedDownloadOptionsView`).
+struct AdvancedDownloadOptionsScreen: Screen {
+    let app: XCUIApplication
+
+    var resolutionPicker: XCUIElement { app.buttons[A11yID.AdvancedDownloadOptions.resolutionPicker] }
+    var qualityPicker: XCUIElement { app.buttons[A11yID.AdvancedDownloadOptions.qualityPicker] }
+    var estimatedSize: XCUIElement { app.staticTexts[A11yID.AdvancedDownloadOptions.estimatedSize] }
+    var downloadButton: XCUIElement { app.buttons[A11yID.AdvancedDownloadOptions.downloadButton] }
+    var cancelButton: XCUIElement { app.buttons[A11yID.AdvancedDownloadOptions.cancelButton] }
+
+    /// Picks a Quality from the picker's menu.
+    func selectQuality(_ preset: String, file: StaticString = #filePath, line: UInt = #line) {
+        qualityPicker.awaitExistence("the sheet's Quality picker", file: file, line: line).tap()
+        app.buttons[A11yID.AdvancedDownloadOptions.qualityOption(preset)]
+            .awaitExistence("the \(preset) option", file: file, line: line).tap()
     }
 }

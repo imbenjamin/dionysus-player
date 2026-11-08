@@ -215,6 +215,20 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen(underModal: true)
     }
 
+    /// The sheet a held Download opens. A `.medium` sheet leaves the detail
+    /// page dimmed above it, hence `underModal`.
+    func testAdvancedDownloadOptionsHaveNoAccessibilityIssues() throws {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.openAdvancedDownloadOptions().estimatedSize.awaitExistence("the Estimated Size")
+
+        try auditCurrentScreen(underModal: true)
+    }
+
     func testSearchHasNoAccessibilityIssues() throws {
         launch()
         HomeScreen(app: app).awaitLoaded()
@@ -309,6 +323,53 @@ final class AccessibilityAuditTests: UITestCase {
         // Below iOS 26 there's no Spatial Audio section, so the list is short
         // enough that the Audio Offset stepper is still on screen here.
         try auditCurrentScreen(besideStepper: true)
+    }
+
+    func testDownloadsSettingsHaveNoAccessibilityIssues() throws {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).openDownloadsSettings()
+
+        try auditCurrentScreen()
+    }
+
+    /// With one cell overridden, so its reset button is audited too.
+    func testQualityLadderHasNoAccessibilityIssues() throws {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        let ladder = ProfileScreen(app: app).openDownloadsSettings().openQualityLadder()
+        let resolution = QualityLadderScreen.defaultResolution
+        let field = ladder.revealField(resolution, "normal")
+        ladder.type("2000", into: field)
+        ladder.resetButton(resolution, "normal").awaitExistence("the cell's reset")
+        // The iPad's number-pad popover covers text, which the audit flags
+        // (TQ-20); this closes it. The iPhone's docked pad has no way to
+        // close and stays, with the rows above it audited.
+        ladder.dismissNumberPad(from: field)
+
+        try auditCurrentScreen()
+    }
+
+    func testLicenseHasNoAccessibilityIssues() throws {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).openAboutPage(A11yID.Profile.licenseLink)
+        app.staticTexts[A11yID.About.appLicense].awaitExistence("the app's licence")
+
+        try auditCurrentScreen()
+    }
+
+    func testPrivacyPolicyHasNoAccessibilityIssues() throws {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).openAboutPage(A11yID.Profile.privacyPolicyLink)
+        app.staticTexts[A11yID.About.privacyPolicyText].awaitExistence("the privacy policy")
+
+        try auditCurrentScreen()
     }
 
     /// The Spatial Audio section with both toggles on, so its layout pickers
