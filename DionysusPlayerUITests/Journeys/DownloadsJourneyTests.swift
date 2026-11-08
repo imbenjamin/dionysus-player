@@ -184,8 +184,8 @@ final class DownloadsJourneyTests: UITestCase {
     }
 
     /// A lone downloaded episode is listed on its own (not under its show),
-    /// and its downloaded page opens and plays offline. (Two episodes of a
-    /// show group under it; that page has no journey yet.)
+    /// and its downloaded page opens and plays offline. Two or more group
+    /// under their show: the journeys below.
     func testADownloadedEpisodeOpensAndPlaysOffline() {
         let episodeID = UITestFixtureIdentity.episodeID(season: 1, episode: 1)
         launch()
@@ -195,6 +195,82 @@ final class DownloadsJourneyTests: UITestCase {
             .awaitExistence("the episode's row, offline").tap()
         app.buttons[A11yID.Downloads.playButton].awaitExistence("the downloaded episode's Play").tap()
 
+        PlayerScreen(app: app).awaitControls()
+    }
+
+    /// Opens the show's page from the Shows library and downloads every
+    /// season in `seasonIDs` through the season download button, which never
+    /// prompts. The first season is the one the page opens on.
+    private func downloadSeasons(_ seasonIDs: [String]) {
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.showsLibraryID)
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.seriesID)
+        collection.card(UITestFixtureIdentity.seriesID).tap()
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        for (index, seasonID) in seasonIDs.enumerated() {
+            if index > 0 { detail.selectSeason(seasonID) }
+            detail.downloadSeasonAndWait()
+        }
+    }
+
+    /// One season downloaded: the Downloads tab lists the show, whose page
+    /// lists the season's episodes flat, and one of them plays offline.
+    func testADownloadedSeasonOpensFromItsShowAndPlaysOffline() {
+        launch()
+        downloadSeasons(["season-1"])
+
+        let downloads = relaunchOffline()
+        downloads.showRow(seriesID: UITestFixtureIdentity.seriesID)
+            .awaitExistence("the show's row, offline").tap()
+
+        for episode in 1...3 {
+            downloads.episodeRow(itemID: UITestFixtureIdentity.episodeID(season: 1, episode: episode))
+                .awaitExistence("Season 1, Episode \(episode) on the show's page")
+        }
+        XCTAssertFalse(
+            downloads.seasonRow(seasonID: "season-1").exists,
+            "One season downloaded: the show's page lists episodes, not seasons."
+        )
+
+        downloads.episodeRow(itemID: UITestFixtureIdentity.episodeID(season: 1, episode: 2)).tap()
+        let play = app.buttons[A11yID.Downloads.playButton]
+        play.awaitExistence("the downloaded episode's Play").tap()
+
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        player.close()
+        player.closeButton.awaitDisappearance("the player")
+        play.awaitExistence("back on the downloaded episode's page")
+    }
+
+    /// Two seasons downloaded: the show's page lists them as seasons, a
+    /// season's page lists only its own episodes, and one plays offline.
+    func testTwoDownloadedSeasonsGroupOnTheShowPageAndPlayOffline() {
+        launch()
+        downloadSeasons(["season-1", "season-2"])
+
+        let downloads = relaunchOffline()
+        downloads.showRow(seriesID: UITestFixtureIdentity.seriesID)
+            .awaitExistence("the show's row, offline").tap()
+
+        downloads.seasonRow(seasonID: "season-1").awaitExistence("Season 1 on the show's page")
+        downloads.seasonRow(seasonID: "season-2").awaitExistence("Season 2 on the show's page").tap()
+
+        for episode in 1...3 {
+            downloads.episodeRow(itemID: UITestFixtureIdentity.episodeID(season: 2, episode: episode))
+                .awaitExistence("Season 2, Episode \(episode) on the season's page")
+        }
+        XCTAssertFalse(
+            downloads.episodeRow(itemID: UITestFixtureIdentity.episodeID(season: 1, episode: 1)).exists,
+            "Season 2's page lists Season 1's episodes."
+        )
+
+        downloads.episodeRow(itemID: UITestFixtureIdentity.episodeID(season: 2, episode: 3)).tap()
+        app.buttons[A11yID.Downloads.playButton].awaitExistence("the downloaded episode's Play").tap()
         PlayerScreen(app: app).awaitControls()
     }
 }

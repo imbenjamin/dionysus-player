@@ -93,6 +93,7 @@ struct DownloadedSeasonView: View {
                 navigationValue: .downloadedAsset(itemID: episode.itemID),
                 onToggleSelection: { toggleSelection(episode.itemID) }
             )
+            .accessibilityIdentifier(A11yID.Downloads.episodeRow(episode.itemID))
         }
     }
 

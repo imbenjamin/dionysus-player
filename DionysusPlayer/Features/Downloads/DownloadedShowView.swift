@@ -83,6 +83,7 @@ struct DownloadedShowView: View {
                 navigationValue: .downloadedAsset(itemID: episode.itemID),
                 onToggleSelection: { toggleSelection(episode.itemID) }
             )
+            .accessibilityIdentifier(A11yID.Downloads.episodeRow(episode.itemID))
         }
     }
 
@@ -119,10 +120,12 @@ struct DownloadedShowView: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier(A11yID.Downloads.seasonRow(row.seasonID))
                     } else {
                         NavigationLink(value: AppRoute.downloadedSeason(seriesID: seriesID, seasonID: row.seasonID)) {
                             seasonRowContent(row)
                         }
+                        .accessibilityIdentifier(A11yID.Downloads.seasonRow(row.seasonID))
                         .swipeActions {
                             Button("Delete", role: .destructive) { deleteSeason(row) }
                         }
@@ -388,10 +391,12 @@ struct DownloadedEpisodeRow: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier(A11yID.Downloads.episodeRow(episode.itemID))
         } else {
             NavigationLink(value: AppRoute.downloadedAsset(itemID: episode.itemID)) {
                 rowContent
             }
+            .accessibilityIdentifier(A11yID.Downloads.episodeRow(episode.itemID))
         }
     }
 

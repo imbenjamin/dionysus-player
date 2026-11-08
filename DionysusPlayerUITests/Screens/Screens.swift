@@ -910,6 +910,40 @@ extension AssetDetailScreen {
     }
 }
 
+// MARK: - Asset detail (season download)
+
+extension AssetDetailScreen {
+    /// `SeasonDownloadButton`, for the season the episode list shows.
+    var seasonDownloadButton: XCUIElement { app.buttons[A11yID.AssetDetail.seasonDownloadButton] }
+
+    /// Switches the episode list to `seasonID` through the season menu.
+    func selectSeason(_ seasonID: String, file: StaticString = #filePath, line: UInt = #line) {
+        app.buttons[A11yID.AssetDetail.seasonPicker]
+            .awaitExistence("the season menu", file: file, line: line).tap()
+        app.buttons[A11yID.AssetDetail.seasonOption(seasonID)]
+            .awaitExistence("the menu's \(seasonID) option", file: file, line: line).tap()
+    }
+
+    /// Taps `seasonDownloadButton` and waits for every episode of the season
+    /// to finish. Like `awaitDownloadCompletion`, it reads the label, the
+    /// only thing that changes between the button's states.
+    func downloadSeasonAndWait(
+        timeout: TimeInterval = UITestCase.defaultTimeout,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        seasonDownloadButton.awaitExistence("the season's download button", file: file, line: line).tap()
+        let downloaded = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS[c] %@", "Season Downloaded"),
+            object: seasonDownloadButton
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [downloaded], timeout: timeout), .completed,
+            "The season's download button never reached Season Downloaded; its label is \"\(seasonDownloadButton.label)\".",
+            file: file, line: line
+        )
+    }
+}
+
 // MARK: - Downloads
 
 struct DownloadsScreen: Screen {
@@ -925,6 +959,21 @@ struct DownloadsScreen: Screen {
     /// A movie's (or lone episode's) row, in whichever layout rendered.
     func standaloneRow(itemID: String) -> XCUIElement {
         app.descendants(matching: .any)[A11yID.Downloads.row("standalone-\(itemID)")]
+    }
+
+    /// A show's row, grouping two or more of its downloaded episodes.
+    func showRow(seriesID: String) -> XCUIElement {
+        app.descendants(matching: .any)[A11yID.Downloads.row("show-\(seriesID)")]
+    }
+
+    /// A season row on a downloaded show's page.
+    func seasonRow(seasonID: String) -> XCUIElement {
+        app.descendants(matching: .any)[A11yID.Downloads.seasonRow(seasonID)]
+    }
+
+    /// An episode row (or tile) on a downloaded show's or season's page.
+    func episodeRow(itemID: String) -> XCUIElement {
+        app.descendants(matching: .any)[A11yID.Downloads.episodeRow(itemID)]
     }
 
     /// Selects every row and deletes them, confirming the dialog.

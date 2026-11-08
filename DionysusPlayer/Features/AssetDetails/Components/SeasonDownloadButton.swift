@@ -110,6 +110,7 @@ struct SeasonDownloadButton: View {
         .secondaryActionButtonStyle(controlSize: .regular)
         .disabled(isQueuing || isAnyInProgress(in: rows) || missingEpisodes(in: rows).isEmpty)
         .accessibilityLabel(accessibilityLabel(in: rows))
+        .accessibilityIdentifier(A11yID.AssetDetail.seasonDownloadButton)
         .alert("Couldn't Download Season", isPresented: $isShowingError) {
             Button("OK", role: .cancel) {}
         } message: {

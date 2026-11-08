@@ -235,6 +235,16 @@ struct DownloadButton: View {
         item.numberedEpisodeName
     }
 
+    /// The page's own button keeps the one `downloadButton` identifier; a
+    /// row's (`.overlay`) is keyed by its item, since on a wide page the
+    /// episode, collection and playlist rows are on screen beside it.
+    private var accessibilityIdentifier: String {
+        switch style {
+        case .prominent: A11yID.AssetDetail.downloadButton
+        case .overlay: A11yID.AssetDetail.rowDownloadButton(item.id)
+        }
+    }
+
     /// The tap target and state icon, identical between styles; only the chrome
     /// around it differs.
     @ViewBuilder
@@ -249,7 +259,7 @@ struct DownloadButton: View {
                 badge { Image(systemName: "checkmark").foregroundStyle(iconColor) }
             }
             .accessibilityLabel(withContext(String(localized: "Downloaded")))
-            .accessibilityIdentifier(A11yID.AssetDetail.downloadButton)
+            .accessibilityIdentifier(accessibilityIdentifier)
         } else {
             Button(action: startResolving) {
                 if let progress = progress(for: row) {
@@ -278,7 +288,7 @@ struct DownloadButton: View {
             }
             .disabled(isBusy(for: row))
             .accessibilityLabel(accessibilityLabel(for: row))
-            .accessibilityIdentifier(A11yID.AssetDetail.downloadButton)
+            .accessibilityIdentifier(accessibilityIdentifier)
             // Hold instead of tap: the same `startResolving` flow, entered via
             // `AdvancedDownloadOptionsView`. `.highPriorityGesture` rather than
             // `.onLongPressGesture`, which doesn't suppress the `Button`'s own

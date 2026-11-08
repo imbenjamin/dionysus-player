@@ -191,11 +191,25 @@ enum A11yID {
         /// of its own; nothing here drives it directly.
         static func episodeRow(_ episodeID: String) -> String { "assetDetail.episodeRow.\(episodeID)" }
 
-        /// `DownloadButton`'s own tap target — one identifier covers every
+        /// The page's own `DownloadButton` (its `.prominent` style) — one identifier covers every
         /// one of its states (idle/resolving/downloading/downloaded), the
         /// same "the action stays put, only the label changes" shape
         /// `playButton` above already uses for Play/Resume.
         static let downloadButton = "assetDetail.downloadButton"
+
+        /// A row's own `DownloadButton` (an episode, collection or playlist
+        /// row), keyed by the row's item id. Separate from `downloadButton`, which
+        /// on a wide page matched the page's button and every row's at once.
+        static func rowDownloadButton(_ itemID: String) -> String { "assetDetail.rowDownloadButton.\(itemID)" }
+
+        /// `SeasonEpisodeList`'s season menu (shown for a show with more than
+        /// one season), and one of its options, keyed by the season's item id.
+        static let seasonPicker = "assetDetail.seasonPicker"
+        static func seasonOption(_ seasonID: String) -> String { "assetDetail.seasonOption.\(seasonID)" }
+
+        /// `SeasonDownloadButton`, which downloads every episode of the season
+        /// on show, in every one of its states, like `downloadButton`.
+        static let seasonDownloadButton = "assetDetail.seasonDownloadButton"
 
         /// `AssetActionsButton`'s delete affordance — present only when the
         /// server says this user may delete this item (`MediaItem.canDelete`),
@@ -376,6 +390,12 @@ enum A11yID {
         static func row(_ rowID: String) -> String { "downloads.row.\(rowID)" }
         /// The downloaded item page's Play (or Resume) button.
         static let playButton = "downloads.detail.playButton"
+        /// A season row on a downloaded show's page (`DownloadedShowView`,
+        /// when more than one season is downloaded), keyed by the season id.
+        static func seasonRow(_ seasonID: String) -> String { "downloads.seasonRow.\(seasonID)" }
+        /// An episode row or tile on a downloaded show's or season's page,
+        /// keyed by the episode's item id.
+        static func episodeRow(_ itemID: String) -> String { "downloads.episodeRow.\(itemID)" }
         /// The shared `DownloadsSelectionToolbar`'s controls, the same on the
         /// Downloads tab and the downloaded show and season pages.
         static let selectButton = "downloads.selectButton"
