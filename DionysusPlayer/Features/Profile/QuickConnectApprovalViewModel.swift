@@ -43,9 +43,18 @@ final class QuickConnectApprovalViewModel {
     /// label ("Code: 482 913") still lands as the code. Editing after a
     /// failure clears it, so the message never describes a code that's no
     /// longer in the field.
-    func setCode(_ raw: String) {
+    ///
+    /// Returns whether this edit completed a code: all `codeLength` digits,
+    /// and not the code already there (a seventh digit, dropped, changes
+    /// nothing). The iPhone and iPad submit it then, so there's no Authorize
+    /// to press: on iPadOS 27.2 the number pad is a popover, and the first
+    /// tap outside it only closes it, so Authorize took two taps (TQ-20).
+    @discardableResult
+    func setCode(_ raw: String) -> Bool {
+        let previous = code
         code = String(raw.filter(\.isASCII).filter(\.isNumber).prefix(Self.codeLength))
         if case .failed = state { state = .entering }
+        return code.count == Self.codeLength && code != previous
     }
 
     func authorize() async {

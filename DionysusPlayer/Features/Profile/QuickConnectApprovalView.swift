@@ -46,8 +46,11 @@ struct QuickConnectApprovalView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier(A11yID.QuickConnectApproval.instructions)
 
-            TextField("Code", text: Binding(get: { viewModel.code }, set: { viewModel.setCode($0) }))
+            // The last digit submits (see `setCode`); Authorize stays for
+            // trying the same code again after an error.
+            TextField("Code", text: Binding(get: { viewModel.code }, set: { if viewModel.setCode($0) { authorize() } }))
                 .font(.system(size: 34, weight: .semibold, design: .monospaced))
                 .multilineTextAlignment(.center)
                 .keyboardType(.numberPad)
@@ -63,10 +66,7 @@ struct QuickConnectApprovalView: View {
                 .accessibilityLabel("Quick Connect code")
                 .accessibilityIdentifier(A11yID.QuickConnectApproval.codeField)
 
-            Button {
-                isCodeFocused = false
-                Task { await viewModel.authorize() }
-            } label: {
+            Button(action: authorize) {
                 Group {
                     if viewModel.state == .submitting {
                         ProgressView()
@@ -92,6 +92,22 @@ struct QuickConnectApprovalView: View {
                     .foregroundStyle(Color.dionysusPrimary)
                     .accessibilityIdentifier(A11yID.QuickConnectApproval.errorMessage)
             }
+        }
+    }
+
+    /// Drops focus first, which also closes the iPad's number-pad popover.
+    ///
+    /// In a task, not straight away: from the last digit this runs inside
+    /// the keypad's own key handling, and dropping focus there crashed the
+    /// app on iPadOS 27.2 every time the field changed again before the
+    /// popover had finished closing (a wrong code re-enabling it, say):
+    /// `EXC_BAD_ACCESS` in `UITrackingElementWindowController
+    /// changeToInputViewSet:`, from the keyboard's placement animation
+    /// (TQ-20). The next turn of the main actor is enough.
+    private func authorize() {
+        Task {
+            isCodeFocused = false
+            await viewModel.authorize()
         }
     }
 

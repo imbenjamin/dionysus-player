@@ -311,7 +311,10 @@ password, which shapes three things:
 
 **Approving someone else's code** is on the Account screen
 (`QuickConnectApprovalView`, pushed from `AccountDetailsContent`, shown only
-while Quick Connect is enabled).
+while Quick Connect is enabled). On iPhone and iPad the sixth digit
+submits the code (`setCode` says when an edit completes it): from iPadOS
+27.2 the number pad is a popover whose first outside tap only closes it, so
+Authorize took two taps (TQ-20). The button stays, for retrying a code.
 `POST /QuickConnect/Authorize` (measured on 10.11.11) answers 200 `true`,
 **404** for an unknown or expired code, **500** for one already approved
 (indistinguishable from any server error, so the message says both), and 401

@@ -150,6 +150,7 @@ struct ServerSetupScreen: Screen {
         openAddressSheet(file: file, line: line)
         addressField.tap()
         addressField.typeText(address)
+        connectButton.awaitStillAfterTyping(keyboard: app.keyboards.firstMatch)
         connectButton.tap()
     }
 }
@@ -190,6 +191,7 @@ struct LoginScreen: Screen {
         passwordField.awaitExistence("the password field", file: file, line: line)
         passwordField.tap()
         passwordField.typeText(password)
+        signInButton.awaitStillAfterTyping(keyboard: app.keyboards.firstMatch)
         signInButton.tap()
     }
 
@@ -215,6 +217,7 @@ struct LoginScreen: Screen {
         usernameField.typeText(username)
         passwordField.tap()
         passwordField.typeText(password)
+        signInButton.awaitStillAfterTyping(keyboard: app.keyboards.firstMatch)
         signInButton.tap()
     }
 }
@@ -740,7 +743,7 @@ struct AddToPlaylistScreen: Screen {
         nameField.typeText(name)
 
         createButton.awaitExistence("the Create button", file: file, line: line)
-        createButton.awaitStableFrame()
+        createButton.awaitStillAfterTyping(keyboard: app.keyboards.firstMatch)
         createButton.tap()
 
         createConfirmButton.awaitExistence("the create confirmation", file: file, line: line)
@@ -1005,22 +1008,23 @@ struct DownloadsScreen: Screen {
 struct QuickConnectApprovalScreen: Screen {
     let app: XCUIApplication
 
+    var instructions: XCUIElement { app.staticTexts[A11yID.QuickConnectApproval.instructions] }
     var codeField: XCUIElement { app.textFields[A11yID.QuickConnectApproval.codeField] }
     var authorizeButton: XCUIElement { app.buttons[A11yID.QuickConnectApproval.authorizeButton] }
     var errorMessage: XCUIElement { app.descendants(matching: .any)[A11yID.QuickConnectApproval.errorMessage] }
     var successMessage: XCUIElement { app.descendants(matching: .any)[A11yID.QuickConnectApproval.successMessage] }
     var doneButton: XCUIElement { app.buttons[A11yID.QuickConnectApproval.doneButton] }
 
-    /// Replaces whatever is in the field, then taps Authorize. The field
-    /// takes focus on appear, but is tapped anyway so a retry after an error
-    /// doesn't depend on that.
+    /// Replaces whatever is in the field with `code`, whose sixth digit
+    /// submits it: there's no Authorize to tap, so every journey through here
+    /// checks that (TQ-20). The field takes focus on appear, but is tapped
+    /// anyway so a retry after an error doesn't depend on that.
     func authorize(code: String, file: StaticString = #filePath, line: UInt = #line) {
         codeField.tap()
         if let current = codeField.value as? String, !current.isEmpty, current != codeField.placeholderValue {
             codeField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
         }
         codeField.typeText(code)
-        authorizeButton.tap()
     }
 }
 

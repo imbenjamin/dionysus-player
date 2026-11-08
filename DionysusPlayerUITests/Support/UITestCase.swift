@@ -181,12 +181,27 @@ extension XCUIElement {
         return self
     }
 
-    /// Waits until the element's frame holds still across two reads, then
-    /// returns. A tap resolves the element when it's issued, so one still
-    /// moving lands where it was: on iPadOS 27 a form sheet slides up to
-    /// clear the keyboard after typing, and a Create tap issued then fell
-    /// outside the sheet and dismissed it. Gives up quietly after `timeout`.
-    func awaitStableFrame(timeout: TimeInterval = 3) {
+    /// Readies an element for a tap straight after `typeText`: waits for the
+    /// software keyboard to be up, then for the element's frame to hold
+    /// still across two reads. A tap resolves the element when it's issued,
+    /// so one still moving lands where it was.
+    ///
+    /// On the iPad, from iPadOS 27, the keyboard leaves for a moment once
+    /// XCUITest has typed and then comes back, and a layout that sits above
+    /// it moves when it does. On 27.2 (TQ-20, sampled every 100 ms) the
+    /// fallback sign-in form held still at its keyboard-less position for
+    /// 0.8 s, with no keyboard in the tree, then jumped 128pt: a frame
+    /// check alone passed during the still spell, and the tap missed Sign
+    /// In. Other taps it cost: Connect landing on the address sheet's Use
+    /// HTTPS toggle, and Create falling outside the New Playlist sheet and
+    /// dismissing it. Waiting for the keyboard first is what makes the
+    /// still frame mean anything.
+    ///
+    /// Gives up quietly on each wait (a Simulator with a hardware keyboard
+    /// never shows the software one), leaving the caller's next wait to
+    /// report what went wrong.
+    func awaitStillAfterTyping(keyboard: XCUIElement, timeout: TimeInterval = 3) {
+        _ = keyboard.waitForExistence(timeout: 2)
         var previous = exists ? frame : .zero
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {

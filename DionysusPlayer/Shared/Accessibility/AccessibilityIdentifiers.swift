@@ -444,6 +444,7 @@ enum A11yID {
     /// address one specific item wherever it appears.
     /// Approving another device's code, pushed from the Account screen.
     enum QuickConnectApproval {
+        static let instructions = "quickConnectApproval.instructions"
         static let codeField = "quickConnectApproval.codeField"
         static let authorizeButton = "quickConnectApproval.authorizeButton"
         static let errorMessage = "quickConnectApproval.errorMessage"
