@@ -99,6 +99,7 @@ struct SeasonEpisodeList: View {
                     Menu {
                         ForEach(seasons) { season in
                             Button(season.name) { selectedSeasonID = season.id }
+                                .accessibilityIdentifier(A11yID.AssetDetail.seasonOption(season.id))
                         }
                     } label: {
                         HStack(spacing: 4) {
@@ -111,6 +112,7 @@ struct SeasonEpisodeList: View {
                         }
                     }
                     .frame(width: pickerWidth, alignment: .trailing)
+                    .accessibilityIdentifier(A11yID.AssetDetail.seasonPicker)
                 }
 
                 // Next to the picker when there is one; in its place, still

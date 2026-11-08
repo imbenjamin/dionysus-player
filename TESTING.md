@@ -1060,7 +1060,7 @@ the detail.
 | `AuthJourneyTests` | Welcome, server setup, discovery, the HTTP fallback, every sign-in path |
 | `CollectionJourneyTests` | Grid filters (combined, never emptying the grid), Random |
 | `DuoFoldJourneyTests` | The iPhone Duo's fold layouts checked against the fold in their pose: the player (tabletop, book), the detail spread (book), Home's hero (tabletop), Search's empty state (book, tabletop); skipped elsewhere |
-| `DownloadsJourneyTests` | Downloading to completion, the row updating while open, bulk delete, cancelling a selection, and a downloaded movie and episode opened and played offline, after a relaunch with `offline` |
+| `DownloadsJourneyTests` | Downloading to completion (an item, or a season at once), the row updating while open, bulk delete, cancelling a selection, and offline after a relaunch with `offline`: a downloaded movie and episode, and a show's page (one season flat, two as seasons) and a season's, each opened and played |
 | `HarnessTests` | The harness itself: scenarios served, state cleared between launches |
 | `HeroLogoFallbackUITests` | The logo's text fallback timing |
 | `HomeJourneyTests` | The hero, See All, and a refresh scrolling rails back to their start |
