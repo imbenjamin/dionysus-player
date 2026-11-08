@@ -1,11 +1,8 @@
 import XCTest
 
 /// Deeper Home coverage than `SmokeJourneyTests` — the hero carousel and the
-/// rail header's push to its full collection.
-///
-/// Not covered here, deliberately: the VoiceOver-only refresh button, which
-/// only mounts under `accessibilityVoiceOverEnabled` — something XCUITest
-/// does not turn on. That stays an exploratory/device check.
+/// rail header's push to its full collection. The VoiceOver-only Refresh
+/// button and the hero's announcements are `VoiceOverJourneyTests`'.
 final class HomeJourneyTests: UITestCase {
     func testHeroCarouselIsVisible() {
         launch()

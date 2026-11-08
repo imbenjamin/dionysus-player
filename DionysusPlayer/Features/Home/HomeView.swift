@@ -6,7 +6,7 @@ import UIKit
 /// Recently Added Shows.
 struct HomeView: View {
     @Environment(AppState.self) private var appState
-    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @VoiceOverEnabled private var voiceOverEnabled
     @State private var viewModel: HomeViewModel?
     /// Whether Home is the selected tab, from `MainTabView`'s `selectedTab`.
     /// Threaded through to `HeroRailView` so its auto-advance timer idles

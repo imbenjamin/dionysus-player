@@ -289,6 +289,10 @@ enum UITestConfiguration {
     /// otherwise race that timer.
     static var disablesControlAutoHide: Bool { flag("UITestDisableControlAutoHide") }
 
+    /// Act as if VoiceOver were running (`VoiceOverEnabled`), for the iOS
+    /// views that change under it: XCUITest can't turn VoiceOver on.
+    static var simulatesVoiceOver: Bool { flag("UITestSimulateVoiceOver") }
+
     /// The tvOS player's accessible transport, which otherwise needs
     /// VoiceOver or Switch Control running; XCUITest can run neither.
     static var forcesAccessibleTransport: Bool { flag("UITestAccessibleTransport") }

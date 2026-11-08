@@ -168,6 +168,10 @@ struct MainTabView: View {
         // toast outlives the thing that raised it — adding to a playlist
         // confirms *after* its own sheet has closed. See `ToastHost`.
         .overlay { ToastHost() }
+        #if DEBUG
+        // Nothing unless the harness simulates VoiceOver (TQ-12).
+        .overlay(alignment: .topLeading) { UITestAnnouncementProbe() }
+        #endif
         // Per-hero only where the bar sits over the hero: `HeroRailView`
         // publishes a backdrop only for a bar at the top, so anywhere else
         // this is `dionysusPrimary`. At the bottom of an iPhone a dark hero's
