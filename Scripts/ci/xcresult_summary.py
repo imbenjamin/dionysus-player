@@ -2,7 +2,7 @@
 """Summarizes the tests of one or more result bundles: which failed, and which
 passed only on a retry.
 
-    python3 Scripts/ci/xcresult_summary.py <results.json> [<results.json> ...]
+    python3 Scripts/ci/xcresult_summary.py <results.json> [<results.json> ...] [--rerun <results.json>]
 
 Each argument is the output of `xcrun xcresulttool get test-results tests
 --path <bundle>`. Markdown goes to stdout (the build-and-test action appends
@@ -33,11 +33,19 @@ flaky when some repetition failed and the last passed. With `-test-iterations N`
 (the nightly unit flake hunt, plus `-run-tests-until-failure`) every test has N
 repetitions, so a test none of which failed is just passed, and one that passed
 and then failed under run-until-failure is a failure, reported as "failed on
-iteration k of n after k-1 passes". Stdlib only.
+iteration k of n after k-1 passes".
+
+`--rerun` names the bundle of run-test-plan.sh's rerun of the tests the
+Simulator's shutdown killed (crashed_tests.py). A failed test that passed
+there is listed as rerun after the crash, with a `::warning title=Rerun after
+a crash::`; one that failed there is listed with the rerun's outcome; the
+runner relaunch xcodebuild reports as a test case is listed beside them, not
+as a failure. Stdlib only.
 """
 
 from __future__ import annotations
 
+import re
 import sys
 from dataclasses import dataclass, field
 
@@ -58,6 +66,13 @@ class Summary:
     flaky: list[TestOutcome] = field(default_factory=list)
     failed: list[TestOutcome] = field(default_factory=list)
     passed_count: int = 0  # no repetition failed, however many there were
+    passed: list[str] = field(default_factory=list)  # their identifiers
+    rerun: list[TestOutcome] = field(default_factory=list)  # crashed, passed when rerun
+    relaunches: list[TestOutcome] = field(default_factory=list)  # runner relaunch errors
+
+
+# xcodebuild's pseudo test case for a relaunch of the runner that failed.
+_RUNNER_ERROR = re.compile(r"-Runner \(\d+\) encountered an error$")
 
 
 def _messages(node: dict) -> list[str]:
@@ -109,7 +124,23 @@ def summarize(nodes: dict) -> Summary:
                 summary.flaky.append(outcome)
             elif result == "Passed":
                 summary.passed_count += 1
+                summary.passed.append(outcome.identifier)
     return summary
+
+
+def apply_rerun(summary: Summary, rerun: Summary) -> None:
+    """Folds in the rerun of the tests the Simulator's shutdown killed."""
+    rerun_passed = set(rerun.passed) | {t.identifier for t in rerun.flaky}
+    rerun_failed = {t.identifier: t for t in rerun.failed}
+    failed = []
+    for t in summary.failed:
+        if _RUNNER_ERROR.search(t.identifier):
+            summary.relaunches.append(t)
+        elif t.identifier in rerun_passed:
+            summary.rerun.append(t)
+        else:
+            failed.append(rerun_failed.get(t.identifier, t))
+    summary.failed = failed
 
 
 def _first(messages: list[str]) -> str:
@@ -128,12 +159,24 @@ def _failure_line(t: TestOutcome) -> str:
 
 
 def markdown(summary: Summary) -> str:
-    total = len(summary.flaky) + len(summary.failed) + summary.passed_count
+    total = len(summary.flaky) + len(summary.failed) + len(summary.rerun) + summary.passed_count
+    rerun = f"{len(summary.rerun)} rerun after a crash, " if summary.rerun else ""
     lines = [
-        f"{summary.passed_count} passed first time, {len(summary.flaky)} flaky, "
+        f"{summary.passed_count} passed first time, {len(summary.flaky)} flaky, {rerun}"
         f"{len(summary.failed)} failed ({total} counted; skipped tests are not).",
         "",
     ]
+    if summary.rerun or summary.relaunches:
+        lines += ["### Rerun after the Simulator shut down", ""]
+        for t in summary.rerun:
+            lines.append(
+                f"- `{t.identifier}`: killed when the Simulator shut down mid-test "
+                f"({_failure_line(t)}; last: {t.failure_messages[-1] if t.failure_messages else 'no message recorded'}), "
+                "passed when run again"
+            )
+        for t in summary.relaunches:
+            lines.append(f"- xcodebuild's relaunch of the test runner failed once: {_first(t.failure_messages)}")
+        lines.append("")
     if summary.flaky:
         lines += ["### Flaky (passed only on a retry)", ""]
         for t in summary.flaky:
@@ -151,7 +194,7 @@ def markdown(summary: Summary) -> str:
                 f"{_first(t.failure_messages)}"
             )
         lines.append("")
-    if not summary.flaky and not summary.failed:
+    if not summary.flaky and not summary.failed and not summary.rerun:
         lines += ["No failed or retried tests.", ""]
     return "\n".join(lines)
 
@@ -160,26 +203,47 @@ def warnings(summary: Summary) -> list[str]:
     return [
         f"::warning title=Flaky test::{t.identifier} passed on attempt {t.attempts} of {t.attempts}"
         for t in summary.flaky
+    ] + [
+        f"::warning title=Rerun after a crash::{t.identifier} was killed by the Simulator "
+        "shutting down, and passed when run again"
+        for t in summary.rerun
     ]
 
 
 def main(argv: list[str]) -> int:
     import json
 
-    if len(argv) < 2:
-        print(f"usage: {argv[0]} <results.json> [<results.json> ...]", file=sys.stderr)
+    paths = argv[1:]
+    rerun_path = None
+    if "--rerun" in paths:
+        i = paths.index("--rerun")
+        rerun_path = paths[i + 1] if i + 1 < len(paths) else None
+        paths = paths[:i] + paths[i + 2:]
+    if not paths:
+        print(f"usage: {argv[0]} <results.json> [<results.json> ...] [--rerun <results.json>]", file=sys.stderr)
         return 0
-    combined = Summary()
-    for path in argv[1:]:
+
+    def read(path):
         try:
             with open(path, encoding="utf-8") as f:
-                summary = summarize(json.load(f))
+                return summarize(json.load(f))
         except (OSError, ValueError) as error:
             print(f"::warning::Couldn't build the test summary from {path}: {error}", file=sys.stderr)
+            return None
+
+    combined = Summary()
+    for path in paths:
+        summary = read(path)
+        if summary is None:
             continue
         combined.flaky += summary.flaky
         combined.failed += summary.failed
         combined.passed_count += summary.passed_count
+        combined.passed += summary.passed
+    if rerun_path:
+        rerun = read(rerun_path)
+        if rerun is not None:
+            apply_rerun(combined, rerun)
     print(markdown(combined))
     for line in warnings(combined):
         print(line, file=sys.stderr)

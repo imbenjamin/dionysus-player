@@ -142,6 +142,59 @@ class MarkdownTests(unittest.TestCase):
         )
 
 
+CRASHED = ("PlayerPanelJourneyTests/"
+           "test_audio_selectMovesTheTick_andTheChoiceIsRememberedNextTime()")
+
+
+def rerun_tree(result, messages=()):
+    """run-test-plan.sh's rerun of shard 2's crashed test."""
+    return tree(dict(case("x", result, messages=messages), nodeIdentifier=CRASHED))
+
+
+class RerunTests(unittest.TestCase):
+    def test_aCrashedTestThatPassesWhenRerun_isListedApart_withAWarning(self):
+        summary = xcresult_summary.summarize(load("test-results-simulator-shutdown.json"))
+        xcresult_summary.apply_rerun(summary, xcresult_summary.summarize(rerun_tree("Passed")))
+        self.assertEqual(summary.failed, [])
+        (rerun,) = summary.rerun
+        self.assertEqual(rerun.identifier, CRASHED)
+        self.assertEqual(len(summary.flaky), 2)  # the plan's own retries stay flaky
+        text = xcresult_summary.markdown(summary)
+        self.assertIn("1 rerun after a crash, 0 failed", text)
+        self.assertIn("### Rerun after the Simulator shut down", text)
+        self.assertIn("Test crashed with signal term.", text)
+        self.assertNotIn("### Failed", text)
+        self.assertIn(
+            f"::warning title=Rerun after a crash::{CRASHED} was killed by the Simulator "
+            "shutting down, and passed when run again",
+            xcresult_summary.warnings(summary),
+        )
+
+    def test_aCrashedTestThatFailsWhenRerun_staysFailed_withTheRerunsOutcome(self):
+        summary = xcresult_summary.summarize(load("test-results-simulator-shutdown.json"))
+        xcresult_summary.apply_rerun(
+            summary, xcresult_summary.summarize(rerun_tree("Failed", ["XCTAssertEqual failed"])))
+        (failed,) = summary.failed
+        self.assertEqual((failed.identifier, failed.failure_messages),
+                         (CRASHED, ["XCTAssertEqual failed"]))
+        self.assertEqual(summary.rerun, [])
+
+    def test_theRunnersFailedRelaunch_isNotedNotFailed(self):
+        summary = xcresult_summary.summarize(load("test-results-simulator-shutdown-relaunch.json"))
+        crashed = ("CollectionGridJourneyTests/"
+                   "test_pills_nameTheirFacet_andReadTheirChoiceAsTheirValue()")
+        rerun = tree(dict(case("x", "Passed"), nodeIdentifier=crashed))
+        xcresult_summary.apply_rerun(summary, xcresult_summary.summarize(rerun))
+        self.assertEqual(summary.failed, [])
+        self.assertEqual(len(summary.relaunches), 1)
+        self.assertIn("relaunch of the test runner failed once",
+                      xcresult_summary.markdown(summary))
+
+    def test_withoutARerun_theCrashIsAFailure(self):
+        summary = xcresult_summary.summarize(load("test-results-simulator-shutdown.json"))
+        self.assertEqual([t.identifier for t in summary.failed], [CRASHED])
+
+
 class CommandLineTests(unittest.TestCase):
     def run_cli(self, *paths):
         return subprocess.run([sys.executable, os.path.join(HERE, "xcresult_summary.py"), *paths],
@@ -152,6 +205,23 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("Flaky", result.stdout)
         self.assertIn("::warning title=Flaky test::", result.stderr)
+
+    def test_rerunFlag_foldsTheRerunIn(self):
+        rerun = os.path.join(self.tmp(), "rerun.json")
+        with open(rerun, "w") as f:
+            json.dump(rerun_tree("Passed"), f)
+        result = self.run_cli(
+            os.path.join(HERE, "fixtures", "test-results-simulator-shutdown.json"), "--rerun", rerun)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("1 rerun after a crash, 0 failed", result.stdout)
+        self.assertIn("::warning title=Rerun after a crash::", result.stderr)
+
+    def tmp(self):
+        import shutil
+        import tempfile
+        path = tempfile.mkdtemp(prefix="xcresult-summary-")
+        self.addCleanup(shutil.rmtree, path)
+        return path
 
     def test_unreadableInput_warnsAndExits0(self):
         result = self.run_cli(os.path.join(HERE, "fixtures", "assertion-failure.log"),

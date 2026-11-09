@@ -252,7 +252,10 @@ runs:
       # on the job's summary, with a ::warning per flaky test, so a retry never
       # hides a flake. Never fails the job: every problem becomes a warning.
       # Bundles: attempt 1's, and attempt 2's if "Test" ran the plan again
-      # after an infrastructure failure; attempt 2 is then the result.
+      # after an infrastructure failure; attempt 2 is then the result. After
+      # a rerun of only the tests the Simulator's shutdown killed
+      # (.build/test-crash-rerun.txt), attempt 1 is the result and attempt 2
+      # settles those tests.
       if: always()
       shell: bash
       env:
@@ -264,7 +267,12 @@ runs:
         here="$GITHUB_ACTION_PATH/../../../Scripts/ci"
         bundle=$RESULT_BUNDLE_PATH
         attempt2="${RESULT_BUNDLE_PATH%.xcresult}-attempt-2.xcresult"
-        [ -d "$attempt2" ] && bundle=$attempt2
+        crash_rerun=
+        if [ -f .build/test-crash-rerun.txt ]; then
+          [ -d "$attempt2" ] && crash_rerun=$attempt2
+        elif [ -d "$attempt2" ]; then
+          bundle=$attempt2
+        fi
         {
           echo "### Test results: $TEST_PLAN"
           echo
@@ -278,6 +286,10 @@ runs:
             else
               echo "**The plan ran twice.** The test runner failed before running a test (\`$(cat .build/test-rerun.txt)\`), so the Simulator was rebooted and the plan run again, but the rerun wrote no result bundle. Below is the first attempt's."
             fi
+            echo
+          fi
+          if [ -f .build/test-crash-rerun.txt ]; then
+            echo "**The Simulator shut down mid-test**, killing $(tr '\n' ' ' < .build/test-crash-rerun.txt | sed 's/ *$//'), so only those tests were run again on it.$([ -z "$crash_rerun" ] && echo " The rerun wrote no result bundle.") Below is the plan's run, with the rerun's outcome for those tests."
             echo
           fi
           # xcodebuild's "Testing started completed" figure is printed when
@@ -294,7 +306,16 @@ runs:
         } >> "$summary"
         json=$(mktemp "${RUNNER_TEMP:-/tmp}/test-results.XXXXXX")
         if xcrun xcresulttool get test-results tests --path "$bundle" > "$json"; then
-          python3 "$here/xcresult_summary.py" "$json" >> "$summary" || true
+          rerun_args=()
+          if [ -n "$crash_rerun" ]; then
+            rerun_json=$(mktemp "${RUNNER_TEMP:-/tmp}/test-results-rerun.XXXXXX")
+            if xcrun xcresulttool get test-results tests --path "$crash_rerun" > "$rerun_json"; then
+              rerun_args=(--rerun "$rerun_json")
+            else
+              echo "::warning::Couldn't read $crash_rerun with xcresulttool, so the summary lists the crashed tests as failed."
+            fi
+          fi
+          python3 "$here/xcresult_summary.py" "$json" "${rerun_args[@]}" >> "$summary" || true
         else
           echo "::warning::Couldn't read $bundle with xcresulttool, so the test summary is missing."
         fi
