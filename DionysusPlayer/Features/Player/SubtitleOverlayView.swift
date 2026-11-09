@@ -75,7 +75,9 @@ struct SubtitleOverlayView: View {
             let placedCues = cues.filter { !isDefaultPositioned($0) }
 
             ZStack {
-                UITestPictureMarker(video: video)
+                if !cues.isEmpty {
+                    UITestPictureMarker(video: video)
+                }
 
                 // libass owns the whole paint for an authored-ASS track — it
                 // composites every line of the frame into one image, so the
@@ -363,8 +365,10 @@ struct SubtitleOverlayView: View {
 }
 
 /// The picture rect cues are placed against (`videoRect`), as an empty
-/// element a journey can read, under the UI-test harness only. Nothing on
-/// screen otherwise has that frame: the video surface fills the container.
+/// element a journey can read, under the UI-test harness only and while a
+/// cue is showing. Nothing on screen otherwise has that frame: the video
+/// surface fills the container. Labelled (verbatim, never shown), so the
+/// player's accessibility audits pass with it there.
 private struct UITestPictureMarker: View {
     let video: CGRect
 
@@ -375,6 +379,7 @@ private struct UITestPictureMarker: View {
                 .frame(width: video.width, height: video.height)
                 .position(x: video.midX, y: video.midY)
                 .accessibilityElement()
+                .accessibilityLabel(Text(verbatim: "Subtitle picture area"))
                 .accessibilityIdentifier(A11yID.Player.subtitlePicture)
         }
         #endif
@@ -391,6 +396,7 @@ private struct UITestImageCueMarker: ViewModifier {
             content
                 .accessibilityHidden(false)
                 .accessibilityElement()
+                .accessibilityLabel(Text(verbatim: "Image subtitle"))
                 .accessibilityIdentifier(A11yID.Player.imageSubtitle)
         } else {
             content
