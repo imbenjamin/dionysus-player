@@ -334,6 +334,13 @@ enum A11yID {
         /// query for this resolves to more than one element by design; match
         /// the first.
         static let plainSubtitle = "player.plainSubtitle"
+        /// A bitmap cue (PGS, VobSub, DVB) on the app's own overlay. In the
+        /// accessibility tree under the UI-test harness only: VoiceOver has
+        /// nothing to read in it.
+        static let imageSubtitle = "player.imageSubtitle"
+        /// The picture rect `SubtitleOverlayView` places cues against, under
+        /// the UI-test harness only.
+        static let subtitlePicture = "player.subtitlePicture"
         static let closeButton = "player.closeButton"
         static let playPauseButton = "player.playPauseButton"
         static let skipForwardButton = "player.skipForwardButton"

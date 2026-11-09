@@ -75,6 +75,10 @@ struct SubtitleOverlayView: View {
             let placedCues = cues.filter { !isDefaultPositioned($0) }
 
             ZStack {
+                if !cues.isEmpty {
+                    UITestPictureMarker(video: video)
+                }
+
                 // libass owns the whole paint for an authored-ASS track — it
                 // composites every line of the frame into one image, so the
                 // app's own text rendering must not also run.
@@ -333,6 +337,7 @@ struct SubtitleOverlayView: View {
         return Image(decorative: cgImage, scale: 1)
             .resizable()
             .frame(width: max(frame.width, 0), height: max(frame.height, 0))
+            .modifier(UITestImageCueMarker())
             .position(x: frame.midX, y: frame.midY)
     }
 
@@ -356,6 +361,49 @@ struct SubtitleOverlayView: View {
             : CGSize(width: containerSize.height * videoAspect, height: containerSize.height)
         let origin = CGPoint(x: (containerSize.width - size.width) / 2, y: (containerSize.height - size.height) / 2)
         return CGRect(origin: origin, size: size)
+    }
+}
+
+/// The picture rect cues are placed against (`videoRect`), as an empty
+/// element a journey can read, under the UI-test harness only and while a
+/// cue is showing. Nothing on screen otherwise has that frame: the video
+/// surface fills the container. Labelled (verbatim, never shown), so the
+/// player's accessibility audits pass with it there.
+private struct UITestPictureMarker: View {
+    let video: CGRect
+
+    var body: some View {
+        #if DEBUG
+        if UITestConfiguration.isActive {
+            Color.clear
+                .frame(width: video.width, height: video.height)
+                .position(x: video.midX, y: video.midY)
+                .accessibilityElement()
+                .accessibilityLabel(Text(verbatim: "Subtitle picture area"))
+                .accessibilityIdentifier(A11yID.Player.subtitlePicture)
+        }
+        #endif
+    }
+}
+
+/// Puts a bitmap cue in the accessibility tree under the UI-test harness
+/// only, so a journey can read its frame. A picture of text has nothing for
+/// VoiceOver to say, so everywhere else it stays decorative.
+private struct UITestImageCueMarker: ViewModifier {
+    func body(content: Content) -> some View {
+        #if DEBUG
+        if UITestConfiguration.isActive {
+            content
+                .accessibilityHidden(false)
+                .accessibilityElement()
+                .accessibilityLabel(Text(verbatim: "Image subtitle"))
+                .accessibilityIdentifier(A11yID.Player.imageSubtitle)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
     }
 }
 
