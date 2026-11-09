@@ -4,7 +4,9 @@ Each test runs the script with fake `xcodebuild`, `xcrun` and `xcbeautify`
 first on PATH (and a fake Duo pose script), so it runs anywhere bash and
 python3 do, ubuntu-latest included. The fake xcodebuild plays one outcome per
 invocation from FAKE_OUTCOMES: `pass`, `infra` (the runner's early exit, on
-stderr, as xcodebuild prints it) or `test` (a failed test case).
+stderr, as xcodebuild prints it) or `test` (a failed test case). The fake
+xcrun answers `xcresulttool get` with FAKE_RESULTS, a fixture's JSON, so a
+`test` failure can be one the Simulator's shutdown caused.
 
 What they pin is the plan's first review point: an infrastructure failure
 gets exactly one rerun on a rebooted Simulator, so a genuine launch-crash
@@ -61,6 +63,10 @@ FAKE_XCRUN = textwrap.dedent(
     r"""
     #!/bin/bash
     echo "xcrun $*" >> "$FAKE_DIR/all.calls"
+    if [ "$1 $2" = "xcresulttool get" ]; then
+      [ -n "$FAKE_RESULTS" ] && cat "$FAKE_RESULTS"
+      exit 0
+    fi
     if [ "$1 $2" = "simctl bootstatus" ] && [ -n "$FAKE_BOOTSTATUS_FAILS" ]; then
       echo "fake bootstatus: failed" >&2
       exit 1
@@ -310,6 +316,48 @@ class RunTestPlanTests(unittest.TestCase):
         with open(marker) as f:
             self.assertEqual(f.read().strip(), SIGNATURE)
 
+
+    # The Simulator shutting down mid-plan (tvOS 27.0, image of 2026-11-04).
+    SHUTDOWN = os.path.join(HERE, "fixtures", "test-results-simulator-shutdown.json")
+    CRASHED = ("DionysusTVUITests/PlayerPanelJourneyTests/"
+               "test_audio_selectMovesTheTick_andTheChoiceIsRememberedNextTime")
+
+    def test_aTestKilledByTheShutdown_isRerunAloneOnTheSameSimulator_andPasses(self):
+        result = self.run_script("test pass", FAKE_RESULTS=self.SHUTDOWN,
+                                 RETRY_TESTS_ON_FAILURE="true", TEST_ITERATIONS="5",
+                                 ONLY_TESTING="DionysusTVUITests/A DionysusTVUITests/B")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        first, second = self.xcodebuild_calls()
+        self.assertIn("-only-testing:DionysusTVUITests/A -only-testing:DionysusTVUITests/B", first)
+        self.assertIn(f"-only-testing:{self.CRASHED} -resultBundlePath "
+                      ".build/UITestResults-attempt-2.xcresult", second)
+        self.assertNotIn("-only-testing:DionysusTVUITests/A", second)
+        self.assertIn("-retry-tests-on-failure -test-iterations 5", second)
+        self.assertIn(f"::warning::The Simulator shut down mid-test, killing {self.CRASHED}; "
+                      "running only those once more", result.stdout)
+        # No reboot: xcodebuild already brought it back; only checked booted.
+        self.assertEqual([c for c in self.simctl_calls() if "bootstatus" not in c], [])
+        with open(os.path.join(self.logs, "test-crash-rerun.txt")) as f:
+            self.assertEqual(f.read().splitlines(), [self.CRASHED])
+        self.assertFalse(os.path.exists(os.path.join(self.logs, "test-rerun.txt")))
+
+    def test_aKilledTestThatFailsWhenRerun_failsWithoutAThirdRun(self):
+        result = self.run_script("test test pass", FAKE_RESULTS=self.SHUTDOWN)
+        self.assertEqual(result.returncode, 65, result.stdout + result.stderr)
+        self.assertEqual(len(self.xcodebuild_calls()), 2)
+        self.assertIn("::error::", result.stdout + result.stderr)
+
+    def test_aRealFailure_isNotRerunWhateverTheBundle(self):
+        result = self.run_script(
+            "test pass", FAKE_RESULTS=os.path.join(HERE, "fixtures", "test-results-failing.json"))
+        self.assertEqual(result.returncode, 65, result.stdout + result.stderr)
+        self.assertEqual(len(self.xcodebuild_calls()), 1)
+        self.assertFalse(os.path.exists(os.path.join(self.logs, "test-crash-rerun.txt")))
+
+    def test_aSimulatorThatIsNotBootedForTheCrashRerun_failsWithoutIt(self):
+        result = self.run_script("test pass", FAKE_RESULTS=self.SHUTDOWN, FAKE_BOOTSTATUS_FAILS="1")
+        self.assertEqual(result.returncode, 65, result.stdout + result.stderr)
+        self.assertEqual(len(self.xcodebuild_calls()), 1)
 
 if __name__ == "__main__":
     unittest.main()

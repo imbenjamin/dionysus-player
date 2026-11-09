@@ -709,6 +709,28 @@ for the PR plans too (a later decision, not made).
   itself hits them. `Scripts/ci/`'s tests run the step's script against fake
   `xcodebuild`, `xcrun` and `xcbeautify`, on every PR in the `CI scripts` job
   (Linux, not a required check).
+- **One rerun of the tests the Simulator's shutdown killed** (2026-11-09).
+  Since the runner image of 2026-11-04 (which added Xcode 27.2 and its
+  runtimes beside 27.1) every tvOS 27.0 shard of the nightly lost its
+  Simulator once, 7 to 8.5 minutes after booting it: testmanagerd loses the
+  daemon, the Simulator reads `Shutdown`, and the test running then fails
+  with `Test crashed with signal term.` xcodebuild boots it again and runs the
+  rest of the plan, but neither it nor the plan's retry runs that test again,
+  so each shard failed on a random test. Not reproduced on this Mac (a tvOS
+  27.0 Simulator idle for 14 minutes under Xcode 27.2), nor seen in the iOS
+  jobs. When a plan fails after running tests, the "Test" step reads its
+  bundle with `Scripts/ci/crashed_tests.py`, which lists the failed tests only
+  if every one's last repetition failed with that message alone (an earlier
+  real failure is allowed: the crash took the retry it had earned). The
+  runner's failed relaunch that xcodebuild reports as a test case
+  (`<Bundle>-Runner (N) encountered an error`, `Failed to install or launch
+  the test runner`) is ignored. Any other failure lists nothing and fails as
+  before. The step then prints `::warning::The Simulator shut down mid-test,
+  killing …`, checks the Simulator is booted, and runs only those tests (the
+  plan's retry flags kept) into `<bundle>-attempt-2.xcresult`; if they fail
+  again the step fails. The summary lists them under "Rerun after the
+  Simulator shut down", each with a `::warning title=Rerun after a crash::`,
+  so the job is green but the crash is never hidden.
 - **Every job that runs the action has a summary listing its failed and
   retried tests** (the tvOS unit job runs plain `xcodebuild test`, so it has
   none). The action's last step, "Summarize results" (`if: always()`, never fails the job), reads
@@ -727,7 +749,10 @@ for the PR plans too (a later decision, not made).
   finish), the seconds "Wait for the simulator"
   waited, and, when "Test" ran the plan a second time, which signature caused
   it (`.build/test-rerun.txt`); the lists are then the second run's, or the
-  first's if the rerun wrote no bundle. **When a
+  first's if the rerun wrote no bundle. After a rerun of only the tests the
+  Simulator's shutdown killed (`.build/test-crash-rerun.txt`), the lists are
+  the plan's run, with the rerun's outcome for those tests
+  (`xcresult_summary.py --rerun`). **When a
   job fails, look at the summary first**, then the annotations, then the
   uploaded bundle and `.build/test-attempt-*.log` (raw output, on failure
   only). With no bundle, the build failed before testing. Check a period's

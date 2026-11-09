@@ -1,0 +1,171 @@
+{
+  "devices": [
+    {
+      "architecture": "arm64",
+      "deviceId": "AA1A4436-9426-4301-8D39-5E909CAF9C42",
+      "deviceName": "Apple TV 4K (3rd generation)",
+      "modelName": "Apple TV 4K (3rd generation)",
+      "osBuildNumber": "24J360",
+      "osVersion": "27.0",
+      "platform": "tvOS Simulator"
+    }
+  ],
+  "testNodes": [
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "children": [
+                {
+                  "duration": "16s",
+                  "durationInSeconds": 16.071959018707275,
+                  "name": "test_changeServer_worksWhileTheUsersLoad()",
+                  "nodeIdentifier": "OnboardingJourneyTests/test_changeServer_worksWhileTheUsersLoad()",
+                  "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusTVUITests/OnboardingJourneyTests/test_changeServer_worksWhileTheUsersLoad",
+                  "nodeType": "Test Case",
+                  "result": "Passed"
+                },
+                {
+                  "duration": "12s",
+                  "durationInSeconds": 12.2361319065094,
+                  "name": "test_downFromTheFirstLockup_reachesChangeServer()",
+                  "nodeIdentifier": "OnboardingJourneyTests/test_downFromTheFirstLockup_reachesChangeServer()",
+                  "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusTVUITests/OnboardingJourneyTests/test_downFromTheFirstLockup_reachesChangeServer",
+                  "nodeType": "Test Case",
+                  "result": "Passed"
+                }
+              ],
+              "name": "OnboardingJourneyTests",
+              "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusTVUITests/OnboardingJourneyTests",
+              "nodeType": "Test Suite",
+              "result": "Passed"
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    {
+                      "name": "Test crashed with signal term.",
+                      "nodeType": "Failure Message"
+                    }
+                  ],
+                  "name": "test_audio_selectMovesTheTick_andTheChoiceIsRememberedNextTime()",
+                  "nodeIdentifier": "PlayerPanelJourneyTests/test_audio_selectMovesTheTick_andTheChoiceIsRememberedNextTime()",
+                  "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusTVUITests/PlayerPanelJourneyTests/test_audio_selectMovesTheTick_andTheChoiceIsRememberedNextTime",
+                  "nodeType": "Test Case",
+                  "result": "Failed"
+                },
+                {
+                  "children": [
+                    {
+                      "children": [
+                        {
+                          "name": "XCTAssertTrue failed",
+                          "nodeType": "Failure Message",
+                          "sourceLocation": {
+                            "filePath": "/Users/runner/work/dionysus-player/dionysus-player/DionysusTVUITests/Support/TVShellJourney.swift",
+                            "lineNumber": 160
+                          }
+                        }
+                      ],
+                      "duration": "22s",
+                      "durationInSeconds": 22.17381000518799,
+                      "name": "First Run",
+                      "nodeIdentifier": "1",
+                      "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusTVUITests/PlayerPanelJourneyTests/test_choosingASubtitle_showsItAboveTheRaisedScrubber",
+                      "nodeType": "Repetition",
+                      "result": "Failed"
+                    },
+                    {
+                      "duration": "17s",
+                      "durationInSeconds": 17.613982915878296,
+                      "name": "Retry 1",
+                      "nodeIdentifier": "2",
+                      "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusTVUITests/PlayerPanelJourneyTests/test_choosingASubtitle_showsItAboveTheRaisedScrubber",
+                      "nodeType": "Repetition",
+                      "result": "Passed"
+                    }
+                  ],
+                  "details": "⚠️ Passed after 1 retry",
+                  "duration": "19s",
+                  "durationInSeconds": 19.893896460533142,
+                  "name": "test_choosingASubtitle_showsItAboveTheRaisedScrubber()",
+                  "nodeIdentifier": "PlayerPanelJourneyTests/test_choosingASubtitle_showsItAboveTheRaisedScrubber()",
+                  "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusTVUITests/PlayerPanelJourneyTests/test_choosingASubtitle_showsItAboveTheRaisedScrubber",
+                  "nodeType": "Test Case",
+                  "result": "Passed"
+                }
+              ],
+              "name": "PlayerPanelJourneyTests",
+              "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusTVUITests/PlayerPanelJourneyTests",
+              "nodeType": "Test Suite",
+              "result": "Failed"
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    {
+                      "children": [
+                        {
+                          "name": "XCTAssertTrue failed",
+                          "nodeType": "Failure Message",
+                          "sourceLocation": {
+                            "filePath": "/Users/runner/work/dionysus-player/dionysus-player/DionysusTVUITests/ProfileJourneyTests.swift",
+                            "lineNumber": 9
+                          }
+                        }
+                      ],
+                      "duration": "16s",
+                      "durationInSeconds": 16.946401953697205,
+                      "name": "First Run",
+                      "nodeIdentifier": "1",
+                      "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusTVUITests/ProfileJourneyTests/test_advanced_streamingMode_hidesTheBitrateRow",
+                      "nodeType": "Repetition",
+                      "result": "Failed"
+                    },
+                    {
+                      "duration": "41s",
+                      "durationInSeconds": 41.332749009132385,
+                      "name": "Retry 1",
+                      "nodeIdentifier": "2",
+                      "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusTVUITests/ProfileJourneyTests/test_advanced_streamingMode_hidesTheBitrateRow",
+                      "nodeType": "Repetition",
+                      "result": "Passed"
+                    }
+                  ],
+                  "details": "⚠️ Passed after 1 retry",
+                  "duration": "29s",
+                  "durationInSeconds": 29.139575481414795,
+                  "name": "test_advanced_streamingMode_hidesTheBitrateRow()",
+                  "nodeIdentifier": "ProfileJourneyTests/test_advanced_streamingMode_hidesTheBitrateRow()",
+                  "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusTVUITests/ProfileJourneyTests/test_advanced_streamingMode_hidesTheBitrateRow",
+                  "nodeType": "Test Case",
+                  "result": "Passed"
+                }
+              ],
+              "name": "ProfileJourneyTests",
+              "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusTVUITests/ProfileJourneyTests",
+              "nodeType": "Test Suite",
+              "result": "Passed"
+            }
+          ],
+          "name": "DionysusTVUITests",
+          "nodeIdentifierURL": "test://com.apple.xcode/DionysusPlayer/DionysusTVUITests",
+          "nodeType": "UI test bundle",
+          "result": "Failed"
+        }
+      ],
+      "name": "TVUITests",
+      "nodeType": "Test Plan",
+      "result": "Failed"
+    }
+  ],
+  "testPlanConfigurations": [
+    {
+      "configurationId": "1",
+      "configurationName": "Configuration 1"
+    }
+  ]
+}
