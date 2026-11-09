@@ -600,7 +600,8 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
              .slowPublicUsers, .slowSignIn, .revokedSessions:
             return nil
         case .largeCast, .noBackdrop, .missingTileArtwork, .manyGenres, .failingLibrary, .failingHome, .thinDynamicRails, .skipIntro, .earlyCredits,
-             .audioOffsetUnavailable, .rebuffering, .slowSeek, .introBeforeResume:
+             .audioOffsetUnavailable, .rebuffering, .slowSeek, .introBeforeResume,
+             .reconnecting, .pictureInPicture, .scrubThumbnails:
             return nil
         case .failingDetail:
             return path.hasSuffix("/Items/\(UITestFixtureIdentity.movieID(3))") ? 500 : nil
@@ -846,6 +847,10 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         // Arbitrary bytes fail that and land in `.failed` — correct behaviour,
         // but it makes a completed download untestable. Playback never reaches
         // here, since the fake engine never opens its URL.
+        // Before the video route, which shares its prefix.
+        case path.contains("/Trickplay/"):
+            return UITestTrickplay.sheetJPEG
+
         case path.contains("/Videos/"):
             return syntheticMP4(durationSeconds: runtimeSeconds(forVideoPath: path))
 
@@ -875,6 +880,11 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             // the fixture, so it falls as episodes are deleted.
             if resolved.type == .series {
                 resolved.recursiveItemCount = remainingEpisodeCount(seriesID: itemID)
+            }
+            if UITestConfiguration.scenario == .scrubThumbnails,
+               let source = resolved.mediaSources?.first?.id,
+               (query.first { $0.name.caseInsensitiveCompare("Fields") == .orderedSame }?.value ?? "").contains("Trickplay") {
+                resolved.trickplay = [source: [String(UITestTrickplay.info.width): UITestTrickplay.info]]
             }
             return try encode(resolved)
 

@@ -32,6 +32,9 @@ struct PictureInPictureOverlay: View {
         .opacity(isVisible ? 1 : 0)
         .allowsHitTesting(isVisible)
         .accessibilityElement(children: .combine)
+        // Only while visible: hidden, the identifier alone kept an empty
+        // element in XCUITest's tree.
+        .accessibilityIdentifier(isVisible ? A11yID.Player.pictureInPictureOverlay : "")
         .accessibilityHidden(!isVisible)
     }
 }

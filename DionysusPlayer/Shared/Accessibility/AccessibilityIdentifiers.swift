@@ -338,6 +338,10 @@ enum A11yID {
         /// accessibility tree under the UI-test harness only: VoiceOver has
         /// nothing to read in it.
         static let imageSubtitle = "player.imageSubtitle"
+        /// "Reconnecting…", under the spinner while the source is retried.
+        static let reconnecting = "player.reconnecting"
+        /// The placeholder covering the video while Picture in Picture has it.
+        static let pictureInPictureOverlay = "player.pictureInPictureOverlay"
         /// The picture rect `SubtitleOverlayView` places cues against, under
         /// the UI-test harness only.
         static let subtitlePicture = "player.subtitlePicture"
@@ -554,6 +558,9 @@ enum A11yID {
         /// `UITestAnnouncementProbe`: its label is the last VoiceOver
         /// announcement, under `-UITestSimulateVoiceOver`.
         static let lastAnnouncement = "uitest.lastAnnouncement"
+        /// The still the scrub bubble last showed, as
+        /// `UITestTrickplay.describe` puts it (`scrubThumbnails` only).
+        static let lastScrubPreview = "uitest.lastScrubPreview"
     }
 
     /// The Apple TV app's identifiers. Never on a screen-root container (see the

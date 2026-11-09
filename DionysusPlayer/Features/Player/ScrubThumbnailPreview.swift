@@ -82,6 +82,14 @@ struct ScrubThumbnailPreview: View {
         // its own accessibility element/adjustable action.
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+        #if DEBUG
+        // Hidden from the accessibility tree above, and gone once the drag
+        // ends, so a journey reads what it showed from the harness's log.
+        .onChange(of: image.map(ObjectIdentifier.init), initial: true) {
+            guard UITestConfiguration.isActive, let image else { return }
+            UITestScrubPreviewLog.shared.last = UITestTrickplay.describe(image)
+        }
+        #endif
     }
 }
 

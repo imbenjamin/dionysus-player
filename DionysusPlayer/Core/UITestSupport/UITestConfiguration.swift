@@ -236,6 +236,19 @@ enum UITestScenario: String {
     /// as in `slowSeek`, so a resume (the part-watched movie, at 20:00) sits
     /// at 0:00 over an intro it never plays until its seek lands.
     case introBeforeResume
+    /// `.standard`, but the fake engine loses its source 2 s into playback,
+    /// reporting `.reconnecting` for 4 s before playing on: "Reconnecting…".
+    case reconnecting
+    /// `.standard`, but the fake engine reports Picture in Picture possible,
+    /// so the player shows its button. Starting it reports PiP active, and
+    /// 3 s later inactive, as when the user returns to the app from the
+    /// system's window.
+    case pictureInPicture
+    /// `.standard`, but every movie and episode carries a trickplay track
+    /// (when `Fields` names `Trickplay`, as Jellyfin does) and
+    /// `/Videos/{id}/Trickplay/{width}/{n}.jpg` serves its sheet:
+    /// `UITestTrickplay`.
+    case scrubThumbnails
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a

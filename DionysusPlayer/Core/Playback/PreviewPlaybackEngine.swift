@@ -125,6 +125,22 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         onTimeUpdate?(currentTime, duration)
         startTickingIfNeeded()
         if UITestConfiguration.scenario == .rebuffering { simulateRebuffer() }
+        if UITestConfiguration.scenario == .reconnecting { simulateReconnect() }
+        onPictureInPicturePossibleChange?(UITestConfiguration.scenario == .pictureInPicture)
+    }
+
+    /// The `reconnecting` scenario's dropped source: 2 s in, `.reconnecting`
+    /// for 4 s with the clock stopped, then playing on.
+    private func simulateReconnect() {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, self.isPlaying else { return }
+            self.stopTicking()
+            self.onStateChange?(.reconnecting)
+            try? await Task.sleep(for: .seconds(4))
+            guard self.isPlaying else { return }
+            self.play()
+        }
     }
 
     /// The `rebuffering` scenario's stall: 2 s in, `.buffering` for 3 s with
@@ -275,8 +291,18 @@ final class PreviewPlaybackEngine: PlaybackEngine {
             context.fill(CGRect(origin: .zero, size: size))
         }.cgImage!
     }()
-    func startPictureInPicture() {}
-    func stopPictureInPicture() {}
+    /// Reports PiP active, and 3 s later inactive, as when the user returns
+    /// from the system's window: there is no AVKit window to stand in for.
+    func startPictureInPicture() {
+        onPictureInPictureActiveChange?(true)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            self?.onPictureInPictureActiveChange?(false)
+        }
+    }
+    func stopPictureInPicture() {
+        onPictureInPictureActiveChange?(false)
+    }
     func setNowPlayingInfo(title: String, subtitle: String?, artwork: UIImage?) {}
 
     func makeSurface() -> AnyView {

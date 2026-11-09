@@ -305,6 +305,9 @@ JSON, so a DTO change is a compile error rather than silent rot.
 | `rebuffering` | The fake engine stalls 2 s into playback, reporting `.buffering` for 3 s (the Apple TV's stall spinner) |
 | `slowSeek` | The fake engine holds every seek in `.seeking` for 3 s before it lands (the Apple TV's spinner on a long jump) |
 | `introBeforeResume` | An intro from 0:00 to 1:00 and `slowSeek`'s held seek, so a resume sits at 0:00 over the intro until it lands (no Skip until then) |
+| `reconnecting` | The fake engine reports `.reconnecting` for 4 s, 2 s into playback: "Reconnecting…" under the spinner |
+| `pictureInPicture` | The fake engine reports PiP possible, so the player shows its button; starting it reports PiP active, then inactive 3 s later (a return from the system's window) |
+| `scrubThumbnails` | Every item carries a trickplay track (`UITestTrickplay`: one 2×2 sheet, a solid colour per tile, a still a second) when `Fields` names `Trickplay`; the scrub bubble's last still is logged to `A11yID.UITest.lastScrubPreview` as "320×180 red", since XCUITest can't read the bubble mid-drag |
 
 ### The fake playback engine
 
@@ -1117,6 +1120,7 @@ the detail.
 | `HomeJourneyTests` | The hero, See All, and a refresh scrolling rails back to their start |
 | `OfflineErrorJourneyTests` | `serverError`, `unauthorized` and `offline`; Try Again loading Home once the server answers (`librariesFailAtFirst`) |
 | `PlacedSubtitleJourneyTests` | Subtitles the source places: `\an8` and `\pos` text cues, and a bitmap cue on a canvas taller than the picture, each by its frame |
+| `PlayerFeedbackJourneyTests` | The scrub bubble's trickplay still at either end (`scrubThumbnails`), "Reconnecting…" until playback resumes (`reconnecting`), the PiP button left out without PiP and, by tap, covering the player until PiP ends (`pictureInPicture`) |
 | `PlayerJourneyTests` | Skips, the track and chapter pickers, Playback Stats' pages, the end of an item, Next Up (Play Now, Cancel, the countdown; `earlyCredits`) |
 | `ProfileJourneyTests` | The audio offset, Read-Ahead Buffer and Spatial Audio settings (the Spatial Audio toggles also in smoke: Profile broke on some devices for days, 2026-10), Quick Connect approval, Sign Out, Change Server |
 | `SearchJourneyTests` | No results, a long history keeping the field visible, history across a relaunch |
