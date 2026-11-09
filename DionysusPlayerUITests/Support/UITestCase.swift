@@ -280,22 +280,26 @@ extension XCUIApplication {
     ///
     /// iOS 26 identifies it `BackButton`. iOS 18 gives it no identifier at
     /// all, only a label, which is localized and so off-limits here (see
-    /// `A11yID`). There it's the bar's leading button with no identifier,
+    /// `A11yID`). There it's a bar's leading button with no identifier,
     /// found by position: every toolbar item this app adds carries an
-    /// identifier, and none sits at the leading edge. iPadOS 27 can draw it
-    /// outside any `NavigationBar` element (seen on a detail page under the
-    /// floating tab bar), so the identifier is also looked for app-wide.
+    /// identifier, and none sits at the leading edge. The edge is the bar's,
+    /// not the screen's: on an iPad, Profile's detail column has its own bar,
+    /// starting past the sidebar. iPadOS 27 can draw it outside any
+    /// `NavigationBar` element (seen on a detail page under the floating tab
+    /// bar), so the identifier is also looked for app-wide.
     var navigationBackButton: XCUIElement {
         let identified = navigationBars.buttons["BackButton"]
         if identified.exists { return identified }
         let floating = buttons.matching(identifier: "BackButton").firstMatch
         if floating.exists { return floating }
 
-        let unidentified = navigationBars.buttons.matching(NSPredicate(format: "identifier == ''"))
-        for index in 0..<unidentified.count {
-            let candidate = unidentified.element(boundBy: index)
-            if candidate.frame.minX < 20 {
-                return candidate
+        for bar in navigationBars.allElementsBoundByIndex {
+            let unidentified = bar.buttons.matching(NSPredicate(format: "identifier == ''"))
+            for index in 0..<unidentified.count {
+                let candidate = unidentified.element(boundBy: index)
+                if candidate.frame.minX - bar.frame.minX < 20 {
+                    return candidate
+                }
             }
         }
         return identified
