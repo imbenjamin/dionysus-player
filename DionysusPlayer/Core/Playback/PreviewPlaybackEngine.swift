@@ -39,7 +39,16 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         // track/stream pairing is by ordinal among embedded ASS entries (see
         // `PlayerViewModel.jellyfinStream(forTrack:engineTracks:mediaStreams:)`).
         PlaybackTrack(id: 2, kind: .subtitle, title: "English", metadata: "Styled",
-                      isSelected: false, codec: "ass")
+                      isSelected: false, codec: "ass"),
+        // After the ASS track, so its ordinal among the fixture's streams and
+        // the Apple TV panel's row numbers stay as they were.
+        // Placed text cues (`placedCues`), as a WebVTT track with line and
+        // position settings, or ASS with ASS/SSA Subtitles off, publishes them.
+        PlaybackTrack(id: 3, kind: .subtitle, title: "English", metadata: "Signs",
+                      isSelected: false, codec: "webvtt"),
+        // A bitmap track (`imageCues`), as PGS, VobSub and DVB publish them.
+        PlaybackTrack(id: 4, kind: .subtitle, title: "English", metadata: "PGS",
+                      isSelected: false, codec: "pgssub")
     ]
     var videoFormatDescription: String? = "Dolby Vision P8.1"
     var videoNaturalSize: CGSize? = CGSize(width: 3840, height: 1600)
@@ -203,7 +212,16 @@ final class PreviewPlaybackEngine: PlaybackEngine {
     func selectSubtitleTrack(id: Int?) {
         subtitleTracks = subtitleTracks.map { $0.selected($0.id == id) }
         onSubtitleTrackChange?(id)
-        onSubtitleCuesChange?(id == nil ? [] : Self.previewCues)
+        onSubtitleCuesChange?(Self.cues(forTrack: id))
+    }
+
+    private static func cues(forTrack id: Int?) -> [SubtitleCueDisplay] {
+        switch id {
+        case nil: return []
+        case 3: return placedCues
+        case 4: return imageCues
+        default: return previewCues
+        }
     }
 
     /// One cue spanning the whole runtime, so it is active whatever the clock
@@ -216,6 +234,47 @@ final class PreviewPlaybackEngine: PlaybackEngine {
             body: .text(UITestFixtureIdentity.plainSubtitleCueText)
         )
     ]
+
+    /// Two text cues the source places itself, for the overlay's
+    /// `placementPoint`: one by numpad alignment alone (`\an8`, top centre),
+    /// one by an explicit `\pos`. Whole-runtime, as `previewCues`.
+    private static let placedCues = [
+        SubtitleCueDisplay(
+            id: 0, startTime: 0, endTime: .greatestFiniteMagnitude,
+            body: .text(UITestFixtureIdentity.alignedSubtitleCueText),
+            placement: .init(alignment: 8, position: nil)
+        ),
+        SubtitleCueDisplay(
+            id: 1, startTime: 0, endTime: .greatestFiniteMagnitude,
+            body: .text(UITestFixtureIdentity.positionedSubtitleCueText),
+            placement: .init(alignment: nil, position: UITestFixtureIdentity.positionedSubtitleCueAnchor)
+        )
+    ]
+
+    /// One bitmap cue on a 16:9 canvas, taller than the fixture's 2.4:1
+    /// picture, as a cropped-video rip authors it: the overlay must map the
+    /// canvas width-aligned and centred on the picture (`imageCueView`).
+    private static let imageCues = [
+        SubtitleCueDisplay(
+            id: 0, startTime: 0, endTime: .greatestFiniteMagnitude,
+            body: .image(
+                imageCueBitmap,
+                rect: UITestFixtureIdentity.imageSubtitleCueRect,
+                canvasSize: UITestFixtureIdentity.imageSubtitleCanvasSize
+            )
+        )
+    ]
+
+    /// A plain white bar; only where it lands matters.
+    private static let imageCueBitmap: CGImage = {
+        let size = CGSize(width: 64, height: 8)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }.cgImage!
+    }()
     func startPictureInPicture() {}
     func stopPictureInPicture() {}
     func setNowPlayingInfo(title: String, subtitle: String?, artwork: UIImage?) {}

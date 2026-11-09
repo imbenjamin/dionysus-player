@@ -104,6 +104,19 @@ enum UITestFixtureIdentity {
     /// other's absence.
     static let plainSubtitleCueText = "Plain subtitle fixture"
 
+    /// `PreviewPlaybackEngine`'s Signs track: a cue placed by `\an8` alone
+    /// (top centre of the picture) and one by `\pos` at
+    /// `positionedSubtitleCueAnchor`, normalized against the picture, y from
+    /// the top.
+    static let alignedSubtitleCueText = "Top centre sign"
+    static let positionedSubtitleCueText = "Positioned sign"
+    static let positionedSubtitleCueAnchor = CGPoint(x: 0.25, y: 0.6)
+
+    /// `PreviewPlaybackEngine`'s PGS track: one bitmap at this rect,
+    /// normalized against a 1920×1080 canvas.
+    static let imageSubtitleCueRect = CGRect(x: 0.3, y: 0.7, width: 0.4, height: 0.08)
+    static let imageSubtitleCanvasSize = CGSize(width: 1920, height: 1080)
+
     /// A styled subtitle must never render this close to the top of the
     /// screen. Misplaced into the top letterbox bar it lands around y 9;
     /// correctly placed it sits at the top of the picture, which on the

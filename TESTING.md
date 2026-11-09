@@ -319,6 +319,13 @@ seek stay device checks.
   path, with text that differs from the styled fixture's
   (`plainSubtitleCueText`), so a journey tells the two renderers apart rather
   than inferring one from the other's absence.
+- Two more tracks, after the ASS one so its ordinal and the Apple TV panel's
+  rows stay put, publish the cues the overlay places itself (TQ-13): Signs
+  (WebVTT) an `\an8` and a `\pos` text cue, PGS one bitmap on a 16:9 canvas
+  taller than the 2.4:1 picture. `PlacedSubtitleJourneyTests` checks their
+  frames against the picture rect, which the overlay exposes under the
+  harness only (`A11yID.Player.subtitlePicture`), as it does the bitmap
+  (`imageSubtitle`; VoiceOver has nothing to read in a picture of text).
 - Its canned ASS track is paired with an embedded ASS `MediaStream` whose
   `index` deliberately doesn't match the track's id, so the ordinal mapping is
   really exercised.
@@ -1109,6 +1116,7 @@ the detail.
 | `HeroLogoFallbackUITests` | The logo's text fallback timing |
 | `HomeJourneyTests` | The hero, See All, and a refresh scrolling rails back to their start |
 | `OfflineErrorJourneyTests` | `serverError`, `unauthorized` and `offline`; Try Again loading Home once the server answers (`librariesFailAtFirst`) |
+| `PlacedSubtitleJourneyTests` | Subtitles the source places: `\an8` and `\pos` text cues, and a bitmap cue on a canvas taller than the picture, each by its frame |
 | `PlayerJourneyTests` | Skips, the track and chapter pickers, Playback Stats' pages, the end of an item, Next Up (Play Now, Cancel, the countdown; `earlyCredits`) |
 | `ProfileJourneyTests` | The audio offset, Read-Ahead Buffer and Spatial Audio settings (the Spatial Audio toggles also in smoke: Profile broke on some devices for days, 2026-10), Quick Connect approval, Sign Out, Change Server |
 | `SearchJourneyTests` | No results, a long history keeping the field visible, history across a relaunch |
