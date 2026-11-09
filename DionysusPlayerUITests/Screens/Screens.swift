@@ -842,6 +842,11 @@ struct PlayerScreen: Screen {
     var statsButton: XCUIElement { app.buttons[A11yID.Player.statsButton] }
     var statsPageIndicator: XCUIElement { app.staticTexts[A11yID.Player.statsPageIndicator] }
     var rotationLockButton: XCUIElement { app.buttons[A11yID.Player.rotationLockButton] }
+    /// Mounted only while the engine reports PiP possible (the
+    /// `pictureInPicture` scenario).
+    var pictureInPictureButton: XCUIElement { app.buttons[A11yID.Player.pictureInPictureButton] }
+    var pictureInPictureOverlay: XCUIElement { app.descendants(matching: .any)[A11yID.Player.pictureInPictureOverlay] }
+    var reconnectingLabel: XCUIElement { app.descendants(matching: .any)[A11yID.Player.reconnecting] }
 
     /// The value half of a stats row, keyed by its English label. Rows on
     /// every page resolve — see `A11yID.Player.statsValue(_:)`.

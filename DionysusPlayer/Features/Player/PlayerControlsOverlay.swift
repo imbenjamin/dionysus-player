@@ -1248,6 +1248,7 @@ struct PlayerControlsOverlay: View {
                     Text("Reconnecting…")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(secondaryTextOpacity))
+                        .accessibilityIdentifier(A11yID.Player.reconnecting)
                 }
             }
             // Matches the play/pause button's footprint, so nothing shifts when

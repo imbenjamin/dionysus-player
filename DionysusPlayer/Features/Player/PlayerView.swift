@@ -283,6 +283,11 @@ struct PlayerView: View {
                 // mounted rather than being swapped in/out.
                 PictureInPictureOverlay(isVisible: viewModel.isPictureInPictureActive)
 
+                #if DEBUG
+                UITestScrubPreviewProbe()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                #endif
+
                 // VoiceOver-only: an always-reachable way back to the transport
                 // chrome once hidden. The surface's tap-to-reveal gesture isn't a
                 // reliable path for VoiceOver, which swipes between focusable
