@@ -210,6 +210,24 @@ and "treat the release as done" depended on someone remembering. Getting it
 wrong now means amending the notes on GitHub after the fact — the same
 recovery as before, just no longer the default path.
 
+### Submitting for App Review
+
+Every App Store submission, on either platform, sends reviewers to the
+App Review server (`docs/store/review-server.md`), never to
+`demo.jellyfin.org`, whose library got the Apple TV app rejected under
+guideline 5.2.3 (2026-11-09). Before submitting:
+
+1. Run `Scripts/review-server/check.sh <review server URL>` against the public
+   address (kept out of this repo; it's in App Store Connect's review notes)
+   and submit only once it passes.
+2. Paste the notes from `docs/store/ios-review-notes.md` or
+   `tvos-review-notes.md`, replacing the placeholders with the real address.
+3. Keep App Review Information's attachments: the signed developer statement
+   and the PDFs in `docs/store/review-evidence/`.
+
+The server stays up for as long as the app is on the store, since every
+future review uses it.
+
 ## Signing setup
 
 `release.yml` signs, archives and uploads to App Store Connect using three
