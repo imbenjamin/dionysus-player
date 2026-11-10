@@ -30,7 +30,7 @@
 #   this is what you upload to App Store Connect, one subfolder per slot.
 #
 # example:
-#   Scripts/render-store-screenshots.sh /tmp/raw-screens store-screenshots
+#   Scripts/render-store-screenshots.sh store-screenshots/apple-app-store/raw store-screenshots/apple-app-store
 
 set -e
 

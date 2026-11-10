@@ -3,7 +3,7 @@
 The `IOS` version's `en-US` page in App Store Connect (version 1.2.0), kept
 here for the record. The name ("Dionysus Player"), subtitle ("Your media,
 native everywhere"), age rating and App Privacy are shared with the Apple TV
-app. Screenshots: `store-screenshots/appstore-iphone-69/`,
+app. Screenshots: `store-screenshots/apple-app-store/appstore-iphone-69/`,
 `appstore-iphone-65/`, `appstore-ipad-13/` and `appstore-iphone-duo/` (one
 `APP_IPHONE_DUO` set, outer and inner frames together).
 

@@ -3,7 +3,7 @@
 The `TV_OS` version's `en-US` page in App Store Connect (version 1.2.0), kept
 here for the record. The name ("Dionysus Player"), subtitle ("Your media,
 native everywhere"), age rating and App Privacy are shared with the iOS app
-and unchanged. Screenshots: `store-screenshots/appstore-appletv/`, uploaded
+and unchanged. Screenshots: `store-screenshots/apple-app-store/appstore-appletv/`, uploaded
 to the `APP_APPLE_TV` set in order.
 
 ## Promotional text
